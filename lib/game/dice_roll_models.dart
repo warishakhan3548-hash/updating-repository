@@ -64,6 +64,11 @@ class PendingVoiceDiceIntent {
 
 enum DiceRollSource { random, voice }
 
+/// A resolved roll is also the commit capability for that exact roll.
+///
+/// Deliberately keep identity equality here. Two objects with identical visible
+/// fields are still distinct roll events, and a stale/reconstructed callback
+/// must never be able to impersonate the engine's currently active roll.
 @immutable
 class DiceRollResult {
   const DiceRollResult({
@@ -86,26 +91,5 @@ class DiceRollResult {
         matchId: matchId,
         playerId: playerId,
         turnId: turnId,
-      );
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is DiceRollResult &&
-          other.value == value &&
-          other.source == source &&
-          other.matchId == matchId &&
-          other.playerId == playerId &&
-          other.turnId == turnId &&
-          other.resolvedAt == resolvedAt;
-
-  @override
-  int get hashCode => Object.hash(
-        value,
-        source,
-        matchId,
-        playerId,
-        turnId,
-        resolvedAt,
       );
 }
