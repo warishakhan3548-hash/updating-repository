@@ -1,8 +1,6 @@
 name: Aarish Kingdom APK
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
