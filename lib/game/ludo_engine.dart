@@ -84,7 +84,7 @@ class LudoEngine extends ChangeNotifier {
   };
 
   late List<LudoPlayer> players;
-  int currentPlayerIndex = 0;
+  int _currentPlayerIndex = 0;
   bool isRolling = false;
   bool awaitingMove = false;
   bool gameOver = false;
@@ -102,7 +102,8 @@ class LudoEngine extends ChangeNotifier {
   DiceRollResult? _reservedRollResult;
   DiceRollResult? _activeRollResult;
 
-  LudoPlayer get currentPlayer => players[currentPlayerIndex];
+  int get currentPlayerIndex => _currentPlayerIndex;
+  LudoPlayer get currentPlayer => players[_currentPlayerIndex];
   LudoColor get currentColor => currentPlayer.color;
   String get matchId => _matchId;
   String get currentPlayerId => currentColor.name;
@@ -133,7 +134,7 @@ class LudoEngine extends ChangeNotifier {
     };
 
     players = colors.map(LudoPlayer.new).toList(growable: false);
-    currentPlayerIndex = 0;
+    _currentPlayerIndex = 0;
     isRolling = false;
     awaitingMove = false;
     gameOver = false;
@@ -439,7 +440,7 @@ class LudoEngine extends ChangeNotifier {
 
     var attempts = 0;
     do {
-      currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
+      _currentPlayerIndex = (_currentPlayerIndex + 1) % players.length;
       attempts += 1;
     } while (winnerOrder.contains(currentPlayer.color) &&
         attempts < players.length);
