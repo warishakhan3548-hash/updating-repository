@@ -125,7 +125,7 @@ void main() {
       expect(second?.value, 2);
     });
 
-    test('latest unconsumed same-turn command wins by recognition timestamp', () {
+    test('first accepted same-turn command owns the roll generation', () {
       final engine = LudoEngine(playerCount: 2);
       final base = DateTime(2026, 9, 5, 12);
       final binding = engine.voiceTurnBinding;
@@ -136,7 +136,7 @@ void main() {
           intentFor(binding, 6, base.add(const Duration(milliseconds: 200))),
           now: base.add(const Duration(milliseconds: 200)),
         ),
-        isTrue,
+        isFalse,
       );
       expect(
         engine.acceptVoiceDiceIntent(
@@ -151,7 +151,7 @@ void main() {
           randomDice: () => 1,
           now: base.add(const Duration(milliseconds: 400)),
         )?.value,
-        6,
+        4,
       );
     });
 
