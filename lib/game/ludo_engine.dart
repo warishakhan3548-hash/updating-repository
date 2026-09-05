@@ -166,11 +166,12 @@ class LudoEngine extends ChangeNotifier {
     }
     if (!intent.matches(voiceTurnBinding)) return false;
 
-    final current = _pendingVoiceDiceIntent;
-    if (current != null && current.recognizedAt.isAfter(intent.recognizedAt)) {
-      // A delayed callback from the same turn must never replace a newer command.
-      return false;
-    }
+    // The first accepted command owns this roll generation. Partial/final ASR
+    // revisions, duplicate callbacks, or a second utterance must not be able to
+    // change the requested value after the UI has already been notified and may
+    // be scheduling an automatic roll. A later legitimate command belongs to
+    // the next turn/roll generation, where this slot is cleared authoritatively.
+    if (_pendingVoiceDiceIntent != null) return false;
 
     _pendingVoiceDiceIntent = intent;
     notifyListeners();
