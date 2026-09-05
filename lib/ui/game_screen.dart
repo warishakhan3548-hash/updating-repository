@@ -98,23 +98,49 @@ class _GameScreenState extends State<GameScreen>
     _rollActionBusy = true;
 
     try {
-      final forcedValue = await _voice.suspendForRoll();
+      // VoiceDiceController reserves the authoritative logical roll before it
+      // pauses the native recognizer. Keep that exact capability object all the
+      // way through animation instead of reducing it to an integer, otherwise
+      // a stale/reconstructed callback could bypass the engine's identity gate.
+      final reservedValue = await _voice.suspendForRoll();
       if (!mounted || !_engine.canRoll) {
         await _voice.resumeAfterRoll();
         return;
       }
 
-      final target = forcedValue ?? (_random.nextInt(6) + 1);
+      final reservation = _engine.reservedRollResult;
+      if (reservation == null || reservedValue != reservation.value) {
+        _engine.cancelRolling();
+        await _voice.resumeAfterRoll();
+        return;
+      }
+
+      final target = reservation.value;
       _targetDice = target;
       _animationSeed = _random.nextInt(5000);
       _engine.beginRolling();
+
+      // beginRolling() must promote this exact reservation into the active
+      // commit capability. Fail closed if anything invalidated/replaced it.
+      if (!identical(_engine.activeRollResult, reservation)) {
+        _engine.cancelRolling();
+        await _voice.resumeAfterRoll();
+        return;
+      }
+
       HapticFeedback.selectionClick();
 
       try {
         await _diceController.forward(from: 0);
         if (!mounted) return;
 
-        _engine.commitRoll(target);
+        final committed = _engine.commitResolvedRoll(reservation);
+        if (!committed) {
+          _engine.cancelRolling();
+          await _voice.resumeAfterRoll();
+          return;
+        }
+
         if (target == 6) {
           HapticFeedback.heavyImpact();
         } else {
