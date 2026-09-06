@@ -43,6 +43,7 @@ class MainActivity : FlutterActivity() {
     private var consecutiveNoMatch = 0
     private var usingOnDeviceRecognizer = false
     private var onDeviceRejectedForProcess = false
+    private var preferOnDeviceAfterProviderFailure = false
 
     // Object generation and listening-session generation are deliberately
     // separate. A SpeechRecognizer can stay warm between dice rolls while each
@@ -268,7 +269,29 @@ class MainActivity : FlutterActivity() {
         speechRecognizer?.let { return it }
 
         val recognizer =
-            if (SpeechRecognizer.isRecognitionAvailable(this)) {
+            if (preferOnDeviceAfterProviderFailure && isOnDeviceRecognitionUsable()) {
+                try {
+                    usingOnDeviceRecognizer = true
+                    SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+                } catch (onDeviceError: Throwable) {
+                    // Do not get stuck retrying a provider that this process has
+                    // already proved unusable. Return to the system recognizer.
+                    preferOnDeviceAfterProviderFailure = false
+                    onDeviceRejectedForProcess = true
+                    if (SpeechRecognizer.isRecognitionAvailable(this)) {
+                        try {
+                            usingOnDeviceRecognizer = false
+                            SpeechRecognizer.createSpeechRecognizer(this)
+                        } catch (systemError: Throwable) {
+                            emitRecognizerCreationFailure(systemError)
+                            null
+                        }
+                    } else {
+                        emitRecognizerCreationFailure(onDeviceError)
+                        null
+                    }
+                }
+            } else if (SpeechRecognizer.isRecognitionAvailable(this)) {
                 try {
                     usingOnDeviceRecognizer = false
                     SpeechRecognizer.createSpeechRecognizer(this)
@@ -403,6 +426,7 @@ class MainActivity : FlutterActivity() {
                         SpeechRecognizer.isRecognitionAvailable(this@MainActivity)
                     ) {
                         onDeviceRejectedForProcess = true
+                        preferOnDeviceAfterProviderFailure = false
                         destroyRecognizer()
                         emit(
                             mapOf(
@@ -414,6 +438,30 @@ class MainActivity : FlutterActivity() {
                         scheduleRestart(SYSTEM_FALLBACK_RESTART_MS)
                         return
                     }
+                }
+
+                if (!usingOnDeviceRecognizer &&
+                    (error == SpeechRecognizer.ERROR_NETWORK ||
+                        error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ||
+                        error == SpeechRecognizer.ERROR_SERVER) &&
+                    isOnDeviceRecognitionUsable()
+                ) {
+                    // The default recognizer normally gives the best Hindi /
+                    // Hinglish accuracy. When its provider or network is failing,
+                    // switch this process to the local recognizer instead of
+                    // repeatedly backing off on the same broken critical path.
+                    preferOnDeviceAfterProviderFailure = true
+                    destroyRecognizer()
+                    emit(
+                        mapOf(
+                            "type" to "error",
+                            "code" to error,
+                            "recoverable" to true,
+                            "message" to "Voice recognition switched to on-device recovery.",
+                        ),
+                    )
+                    scheduleRestart(ON_DEVICE_FAILOVER_RESTART_MS)
+                    return
                 }
 
                 if (
@@ -499,6 +547,7 @@ class MainActivity : FlutterActivity() {
     private fun fallBackFromOnDeviceRecognizer() {
         mainHandler.removeCallbacks(restartRunnable)
         onDeviceRejectedForProcess = true
+        preferOnDeviceAfterProviderFailure = false
         consecutiveNoMatch = 0
         destroyRecognizer()
 
@@ -951,6 +1000,7 @@ class MainActivity : FlutterActivity() {
 
         private const val CONTEXT_RESTART_MS = 45L
         private const val SYSTEM_FALLBACK_RESTART_MS = 70L
+        private const val ON_DEVICE_FAILOVER_RESTART_MS = 55L
         private const val STUCK_RESTART_MS = 70L
         private const val START_FAILURE_RESTART_MS = 320L
 

@@ -81,7 +81,14 @@ void main() {
 
       expect(mainActivity, contains(system));
       expect(mainActivity, contains(onDevice));
-      expect(mainActivity.indexOf(system), lessThan(mainActivity.indexOf(onDevice)));
+      expect(
+        mainActivity,
+        contains('if (preferOnDeviceAfterProviderFailure && isOnDeviceRecognitionUsable())'),
+      );
+      expect(
+        mainActivity,
+        contains('} else if (SpeechRecognizer.isRecognitionAvailable(this)) {'),
+      );
       expect(mainActivity, contains('createOnDeviceFallback'));
       expect(mainActivity, contains('pauseCurrentSession(keepWarm = true)'));
       expect(mainActivity, contains('MAX_RESULTS = 20'));
@@ -89,6 +96,9 @@ void main() {
       expect(mainActivity, contains('EXTRA_ENABLE_LANGUAGE_SWITCH'));
       expect(mainActivity, contains('EXTRA_ENABLE_LANGUAGE_DETECTION'));
       expect(mainActivity, contains('ON_DEVICE_NO_MATCH_FALLBACK_THRESHOLD = 2'));
+      expect(mainActivity, contains('preferOnDeviceAfterProviderFailure'));
+      expect(mainActivity, contains('ON_DEVICE_FAILOVER_RESTART_MS'));
+      expect(mainActivity, contains('Voice recognition switched to on-device recovery.'));
       expect(
         mainActivity,
         isNot(contains('EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS')),
@@ -115,6 +125,9 @@ void main() {
       expect(gameScreen, contains('scheduleMicrotask(()'));
       expect(gameScreen, contains('unawaited(_rollDice())'));
       expect(gameScreen, contains('_voice.pendingValue == null'));
+      expect(gameScreen, contains('final reservedValue = _voice.suspendForRoll();'));
+      expect(controller, contains('int? suspendForRoll()'));
+      expect(controller, contains('unawaited(_pauseNativeForRoll())'));
       expect(controller, contains('DiceVoiceIntentParser.isFastPartialCommand(heard)'));
       expect(controller, contains('reserveDiceRoll'));
       expect(controller, contains('Duration(seconds: 3)'));

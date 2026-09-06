@@ -527,7 +527,12 @@ class VoiceDiceController extends ChangeNotifier {
     }
   }
 
-  Future<int?> suspendForRoll() async {
+  /// Reserves the authoritative roll synchronously, then pauses native speech
+  /// out-of-band. The engine reservation and [_rollSuspended] flag are the
+  /// safety boundary, so dice animation must not wait on a platform-channel
+  /// round trip before it can start. Any callback already in flight is rejected
+  /// by the suspended flag / reserved-roll gate and cannot leak into a later turn.
+  int? suspendForRoll() {
     if (_disposed) return null;
     final engine = _engine;
     final reservation = engine?.reserveDiceRoll(randomDice: _randomDice);
@@ -537,11 +542,15 @@ class VoiceDiceController extends ChangeNotifier {
     _state = VoiceSessionState.paused;
     _safeNotify();
     if (_available && _enabled) {
-      try {
-        await _voiceChannel.invokeMethod<void>('pauseListening');
-      } catch (_) {}
+      unawaited(_pauseNativeForRoll());
     }
     return reservation?.value;
+  }
+
+  Future<void> _pauseNativeForRoll() async {
+    try {
+      await _voiceChannel.invokeMethod<void>('pauseListening');
+    } catch (_) {}
   }
 
   Future<void> resumeAfterRoll() async {

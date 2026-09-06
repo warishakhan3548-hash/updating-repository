@@ -102,7 +102,7 @@ class _GameScreenState extends State<GameScreen>
       // pauses the native recognizer. Keep that exact capability object all the
       // way through animation instead of reducing it to an integer, otherwise
       // a stale/reconstructed callback could bypass the engine's identity gate.
-      final reservedValue = await _voice.suspendForRoll();
+      final reservedValue = _voice.suspendForRoll();
       if (!mounted || !_engine.canRoll) {
         await _voice.resumeAfterRoll();
         return;
