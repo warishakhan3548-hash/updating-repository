@@ -12,6 +12,7 @@ on:
       - 'test/**'
       - 'pubspec.yaml'
       - 'analysis_options.yaml'
+      - 'tool/final_patch_compat.py'
       - 'tool/final_voice_architecture_patch.py'
       - 'tool/final_contract_alignment_patch.py'
 
@@ -37,6 +38,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 tool/final_patch_compat.py
           python3 tool/final_voice_architecture_patch.py
           python3 tool/final_contract_alignment_patch.py
           git diff --check
