@@ -2,6 +2,9 @@ name: Aarish Kingdom APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -12,6 +15,7 @@ concurrency:
 
 jobs:
   build-release-apk:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -30,8 +34,9 @@ jobs:
             python3 tool/voice_match_end_patch.py
             python3 tool/voice_contract_patch.py
           else
-            echo 'Voice reliability hardening already applied; continuing with validation/build.'
+            echo 'Legacy voice reliability hardening already applied; continuing.'
           fi
+          python3 tool/ultra_voice_latency_patch.py
           git diff --check
 
       - name: Set up Java 17
@@ -134,6 +139,26 @@ jobs:
           if git diff --cached --quiet; then
             echo 'No validated source changes need committing.'
           else
-            git commit -m 'Harden turn-safe voice input and reproducible Android build'
+            git commit -m 'Harden low-latency bounded voice recognition'
             git push origin HEAD:main
           fi
+
+      - name: Publish latest APK as GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          APK_SOURCE='build/app/outputs/flutter-apk/app-release.apk'
+          APK_RELEASE='Aarish-Kingdom-release.apk'
+          cp "$APK_SOURCE" "$APK_RELEASE"
+          SHA256="$(sha256sum "$APK_RELEASE" | awk '{print $1}')"
+
+          gh release delete aarish-kingdom-latest --yes --cleanup-tag >/dev/null 2>&1 || true
+          git push origin :refs/tags/aarish-kingdom-latest >/dev/null 2>&1 || true
+
+          gh release create aarish-kingdom-latest \
+            "$APK_RELEASE" \
+            --target "$(git rev-parse HEAD)" \
+            --title 'Aarish Kingdom — Latest APK' \
+            --notes "Validated automated release build. SHA-256: ${SHA256}"
