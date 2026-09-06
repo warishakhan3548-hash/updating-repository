@@ -39,6 +39,7 @@ jobs:
           fi
           python3 tool/ultra_voice_latency_patch.py
           python3 tool/adaptive_voice_runtime_patch.py
+          python3 tool/adaptive_voice_contract_fix.py
           git diff --check
 
       - name: Set up Java 17
