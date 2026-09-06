@@ -72,7 +72,9 @@ void main() {
       expect(activity, contains('"turnId" to binding.turnId'));
       expect(activity, contains('"recognizedAtMs" to System.currentTimeMillis()'));
       expect(controller, contains('eventBinding != currentBinding'));
-      expect(engine, contains('current.recognizedAt.isAfter'));
+      expect(engine, contains('intent.matches(voiceTurnBinding)'));
+      expect(engine, contains('intent.isExpiredAt(clock)'));
+      expect(engine, contains('if (_pendingVoiceDiceIntent != null) return false;'));
     });
 
     test('stale callbacks are invalidated by object and listening-session generations', () {
