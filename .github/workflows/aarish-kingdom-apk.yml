@@ -2,9 +2,6 @@ name: Aarish Kingdom APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: write
@@ -15,7 +12,6 @@ concurrency:
 
 jobs:
   build-release-apk:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -129,6 +125,7 @@ jobs:
             lib/ui/game_screen.dart \
             test/voice_turn_binding_test.dart \
             test/android_build_contract_test.dart \
+            test/crash_resilience_test.dart \
             pubspec.yaml \
             analysis_options.yaml \
             android/gradlew \
