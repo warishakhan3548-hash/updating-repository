@@ -32,6 +32,23 @@ class DiceVoiceParseResult {
   final bool strongContext;
 }
 
+@immutable
+class _RankedDiceVoiceCandidate {
+  const _RankedDiceVoiceCandidate({
+    required this.result,
+    required this.rank,
+    required this.measuredConfidence,
+  });
+
+  final DiceVoiceParseResult result;
+  final int rank;
+  final double? measuredConfidence;
+
+  // Provider order is useful evidence, but measured acoustic confidence must be
+  // able to overtake it when the provider's first hypothesis is weak.
+  double get score => result.confidence - rank * .012;
+}
+
 /// Deterministic Hindi + English + Hinglish parser for the six supported dice
 /// commands. The grammar is intentionally bounded: repeated versions of the
 /// same value are accepted, while hypotheses containing conflicting dice
@@ -180,6 +197,73 @@ class DiceVoiceIntentParser {
   static bool _isHighPrecisionDiceOnlyPhrase(List<String> tokens) =>
       tokens.isNotEmpty && tokens.every(_highPrecisionAliases.contains);
 
+  static DiceVoiceParseResult? selectBestHypothesis(
+    List<String> hypotheses, {
+    List<double?>? recognitionConfidences,
+    required bool isFinal,
+  }) {
+    final ranked = <_RankedDiceVoiceCandidate>[];
+
+    for (var i = 0; i < hypotheses.length; i++) {
+      final heard = hypotheses[i].trim();
+      if (heard.isEmpty) continue;
+      final measured = recognitionConfidences != null &&
+              i < recognitionConfidences.length
+          ? recognitionConfidences[i]
+          : null;
+      final candidate = parse(
+        heard,
+        recognitionConfidence: measured,
+      );
+      if (candidate == null) continue;
+      if (!isFinal &&
+          !candidate.strongContext &&
+          !isFastPartialCommand(heard)) {
+        continue;
+      }
+      ranked.add(
+        _RankedDiceVoiceCandidate(
+          result: candidate,
+          rank: i,
+          measuredConfidence: measured,
+        ),
+      );
+    }
+
+    if (ranked.isEmpty) return null;
+    ranked.sort((a, b) {
+      final scoreOrder = b.score.compareTo(a.score);
+      return scoreOrder != 0 ? scoreOrder : a.rank.compareTo(b.rank);
+    });
+
+    final best = ranked.first;
+    _RankedDiceVoiceCandidate? strongestConflict;
+    for (final candidate in ranked.skip(1)) {
+      if (candidate.result.value != best.result.value) {
+        strongestConflict = candidate;
+        break;
+      }
+    }
+
+    if (strongestConflict != null) {
+      final gap = best.score - strongestConflict.score;
+      final bothMeasured = best.measuredConfidence != null &&
+          strongestConflict.measuredConfidence != null;
+
+      // Partial callbacks frequently have no confidence array. If their N-best
+      // list disagrees on the dice value, waiting for the final callback is much
+      // safer than committing a potentially wrong roll.
+      if (!isFinal && (!bothMeasured || gap < .08)) return null;
+
+      // Final callbacks may rely on provider ordering when confidence is absent,
+      // but two acoustically measured values that are effectively tied are still
+      // too ambiguous for a deterministic game input.
+      if (isFinal && bothMeasured && gap < .035) return null;
+    }
+
+    return best.result;
+  }
+
   static DiceVoiceParseResult? parse(
     String input, {
     double? recognitionConfidence,
@@ -249,7 +333,7 @@ class VoiceDiceController extends ChangeNotifier {
     VoidCallback? onClearPending,
     int Function()? randomDice,
     this.intentTtl = const Duration(seconds: 3),
-  })  : _engine = engine ?? LudoEngine.voiceRuntimeEngine,
+  })  : _engine = engine,
         _externalOnIntent = onIntent,
         _externalClearPending = onClearPending {
     final rng = math.Random();
@@ -722,21 +806,21 @@ class VoiceDiceController extends ChangeNotifier {
     }
     final finalResult = event['final'] == true;
     final confidenceValues = event['confidences'];
-    DiceVoiceParseResult? parsed;
+    final hypotheses = <String>[];
+    final confidences = <double?>[];
     for (var i = 0; i < rawTexts.length; i++) {
       final item = rawTexts[i];
       if (item is! String) continue;
       final heard = item.trim();
       if (heard.isEmpty) continue;
-      final candidate = DiceVoiceIntentParser.parse(
-        heard,
-        recognitionConfidence: _confidenceAt(confidenceValues, i),
-      );
-      if (candidate == null) continue;
-      if (!finalResult && !candidate.strongContext && !DiceVoiceIntentParser.isFastPartialCommand(heard)) continue;
-      parsed = candidate;
-      break;
+      hypotheses.add(heard);
+      confidences.add(_confidenceAt(confidenceValues, i));
     }
+    final parsed = DiceVoiceIntentParser.selectBestHypothesis(
+      hypotheses,
+      recognitionConfidences: confidences,
+      isFinal: finalResult,
+    );
     if (parsed == null) return;
     final recognizedAt = _recognizedAt(event);
     final intent = PendingVoiceDiceIntent(

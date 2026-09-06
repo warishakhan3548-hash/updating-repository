@@ -44,6 +44,7 @@ class MainActivity : FlutterActivity() {
     private var usingOnDeviceRecognizer = false
     private var onDeviceRejectedForProcess = false
     private var preferOnDeviceAfterProviderFailure = false
+    private var legacySystemLocaleIndex = 0
 
     // Object generation and listening-session generation are deliberately
     // separate. A SpeechRecognizer can stay warm between dice rolls while each
@@ -345,6 +346,8 @@ class MainActivity : FlutterActivity() {
         binding: VoiceBinding,
     ): RecognitionListener =
         object : RecognitionListener {
+            private var heardSpeech = false
+
             override fun onReadyForSpeech(params: Bundle?) {
                 if (!isCurrentSession(objectEpoch, sessionEpoch, binding)) return
                 cancelReadyWatchdog()
@@ -361,6 +364,7 @@ class MainActivity : FlutterActivity() {
 
             override fun onBeginningOfSpeech() {
                 if (!isCurrentSession(objectEpoch, sessionEpoch, binding)) return
+                heardSpeech = true
                 cancelReadyWatchdog()
                 armSessionWatchdog(
                     objectEpoch,
@@ -421,6 +425,27 @@ class MainActivity : FlutterActivity() {
                     error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
                 ) {
                     consecutiveNoMatch += 1
+
+                    if (!usingOnDeviceRecognizer &&
+                        error == SpeechRecognizer.ERROR_NO_MATCH &&
+                        heardSpeech &&
+                        Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                        consecutiveNoMatch >= LEGACY_LOCALE_ROTATION_THRESHOLD
+                    ) {
+                        legacySystemLocaleIndex =
+                            (legacySystemLocaleIndex + 1) % LEGACY_SYSTEM_LOCALES.size
+                        consecutiveNoMatch = 0
+                        emit(
+                            mapOf(
+                                "type" to "error",
+                                "recoverable" to true,
+                                "message" to "Voice language model adapted automatically.",
+                            ),
+                        )
+                        scheduleRestart(LEGACY_LOCALE_RETRY_MS)
+                        return
+                    }
+
                     if (usingOnDeviceRecognizer &&
                         consecutiveNoMatch >= ON_DEVICE_NO_MATCH_FALLBACK_THRESHOLD &&
                         SpeechRecognizer.isRecognitionAvailable(this@MainActivity)
@@ -507,6 +532,7 @@ class MainActivity : FlutterActivity() {
             override fun onPartialResults(partialResults: Bundle?) {
                 if (!isCurrentSession(objectEpoch, sessionEpoch, binding)) return
 
+                heardSpeech = true
                 consecutiveNoMatch = 0
                 armSessionWatchdog(
                     objectEpoch,
@@ -573,13 +599,22 @@ class MainActivity : FlutterActivity() {
         scheduleRestart(SYSTEM_FALLBACK_RESTART_MS)
     }
 
+    private fun activeRecognitionLocale(): String =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+            usingOnDeviceRecognizer
+        ) {
+            HINDI_LOCALE
+        } else {
+            LEGACY_SYSTEM_LOCALES[legacySystemLocaleIndex % LEGACY_SYSTEM_LOCALES.size]
+        }
+
     private fun buildRecognizerIntent(): Intent =
         Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
             )
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, HINDI_LOCALE)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, activeRecognitionLocale())
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, MAX_RESULTS)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
@@ -987,11 +1022,13 @@ class MainActivity : FlutterActivity() {
         private const val HINDI_LOCALE = "hi-IN"
         private const val MAX_RESULTS = 20
         private const val ON_DEVICE_NO_MATCH_FALLBACK_THRESHOLD = 2
+        private const val LEGACY_LOCALE_ROTATION_THRESHOLD = 2
 
         private const val LANGUAGE_SWITCH_ACTIVE_MS = 2_500
         private const val LANGUAGE_SWITCH_MAX_SWITCHES = 2
 
         private val VOICE_LOCALES = listOf("hi-IN", "en-IN", "en-US")
+        private val LEGACY_SYSTEM_LOCALES = listOf("hi-IN", "en-IN")
 
         private const val ON_DEVICE_RESULT_RESTART_MS = 30L
         private const val SYSTEM_RESULT_RESTART_MS = 70L
@@ -1001,6 +1038,7 @@ class MainActivity : FlutterActivity() {
         private const val CONTEXT_RESTART_MS = 45L
         private const val SYSTEM_FALLBACK_RESTART_MS = 70L
         private const val ON_DEVICE_FAILOVER_RESTART_MS = 55L
+        private const val LEGACY_LOCALE_RETRY_MS = 55L
         private const val STUCK_RESTART_MS = 70L
         private const val START_FAILURE_RESTART_MS = 320L
 

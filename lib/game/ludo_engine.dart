@@ -60,16 +60,8 @@ class MoveOutcome {
 
 class LudoEngine extends ChangeNotifier {
   LudoEngine({required int playerCount}) {
-    _voiceRuntimeEngine = this;
     reset(playerCount);
   }
-
-  static LudoEngine? _voiceRuntimeEngine;
-
-  /// Compatibility bridge for the existing GameScreen construction order.
-  /// VoiceDiceController captures this engine once at construction; it does not
-  /// keep resolving a mutable global reference during gameplay.
-  static LudoEngine? get voiceRuntimeEngine => _voiceRuntimeEngine;
 
   static const int finishProgress = 57;
   static const Set<int> safeGlobalCells = <int>{
@@ -126,7 +118,6 @@ class LudoEngine extends ChangeNotifier {
       throw RangeError.range(playerCount, 2, 4, 'playerCount');
     }
 
-    _voiceRuntimeEngine = this;
     final colors = switch (playerCount) {
       2 => <LudoColor>[LudoColor.red, LudoColor.yellow],
       3 => <LudoColor>[LudoColor.red, LudoColor.green, LudoColor.yellow],
@@ -479,9 +470,6 @@ class LudoEngine extends ChangeNotifier {
 
   @override
   void dispose() {
-    if (identical(_voiceRuntimeEngine, this)) {
-      _voiceRuntimeEngine = null;
-    }
     _pendingVoiceDiceIntent = null;
     _reservedRollResult = null;
     _activeRollResult = null;

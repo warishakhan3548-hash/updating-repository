@@ -128,7 +128,8 @@ void main() {
       expect(gameScreen, contains('final reservedValue = _voice.suspendForRoll();'));
       expect(controller, contains('int? suspendForRoll()'));
       expect(controller, contains('unawaited(_pauseNativeForRoll())'));
-      expect(controller, contains('DiceVoiceIntentParser.isFastPartialCommand(heard)'));
+      expect(controller, contains('DiceVoiceIntentParser.selectBestHypothesis('));
+      expect(controller, contains('isFastPartialCommand(heard)'));
       expect(controller, contains('reserveDiceRoll'));
       expect(controller, contains('Duration(seconds: 3)'));
     });
