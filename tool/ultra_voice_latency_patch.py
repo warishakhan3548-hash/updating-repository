@@ -174,6 +174,16 @@ if replace_once(
 ):
     changed.append("align confidence contract with normalized measured confidence guard")
 
+crash_test = "test/crash_resilience_test.dart"
+if replace_once(
+    crash_test,
+    "      expect(engine, contains('current.recognizedAt.isAfter'));",
+    "      expect(engine, contains('intent.matches(voiceTurnBinding)'));\n"
+    "      expect(engine, contains('intent.isExpiredAt(clock)'));\n"
+    "      expect(engine, contains('if (_pendingVoiceDiceIntent != null) return false;'));",
+):
+    changed.append("align crash contract with deterministic first-command-wins ownership")
+
 pubspec = Path("pubspec.yaml")
 pubspec_text = pubspec.read_text(encoding="utf-8")
 if "version: 1.4.1+13" in pubspec_text:
