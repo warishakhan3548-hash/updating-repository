@@ -2,6 +2,11 @@ name: Aarish Kingdom APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/aarish-kingdom-apk.yml'
 
 permissions:
   contents: write
@@ -33,6 +38,7 @@ jobs:
             echo 'Legacy voice reliability hardening already applied; continuing.'
           fi
           python3 tool/ultra_voice_latency_patch.py
+          python3 tool/adaptive_voice_runtime_patch.py
           git diff --check
 
       - name: Set up Java 17
@@ -113,7 +119,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Persist validated hardening and Gradle wrapper
+      - name: Persist validated adaptive voice runtime
         shell: bash
         run: |
           set -euo pipefail
@@ -121,6 +127,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
           git add \
+            android/app/src/main/kotlin/com/aaris/voiceludomasti/MainActivity.kt \
             lib/services/voice_dice_controller.dart \
             lib/ui/game_screen.dart \
             test/voice_turn_binding_test.dart \
@@ -136,7 +143,7 @@ jobs:
           if git diff --cached --quiet; then
             echo 'No validated source changes need committing.'
           else
-            git commit -m 'Harden low-latency bounded voice recognition'
+            git commit -m 'Persist adaptive low-latency voice runtime'
             git push origin HEAD:main
           fi
 
