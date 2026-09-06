@@ -167,6 +167,13 @@ if replace_once(
 ):
     changed.append("update Android voice contract for precision partial gating")
 
+if replace_once(
+    android_test,
+    "      expect(controller, contains('recognitionConfidence < .30'));",
+    "      expect(controller, contains('measuredConfidence < .30'));",
+):
+    changed.append("align confidence contract with normalized measured confidence guard")
+
 pubspec = Path("pubspec.yaml")
 pubspec_text = pubspec.read_text(encoding="utf-8")
 if "version: 1.4.1+13" in pubspec_text:
