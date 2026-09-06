@@ -7,6 +7,12 @@ on:
       - main
     paths:
       - '.github/workflows/aarish-kingdom-apk.yml'
+      - 'lib/**'
+      - 'android/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'analysis_options.yaml'
+      - 'tool/final_voice_architecture_patch.py'
 
 permissions:
   contents: write
@@ -26,20 +32,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply deterministic voice hardening once
+      - name: Apply deterministic final voice architecture hardening
         shell: bash
         run: |
           set -euo pipefail
-          if grep -Fqx 'version: 1.4.0+12' pubspec.yaml; then
-            python3 tool/voice_reliability_patch.py
-            python3 tool/voice_match_end_patch.py
-            python3 tool/voice_contract_patch.py
-          else
-            echo 'Legacy voice reliability hardening already applied; continuing.'
-          fi
-          python3 tool/ultra_voice_latency_patch.py
-          python3 tool/adaptive_voice_runtime_patch.py
-          python3 tool/adaptive_voice_contract_fix.py
+          python3 tool/final_voice_architecture_patch.py
           git diff --check
 
       - name: Set up Java 17
@@ -83,6 +80,9 @@ jobs:
       - name: Test voice parser and turn arbitration
         run: flutter test test/voice_turn_binding_test.dart
 
+      - name: Test N-best voice candidate fusion
+        run: flutter test test/voice_candidate_fusion_test.dart
+
       - name: Test Android voice/build contracts
         run: flutter test test/android_build_contract_test.dart
 
@@ -112,15 +112,7 @@ jobs:
           ls -lh build/app/outputs/flutter-apk/app-release.apk
           sha256sum build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Upload release APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aarish-kingdom-release-${{ github.run_number }}
-          path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Persist validated adaptive voice runtime
+      - name: Persist validated architecture source
         shell: bash
         run: |
           set -euo pipefail
@@ -129,24 +121,25 @@ jobs:
 
           git add \
             android/app/src/main/kotlin/com/aaris/voiceludomasti/MainActivity.kt \
+            lib/game/ludo_engine.dart \
             lib/services/voice_dice_controller.dart \
-            lib/ui/game_screen.dart \
-            test/voice_turn_binding_test.dart \
-            test/android_build_contract_test.dart \
-            test/crash_resilience_test.dart \
-            pubspec.yaml \
-            analysis_options.yaml \
-            android/gradlew \
-            android/gradlew.bat \
-            android/gradle/wrapper/gradle-wrapper.jar \
-            android/gradle/wrapper/gradle-wrapper.properties
+            test/voice_candidate_fusion_test.dart \
+            pubspec.yaml
 
           if git diff --cached --quiet; then
-            echo 'No validated source changes need committing.'
+            echo 'Validated source is already committed.'
           else
-            git commit -m 'Persist adaptive low-latency voice runtime'
+            git commit -m 'Persist final deterministic voice architecture'
             git push origin HEAD:main
           fi
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarish-kingdom-release-${{ github.run_number }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Publish latest APK as GitHub Release
         shell: bash
