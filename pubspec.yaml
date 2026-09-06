@@ -1,7 +1,7 @@
 name: voice_ludo_masti
 description: Aarish Kingdom — a polished local multiplayer Ludo game with instant turn-safe voice-controlled dice.
 publish_to: "none"
-version: 1.4.1+13
+version: 1.4.2+14
 
 environment:
   sdk: ">=3.8.0 <4.0.0"

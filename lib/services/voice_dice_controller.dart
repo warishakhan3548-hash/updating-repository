@@ -73,6 +73,7 @@ class DiceVoiceIntentParser {
     'पांच': 5,
     'पाँच': 5,
     'पाच': 5,
+    'पान्च': 5,
     'paanch': 5,
     'panch': 5,
     'panj': 5,
@@ -96,10 +97,12 @@ class DiceVoiceIntentParser {
     'चक्क': 6,
     'शक्का': 6,
     'छक्के': 6,
+    'छको': 6,
     'chakka': 6,
     'chaka': 6,
     'chhakka': 6,
     'chhaka': 6,
+    'chhakkaa': 6,
     'chakkaa': 6,
     'shakka': 6,
     'सिक्स': 6,
@@ -118,8 +121,8 @@ class DiceVoiceIntentParser {
     '2', '२', 'two', 'दो', 'टू',
     '3', '३', 'three', 'तीन', 'teen', 'थ्री',
     '4', '४', 'four', 'चार', 'chaar', 'फोर',
-    '5', '५', 'five', 'पांच', 'पाँच', 'paanch', 'panch', 'फाइव',
-    '6', '६', 'six', 'छह', 'छः', 'छक्का', 'chakka', 'chhakka', 'सिक्स',
+    '5', '५', 'five', 'पांच', 'पाँच', 'पाच', 'पान्च', 'paanch', 'panch', 'फाइव', 'फाईव',
+    '6', '६', 'six', 'छह', 'छः', 'छक्का', 'छका', 'छक्क', 'chakka', 'chaka', 'chhakka', 'chhaka', 'chhakkaa', 'सिक्स',
   };
 
   static const Set<String> _contextTokens = <String>{
@@ -151,6 +154,27 @@ class DiceVoiceIntentParser {
     if (normalized.isEmpty) return false;
     final tokens = normalized.split(RegExp(r'\s+'));
     return tokens.every(_aliases.containsKey);
+  }
+
+
+  /// Returns true only for a partial hypothesis that can be committed with
+  /// extremely low ambiguity. Android partial callbacks often omit confidence
+  /// scores, so broad aliases such as "छ", "सिक", "tin" and "char"
+  /// must wait for a final result instead of bypassing the confidence guard.
+  /// Repeated high-precision forms of the same dice value stay on the fast path.
+  static bool isFastPartialCommand(String input) {
+    final normalized = _normalize(input);
+    if (normalized.isEmpty) return false;
+    final tokens = normalized.split(RegExp(r'\s+'));
+    int? value;
+    for (final token in tokens) {
+      if (!_highPrecisionAliases.contains(token)) return false;
+      final tokenValue = _aliases[token];
+      if (tokenValue == null) return false;
+      value ??= tokenValue;
+      if (tokenValue != value) return false;
+    }
+    return value != null;
   }
 
   static bool _isHighPrecisionDiceOnlyPhrase(List<String> tokens) =>
@@ -700,14 +724,11 @@ class VoiceDiceController extends ChangeNotifier {
         recognitionConfidence: _confidenceAt(confidenceValues, i),
       );
       if (candidate == null) continue;
-      if (!finalResult && !candidate.strongContext && !DiceVoiceIntentParser.isDiceOnlyPhrase(heard)) continue;
+      if (!finalResult && !candidate.strongContext && !DiceVoiceIntentParser.isFastPartialCommand(heard)) continue;
       parsed = candidate;
       break;
     }
-    if (parsed == null) {
-      _safeNotify();
-      return;
-    }
+    if (parsed == null) return;
     final recognizedAt = _recognizedAt(event);
     final intent = PendingVoiceDiceIntent(
       matchId: eventBinding.matchId,

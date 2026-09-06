@@ -115,7 +115,7 @@ void main() {
       expect(gameScreen, contains('scheduleMicrotask(()'));
       expect(gameScreen, contains('unawaited(_rollDice())'));
       expect(gameScreen, contains('_voice.pendingValue == null'));
-      expect(controller, contains('DiceVoiceIntentParser.isDiceOnlyPhrase(heard)'));
+      expect(controller, contains('DiceVoiceIntentParser.isFastPartialCommand(heard)'));
       expect(controller, contains('reserveDiceRoll'));
       expect(controller, contains('Duration(seconds: 3)'));
     });
@@ -182,7 +182,7 @@ void main() {
       expect(mainActivity, contains('"confidences" to confidences'));
       expect(controller, contains('_confidenceAt(confidenceValues, i)'));
       expect(controller, contains('recognitionConfidence'));
-      expect(controller, contains('recognitionConfidence < .30'));
+      expect(controller, contains('measuredConfidence < .30'));
     });
 
     test('premium voice UI hides raw transcripts and gates modal lifecycle', () {

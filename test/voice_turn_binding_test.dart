@@ -41,6 +41,9 @@ void main() {
       expect(VoiceDiceController.parseLastDiceValue('chhe'), 6);
       expect(VoiceDiceController.parseLastDiceValue('फौर'), 4);
       expect(VoiceDiceController.parseLastDiceValue('panj'), 5);
+      expect(VoiceDiceController.parseLastDiceValue('पान्च'), 5);
+      expect(VoiceDiceController.parseLastDiceValue('छको'), 6);
+      expect(VoiceDiceController.parseLastDiceValue('chhakkaa'), 6);
     });
 
     test('natural command phrases work without blind substring matching', () {
@@ -64,6 +67,23 @@ void main() {
       expect(DiceVoiceIntentParser.isDiceOnlyPhrase('पाँच पाँच'), isTrue);
       expect(DiceVoiceIntentParser.isDiceOnlyPhrase('six players'), isFalse);
       expect(DiceVoiceIntentParser.isDiceOnlyPhrase('मुझे छक्का दे'), isFalse);
+    });
+
+
+    test('partial fast path is precise while common quiet variants stay instant', () {
+      expect(DiceVoiceIntentParser.isFastPartialCommand('छक्का'), isTrue);
+      expect(DiceVoiceIntentParser.isFastPartialCommand('छका'), isTrue);
+      expect(DiceVoiceIntentParser.isFastPartialCommand('छक्का छक्का'), isTrue);
+      expect(DiceVoiceIntentParser.isFastPartialCommand('six six'), isTrue);
+      expect(DiceVoiceIntentParser.isFastPartialCommand('पान्च'), isTrue);
+      expect(DiceVoiceIntentParser.isFastPartialCommand('chhakkaa'), isTrue);
+
+      expect(DiceVoiceIntentParser.isFastPartialCommand('छ'), isFalse);
+      expect(DiceVoiceIntentParser.isFastPartialCommand('सिक'), isFalse);
+      expect(DiceVoiceIntentParser.isFastPartialCommand('tin'), isFalse);
+      expect(DiceVoiceIntentParser.isFastPartialCommand('char'), isFalse);
+      expect(DiceVoiceIntentParser.isFastPartialCommand('six five'), isFalse);
+      expect(DiceVoiceIntentParser.isFastPartialCommand('give me six'), isFalse);
     });
   });
 
