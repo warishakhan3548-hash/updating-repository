@@ -12,9 +12,6 @@ on:
       - 'test/**'
       - 'pubspec.yaml'
       - 'analysis_options.yaml'
-      - 'tool/final_patch_compat.py'
-      - 'tool/final_voice_architecture_patch.py'
-      - 'tool/final_contract_alignment_patch.py'
 
 permissions:
   contents: write
@@ -34,14 +31,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply deterministic final voice architecture hardening
+      - name: Verify committed architecture invariants
         shell: bash
         run: |
           set -euo pipefail
-          python3 tool/final_patch_compat.py
-          python3 tool/final_voice_architecture_patch.py
-          python3 tool/final_contract_alignment_patch.py
           git diff --check
+          ! grep -R --line-number --fixed-strings 'voiceRuntimeEngine' lib/game/ludo_engine.dart
+          grep -q --fixed-strings 'DiceVoiceIntentParser.selectBestHypothesis(' lib/services/voice_dice_controller.dart
+          grep -q --fixed-strings 'LEGACY_SYSTEM_LOCALES = listOf("hi-IN", "en-IN")' android/app/src/main/kotlin/com/aaris/voiceludomasti/MainActivity.kt
+          grep -q --fixed-strings 'version: 1.5.0+16' pubspec.yaml
+          test -z "$(git status --porcelain)"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -116,28 +115,6 @@ jobs:
           ls -lh build/app/outputs/flutter-apk/app-release.apk
           sha256sum build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Persist validated architecture source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-
-          git add \
-            android/app/src/main/kotlin/com/aaris/voiceludomasti/MainActivity.kt \
-            lib/game/ludo_engine.dart \
-            lib/services/voice_dice_controller.dart \
-            test/voice_candidate_fusion_test.dart \
-            test/android_build_contract_test.dart \
-            pubspec.yaml
-
-          if git diff --cached --quiet; then
-            echo 'Validated source is already committed.'
-          else
-            git commit -m 'Persist final deterministic voice architecture'
-            git push origin HEAD:main
-          fi
-
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -164,4 +141,4 @@ jobs:
             "$APK_RELEASE" \
             --target "$(git rev-parse HEAD)" \
             --title 'Aarish Kingdom — Latest APK' \
-            --notes "Validated automated release build. SHA-256: ${SHA256}"
+            --notes "Validated reproducible release build from committed source. SHA-256: ${SHA256}"
