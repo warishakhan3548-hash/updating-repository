@@ -1,6 +1,7 @@
 import 'medicine.dart';
 
 enum StockStatus { normal, shortExpiry, monthExpiry, expired, sold, archived }
+
 enum SearchScope { all, shortExpiry, monthExpiry, expired, sold }
 
 class StatusInfo {
@@ -13,19 +14,48 @@ class StatusInfo {
 
 StatusInfo statusOf(Medicine record, WarningSettings settings, DateTime today) {
   final days = record.daysLeft(today);
-  if (record.archived) return StatusInfo(StockStatus.archived, 'Removed', 0, days);
-  if (record.sold) return StatusInfo(StockStatus.sold, 'Sold · reorder needed', 0, days);
-  if (days == null) return const StatusInfo(StockStatus.normal, 'Expiry not provided', 0, null);
-  if (days < 0) return StatusInfo(StockStatus.expired, 'Expired ${-days} ${days == -1 ? 'day' : 'days'} ago', 1, days);
-  final label = days == 0 ? 'Expires today' : '$days ${days == 1 ? 'day' : 'days'} left';
-  if (days <= settings.shortDays) return StatusInfo(StockStatus.shortExpiry, label, (1 - days / settings.shortDays).clamp(0, 1), days);
+  if (record.archived)
+    return StatusInfo(StockStatus.archived, 'Removed', 0, days);
+  if (record.sold)
+    return StatusInfo(StockStatus.sold, 'Sold · reorder needed', 0, days);
+  if (days == null)
+    return const StatusInfo(StockStatus.normal, 'Expiry not provided', 0, null);
+  if (days < 0)
+    return StatusInfo(
+      StockStatus.expired,
+      'Expired ${-days} ${days == -1 ? 'day' : 'days'} ago',
+      1,
+      days,
+    );
+  final label = days == 0
+      ? 'Expires today'
+      : '$days ${days == 1 ? 'day' : 'days'} left';
+  if (days <= settings.shortDays)
+    return StatusInfo(
+      StockStatus.shortExpiry,
+      label,
+      (1 - days / settings.shortDays).clamp(0, 1),
+      days,
+    );
   if (days <= settings.monthDays) {
-    return StatusInfo(StockStatus.monthExpiry, days < 30 ? label : '${days ~/ 30} ${days < 60 ? 'month' : 'months'} left · $days days', (1 - days / settings.monthDays).clamp(0, 1), days);
+    return StatusInfo(
+      StockStatus.monthExpiry,
+      days < 30
+          ? label
+          : '${days ~/ 30} ${days < 60 ? 'month' : 'months'} left · $days days',
+      (1 - days / settings.monthDays).clamp(0, 1),
+      days,
+    );
   }
   return StatusInfo(StockStatus.normal, label, 0, days);
 }
 
-bool inScope(Medicine record, SearchScope scope, WarningSettings settings, DateTime today) {
+bool inScope(
+  Medicine record,
+  SearchScope scope,
+  WarningSettings settings,
+  DateTime today,
+) {
   final status = statusOf(record, settings, today).status;
   if (status == StockStatus.archived) return false;
   return switch (scope) {
@@ -46,13 +76,15 @@ int expiryOrder(Medicine a, Medicine b, DateTime today) {
   return ad.compareTo(bd);
 }
 
-String scopeTitle(SearchScope scope, WarningSettings settings) => switch (scope) {
-  SearchScope.all => 'All medicines',
-  SearchScope.expired => 'Expired medicines',
-  SearchScope.sold => 'Sold medicines',
-  SearchScope.shortExpiry => '${settings.shortDays} Days Left',
-  SearchScope.monthExpiry => '${settings.months} ${settings.months == 1 ? 'Month' : 'Months'} Left',
-};
+String scopeTitle(SearchScope scope, WarningSettings settings) =>
+    switch (scope) {
+      SearchScope.all => 'All medicines',
+      SearchScope.expired => 'Expired medicines',
+      SearchScope.sold => 'Sold medicines',
+      SearchScope.shortExpiry => '${settings.shortDays} Days Left',
+      SearchScope.monthExpiry =>
+        '${settings.months} ${settings.months == 1 ? 'Month' : 'Months'} Left',
+    };
 
 class FormCount {
   int records = 0;
@@ -68,13 +100,25 @@ class InventoryStats {
       names.add(m.identity);
       if (m.salt.isNotEmpty) salts.add(normalize(m.salt));
       if (m.salt.isEmpty) missingSalt++;
-      if (m.sold) { soldEntries++; continue; }
-      final form = byForm.putIfAbsent(m.form.isEmpty ? 'Unspecified' : m.form, FormCount.new);
+      if (m.sold) {
+        soldEntries++;
+        continue;
+      }
+      final form = byForm.putIfAbsent(
+        m.form.isEmpty ? 'Unspecified' : m.form,
+        FormCount.new,
+      );
       form.records++;
-      if (m.quantity == null) { unknownQuantity++; form.unknownQuantity++; }
-      else { knownUnits += m.quantity!; form.units += m.quantity!; }
-      if (m.quantity == null || m.unitPricePaise == null) { unvaluedEntries++; }
-      else {
+      if (m.quantity == null) {
+        unknownQuantity++;
+        form.unknownQuantity++;
+      } else {
+        knownUnits += m.quantity!;
+        form.units += m.quantity!;
+      }
+      if (m.quantity == null || m.unitPricePaise == null) {
+        unvaluedEntries++;
+      } else {
         final value = m.quantity! * m.unitPricePaise!;
         onHandValue += value;
         if ((m.daysLeft(today) ?? 1) < 0) expiredValue += value;
@@ -85,7 +129,10 @@ class InventoryStats {
     uniqueSalts = salts.length;
   }
   int stockEntries = 0, uniqueMedicines = 0, uniqueSalts = 0, knownUnits = 0;
-  int unknownQuantity = 0, unvaluedEntries = 0, valuedEntries = 0, missingSalt = 0;
+  int unknownQuantity = 0,
+      unvaluedEntries = 0,
+      valuedEntries = 0,
+      missingSalt = 0;
   int onHandValue = 0, expiredValue = 0, soldEntries = 0;
   final Map<String, FormCount> byForm = {};
 }
