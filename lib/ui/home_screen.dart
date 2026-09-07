@@ -94,11 +94,6 @@ class HomeScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              GlassIconButton(
-                tooltip: 'Expiry warning settings',
-                onPressed: () => showWarningSettings(context, controller),
-                icon: Icons.tune_rounded,
-              ),
             ],
           ),
           const SizedBox(height: 22),
