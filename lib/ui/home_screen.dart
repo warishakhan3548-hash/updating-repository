@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../state/pharmacy_controller.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
-import '../domain/date_input.dart';
 import 'design.dart';
 import 'search_screen.dart';
 import 'editor_screen.dart';
@@ -60,12 +59,6 @@ class HomeScreen extends StatelessWidget {
       final sold = controller.list(SearchScope.sold);
       final records = controller.list(SearchScope.all);
       final attention = [...expired, ...short, ...month].take(4).toList();
-      final hour = controller.clock().hour;
-      final greeting = hour < 12
-          ? 'Good morning!'
-          : hour < 17
-          ? 'Good afternoon!'
-          : 'Good evening!';
       return ListView(
         key: const PageStorageKey('home-scroll'),
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
@@ -97,23 +90,6 @@ class HomeScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 22),
-          Text(greeting, style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 7),
-          Wrap(
-            spacing: 12,
-            runSpacing: 6,
-            children: [
-              const Text(
-                'Your stock. Clearly organised.',
-                style: TextStyle(color: muted, fontSize: 12),
-              ),
-              Text(
-                inputDateText(controller.today),
-                style: const TextStyle(color: muted, fontSize: 12),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
           LayoutBuilder(
             builder: (context, constraints) {
               final scaler = MediaQuery.textScalerOf(context);
@@ -202,8 +178,6 @@ class HomeScreen extends StatelessWidget {
                 return maxHeight;
               }
 
-              // Measure the selector too: its label grows with system text
-              // scale, independently of the 40px icon. Include panel borders.
               final selectorHeight =
                   (scaler.scale(10.5) > 16 ? scaler.scale(10.5) : 16) + 30;
               final topRowHeight = selectorHeight > 42 ? selectorHeight : 42;
@@ -659,7 +633,6 @@ Future<void> showWarningSettings(
       ),
     ),
   );
-  // Dialog controllers are released after its route transition completes.
   Future<void>.delayed(const Duration(milliseconds: 300), () {
     days.dispose();
     months.dispose();
