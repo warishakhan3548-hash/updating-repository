@@ -51,6 +51,7 @@ class EditorScreen extends StatefulWidget {
 
 class _EditorScreenState extends State<EditorScreen> {
   final fields = <String, TextEditingController>{};
+  final _extraSaltControllers = <TextEditingController>[];
   final _formKey = GlobalKey<FormState>();
   late final int _baseRevision;
 
@@ -107,6 +108,24 @@ class _EditorScreenState extends State<EditorScreen> {
           : (widget.record!.unitPricePaise! / 100).toStringAsFixed(2),
     );
 
+    // Multiple salts stay backward-compatible with the existing single `salt`
+    // model field. We serialize visible salt boxes as "Salt A + Salt B + Salt C"
+    // so existing search/index/backup logic keeps seeing one searchable string.
+    final storedSalt = fields['salt']!.text.trim();
+    final saltParts = storedSalt.isEmpty
+        ? const <String>[]
+        : storedSalt
+              .split(RegExp(r'\s+\+\s+'))
+              .map((part) => part.trim())
+              .where((part) => part.isNotEmpty)
+              .toList();
+    if (saltParts.length > 1) {
+      fields['salt']!.text = saltParts.first;
+      for (final part in saltParts.skip(1)) {
+        _extraSaltControllers.add(TextEditingController(text: part));
+      }
+    }
+
     _form = widget.record?.form ?? seed?.form ?? '';
     final record = widget.record;
     _expiryMonthOnly = record?.expiry == null || record!.expiryMonthOnly;
@@ -124,7 +143,65 @@ class _EditorScreenState extends State<EditorScreen> {
     for (final field in fields.values) {
       field.dispose();
     }
+    for (final controller in _extraSaltControllers) {
+      controller.dispose();
+    }
     super.dispose();
+  }
+
+  String get _saltValue => [
+    fields['salt']!.text,
+    ..._extraSaltControllers.map((controller) => controller.text),
+  ].map((value) => value.trim()).where((value) => value.isNotEmpty).join(' + ');
+
+  void _addSalt() {
+    if (_busy) return;
+    setState(() {
+      _extraSaltControllers.add(TextEditingController());
+      _dirty = true;
+    });
+  }
+
+  void _removeSalt(int index) {
+    if (_busy || index < 0 || index >= _extraSaltControllers.length) return;
+    final controller = _extraSaltControllers.removeAt(index);
+    controller.dispose();
+    setState(() => _dirty = true);
+  }
+
+  Widget _saltField({TextEditingController? controller, int? extraIndex}) {
+    final isPrimary = controller == null;
+    final textController = controller ?? fields['salt']!;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: TextFormField(
+        controller: textController,
+        enabled: !_busy,
+        onChanged: (_) => setState(() => _dirty = true),
+        textInputAction: TextInputAction.next,
+        onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+        decoration: InputDecoration(
+          labelText: isPrimary ? 'Salt name · optional' : 'Another salt · optional',
+          hintText: isPrimary ? 'e.g. Paracetamol' : 'e.g. Caffeine',
+          helperText: isPrimary
+              ? 'Some medicines contain 2 or 3 salts. Tap + only when you need another one.'
+              : null,
+          suffixIcon: isPrimary
+              ? IconButton(
+                  tooltip: 'Add another salt',
+                  onPressed: _busy ? null : _addSalt,
+                  icon: const Icon(Icons.add_circle_outline_rounded),
+                )
+              : IconButton(
+                  tooltip: 'Remove this salt',
+                  onPressed: _busy || extraIndex == null
+                      ? null
+                      : () => _removeSalt(extraIndex),
+                  icon: const Icon(Icons.remove_circle_outline_rounded),
+                ),
+        ),
+      ),
+    );
   }
 
   Medicine _draft() {
@@ -138,8 +215,9 @@ class _EditorScreenState extends State<EditorScreen> {
     final data = <String, dynamic>{
       ...?old?.toJson(),
       for (final entry in fields.entries)
-        if (!{'price', 'quantity'}.contains(entry.key))
+        if (!{'price', 'quantity', 'salt'}.contains(entry.key))
           entry.key: entry.value.text.trim(),
+      'salt': _saltValue,
       'expiry': inputDateToIso(
         fields['expiry']!.text,
         monthOnly: _expiryMonthOnly,
@@ -750,7 +828,7 @@ class _EditorScreenState extends State<EditorScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Only the medicine name is required. Scanner/OCR text can stay messy on purpose so future searches still match the pack.',
+                  'Only the medicine name is required. Add one or more salts when useful; scanner/OCR text can stay messy on purpose so future searches still match the pack.',
                   style: TextStyle(color: muted, fontSize: 13, height: 1.45),
                 ),
                 const SizedBox(height: 24),
@@ -764,6 +842,12 @@ class _EditorScreenState extends State<EditorScreen> {
                       'Medicine name *',
                       hint: 'e.g. Paracetamol',
                     ),
+                    _saltField(),
+                    for (var i = 0; i < _extraSaltControllers.length; i++)
+                      _saltField(
+                        controller: _extraSaltControllers[i],
+                        extraIndex: i,
+                      ),
                     DateEntryField(
                       controller: fields['mfg']!,
                       label: 'Manufacturing date · optional',
