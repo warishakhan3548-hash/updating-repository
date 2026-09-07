@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../domain/medicine.dart';
+import '../domain/date_input.dart';
+import 'date_field.dart';
 import '../domain/tracking.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
@@ -24,12 +26,13 @@ class _StatsScreenState extends State<StatsScreen> {
 
   Future<void> _customRange() async {
     final today = widget.controller.today;
-    final selected = await showDateRangePicker(
+    final selected = await showDateEntryDialog(
       context: context,
       firstDate: DateTime(today.year - 10, today.month, today.day),
       lastDate: today,
-      initialDateRange: DateTimeRange(start: _range.start, end: _range.end),
-      helpText: 'Choose tracking period',
+      initialDate: _preset == null ? _range.start : TrackingRange.lastDays(today, _preset!).start,
+      initialEnd: _preset == null ? _range.end : today,
+      title: 'Choose tracking period',
     );
     if (selected != null && mounted) {
       setState(() {
@@ -106,7 +109,7 @@ class _StatsScreenState extends State<StatsScreen> {
                   avatar: const Icon(Icons.date_range_outlined, size: 18),
                   label: Text(
                     _preset == null
-                        ? '${dateText(_range.start)} → ${dateText(_range.end)}'
+                        ? '${inputDateText(_range.start)} → ${inputDateText(_range.end)}'
                         : 'Custom',
                   ),
                   onPressed: _customRange,
@@ -485,7 +488,7 @@ class _StatsScreenState extends State<StatsScreen> {
                               ),
                             ),
                             Text(
-                              '${dateText(sale.occurredAt)} · ${sale.quantity} units',
+                              '${inputDateText(sale.occurredAt)} · ${sale.quantity} units',
                               style: const TextStyle(
                                 fontSize: 11,
                                 color: muted,

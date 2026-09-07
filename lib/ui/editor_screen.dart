@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../domain/medicine.dart';
+import '../domain/date_input.dart';
+import 'date_field.dart';
 import '../domain/inventory.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
@@ -43,6 +45,8 @@ class EditorScreen extends StatefulWidget {
 class _EditorScreenState extends State<EditorScreen> {
   final fields = <String, TextEditingController>{};
   late final int _baseRevision;
+  final _formKey = GlobalKey<FormState>();
+  bool _expiryMonthOnly = true;
   String _form = '', _error = '';
   bool _busy = false, _restocking = false, _dirty = false, _allowPop = false;
   @override
@@ -79,6 +83,12 @@ class _EditorScreenState extends State<EditorScreen> {
           : (widget.record!.unitPricePaise! / 100).toStringAsFixed(2),
     );
     _form = widget.record?.form ?? '';
+    final record = widget.record;
+    _expiryMonthOnly = record?.expiry == null || record!.expiryMonthOnly;
+    if (record?.expiry != null) {
+      fields['expiry']!.text = inputDateText(record!.expiry!, monthOnly: _expiryMonthOnly);
+    }
+    if (record?.mfg != null) fields['mfg']!.text = inputDateText(record!.mfg!);
   }
 
   @override
@@ -104,6 +114,8 @@ class _EditorScreenState extends State<EditorScreen> {
       for (final entry in fields.entries)
         if (!{'price', 'quantity'}.contains(entry.key))
           entry.key: entry.value.text.trim(),
+      'expiry': inputDateToIso(fields['expiry']!.text, monthOnly: _expiryMonthOnly),
+      'mfg': inputDateToIso(fields['mfg']!.text),
       'id': old?.id ?? newId(),
       'form': _form,
       'quantity': quantity,
@@ -140,6 +152,10 @@ class _EditorScreenState extends State<EditorScreen> {
       false;
   Future<void> _save({bool sold = false}) async {
     if (_busy) return;
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      showError(context, 'Check the highlighted fields before saving.');
+      return;
+    }
     setState(() => _busy = true);
     try {
       var draft = _draft();
@@ -316,32 +332,22 @@ class _EditorScreenState extends State<EditorScreen> {
                 OutlinedButton.icon(
                   onPressed: () async {
                     final today = widget.controller.today;
-                    final chosen = await showDatePicker(
+                    final chosen = await showDateEntryDialog(
                       context: ctx,
-                      firstDate: DateTime(
-                        today.year - 10,
-                        today.month,
-                        today.day,
-                      ),
-                      lastDate: DateTime(today.year, today.month, today.day),
-                      initialDate: occurredAt == null
-                          ? DateTime(today.year, today.month, today.day)
-                          : DateTime(
-                              occurredAt!.year,
-                              occurredAt!.month,
-                              occurredAt!.day,
-                            ),
-                      helpText: 'Choose sale date',
+                      title: 'Choose sale date',
+                      firstDate: DateTime(today.year - 10, today.month, today.day),
+                      lastDate: today,
+                      initialDate: occurredAt ?? today,
                     );
-                    if (chosen != null) {
-                      setState(() => occurredAt = chosen);
+                    if (chosen != null && ctx.mounted) {
+                      setState(() => occurredAt = chosen.start);
                     }
                   },
                   icon: const Icon(Icons.event_outlined),
                   label: Text(
                     occurredAt == null
                         ? 'Sale date · today'
-                        : 'Sale date · ${dateText(occurredAt!)}',
+                        : 'Sale date · ${inputDateText(occurredAt!)}',
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -470,6 +476,28 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
+  void _changeExpiryFormat(bool monthOnly) {
+    if (_expiryMonthOnly == monthOnly) return;
+    final text = fields['expiry']!.text.trim();
+    String next = '';
+    if (text.isNotEmpty) {
+      try {
+        final date = parseDate(inputDateToIso(text, monthOnly: _expiryMonthOnly),
+            monthEnd: _expiryMonthOnly)!;
+        next = inputDateText(date, monthOnly: monthOnly);
+      } on FormatException {
+        showError(context, 'Finish or clear the expiry date before changing its format.');
+        return;
+      }
+    }
+    setState(() {
+      _expiryMonthOnly = monthOnly;
+      fields['expiry']!.value = TextEditingValue(text: next,
+        selection: TextSelection.collapsed(offset: next.length));
+      _dirty = true;
+    });
+  }
+
   Widget _field(
     String key,
     String label, {
@@ -486,6 +514,8 @@ class _EditorScreenState extends State<EditorScreen> {
       maxLines: lines,
       maxLength: max,
       keyboardType: keyboard,
+      textInputAction: lines > 1 ? TextInputAction.newline : TextInputAction.next,
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
@@ -515,7 +545,10 @@ class _EditorScreenState extends State<EditorScreen> {
           title: Text(record == null ? 'Add medicine' : 'Medicine details'),
         ),
         body: SafeArea(
-          child: ListView(
+          child: Form(
+            key: _formKey,
+            child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: const EdgeInsets.fromLTRB(22, 10, 22, 30),
             children: [
               if (record != null)
@@ -624,25 +657,35 @@ class _EditorScreenState extends State<EditorScreen> {
                 }),
               ),
               const SectionHeading('Dates & stock'),
-              _field(
-                'expiry',
-                'Expiry date · optional',
-                hint: 'YYYY-MM-DD or printed YYYY-MM',
-                keyboard: TextInputType.datetime,
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final monthOnly in [true, false])
+                    ChoiceChip(
+                      label: Text(monthOnly ? 'Month / year' : 'Full date'),
+                      selected: _expiryMonthOnly == monthOnly,
+                      onSelected: _busy ? null : (_) => _changeExpiryFormat(monthOnly),
+                    ),
+                ],
               ),
-              const Padding(
-                padding: EdgeInsets.only(bottom: 14),
-                child: Text(
-                  'A printed expiry month is treated as valid through its last day.',
-                  style: TextStyle(fontSize: 12, color: muted),
-                ),
+              const SizedBox(height: 14),
+              DateEntryField(
+                key: ValueKey('expiry-$_expiryMonthOnly'),
+                controller: fields['expiry']!,
+                label: 'Expiry date · optional',
+                monthOnly: _expiryMonthOnly,
+                enabled: !_busy,
+                onChanged: (_) => setState(() => _dirty = true),
               ),
-              _field(
-                'mfg',
-                'Manufacturing date · optional',
-                hint: 'YYYY-MM-DD',
-                keyboard: TextInputType.datetime,
+              const SizedBox(height: 20),
+              DateEntryField(
+                controller: fields['mfg']!,
+                label: 'Manufacturing date · optional',
+                enabled: !_busy,
+                onChanged: (_) => setState(() => _dirty = true),
               ),
+              const SizedBox(height: 20),
               _field(
                 'quantity',
                 'Stock quantity · optional',
@@ -734,6 +777,7 @@ class _EditorScreenState extends State<EditorScreen> {
                   ),
                 ),
             ],
+          ),
           ),
         ),
       ),
