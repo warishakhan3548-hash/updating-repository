@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../domain/inventory.dart';
+import '../domain/medicine_discovery.dart';
 import '../domain/search.dart';
+import '../services/medicine_catalog_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'editor_screen.dart';
@@ -28,11 +30,13 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final _query = TextEditingController();
+  final _catalog = MedicineCatalogService();
   Timer? _debounce;
   List<SearchHit> _hits = [];
-  bool _loading = true;
-  String _error = '';
-  int _generation = 0;
+  List<MedicineCatalogCandidate> _catalogHits = [];
+  bool _loading = true, _catalogLoading = false;
+  String _error = '', _catalogError = '';
+  int _generation = 0, _catalogGeneration = 0;
   ScanResult? _scan;
   @override
   void initState() {
@@ -71,6 +75,13 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  void _clearCatalog() {
+    ++_catalogGeneration;
+    _catalogHits = [];
+    _catalogLoading = false;
+    _catalogError = '';
+  }
+
   void _typed(String value) {
     ++_generation;
     _debounce?.cancel();
@@ -79,6 +90,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _loading = true;
       _error = '';
       _scan = null;
+      _clearCatalog();
     });
     _debounce = Timer(
       const Duration(milliseconds: 150),
@@ -88,8 +100,53 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _setQuery(String value) {
     _debounce?.cancel();
-    _query.text = value;
+    setState(() {
+      _query.text = value;
+      _scan = null;
+      _clearCatalog();
+    });
     unawaited(_search());
+  }
+
+  bool _scanHasConfidentLocalMatch(ScanResult scan) {
+    if (scan.barcode.isNotEmpty) {
+      final exactBarcode = widget.controller.records.any(
+        (medicine) =>
+            !medicine.archived && medicine.barcode.trim() == scan.barcode.trim(),
+      );
+      if (exactBarcode) return true;
+    }
+    return _hits.any((hit) => hit.score >= .90);
+  }
+
+  Future<void> _discoverOnline(ScanResult scan) async {
+    if (!widget.database || !mounted) return;
+    final generation = ++_catalogGeneration;
+    setState(() {
+      _catalogLoading = true;
+      _catalogHits = [];
+      _catalogError = '';
+    });
+    try {
+      final candidates = await _catalog.search(
+        barcode: scan.barcode,
+        text: scan.text,
+      );
+      if (!mounted || generation != _catalogGeneration) return;
+      setState(() {
+        _catalogHits = candidates;
+        _catalogLoading = false;
+        _catalogError = candidates.isEmpty
+            ? 'No reliable public-catalog identity was found for this scan.'
+            : '';
+      });
+    } catch (_) {
+      if (!mounted || generation != _catalogGeneration) return;
+      setState(() {
+        _catalogLoading = false;
+        _catalogError = 'Online medicine lookup is unavailable right now.';
+      });
+    }
   }
 
   Future<void> _scanner() async {
@@ -98,8 +155,20 @@ class _SearchScreenState extends State<SearchScreen> {
       MaterialPageRoute(builder: (_) => const ScannerScreen()),
     );
     if (result == null || !mounted) return;
-    setState(() => _scan = result);
-    _setQuery(result.barcode.isNotEmpty ? result.barcode : result.text);
+    _debounce?.cancel();
+    ++_catalogGeneration;
+    setState(() {
+      _scan = result;
+      _query.text = result.barcode.isNotEmpty ? result.barcode : result.text;
+      _catalogHits = [];
+      _catalogError = '';
+      _catalogLoading = false;
+    });
+    await _search();
+    if (!mounted || !widget.database || _scanHasConfidentLocalMatch(result)) {
+      return;
+    }
+    await _discoverOnline(result);
   }
 
   Future<void> _mic() async {
@@ -143,11 +212,25 @@ class _SearchScreenState extends State<SearchScreen> {
     if (result != null && mounted) _setQuery(result);
   }
 
+  void _openCatalogCandidate(MedicineCatalogCandidate candidate) {
+    final scan = _scan;
+    final seed = candidate.seed.withScanBarcode(scan?.barcode ?? '');
+    openEditor(
+      context,
+      widget.controller,
+      seed: seed,
+      barcode: scan?.barcode ?? '',
+      ocrText: scan?.text ?? '',
+    );
+  }
+
   @override
   void dispose() {
     ++_generation;
+    ++_catalogGeneration;
     widget.controller.removeListener(_changed);
     _debounce?.cancel();
+    _catalog.close();
     _query.dispose();
     super.dispose();
   }
@@ -280,7 +363,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     ],
                   ),
                 ),
-                if (_scan != null && widget.database)
+                if (_scan != null && widget.database && !_catalogLoading && _catalogHits.isEmpty)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: OutlinedButton.icon(
@@ -291,7 +374,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         ocrText: _scan!.text,
                       ),
                       icon: const Icon(Icons.add),
-                      label: const Text('Add as new stock · review draft'),
+                      label: const Text('Add manually from this scan'),
                     ),
                   ),
                 if (_scan != null &&
@@ -305,6 +388,67 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
         ),
+        if (_catalogLoading)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(22, 2, 22, 14),
+              child: Surface(
+                color: Color(0xFFEAF7F3),
+                padding: EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Not found confidently in your database. Looking up the medicine identity online…',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        if (_catalogHits.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 2, 22, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Choose the medicine found online',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Internet is used only to prefill identity fields such as name, brand, salt, strength, form and manufacturer. Expiry and your stock details stay blank.',
+                    style: TextStyle(color: muted, fontSize: 12, height: 1.45),
+                  ),
+                  const SizedBox(height: 14),
+                  for (final candidate in _catalogHits)
+                    _CatalogCandidateCard(
+                      candidate: candidate,
+                      onTap: () => _openCatalogCandidate(candidate),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        if (_catalogError.isNotEmpty && _scan != null && widget.database)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 0, 22, 12),
+              child: Text(
+                _catalogError,
+                style: const TextStyle(color: muted, fontSize: 12),
+              ),
+            ),
+          ),
         if (_error.isNotEmpty)
           SliverToBoxAdapter(
             child: Padding(
@@ -324,13 +468,15 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
           ),
-        if (_hits.isEmpty && !_loading)
+        if (_hits.isEmpty && !_loading && _catalogHits.isEmpty && !_catalogLoading)
           SliverToBoxAdapter(
             child: EmptyState(
               title: _query.text.trim().isEmpty
                   ? 'No medicines here yet'
                   : 'No matching medicines',
-              message: widget.scope == SearchScope.all
+              message: _scan != null && widget.database
+                  ? 'This scan was not matched confidently in your database or public medicine catalogs. You can still add it manually and review the pack.'
+                  : widget.scope == SearchScope.all
                   ? 'Try a name, salt, location, barcode or words from your notes.'
                   : 'No matches in this category. You can also search the whole inventory.',
               action: widget.database
@@ -360,7 +506,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   : null,
             ),
           )
-        else
+        else if (_hits.isNotEmpty)
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(22, 2, 22, 0),
             sliver: SliverList.builder(
@@ -411,5 +557,89 @@ class _SearchScreenState extends State<SearchScreen> {
             appBar: AppBar(title: Text(title)),
             body: SafeArea(child: body),
           );
+  }
+}
+
+class _CatalogCandidateCard extends StatelessWidget {
+  const _CatalogCandidateCard({
+    required this.candidate,
+    required this.onTap,
+  });
+
+  final MedicineCatalogCandidate candidate;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final seed = candidate.seed;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Surface(
+        color: const Color(0xFFF5FBF8),
+        padding: EdgeInsets.zero,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const DepthIcon(Icons.public_rounded, size: 42),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        seed.name,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      if (candidate.subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          candidate.subtitle,
+                          style: const TextStyle(color: muted, fontSize: 12),
+                        ),
+                      ],
+                      if (seed.brand.isNotEmpty && seed.brand != seed.name)
+                        Text(
+                          'Brand · ${seed.brand}',
+                          style: const TextStyle(color: muted, fontSize: 12),
+                        ),
+                      if (seed.manufacturer.isNotEmpty)
+                        Text(
+                          seed.manufacturer,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: muted, fontSize: 12),
+                        ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          StatusPill(candidate.confidence),
+                          Text(
+                            candidate.provider,
+                            style: const TextStyle(
+                              color: muted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.arrow_forward_rounded, color: green),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
