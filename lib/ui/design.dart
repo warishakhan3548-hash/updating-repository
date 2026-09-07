@@ -6,16 +6,25 @@ import '../domain/medicine.dart';
 import '../domain/date_input.dart';
 import '../domain/inventory.dart';
 
-const ink = Color(0xFF173B34);
-const muted = Color(0xFF60746C);
-const canvas = Color(0xFFF3F8F5);
-const lime = Color(0xFFD9F39A);
-const green = Color(0xFF237A55);
-const red = Color(0xFFBD3F3C);
-const amber = Color(0xFF9C680D);
+// Shared palette: brand colors communicate actions; status colors communicate stock.
+const primary = Color(0xFF245BD6);
+const primaryDeep = Color(0xFF183F99);
+const primarySoft = Color(0xFFEAF0FF);
+const accent = Color(0xFF0D747C);
+const accentSoft = Color(0xFFE8F5F5);
+const ink = Color(0xFF182A44);
+const muted = Color(0xFF596A82);
+const canvas = Color(0xFFF5F7FB);
+const outline = Color(0xFFD9E2F0);
+const inverseMuted = Color(0xFFD5E2FF);
+const green = Color(0xFF1D7653);
+const red = Color(0xFFB63843);
+const amber = Color(0xFF90600C);
+const successSoft = Color(0xFFEDF7F1);
+const warningSoft = Color(0xFFFFF5E3);
+const errorSoft = Color(0xFFFFEFF1);
 
-/// The fixed, lightweight colour field behind every route. The glows are
-/// painted once instead of blurring large full-screen widgets while scrolling.
+/// One calm canvas behind all routes. Dense content never needs full-screen blur.
 class PharmacyBackdrop extends StatelessWidget {
   const PharmacyBackdrop({super.key, required this.child});
 
@@ -24,56 +33,8 @@ class PharmacyBackdrop extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ColoredBox(
     color: canvas,
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        const RepaintBoundary(
-          child: IgnorePointer(
-            child: CustomPaint(painter: _AmbientGlowPainter()),
-          ),
-        ),
-        BackdropGroup(child: child),
-      ],
-    ),
+    child: BackdropGroup(child: child),
   );
-}
-
-class _AmbientGlowPainter extends CustomPainter {
-  const _AmbientGlowPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    void glow(Offset center, double radius, Color color) {
-      final bounds = Rect.fromCircle(center: center, radius: radius);
-      canvas.drawCircle(
-        center,
-        radius,
-        Paint()
-          ..shader = RadialGradient(
-            colors: [color, color.withValues(alpha: 0)],
-          ).createShader(bounds),
-      );
-    }
-
-    glow(
-      Offset(size.width * .10, size.height * .08),
-      size.shortestSide * .72,
-      const Color(0x385EF0C1),
-    );
-    glow(
-      Offset(size.width * .95, size.height * .33),
-      size.shortestSide * .68,
-      const Color(0x2D88D8FF),
-    );
-    glow(
-      Offset(size.width * .36, size.height * .94),
-      size.shortestSide * .78,
-      const Color(0x26DDF59D),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_AmbientGlowPainter oldDelegate) => false;
 }
 
 /// One shared glass recipe for dashboard tiles, cards, sheets and navigation.
@@ -89,7 +50,7 @@ class GlassPanel extends StatelessWidget {
     this.radius = 24,
     this.padding = EdgeInsets.zero,
     this.dark = false,
-    this.blurSigma = 14,
+    this.blurSigma = 0,
     this.elevation = 1,
   });
 
@@ -104,21 +65,8 @@ class GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highContrast = MediaQuery.highContrastOf(context);
+    final isDark = dark || tint.computeLuminance() < .16;
     final borderRadius = BorderRadius.circular(radius);
-    final effectiveBlur = highContrast ? 0.0 : blurSigma;
-    final baseAlpha = highContrast ? (dark ? .98 : .96) : (dark ? .91 : .70);
-    final top = Color.alphaBlend(
-      Colors.white.withValues(alpha: dark ? .12 : .64),
-      tint,
-    ).withValues(alpha: baseAlpha);
-    final middle = Color.alphaBlend(
-      Colors.white.withValues(alpha: dark ? .035 : .24),
-      tint,
-    ).withValues(alpha: baseAlpha);
-    final bottom = Color.alphaBlend(
-      (dark ? Colors.black : ink).withValues(alpha: dark ? .09 : .035),
-      tint,
-    ).withValues(alpha: baseAlpha);
     final panel = Container(
       padding: padding,
       decoration: BoxDecoration(
@@ -126,28 +74,25 @@ class GlassPanel extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          stops: const [0, .48, 1],
-          colors: [top, middle, bottom],
+          colors: [
+            Color.alphaBlend(
+              Colors.white.withValues(alpha: isDark ? .045 : .12),
+              tint,
+            ),
+            tint,
+          ],
         ),
         border: Border.all(
           color: highContrast
-              ? (dark ? Colors.white : ink).withValues(alpha: .64)
-              : Colors.white.withValues(alpha: dark ? .22 : .90),
-          width: highContrast ? 1.5 : 1.15,
+              ? (isDark ? Colors.white : ink)
+              : isDark
+              ? Colors.white.withValues(alpha: .16)
+              : outline,
+          width: highContrast ? 1.5 : 1,
         ),
       ),
       child: child,
     );
-    final filtered = effectiveBlur <= 0
-        ? panel
-        : BackdropFilter.grouped(
-            filter: ImageFilter.blur(
-              sigmaX: effectiveBlur,
-              sigmaY: effectiveBlur,
-              tileMode: TileMode.decal,
-            ),
-            child: panel,
-          );
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: borderRadius,
@@ -155,30 +100,22 @@ class GlassPanel extends StatelessWidget {
             ? const []
             : [
                 BoxShadow(
-                  color: (dark ? Colors.black : ink).withValues(
-                    alpha: dark ? .24 : .085 * elevation.clamp(0, 1.5),
-                  ),
-                  blurRadius: 18 + (8 * elevation),
-                  spreadRadius: -5,
-                  offset: Offset(0, 8 + (5 * elevation)),
-                ),
-                BoxShadow(
-                  color: tint.withValues(
-                    alpha: dark ? .06 : .12 * elevation.clamp(0, 1.5),
-                  ),
-                  blurRadius: 18,
-                  spreadRadius: -7,
-                  offset: const Offset(0, 8),
-                ),
-                BoxShadow(
-                  color: Colors.white.withValues(alpha: dark ? .035 : .82),
-                  blurRadius: 9,
+                  color: ink.withValues(alpha: .055 * elevation.clamp(0, 1.5)),
+                  blurRadius: 20,
                   spreadRadius: -6,
-                  offset: const Offset(-4, -4),
+                  offset: const Offset(0, 7),
                 ),
               ],
       ),
-      child: ClipRRect(borderRadius: borderRadius, child: filtered),
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: highContrast || blurSigma <= 0
+            ? panel
+            : BackdropFilter.grouped(
+                filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+                child: panel,
+              ),
+      ),
     );
   }
 }
@@ -189,9 +126,9 @@ class GlassIconButton extends StatelessWidget {
     required this.tooltip,
     required this.onPressed,
     required this.icon,
-    this.size = 44,
-    this.tint = const Color(0xFFE4F3EE),
-    this.color = ink,
+    this.size = 48,
+    this.tint = primarySoft,
+    this.color = primary,
   });
 
   final String tooltip;
@@ -225,40 +162,20 @@ class GlassIconButton extends StatelessWidget {
   );
 }
 
-BoxDecoration depthDecoration(Color color, {double radius = 24}) {
-  final dark = color.computeLuminance() < .15;
+BoxDecoration depthDecoration(Color color, {double radius = 22}) {
+  final dark = color.computeLuminance() < .16;
   return BoxDecoration(
+    color: color,
     borderRadius: BorderRadius.circular(radius),
-    gradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        Color.alphaBlend(
-          Colors.white.withValues(alpha: dark ? .10 : .58),
-          color,
-        ),
-        color,
-        Color.alphaBlend(ink.withValues(alpha: dark ? .09 : .035), color),
-      ],
-    ),
     border: Border.all(
-      color: dark
-          ? Colors.white.withValues(alpha: .12)
-          : Colors.white.withValues(alpha: .88),
-      width: 1.1,
+      color: dark ? Colors.white.withValues(alpha: .14) : outline,
     ),
     boxShadow: [
       BoxShadow(
-        color: ink.withValues(alpha: dark ? .22 : .09),
-        blurRadius: 26,
-        spreadRadius: -5,
-        offset: const Offset(0, 13),
-      ),
-      BoxShadow(
-        color: Colors.white.withValues(alpha: dark ? .04 : .78),
-        blurRadius: 9,
+        color: ink.withValues(alpha: .06),
+        blurRadius: 20,
         spreadRadius: -6,
-        offset: const Offset(-4, -4),
+        offset: const Offset(0, 7),
       ),
     ],
   );
@@ -268,8 +185,8 @@ class DepthIcon extends StatelessWidget {
   const DepthIcon(
     this.icon, {
     super.key,
-    this.color = green,
-    this.background = const Color(0xFFE3F2E4),
+    this.color = primary,
+    this.background = primarySoft,
     this.size = 48,
   });
   final IconData icon;
@@ -297,7 +214,7 @@ class ScreenIntro extends StatelessWidget {
     required this.title,
     required this.message,
     required this.icon,
-    this.color = green,
+    this.color = primary,
   });
   final String title, message;
   final IconData icon;
@@ -341,7 +258,7 @@ class FlowSteps extends StatelessWidget {
       children: [
         for (var i = 0; i < steps.length; i++)
           GlassPanel(
-            tint: i == current ? lime : Colors.white,
+            tint: i == current ? primarySoft : Colors.white,
             radius: 14,
             blurSigma: 0,
             elevation: i == current ? .55 : .3,
@@ -430,16 +347,22 @@ class FormSection extends StatelessWidget {
 
 ThemeData pharmacyTheme() => ThemeData(
   useMaterial3: true,
-  colorScheme:
-      ColorScheme.fromSeed(
-        seedColor: ink,
-        brightness: Brightness.light,
-      ).copyWith(
-        primary: ink,
-        secondary: green,
-        surface: const Color(0xFFF8FCFA),
-        error: red,
-      ),
+  colorScheme: ColorScheme.fromSeed(seedColor: primary).copyWith(
+    primary: primary,
+    onPrimary: Colors.white,
+    primaryContainer: primarySoft,
+    onPrimaryContainer: primaryDeep,
+    secondary: accent,
+    onSecondary: Colors.white,
+    secondaryContainer: accentSoft,
+    onSecondaryContainer: accent,
+    surface: Colors.white,
+    onSurface: ink,
+    onSurfaceVariant: muted,
+    error: red,
+    onError: Colors.white,
+    outline: outline,
+  ),
   scaffoldBackgroundColor: Colors.transparent,
   fontFamily: 'Manrope',
   fontFamilyFallback: const ['NotoSansDevanagari'],
@@ -447,7 +370,7 @@ ThemeData pharmacyTheme() => ThemeData(
     headlineLarge: TextStyle(
       fontSize: 34,
       fontWeight: FontWeight.w800,
-      letterSpacing: -1.1,
+      letterSpacing: -1,
       color: ink,
     ),
     headlineMedium: TextStyle(
@@ -467,12 +390,12 @@ ThemeData pharmacyTheme() => ThemeData(
       fontWeight: FontWeight.w700,
       color: ink,
     ),
-    bodyLarge: TextStyle(fontSize: 16, height: 1.4, color: ink),
-    bodyMedium: TextStyle(fontSize: 14, height: 1.4, color: ink),
-    bodySmall: TextStyle(fontSize: 12, height: 1.4, color: muted),
+    bodyLarge: TextStyle(fontSize: 16, height: 1.45, color: ink),
+    bodyMedium: TextStyle(fontSize: 14, height: 1.45, color: ink),
+    bodySmall: TextStyle(fontSize: 12, height: 1.45, color: muted),
   ),
   appBarTheme: const AppBarTheme(
-    backgroundColor: Colors.transparent,
+    backgroundColor: canvas,
     foregroundColor: ink,
     centerTitle: false,
     elevation: 0,
@@ -480,6 +403,7 @@ ThemeData pharmacyTheme() => ThemeData(
     surfaceTintColor: Colors.transparent,
     titleTextStyle: TextStyle(
       fontFamily: 'Manrope',
+      fontFamilyFallback: ['NotoSansDevanagari'],
       fontSize: 19,
       fontWeight: FontWeight.w800,
       color: ink,
@@ -487,191 +411,165 @@ ThemeData pharmacyTheme() => ThemeData(
   ),
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
-    fillColor: Colors.white.withValues(alpha: .66),
+    fillColor: Colors.white,
     floatingLabelStyle: const TextStyle(
-      color: green,
+      color: primary,
       fontWeight: FontWeight.w700,
     ),
+    hintStyle: const TextStyle(color: muted),
     helperMaxLines: 3,
     errorMaxLines: 3,
     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
     border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(18),
-      borderSide: BorderSide(color: Colors.white.withValues(alpha: .86)),
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: outline),
     ),
     enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(18),
-      borderSide: BorderSide(color: Colors.white.withValues(alpha: .88)),
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: outline),
     ),
     focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(18),
-      borderSide: const BorderSide(color: green, width: 1.8),
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: primary, width: 2),
     ),
-    disabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(18),
-      borderSide: BorderSide(color: Colors.white.withValues(alpha: .52)),
+    errorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: red),
+    ),
+    focusedErrorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: red, width: 2),
     ),
   ),
   filledButtonTheme: FilledButtonThemeData(
-    style:
-        FilledButton.styleFrom(
-          minimumSize: const Size(48, 52),
-          backgroundColor: ink,
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: ink.withValues(alpha: .16),
-          disabledForegroundColor: ink.withValues(alpha: .42),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(17),
-            side: BorderSide(color: Colors.white.withValues(alpha: .22)),
-          ),
-          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-          elevation: 5,
-          shadowColor: ink.withValues(alpha: .28),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        ).copyWith(
-          elevation: WidgetStateProperty.resolveWith(
-            (states) => states.contains(WidgetState.disabled)
-                ? 0
-                : states.contains(WidgetState.pressed)
-                ? 1
-                : 5,
-          ),
-        ),
+    style: FilledButton.styleFrom(
+      minimumSize: const Size(48, 52),
+      backgroundColor: primary,
+      foregroundColor: Colors.white,
+      disabledBackgroundColor: outline,
+      disabledForegroundColor: muted,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+      elevation: 0,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+    ),
   ),
   outlinedButtonTheme: OutlinedButtonThemeData(
-    style:
-        OutlinedButton.styleFrom(
-          minimumSize: const Size(48, 50),
-          foregroundColor: ink,
-          backgroundColor: Colors.white.withValues(alpha: .58),
-          disabledBackgroundColor: Colors.white.withValues(alpha: .26),
-          side: BorderSide(
-            color: Colors.white.withValues(alpha: .90),
-            width: 1.1,
-          ),
-          elevation: 3,
-          shadowColor: ink.withValues(alpha: .14),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(17),
-          ),
-        ).copyWith(
-          elevation: WidgetStateProperty.resolveWith(
-            (states) => states.contains(WidgetState.disabled)
-                ? 0
-                : states.contains(WidgetState.pressed)
-                ? 0
-                : 3,
-          ),
-        ),
+    style: OutlinedButton.styleFrom(
+      minimumSize: const Size(48, 50),
+      foregroundColor: primaryDeep,
+      backgroundColor: Colors.white,
+      side: const BorderSide(color: outline),
+      textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
   ),
   textButtonTheme: TextButtonThemeData(
     style: TextButton.styleFrom(
-      minimumSize: const Size(44, 44),
-      foregroundColor: ink,
-      backgroundColor: Colors.white.withValues(alpha: .38),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(15),
-        side: BorderSide(color: Colors.white.withValues(alpha: .68)),
-      ),
+      minimumSize: const Size(48, 48),
+      foregroundColor: primary,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
     ),
   ),
   iconButtonTheme: IconButtonThemeData(
     style: IconButton.styleFrom(
-      foregroundColor: ink,
-      backgroundColor: Colors.white.withValues(alpha: .48),
-      disabledBackgroundColor: Colors.white.withValues(alpha: .18),
-      padding: const EdgeInsets.all(11),
-      shape: CircleBorder(
-        side: BorderSide(color: Colors.white.withValues(alpha: .72)),
-      ),
+      minimumSize: const Size(48, 48),
+      foregroundColor: primary,
+      padding: const EdgeInsets.all(12),
     ),
   ),
   listTileTheme: const ListTileThemeData(
-    iconColor: green,
+    iconColor: primary,
     textColor: ink,
     minVerticalPadding: 14,
     titleTextStyle: TextStyle(
       fontFamily: 'Manrope',
+      fontFamilyFallback: ['NotoSansDevanagari'],
       fontSize: 15,
       fontWeight: FontWeight.w700,
       color: ink,
     ),
     subtitleTextStyle: TextStyle(
       fontFamily: 'Manrope',
+      fontFamilyFallback: ['NotoSansDevanagari'],
       fontSize: 12,
       height: 1.45,
       color: muted,
     ),
   ),
   chipTheme: ChipThemeData(
-    backgroundColor: Colors.white.withValues(alpha: .58),
-    selectedColor: lime,
-    disabledColor: Colors.white.withValues(alpha: .26),
-    side: BorderSide(color: Colors.white.withValues(alpha: .84)),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    backgroundColor: Colors.white,
+    selectedColor: primarySoft,
+    side: const BorderSide(color: outline),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     labelStyle: const TextStyle(
       color: ink,
       fontSize: 13,
       fontWeight: FontWeight.w600,
     ),
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-    elevation: 2,
+    elevation: 0,
     pressElevation: 0,
-    shadowColor: ink.withValues(alpha: .12),
   ),
   dialogTheme: DialogThemeData(
-    backgroundColor: const Color(0xF2F8FCFA),
+    backgroundColor: Colors.white,
     surfaceTintColor: Colors.transparent,
-    elevation: 18,
-    shadowColor: ink.withValues(alpha: .22),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
   ),
-  bottomSheetTheme: BottomSheetThemeData(
-    backgroundColor: Colors.white.withValues(alpha: .92),
+  bottomSheetTheme: const BottomSheetThemeData(
+    backgroundColor: canvas,
     surfaceTintColor: Colors.transparent,
     showDragHandle: true,
-    elevation: 18,
-    shadowColor: ink.withValues(alpha: .20),
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     ),
   ),
   cardTheme: CardThemeData(
-    color: Colors.white.withValues(alpha: .72),
+    color: Colors.white,
     surfaceTintColor: Colors.transparent,
-    elevation: 4,
-    shadowColor: ink.withValues(alpha: .12),
+    elevation: 0,
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(24),
-      side: BorderSide(color: Colors.white.withValues(alpha: .84)),
+      borderRadius: BorderRadius.circular(22),
+      side: const BorderSide(color: outline),
     ),
   ),
   popupMenuTheme: PopupMenuThemeData(
-    color: const Color(0xF4F8FCFA),
+    color: Colors.white,
     surfaceTintColor: Colors.transparent,
-    elevation: 12,
-    shadowColor: ink.withValues(alpha: .18),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
   ),
   snackBarTheme: SnackBarThemeData(
-    backgroundColor: ink.withValues(alpha: .95),
+    backgroundColor: ink,
     contentTextStyle: const TextStyle(color: Colors.white),
-    elevation: 10,
     behavior: SnackBarBehavior.floating,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
   ),
-  progressIndicatorTheme: const ProgressIndicatorThemeData(color: green),
+  dividerTheme: const DividerThemeData(color: outline, thickness: 1, space: 1),
+  progressIndicatorTheme: const ProgressIndicatorThemeData(color: primary),
   navigationBarTheme: NavigationBarThemeData(
     backgroundColor: Colors.transparent,
     surfaceTintColor: Colors.transparent,
     elevation: 0,
-    height: 76,
-    indicatorColor: lime,
-    indicatorShape: const StadiumBorder(),
-    labelTextStyle: WidgetStateProperty.all(
-      const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+    height: 72,
+    indicatorColor: primarySoft,
+    indicatorShape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+    ),
+    iconTheme: WidgetStateProperty.resolveWith(
+      (states) => IconThemeData(
+        color: states.contains(WidgetState.selected) ? primary : muted,
+      ),
+    ),
+    labelTextStyle: WidgetStateProperty.resolveWith(
+      (states) => TextStyle(
+        fontSize: 11,
+        fontWeight: states.contains(WidgetState.selected)
+            ? FontWeight.w800
+            : FontWeight.w600,
+        color: states.contains(WidgetState.selected) ? primary : muted,
+      ),
     ),
   ),
 );
@@ -784,13 +682,7 @@ class MedicineCard extends StatelessWidget {
     final timeline =
         state.status == StockStatus.shortExpiry ||
         state.status == StockStatus.monthExpiry;
-    final cardTint = switch (state.status) {
-      StockStatus.sold => const Color(0xFFFFF3D7),
-      StockStatus.expired => const Color(0xFFFFE9E7),
-      StockStatus.shortExpiry => const Color(0xFFECF8E5),
-      StockStatus.monthExpiry => const Color(0xFFEAF7F3),
-      _ => Colors.white,
-    };
+    const cardTint = Colors.white;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Semantics(
@@ -807,7 +699,7 @@ class MedicineCard extends StatelessWidget {
                 ? amber
                 : timeline
                 ? green
-                : const Color(0xFFDAE5DC),
+                : outline,
             timeline ||
                 state.status == StockStatus.expired ||
                 state.status == StockStatus.sold,
@@ -857,9 +749,9 @@ class MedicineCard extends StatelessWidget {
                               children: [
                                 Text(
                                   record.name,
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleMedium,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium,
                                 ),
                                 if (record.strength.isNotEmpty ||
                                     record.brand.isNotEmpty)
@@ -1015,7 +907,7 @@ class EmptyState extends StatelessWidget {
         const DepthIcon(
           Icons.inventory_2_outlined,
           size: 76,
-          background: Color(0xFFE5F3E8),
+          background: primarySoft,
         ),
         const SizedBox(height: 18),
         Text(

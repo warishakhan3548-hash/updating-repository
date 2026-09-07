@@ -192,7 +192,11 @@ class _AiScreenState extends State<AiScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.open_in_new_rounded, color: lime, size: 28),
+              const Icon(
+                Icons.open_in_new_rounded,
+                color: primarySoft,
+                size: 28,
+              ),
               const SizedBox(height: 16),
               const Text(
                 'Bring your favourite AI',
@@ -205,12 +209,12 @@ class _AiScreenState extends State<AiScreen> {
               const SizedBox(height: 10),
               const Text(
                 'Share only your pharmacy inventory as a TXT file. A ready-to-use prompt is copied with it.',
-                style: TextStyle(fontSize: 13, color: Color(0xFFC5D8CC)),
+                style: TextStyle(fontSize: 13, color: inverseMuted),
               ),
               const SizedBox(height: 20),
               FilledButton.icon(
                 style: FilledButton.styleFrom(
-                  backgroundColor: lime,
+                  backgroundColor: primarySoft,
                   foregroundColor: ink,
                 ),
                 onPressed: _sharing ? null : _share,
@@ -366,17 +370,14 @@ class _AiScreenState extends State<AiScreen> {
           Padding(
             padding: const EdgeInsets.only(top: 18),
             child: Surface(
-              color: const Color(0xFFFFEDEA),
+              color: errorSoft,
               child: SelectableText(_error, style: const TextStyle(color: red)),
             ),
           ),
         if (_notice.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 18),
-            child: Surface(
-              color: const Color(0xFFEAF3DE),
-              child: Text(_notice),
-            ),
+            child: Surface(color: primarySoft, child: Text(_notice)),
           ),
         if (_plan != null) ...[
           SectionHeading('${_plan!.changes.length} proposed changes'),

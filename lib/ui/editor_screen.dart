@@ -690,7 +690,7 @@ class _EditorScreenState extends State<EditorScreen> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 18),
                     child: Surface(
-                      color: const Color(0xFFEAF7F3),
+                      color: accentSoft,
                       padding: const EdgeInsets.all(16),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -708,7 +708,11 @@ class _EditorScreenState extends State<EditorScreen> {
                                 const SizedBox(height: 4),
                                 Text(
                                   'From ${widget.seed!.source}. Verify the pack. Expiry, MFG, quantity, price and pharmacy location were not filled from the internet.',
-                                  style: const TextStyle(color: muted, fontSize: 12, height: 1.4),
+                                  style: const TextStyle(
+                                    color: muted,
+                                    fontSize: 12,
+                                    height: 1.4,
+                                  ),
                                 ),
                               ],
                             ),

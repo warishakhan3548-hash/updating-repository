@@ -34,7 +34,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _debounce;
   List<SearchHit> _hits = [];
   List<MedicineCatalogCandidate> _catalogHits = [];
-  bool _loading = true, _catalogLoading = false;
+  bool _loading = true, _catalogLoading = false, _voiceOpening = false;
   String _error = '', _catalogError = '';
   int _generation = 0, _catalogGeneration = 0;
   ScanResult? _scan;
@@ -112,7 +112,8 @@ class _SearchScreenState extends State<SearchScreen> {
     if (scan.barcode.isNotEmpty) {
       final exactBarcode = widget.controller.records.any(
         (medicine) =>
-            !medicine.archived && medicine.barcode.trim() == scan.barcode.trim(),
+            !medicine.archived &&
+            medicine.barcode.trim() == scan.barcode.trim(),
       );
       if (exactBarcode) return true;
     }
@@ -172,8 +173,14 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _mic() async {
-    final result = await voiceSearch(context);
-    if (result != null && mounted) _setQuery(result);
+    if (_voiceOpening) return;
+    setState(() => _voiceOpening = true);
+    try {
+      final result = await voiceSearch(context);
+      if (result != null && mounted) _setQuery(result);
+    } finally {
+      if (mounted) setState(() => _voiceOpening = false);
+    }
   }
 
   Future<void> _bulk() async {
@@ -329,7 +336,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       label: const Text('Scan'),
                     ),
                     OutlinedButton.icon(
-                      onPressed: _mic,
+                      onPressed: _voiceOpening ? null : _mic,
                       icon: const Icon(Icons.mic_none_rounded, size: 19),
                       label: const Text('Voice'),
                     ),
@@ -363,7 +370,10 @@ class _SearchScreenState extends State<SearchScreen> {
                     ],
                   ),
                 ),
-                if (_scan != null && widget.database && !_catalogLoading && _catalogHits.isEmpty)
+                if (_scan != null &&
+                    widget.database &&
+                    !_catalogLoading &&
+                    _catalogHits.isEmpty)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: OutlinedButton.icon(
@@ -393,7 +403,7 @@ class _SearchScreenState extends State<SearchScreen> {
             child: Padding(
               padding: EdgeInsets.fromLTRB(22, 2, 22, 14),
               child: Surface(
-                color: Color(0xFFEAF7F3),
+                color: accentSoft,
                 padding: EdgeInsets.all(16),
                 child: Row(
                   children: [
@@ -454,7 +464,7 @@ class _SearchScreenState extends State<SearchScreen> {
             child: Padding(
               padding: const EdgeInsets.all(22),
               child: Surface(
-                color: const Color(0xFFFCE5E1),
+                color: errorSoft,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -468,7 +478,10 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
           ),
-        if (_hits.isEmpty && !_loading && _catalogHits.isEmpty && !_catalogLoading)
+        if (_hits.isEmpty &&
+            !_loading &&
+            _catalogHits.isEmpty &&
+            !_catalogLoading)
           SliverToBoxAdapter(
             child: EmptyState(
               title: _query.text.trim().isEmpty
@@ -561,10 +574,7 @@ class _SearchScreenState extends State<SearchScreen> {
 }
 
 class _CatalogCandidateCard extends StatelessWidget {
-  const _CatalogCandidateCard({
-    required this.candidate,
-    required this.onTap,
-  });
+  const _CatalogCandidateCard({required this.candidate, required this.onTap});
 
   final MedicineCatalogCandidate candidate;
   final VoidCallback onTap;
@@ -575,7 +585,7 @@ class _CatalogCandidateCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Surface(
-        color: const Color(0xFFF5FBF8),
+        color: Colors.white,
         padding: EdgeInsets.zero,
         child: InkWell(
           onTap: onTap,

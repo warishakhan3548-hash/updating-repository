@@ -74,8 +74,8 @@ class HomeScreen extends StatelessWidget {
             children: [
               const DepthIcon(
                 Icons.add_rounded,
-                color: lime,
-                background: ink,
+                color: primarySoft,
+                background: primary,
                 size: 46,
               ),
               const SizedBox(width: 12),
@@ -135,8 +135,8 @@ class HomeScreen extends StatelessWidget {
                   caption: 'Short expiry',
                   count: short.length,
                   icon: Icons.timelapse_rounded,
-                  color: green,
-                  background: const Color(0xFFE5F6D7),
+                  color: primary,
+                  background: primarySoft,
                   selector: _WarningSelector(
                     label:
                         '${controller.settings.shortDays} ${controller.settings.shortDays == 1 ? 'Day' : 'Days'}',
@@ -154,8 +154,8 @@ class HomeScreen extends StatelessWidget {
                   caption: 'Month warning',
                   count: month.length,
                   icon: Icons.calendar_month_rounded,
-                  color: const Color(0xFF167EA6),
-                  background: const Color(0xFFE2F3FC),
+                  color: accent,
+                  background: accentSoft,
                   selector: _WarningSelector(
                     label:
                         '${controller.settings.months} ${controller.settings.months == 1 ? 'Month' : 'Months'}',
@@ -173,7 +173,7 @@ class HomeScreen extends StatelessWidget {
                   count: sold.length,
                   icon: Icons.check_circle_outline_rounded,
                   color: amber,
-                  background: const Color(0xFFFFF0CD),
+                  background: warningSoft,
                   onTap: () => _open(context, SearchScope.sold),
                 ),
                 _OverviewTile(
@@ -182,7 +182,7 @@ class HomeScreen extends StatelessWidget {
                   count: expired.length,
                   icon: Icons.event_busy_rounded,
                   color: red,
-                  background: const Color(0xFFFCE5E1),
+                  background: errorSoft,
                   onTap: () => _open(context, SearchScope.expired),
                 ),
               ];
@@ -213,7 +213,7 @@ class HomeScreen extends StatelessWidget {
 
               // Keep every overview card exactly the same measured height.
               final height =
-                  102 +
+                  106 +
                   scaler.scale(36) * 1.2 +
                   maxTextHeight(false) +
                   maxTextHeight(true);
@@ -263,7 +263,7 @@ class HomeScreen extends StatelessWidget {
                   tooltip: 'Add medicine',
                   onPressed: () => openEditor(context, controller),
                   icon: Icons.add_circle_outline_rounded,
-                  size: 40,
+                  size: 48,
                 ),
               ],
             ),
@@ -278,8 +278,7 @@ class HomeScreen extends StatelessWidget {
           if (records.isEmpty)
             EmptyState(
               title: 'Start with your first medicine',
-              message:
-                  'Add its name now. Fill in expiry, location and price when you have them.',
+              message: 'Add its name now. Fill in expiry, location and price when you have them.',
               action: FilledButton.icon(
                 onPressed: () => openEditor(context, controller),
                 icon: const Icon(Icons.add),
@@ -332,134 +331,74 @@ class _OverviewTile extends StatelessWidget {
   final Widget? selector;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    label: '$title, $count medicines. $caption',
-    child: GlassPanel(
-      tint: background,
-      radius: 25,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(25),
-          child: Stack(
+  Widget build(BuildContext context) => GlassPanel(
+    radius: 22,
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Positioned(
-                left: -30,
-                top: -52,
-                child: IgnorePointer(
-                  child: Container(
-                    width: 155,
-                    height: 125,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(70),
-                      gradient: RadialGradient(
-                        colors: [
-                          Colors.white.withValues(alpha: .72),
-                          Colors.white.withValues(alpha: 0),
-                        ],
-                      ),
+              Row(
+                children: [
+                  DepthIcon(
+                    icon,
+                    color: color,
+                    background: background,
+                    size: 40,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child:
+                          selector ??
+                          Icon(
+                            Icons.north_east_rounded,
+                            size: 20,
+                            color: muted,
+                          ),
                     ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 13),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '$count',
+                  style: const TextStyle(
+                    color: ink,
+                    fontSize: 36,
+                    height: 1.2,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -1.2,
                   ),
                 ),
               ),
-              Positioned(
-                right: -12,
-                bottom: -14,
-                child: ExcludeSemantics(
-                  child: Transform.rotate(
-                    angle: -.25,
-                    child: Icon(
-                      icon,
-                      size: 86,
-                      color: color.withValues(alpha: .075),
-                    ),
-                  ),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.3,
+                  fontWeight: FontWeight.w800,
+                  color: ink,
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        GlassPanel(
-                          tint: Color.alphaBlend(
-                            color.withValues(alpha: .14),
-                            background,
-                          ),
-                          radius: 14,
-                          blurSigma: 0,
-                          elevation: .55,
-                          child: SizedBox(
-                            width: 42,
-                            height: 42,
-                            child: Icon(icon, color: color, size: 23),
-                          ),
-                        ),
-                        const Spacer(),
-                        selector ??
-                            GlassPanel(
-                              tint: background,
-                              radius: 18,
-                              blurSigma: 0,
-                              elevation: .45,
-                              child: SizedBox(
-                                width: 36,
-                                height: 36,
-                                child: Icon(
-                                  Icons.north_east_rounded,
-                                  color: color,
-                                  size: 20,
-                                ),
-                              ),
-                            ),
-                      ],
-                    ),
-                    const SizedBox(height: 13),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '$count',
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 36,
-                          height: 1.2,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -1.2,
-                          shadows: [
-                            Shadow(
-                              color: Colors.white.withValues(alpha: .72),
-                              blurRadius: 10,
-                              offset: const Offset(0, -1),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        height: 1.3,
-                        fontWeight: FontWeight.w800,
-                        color: ink,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      caption,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        height: 1.3,
-                        color: muted,
-                      ),
-                    ),
-                  ],
+              const SizedBox(height: 5),
+              Text(
+                caption,
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.3,
+                  color: color,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -517,17 +456,21 @@ class _WarningSelector extends StatelessWidget {
       radius: 999,
       blurSigma: 0,
       elevation: .35,
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 14),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: ink,
-              fontSize: 10.5,
-              height: 1,
-              fontWeight: FontWeight.w800,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: ink,
+                fontSize: 10.5,
+                height: 1,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
           const SizedBox(width: 3),
@@ -544,100 +487,54 @@ class _ScanBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GlassPanel(
-    tint: const Color(0xFF0B72FF),
-    radius: 27,
+    tint: primaryDeep,
+    radius: 22,
     dark: true,
     child: Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(27),
-        child: Stack(
-          children: [
-            Positioned(
-              right: -42,
-              top: -58,
-              child: IgnorePointer(
-                child: Container(
-                  width: 170,
-                  height: 170,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        const Color(0xFF4DD9FF).withValues(alpha: .38),
-                        const Color(0xFF4DD9FF).withValues(alpha: 0),
-                      ],
+        borderRadius: BorderRadius.circular(22),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              const DepthIcon(
+                Icons.qr_code_scanner_rounded,
+                color: Colors.white,
+                background: primary,
+                size: 48,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Scan & Search',
+                      style: Theme.of(context).textTheme.titleLarge
+                          ?.copyWith(color: Colors.white),
                     ),
-                  ),
+                    const SizedBox(height: 5),
+                    const Text(
+                      'Scan a pack. Speak a name. Find your stock.',
+                      style: TextStyle(
+                        color: inverseMuted,
+                        fontSize: 12,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  GlassPanel(
-                    tint: const Color(0xFF168BFF),
-                    radius: 17,
-                    dark: true,
-                    blurSigma: 0,
-                    elevation: .55,
-                    child: const SizedBox(
-                      width: 52,
-                      height: 52,
-                      child: Icon(
-                        Icons.qr_code_scanner_rounded,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Scan & Search',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        SizedBox(height: 6),
-                        Text(
-                          'Scan a barcode or search any medicine',
-                          style: TextStyle(
-                            color: Color(0xFFE6F3FF),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  GlassPanel(
-                    tint: const Color(0xFF43C7FF),
-                    radius: 22,
-                    dark: true,
-                    blurSigma: 0,
-                    elevation: .55,
-                    child: const SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: Icon(
-                        Icons.arrow_forward_rounded,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                    ),
-                  ),
-                ],
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.arrow_forward_rounded,
+                color: Colors.white,
+                size: 22,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     ),

@@ -91,7 +91,7 @@ class ProfileScreen extends StatelessWidget {
             children: [
               const DepthIcon(
                 Icons.local_pharmacy_rounded,
-                background: lime,
+                background: primarySoft,
                 color: ink,
                 size: 64,
               ),
@@ -141,7 +141,7 @@ class ProfileScreen extends StatelessWidget {
                   Icons.archive_outlined,
                   size: 40,
                   color: amber,
-                  background: Color(0xFFFFF0CD),
+                  background: warningSoft,
                 ),
                 title: const Text('Removed stock'),
                 subtitle: const Text('Find and restore archived medicines'),

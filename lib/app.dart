@@ -110,9 +110,9 @@ class _ShellState extends State<_Shell> {
         minimum: const EdgeInsets.fromLTRB(12, 0, 12, 10),
         child: GlassPanel(
           tint: Colors.white,
-          radius: 28,
-          blurSigma: 18,
-          elevation: 1.2,
+          radius: 24,
+          blurSigma: 10,
+          elevation: .65,
           child: NavigationBar(
             selectedIndex: tab,
             onDestinationSelected: (index) => setState(() => tab = index),

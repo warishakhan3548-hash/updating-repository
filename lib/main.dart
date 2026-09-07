@@ -41,6 +41,8 @@ class _PharmacyBootstrapState extends State<PharmacyBootstrap> {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: pharmacyTheme(),
+        builder: (context, child) =>
+            PharmacyBackdrop(child: child ?? const SizedBox.shrink()),
         home: Scaffold(
           body: SafeArea(
             child: Center(

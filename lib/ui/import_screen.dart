@@ -458,7 +458,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                       const Text(
                         'LOCAL REVIEW',
                         style: TextStyle(
-                          color: Color(0xFFC5D8CC),
+                          color: inverseMuted,
                           fontSize: 10,
                           letterSpacing: 1.4,
                         ),
@@ -475,10 +475,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                       const SizedBox(height: 8),
                       const Text(
                         'Matches open existing records. New stock opens a draft; you confirm every field before saving.',
-                        style: TextStyle(
-                          color: Color(0xFFC5D8CC),
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: inverseMuted, fontSize: 12),
                       ),
                     ],
                   ),

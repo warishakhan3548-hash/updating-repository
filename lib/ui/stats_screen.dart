@@ -110,7 +110,7 @@ class _StatsScreenState extends State<StatsScreen> {
                   style: TextStyle(
                     fontSize: 10,
                     letterSpacing: 1.5,
-                    color: Color(0xFFBDD0C4),
+                    color: inverseMuted,
                   ),
                 ),
                 const SizedBox(height: 15),
@@ -132,10 +132,7 @@ class _StatsScreenState extends State<StatsScreen> {
                 const SizedBox(height: 12),
                 Text(
                   '${inventory.valuedEntries} valued · ${inventory.unvaluedEntries} missing quantity or price',
-                  style: const TextStyle(
-                    color: Color(0xFFC5D8CC),
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(color: inverseMuted, fontSize: 12),
                 ),
               ],
             ),
@@ -223,8 +220,8 @@ class _StatsScreenState extends State<StatsScreen> {
                 child: Surface(
                   padding: const EdgeInsets.all(17),
                   color: suggestion.priority == ReorderPriority.urgent
-                      ? const Color(0xFFFFECE8)
-                      : const Color(0xFFFFF4DC),
+                      ? errorSoft
+                      : warningSoft,
                   child: Row(
                     children: [
                       Icon(
@@ -327,7 +324,7 @@ class _StatsScreenState extends State<StatsScreen> {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEAF1E3),
+                          color: primarySoft,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(
@@ -519,7 +516,7 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Surface(
     padding: const EdgeInsets.all(17),
-    color: const Color(0xFFEBF6EE),
+    color: primarySoft,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -545,7 +542,7 @@ class _CompactMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Surface(
     padding: const EdgeInsets.all(17),
-    color: const Color(0xFFEBF6EE),
+    color: primarySoft,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

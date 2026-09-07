@@ -43,8 +43,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     final generation = ++_generation;
     if (kIsWeb) {
       setState(
-        () => _error =
-            'Live camera OCR is available in the Android app. You can paste text into search.',
+        () => _error = 'Live camera OCR is available in the Android app. You can paste text into search.',
       );
       return;
     }
@@ -75,8 +74,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     } catch (e) {
       if (mounted && !_closed)
         setState(
-          () => _error =
-              'Camera unavailable. Allow camera access in your phone settings, then retry.',
+          () => _error = 'Camera unavailable. Allow camera access in your phone settings, then retry.',
         );
     }
   }
@@ -217,11 +215,12 @@ class _ScannerScreenState extends State<ScannerScreen>
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: ink,
     appBar: AppBar(
-      title: const Text('Scan medicine'),
+      title: const Text('Scan medicine', style: TextStyle(color: Colors.white)),
       backgroundColor: ink,
       foregroundColor: Colors.white,
       actions: [
         IconButton(
+          style: IconButton.styleFrom(foregroundColor: Colors.white),
           tooltip: _camera?.value.flashMode == FlashMode.torch
               ? 'Turn torch off'
               : 'Turn torch on',
@@ -262,16 +261,13 @@ class _ScannerScreenState extends State<ScannerScreen>
                   _manualOnly
                       ? '1. Point at the pack   2. Capture   3. Review'
                       : '1. Point at the pack   2. Hold steady   3. Review',
-                  style: const TextStyle(
-                    color: Color(0xFFD1E6DA),
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(color: inverseMuted, fontSize: 12),
                 ),
               ),
               Container(
                 height: (constraints.maxHeight * .48).clamp(210.0, 440.0),
                 margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                decoration: depthDecoration(const Color(0xFF0D2C24)),
+                decoration: depthDecoration(ink),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(24),
                   child: Stack(
@@ -297,7 +293,10 @@ class _ScannerScreenState extends State<ScannerScreen>
                             heightFactor: .68,
                             child: Container(
                               decoration: BoxDecoration(
-                                border: Border.all(color: lime, width: 2),
+                                border: Border.all(
+                                  color: primarySoft,
+                                  width: 2,
+                                ),
                                 borderRadius: BorderRadius.circular(20),
                               ),
                             ),
@@ -311,7 +310,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                         child: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: const Color(0xC00D2C24),
+                            color: const Color(0xE6182A44),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -333,7 +332,7 @@ class _ScannerScreenState extends State<ScannerScreen>
               GlassPanel(
                 tint: canvas,
                 radius: 28,
-                blurSigma: 14,
+                blurSigma: 0,
                 elevation: 1.1,
                 padding: const EdgeInsets.all(22),
                 child: Column(
@@ -378,8 +377,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                             [
                               if (_barcode.isNotEmpty) 'Barcode: $_barcode',
                               if (_text.isNotEmpty) _text,
-                              if (_text.isEmpty && _barcode.isEmpty)
-                                'Point at packaging or a printed medicine list.',
+                              if (_text.isEmpty && _barcode.isEmpty) 'Point at packaging or a printed medicine list.',
                             ].join('\n\n'),
                             style: const TextStyle(color: muted, fontSize: 13),
                           ),

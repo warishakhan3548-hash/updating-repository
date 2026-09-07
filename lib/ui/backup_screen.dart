@@ -178,7 +178,7 @@ class _BackupScreenState extends State<BackupScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.shield_outlined, color: lime, size: 30),
+              const Icon(Icons.shield_outlined, color: primarySoft, size: 30),
               const SizedBox(height: 14),
               const Text(
                 'Keep your pharmacy portable',
@@ -191,12 +191,12 @@ class _BackupScreenState extends State<BackupScreen> {
               const SizedBox(height: 8),
               const Text(
                 'Export medicines, removed stock, warning settings and aggregate sales. The file never contains an AI API key.',
-                style: TextStyle(color: Color(0xFFC5D8CC), fontSize: 12),
+                style: TextStyle(color: inverseMuted, fontSize: 12),
               ),
               const SizedBox(height: 18),
               FilledButton.icon(
                 style: FilledButton.styleFrom(
-                  backgroundColor: lime,
+                  backgroundColor: primarySoft,
                   foregroundColor: ink,
                 ),
                 onPressed: _sharing ? null : () => unawaited(_share()),
@@ -257,7 +257,7 @@ class _BackupScreenState extends State<BackupScreen> {
           Padding(
             padding: const EdgeInsets.only(top: 16),
             child: Surface(
-              color: const Color(0xFFFFEDEA),
+              color: errorSoft,
               child: Text(_error, style: const TextStyle(color: red)),
             ),
           ),
