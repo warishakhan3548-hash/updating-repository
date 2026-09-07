@@ -544,7 +544,7 @@ class _ScanBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GlassPanel(
-    tint: ink,
+    tint: const Color(0xFF0B72FF),
     radius: 27,
     dark: true,
     child: Material(
@@ -565,8 +565,8 @@ class _ScanBanner extends StatelessWidget {
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        lime.withValues(alpha: .13),
-                        lime.withValues(alpha: 0),
+                        const Color(0xFF4DD9FF).withValues(alpha: .38),
+                        const Color(0xFF4DD9FF).withValues(alpha: 0),
                       ],
                     ),
                   ),
@@ -578,7 +578,7 @@ class _ScanBanner extends StatelessWidget {
               child: Row(
                 children: [
                   GlassPanel(
-                    tint: const Color(0xFF286052),
+                    tint: const Color(0xFF168BFF),
                     radius: 17,
                     dark: true,
                     blurSigma: 0,
@@ -610,7 +610,7 @@ class _ScanBanner extends StatelessWidget {
                         Text(
                           'Scan a barcode or search any medicine',
                           style: TextStyle(
-                            color: Color(0xFFD2E6DB),
+                            color: Color(0xFFE6F3FF),
                             fontSize: 12,
                           ),
                         ),
@@ -619,8 +619,9 @@ class _ScanBanner extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   GlassPanel(
-                    tint: lime,
+                    tint: const Color(0xFF43C7FF),
                     radius: 22,
+                    dark: true,
                     blurSigma: 0,
                     elevation: .55,
                     child: const SizedBox(
@@ -628,7 +629,7 @@ class _ScanBanner extends StatelessWidget {
                       height: 44,
                       child: Icon(
                         Icons.arrow_forward_rounded,
-                        color: ink,
+                        color: Colors.white,
                         size: 24,
                       ),
                     ),
