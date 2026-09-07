@@ -77,11 +77,17 @@ bool inScope(
 
 int expiryOrder(Medicine a, Medicine b, DateTime today) {
   final ad = a.daysLeft(today), bd = b.daysLeft(today);
-  if (ad == null && bd == null) return a.name.compareTo(b.name);
-  if (ad == null) return 1;
-  if (bd == null) return -1;
-  if (ad < 0 && bd < 0) return bd.compareTo(ad);
-  return ad.compareTo(bd);
+  var order = 0;
+  if (ad == null && bd != null) return 1;
+  if (bd == null && ad != null) return -1;
+  if (ad != null && bd != null) {
+    order = ad < 0 && bd < 0 ? bd.compareTo(ad) : ad.compareTo(bd);
+  }
+  if (order != 0) return order;
+  order = normalize(a.title).compareTo(normalize(b.title));
+  if (order != 0) return order;
+  order = normalize(a.address).compareTo(normalize(b.address));
+  return order != 0 ? order : a.id.compareTo(b.id);
 }
 
 String scopeTitle(SearchScope scope, WarningSettings settings) =>

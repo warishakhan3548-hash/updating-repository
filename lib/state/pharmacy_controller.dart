@@ -35,7 +35,7 @@ class PharmacyController extends ChangeNotifier {
   Iterable<SaleEvent> get sales => snapshot.sales.values;
   InventoryStats get stats => InventoryStats(records, today);
   TrackingStats tracking(TrackingRange range) =>
-      TrackingStats(medicines: records, sales: sales, range: range);
+      TrackingStats(medicines: records, sales: sales, range: range, today: today);
 
   Future<void> initialize() async {
     snapshot = await storage.load();
@@ -124,7 +124,11 @@ class PharmacyController extends ChangeNotifier {
     int? totalAmountPaise,
     DateTime? occurredAt,
     bool markSoldOut = false,
+    int? expectedRevision,
   }) async {
+    if (expectedRevision != null && expectedRevision != snapshot.revision) {
+      throw StateError('Inventory changed. Reopen this entry before recording a sale.');
+    }
     final medicine = snapshot.records[id];
     if (medicine == null || medicine.archived) {
       throw StateError('This stock entry is unavailable.');
@@ -191,7 +195,10 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
-  Future<void> archive(String id, String reason) async {
+  Future<void> archive(String id, String reason, {int? expectedRevision}) async {
+    if (expectedRevision != null && expectedRevision != snapshot.revision) {
+      throw StateError('Inventory changed. Reopen this entry before removing it.');
+    }
     final m = snapshot.records[id];
     if (m == null || m.archived) return;
     await _commit(
@@ -205,9 +212,9 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
-  Future<void> archiveAll() => _commit(
+  Future<void> archiveAll({int? expectedRevision}) => _commit(
     InventoryMutation(
-      expectedRevision: snapshot.revision,
+      expectedRevision: expectedRevision ?? snapshot.revision,
       label: 'Removed all inventory',
       upserts: records
           .where((m) => !m.archived)
@@ -412,7 +419,11 @@ class PharmacyController extends ChangeNotifier {
       throw StateError(
         'Inventory changed after review. Review a fresh snapshot.',
       );
-    if (selected.isEmpty) return;
+    final selection = Set<int>.unmodifiable(selected);
+    if (selection.any((i) => i < 0 || i >= plan.changes.length)) {
+      throw StateError('The AI selection is invalid. Review the result again.');
+    }
+    if (selection.isEmpty) return;
     aiPreparing = true;
     _cancelAi = false;
     preparedActions = 0;
@@ -423,7 +434,7 @@ class PharmacyController extends ChangeNotifier {
         if (_cancelAi || _disposed)
           throw StateError('Cancelled. No inventory changes were saved.');
         for (var i = start; i < plan.changes.length && i < start + 25; i++) {
-          if (selected.contains(i))
+          if (selection.contains(i))
             changes.add(Medicine.fromJson(plan.changes[i].after.toJson()));
         }
         preparedActions = (start + 25).clamp(0, plan.changes.length);

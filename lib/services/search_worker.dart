@@ -40,7 +40,7 @@ void _searchEntry(SendPort main) {
 
 class SearchWorker {
   final _receive = ReceivePort();
-  final _ready = Completer<SendPort>();
+  final _ready = Completer<SendPort?>();
   final Map<int, Completer<dynamic>> _pending = {};
   Isolate? _isolate;
   int _id = 0, _revision = -1;
@@ -48,9 +48,14 @@ class SearchWorker {
   late final Future<void> _start = _initialize();
   Future<void> _queue = Future.value();
   Future<void> _initialize() async {
+    if (_closed) return;
     _receive.listen((dynamic value) {
       if (value is SendPort) {
-        _ready.complete(value);
+        if (!_ready.isCompleted) _ready.complete(value);
+        return;
+      }
+      if (value == null || value is List) {
+        close(); // Worker exit/error must settle callers, including startup.
         return;
       }
       final result = value as Map;
@@ -62,14 +67,24 @@ class SearchWorker {
         pending.complete(result['result']);
       }
     });
-    _isolate = await Isolate.spawn(_searchEntry, _receive.sendPort);
+    try {
+      _isolate = await Isolate.spawn(
+        _searchEntry,
+        _receive.sendPort,
+        onExit: _receive.sendPort,
+        onError: _receive.sendPort,
+      );
+    } catch (_) {
+      close();
+      rethrow;
+    }
     if (_closed) _isolate?.kill(priority: Isolate.immediate);
   }
 
   Future<dynamic> _request(Map<String, dynamic> message) async {
     if (_closed) throw StateError('Search closed.');
     final port = await _ready.future;
-    if (_closed) throw StateError('Search closed.');
+    if (_closed || port == null) throw StateError('Search closed.');
     final id = ++_id;
     final completer = Completer<dynamic>();
     _pending[id] = completer;
@@ -111,7 +126,9 @@ class SearchWorker {
   }
 
   void close() {
+    if (_closed) return;
     _closed = true;
+    if (!_ready.isCompleted) _ready.complete(null);
     _isolate?.kill(priority: Isolate.immediate);
     _receive.close();
     for (final pending in _pending.values) {

@@ -159,7 +159,7 @@ void main() {
     await tester.pumpWidget(PharmacyApp(controller: c));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    for (final tab in ['Database', 'AI', 'Tracking', 'Profile']) {
+    for (final tab in ['Database', 'AI', 'Calculator', 'Profile']) {
       await tester.tap(find.text(tab).last);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'Overflow in $tab');
@@ -183,7 +183,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Tracking'));
+    await tester.tap(find.text('Calculator'));
     await tester.pumpAndSettle();
     await screenshot(tester, key, 'tracking');
     await tester.tap(find.text('AI').last);

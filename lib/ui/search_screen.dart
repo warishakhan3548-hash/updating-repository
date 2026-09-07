@@ -42,12 +42,18 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _changed() {
+    _debounce?.cancel();
     if (mounted) unawaited(_search());
   }
 
   Future<void> _search() async {
     final generation = ++_generation;
-    if (mounted) setState(() => _loading = true);
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _hits = [];
+      _error = '';
+    });
     try {
       final hits = await widget.controller.search(_query.text, widget.scope);
       if (mounted && generation == _generation)
@@ -68,6 +74,12 @@ class _SearchScreenState extends State<SearchScreen> {
   void _typed(String value) {
     ++_generation;
     _debounce?.cancel();
+    setState(() {
+      _hits = [];
+      _loading = true;
+      _error = '';
+      _scan = null;
+    });
     _debounce = Timer(
       const Duration(milliseconds: 150),
       () => unawaited(_search()),

@@ -214,7 +214,10 @@ class TrackingStats {
     required Iterable<Medicine> medicines,
     required Iterable<SaleEvent> sales,
     required this.range,
+    DateTime? today,
   }) {
+    final stockDate = civilDay(today ?? range.end);
+    bool usable(Medicine m) => !m.sold && (m.daysLeft(stockDate) ?? 0) >= 0;
     final current = <String, List<Medicine>>{};
     final byId = <String, Medicine>{};
     for (final medicine in medicines.where((m) => !m.archived)) {
@@ -258,7 +261,7 @@ class TrackingStats {
     for (final key in keys) {
       final records = current[key] ?? const <Medicine>[];
       final representative =
-          records.where((m) => !m.sold).firstOrNull ?? records.firstOrNull;
+          records.where(usable).firstOrNull ?? records.firstOrNull;
       if (representative == null) continue;
 
       final movement = movements.putIfAbsent(
@@ -272,7 +275,7 @@ class TrackingStats {
         ).._periodDays = range.days,
       );
 
-      final active = records.where((m) => !m.sold).toList();
+      final active = records.where(usable).toList();
       final known = active.where((m) => m.quantity != null).toList();
       final hasUnknown = active.any((m) => m.quantity == null);
       final currentQuantity = hasUnknown
@@ -285,16 +288,20 @@ class TrackingStats {
       if (hasAvailable) stockedProductKeys.add(key);
       final hasSoldEntry = records.any((m) => m.sold);
       final soldOut = !hasAvailable && hasSoldEntry;
+      final expiredOnly = active.isEmpty && records.any(
+        (m) => !m.sold && (m.daysLeft(stockDate) ?? 0) < 0,
+      );
+      final needsReplacement = soldOut || expiredOnly;
       final velocity = movement.unitsPerDay;
       final reorderPoint = max(5, (velocity * 7).ceil());
       final target = max(10, max(reorderPoint * 2, (velocity * 30).ceil()));
       final low = currentQuantity != null && currentQuantity <= reorderPoint;
-      if (!soldOut && !low) continue;
+      if (!needsReplacement && !low) continue;
 
       final previousStock = records
           .map((m) => m.soldQuantity ?? 0)
           .fold<int>(0, max);
-      final suggested = soldOut
+      final suggested = needsReplacement
           ? max(1, max(target, previousStock))
           : max(1, target - (currentQuantity ?? 0));
       final price =
@@ -313,8 +320,10 @@ class TrackingStats {
           salt: representative.salt,
           strength: representative.strength,
           form: representative.form,
-          priority: soldOut ? ReorderPriority.urgent : ReorderPriority.soon,
-          reason: soldOut
+          priority: needsReplacement ? ReorderPriority.urgent : ReorderPriority.soon,
+          reason: expiredOnly
+              ? 'Only expired stock remains'
+              : soldOut
               ? 'Out of stock'
               : velocity > 0
               ? 'Low stock · ${velocity.toStringAsFixed(1)} units/day'

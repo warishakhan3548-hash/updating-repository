@@ -274,7 +274,7 @@ class MedicineSearch {
       final query = searchText(chunk);
       final rawTokens = query
           .split(' ')
-          .where((word) => word.length >= 2)
+          .where((word) => word.length >= 2 || RegExp(r'^\d$').hasMatch(word))
           .take(40)
           .toList();
       var tokens = rawTokens
@@ -299,7 +299,12 @@ class MedicineSearch {
         }
       }
       final candidates = votes.keys.toList()
-        ..sort((a, b) => votes[b]!.compareTo(votes[a]!));
+        ..sort((a, b) {
+          final voteOrder = votes[b]!.compareTo(votes[a]!);
+          return voteOrder != 0
+              ? voteOrder
+              : expiryOrder(docs[a]!.record, docs[b]!.record, today);
+        });
       for (final id in candidates.take(300)) {
         final hit = rank(docs[id]!.record, query, tokens);
         if (hit.score >= .53 &&
@@ -309,8 +314,10 @@ class MedicineSearch {
     }
     final results = found.values.toList()
       ..sort((a, b) {
-        if ((a.score - b.score).abs() > .025) return b.score.compareTo(a.score);
-        return expiryOrder(docs[a.id]!.record, docs[b.id]!.record, today);
+        final scoreOrder = b.score.compareTo(a.score);
+        return scoreOrder != 0
+            ? scoreOrder
+            : expiryOrder(docs[a.id]!.record, docs[b.id]!.record, today);
       });
     return results.take(limit).toList();
   }
@@ -347,8 +354,11 @@ class MedicineSearch {
         .allMatches(searchText('${m.strength} ${m.name}'))
         .map((m) => m.group(0)!)
         .toSet();
+    final numericTokens = tokens
+        .where((t) => RegExp(r'^\d+(?:\.\d+)?$').hasMatch(t))
+        .toList();
     final nameTokens = tokens
-        .where((t) => !strength.hasMatch(t) && !RegExp(r'^\d+$').hasMatch(t))
+        .where((t) => !strength.hasMatch(t) && !numericTokens.contains(t))
         .toList();
     for (final (raw, weight, label) in fields) {
       final value = searchText(raw);
@@ -389,6 +399,16 @@ class MedicineSearch {
         }
         score = sum / usable.length;
       }
+      // Check numbers in the field that actually matched, not an unrelated date.
+      if (numericTokens.isNotEmpty) {
+        final numbers = RegExp(r'\d+(?:\.\d+)?')
+            .allMatches(value).map((match) => match[0]!).toList();
+        final matchesNumbers = numericTokens.every((token) => numbers.any(
+          (number) => number == token ||
+              (token.length > 1 && !token.contains('.') && number.startsWith(token)),
+        ));
+        if (!matchesNumbers) score *= .66;
+      }
       score *= weight;
       if (score > best) {
         best = score;
@@ -401,14 +421,6 @@ class MedicineSearch {
       best *= .48;
       reason = 'Different strength — check carefully';
     }
-    final numericTokens = tokens
-        .where((t) => RegExp(r'^\d+$').hasMatch(t))
-        .toList();
-    final identityText = searchText(
-      '${m.name} ${m.strength} ${m.barcode} ${m.expiry == null ? '' : dateText(m.expiry!)} ${m.mfg == null ? '' : dateText(m.mfg!)} ${m.address}',
-    );
-    if (numericTokens.isNotEmpty && !numericTokens.every(identityText.contains))
-      best *= .66;
     return SearchHit(m.id, best.clamp(0, 1), reason, query);
   }
 }

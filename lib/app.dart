@@ -98,9 +98,9 @@ class _ShellState extends State<_Shell> {
             label: 'AI',
           ),
           NavigationDestination(
-            icon: Icon(Icons.insights_outlined),
-            selectedIcon: Icon(Icons.insights_rounded),
-            label: 'Tracking',
+            icon: Icon(Icons.calculate_outlined),
+            selectedIcon: Icon(Icons.calculate_rounded),
+            label: 'Calculator',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline_rounded),

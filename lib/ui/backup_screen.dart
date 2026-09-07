@@ -74,17 +74,18 @@ class _BackupScreenState extends State<BackupScreen> {
   }
 
   Future<void> _reviewInput() async {
-    if (_reading && _input.text.isEmpty) return;
+    if (_restoring || (_reading && _input.text.isEmpty)) return;
+    final input = _input.text;
     setState(() {
       _reading = true;
       _error = '';
       _review = null;
     });
     try {
-      final review = await widget.controller.reviewBackup(_input.text);
-      if (mounted) setState(() => _review = review);
+      final review = await widget.controller.reviewBackup(input);
+      if (mounted && _input.text == input) setState(() => _review = review);
     } catch (error) {
-      if (mounted) {
+      if (mounted && _input.text == input) {
         setState(
           () => _error = error.toString().replaceFirst(
             RegExp(r'^(FormatException|Bad state):\s*'),

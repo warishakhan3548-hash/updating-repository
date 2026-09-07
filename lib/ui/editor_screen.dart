@@ -140,6 +140,7 @@ class _EditorScreenState extends State<EditorScreen> {
       false;
   Future<void> _save({bool sold = false}) async {
     if (_busy) return;
+    setState(() => _busy = true);
     try {
       var draft = _draft();
       if (sold) {
@@ -149,6 +150,7 @@ class _EditorScreenState extends State<EditorScreen> {
           'Mark sold',
         ))
           return;
+        if (!mounted) return;
         draft = Medicine.fromJson({
           ...draft.toJson(),
           'sold': true,
@@ -181,6 +183,7 @@ class _EditorScreenState extends State<EditorScreen> {
               .whereType<Medicine>()
               .toList();
           matchKind = 'look very similar';
+          if (!mounted) return;
         }
         if (matches.isNotEmpty &&
             !await _confirm(
@@ -253,7 +256,7 @@ class _EditorScreenState extends State<EditorScreen> {
     if (!mounted) return;
     setState(() => _busy = true);
     try {
-      await widget.controller.archive(record.id, reason);
+      await widget.controller.archive(record.id, reason, expectedRevision: _baseRevision);
       if (mounted) {
         setState(() => _allowPop = true);
         Navigator.pop(context);
@@ -268,6 +271,10 @@ class _EditorScreenState extends State<EditorScreen> {
   Future<void> _recordSale() async {
     final record = widget.record;
     if (record == null || record.sold || record.archived || _busy) return;
+    if (_dirty) {
+      showError(context, 'Save edited medicine details before recording a sale.');
+      return;
+    }
     final quantity = TextEditingController(text: '1');
     final amount = TextEditingController();
     var markSoldOut = false;
@@ -425,6 +432,7 @@ class _EditorScreenState extends State<EditorScreen> {
         totalAmountPaise: result.amountPaise,
         markSoldOut: result.markSoldOut,
         occurredAt: result.occurredAt,
+        expectedRevision: _baseRevision,
       );
       if (mounted) {
         setState(() => _allowPop = true);
@@ -473,6 +481,7 @@ class _EditorScreenState extends State<EditorScreen> {
     padding: const EdgeInsets.only(bottom: 14),
     child: TextField(
       controller: fields[key],
+      enabled: !_busy,
       onChanged: (_) => setState(() => _dirty = true),
       maxLines: lines,
       maxLength: max,
@@ -560,7 +569,7 @@ class _EditorScreenState extends State<EditorScreen> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 18),
                   child: FilledButton.icon(
-                    onPressed: () {
+                    onPressed: _busy ? null : () {
                       setState(() {
                         _restocking = true;
                         _dirty = true;
@@ -609,7 +618,7 @@ class _EditorScreenState extends State<EditorScreen> {
                     (f) => DropdownMenuItem(value: f, child: Text(f)),
                   ),
                 ],
-                onChanged: (v) => setState(() {
+                onChanged: _busy ? null : (v) => setState(() {
                   _form = v ?? '';
                   _dirty = true;
                 }),

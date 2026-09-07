@@ -21,7 +21,7 @@ flowchart TD
   D --> B["Backup and future sync boundary"]
 ```
 
-Bottom navigation is **Home / Database / AI / Tracking / Profile**. Results open
+Bottom navigation is **Home / Database / AI / Calculator / Profile**. Results open
 the exact invisible stock ID; they never repeat a name search to find an editor.
 
 ## Layer map
