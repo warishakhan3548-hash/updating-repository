@@ -449,7 +449,12 @@ ThemeData pharmacyTheme() => ThemeData(
       disabledBackgroundColor: outline,
       disabledForegroundColor: muted,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+      textStyle: const TextStyle(
+        fontFamily: 'Manrope',
+        fontFamilyFallback: ['NotoSansDevanagari'],
+        fontSize: 14,
+        fontWeight: FontWeight.w700,
+      ),
       elevation: 0,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
     ),
@@ -460,7 +465,12 @@ ThemeData pharmacyTheme() => ThemeData(
       foregroundColor: primaryDeep,
       backgroundColor: Colors.white,
       side: const BorderSide(color: outline),
-      textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+      textStyle: const TextStyle(
+        fontFamily: 'Manrope',
+        fontFamilyFallback: ['NotoSansDevanagari'],
+        fontSize: 14,
+        fontWeight: FontWeight.w700,
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
@@ -505,6 +515,8 @@ ThemeData pharmacyTheme() => ThemeData(
     side: const BorderSide(color: outline),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     labelStyle: const TextStyle(
+      fontFamily: 'Manrope',
+      fontFamilyFallback: ['NotoSansDevanagari'],
       color: ink,
       fontSize: 13,
       fontWeight: FontWeight.w600,
@@ -592,8 +604,8 @@ class Surface extends StatelessWidget {
     padding: padding,
     child: Material(
       type: MaterialType.transparency,
-      borderRadius: BorderRadius.circular(24),
-      clipBehavior: Clip.antiAlias,
+      // The outer panel already clips its perimeter. Clipping this padded
+      // content again cuts the first letters and icons at the inner corners.
       child: child,
     ),
   );

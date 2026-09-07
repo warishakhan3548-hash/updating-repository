@@ -138,8 +138,7 @@ class HomeScreen extends StatelessWidget {
                   color: primary,
                   background: primarySoft,
                   selector: _WarningSelector(
-                    label:
-                        '${controller.settings.shortDays} ${controller.settings.shortDays == 1 ? 'Day' : 'Days'}',
+                    label: '${controller.settings.shortDays}d',
                     values: const [3, 5, 8, 10],
                     valueLabel: (value) =>
                         '$value ${value == 1 ? 'Day' : 'Days'}',
@@ -157,8 +156,7 @@ class HomeScreen extends StatelessWidget {
                   color: accent,
                   background: accentSoft,
                   selector: _WarningSelector(
-                    label:
-                        '${controller.settings.months} ${controller.settings.months == 1 ? 'Month' : 'Months'}',
+                    label: '${controller.settings.months}mo',
                     values: const [1, 2, 3],
                     valueLabel: (value) =>
                         '$value ${value == 1 ? 'Month' : 'Months'}',
