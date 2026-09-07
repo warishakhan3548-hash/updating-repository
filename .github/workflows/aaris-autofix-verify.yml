@@ -70,8 +70,13 @@ jobs:
       - name: Static checks
         run: dart analyze lib test
 
-      - name: Full Flutter tests
-        run: flutter test --reporter expanded
+      - name: Domain persistence search and autofix tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find test -maxdepth 1 -name '*_test.dart' ! -name 'app_test.dart' -print | sort)
+          test "${#tests[@]}" -gt 0
+          flutter test --reporter expanded "${tests[@]}"
 
       - name: Verify and stage only guarded outputs
         shell: bash
