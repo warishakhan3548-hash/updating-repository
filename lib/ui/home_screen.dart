@@ -16,12 +16,40 @@ class HomeScreen extends StatelessWidget {
   });
   final PharmacyController controller;
   final VoidCallback onDatabase;
+
   void _open(BuildContext context, SearchScope scope) =>
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SearchScreen(controller: controller, scope: scope),
         ),
       );
+
+  Future<void> _setShortDays(BuildContext context, int value) async {
+    if (value == controller.settings.shortDays) return;
+    try {
+      final settings = WarningSettings.fromJson({
+        'shortDays': value,
+        'months': controller.settings.months,
+      });
+      await controller.setWarnings(settings);
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _setMonths(BuildContext context, int value) async {
+    if (value == controller.settings.months) return;
+    try {
+      final settings = WarningSettings.fromJson({
+        'shortDays': controller.settings.shortDays,
+        'months': value,
+      });
+      await controller.setWarnings(settings);
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: controller,
@@ -109,6 +137,15 @@ class HomeScreen extends StatelessWidget {
                   icon: Icons.timelapse_rounded,
                   color: green,
                   background: const Color(0xFFE5F6D7),
+                  selector: _WarningSelector(
+                    label:
+                        '${controller.settings.shortDays} ${controller.settings.shortDays == 1 ? 'Day' : 'Days'}',
+                    values: const [3, 5, 8, 10],
+                    valueLabel: (value) =>
+                        '$value ${value == 1 ? 'Day' : 'Days'}',
+                    onSelected: (value) => _setShortDays(context, value),
+                    onCustom: () => showWarningSettings(context, controller),
+                  ),
                   onTap: () => _open(context, SearchScope.shortExpiry),
                 ),
                 _OverviewTile(
@@ -119,6 +156,15 @@ class HomeScreen extends StatelessWidget {
                   icon: Icons.calendar_month_rounded,
                   color: const Color(0xFF146F62),
                   background: const Color(0xFFE0F3EB),
+                  selector: _WarningSelector(
+                    label:
+                        '${controller.settings.months} ${controller.settings.months == 1 ? 'Month' : 'Months'}',
+                    values: const [1, 2, 3],
+                    valueLabel: (value) =>
+                        '$value ${value == 1 ? 'Month' : 'Months'}',
+                    onSelected: (value) => _setMonths(context, value),
+                    onCustom: () => showWarningSettings(context, controller),
+                  ),
                   onTap: () => _open(context, SearchScope.monthExpiry),
                 ),
                 _OverviewTile(
@@ -273,12 +319,15 @@ class _OverviewTile extends StatelessWidget {
     required this.color,
     required this.background,
     required this.onTap,
+    this.selector,
   });
   final String title, caption;
   final int count;
   final IconData icon;
   final Color color, background;
   final VoidCallback onTap;
+  final Widget? selector;
+
   @override
   Widget build(BuildContext context) => Semantics(
     button: true,
@@ -326,11 +375,12 @@ class _OverviewTile extends StatelessWidget {
                             size: 42,
                           ),
                           const Spacer(),
-                          Icon(
-                            Icons.north_east_rounded,
-                            color: color,
-                            size: 20,
-                          ),
+                          selector ??
+                              Icon(
+                                Icons.north_east_rounded,
+                                color: color,
+                                size: 20,
+                              ),
                         ],
                       ),
                       const SizedBox(height: 13),
@@ -339,7 +389,6 @@ class _OverviewTile extends StatelessWidget {
                         alignment: Alignment.centerLeft,
                         child: Text(
                           '$count',
-
                           style: TextStyle(
                             color: color,
                             fontSize: 36,
@@ -375,6 +424,82 @@ class _OverviewTile extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    ),
+  );
+}
+
+class _WarningSelector extends StatelessWidget {
+  const _WarningSelector({
+    required this.label,
+    required this.values,
+    required this.valueLabel,
+    required this.onSelected,
+    required this.onCustom,
+  });
+
+  final String label;
+  final List<int> values;
+  final String Function(int) valueLabel;
+  final ValueChanged<int> onSelected;
+  final VoidCallback onCustom;
+
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<int>(
+    tooltip: 'Change warning window',
+    padding: EdgeInsets.zero,
+    offset: const Offset(0, 8),
+    onSelected: (value) {
+      if (value == -1) {
+        onCustom();
+      } else {
+        onSelected(value);
+      }
+    },
+    itemBuilder: (context) => [
+      for (final value in values)
+        PopupMenuItem<int>(value: value, child: Text(valueLabel(value))),
+      const PopupMenuDivider(),
+      const PopupMenuItem<int>(
+        value: -1,
+        child: Row(
+          children: [
+            Icon(Icons.tune_rounded, size: 18),
+            SizedBox(width: 9),
+            Text('Custom…'),
+          ],
+        ),
+      ),
+    ],
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .68),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: ink.withValues(alpha: .07)),
+        boxShadow: [
+          BoxShadow(
+            color: ink.withValues(alpha: .06),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: ink,
+              fontSize: 10.5,
+              height: 1,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 3),
+          const Icon(Icons.expand_more_rounded, size: 16, color: ink),
+        ],
       ),
     ),
   );
