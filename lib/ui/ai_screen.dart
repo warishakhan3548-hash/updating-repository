@@ -144,8 +144,12 @@ class _AiScreenState extends State<AiScreen> {
 
   Future<void> _apply() async {
     final plan = _plan;
-    if (plan == null || _selected.isEmpty || _reviewing || _requesting ||
-        widget.controller.aiPreparing) return;
+    if (plan == null ||
+        _selected.isEmpty ||
+        _reviewing ||
+        _requesting ||
+        widget.controller.aiPreparing)
+      return;
     final selected = Set<int>.of(_selected);
     try {
       await widget.controller.applyAi(plan, selected);
@@ -169,30 +173,20 @@ class _AiScreenState extends State<AiScreen> {
     builder: (context, _) => ListView(
       padding: const EdgeInsets.fromLTRB(22, 26, 22, 30),
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'AI Controller',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: lime,
-                borderRadius: BorderRadius.circular(15),
-              ),
-              child: const Icon(Icons.auto_awesome, color: ink),
-            ),
-          ],
+        const ScreenIntro(
+          title: 'AI Controller',
+          message:
+              'Ask for help, review the suggestions, then choose what to save.',
+          icon: Icons.auto_awesome,
         ),
-        const SizedBox(height: 8),
-        const Text(
-          'A second pair of eyes.\nYou stay in control of every change.',
-          style: TextStyle(color: muted, fontSize: 15),
+        FlowSteps(
+          const ['Ask AI', 'Review', 'Save'],
+          current: _plan != null
+              ? 2
+              : _input.text.trim().isEmpty
+              ? 0
+              : 1,
         ),
-        const SizedBox(height: 24),
         Surface(
           color: ink,
           child: Column(
@@ -221,12 +215,12 @@ class _AiScreenState extends State<AiScreen> {
                 ),
                 onPressed: _sharing ? null : _share,
                 icon: const Icon(Icons.ios_share_rounded),
-                label: Text(_sharing ? 'Preparing…' : 'Connect with Other AI'),
+                label: Text(_sharing ? 'Preparing…' : 'Share with another AI'),
               ),
             ],
           ),
         ),
-        const SectionHeading('Or connect your own API'),
+        const SectionHeading('Use AI inside the app'),
         Surface(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -300,13 +294,13 @@ class _AiScreenState extends State<AiScreen> {
             ],
           ),
         ),
-        const SectionHeading('Bring back the result'),
+        const SectionHeading('Review an AI response'),
         Surface(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Paste AI JSON',
+                'Paste the AI response',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
               ),
               const SizedBox(height: 8),
@@ -333,22 +327,33 @@ class _AiScreenState extends State<AiScreen> {
                 runSpacing: 10,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: widget.controller.aiPreparing || _requesting || _reviewing
+                    onPressed:
+                        widget.controller.aiPreparing ||
+                            _requesting ||
+                            _reviewing
                         ? null
                         : () async {
-                      final data = await Clipboard.getData(
-                        Clipboard.kTextPlain,
-                      );
-                      if (mounted && !widget.controller.aiPreparing && !_requesting && !_reviewing) {
-                        _input.text = data?.text ?? '';
-                        setState(() => _plan = null);
-                      }
-                    },
+                            final data = await Clipboard.getData(
+                              Clipboard.kTextPlain,
+                            );
+                            if (mounted &&
+                                !widget.controller.aiPreparing &&
+                                !_requesting &&
+                                !_reviewing) {
+                              _input.text = data?.text ?? '';
+                              setState(() => _plan = null);
+                            }
+                          },
                     icon: const Icon(Icons.content_paste_rounded),
                     label: const Text('Paste'),
                   ),
                   FilledButton.icon(
-                    onPressed: _reviewing || _requesting || widget.controller.aiPreparing ? null : _review,
+                    onPressed:
+                        _reviewing ||
+                            _requesting ||
+                            widget.controller.aiPreparing
+                        ? null
+                        : _review,
                     icon: const Icon(Icons.fact_check_outlined),
                     label: Text(_reviewing ? 'Checking…' : 'Review result'),
                   ),
@@ -533,6 +538,11 @@ class _ApiSetupState extends State<_ApiSetup> {
     body: ListView(
       padding: const EdgeInsets.all(22),
       children: [
+        const ScreenIntro(
+          title: 'Connect your provider',
+          message: 'Choose a service and enter your own connection details.',
+          icon: Icons.key_rounded,
+        ),
         const Text(
           'Your API key stays in secure device storage and is never included in inventory exports.',
           style: TextStyle(color: muted),

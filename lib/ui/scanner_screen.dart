@@ -220,143 +220,215 @@ class _ScannerScreenState extends State<ScannerScreen>
       foregroundColor: Colors.white,
       actions: [
         IconButton(
-          tooltip: 'Toggle torch',
-          onPressed: () async {
-            final c = _camera;
-            if (c == null) return;
-            try {
-              await c.setFlashMode(
-                c.value.flashMode == FlashMode.torch
-                    ? FlashMode.off
-                    : FlashMode.torch,
-              );
-            } catch (e) {
-              if (context.mounted) showError(context, 'Torch is unavailable.');
-            }
-          },
-          icon: const Icon(Icons.flashlight_on_outlined),
+          tooltip: _camera?.value.flashMode == FlashMode.torch
+              ? 'Turn torch off'
+              : 'Turn torch on',
+          onPressed: _camera?.value.isInitialized != true
+              ? null
+              : () async {
+                  final camera = _camera;
+                  if (camera == null) return;
+                  try {
+                    await camera.setFlashMode(
+                      camera.value.flashMode == FlashMode.torch
+                          ? FlashMode.off
+                          : FlashMode.torch,
+                    );
+                    if (mounted) setState(() {});
+                  } catch (e) {
+                    if (context.mounted)
+                      showError(context, 'Torch is unavailable.');
+                  }
+                },
+          icon: Icon(
+            _camera?.value.flashMode == FlashMode.torch
+                ? Icons.flashlight_on_rounded
+                : Icons.flashlight_off_outlined,
+          ),
         ),
       ],
     ),
     body: SafeArea(
-      child: Column(
-        children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (_camera?.value.isInitialized == true)
-                      CameraPreview(_camera!)
-                    else
-                      Center(
-                        child: Text(
-                          _error.isEmpty ? 'Opening camera…' : _error,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white),
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
+                child: Text(
+                  _manualOnly
+                      ? '1. Point at the pack   2. Capture   3. Review'
+                      : '1. Point at the pack   2. Hold steady   3. Review',
+                  style: const TextStyle(
+                    color: Color(0xFFD1E6DA),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              Container(
+                height: (constraints.maxHeight * .48).clamp(210.0, 440.0),
+                margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                decoration: depthDecoration(const Color(0xFF0D2C24)),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (_camera?.value.isInitialized == true)
+                        Center(child: CameraPreview(_camera!))
+                      else
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(22),
+                            child: Text(
+                              _error.isEmpty ? 'Opening camera…' : _error,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ),
                         ),
-                      ),
-                    IgnorePointer(
-                      child: Center(
-                        child: FractionallySizedBox(
-                          widthFactor: .88,
-                          heightFactor: .68,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              border: Border.all(color: lime, width: 2),
-                              borderRadius: BorderRadius.circular(20),
+                      IgnorePointer(
+                        child: Center(
+                          child: FractionallySizedBox(
+                            widthFactor: .88,
+                            heightFactor: .68,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(color: lime, width: 2),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    Positioned(
-                      left: 14,
-                      right: 14,
-                      bottom: 14,
-                      child: Text(
-                        _manualOnly ? 'Tap Capture text to read this frame.' : 'Hold steady. Barcode and text are read together.',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          backgroundColor: Color(0x99000000),
-                          fontSize: 12,
+                      Positioned(
+                        left: 14,
+                        right: 14,
+                        bottom: 14,
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xC00D2C24),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            _manualOnly
+                                ? 'Tap Capture text to read the label.'
+                                : 'Barcode and label text are read together.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
                       ),
+                    ],
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(22),
+                decoration: const BoxDecoration(
+                  color: canvas,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        DepthIcon(
+                          _barcode.isNotEmpty || _text.isNotEmpty
+                              ? Icons.check_rounded
+                              : Icons.document_scanner_outlined,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _barcode.isNotEmpty
+                                    ? 'Barcode detected'
+                                    : _text.isNotEmpty
+                                    ? 'Text captured'
+                                    : 'Ready to scan',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const Text(
+                                'Check the result, then tap Use scan.',
+                                style: TextStyle(color: muted, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Surface(
+                      padding: const EdgeInsets.all(16),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 180),
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            [
+                              if (_barcode.isNotEmpty) 'Barcode: $_barcode',
+                              if (_text.isNotEmpty) _text,
+                              if (_text.isEmpty && _barcode.isEmpty) 'Point at packaging or a printed medicine list.',
+                            ].join('\n\n'),
+                            style: const TextStyle(color: muted, fontSize: 13),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (_error.isNotEmpty && _camera != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          _error,
+                          style: const TextStyle(color: red, fontSize: 12),
+                        ),
+                      ),
+                    const SizedBox(height: 18),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _camera == null
+                              ? () => unawaited(_start())
+                              : _capturing
+                              ? null
+                              : _capture,
+                          icon: const Icon(Icons.camera_alt_outlined),
+                          label: Text(
+                            _camera == null
+                                ? 'Retry camera'
+                                : _capturing
+                                ? 'Reading…'
+                                : 'Capture text',
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: _text.isEmpty && _barcode.isEmpty
+                              ? null
+                              : () => Navigator.pop(
+                                  context,
+                                  ScanResult(barcode: _barcode, text: _text),
+                                ),
+                          icon: const Icon(Icons.arrow_forward_rounded),
+                          label: const Text('Use scan'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-            ),
+            ],
           ),
-          Container(
-            padding: const EdgeInsets.all(22),
-            decoration: const BoxDecoration(
-              color: canvas,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _barcode.isNotEmpty ? 'Barcode detected' : 'Scanned text',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _barcode.isNotEmpty
-                      ? _barcode
-                      : _text.isEmpty
-                      ? 'Point at packaging or a printed medicine list.'
-                      : _text,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: muted, fontSize: 13),
-                ),
-                if (_error.isNotEmpty && _camera != null)
-                  Text(
-                    _error,
-                    style: const TextStyle(color: red, fontSize: 12),
-                  ),
-                const SizedBox(height: 18),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: _camera == null
-                          ? () => unawaited(_start())
-                          : _capturing
-                          ? null
-                          : _capture,
-                      icon: const Icon(Icons.camera_alt_outlined),
-                      label: Text(
-                        _camera == null
-                            ? 'Retry camera'
-                            : _capturing
-                            ? 'Reading…'
-                            : 'Capture text',
-                      ),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _text.isEmpty && _barcode.isEmpty
-                          ? null
-                          : () => Navigator.pop(
-                              context,
-                              ScanResult(barcode: _barcode, text: _text),
-                            ),
-                      icon: const Icon(Icons.arrow_forward_rounded),
-                      label: const Text('Use scan'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     ),
   );

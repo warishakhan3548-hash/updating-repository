@@ -17,9 +17,9 @@ class DateInputFormatter extends TextInputFormatter {
     if (!newValue.composing.isCollapsed) return newValue;
     var raw = normalizeDateDigits(newValue.text);
     if (raw == oldValue.text) return newValue;
-    final isoPattern = RegExp(monthOnly
-        ? r'^\d{4}-\d{2}$'
-        : r'^\d{4}-\d{2}-\d{2}$');
+    final isoPattern = RegExp(
+      monthOnly ? r'^\d{4}-\d{2}$' : r'^\d{4}-\d{2}-\d{2}$',
+    );
     if (isoPattern.hasMatch(raw)) {
       // Preserve invalid dates for visible validation instead of inventing a day.
       final pieces = raw.split('-');
@@ -59,8 +59,8 @@ class DateInputFormatter extends TextInputFormatter {
     final offsets = <int>[0];
     for (var i = 0; i < digits.length; i++) {
       buffer.write(digits[i]);
-      if (boundaries.contains(i + 1) &&
-          (i + 1 < digits.length || !deleting)) buffer.write('/');
+      if (boundaries.contains(i + 1) && (i + 1 < digits.length || !deleting))
+        buffer.write('/');
       offsets.add(buffer.length);
     }
     return TextEditingValue(
@@ -118,9 +118,15 @@ class DateEntryField extends StatelessWidget {
     final last = local(lastDate ?? DateTime(2200, 12, 31));
     var initial = DateTime.now();
     try {
-      initial = parseDate(inputDateToIso(controller.text, monthOnly: monthOnly),
-              monthEnd: monthOnly) ?? initial;
-    } on FormatException { /* An incomplete entry can still open the calendar. */ }
+      initial =
+          parseDate(
+            inputDateToIso(controller.text, monthOnly: monthOnly),
+            monthEnd: monthOnly,
+          ) ??
+          initial;
+    } on FormatException {
+      /* An incomplete entry can still open the calendar. */
+    }
     initial = local(initial);
     if (initial.isBefore(first)) initial = first;
     if (initial.isAfter(last)) initial = last;
@@ -181,14 +187,22 @@ Future<DateTimeRange?> showDateEntryDialog({
 }) => showDialog<DateTimeRange>(
   context: context,
   builder: (_) => _DateEntryDialog(
-    title: title, firstDate: firstDate, lastDate: lastDate,
-    initialDate: initialDate, initialEnd: initialEnd,
+    title: title,
+    firstDate: firstDate,
+    lastDate: lastDate,
+    initialDate: initialDate,
+    initialEnd: initialEnd,
   ),
 );
 
 class _DateEntryDialog extends StatefulWidget {
-  const _DateEntryDialog({required this.title, required this.firstDate,
-    required this.lastDate, required this.initialDate, this.initialEnd});
+  const _DateEntryDialog({
+    required this.title,
+    required this.firstDate,
+    required this.lastDate,
+    required this.initialDate,
+    this.initialEnd,
+  });
   final String title;
   final DateTime firstDate, lastDate, initialDate;
   final DateTime? initialEnd;
@@ -198,43 +212,78 @@ class _DateEntryDialog extends StatefulWidget {
 
 class _DateEntryDialogState extends State<_DateEntryDialog> {
   final form = GlobalKey<FormState>();
-  late final start = TextEditingController(text: inputDateText(widget.initialDate));
-  late final end = TextEditingController(text: inputDateText(widget.initialEnd ?? widget.initialDate));
+  late final start = TextEditingController(
+    text: inputDateText(widget.initialDate),
+  );
+  late final end = TextEditingController(
+    text: inputDateText(widget.initialEnd ?? widget.initialDate),
+  );
   String? error;
   @override
-  void dispose() { start.dispose(); end.dispose(); super.dispose(); }
+  void dispose() {
+    start.dispose();
+    end.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.title),
     content: SingleChildScrollView(
       child: Form(
         key: form,
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          DateEntryField(controller: start,
-            label: widget.initialEnd == null ? 'Date' : 'From date',
-            required: true, firstDate: widget.firstDate, lastDate: widget.lastDate),
-          if (widget.initialEnd != null) ...[
-            const SizedBox(height: 20),
-            DateEntryField(controller: end, label: 'To date', required: true,
-              firstDate: widget.firstDate, lastDate: widget.lastDate),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DateEntryField(
+              controller: start,
+              label: widget.initialEnd == null ? 'Date' : 'From date',
+              required: true,
+              firstDate: widget.firstDate,
+              lastDate: widget.lastDate,
+            ),
+            if (widget.initialEnd != null) ...[
+              const SizedBox(height: 20),
+              DateEntryField(
+                controller: end,
+                label: 'To date',
+                required: true,
+                firstDate: widget.firstDate,
+                lastDate: widget.lastDate,
+              ),
+            ],
+            if (error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
           ],
-          if (error != null) Padding(padding: const EdgeInsets.only(top: 12),
-            child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-        ]),
+        ),
       ),
     ),
     actions: [
-      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-      FilledButton(onPressed: () {
-        if (!form.currentState!.validate()) return;
-        final from = parseDate(inputDateToIso(start.text))!;
-        final to = widget.initialEnd == null ? from : parseDate(inputDateToIso(end.text))!;
-        if (to.isBefore(from)) {
-          setState(() => error = 'To date must be on or after From date.');
-          return;
-        }
-        Navigator.pop(context, DateTimeRange(start: from, end: to));
-      }, child: const Text('Use date')),
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (!form.currentState!.validate()) return;
+          final from = parseDate(inputDateToIso(start.text))!;
+          final to = widget.initialEnd == null
+              ? from
+              : parseDate(inputDateToIso(end.text))!;
+          if (to.isBefore(from)) {
+            setState(() => error = 'To date must be on or after From date.');
+            return;
+          }
+          Navigator.pop(context, DateTimeRange(start: from, end: to));
+        },
+        child: const Text('Use date'),
+      ),
     ],
   );
 }

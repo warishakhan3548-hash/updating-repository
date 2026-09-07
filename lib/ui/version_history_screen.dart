@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../domain/medicine.dart';
+import '../domain/date_input.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 
@@ -53,11 +54,11 @@ class VersionHistoryScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(22, 8, 22, 30),
         children: [
-          const Text(
-            'Previous saved facts from recent activity. Restoring creates a new change; it never rewrites history silently.',
-            style: TextStyle(color: muted, fontSize: 13),
+          const ScreenIntro(
+            title: 'Previous versions',
+            message: 'Compare saved details and restore the version you need. Each restore is recorded.',
+            icon: Icons.history_rounded,
           ),
-          const SizedBox(height: 18),
           if (versions.isEmpty)
             const EmptyState(
               title: 'No earlier version',
@@ -99,7 +100,10 @@ class VersionHistoryScreen extends StatelessWidget {
                           'Expiry',
                           version.record.expiry == null
                               ? 'Not provided'
-                              : dateText(version.record.expiry!),
+                              : inputDateText(
+                                  version.record.expiry!,
+                                  monthOnly: version.record.expiryMonthOnly,
+                                ),
                         ),
                         _Fact(
                           'Quantity',

@@ -210,16 +210,12 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
     body: ListView(
       padding: const EdgeInsets.fromLTRB(22, 8, 22, 30),
       children: [
-        Text(
-          'Bring stock into one master database.',
-          style: Theme.of(context).textTheme.headlineMedium,
+        const ScreenIntro(
+          title: 'Add your medicines',
+          message: 'Choose the easiest way to start. Review captured details before saving.',
+          icon: Icons.add_box_outlined,
         ),
-        const SizedBox(height: 8),
-        const Text(
-          'Scans and files always enter a review inbox. Nothing modifies inventory blindly.',
-          style: TextStyle(color: muted, fontSize: 13),
-        ),
-        const SizedBox(height: 22),
+        const FlowSteps(['Add or scan', 'Review', 'Save']),
         _ImportAction(
           icon: Icons.edit_note_rounded,
           title: 'Add manually',
@@ -241,14 +237,13 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
         _ImportAction(
           icon: Icons.video_library_outlined,
           title: 'Upload video',
-          detail: 'Adaptive frames, blur filtering and duplicate removal.',
+          detail: 'Read medicine packs from a video on your phone.',
           onTap: _busy ? null : _video,
         ),
         _ImportAction(
           icon: Icons.upload_file_outlined,
           title: 'Upload text file',
-          detail:
-              'Search a TXT/JSON medicine list without importing it blindly.',
+          detail: 'Choose a medicine list, then review its matches.',
           onTap: _busy ? null : _textFile,
         ),
         _ImportAction(
@@ -301,14 +296,7 @@ class _ImportAction extends StatelessWidget {
       padding: EdgeInsets.zero,
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-        leading: Container(
-          padding: const EdgeInsets.all(11),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEAF1E3),
-            borderRadius: BorderRadius.circular(13),
-          ),
-          child: Icon(icon, color: green),
-        ),
+        leading: DepthIcon(icon),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Text(detail),
         trailing: const Icon(Icons.chevron_right_rounded),
@@ -455,12 +443,13 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
         ? 1
         : 0;
     return Scaffold(
-      appBar: AppBar(title: const Text('Import Inbox')),
+      appBar: AppBar(title: const Text('Review import')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.fromLTRB(22, 8, 22, 30),
               children: [
+                const FlowSteps(['Add or scan', 'Review', 'Save'], current: 1),
                 Surface(
                   color: ink,
                   child: Column(

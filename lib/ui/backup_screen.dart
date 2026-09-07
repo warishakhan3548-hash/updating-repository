@@ -167,6 +167,12 @@ class _BackupScreenState extends State<BackupScreen> {
     body: ListView(
       padding: const EdgeInsets.fromLTRB(22, 8, 22, 30),
       children: [
+        const ScreenIntro(
+          title: 'Keep a safe copy',
+          message:
+              'Save a full backup, or review a saved file before restoring it.',
+          icon: Icons.shield_outlined,
+        ),
         Surface(
           color: ink,
           child: Column(
@@ -201,8 +207,13 @@ class _BackupScreenState extends State<BackupScreen> {
           ),
         ),
         const SectionHeading('Restore a backup'),
+        FlowSteps(const [
+          'Choose file',
+          'Review',
+          'Restore',
+        ], current: _review == null ? 0 : 1),
         const Text(
-          'Choose an .aaris.json file or paste its complete JSON. Nothing changes during review.',
+          'Choose your Aaris backup file, or paste its contents. Review the summary before you restore.',
           style: TextStyle(color: muted, fontSize: 13),
         ),
         const SizedBox(height: 14),

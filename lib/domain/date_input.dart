@@ -27,13 +27,15 @@ String? inputDateToIso(String raw, {bool monthOnly = false}) {
     parseDate(text, monthEnd: monthOnly);
     return text;
   }
-  final match = RegExp(monthOnly
-      ? r'^(\d{2})/?(\d{4})$'
-      : r'^(\d{2})/?(\d{2})/?(\d{4})$').firstMatch(text);
+  final match = RegExp(
+    monthOnly ? r'^(\d{2})/?(\d{4})$' : r'^(\d{2})/?(\d{2})/?(\d{4})$',
+  ).firstMatch(text);
   if (match == null) {
-    throw FormatException(monthOnly
-        ? 'Enter all 6 digits: MM/YYYY (for example, 04/2026).'
-        : 'Enter all 8 digits: DD/MM/YYYY (for example, 04/09/2026).');
+    throw FormatException(
+      monthOnly
+          ? 'Enter all 6 digits: MM/YYYY (for example, 04/2026).'
+          : 'Enter all 8 digits: DD/MM/YYYY (for example, 04/09/2026).',
+    );
   }
   final iso = monthOnly
       ? '${match[2]}-${match[1]}'

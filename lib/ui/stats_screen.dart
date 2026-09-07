@@ -30,7 +30,9 @@ class _StatsScreenState extends State<StatsScreen> {
       context: context,
       firstDate: DateTime(today.year - 10, today.month, today.day),
       lastDate: today,
-      initialDate: _preset == null ? _range.start : TrackingRange.lastDays(today, _preset!).start,
+      initialDate: _preset == null
+          ? _range.start
+          : TrackingRange.lastDays(today, _preset!).start,
       initialEnd: _preset == null ? _range.end : today,
       title: 'Choose tracking period',
     );
@@ -64,60 +66,40 @@ class _StatsScreenState extends State<StatsScreen> {
       return ListView(
         padding: const EdgeInsets.fromLTRB(22, 26, 22, 30),
         children: [
-          Row(
+          const ScreenIntro(
+            title: 'Calculator',
+            message: 'Check stock value, sales and what needs reordering.',
+            icon: Icons.calculate_rounded,
+          ),
+          const Text(
+            'Choose a tracking period',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Calculator',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Inventory, movement and reorder intelligence.',
-                      style: TextStyle(color: muted, fontSize: 14),
-                    ),
-                  ],
+              for (final days in [7, 30, 90])
+                ChoiceChip(
+                  label: Text('$days days'),
+                  selected: _preset == days,
+                  onSelected: (_) => _usePreset(days),
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: lime,
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: const Icon(Icons.calculate_rounded, color: ink),
+              ActionChip(
+                avatar: const Icon(Icons.date_range_outlined, size: 18),
+                label: const Text('Custom dates'),
+                onPressed: _customRange,
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final days in [7, 30, 90]) ...[
-                  ChoiceChip(
-                    label: Text('$days days'),
-                    selected: _preset == days,
-                    onSelected: (_) => _usePreset(days),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                ActionChip(
-                  avatar: const Icon(Icons.date_range_outlined, size: 18),
-                  label: Text(
-                    _preset == null
-                        ? '${inputDateText(_range.start)} → ${inputDateText(_range.end)}'
-                        : 'Custom',
-                  ),
-                  onPressed: _customRange,
-                ),
-              ],
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Text(
+              '${inputDateText(effectiveRange.start)} → ${inputDateText(effectiveRange.end)}',
+              style: const TextStyle(color: muted, fontSize: 12),
             ),
           ),
-          const SizedBox(height: 20),
           Surface(
             color: ink,
             child: Column(
@@ -135,7 +117,8 @@ class _StatsScreenState extends State<StatsScreen> {
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Text(
-                    inventory.valuedEntries == 0 && inventory.unvaluedEntries > 0
+                    inventory.valuedEntries == 0 &&
+                            inventory.unvaluedEntries > 0
                         ? '—'
                         : money(inventory.onHandValue),
                     style: const TextStyle(
@@ -292,22 +275,15 @@ class _StatsScreenState extends State<StatsScreen> {
             ),
           ],
           const SectionHeading('Sales movement'),
-          Row(
-            children: [
-              Expanded(
-                child: _CompactMetric(
-                  label: 'Units sold',
-                  value: '${tracking.unitsSold}',
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _CompactMetric(
-                  label: 'Recorded sales',
-                  value: '${tracking.recordedSales}',
-                ),
-              ),
-            ],
+          ResponsivePair(
+            first: _CompactMetric(
+              label: 'Units sold',
+              value: '${tracking.unitsSold}',
+            ),
+            second: _CompactMetric(
+              label: 'Recorded sales',
+              value: '${tracking.recordedSales}',
+            ),
           ),
           const SizedBox(height: 12),
           Surface(
@@ -543,10 +519,11 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Surface(
     padding: const EdgeInsets.all(17),
+    color: const Color(0xFFEBF6EE),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(metric.icon, color: green),
+        DepthIcon(metric.icon, size: 40),
         const SizedBox(height: 13),
         Text(metric.value, style: Theme.of(context).textTheme.headlineMedium),
         Text(metric.label, style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -568,6 +545,7 @@ class _CompactMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Surface(
     padding: const EdgeInsets.all(17),
+    color: const Color(0xFFEBF6EE),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

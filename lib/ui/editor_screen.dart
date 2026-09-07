@@ -86,7 +86,10 @@ class _EditorScreenState extends State<EditorScreen> {
     final record = widget.record;
     _expiryMonthOnly = record?.expiry == null || record!.expiryMonthOnly;
     if (record?.expiry != null) {
-      fields['expiry']!.text = inputDateText(record!.expiry!, monthOnly: _expiryMonthOnly);
+      fields['expiry']!.text = inputDateText(
+        record!.expiry!,
+        monthOnly: _expiryMonthOnly,
+      );
     }
     if (record?.mfg != null) fields['mfg']!.text = inputDateText(record!.mfg!);
   }
@@ -114,7 +117,10 @@ class _EditorScreenState extends State<EditorScreen> {
       for (final entry in fields.entries)
         if (!{'price', 'quantity'}.contains(entry.key))
           entry.key: entry.value.text.trim(),
-      'expiry': inputDateToIso(fields['expiry']!.text, monthOnly: _expiryMonthOnly),
+      'expiry': inputDateToIso(
+        fields['expiry']!.text,
+        monthOnly: _expiryMonthOnly,
+      ),
       'mfg': inputDateToIso(fields['mfg']!.text),
       'id': old?.id ?? newId(),
       'form': _form,
@@ -223,6 +229,7 @@ class _EditorScreenState extends State<EditorScreen> {
         );
       }
     } catch (e) {
+      if (mounted) showError(context, e);
       if (mounted)
         setState(
           () => _error = e.toString().replaceFirst(
@@ -272,7 +279,11 @@ class _EditorScreenState extends State<EditorScreen> {
     if (!mounted) return;
     setState(() => _busy = true);
     try {
-      await widget.controller.archive(record.id, reason, expectedRevision: _baseRevision);
+      await widget.controller.archive(
+        record.id,
+        reason,
+        expectedRevision: _baseRevision,
+      );
       if (mounted) {
         setState(() => _allowPop = true);
         Navigator.pop(context);
@@ -288,7 +299,10 @@ class _EditorScreenState extends State<EditorScreen> {
     final record = widget.record;
     if (record == null || record.sold || record.archived || _busy) return;
     if (_dirty) {
-      showError(context, 'Save edited medicine details before recording a sale.');
+      showError(
+        context,
+        'Save edited medicine details before recording a sale.',
+      );
       return;
     }
     final quantity = TextEditingController(text: '1');
@@ -335,7 +349,11 @@ class _EditorScreenState extends State<EditorScreen> {
                     final chosen = await showDateEntryDialog(
                       context: ctx,
                       title: 'Choose sale date',
-                      firstDate: DateTime(today.year - 10, today.month, today.day),
+                      firstDate: DateTime(
+                        today.year - 10,
+                        today.month,
+                        today.day,
+                      ),
                       lastDate: today,
                       initialDate: occurredAt ?? today,
                     );
@@ -482,18 +500,25 @@ class _EditorScreenState extends State<EditorScreen> {
     String next = '';
     if (text.isNotEmpty) {
       try {
-        final date = parseDate(inputDateToIso(text, monthOnly: _expiryMonthOnly),
-            monthEnd: _expiryMonthOnly)!;
+        final date = parseDate(
+          inputDateToIso(text, monthOnly: _expiryMonthOnly),
+          monthEnd: _expiryMonthOnly,
+        )!;
         next = inputDateText(date, monthOnly: monthOnly);
       } on FormatException {
-        showError(context, 'Finish or clear the expiry date before changing its format.');
+        showError(
+          context,
+          'Finish or clear the expiry date before changing its format.',
+        );
         return;
       }
     }
     setState(() {
       _expiryMonthOnly = monthOnly;
-      fields['expiry']!.value = TextEditingValue(text: next,
-        selection: TextSelection.collapsed(offset: next.length));
+      fields['expiry']!.value = TextEditingValue(
+        text: next,
+        selection: TextSelection.collapsed(offset: next.length),
+      );
       _dirty = true;
     });
   }
@@ -507,14 +532,22 @@ class _EditorScreenState extends State<EditorScreen> {
     int? max,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 14),
-    child: TextField(
+    child: TextFormField(
       controller: fields[key],
+      autovalidateMode: AutovalidateMode.onUserInteraction,
+      validator: key == 'name'
+          ? (value) => (value?.trim().isEmpty ?? true)
+                ? 'Enter the medicine name.'
+                : null
+          : null,
       enabled: !_busy,
       onChanged: (_) => setState(() => _dirty = true),
       maxLines: lines,
       maxLength: max,
       keyboardType: keyboard,
-      textInputAction: lines > 1 ? TextInputAction.newline : TextInputAction.next,
+      textInputAction: lines > 1
+          ? TextInputAction.newline
+          : TextInputAction.next,
       onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
       decoration: InputDecoration(
         labelText: label,
@@ -544,240 +577,287 @@ class _EditorScreenState extends State<EditorScreen> {
         appBar: AppBar(
           title: Text(record == null ? 'Add medicine' : 'Medicine details'),
         ),
+        bottomNavigationBar: SafeArea(
+          minimum: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+          child: FilledButton.icon(
+            onPressed: _busy ? null : () => _save(),
+            icon: _busy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.check_rounded),
+            label: Text(_restocking ? 'Save new stock' : 'Save medicine'),
+          ),
+        ),
         body: SafeArea(
           child: Form(
             key: _formKey,
             child: ListView(
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: const EdgeInsets.fromLTRB(22, 10, 22, 30),
-            children: [
-              if (record != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _history,
-                    icon: const Icon(Icons.history_rounded),
-                    label: const Text('Version history'),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(22, 10, 22, 30),
+              children: [
+                if (record != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : _history,
+                      icon: const Icon(Icons.history_rounded),
+                      label: const Text('Version history'),
+                    ),
                   ),
-                ),
-              if (record != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 18),
-                  child: Surface(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          record.title,
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 10),
-                        StatusPill(
-                          statusOf(
-                            record,
-                            widget.controller.settings,
-                            widget.controller.today,
-                          ).label,
-                          color: record.sold
-                              ? amber
-                              : (record.daysLeft(widget.controller.today) ??
-                                        1) <
-                                    0
-                              ? red
-                              : green,
-                        ),
-                        if (record.sold)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 10),
-                            child: Text(
-                              'This entry is in your reorder list.',
-                              style: TextStyle(color: muted, fontSize: 12),
+                if (record != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: Surface(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            record.title,
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 10),
+                          StatusPill(
+                            statusOf(
+                              record,
+                              widget.controller.settings,
+                              widget.controller.today,
+                            ).label,
+                            color: record.sold
+                                ? amber
+                                : (record.daysLeft(widget.controller.today) ??
+                                          1) <
+                                      0
+                                ? red
+                                : green,
+                          ),
+                          if (record.sold)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 10),
+                              child: Text(
+                                'This entry is in your reorder list.',
+                                style: TextStyle(color: muted, fontSize: 12),
+                              ),
                             ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (record?.sold == true && !_restocking)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: FilledButton.icon(
+                      onPressed: _busy
+                          ? null
+                          : () {
+                              setState(() {
+                                _restocking = true;
+                                _dirty = true;
+                                fields['quantity']!.clear();
+                                _expiryMonthOnly = true;
+                                fields['expiry']!.clear();
+                                fields['mfg']!.clear();
+                              });
+                            },
+                      icon: const Icon(Icons.inventory_2_outlined),
+                      label: const Text('Restock this medicine'),
+                    ),
+                  ),
+                if (_restocking)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 18),
+                    child: StatusPill('New stock · review expiry and quantity'),
+                  ),
+                Text(
+                  record == null
+                      ? 'Give it a place in your inventory.'
+                      : 'Edit the master stock entry.',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Only the medicine name is required. Leave information blank when it is unknown.',
+                  style: TextStyle(color: muted, fontSize: 13),
+                ),
+                const SizedBox(height: 24),
+                FormSection(
+                  title: '1. Medicine details',
+                  message: 'Start with the name. Add the details printed on the pack.',
+                  icon: Icons.medication_outlined,
+                  children: [
+                    _field('name', 'Medicine name *', hint: 'e.g. Paracetamol'),
+                    _field('brand', 'Brand · optional', hint: 'e.g. Dolo'),
+                    _field('manufacturer', 'Manufacturer · optional'),
+                    _field('salt', 'Salt / composition · optional'),
+                    _field(
+                      'strength',
+                      'Strength · optional',
+                      hint: 'e.g. 650mg',
+                    ),
+                    DropdownButtonFormField<String>(
+                      initialValue: _form,
+                      decoration: const InputDecoration(
+                        labelText: 'Medicine form · optional',
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('Not specified'),
+                        ),
+                        ...forms.map(
+                          (f) => DropdownMenuItem(value: f, child: Text(f)),
+                        ),
+                      ],
+                      onChanged: _busy
+                          ? null
+                          : (v) => setState(() {
+                              _form = v ?? '';
+                              _dirty = true;
+                            }),
+                    ),
+                  ],
+                ),
+                FormSection(
+                  title: '2. Dates & stock',
+                  message: 'Choose the expiry format shown on the pack, then type only numbers.',
+                  icon: Icons.calendar_month_outlined,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final monthOnly in [true, false])
+                          ChoiceChip(
+                            label: Text(
+                              monthOnly ? 'Month / year' : 'Full date',
+                            ),
+                            selected: _expiryMonthOnly == monthOnly,
+                            onSelected: _busy
+                                ? null
+                                : (_) => _changeExpiryFormat(monthOnly),
                           ),
                       ],
                     ),
-                  ),
-                ),
-              if (record?.sold == true && !_restocking)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 18),
-                  child: FilledButton.icon(
-                    onPressed: _busy ? null : () {
-                      setState(() {
-                        _restocking = true;
-                        _dirty = true;
-                        fields['quantity']!.clear();
-                        fields['expiry']!.clear();
-                        fields['mfg']!.clear();
-                      });
-                    },
-                    icon: const Icon(Icons.inventory_2_outlined),
-                    label: const Text('Restock this medicine'),
-                  ),
-                ),
-              if (_restocking)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 18),
-                  child: StatusPill('New stock · review expiry and quantity'),
-                ),
-              Text(
-                record == null
-                    ? 'Give it a place in your inventory.'
-                    : 'Edit the master stock entry.',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Only the medicine name is required. Leave information blank when it is unknown.',
-                style: TextStyle(color: muted, fontSize: 13),
-              ),
-              const SizedBox(height: 24),
-              _field('name', 'Medicine name *', hint: 'e.g. Paracetamol'),
-              _field('brand', 'Brand · optional', hint: 'e.g. Dolo'),
-              _field('manufacturer', 'Manufacturer · optional'),
-              _field('salt', 'Salt / composition · optional'),
-              _field('strength', 'Strength · optional', hint: 'e.g. 650mg'),
-              DropdownButtonFormField<String>(
-                initialValue: _form,
-                decoration: const InputDecoration(
-                  labelText: 'Medicine form · optional',
-                ),
-                items: [
-                  const DropdownMenuItem(
-                    value: '',
-                    child: Text('Not specified'),
-                  ),
-                  ...forms.map(
-                    (f) => DropdownMenuItem(value: f, child: Text(f)),
-                  ),
-                ],
-                onChanged: _busy ? null : (v) => setState(() {
-                  _form = v ?? '';
-                  _dirty = true;
-                }),
-              ),
-              const SectionHeading('Dates & stock'),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final monthOnly in [true, false])
-                    ChoiceChip(
-                      label: Text(monthOnly ? 'Month / year' : 'Full date'),
-                      selected: _expiryMonthOnly == monthOnly,
-                      onSelected: _busy ? null : (_) => _changeExpiryFormat(monthOnly),
+                    const SizedBox(height: 14),
+                    DateEntryField(
+                      key: ValueKey('expiry-$_expiryMonthOnly'),
+                      controller: fields['expiry']!,
+                      label: 'Expiry date · optional',
+                      monthOnly: _expiryMonthOnly,
+                      enabled: !_busy,
+                      onChanged: (_) => setState(() => _dirty = true),
                     ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              DateEntryField(
-                key: ValueKey('expiry-$_expiryMonthOnly'),
-                controller: fields['expiry']!,
-                label: 'Expiry date · optional',
-                monthOnly: _expiryMonthOnly,
-                enabled: !_busy,
-                onChanged: (_) => setState(() => _dirty = true),
-              ),
-              const SizedBox(height: 20),
-              DateEntryField(
-                controller: fields['mfg']!,
-                label: 'Manufacturing date · optional',
-                enabled: !_busy,
-                onChanged: (_) => setState(() => _dirty = true),
-              ),
-              const SizedBox(height: 20),
-              _field(
-                'quantity',
-                'Stock quantity · optional',
-                hint: 'Number of units you count',
-                keyboard: TextInputType.number,
-              ),
-              _field(
-                'price',
-                'Inventory unit cost · ₹ · optional',
-                hint: 'e.g. 2.50',
-                keyboard: const TextInputType.numberWithOptions(decimal: true),
-              ),
-              const Text(
-                'Use the same unit for quantity and cost: tablets with tablet cost, bottles with bottle cost, or strips with strip cost. Sale revenue is recorded separately.',
-                style: TextStyle(color: muted, fontSize: 12),
-              ),
-              const SectionHeading('Where to find it'),
-              _field('block', 'Block · optional'),
-              _field('row', 'Row · optional'),
-              _field('vertical', 'Vertical · optional'),
-              _field(
-                'location',
-                'Location · optional',
-                hint: 'Room, shelf, drawer or box',
-                lines: 2,
-              ),
-              _field(
-                'notes',
-                'Your notes · optional',
-                hint: 'Anything that helps you find or remember this medicine',
-                lines: 3,
-                max: 10000,
-              ),
-              const SectionHeading('Scan & search details'),
-              _field('barcode', 'Barcode · optional'),
-              _field(
-                'ocrText',
-                'Scanned text / search keywords · optional',
-                lines: 4,
-                max: 30000,
-              ),
-              if (_error.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 18),
-                  child: Text(_error, style: const TextStyle(color: red)),
+                    const SizedBox(height: 20),
+                    DateEntryField(
+                      controller: fields['mfg']!,
+                      label: 'Manufacturing date · optional',
+                      enabled: !_busy,
+                      onChanged: (_) => setState(() => _dirty = true),
+                    ),
+                    const SizedBox(height: 20),
+                    _field(
+                      'quantity',
+                      'Stock quantity · optional',
+                      hint: 'Number of units you count',
+                      keyboard: TextInputType.number,
+                    ),
+                    _field(
+                      'price',
+                      'Inventory unit cost · ₹ · optional',
+                      hint: 'e.g. 2.50',
+                      keyboard: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                    const Text(
+                      'Use the same unit for quantity and cost: tablets with tablet cost, bottles with bottle cost, or strips with strip cost. Sale revenue is recorded separately.',
+                      style: TextStyle(color: muted, fontSize: 12),
+                    ),
+                  ],
                 ),
-              FilledButton.icon(
-                onPressed: _busy ? null : () => _save(),
-                icon: _busy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.check_rounded),
-                label: Text(_restocking ? 'Save new stock' : 'Save medicine'),
-              ),
-              if (record != null && !record.sold)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _recordSale,
-                    icon: const Icon(Icons.point_of_sale_outlined),
-                    label: const Text('Record sale / stock movement'),
+                FormSection(
+                  title: '3. Where to find it',
+                  message: 'Use your shelf labels or write a location you will recognise.',
+                  icon: Icons.location_on_outlined,
+                  children: [
+                    _field('block', 'Block · optional'),
+                    _field('row', 'Row · optional'),
+                    _field('vertical', 'Vertical · optional'),
+                    _field(
+                      'location',
+                      'Location · optional',
+                      hint: 'Room, shelf, drawer or box',
+                      lines: 2,
+                    ),
+                    _field(
+                      'notes',
+                      'Your notes · optional',
+                      hint: 'Anything that helps you find or remember this medicine',
+                      lines: 3,
+                      max: 10000,
+                    ),
+                  ],
+                ),
+                FormSection(
+                  title: '4. Scan & search details',
+                  message: 'Keep a barcode or extra keywords to find this stock faster.',
+                  icon: Icons.qr_code_scanner_rounded,
+                  children: [
+                    _field('barcode', 'Barcode · optional'),
+                    _field(
+                      'ocrText',
+                      'Scanned text / search keywords · optional',
+                      lines: 4,
+                      max: 30000,
+                    ),
+                  ],
+                ),
+                if (_error.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: Text(_error, style: const TextStyle(color: red)),
                   ),
-                ),
-              if (record != null && !record.sold)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : () => _save(sold: true),
-                    icon: const Icon(Icons.check_circle_outline, color: amber),
-                    label: const Text(
-                      'Mark stock SOLD',
-                      style: TextStyle(color: amber),
+                if (record != null) const SectionHeading('Stock actions'),
+                if (record != null && !record.sold)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : _recordSale,
+                      icon: const Icon(Icons.point_of_sale_outlined),
+                      label: const Text('Record sale / stock movement'),
                     ),
                   ),
-                ),
-              if (record != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: TextButton.icon(
-                    onPressed: _busy ? null : _remove,
-                    icon: const Icon(Icons.archive_outlined, color: red),
-                    label: const Text(
-                      'Remove stock entry',
-                      style: TextStyle(color: red),
+                if (record != null && !record.sold)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : () => _save(sold: true),
+                      icon: const Icon(
+                        Icons.check_circle_outline,
+                        color: amber,
+                      ),
+                      label: const Text(
+                        'Mark stock SOLD',
+                        style: TextStyle(color: amber),
+                      ),
                     ),
                   ),
-                ),
-            ],
-          ),
+                if (record != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: TextButton.icon(
+                      onPressed: _busy ? null : _remove,
+                      icon: const Icon(Icons.archive_outlined, color: red),
+                      label: const Text(
+                        'Remove stock entry',
+                        style: TextStyle(color: red),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

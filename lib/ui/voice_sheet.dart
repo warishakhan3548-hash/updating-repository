@@ -136,7 +136,7 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-    child: Padding(
+    child: SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         24,
         8,
@@ -176,17 +176,16 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
             ),
           const SizedBox(height: 20),
           Center(
-            child: Icon(
+            child: DepthIcon(
               _listening ? Icons.graphic_eq_rounded : Icons.mic_none_rounded,
-              size: 56,
-              color: green,
+              size: 78,
             ),
           ),
           const SizedBox(height: 12),
           Center(
             child: Text(
               _words.isEmpty
-                  ? (_listening ? 'Listening…' : 'Tap the microphone to begin')
+                  ? (_listening ? 'Listening…' : 'Tap Listen to begin')
                   : _words,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleMedium,
@@ -223,7 +222,7 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
                     ? null
                     : () => Navigator.pop(context, _words),
                 icon: const Icon(Icons.search_rounded),
-                label: const Text('Search words'),
+                label: const Text('Search medicines'),
               ),
             ],
           ),

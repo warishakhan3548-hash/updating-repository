@@ -108,11 +108,20 @@ class _OrderScreenState extends State<OrderScreen> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(22, 8, 22, 30),
           children: [
-            const Text(
-              'Review every suggested quantity and saved unit cost before sharing with a supplier.',
-              style: TextStyle(color: muted, fontSize: 13),
+            const ScreenIntro(
+              title: 'Prepare your order',
+              message: 'Select medicines, check quantities and costs, then share the PDF.',
+              icon: Icons.shopping_bag_outlined,
             ),
-            const SizedBox(height: 18),
+            const FlowSteps(['Select', 'Check quantity', 'Share PDF']),
+            if (suggestions.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: StatusPill(
+                  '${_selected.length} medicines selected',
+                  color: amber,
+                ),
+              ),
             if (suggestions.isEmpty)
               const EmptyState(
                 title: 'No reorder suggestions',
@@ -140,13 +149,15 @@ class _OrderScreenState extends State<OrderScreen> {
                             suggestion.reason,
                           ].join(' · '),
                         ),
-                        onChanged: (value) => setState(() {
-                          if (value == true) {
-                            _selected.add(suggestion.productKey);
-                          } else {
-                            _selected.remove(suggestion.productKey);
-                          }
-                        }),
+                        onChanged: _sharing
+                            ? null
+                            : (value) => setState(() {
+                                if (value == true) {
+                                  _selected.add(suggestion.productKey);
+                                } else {
+                                  _selected.remove(suggestion.productKey);
+                                }
+                              }),
                       ),
                       Wrap(
                         spacing: 10,
@@ -155,6 +166,8 @@ class _OrderScreenState extends State<OrderScreen> {
                           SizedBox(
                             width: 150,
                             child: TextField(
+                              enabled: !_sharing,
+                              textInputAction: TextInputAction.next,
                               controller: _quantity[suggestion.productKey],
                               keyboardType: TextInputType.number,
                               onChanged: (_) => setState(() {}),
@@ -166,6 +179,8 @@ class _OrderScreenState extends State<OrderScreen> {
                           SizedBox(
                             width: 170,
                             child: TextField(
+                              enabled: !_sharing,
+                              textInputAction: TextInputAction.next,
                               controller: _cost[suggestion.productKey],
                               keyboardType:
                                   const TextInputType.numberWithOptions(
@@ -200,7 +215,7 @@ class _OrderScreenState extends State<OrderScreen> {
                 label: Text(
                   _sharing
                       ? 'Preparing purchase order…'
-                      : 'Create & share purchase-order PDF',
+                      : 'Share purchase-order PDF',
                 ),
               ),
               const Padding(

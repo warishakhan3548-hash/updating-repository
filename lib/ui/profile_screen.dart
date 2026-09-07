@@ -74,116 +74,130 @@ class ProfileScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(22, 26, 22, 30),
-    children: [
-      Text('Your pharmacy', style: Theme.of(context).textTheme.headlineMedium),
-      const SizedBox(height: 24),
-      Surface(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: const BoxDecoration(
-                color: lime,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (context, _) => ListView(
+      key: const PageStorageKey('profile-scroll'),
+      padding: const EdgeInsets.fromLTRB(22, 26, 22, 30),
+      children: [
+        const ScreenIntro(
+          title: 'Your pharmacy',
+          message: 'Manage warnings, backups and your saved activity.',
+          icon: Icons.local_pharmacy_outlined,
+        ),
+        Surface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const DepthIcon(
                 Icons.local_pharmacy_rounded,
+                background: lime,
                 color: ink,
-                size: 35,
+                size: 64,
               ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'Aaris Pharmacy',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'A private workspace on this device. Your inventory works offline; AI connections are optional.',
-              style: TextStyle(color: muted),
-            ),
-            const SizedBox(height: 14),
-            const StatusPill('No account required'),
-          ],
+              const SizedBox(height: 18),
+              Text(
+                'Aaris Pharmacy',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'A private workspace on this device. Your inventory works offline; AI connections are optional.',
+                style: TextStyle(color: muted),
+              ),
+              const SizedBox(height: 14),
+              const StatusPill('No account required'),
+            ],
+          ),
         ),
-      ),
-      const SectionHeading('Make it yours'),
-      Surface(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.tune_rounded),
-              title: const Text('Expiry warning windows'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => showWarningSettings(context, controller),
-            ),
-            ListTile(
-              leading: const Icon(Icons.history_rounded),
-              title: const Text('Activity & Undo'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => ActivityScreen(controller: controller),
+        const SectionHeading('Make it yours'),
+        Surface(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            children: [
+              ListTile(
+                leading: const DepthIcon(Icons.tune_rounded, size: 40),
+                title: const Text('Expiry warning windows'),
+                subtitle: Text(
+                  '${controller.settings.shortDays} days · ${controller.settings.months} months',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => showWarningSettings(context, controller),
+              ),
+              ListTile(
+                leading: const DepthIcon(Icons.history_rounded, size: 40),
+                title: const Text('Activity & Undo'),
+                subtitle: const Text('See changes and undo the latest one'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => ActivityScreen(controller: controller),
+                  ),
                 ),
               ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.archive_outlined),
-              title: const Text('Removed stock'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => _RemovedScreen(controller: controller),
+              ListTile(
+                leading: const DepthIcon(
+                  Icons.archive_outlined,
+                  size: 40,
+                  color: amber,
+                  background: Color(0xFFFFF0CD),
+                ),
+                title: const Text('Removed stock'),
+                subtitle: const Text('Find and restore archived medicines'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => _RemovedScreen(controller: controller),
+                  ),
                 ),
               ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.shield_outlined),
-              title: const Text('Backup & Restore'),
-              subtitle: const Text('Full local data backup'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => BackupScreen(controller: controller),
+              ListTile(
+                leading: const DepthIcon(Icons.shield_outlined, size: 40),
+                title: const Text('Backup & Restore'),
+                subtitle: const Text('Full local data backup'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => BackupScreen(controller: controller),
+                  ),
                 ),
               ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.ios_share_rounded),
-              title: const Text('Export pharmacy inventory'),
-              subtitle: const Text('TXT facts and AI import instructions'),
-              onTap: () async {
-                try {
-                  await sharePharmacy(controller.export());
-                } catch (e) {
-                  if (context.mounted) showError(context, e);
-                }
-              },
-            ),
-          ],
+              ListTile(
+                leading: const DepthIcon(Icons.ios_share_rounded, size: 40),
+                title: const Text('Export pharmacy inventory'),
+                subtitle: const Text('TXT facts and AI import instructions'),
+                onTap: () async {
+                  try {
+                    await sharePharmacy(controller.export());
+                  } catch (e) {
+                    if (context.mounted) showError(context, e);
+                  }
+                },
+              ),
+            ],
+          ),
         ),
-      ),
-      const SectionHeading('About your data'),
-      const Surface(
-        child: Text(
-          'Medicine name is required; other details can stay unknown. Inventory costs use the same unit as stock quantity; sale revenue is recorded separately. Expiry is calculated from your phone’s current date. API keys are excluded from all inventory exports.\n\nInventory is stored locally. Keep exports somewhere you trust before changing phones or uninstalling. Camera OCR and device speech require the relevant permissions.\n\nVersion 1.0.0',
-          style: TextStyle(fontSize: 13, color: muted),
+        const SectionHeading('About your data'),
+        const Surface(
+          child: Text(
+            'Medicine name is required; other details can stay unknown. Inventory costs use the same unit as stock quantity; sale revenue is recorded separately. Expiry is calculated from your phone’s current date. API keys are excluded from all inventory exports.\n\nInventory is stored locally. Keep exports somewhere you trust before changing phones or uninstalling. Camera OCR and device speech require the relevant permissions.\n\nVersion 1.0.0',
+            style: TextStyle(fontSize: 13, color: muted),
+          ),
         ),
-      ),
-      const SizedBox(height: 22),
-      OutlinedButton.icon(
-        onPressed: () => _removeAll(context),
-        icon: const Icon(Icons.archive_outlined, color: red),
-        label: const Text('Remove all inventory', style: TextStyle(color: red)),
-      ),
-    ],
+        const SizedBox(height: 22),
+        OutlinedButton.icon(
+          onPressed: () => _removeAll(context),
+          icon: const Icon(Icons.archive_outlined, color: red),
+          label: const Text(
+            'Remove all inventory',
+            style: TextStyle(color: red),
+          ),
+        ),
+      ],
+    ),
   );
 }
 
@@ -198,11 +212,11 @@ class ActivityScreen extends StatelessWidget {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(22),
         children: [
-          const Text(
-            'Latest 200 changes. Undo applies to the most recent saved change, including an entire approved AI import.',
-            style: TextStyle(color: muted, fontSize: 13),
+          const ScreenIntro(
+            title: 'Your recent activity',
+            message: 'See the latest 200 changes. Undo reverses the most recent saved change, including an approved import.',
+            icon: Icons.history_rounded,
           ),
-          const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: controller.canUndo
                 ? () async {
@@ -287,6 +301,12 @@ class _RemovedScreen extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(22),
           children: [
+            const ScreenIntro(
+              title: 'Restore removed stock',
+              message: 'Choose a medicine to return it to your inventory.',
+              icon: Icons.inventory_2_outlined,
+              color: amber,
+            ),
             if (records.isEmpty)
               const EmptyState(
                 title: 'No removed stock',
