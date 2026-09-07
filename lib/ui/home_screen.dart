@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../state/pharmacy_controller.dart';
@@ -94,10 +96,10 @@ class HomeScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton.filledTonal(
+              _GlassIconButton(
                 tooltip: 'Expiry warning settings',
                 onPressed: () => showWarningSettings(context, controller),
-                icon: const Icon(Icons.tune_rounded),
+                icon: Icons.tune_rounded,
               ),
             ],
           ),
@@ -211,7 +213,7 @@ class HomeScreen extends StatelessWidget {
                 return maxHeight;
               }
 
-              // Use one measured height for all four cards, including large text.
+              // Keep every overview card exactly the same measured height.
               final height =
                   102 +
                   scaler.scale(36) * 1.2 +
@@ -233,7 +235,9 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 22),
           _ScanBanner(onTap: () => _open(context, SearchScope.all)),
           const SizedBox(height: 18),
-          Surface(
+          _GlassPanel(
+            tint: Colors.white,
+            radius: 24,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
@@ -257,10 +261,11 @@ class HomeScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton(
+                _GlassIconButton(
                   tooltip: 'Add medicine',
                   onPressed: () => openEditor(context, controller),
-                  icon: const Icon(Icons.add_circle_outline_rounded),
+                  icon: Icons.add_circle_outline_rounded,
+                  size: 40,
                 ),
               ],
             ),
@@ -310,6 +315,132 @@ class HomeScreen extends StatelessWidget {
   );
 }
 
+class _GlassPanel extends StatelessWidget {
+  const _GlassPanel({
+    required this.child,
+    required this.tint,
+    this.radius = 24,
+    this.padding = EdgeInsets.zero,
+    this.dark = false,
+  });
+
+  final Widget child;
+  final Color tint;
+  final double radius;
+  final EdgeInsets padding;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderRadius = BorderRadius.circular(radius);
+    final baseAlpha = dark ? .88 : .56;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: borderRadius,
+        boxShadow: [
+          BoxShadow(
+            color: (dark ? Colors.black : ink).withValues(alpha: dark ? .23 : .10),
+            blurRadius: 26,
+            spreadRadius: -5,
+            offset: const Offset(0, 14),
+          ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: dark ? .04 : .80),
+            blurRadius: 8,
+            spreadRadius: -4,
+            offset: const Offset(-4, -4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            padding: padding,
+            decoration: BoxDecoration(
+              borderRadius: borderRadius,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                stops: const [0, .46, 1],
+                colors: dark
+                    ? [
+                        Color.alphaBlend(
+                          Colors.white.withValues(alpha: .10),
+                          tint.withValues(alpha: baseAlpha),
+                        ),
+                        tint.withValues(alpha: baseAlpha),
+                        Color.alphaBlend(
+                          Colors.black.withValues(alpha: .08),
+                          tint.withValues(alpha: baseAlpha),
+                        ),
+                      ]
+                    : [
+                        Color.alphaBlend(
+                          Colors.white.withValues(alpha: .76),
+                          tint.withValues(alpha: baseAlpha),
+                        ),
+                        Color.alphaBlend(
+                          Colors.white.withValues(alpha: .34),
+                          tint.withValues(alpha: baseAlpha),
+                        ),
+                        Color.alphaBlend(
+                          ink.withValues(alpha: .025),
+                          tint.withValues(alpha: baseAlpha),
+                        ),
+                      ],
+              ),
+              border: Border.all(
+                color: dark
+                    ? Colors.white.withValues(alpha: .18)
+                    : Colors.white.withValues(alpha: .92),
+                width: 1.2,
+              ),
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassIconButton extends StatelessWidget {
+  const _GlassIconButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.icon,
+    this.size = 44,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+  final IconData icon;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: _GlassPanel(
+      tint: const Color(0xFFE4F3EE),
+      radius: size * .5,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(size * .5),
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Icon(icon, color: ink, size: size * .48),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class _OverviewTile extends StatelessWidget {
   const _OverviewTile({
     required this.title,
@@ -332,96 +463,130 @@ class _OverviewTile extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     button: true,
     label: '$title, $count medicines. $caption',
-    child: Container(
-      decoration: depthDecoration(background),
+    child: _GlassPanel(
+      tint: background,
+      radius: 25,
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(24),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(24),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: Stack(
-              children: [
-                Positioned(
-                  right: -12,
-                  bottom: -14,
-                  child: ExcludeSemantics(
-                    child: Transform.rotate(
-                      angle: -.25,
-                      child: Icon(
-                        icon,
-                        size: 86,
-                        color: color.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(25),
+          child: Stack(
+            children: [
+              Positioned(
+                left: -30,
+                top: -52,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 155,
+                    height: 125,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(70),
+                      gradient: RadialGradient(
+                        colors: [
+                          Colors.white.withValues(alpha: .72),
+                          Colors.white.withValues(alpha: 0),
+                        ],
                       ),
                     ),
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          DepthIcon(
-                            icon,
-                            color: color,
-                            background: Color.alphaBlend(
-                              color.withValues(alpha: .12),
-                              background,
-                            ),
-                            size: 42,
-                          ),
-                          const Spacer(),
-                          selector ??
-                              Icon(
-                                Icons.north_east_rounded,
-                                color: color,
-                                size: 20,
-                              ),
-                        ],
-                      ),
-                      const SizedBox(height: 13),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          '$count',
-                          style: TextStyle(
-                            color: color,
-                            fontSize: 36,
-                            height: 1.2,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -1.2,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          height: 1.3,
-                          fontWeight: FontWeight.w800,
-                          color: ink,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        caption,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          height: 1.3,
-                          color: muted,
-                        ),
-                      ),
-                    ],
+              ),
+              Positioned(
+                right: -12,
+                bottom: -14,
+                child: ExcludeSemantics(
+                  child: Transform.rotate(
+                    angle: -.25,
+                    child: Icon(
+                      icon,
+                      size: 86,
+                      color: color.withValues(alpha: .075),
+                    ),
                   ),
                 ),
-              ],
-            ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        _GlassPanel(
+                          tint: Color.alphaBlend(
+                            color.withValues(alpha: .14),
+                            background,
+                          ),
+                          radius: 14,
+                          child: SizedBox(
+                            width: 42,
+                            height: 42,
+                            child: Icon(icon, color: color, size: 23),
+                          ),
+                        ),
+                        const Spacer(),
+                        selector ??
+                            _GlassPanel(
+                              tint: background,
+                              radius: 18,
+                              child: SizedBox(
+                                width: 36,
+                                height: 36,
+                                child: Icon(
+                                  Icons.north_east_rounded,
+                                  color: color,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                      ],
+                    ),
+                    const SizedBox(height: 13),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '$count',
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 36,
+                          height: 1.2,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -1.2,
+                          shadows: [
+                            Shadow(
+                              color: Colors.white.withValues(alpha: .72),
+                              blurRadius: 10,
+                              offset: const Offset(0, -1),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        height: 1.3,
+                        fontWeight: FontWeight.w800,
+                        color: ink,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      caption,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        height: 1.3,
+                        color: muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -471,20 +636,10 @@ class _WarningSelector extends StatelessWidget {
         ),
       ),
     ],
-    child: Container(
+    child: _GlassPanel(
+      tint: Colors.white,
+      radius: 999,
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .68),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: ink.withValues(alpha: .07)),
-        boxShadow: [
-          BoxShadow(
-            color: ink.withValues(alpha: .06),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -508,50 +663,98 @@ class _WarningSelector extends StatelessWidget {
 class _ScanBanner extends StatelessWidget {
   const _ScanBanner({required this.onTap});
   final VoidCallback onTap;
+
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: depthDecoration(ink, radius: 26),
+  Widget build(BuildContext context) => _GlassPanel(
+    tint: ink,
+    radius: 27,
+    dark: true,
     child: Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(26),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(26),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Row(
-            children: [
-              const DepthIcon(
-                Icons.qr_code_scanner_rounded,
-                color: Colors.white,
-                background: Color(0xFF286052),
-                size: 52,
-              ),
-              const SizedBox(width: 16),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Scan & Search',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
-                      ),
+        borderRadius: BorderRadius.circular(27),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -42,
+              top: -58,
+              child: IgnorePointer(
+                child: Container(
+                  width: 170,
+                  height: 170,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        lime.withValues(alpha: .13),
+                        lime.withValues(alpha: 0),
+                      ],
                     ),
-                    SizedBox(height: 6),
-                    Text(
-                      'Scan a barcode or search any medicine',
-                      style: TextStyle(color: Color(0xFFD2E6DB), fontSize: 12),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
-              const Icon(Icons.arrow_forward_rounded, color: lime, size: 26),
-            ],
-          ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  _GlassPanel(
+                    tint: const Color(0xFF286052),
+                    radius: 17,
+                    dark: true,
+                    child: const SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: Icon(
+                        Icons.qr_code_scanner_rounded,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Scan & Search',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          'Scan a barcode or search any medicine',
+                          style: TextStyle(
+                            color: Color(0xFFD2E6DB),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _GlassPanel(
+                    tint: lime,
+                    radius: 22,
+                    child: const SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Icon(
+                        Icons.arrow_forward_rounded,
+                        color: ink,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     ),
@@ -661,8 +864,9 @@ Future<void> showWarningSettings(
                   'months': int.tryParse(months.text),
                 });
                 if (int.tryParse(days.text) == null ||
-                    int.tryParse(months.text) == null)
+                    int.tryParse(months.text) == null) {
                   throw const FormatException('Enter whole numbers.');
+                }
                 Navigator.pop(ctx, value);
               } catch (e) {
                 setState(
