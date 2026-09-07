@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../domain/medicine.dart';
+import '../domain/medicine_discovery.dart';
 import '../domain/date_input.dart';
 import 'date_field.dart';
 import '../domain/inventory.dart';
@@ -14,6 +15,7 @@ Future<void> openEditor(
   BuildContext context,
   PharmacyController controller, {
   Medicine? record,
+  MedicineDraftSeed? seed,
   String barcode = '',
   String ocrText = '',
 }) => Navigator.of(context).push<void>(
@@ -21,6 +23,7 @@ Future<void> openEditor(
     builder: (_) => EditorScreen(
       controller: controller,
       record: record,
+      seed: seed,
       barcode: barcode,
       ocrText: ocrText,
     ),
@@ -32,11 +35,13 @@ class EditorScreen extends StatefulWidget {
     super.key,
     required this.controller,
     this.record,
+    this.seed,
     this.barcode = '',
     this.ocrText = '',
   });
   final PharmacyController controller;
   final Medicine? record;
+  final MedicineDraftSeed? seed;
   final String barcode, ocrText;
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -53,9 +58,20 @@ class _EditorScreenState extends State<EditorScreen> {
   void initState() {
     super.initState();
     _baseRevision = widget.controller.snapshot.revision;
+    final seed = widget.seed;
     final data =
         widget.record?.toJson() ??
-        <String, dynamic>{'barcode': widget.barcode, 'ocrText': widget.ocrText};
+        <String, dynamic>{
+          'name': seed?.name ?? '',
+          'brand': seed?.brand ?? '',
+          'manufacturer': seed?.manufacturer ?? '',
+          'salt': seed?.salt ?? '',
+          'strength': seed?.strength ?? '',
+          'barcode': seed?.barcode.isNotEmpty == true
+              ? seed!.barcode
+              : widget.barcode,
+          'ocrText': widget.ocrText,
+        };
     for (final field in [
       'name',
       'brand',
@@ -82,7 +98,7 @@ class _EditorScreenState extends State<EditorScreen> {
           ? ''
           : (widget.record!.unitPricePaise! / 100).toStringAsFixed(2),
     );
-    _form = widget.record?.form ?? '';
+    _form = widget.record?.form ?? seed?.form ?? '';
     final record = widget.record;
     _expiryMonthOnly = record?.expiry == null || record!.expiryMonthOnly;
     if (record?.expiry != null) {
@@ -669,6 +685,37 @@ class _EditorScreenState extends State<EditorScreen> {
                   const Padding(
                     padding: EdgeInsets.only(bottom: 18),
                     child: StatusPill('New stock · review expiry and quantity'),
+                  ),
+                if (record == null && widget.seed != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: Surface(
+                      color: const Color(0xFFEAF7F3),
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.public_rounded, color: green),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Medicine identity prefilled',
+                                  style: TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'From ${widget.seed!.source}. Verify the pack. Expiry, MFG, quantity, price and pharmacy location were not filled from the internet.',
+                                  style: const TextStyle(color: muted, fontSize: 12, height: 1.4),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 Text(
                   record == null
