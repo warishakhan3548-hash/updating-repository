@@ -2,12 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../domain/date_input.dart';
+import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/medicine_discovery.dart';
-import '../domain/date_input.dart';
-import 'date_field.dart';
-import '../domain/inventory.dart';
 import '../state/pharmacy_controller.dart';
+import 'date_field.dart';
 import 'design.dart';
 import 'version_history_screen.dart';
 
@@ -39,21 +39,25 @@ class EditorScreen extends StatefulWidget {
     this.barcode = '',
     this.ocrText = '',
   });
+
   final PharmacyController controller;
   final Medicine? record;
   final MedicineDraftSeed? seed;
   final String barcode, ocrText;
+
   @override
   State<EditorScreen> createState() => _EditorScreenState();
 }
 
 class _EditorScreenState extends State<EditorScreen> {
   final fields = <String, TextEditingController>{};
-  late final int _baseRevision;
   final _formKey = GlobalKey<FormState>();
+  late final int _baseRevision;
+
   bool _expiryMonthOnly = true;
   String _form = '', _error = '';
   bool _busy = false, _restocking = false, _dirty = false, _allowPop = false;
+
   @override
   void initState() {
     super.initState();
@@ -72,6 +76,10 @@ class _EditorScreenState extends State<EditorScreen> {
               : widget.barcode,
           'ocrText': widget.ocrText,
         };
+
+    // Keep legacy/automatic metadata in the model so existing records and
+    // catalog-prefilled identity data are never destroyed. Only the small set
+    // of fields a pharmacist needs day-to-day is rendered in the editor.
     for (final field in [
       'name',
       'brand',
@@ -98,6 +106,7 @@ class _EditorScreenState extends State<EditorScreen> {
           ? ''
           : (widget.record!.unitPricePaise! / 100).toStringAsFixed(2),
     );
+
     _form = widget.record?.form ?? seed?.form ?? '';
     final record = widget.record;
     _expiryMonthOnly = record?.expiry == null || record!.expiryMonthOnly;
@@ -122,12 +131,10 @@ class _EditorScreenState extends State<EditorScreen> {
     final old = widget.record;
     final quantityText = fields['quantity']!.text.trim();
     final quantity = quantityText.isEmpty ? null : int.tryParse(quantityText);
-    if (quantityText.isNotEmpty && quantity == null)
+    if (quantityText.isNotEmpty && quantity == null) {
       throw const FormatException('Quantity must be a whole number.');
-    if (_restocking && (quantity == null || quantity <= 0))
-      throw const FormatException(
-        'Enter a positive quantity for the new stock.',
-      );
+    }
+
     final data = <String, dynamic>{
       ...?old?.toJson(),
       for (final entry in fields.entries)
@@ -172,6 +179,7 @@ class _EditorScreenState extends State<EditorScreen> {
         ),
       ) ??
       false;
+
   Future<void> _save({bool sold = false}) async {
     if (_busy) return;
     if (!(_formKey.currentState?.validate() ?? false)) {
@@ -186,8 +194,9 @@ class _EditorScreenState extends State<EditorScreen> {
           'Mark this stock sold?',
           'This marks the entire stock entry out of stock and adds it to the reorder list. It does not record a customer sale.',
           'Mark sold',
-        ))
+        )) {
           return;
+        }
         if (!mounted) return;
         draft = Medicine.fromJson({
           ...draft.toJson(),
@@ -199,6 +208,7 @@ class _EditorScreenState extends State<EditorScreen> {
           'revision': (widget.record?.revision ?? 0) + 1,
         });
       }
+
       if (widget.record == null) {
         var matches = widget.controller.records
             .where(
@@ -228,11 +238,12 @@ class _EditorScreenState extends State<EditorScreen> {
               'Matching medicine already exists',
               '${matches.map((match) => match.title).join(', ')} $matchKind. Save a separate stock entry only if this has a different expiry, location or physical stock.',
               'Add separate stock',
-            ))
+            )) {
           return;
+        }
       }
+
       if (!mounted) return;
-      setState(() => _busy = true);
       await widget.controller.save(draft, expectedRevision: _baseRevision);
       if (mounted) {
         setState(() => _allowPop = true);
@@ -246,13 +257,14 @@ class _EditorScreenState extends State<EditorScreen> {
       }
     } catch (e) {
       if (mounted) showError(context, e);
-      if (mounted)
+      if (mounted) {
         setState(
           () => _error = e.toString().replaceFirst(
             RegExp(r'^(FormatException|Bad state):\s*'),
             '',
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -290,8 +302,9 @@ class _EditorScreenState extends State<EditorScreen> {
       'Remove ${record.name}?',
       'This stock entry will disappear from inventory, search and totals. It remains in removed history and can be restored.',
       'Remove',
-    ))
+    )) {
       return;
+    }
     if (!mounted) return;
     setState(() => _busy = true);
     try {
@@ -321,15 +334,17 @@ class _EditorScreenState extends State<EditorScreen> {
       );
       return;
     }
+
     final quantity = TextEditingController(text: '1');
     final amount = TextEditingController();
     var markSoldOut = false;
     DateTime? occurredAt;
     String error = '';
+
     final result = await showDialog<_SaleInput>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
+        builder: (ctx, setDialogState) => AlertDialog(
           title: Text('Record sale · ${record.name}'),
           content: SingleChildScrollView(
             child: Column(
@@ -374,7 +389,7 @@ class _EditorScreenState extends State<EditorScreen> {
                       initialDate: occurredAt ?? today,
                     );
                     if (chosen != null && ctx.mounted) {
-                      setState(() => occurredAt = chosen.start);
+                      setDialogState(() => occurredAt = chosen.start);
                     }
                   },
                   icon: const Icon(Icons.event_outlined),
@@ -393,8 +408,9 @@ class _EditorScreenState extends State<EditorScreen> {
                   subtitle: const Text(
                     'Explicitly mark this entry SOLD and add it to reorder.',
                   ),
-                  onChanged: (value) =>
-                      setState(() => markSoldOut = value == true),
+                  onChanged: (value) => setDialogState(
+                    () => markSoldOut = value == true,
+                  ),
                 ),
                 const Text(
                   'Only aggregate medicine movement is saved. No customer or patient details are collected.',
@@ -443,7 +459,7 @@ class _EditorScreenState extends State<EditorScreen> {
                     ),
                   );
                 } catch (e) {
-                  setState(
+                  setDialogState(
                     () => error = e.toString().replaceFirst(
                       'FormatException: ',
                       '',
@@ -457,6 +473,7 @@ class _EditorScreenState extends State<EditorScreen> {
         ),
       ),
     );
+
     unawaited(
       Future<void>.delayed(const Duration(milliseconds: 300), () {
         quantity.dispose();
@@ -464,6 +481,7 @@ class _EditorScreenState extends State<EditorScreen> {
       }),
     );
     if (result == null || !mounted) return;
+
     setState(() => _busy = true);
     try {
       await widget.controller.recordSale(
@@ -546,6 +564,7 @@ class _EditorScreenState extends State<EditorScreen> {
     int lines = 1,
     TextInputType? keyboard,
     int? max,
+    String? helper,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 14),
     child: TextFormField(
@@ -568,10 +587,12 @@ class _EditorScreenState extends State<EditorScreen> {
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
+        helperText: helper,
         alignLabelWithHint: lines > 1,
       ),
     ),
   );
+
   @override
   Widget build(BuildContext context) {
     final record = widget.record;
@@ -643,9 +664,7 @@ class _EditorScreenState extends State<EditorScreen> {
                             ).label,
                             color: record.sold
                                 ? amber
-                                : (record.daysLeft(widget.controller.today) ??
-                                          1) <
-                                      0
+                                : (record.daysLeft(widget.controller.today) ?? 1) < 0
                                 ? red
                                 : green,
                           ),
@@ -684,7 +703,9 @@ class _EditorScreenState extends State<EditorScreen> {
                 if (_restocking)
                   const Padding(
                     padding: EdgeInsets.only(bottom: 18),
-                    child: StatusPill('New stock · review expiry and quantity'),
+                    child: StatusPill(
+                      'New stock · add the dates you know and save',
+                    ),
                   ),
                 if (record == null && widget.seed != null)
                   Padding(
@@ -695,19 +716,19 @@ class _EditorScreenState extends State<EditorScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.public_rounded, color: green),
+                          const Icon(Icons.auto_awesome_rounded, color: accent),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text(
-                                  'Medicine identity prefilled',
+                                  'Useful identity data captured',
                                   style: TextStyle(fontWeight: FontWeight.w800),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'From ${widget.seed!.source}. Verify the pack. Expiry, MFG, quantity, price and pharmacy location were not filled from the internet.',
+                                  'From ${widget.seed!.source}. Extra identity metadata stays in the record for search without making this form longer. Verify the pack dates yourself.',
                                   style: const TextStyle(
                                     color: muted,
                                     fontSize: 12,
@@ -723,62 +744,46 @@ class _EditorScreenState extends State<EditorScreen> {
                   ),
                 Text(
                   record == null
-                      ? 'Give it a place in your inventory.'
-                      : 'Edit the master stock entry.',
+                      ? 'Add only what helps you later.'
+                      : 'Keep the stock entry simple.',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Only the medicine name is required. Leave information blank when it is unknown.',
-                  style: TextStyle(color: muted, fontSize: 13),
+                  'Only the medicine name is required. Scanner/OCR text can stay messy on purpose so future searches still match the pack.',
+                  style: TextStyle(color: muted, fontSize: 13, height: 1.45),
                 ),
                 const SizedBox(height: 24),
                 FormSection(
-                  title: '1. Medicine details',
-                  message: 'Start with the name. Add the details printed on the pack.',
+                  title: 'Medicine details',
+                  message: 'One short form for the information pharmacists actually use.',
                   icon: Icons.medication_outlined,
                   children: [
-                    _field('name', 'Medicine name *', hint: 'e.g. Paracetamol'),
-                    _field('brand', 'Brand · optional', hint: 'e.g. Dolo'),
-                    _field('manufacturer', 'Manufacturer · optional'),
-                    _field('salt', 'Salt / composition · optional'),
                     _field(
-                      'strength',
-                      'Strength · optional',
-                      hint: 'e.g. 650mg',
+                      'name',
+                      'Medicine name *',
+                      hint: 'e.g. Paracetamol',
                     ),
-                    DropdownButtonFormField<String>(
-                      initialValue: _form,
-                      decoration: const InputDecoration(
-                        labelText: 'Medicine form · optional',
-                      ),
-                      items: [
-                        const DropdownMenuItem(
-                          value: '',
-                          child: Text('Not specified'),
-                        ),
-                        ...forms.map(
-                          (f) => DropdownMenuItem(value: f, child: Text(f)),
-                        ),
-                      ],
-                      onChanged: _busy
-                          ? null
-                          : (v) => setState(() {
-                              _form = v ?? '';
-                              _dirty = true;
-                            }),
+                    DateEntryField(
+                      controller: fields['mfg']!,
+                      label: 'Manufacturing date · optional',
+                      enabled: !_busy,
+                      onChanged: (_) => setState(() => _dirty = true),
                     ),
-                  ],
-                ),
-                FormSection(
-                  title: '2. Dates & stock',
-                  message: 'Choose the expiry format shown on the pack, then type only numbers.',
-                  icon: Icons.calendar_month_outlined,
-                  children: [
+                    const SizedBox(height: 18),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
+                        const Text(
+                          'Expiry format',
+                          style: TextStyle(
+                            color: muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                         for (final monthOnly in [true, false])
                           ChoiceChip(
                             label: Text(
@@ -791,7 +796,7 @@ class _EditorScreenState extends State<EditorScreen> {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
                     DateEntryField(
                       key: ValueKey('expiry-$_expiryMonthOnly'),
                       controller: fields['expiry']!,
@@ -800,66 +805,28 @@ class _EditorScreenState extends State<EditorScreen> {
                       enabled: !_busy,
                       onChanged: (_) => setState(() => _dirty = true),
                     ),
-                    const SizedBox(height: 20),
-                    DateEntryField(
-                      controller: fields['mfg']!,
-                      label: 'Manufacturing date · optional',
-                      enabled: !_busy,
-                      onChanged: (_) => setState(() => _dirty = true),
-                    ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 18),
                     _field(
-                      'quantity',
-                      'Stock quantity · optional',
-                      hint: 'Number of units you count',
-                      keyboard: TextInputType.number,
+                      'strength',
+                      'Strength · optional',
+                      hint: 'e.g. 500 mg or 650 mg',
                     ),
-                    _field(
-                      'price',
-                      'Inventory unit cost · ₹ · optional',
-                      hint: 'e.g. 2.50',
-                      keyboard: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                    ),
-                    const Text(
-                      'Use the same unit for quantity and cost: tablets with tablet cost, bottles with bottle cost, or strips with strip cost. Sale revenue is recorded separately.',
-                      style: TextStyle(color: muted, fontSize: 12),
-                    ),
-                  ],
-                ),
-                FormSection(
-                  title: '3. Where to find it',
-                  message: 'Use your shelf labels or write a location you will recognise.',
-                  icon: Icons.location_on_outlined,
-                  children: [
-                    _field('block', 'Block · optional'),
-                    _field('row', 'Row · optional'),
-                    _field('vertical', 'Vertical · optional'),
                     _field(
                       'location',
                       'Location · optional',
-                      hint: 'Room, shelf, drawer or box',
+                      hint: 'Anything you recognise: Room 2, Rack B, Shelf 4…',
                       lines: 2,
                     ),
                     _field(
-                      'notes',
-                      'Your notes · optional',
-                      hint: 'Anything that helps you find or remember this medicine',
-                      lines: 3,
-                      max: 10000,
+                      'barcode',
+                      'Barcode · optional',
+                      hint: 'Filled automatically when scanned',
                     ),
-                  ],
-                ),
-                FormSection(
-                  title: '4. Scan & search details',
-                  message: 'Keep a barcode or extra keywords to find this stock faster.',
-                  icon: Icons.qr_code_scanner_rounded,
-                  children: [
-                    _field('barcode', 'Barcode · optional'),
                     _field(
                       'ocrText',
-                      'Scanned text / search keywords · optional',
+                      'Captured search text · optional',
+                      hint: 'Scanner/OCR words from the pack can stay here even if messy',
+                      helper: 'This is intentionally broad search text. OCR can fill it automatically so the medicine is easier to find later.',
                       lines: 4,
                       max: 30000,
                     ),
