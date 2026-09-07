@@ -68,7 +68,7 @@ class _StatsScreenState extends State<StatsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Tracking',
+                      'Calculator',
                       style: Theme.of(context).textTheme.headlineMedium,
                     ),
                     const SizedBox(height: 6),
@@ -85,7 +85,7 @@ class _StatsScreenState extends State<StatsScreen> {
                   color: lime,
                   borderRadius: BorderRadius.circular(15),
                 ),
-                child: const Icon(Icons.insights_rounded, color: ink),
+                child: const Icon(Icons.calculate_rounded, color: ink),
               ),
             ],
           ),
@@ -132,7 +132,9 @@ class _StatsScreenState extends State<StatsScreen> {
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Text(
-                    money(inventory.onHandValue),
+                    inventory.valuedEntries == 0 && inventory.unvaluedEntries > 0
+                        ? '—'
+                        : money(inventory.onHandValue),
                     style: const TextStyle(
                       fontSize: 38,
                       letterSpacing: -1,

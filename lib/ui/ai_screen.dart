@@ -76,12 +76,17 @@ class _AiScreenState extends State<AiScreen> {
   }
 
   Future<void> _review() async {
-    if (_reviewing) return;
-    setState(() => _reviewing = true);
+    if (_reviewing || widget.controller.aiPreparing) return;
+    final input = _input.text;
+    final generation = _generation;
+    setState(() {
+      _reviewing = true;
+      _plan = null;
+      _selected = {};
+    });
     try {
-      await Future<void>.delayed(Duration.zero);
-      final plan = await widget.controller.reviewAsync(_input.text);
-      if (mounted)
+      final plan = await widget.controller.reviewAsync(input);
+      if (mounted && generation == _generation && _input.text == input)
         setState(() {
           _plan = plan;
           _selected = {
@@ -93,7 +98,7 @@ class _AiScreenState extends State<AiScreen> {
           _error = '';
         });
     } catch (e) {
-      if (mounted)
+      if (mounted && generation == _generation && _input.text == input)
         setState(() {
           _plan = null;
           _error = e.toString().replaceFirst('FormatException: ', '');
@@ -104,7 +109,7 @@ class _AiScreenState extends State<AiScreen> {
   }
 
   Future<void> _ask() async {
-    if (_requesting) return;
+    if (_requesting || _reviewing || widget.controller.aiPreparing) return;
     if (_configuration.key.isEmpty) {
       await _configure();
       return;
@@ -139,13 +144,15 @@ class _AiScreenState extends State<AiScreen> {
 
   Future<void> _apply() async {
     final plan = _plan;
-    if (plan == null || _selected.isEmpty) return;
+    if (plan == null || _selected.isEmpty || _reviewing || _requesting ||
+        widget.controller.aiPreparing) return;
+    final selected = Set<int>.of(_selected);
     try {
-      await widget.controller.applyAi(plan, _selected);
+      await widget.controller.applyAi(plan, selected);
       if (mounted)
         setState(() {
           _notice =
-              '${_selected.length} reviewed changes saved. All inventory views are updated.';
+              '${selected.length} reviewed changes saved. All inventory views are updated.';
           _plan = null;
           _input.clear();
           _selected = {};
@@ -310,6 +317,7 @@ class _AiScreenState extends State<AiScreen> {
               const SizedBox(height: 14),
               TextField(
                 controller: _input,
+                readOnly: widget.controller.aiPreparing || _requesting,
                 minLines: 4,
                 maxLines: 9,
                 maxLength: 1000000,
@@ -325,11 +333,13 @@ class _AiScreenState extends State<AiScreen> {
                 runSpacing: 10,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: () async {
+                    onPressed: widget.controller.aiPreparing || _requesting || _reviewing
+                        ? null
+                        : () async {
                       final data = await Clipboard.getData(
                         Clipboard.kTextPlain,
                       );
-                      if (mounted) {
+                      if (mounted && !widget.controller.aiPreparing && !_requesting && !_reviewing) {
                         _input.text = data?.text ?? '';
                         setState(() => _plan = null);
                       }
@@ -338,7 +348,7 @@ class _AiScreenState extends State<AiScreen> {
                     label: const Text('Paste'),
                   ),
                   FilledButton.icon(
-                    onPressed: _reviewing ? null : _review,
+                    onPressed: _reviewing || _requesting || widget.controller.aiPreparing ? null : _review,
                     icon: const Icon(Icons.fact_check_outlined),
                     label: Text(_reviewing ? 'Checking…' : 'Review result'),
                   ),

@@ -340,21 +340,39 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
   String _error = '';
   bool _loading = true;
   int _generation = 0;
+  int _inventoryRevision = -1;
 
   @override
   void initState() {
     super.initState();
+    _inventoryRevision = widget.controller.snapshot.revision;
+    widget.controller.addListener(_inventoryChanged);
     unawaited(_prepare());
   }
 
   @override
   void dispose() {
     ++_generation;
+    widget.controller.removeListener(_inventoryChanged);
     super.dispose();
+  }
+
+  void _inventoryChanged() {
+    if (!mounted) return;
+    if (_inventoryRevision == widget.controller.snapshot.revision) {
+      setState(() {});
+      return;
+    }
+    _inventoryRevision = widget.controller.snapshot.revision;
+    unawaited(_prepare());
   }
 
   Future<void> _prepare() async {
     final generation = ++_generation;
+    setState(() {
+      _loading = true;
+      _error = '';
+    });
     try {
       final barcodeCounts = <String, int>{};
       final lineCounts = <String, int>{};
@@ -541,7 +559,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
 
   Widget _hit(BuildContext context, SearchHit hit) {
     final record = widget.controller.snapshot.records[hit.id];
-    if (record == null) return const SizedBox.shrink();
+    if (record == null || record.archived) return const SizedBox.shrink();
     return MedicineCard(
       record: record,
       settings: widget.controller.settings,

@@ -10,6 +10,7 @@ class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key, required this.controller});
   final PharmacyController controller;
   Future<void> _removeAll(BuildContext context) async {
+    final reviewedRevision = controller.snapshot.revision;
     final first = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -58,9 +59,9 @@ class ProfileScreen extends StatelessWidget {
         ),
       ),
     );
-    if (confirmed == true) {
+    if (confirmed == true && context.mounted) {
       try {
-        await controller.archiveAll();
+        await controller.archiveAll(expectedRevision: reviewedRevision);
         if (context.mounted)
           showSaved(
             context,

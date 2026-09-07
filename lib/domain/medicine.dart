@@ -16,7 +16,8 @@ String identityPart(String value) =>
 
 String medicineIdentity(String name, String strength, String form) => [
   identityPart(name),
-  identityPart(strength),
+  // Preserve decimal strengths: 2.5mg and 25mg are different medicines.
+  normalize(strength).replaceAll(RegExp(r'[^a-z0-9.\u0900-\u097f]+'), ''),
   normalizeForm(form).toLowerCase(),
 ].join('|');
 
