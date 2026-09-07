@@ -26,7 +26,9 @@ class MedicineCatalogService {
     List<MedicineCatalogProvider>? providers,
   }) : _client = client ?? http.Client(),
        _ownsClient = client == null,
-       _providers = providers ?? [] {
+       _providers = providers == null
+           ? <MedicineCatalogProvider>[]
+           : List<MedicineCatalogProvider>.of(providers) {
     if (_providers.isEmpty) {
       _providers.addAll([
         OpenFdaNdcProvider(_client),
@@ -168,7 +170,8 @@ class OpenFdaNdcProvider implements MedicineCatalogProvider {
     for (final value in rows) {
       if (value is! Map) continue;
       final row = Map<String, dynamic>.from(value);
-      String string(String key) => (row[key] is String ? row[key] as String : '').trim();
+      String string(String key) =>
+          (row[key] is String ? row[key] as String : '').trim();
 
       final brand = string('brand_name');
       final generic = string('generic_name');
@@ -184,8 +187,12 @@ class OpenFdaNdcProvider implements MedicineCatalogProvider {
           final map = Map<String, dynamic>.from(item);
           final name = map['name'];
           final strength = map['strength'];
-          if (name is String && name.trim().isNotEmpty) ingredients.add(name.trim());
-          if (strength is String && strength.trim().isNotEmpty) strengths.add(strength.trim());
+          if (name is String && name.trim().isNotEmpty) {
+            ingredients.add(name.trim());
+          }
+          if (strength is String && strength.trim().isNotEmpty) {
+            strengths.add(strength.trim());
+          }
         }
       }
 
@@ -212,7 +219,9 @@ class OpenFdaNdcProvider implements MedicineCatalogProvider {
           seed: seed,
           score: score,
           provider: 'openFDA',
-          reason: barcodeExact ? 'Exact catalog barcode' : 'Public product catalog',
+          reason: barcodeExact
+              ? 'Exact catalog barcode'
+              : 'Public product catalog',
         ),
       );
     }
@@ -265,9 +274,10 @@ class RxNormProvider implements MedicineCatalogProvider {
       final lexical = double.tryParse('${row['score'] ?? ''}') ?? 0;
       final normalizedLexical = lexical <= 0 ? 0.0 : lexical / (lexical + 8);
       final localScore = _candidateScore(parsed, queryText, providerFloor: .60);
-      final score = (localScore + normalizedLexical * .08 - min(rank - 1, 5) * .015)
-          .clamp(.55, .95)
-          .toDouble();
+      final score =
+          (localScore + normalizedLexical * .08 - min(rank - 1, 5) * .015)
+              .clamp(.55, .95)
+              .toDouble();
       results.add(
         MedicineCatalogCandidate(
           seed: parsed,
@@ -289,7 +299,8 @@ MedicineDraftSeed _rxSeed(String raw, String rxcui) {
     r'\b\d+(?:\.\d+)?\s*(?:mcg|mg|g|ml)(?:\s*/\s*(?:mcg|mg|g|ml|dose|actuation|tablet|capsule|1))?\b',
     caseSensitive: false,
   ).firstMatch(withoutBrand);
-  final strength = strengthMatch?.group(0)?.replaceAll(RegExp(r'\s+'), ' ').trim() ?? '';
+  final strength =
+      strengthMatch?.group(0)?.replaceAll(RegExp(r'\s+'), ' ').trim() ?? '';
 
   String form = '';
   final lower = withoutBrand.toLowerCase();
@@ -314,7 +325,9 @@ MedicineDraftSeed _rxSeed(String raw, String rxcui) {
   }
 
   var generic = withoutBrand;
-  if (strengthMatch != null) generic = generic.substring(0, strengthMatch.start).trim();
+  if (strengthMatch != null) {
+    generic = generic.substring(0, strengthMatch.start).trim();
+  }
   generic = generic
       .replaceAll(
         RegExp(
@@ -353,8 +366,14 @@ double _candidateScore(
     seed.form,
     seed.manufacturer,
   ].join(' '));
-  final queryTokens = query.split(' ').where((token) => token.length >= 2).toList();
-  final docTokens = document.split(' ').where((token) => token.isNotEmpty).toList();
+  final queryTokens = query
+      .split(' ')
+      .where((token) => token.length >= 2)
+      .toList();
+  final docTokens = document
+      .split(' ')
+      .where((token) => token.isNotEmpty)
+      .toList();
   if (queryTokens.isEmpty || docTokens.isEmpty) return providerFloor;
 
   var exact = 0;
@@ -372,7 +391,22 @@ double _candidateScore(
 }
 
 String _catalogQuery(String raw) {
-  var value = searchText(raw);
+  if (raw.trim().isEmpty) return '';
+  // Stock-specific date lines must never influence public identity lookup.
+  // Remove common labelled EXP/MFG fragments before general normalization, and
+  // then discard standalone date-shaped tokens as a second line of defence.
+  var withoutStockDates = raw.replaceAll(
+    RegExp(
+      r'\b(?:exp(?:iry|ires)?|use\s*by|use\s*before|mfg|mfd|manufactured)\b\s*[:.-]?\s*\d{1,4}(?:[./-]\d{1,4}){1,2}',
+      caseSensitive: false,
+    ),
+    ' ',
+  );
+  withoutStockDates = withoutStockDates.replaceAll(
+    RegExp(r'\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b'),
+    ' ',
+  );
+  final value = searchText(withoutStockDates);
   if (value.isEmpty) return '';
   const noise = {
     'exp',
@@ -406,7 +440,6 @@ String _catalogQuery(String raw) {
       .split(' ')
       .where((token) => token.isNotEmpty)
       .where((token) => !noise.contains(token))
-      .where((token) => !RegExp(r'^\d{1,2}[./-]\d{1,4}$').hasMatch(token))
       .take(14)
       .toList();
   return tokens.join(' ');
