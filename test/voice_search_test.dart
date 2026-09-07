@@ -246,12 +246,15 @@ void main() {
     tester,
   ) async {
     final speech = FakeSpeech()..announceStart = false;
-    final voice = await ready(speech);
+    final voice = VoiceSearchController(speech: speech);
+    await voice.initialize();
     await voice.listen();
     expect(voice.phase, VoicePhase.starting);
     await tester.pump(const Duration(seconds: 6));
     expect(voice.phase, VoicePhase.ready);
     expect(voice.canListen, true);
     expect(voice.message, contains('could not start'));
+    await voice.close();
+    voice.dispose();
   });
 }

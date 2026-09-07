@@ -11,6 +11,9 @@ import '../lib/data/inventory_database.dart';
 import '../lib/state/pharmacy_controller.dart';
 import '../lib/ui/search_screen.dart';
 import '../lib/ui/editor_screen.dart';
+import '../lib/ui/backup_screen.dart';
+import '../lib/ui/import_screen.dart';
+import '../lib/ui/design.dart';
 import '../lib/domain/inventory.dart';
 import 'domain_contract.dart';
 
@@ -100,7 +103,7 @@ void main() {
     expect(find.text('Aaris Pharmacy'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await screenshot(tester, key, 'home');
-    await tester.scrollUntilVisible(find.text('Expired Medicines'), 250);
+    await tester.ensureVisible(find.text('Expired Medicines'));
     await tester.tap(find.text('Expired Medicines'));
     await tester.pumpAndSettle();
     expect(find.byType(SearchScreen), findsOneWidget);
@@ -136,7 +139,7 @@ void main() {
     await tester.tap(find.text('Add manually'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'New medicine');
-    await tester.scrollUntilVisible(find.text('Save medicine'), 500);
+    await tester.ensureVisible(find.text('Save medicine'));
     await tester.tap(find.text('Save medicine'));
     await tester.pumpAndSettle();
     expect(controller.records.single.name, 'New medicine');
@@ -192,4 +195,49 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();
   });
+  testWidgets(
+    'Database, Profile, import and backup share the same visual system',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final c = await seeded();
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: key,
+          child: PharmacyApp(controller: c),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final tab in ['Database', 'Profile']) {
+        await tester.tap(find.text(tab).last);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await screenshot(tester, key, tab.toLowerCase());
+      }
+      for (final entry in <String, Widget>{
+        'import': ImportCenterScreen(controller: c),
+        'backup': BackupScreen(controller: c),
+      }.entries) {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: key,
+            child: MaterialApp(
+              theme: pharmacyTheme(),
+              builder: (context, child) => PharmacyBackdrop(child: child!),
+              home: entry.value,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await screenshot(tester, key, entry.key);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      c.dispose();
+    },
+  );
 }
