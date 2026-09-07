@@ -197,23 +197,26 @@ class HomeScreen extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodyMedium!.copyWith(
                         fontSize: caption ? 11 : 14,
                         height: 1.3,
-                        fontWeight: caption
-                            ? FontWeight.normal
-                            : FontWeight.w800,
+                        fontWeight: caption ? FontWeight.w600 : FontWeight.w800,
                       ),
                     ),
                     textDirection: Directionality.of(context),
                     textScaler: scaler,
-                  )..layout(maxWidth: cardWidth - 32);
+                  )..layout(maxWidth: cardWidth - 34);
                   if (painter.height > maxHeight) maxHeight = painter.height;
                   painter.dispose();
                 }
                 return maxHeight;
               }
 
-              // Keep every overview card exactly the same measured height.
+              // Measure the selector too: its label grows with system text
+              // scale, independently of the 40px icon. Include panel borders.
+              final selectorHeight =
+                  (scaler.scale(10.5) > 16 ? scaler.scale(10.5) : 16) + 30;
+              final topRowHeight = selectorHeight > 42 ? selectorHeight : 42;
               final height =
-                  106 +
+                  62 +
+                  topRowHeight +
                   scaler.scale(36) * 1.2 +
                   maxTextHeight(false) +
                   maxTextHeight(true);
