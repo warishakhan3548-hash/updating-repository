@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../state/pharmacy_controller.dart';
@@ -96,7 +94,7 @@ class HomeScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              _GlassIconButton(
+              GlassIconButton(
                 tooltip: 'Expiry warning settings',
                 onPressed: () => showWarningSettings(context, controller),
                 icon: Icons.tune_rounded,
@@ -156,8 +154,8 @@ class HomeScreen extends StatelessWidget {
                   caption: 'Month warning',
                   count: month.length,
                   icon: Icons.calendar_month_rounded,
-                  color: const Color(0xFF146F62),
-                  background: const Color(0xFFE0F3EB),
+                  color: const Color(0xFF167EA6),
+                  background: const Color(0xFFE2F3FC),
                   selector: _WarningSelector(
                     label:
                         '${controller.settings.months} ${controller.settings.months == 1 ? 'Month' : 'Months'}',
@@ -235,7 +233,7 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 22),
           _ScanBanner(onTap: () => _open(context, SearchScope.all)),
           const SizedBox(height: 18),
-          _GlassPanel(
+          GlassPanel(
             tint: Colors.white,
             radius: 24,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -261,7 +259,7 @@ class HomeScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                _GlassIconButton(
+                GlassIconButton(
                   tooltip: 'Add medicine',
                   onPressed: () => openEditor(context, controller),
                   icon: Icons.add_circle_outline_rounded,
@@ -315,132 +313,6 @@ class HomeScreen extends StatelessWidget {
   );
 }
 
-class _GlassPanel extends StatelessWidget {
-  const _GlassPanel({
-    required this.child,
-    required this.tint,
-    this.radius = 24,
-    this.padding = EdgeInsets.zero,
-    this.dark = false,
-  });
-
-  final Widget child;
-  final Color tint;
-  final double radius;
-  final EdgeInsets padding;
-  final bool dark;
-
-  @override
-  Widget build(BuildContext context) {
-    final borderRadius = BorderRadius.circular(radius);
-    final baseAlpha = dark ? .88 : .56;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: borderRadius,
-        boxShadow: [
-          BoxShadow(
-            color: (dark ? Colors.black : ink).withValues(alpha: dark ? .23 : .10),
-            blurRadius: 26,
-            spreadRadius: -5,
-            offset: const Offset(0, 14),
-          ),
-          BoxShadow(
-            color: Colors.white.withValues(alpha: dark ? .04 : .80),
-            blurRadius: 8,
-            spreadRadius: -4,
-            offset: const Offset(-4, -4),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: borderRadius,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-          child: Container(
-            padding: padding,
-            decoration: BoxDecoration(
-              borderRadius: borderRadius,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                stops: const [0, .46, 1],
-                colors: dark
-                    ? [
-                        Color.alphaBlend(
-                          Colors.white.withValues(alpha: .10),
-                          tint.withValues(alpha: baseAlpha),
-                        ),
-                        tint.withValues(alpha: baseAlpha),
-                        Color.alphaBlend(
-                          Colors.black.withValues(alpha: .08),
-                          tint.withValues(alpha: baseAlpha),
-                        ),
-                      ]
-                    : [
-                        Color.alphaBlend(
-                          Colors.white.withValues(alpha: .76),
-                          tint.withValues(alpha: baseAlpha),
-                        ),
-                        Color.alphaBlend(
-                          Colors.white.withValues(alpha: .34),
-                          tint.withValues(alpha: baseAlpha),
-                        ),
-                        Color.alphaBlend(
-                          ink.withValues(alpha: .025),
-                          tint.withValues(alpha: baseAlpha),
-                        ),
-                      ],
-              ),
-              border: Border.all(
-                color: dark
-                    ? Colors.white.withValues(alpha: .18)
-                    : Colors.white.withValues(alpha: .92),
-                width: 1.2,
-              ),
-            ),
-            child: child,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GlassIconButton extends StatelessWidget {
-  const _GlassIconButton({
-    required this.tooltip,
-    required this.onPressed,
-    required this.icon,
-    this.size = 44,
-  });
-
-  final String tooltip;
-  final VoidCallback onPressed;
-  final IconData icon;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tooltip,
-    child: _GlassPanel(
-      tint: const Color(0xFFE4F3EE),
-      radius: size * .5,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(size * .5),
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: Icon(icon, color: ink, size: size * .48),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
 class _OverviewTile extends StatelessWidget {
   const _OverviewTile({
     required this.title,
@@ -463,7 +335,7 @@ class _OverviewTile extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     button: true,
     label: '$title, $count medicines. $caption',
-    child: _GlassPanel(
+    child: GlassPanel(
       tint: background,
       radius: 25,
       child: Material(
@@ -513,12 +385,14 @@ class _OverviewTile extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        _GlassPanel(
+                        GlassPanel(
                           tint: Color.alphaBlend(
                             color.withValues(alpha: .14),
                             background,
                           ),
                           radius: 14,
+                          blurSigma: 0,
+                          elevation: .55,
                           child: SizedBox(
                             width: 42,
                             height: 42,
@@ -527,9 +401,11 @@ class _OverviewTile extends StatelessWidget {
                         ),
                         const Spacer(),
                         selector ??
-                            _GlassPanel(
+                            GlassPanel(
                               tint: background,
                               radius: 18,
+                              blurSigma: 0,
+                              elevation: .45,
                               child: SizedBox(
                                 width: 36,
                                 height: 36,
@@ -636,9 +512,11 @@ class _WarningSelector extends StatelessWidget {
         ),
       ),
     ],
-    child: _GlassPanel(
+    child: GlassPanel(
       tint: Colors.white,
       radius: 999,
+      blurSigma: 0,
+      elevation: .35,
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -665,7 +543,7 @@ class _ScanBanner extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => _GlassPanel(
+  Widget build(BuildContext context) => GlassPanel(
     tint: ink,
     radius: 27,
     dark: true,
@@ -699,10 +577,12 @@ class _ScanBanner extends StatelessWidget {
               padding: const EdgeInsets.all(20),
               child: Row(
                 children: [
-                  _GlassPanel(
+                  GlassPanel(
                     tint: const Color(0xFF286052),
                     radius: 17,
                     dark: true,
+                    blurSigma: 0,
+                    elevation: .55,
                     child: const SizedBox(
                       width: 52,
                       height: 52,
@@ -738,9 +618,11 @@ class _ScanBanner extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _GlassPanel(
+                  GlassPanel(
                     tint: lime,
                     radius: 22,
+                    blurSigma: 0,
+                    elevation: .55,
                     child: const SizedBox(
                       width: 44,
                       height: 44,

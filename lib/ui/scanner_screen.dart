@@ -43,7 +43,8 @@ class _ScannerScreenState extends State<ScannerScreen>
     final generation = ++_generation;
     if (kIsWeb) {
       setState(
-        () => _error = 'Live camera OCR is available in the Android app. You can paste text into search.',
+        () => _error =
+            'Live camera OCR is available in the Android app. You can paste text into search.',
       );
       return;
     }
@@ -74,7 +75,8 @@ class _ScannerScreenState extends State<ScannerScreen>
     } catch (e) {
       if (mounted && !_closed)
         setState(
-          () => _error = 'Camera unavailable. Allow camera access in your phone settings, then retry.',
+          () => _error =
+              'Camera unavailable. Allow camera access in your phone settings, then retry.',
         );
     }
   }
@@ -328,12 +330,12 @@ class _ScannerScreenState extends State<ScannerScreen>
                   ),
                 ),
               ),
-              Container(
+              GlassPanel(
+                tint: canvas,
+                radius: 28,
+                blurSigma: 14,
+                elevation: 1.1,
                 padding: const EdgeInsets.all(22),
-                decoration: const BoxDecoration(
-                  color: canvas,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -376,7 +378,8 @@ class _ScannerScreenState extends State<ScannerScreen>
                             [
                               if (_barcode.isNotEmpty) 'Barcode: $_barcode',
                               if (_text.isNotEmpty) _text,
-                              if (_text.isEmpty && _barcode.isEmpty) 'Point at packaging or a printed medicine list.',
+                              if (_text.isEmpty && _barcode.isEmpty)
+                                'Point at packaging or a printed medicine list.',
                             ].join('\n\n'),
                             style: const TextStyle(color: muted, fontSize: 13),
                           ),

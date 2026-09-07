@@ -39,6 +39,8 @@ class _PharmacyAppState extends State<PharmacyApp> with WidgetsBindingObserver {
     title: 'Aaris Pharmacy',
     debugShowCheckedModeBanner: false,
     theme: pharmacyTheme(),
+    builder: (context, child) =>
+        PharmacyBackdrop(child: child ?? const SizedBox.shrink()),
     home: _Shell(controller: widget.controller),
   );
 }
@@ -103,20 +105,14 @@ class _ShellState extends State<_Shell> {
           ),
         ),
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          boxShadow: [
-            BoxShadow(
-              color: ink.withValues(alpha: .08),
-              blurRadius: 22,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        child: GlassPanel(
+          tint: Colors.white,
+          radius: 28,
+          blurSigma: 18,
+          elevation: 1.2,
           child: NavigationBar(
             selectedIndex: tab,
             onDestinationSelected: (index) => setState(() => tab = index),
