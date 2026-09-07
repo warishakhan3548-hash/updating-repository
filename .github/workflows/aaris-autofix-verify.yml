@@ -40,7 +40,14 @@ jobs:
           actual = hashlib.sha256(runner).hexdigest()
           if actual != expected:
               raise SystemExit(f'runner checksum mismatch: {actual}')
-          pathlib.Path('/tmp/aaris_autofix_runner.py').write_bytes(runner)
+          path = pathlib.Path('/tmp/aaris_autofix_runner.py')
+          path.write_bytes(runner)
+          text = path.read_text()
+          old = "if not re_search := __import__('re').search(r'(?m)^name:\\s*aaris_pharmacy\\s*$', pub):"
+          new = "if __import__('re').search(r'(?m)^name:\\s*aaris_pharmacy\\s*$', pub) is None:"
+          if text.count(old) != 1:
+              raise SystemExit('runner syntax repair anchor mismatch')
+          path.write_text(text.replace(old, new))
           PY
 
       - name: Apply guarded patch in runner workspace
