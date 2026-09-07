@@ -16,15 +16,23 @@
   velocity-aware reorder queue, editable Order Now and native Android PDF share.
 - Versioned full backup/restore with strict validation, missing-record archiving,
   typed confirmation and Undo. Secure AI keys are excluded.
-- GitHub and local bootstrap explicitly run checks only; APK build/upload steps
-  have been removed.
+- Consistent pharmacy UI across Home, Database, AI, Calculator, Profile, scanner,
+  editor, import and backup, with responsive warning cards and shared typography.
+- Voice-search lifecycle repair: device locales, permission retry, serialized
+  commands, final-word preservation, stale callback rejection and exit cleanup.
+- Existing GitHub workflows run source checks and produce an Android release APK.
+  The local bootstrap remains a separate check path.
 
 ## Verification recorded
 
-- Dart static analysis for `lib` and `test`: clean after final hardening.
+- Dart static analysis for `lib` and `test`: clean at source commit `e26e387`.
 - Pure-Dart domain contract: 45 checks passed, 0 failed.
-- Full Flutter/SQLite/widget suite is configured in GitHub Actions without any APK
-  build. Android hardware behaviors cannot be proven in the current container.
+- Date-input contract: 24 checks passed, 0 failed.
+- Full Flutter/SQLite/widget suite: 123 tests passed in GitHub Actions, including
+  11 voice regressions and the narrow-phone/large-text layout check.
+- Nine seeded UI screenshots inspected. APK built and uploaded successfully.
+  See [research and verification record](DESIGN_RESEARCH_2026_09_07.md) for exact runs.
+- Physical Android microphone/camera behavior still needs device acceptance.
 
 ## Deliberately configuration-dependent or future
 
@@ -33,4 +41,5 @@
   core runtime has no cloud dependency.
 - Optional downloadable local multimodal AI and worldwide catalog providers remain
   extension points, not fake or network-dependent core features.
-- Store signing, release hardening and APK generation remain with the owner.
+- Store signing and release hardening remain with the owner. The current generated
+  release APK uses the repository's existing debug signing configuration.

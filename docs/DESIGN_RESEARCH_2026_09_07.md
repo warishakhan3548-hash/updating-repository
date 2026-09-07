@@ -88,4 +88,58 @@ language support must still be verified on a physical Android device.
 
 ## Checkpoints
 
-1. Baseline inspected and research/state map recorded. Implementation follows.
+All checkpoints were pushed directly to `main`:
+
+1. `1e54c40`: baseline, research and code/state map recorded before implementation.
+2. `e95a7d2`: shared design system and microphone session repair, with regression tests.
+3. `f188291`: updated widget navigation checks and additional screen captures.
+4. `bb3c55c`: measured dashboard selector height at enlarged text sizes.
+5. `e26e387`: removed the redundant inner card clip, standardized control fonts,
+   and loaded Material Icons in the screenshot test harness.
+
+## Implemented behavior
+
+- Shared theme and original surfaces now supply the same sapphire, teal, canvas,
+  typography, borders and control shapes throughout the app. Opaque content cards
+  replace repeated blurred layers; navy hero cards have readable light text.
+- Four equal Home cards retain their original scopes and configurable warning
+  windows. Their height accounts for wrapped labels and system text scaling.
+- Medicine status labels and the existing expiry perimeter retain their meaning.
+  Search, scanning, editing, reviewed AI/import actions and backup use the same
+  visual primitives. Database and business-rule code were not changed.
+- Voice search uses the device's available locales and normal recognition
+  service, offers retry after permission/service errors, preserves partial words
+  while stopping, ignores stale session callbacks and cancels on background/exit.
+  Search still requires an explicit confirmation; voice never modifies stock.
+
+## Verification of source commit `e26e387`
+
+| Check | Result |
+| --- | --- |
+| `dart analyze lib test` | Passed, no issues |
+| Full Flutter suite | 123 tests passed |
+| Voice regression cases | 11 passed within the full suite |
+| Pure-Dart domain contract | 45 passed locally |
+| Date-input contract | 24 passed locally |
+| Narrow phone with large text | All five tabs passed without layout exceptions |
+| Visual inspection | Nine rendered screens reviewed, including Home, Database, editor, AI, Calculator, Profile, import and backup |
+| Android release build | Built and uploaded successfully by the existing workflow |
+| Standalone Python fixer | Seven checks passed: preflight, full replacement/backup, repeat, unknown edits, symlinks, branch and project guards |
+
+[Successful checks and UI artifact](https://github.com/warishakhan3548-hash/updating-repository/actions/runs/34141937330).
+[Successful APK build and artifact](https://github.com/warishakhan3548-hash/updating-repository/actions/runs/34141937353).
+
+Screenshots contain seeded test data. APK verification in the existing workflow
+checks that the file is nonempty and records its SHA-256; it is not a physical
+device acceptance test. The existing Android release configuration uses the
+debug signing configuration. Store signing was not changed.
+
+The local Flutter runner was blocked by automatic approval review after attempting
+to contact a cloud metadata endpoint. It was not retried or bypassed; Flutter
+analysis, widget tests and the APK build ran successfully on GitHub-hosted runners.
+Pure-Dart checks ran locally without that runner.
+
+Remaining device acceptance: permission denial then retry, installed Hindi/English
+speech services, no-network behavior, final words after Stop, leaving/reopening the
+sheet, and the physical camera/scanner. Actual recognition quality and vendor
+permission behavior cannot be established with a mocked speech service.
