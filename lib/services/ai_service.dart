@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
+
 import '../domain/ai_protocol.dart';
 
 class AiConfiguration {

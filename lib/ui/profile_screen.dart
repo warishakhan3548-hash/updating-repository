@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+
 import '../state/pharmacy_controller.dart';
 import '../services/ai_service.dart';
 import 'design.dart';
 import 'home_screen.dart';
+import 'backup_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key, required this.controller});
@@ -141,6 +143,18 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
             ListTile(
+              leading: const Icon(Icons.shield_outlined),
+              title: const Text('Backup & Restore'),
+              subtitle: const Text('Full local data backup'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => BackupScreen(controller: controller),
+                ),
+              ),
+            ),
+            ListTile(
               leading: const Icon(Icons.ios_share_rounded),
               title: const Text('Export pharmacy inventory'),
               subtitle: const Text('TXT facts and AI import instructions'),
@@ -158,7 +172,7 @@ class ProfileScreen extends StatelessWidget {
       const SectionHeading('About your data'),
       const Surface(
         child: Text(
-          'Medicine name is required; other details can stay unknown. Prices use the same unit as stock quantity. Expiry is calculated from your phone’s current date. API keys are excluded from all inventory exports.\n\nInventory is stored locally. Keep exports somewhere you trust before changing phones or uninstalling. Camera OCR and device speech require the relevant permissions.\n\nVersion 1.0.0',
+          'Medicine name is required; other details can stay unknown. Inventory costs use the same unit as stock quantity; sale revenue is recorded separately. Expiry is calculated from your phone’s current date. API keys are excluded from all inventory exports.\n\nInventory is stored locally. Keep exports somewhere you trust before changing phones or uninstalling. Camera OCR and device speech require the relevant permissions.\n\nVersion 1.0.0',
           style: TextStyle(fontSize: 13, color: muted),
         ),
       ),

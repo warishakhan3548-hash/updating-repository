@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+
 import '../lib/services/search_worker.dart';
 import '../lib/domain/inventory.dart';
 import 'domain_contract.dart';

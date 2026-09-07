@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
 import '../lib/data/inventory_database.dart';
 import '../lib/domain/medicine.dart';
 import '../lib/domain/inventory.dart';
 import '../lib/domain/ai_protocol.dart';
+import '../lib/domain/tracking.dart';
 import '../lib/state/pharmacy_controller.dart';
 import 'domain_contract.dart';
 
@@ -30,21 +33,18 @@ void main() {
     controller.dispose();
     await Future<void>.delayed(Duration.zero);
   });
-  test(
-    'write commits once, rejects stale concurrent writer, and publishes committed data',
-    () async {
-      var publications = 0;
-      controller.addListener(() => publications++);
-      final first = controller.save(stock('a'), expectedRevision: 0);
-      final second = controller.save(stock('b'), expectedRevision: 0);
-      final rejected = expectLater(second, throwsStateError);
-      await first;
-      await rejected;
-      expect(controller.snapshot.records.keys, ['a']);
-      expect(publications, 1);
-      expect((await storage.load()).revision, 1);
-    },
-  );
+  test('write commits once, rejects stale concurrent writer, and publishes committed data', () async {
+    var publications = 0;
+    controller.addListener(() => publications++);
+    final first = controller.save(stock('a'), expectedRevision: 0);
+    final second = controller.save(stock('b'), expectedRevision: 0);
+    final rejected = expectLater(second, throwsStateError);
+    await first;
+    await rejected;
+    expect(controller.snapshot.records.keys, ['a']);
+    expect(publications, 1);
+    expect((await storage.load()).revision, 1);
+  });
   test('invalid second row rolls back the entire SQL transaction', () async {
     await expectLater(
       storage.commit(
@@ -113,36 +113,33 @@ void main() {
     await controller.undo();
     expect(controller.snapshot.records, isEmpty);
   });
-  test(
-    'AI selected changes are atomic and request replay stays blocked after Undo',
-    () async {
-      final export = controller.export();
-      final response = jsonEncode({
-        'schema': pharmacySchema,
-        'requestId': export.requestId,
-        'baseRevision': 0,
-        'actions': [
-          {
-            'op': 'add',
-            'fields': {'name': 'First'},
-          },
-          {
-            'op': 'add',
-            'fields': {'name': 'Second'},
-          },
-        ],
-      });
-      final plan = controller.review(response);
-      await controller.applyAi(plan, {0});
-      expect(controller.records.single.name, 'First');
-      expect(controller.snapshot.receipts, contains(export.requestId));
-      await controller.undo();
-      expect(controller.records, isEmpty);
-      final retry = jsonDecode(response) as Map<String, dynamic>;
-      retry['baseRevision'] = controller.snapshot.revision;
-      expect(() => controller.review(jsonEncode(retry)), throwsFormatException);
-    },
-  );
+  test('AI selected changes are atomic and request replay stays blocked after Undo', () async {
+    final export = controller.export();
+    final response = jsonEncode({
+      'schema': pharmacySchema,
+      'requestId': export.requestId,
+      'baseRevision': 0,
+      'actions': [
+        {
+          'op': 'add',
+          'fields': {'name': 'First'},
+        },
+        {
+          'op': 'add',
+          'fields': {'name': 'Second'},
+        },
+      ],
+    });
+    final plan = controller.review(response);
+    await controller.applyAi(plan, {0});
+    expect(controller.records.single.name, 'First');
+    expect(controller.snapshot.receipts, contains(export.requestId));
+    await controller.undo();
+    expect(controller.records, isEmpty);
+    final retry = jsonDecode(response) as Map<String, dynamic>;
+    retry['baseRevision'] = controller.snapshot.revision;
+    expect(() => controller.review(jsonEncode(retry)), throwsFormatException);
+  });
   test('cancel a multi-batch AI preparation before any write', () async {
     final export = controller.export();
     final plan = controller.review(
@@ -218,6 +215,54 @@ void main() {
     await second.close();
     await directory.delete(recursive: true);
   });
+  test('version-one database migrates without losing medicine facts', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'pharmacy_migration_test_',
+    );
+    final path = '${directory.path}/inventory.db';
+    final legacy = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: (db, version) async {
+          await db.execute(
+            'CREATE TABLE medicines (id TEXT PRIMARY KEY, facts TEXT NOT NULL)',
+          );
+          await db.execute(
+            'CREATE TABLE meta (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, settings TEXT NOT NULL)',
+          );
+          await db.execute(
+            'CREATE TABLE receipts (request_id TEXT PRIMARY KEY)',
+          );
+          await db.execute(
+            'CREATE TABLE events (id TEXT PRIMARY KEY, revision INTEGER UNIQUE NOT NULL, detail TEXT NOT NULL, sold_value INTEGER NOT NULL, unknown_sold INTEGER NOT NULL, undone INTEGER NOT NULL DEFAULT 0)',
+          );
+          await db.insert('meta', {
+            'id': 1,
+            'revision': 0,
+            'settings': jsonEncode(const WarningSettings().toJson()),
+          });
+          final medicine = stock('legacy');
+          await db.insert('medicines', {
+            'id': medicine.id,
+            'facts': jsonEncode(medicine.toJson()),
+          });
+        },
+      ),
+    );
+    await legacy.close();
+
+    final upgraded = SqliteInventoryStorage(
+      path: path,
+      factory: databaseFactoryFfi,
+    );
+    final restored = await upgraded.load();
+    expect(restored.records['legacy']!.name, 'Paracetamol');
+    expect(restored.sales, isEmpty);
+    expect(restored.soldValue, 0);
+    await upgraded.close();
+    await directory.delete(recursive: true);
+  });
   test('date refresh moves an entry without database writes', () async {
     var now = DateTime(2026, 9, 7);
     final local = PharmacyController(
@@ -233,5 +278,84 @@ void main() {
     expect(local.list(SearchScope.expired).single.id, 'a');
     expect(local.snapshot.revision, 1);
     local.dispose();
+  });
+  test('sale, stock decrement and Undo commit atomically', () async {
+    await controller.save(stock('a', quantity: 10), expectedRevision: 0);
+    await controller.recordSale('a', quantity: 4, totalAmountPaise: 1200);
+    expect(controller.snapshot.records['a']!.quantity, 6);
+    expect(controller.sales.single.quantity, 4);
+    expect(
+      controller.tracking(TrackingRange.lastDays(contractToday, 30)).unitsSold,
+      4,
+    );
+    await controller.undo();
+    expect(controller.snapshot.records['a']!.quantity, 10);
+    expect(controller.sales, isEmpty);
+  });
+  test('recorded sales survive a database reopen', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'pharmacy_sales_test_',
+    );
+    final path = '${directory.path}/inventory.db';
+    final first = SqliteInventoryStorage(
+      path: path,
+      factory: databaseFactoryFfi,
+    );
+    final local = PharmacyController(
+      first,
+      clock: () => contractToday,
+      backgroundSearch: false,
+    );
+    await local.initialize();
+    await local.save(stock('a'), expectedRevision: 0);
+    await local.recordSale('a', quantity: 2);
+    await first.close();
+    final second = SqliteInventoryStorage(
+      path: path,
+      factory: databaseFactoryFfi,
+    );
+    final restored = await second.load();
+    expect(restored.sales.values.single.quantity, 2);
+    expect(restored.records['a']!.quantity, 8);
+    await second.close();
+    local.dispose();
+    await directory.delete(recursive: true);
+  });
+  test(
+    'reviewed backup restore is atomic and keeps absent stock recoverable',
+    () async {
+      await controller.save(stock('original'), expectedRevision: 0);
+      await controller.recordSale(
+        'original',
+        quantity: 2,
+        totalAmountPaise: 500,
+      );
+      final backup = controller.createBackup().encode();
+      await controller.save(
+        stock('later', name: 'Later medicine'),
+        expectedRevision: controller.snapshot.revision,
+      );
+      final review = await controller.reviewBackup(backup);
+      await controller.restoreBackup(review);
+      expect(controller.list(SearchScope.all).map((m) => m.id), ['original']);
+      expect(controller.snapshot.records['later']!.archived, true);
+      expect(controller.sales.single.quantity, 2);
+      await controller.undo();
+      expect(controller.snapshot.records['later']!.archived, false);
+    },
+  );
+  test('medicine version history restores exact prior facts', () async {
+    await controller.save(stock('a', quantity: 10), expectedRevision: 0);
+    final edited = controller.snapshot.records['a']!.patch({
+      'quantity': 3,
+      'location': 'Rack 9',
+    });
+    await controller.save(edited, expectedRevision: 1);
+    final version = controller.versionsFor('a').first;
+    expect(version.record.quantity, 10);
+    expect(version.record.location, '');
+    await controller.restoreVersion(version);
+    expect(controller.snapshot.records['a']!.quantity, 10);
+    expect(controller.snapshot.records['a']!.location, '');
   });
 }

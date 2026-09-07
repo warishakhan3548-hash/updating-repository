@@ -1,134 +1,144 @@
-# Aaris Pharmacy — architecture and implementation map
+# Aaris Pharmacy — architecture and product contract
 
-## Repository inspection
+This document is the implementation contract for the consolidated product brief.
+When older notes disagree, this document and the current domain tests win.
 
-The authorized repository is `warishakhan3548-hash/updating-repository`, branch
-`main`. Baseline `7b7ce25b0621c7c4fbe653e961fb5f9ea7a1be5f` is an empty tree,
-committed as “clean repository for new project”. There is no existing application
-to patch. Earlier Dairy source was inspected read-only for the TXT + prompt +
-reviewed JSON workflow. This is a separate application and data store.
+## Core boundary
 
-## Dependency map
-
-| Layer / files | Owns | Depends on |
-| --- | --- | --- |
-| `lib/main.dart`, `lib/app.dart` | Bootstrap, app lifecycle, navigation, theme | controller, screens |
-| `lib/domain/medicine.dart` | Stored stock facts, strict dates, paise, settings | Dart only |
-| `lib/domain/inventory.dart` | Expiry classification, scoped views, statistics | medicine |
-| `lib/domain/search.dart` | Normalization, medical chunks, indexed fuzzy ranking | medicine, inventory |
-| `lib/domain/ai_protocol.dart` | Pharmacy-only interchange, validation, change plans | medicine |
-| `lib/data/inventory_database.dart` | SQLite schema, atomic writes, archive, undo, replay receipts | sqflite |
-| `lib/state/pharmacy_controller.dart` | Serialized commands, reactive state, day rollover, search worker | database, domain |
-| `lib/services/` | Camera/OCR/barcode, speech, AI API, export, secure key | platform packages |
-| `lib/ui/` | Home, scoped search, editor, AI review, statistics, profile | controller |
-
-There is one master set of stock records. Lists contain IDs, never independent
-copies to update. A commit publishes state only after SQLite succeeds. Date
-rollover and app resume trigger recalculation without modifying medicine facts.
-Search responses are generation-bound; older work cannot replace newer results.
-
-## Visual and state map
+The app owns one set of medicine stock records in local SQLite. Expired, SOLD,
+day-warning and month-warning lists never own copies of a medicine. They are
+live, mutually exclusive projections over the same records. A successful
+transaction updates the controller once and every listening screen rerenders.
 
 ```mermaid
 flowchart TD
-  H["Home: live counts"] --> L["Scoped list: search, mic, scan"]
-  G["Global Scan & Search"] --> L
-  L --> E["Exact stock entry editor"]
-  D["Medicine Database"] --> E
-  E --> C["Validated SQLite transaction"]
-  A["AI Controller"] --> R["Parse, validate, review"]
-  R --> C
-  C --> M["Master records and revision"]
-  M --> H
-  M --> L
-  M --> S["Calculator: live totals"]
+  D["Master medicine database"] --> X["Deterministic expiry engine"]
+  D --> S["Unified search index"]
+  D --> T["Tracking and reorder"]
+  X --> H["Home and scoped lists"]
+  S --> H
+  A["Reviewed AI or import plan"] --> D
+  D --> B["Backup and future sync boundary"]
 ```
 
-Bottom navigation: Home / Database / AI / Calculator / Profile. Global scan and
-search is a prominent Home action. Each database/category search has typing,
-microphone and scanner entry points. Search itself is read-only. A result opens
-the editor by stock ID, retaining the originating scope on Back.
+Bottom navigation is **Home / Database / AI / Tracking / Profile**. Results open
+the exact invisible stock ID; they never repeat a name search to find an editor.
 
-## Facts and derived rules
+## Layer map
 
-- Required: medicine name. Optional: brand, salt, strength, form, MFG, expiry,
-  quantity, unit price, barcode, block/row/vertical, location, OCR text, notes.
-- Every stock entry has an internal ID and revision. Different expiries or
-  locations remain separate entries even for the same medicine. No artificial
-  Batch A / B labels are shown.
-- Dates are local civil dates. Expiry today means 0 days left; expired starts the
-  following day. A month-only printed expiry is explicitly represented as the
-  last day of that month. MFG is informational and cannot be after expiry.
-- Classification precedence: archived (hidden) / sold / expired / short warning /
-  month warning / normal. Short and month dashboard categories are disjoint.
-- Month windows intentionally use 30 days per selected month, matching the user's
-  2 months = 60 days examples. The settings UI states this convention.
-- Red perimeter fraction is `clamp(1 - daysLeft / selectedWindow, 0, 1)`.
-  Expired is fully red; sold is permanently amber. Color is accompanied by text.
-- Warnings sort by ascending days left. Recently expired entries sort first.
-  Search relevance takes precedence across different medicines; equal matches
-  sort by nearest expiry. No expiry means no expiry warning.
-- Sold is explicit out-of-stock confirmation, not inferred sales. Repeated Sold
-  is idempotent. Quantity becomes zero; prior quantity and price are captured.
-  Restock edits the existing entry with new dates/quantity and clears Sold.
-- Remove archives the record from all active/search/statistic views. Activity and
-  guarded Undo retain history. Expiry by itself never removes anything.
-- Unit price is an integer number of paise. Inventory value uses known quantity
-  multiplied by known unit price. Missing coverage is shown separately. Sold
-  value is labelled an estimate from marked-sold stock, never confirmed revenue.
-- Unique medicine identities include normalized name, strength and form. Salts
-  normalize case/spacing, not fuzzy spelling. Form totals distinguish entries
-  from known units; mixed forms are not silently treated as equivalent units.
+| Layer | Responsibility |
+| --- | --- |
+| `domain/medicine.dart` | Strict stored medicine facts, civil dates, paise and normalized identity |
+| `domain/inventory.dart` | Status precedence, warning perimeter, scopes and inventory totals |
+| `domain/search.dart` | Medical normalization, bounded index, candidate retrieval, deep fuzzy ranking and confidence |
+| `domain/tracking.dart` | Privacy-safe sale events, period movement and reorder suggestions |
+| `domain/ai_protocol.dart` | Pharmacy-only export and strict reviewed mutation protocol |
+| `domain/backup.dart` | Versioned full-backup envelope and restore validation |
+| `data/inventory_database.dart` | SQLite v3, serialized atomic commits, events, receipts and Undo facts |
+| `state/pharmacy_controller.dart` | Reactive state, midnight rollover, commands and isolate search orchestration |
+| `services/` | OCR/barcode, media import, speech, AI transport, backup sharing and purchase orders |
+| `ui/` | Premium responsive views; no business-rule ownership |
+| Android `MainActivity.kt` | Sandboxed picker bridge, adaptive video frames and native multi-page PDF |
 
-## Search contract
+## Medicine facts and lifecycle
 
-Typing, OCR and mic share one engine. Apply scope before retrieval and ranking.
-Exact barcodes return all matching stock entries, not an arbitrary batch. Names,
-brands and salts outweigh OCR, notes and locations. Strength and numeric product
-codes are preserved; dosage numbers are not indiscriminately deleted. Ordered
-subsequence and edit similarity handle missing/reordered letters, with bounded
-candidates and work in an isolate. Bulk text is split into medicine-like chunks.
-Uncertain matches remain suggestions and never mutate/select a record silently.
+- Medicine name is required. Brand, manufacturer, salt, strength, form, MFG,
+  expiry, quantity, price, barcode, structured/free-form location, personal note
+  and captured OCR text are optional and remain separate.
+- Every physical stock entry has an invisible random ID and revision. Multiple
+  expiries/locations may share the same medicine identity; no Batch A/B/C label
+  is exposed to the pharmacist.
+- A printed `YYYY-MM` expiry means the last valid day of that month. MFG is
+  informational and may not be after expiry.
+- Status precedence is removed / SOLD / expired / short warning / month warning /
+  normal. Day and month warnings are disjoint, so dashboard counts do not double
+  count the same entry.
+- Month settings follow the agreed 30-days-per-month display baseline. Remaining
+  labels preserve both month and day components. MFG never drives the perimeter.
+- Red perimeter is `clamp(1 - daysRemaining / selectedWindow, 0, 1)`; expired is
+  fully red, SOLD is amber, and every color has a text label.
+- Expired status is deterministic and never deletes stock. SOLD is a pharmacist’s
+  explicit whole-entry out-of-stock confirmation and feeds reorder. Quantity zero
+  alone never silently marks an entry SOLD.
+- Remove is soft archive. Restore, latest-change Undo and bounded per-record
+  version history protect against accidental and bulk changes.
 
-## AI contract
+## Search and capture contract
 
-Export contains pharmacy facts and a strict versioned prompt; no credentials or
-other-app data. Both external-AI paste and supported API requests feed the same
-parser, validation and readable diff review. Records/notes are untrusted data.
-Existing entries require exact IDs; name similarity may suggest a match but may
-not authorize a destructive action. Reject unknown fields/paths, calculated
-statuses, malformed dates, negative money/quantity, missing targets, duplicate
-targets, stale snapshots and replayed request IDs.
+Typing, microphone, live camera and imported text all feed one engine. The entry
+screen supplies the scope before candidate retrieval: global/database searches
+all active records, while warning/SOLD/expired screens can return only their own
+current calculated records.
 
-Prepare changes in groups of 25 with progress/cancellation; commit the selected
-approved plan atomically. Cancellation before commit leaves the DB unchanged.
-Persist a receipt with the transaction so retries cannot double-add records.
-Keys use OS secure storage. An external provider is contacted only when the user
-chooses to send. Gemini and an HTTPS OpenAI-compatible endpoint are supported;
-arbitrary incompatible API protocols are not claimed to work.
+The index covers name, brand, manufacturer, salt, strength, form, barcode,
+internal ID, MFG/expiry, OCR text, block/row/vertical, free location and notes.
+Barcode exact match wins. Otherwise bounded n-gram candidates are ranked with
+exact/prefix/token, Jaro-Winkler, edit-distance and ordered-subsequence evidence.
+Strength conflicts are penalized, common OCR confusions are normalized narrowly,
+and notes/location cannot outrank a medicine-name match. Heavy ranking runs away
+from the Flutter UI isolate. High/medium/low confidence is visible; uncertain
+results never select or mutate a record automatically.
 
-## Validation targets and ripple effects
+Photo and video imports are read locally. A long video is sampled approximately
+every three seconds with a frame cap, then blurry and perceptually duplicate
+frames are discarded before OCR. Evidence is clustered by repeated normalized
+lines and enters an Import Inbox. The user opens an existing record or creates a
+new draft; low-confidence OCR never fills authoritative medical fields. Temporary
+raw media/frame files are deleted after review and are never included in backup.
 
-Domain checks cover midnight/leap dates, missing values, disjoint scopes, stock
-identity, price snapshots, strength conflicts, broken words, bulk text, AI stale
-plans and invalid operations. Database checks cover atomic commit/rollback,
-archive/undo and durable replay protection. Widget checks cover navigation,
-live counts, form validation, narrow screens and large text. Android hardware
-validation remains necessary for actual camera focus, OCR, microphone permissions
-and vendor speech service behavior. No 1 ms OCR or perfect matching guarantee.
+## Tracking, sales and ordering
 
-## Sources consulted
+Medicine count, known stock units, unique normalized salts, dosage-form counts,
+inventory value and missing-data coverage are separate metrics. The saved unit
+amount is treated as inventory/purchase cost; sale revenue is recorded separately. Missing cost or
+quantity is shown as unavailable and is never converted to a fake zero.
 
-- https://docs.flutter.dev/app-architecture/design-patterns/offline-first
-- https://developer.apple.com/design/human-interface-guidelines/accessibility
-- https://m3.material.io/foundations/designing/structure
-- https://developers.google.com/ml-kit/vision/text-recognition/v2/android
-- https://developer.android.com/reference/android/speech/SpeechRecognizer
+A sale event stores medicine snapshot, quantity, timestamp and optional aggregate
+amount—never customer/patient identity. It may reduce a known stock quantity and
+can explicitly mark the entry completely SOLD. Seven-, 30-, 90-day and custom
+periods drive velocity and fast-moving metrics. Reorder uses available stock,
+explicit SOLD state and recent units/day. Suggestions remain editable. Android
+creates a reviewed multi-page purchase-order PDF; rows without cost remain marked
+unavailable and are excluded from the known estimated total.
 
-## Checkpoint policy
+## AI safety contract
 
-Work directly on the requested `main` branch. Push coherent checkpoints during
-the active implementation session, approximately every ten minutes, and a final
-verified checkpoint. Never force-push over concurrent changes. Record progress
-and remaining validation in `docs/PROGRESS.md` so an interrupted session can
-resume from durable source. No recurring background task persists after work ends.
+Connect with Other AI exports a pharmacy-only TXT package and copies a strict
+prompt. Gemini or a user-supplied OpenAI-compatible HTTPS endpoint can use the
+same protocol. Provider keys live in OS secure storage and are excluded from AI
+exports and backups.
+
+The app accepts only the versioned Aaris envelope. Existing changes require exact
+IDs. Unknown paths/fields, derived statuses, malformed facts, duplicate targets,
+stale revisions and replayed request IDs are rejected. Proposed changes show
+before/after facts; duplicate additions and removes are not preselected. Only the
+owner’s chosen actions commit atomically. AI supplies stored facts; the app alone
+calculates expiry, warning membership, borders, counts and totals.
+
+## Backup and cloud boundary
+
+Full local backup contains medicines (including removed entries), warning
+settings, aggregate sales and sold-value metadata. It contains no API key, raw
+media or search cache. Restore uses strict schema/field validation and a typed
+confirmation. Current active records missing from the backup move to Removed
+stock instead of being silently destroyed, and the restore itself is undoable.
+
+Firebase is intentionally not a runtime dependency without an owner Firebase
+project and credentials. The local database remains authoritative. A future
+Firebase adapter must consume committed structured facts through a durable sync
+queue, support backup/restore and conflict metadata, and must not upload raw video,
+temporary OCR frames, AI models, keys or search indexes.
+
+## Verification and release boundary
+
+Pure domain checks cover civil expiry boundaries, disjoint scopes, fuzzy examples,
+field indexing, AI rejection paths, tracking/reorder and backup validation.
+SQLite tests cover rollback, persistence, sales/Undo, restore/Undo and version
+restore. Widget checks cover navigation, scoped results, live updates, validation,
+narrow screens and large text. Physical Android QA is still required for camera
+focus, vendor speech behavior, file pickers, long videos, PDF sharing and low-end
+device memory.
+
+GitHub Actions performs dependency resolution, static analysis and tests only.
+It does not build or publish an APK. Release signing and APK generation remain an
+explicit owner operation.

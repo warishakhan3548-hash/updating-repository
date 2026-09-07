@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../domain/medicine.dart';
 import '../domain/inventory.dart';
 
@@ -184,7 +185,9 @@ class MedicineCard extends StatelessWidget {
       'Syrup' => Icons.water_drop_outlined,
       'Capsule' => Icons.medication_outlined,
       'Injection' => Icons.vaccines_outlined,
-      _ => Icons.medication_liquid_outlined,
+      'Cream' || 'Ointment' => Icons.sanitizer_outlined,
+      'Drops' => Icons.water_drop_outlined,
+      _ => Icons.medication_rounded,
     };
     final timeline =
         state.status == StockStatus.shortExpiry ||
@@ -259,6 +262,16 @@ class MedicineCard extends StatelessWidget {
                                     color: muted,
                                     fontSize: 12,
                                   ),
+                                ),
+                              if (record.manufacturer.isNotEmpty)
+                                Text(
+                                  record.manufacturer,
+                                  style: const TextStyle(
+                                    color: muted,
+                                    fontSize: 12,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               if (record.salt.isNotEmpty)
                                 Text(

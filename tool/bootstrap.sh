@@ -9,5 +9,6 @@ if [ ! -f android/gradle/wrapper/gradle-wrapper.jar ]; then
   flutter create --platforms=android --org com.aaris --project-name aaris_pharmacy .
 fi
 flutter pub get
+dart analyze lib test
 flutter test
-flutter build apk --release
+echo 'Checks passed. APK build is intentionally left to the repository owner.'

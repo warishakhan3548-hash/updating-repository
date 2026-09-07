@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
 import '../lib/app.dart';
 import '../lib/data/inventory_database.dart';
 import '../lib/state/pharmacy_controller.dart';
@@ -98,8 +100,8 @@ void main() {
     expect(find.text('Aaris Pharmacy'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await screenshot(tester, key, 'home');
-    await tester.scrollUntilVisible(find.text('Expired'), 250);
-    await tester.tap(find.text('Expired'));
+    await tester.scrollUntilVisible(find.text('Expired Medicines'), 250);
+    await tester.tap(find.text('Expired Medicines'));
     await tester.pumpAndSettle();
     expect(find.byType(SearchScreen), findsOneWidget);
     expect(find.text('Cefixime'), findsOneWidget);
@@ -129,7 +131,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Database'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Add medicine'));
+    await tester.tap(find.byTooltip('Add / Import medicines'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add manually'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'New medicine');
     await tester.scrollUntilVisible(find.text('Save medicine'), 500);
@@ -155,7 +159,7 @@ void main() {
     await tester.pumpWidget(PharmacyApp(controller: c));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    for (final tab in ['Database', 'AI', 'Calculator', 'Profile']) {
+    for (final tab in ['Database', 'AI', 'Tracking', 'Profile']) {
       await tester.tap(find.text(tab).last);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'Overflow in $tab');
@@ -163,7 +167,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();
   });
-  testWidgets('Calculator and AI hub have reviewable screenshots', (
+  testWidgets('Tracking and AI hub have reviewable screenshots', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -179,9 +183,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Calculator'));
+    await tester.tap(find.text('Tracking'));
     await tester.pumpAndSettle();
-    await screenshot(tester, key, 'calculator');
+    await screenshot(tester, key, 'tracking');
     await tester.tap(find.text('AI').last);
     await tester.pumpAndSettle();
     await screenshot(tester, key, 'ai-controller');

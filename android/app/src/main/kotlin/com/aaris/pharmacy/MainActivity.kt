@@ -1,5 +1,582 @@
 package com.aaris.pharmacy
 
+import android.app.Activity
+import android.content.Intent
+import android.database.Cursor
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.io.FileOutputStream
+import java.io.ByteArrayOutputStream
+import java.text.NumberFormat
+import java.util.Locale
+import java.nio.charset.StandardCharsets
+import kotlin.math.abs
+import kotlin.math.ceil
 
-class MainActivity : FlutterActivity()
+class MainActivity : FlutterActivity() {
+    private val documentsChannel = "com.aaris.pharmacy/documents"
+    private val pickTextRequest = 4071
+    private val pickImageRequest = 4072
+    private val pickVideoRequest = 4073
+    private var pendingTextResult: MethodChannel.Result? = null
+    private var pendingMediaResult: MethodChannel.Result? = null
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, documentsChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "createPurchaseOrderPdf" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val arguments = call.arguments as? Map<String, Any?>
+                        if (arguments == null) {
+                            result.error("invalid_order", "Purchase-order data is missing.", null)
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            try {
+                                val path = createPurchaseOrderPdf(arguments)
+                                runOnUiThread { result.success(path) }
+                            } catch (error: Exception) {
+                                runOnUiThread {
+                                    result.error(
+                                        "pdf_error",
+                                        error.message ?: "The PDF could not be created.",
+                                        null,
+                                    )
+                                }
+                            }
+                        }.start()
+                    }
+                    "pickTextDocument" -> pickTextDocument(result)
+                    "pickImportSource" -> {
+                        val kind = call.argument<String>("kind")
+                        pickImportSource(kind, result)
+                    }
+                    "sampleVideo" -> {
+                        val path = call.argument<String>("path")
+                        val maxFrames = call.argument<Int>("maxFrames") ?: 60
+                        if (path == null) {
+                            result.error("invalid_video", "Video path is missing.", null)
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            try {
+                                val frames = sampleVideo(path, maxFrames.coerceIn(1, 72))
+                                runOnUiThread { result.success(frames) }
+                            } catch (error: Exception) {
+                                runOnUiThread {
+                                    result.error(
+                                        "video_error",
+                                        error.message ?: "The video could not be processed.",
+                                        null,
+                                    )
+                                }
+                            }
+                        }.start()
+                    }
+                    "deleteImportFiles" -> {
+                        val paths = call.argument<List<String>>("paths").orEmpty()
+                        Thread {
+                            val deleted = deleteImportFiles(paths)
+                            runOnUiThread { result.success(deleted) }
+                        }.start()
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    private fun pickTextDocument(result: MethodChannel.Result) {
+        if (pendingTextResult != null || pendingMediaResult != null) {
+            result.error("picker_busy", "Another file selection is already open.", null)
+            return
+        }
+        pendingTextResult = result
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(
+                Intent.EXTRA_MIME_TYPES,
+                arrayOf("application/json", "text/json", "text/plain", "application/octet-stream"),
+            )
+        }
+        try {
+            startActivityForResult(intent, pickTextRequest)
+        } catch (error: Exception) {
+            pendingTextResult = null
+            result.error("picker_unavailable", "A document picker is unavailable.", null)
+        }
+    }
+
+    private fun pickImportSource(kind: String?, result: MethodChannel.Result) {
+        if (kind != "image" && kind != "video") {
+            result.error("invalid_source", "Choose an image or video.", null)
+            return
+        }
+        if (pendingTextResult != null || pendingMediaResult != null) {
+            result.error("picker_busy", "Another file selection is already open.", null)
+            return
+        }
+        pendingMediaResult = result
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = if (kind == "image") "image/*" else "video/*"
+        }
+        try {
+            startActivityForResult(
+                intent,
+                if (kind == "image") pickImageRequest else pickVideoRequest,
+            )
+        } catch (error: Exception) {
+            pendingMediaResult = null
+            result.error("picker_unavailable", "A media picker is unavailable.", null)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == pickImageRequest || requestCode == pickVideoRequest) {
+            handlePickedMedia(requestCode, resultCode, data?.data)
+            return
+        }
+        if (requestCode != pickTextRequest) return
+        val pending = pendingTextResult ?: return
+        pendingTextResult = null
+        val uri = data?.data
+        if (resultCode != Activity.RESULT_OK || uri == null) {
+            pending.success(null)
+            return
+        }
+        Thread {
+            try {
+                val output = ByteArrayOutputStream()
+                contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) throw IllegalArgumentException("The selected file could not be opened.")
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        if (output.size() > 12_000_000) {
+                            throw IllegalArgumentException("The selected file is larger than 12 MB.")
+                        }
+                    }
+                }
+                val text = output.toString(StandardCharsets.UTF_8.name())
+                runOnUiThread { pending.success(text) }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    pending.error(
+                        "file_read_error",
+                        error.message ?: "The selected file could not be read.",
+                        null,
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private fun handlePickedMedia(requestCode: Int, resultCode: Int, uri: Uri?) {
+        val pending = pendingMediaResult ?: return
+        pendingMediaResult = null
+        if (resultCode != Activity.RESULT_OK || uri == null) {
+            pending.success(null)
+            return
+        }
+        Thread {
+            var partialOutput: File? = null
+            try {
+                val mime = contentResolver.getType(uri).orEmpty()
+                val originalName = displayName(uri)
+                val safeName = originalName
+                    .replace(Regex("[^a-zA-Z0-9._-]+"), "_")
+                    .takeLast(120)
+                    .ifEmpty {
+                        if (requestCode == pickImageRequest) "medicine_image.jpg"
+                        else "medicine_video.mp4"
+                    }
+                val directory = File(cacheDir, "inventory_imports").apply { mkdirs() }
+                directory.listFiles()?.filter {
+                    System.currentTimeMillis() - it.lastModified() > 24 * 60 * 60 * 1000L
+                }?.forEach { it.deleteRecursively() }
+                val output = File(directory, "${System.currentTimeMillis()}_$safeName")
+                partialOutput = output
+                var total = 0L
+                contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) {
+                        throw IllegalArgumentException("The selected media could not be opened.")
+                    }
+                    FileOutputStream(output).use { stream ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            stream.write(buffer, 0, count)
+                            total += count
+                            val limit = if (requestCode == pickImageRequest) {
+                                40_000_000L
+                            } else {
+                                2_000_000_000L
+                            }
+                            if (total > limit) {
+                                throw IllegalArgumentException(
+                                    if (requestCode == pickImageRequest) {
+                                        "Choose an image smaller than 40 MB."
+                                    } else {
+                                        "Choose a video smaller than 2 GB."
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                val response = mapOf(
+                    "path" to output.absolutePath,
+                    "name" to originalName,
+                    "mimeType" to mime,
+                )
+                runOnUiThread { pending.success(response) }
+            } catch (error: Exception) {
+                partialOutput?.deleteRecursively()
+                runOnUiThread {
+                    pending.error(
+                        "media_read_error",
+                        error.message ?: "The selected media could not be read.",
+                        null,
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private fun displayName(uri: Uri): String {
+        var cursor: Cursor? = null
+        return try {
+            cursor = contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )
+            if (cursor != null && cursor.moveToFirst()) {
+                cursor.getString(0) ?: "selected_media"
+            } else {
+                "selected_media"
+            }
+        } finally {
+            cursor?.close()
+        }
+    }
+
+    override fun onDestroy() {
+        pendingTextResult?.error("activity_closed", "File selection was cancelled.", null)
+        pendingTextResult = null
+        pendingMediaResult?.error("activity_closed", "File selection was cancelled.", null)
+        pendingMediaResult = null
+        super.onDestroy()
+    }
+
+    private fun sampleVideo(path: String, maxFrames: Int): List<String> {
+        val source = File(path).canonicalFile
+        val importRoot = File(cacheDir, "inventory_imports").canonicalFile
+        if (!source.isFile || !source.path.startsWith(importRoot.path + File.separator)) {
+            throw IllegalArgumentException("The selected video is no longer available.")
+        }
+        val retriever = MediaMetadataRetriever()
+        var frameDirectory: File? = null
+        try {
+            retriever.setDataSource(source.absolutePath)
+            val durationMs = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()
+                ?: throw IllegalArgumentException("The video duration could not be read.")
+            if (durationMs < 1) throw IllegalArgumentException("The video is empty.")
+            val proposed = ceil(durationMs / 3000.0).toInt().coerceAtLeast(1)
+            val count = minOf(maxFrames, proposed)
+            val frameRoot = File(cacheDir, "video_frames").apply { mkdirs() }
+            frameRoot.listFiles()?.filter {
+                System.currentTimeMillis() - it.lastModified() > 24 * 60 * 60 * 1000L
+            }?.forEach { it.deleteRecursively() }
+            val directory = File(frameRoot, "${System.currentTimeMillis()}").apply { mkdirs() }
+            frameDirectory = directory
+            val acceptedHashes = mutableListOf<Long>()
+            val result = mutableListOf<String>()
+
+            for (index in 0 until count) {
+                val timeUs = if (count == 1) {
+                    durationMs * 500L
+                } else {
+                    durationMs * 1000L * index / (count - 1)
+                }
+                val original = retriever.getFrameAtTime(
+                    timeUs,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                ) ?: continue
+                val metrics = imageMetrics(original)
+                val duplicate = acceptedHashes.any {
+                    java.lang.Long.bitCount(it xor metrics.first) < 6
+                }
+                if (acceptedHashes.isNotEmpty() && (duplicate || metrics.second < 5.0)) {
+                    original.recycle()
+                    continue
+                }
+                acceptedHashes.add(metrics.first)
+                val width = minOf(1280, original.width)
+                val height = (original.height * (width.toDouble() / original.width))
+                    .toInt()
+                    .coerceAtLeast(1)
+                val frame = if (width == original.width) {
+                    original
+                } else {
+                    Bitmap.createScaledBitmap(original, width, height, true).also {
+                        original.recycle()
+                    }
+                }
+                val file = File(directory, "frame_${index.toString().padStart(3, '0')}.jpg")
+                FileOutputStream(file).use { stream ->
+                    if (!frame.compress(Bitmap.CompressFormat.JPEG, 88, stream)) {
+                        throw IllegalStateException("A sampled frame could not be saved.")
+                    }
+                }
+                frame.recycle()
+                result.add(file.absolutePath)
+            }
+            if (result.isEmpty()) {
+                throw IllegalArgumentException(
+                    "No clear frame could be sampled. Try a shorter, steadier video.",
+                )
+            }
+            return result
+        } catch (error: Exception) {
+            frameDirectory?.deleteRecursively()
+            throw error
+        } finally {
+            retriever.release()
+        }
+    }
+
+    private fun deleteImportFiles(paths: List<String>): Int {
+        if (paths.size > 100) return 0
+        val roots = listOf(
+            File(cacheDir, "inventory_imports").canonicalFile,
+            File(cacheDir, "video_frames").canonicalFile,
+        )
+        var deleted = 0
+        for (path in paths.distinct()) {
+            try {
+                val target = File(path).canonicalFile
+                val allowed = roots.any { root ->
+                    target.path.startsWith(root.path + File.separator)
+                }
+                if (allowed && target.exists() && target.deleteRecursively()) deleted += 1
+            } catch (_: Exception) {
+                // Temporary-file cleanup is best effort and never affects inventory facts.
+            }
+        }
+        return deleted
+    }
+
+    private fun imageMetrics(bitmap: Bitmap): Pair<Long, Double> {
+        val small = Bitmap.createScaledBitmap(bitmap, 8, 8, false)
+        val pixels = IntArray(64)
+        small.getPixels(pixels, 0, 8, 0, 0, 8, 8)
+        if (small !== bitmap) small.recycle()
+        val luminance = pixels.map { color ->
+            (Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114) / 1000
+        }
+        val average = luminance.average()
+        var hash = 0L
+        var edge = 0L
+        luminance.forEachIndexed { index, value ->
+            if (value >= average) hash = hash or (1L shl index)
+            if (index % 8 != 0) edge += abs(value - luminance[index - 1])
+            if (index >= 8) edge += abs(value - luminance[index - 8])
+        }
+        return hash to edge / 112.0
+    }
+
+    private fun createPurchaseOrderPdf(arguments: Map<String, Any?>): String {
+        val title = (arguments["title"] as? String)?.take(100)
+            ?: "Aaris Pharmacy Purchase Order"
+        val date = (arguments["date"] as? String)?.take(30) ?: ""
+        val rawLines = arguments["lines"] as? List<*>
+            ?: throw IllegalArgumentException("No order lines were supplied.")
+        if (rawLines.isEmpty() || rawLines.size > 500) {
+            throw IllegalArgumentException("Choose between 1 and 500 order lines.")
+        }
+
+        val document = PdfDocument()
+        val body = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(23, 59, 52)
+            textSize = 9f
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        }
+        val small = Paint(body).apply {
+            color = Color.rgb(96, 116, 108)
+            textSize = 7.5f
+        }
+        val heading = Paint(body).apply {
+            textSize = 19f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val tableHeading = Paint(body).apply {
+            textSize = 8f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(218, 229, 220)
+            strokeWidth = 1f
+        }
+        var pageNumber = 0
+        var page: PdfDocument.Page? = null
+        lateinit var canvas: Canvas
+        var y = 0f
+
+        fun beginPage() {
+            page?.let(document::finishPage)
+            pageNumber += 1
+            page = document.startPage(
+                PdfDocument.PageInfo.Builder(595, 842, pageNumber).create(),
+            )
+            canvas = page!!.canvas
+            canvas.drawText(title, 32f, 45f, heading)
+            canvas.drawText("Date: $date", 32f, 65f, small)
+            canvas.drawText("Page $pageNumber", 520f, 65f, small)
+            canvas.drawLine(32f, 78f, 563f, 78f, rule)
+            canvas.drawText("Medicine", 32f, 98f, tableHeading)
+            canvas.drawText("Stock", 302f, 98f, tableHeading)
+            canvas.drawText("Order", 360f, 98f, tableHeading)
+            canvas.drawText("Unit cost", 418f, 98f, tableHeading)
+            canvas.drawText("Amount", 500f, 98f, tableHeading)
+            canvas.drawLine(32f, 106f, 563f, 106f, rule)
+            y = 126f
+        }
+
+        fun drawFitted(text: String, x: Float, baseline: Float, width: Float, paint: Paint) {
+            var value = text.replace(Regex("[\\r\\n]+"), " ").trim()
+            if (value.isEmpty()) value = "—"
+            while (value.length > 1 && paint.measureText(value) > width) {
+                value = value.dropLast(1)
+            }
+            if (value != text.replace(Regex("[\\r\\n]+"), " ").trim()) {
+                value = value.dropLast(minOf(1, value.length)) + "…"
+            }
+            canvas.drawText(value, x, baseline, paint)
+        }
+
+        fun integer(line: Map<*, *>, key: String): Long? {
+            val number = line[key] as? Number ?: return null
+            return number.toLong()
+        }
+
+        fun money(paise: Long?): String {
+            if (paise == null) return "Unavailable"
+            val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
+            return format.format(paise / 100.0)
+        }
+
+        try {
+            beginPage()
+            var knownTotal = 0L
+            var unknownAmounts = 0
+            rawLines.forEachIndexed { index, raw ->
+                val line = raw as? Map<*, *>
+                    ?: throw IllegalArgumentException("Order line ${index + 1} is invalid.")
+                val name = (line["name"] as? String)?.take(300)?.trim().orEmpty()
+                if (name.isEmpty()) {
+                    throw IllegalArgumentException("Order line ${index + 1} has no medicine name.")
+                }
+                if (y > 775f) beginPage()
+                val strength = (line["strength"] as? String)?.take(100)?.trim().orEmpty()
+                val salt = (line["salt"] as? String)?.take(300)?.trim().orEmpty()
+                val reason = (line["reason"] as? String)?.take(200)?.trim().orEmpty()
+                val current = integer(line, "currentQuantity")
+                val quantity = integer(line, "quantity")
+                    ?: throw IllegalArgumentException("Order quantity is missing.")
+                val unitCost = integer(line, "unitCostPaise")
+                if (quantity < 1 || quantity > 100_000_000) {
+                    throw IllegalArgumentException("Order quantity is outside the supported range.")
+                }
+                if (current != null && (current < 0 || current > 100_000_000)) {
+                    throw IllegalArgumentException("Current stock is outside the supported range.")
+                }
+                if (unitCost != null && (unitCost < 0 || unitCost > 99_999_999_999L)) {
+                    throw IllegalArgumentException("Unit cost is outside the supported range.")
+                }
+                val amount = unitCost?.let { Math.multiplyExact(quantity, it) }
+                if (amount == null) {
+                    unknownAmounts += 1
+                } else {
+                    knownTotal = Math.addExact(knownTotal, amount)
+                }
+
+                drawFitted(
+                    if (strength.isEmpty()) name else "$name · $strength",
+                    32f,
+                    y,
+                    252f,
+                    body,
+                )
+                drawFitted(current?.toString() ?: "Unknown", 302f, y, 48f, body)
+                drawFitted(quantity.toString(), 360f, y, 48f, body)
+                drawFitted(money(unitCost), 418f, y, 72f, body)
+                drawFitted(money(amount), 500f, y, 63f, body)
+                drawFitted(
+                    listOf(salt, reason).filter { it.isNotEmpty() }.joinToString(" · "),
+                    32f,
+                    y + 17f,
+                    520f,
+                    small,
+                )
+                canvas.drawLine(32f, y + 29f, 563f, y + 29f, rule)
+                y += 45f
+            }
+
+            if (y > 735f) beginPage()
+            canvas.drawText("Estimated total with known costs", 302f, y + 16f, tableHeading)
+            drawFitted(money(knownTotal), 500f, y + 16f, 63f, tableHeading)
+            canvas.drawText(
+                if (unknownAmounts == 0) {
+                    "All selected rows include a saved unit cost."
+                } else {
+                    "$unknownAmounts row(s) are excluded because unit cost is unavailable."
+                },
+                302f,
+                y + 34f,
+                small,
+            )
+            canvas.drawText(
+                "Review quantities, prices and supplier terms before ordering.",
+                32f,
+                816f,
+                small,
+            )
+            page?.let(document::finishPage)
+            page = null
+
+            val directory = File(cacheDir, "purchase_orders").apply { mkdirs() }
+            directory.listFiles()?.filter {
+                System.currentTimeMillis() - it.lastModified() > 24 * 60 * 60 * 1000L
+            }?.forEach { it.delete() }
+            val output = File(directory, "Aaris_Pharmacy_Order_${System.currentTimeMillis()}.pdf")
+            FileOutputStream(output).use { stream -> document.writeTo(stream) }
+            return output.absolutePath
+        } finally {
+            page?.let(document::finishPage)
+            document.close()
+        }
+    }
+}

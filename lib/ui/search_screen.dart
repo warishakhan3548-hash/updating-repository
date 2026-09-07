@@ -1,10 +1,13 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import '../domain/inventory.dart';
 import '../domain/search.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'editor_screen.dart';
+import 'import_screen.dart';
 import 'scanner_screen.dart';
 import 'voice_sheet.dart';
 
@@ -106,8 +109,7 @@ class _SearchScreenState extends State<SearchScreen> {
             maxLines: 12,
             maxLength: 30000,
             decoration: const InputDecoration(
-              hintText:
-                  'Paste text from an invoice or a medicine list. Put each medicine on its own line.',
+              hintText: 'Paste text from an invoice or a medicine list. Put each medicine on its own line.',
             ),
           ),
         ),
@@ -163,8 +165,14 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                     ),
                     IconButton.filled(
-                      tooltip: 'Add medicine',
-                      onPressed: () => openEditor(context, controller),
+                      tooltip: 'Add / Import medicines',
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              ImportCenterScreen(controller: controller),
+                        ),
+                      ),
                       icon: const Icon(Icons.add_rounded),
                     ),
                   ],
@@ -173,7 +181,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 const Padding(
                   padding: EdgeInsets.only(top: 6, bottom: 18),
                   child: Text(
-                    'Add and Edit and Remove Medicines',
+                    'Add, edit & remove medicines',
                     style: TextStyle(color: muted, fontSize: 13),
                   ),
                 ),
@@ -341,10 +349,10 @@ class _SearchScreenState extends State<SearchScreen> {
                       onTap: () =>
                           openEditor(context, controller, record: record),
                       matchLabel: hit.uncertain
-                          ? 'Possible match · ${hit.reason} · check name & strength'
+                          ? '${hit.confidence} confidence · ${hit.reason} · check name & strength'
                           : _query.text.trim().isEmpty
                           ? null
-                          : hit.reason,
+                          : '${hit.confidence} confidence · ${hit.reason}',
                     );
                   },
                 ),

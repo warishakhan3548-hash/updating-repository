@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+
 import 'domain_contract.dart';
 
 void main() {

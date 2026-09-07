@@ -12,6 +12,18 @@ class StatusInfo {
   final int? days;
 }
 
+String remainingTimeLabel(int days) {
+  if (days == 0) return 'Expires today';
+  if (days < 30) return '$days ${days == 1 ? 'day' : 'days'} left';
+  final months = days ~/ 30;
+  final remainder = days % 30;
+  return [
+    '$months ${months == 1 ? 'month' : 'months'}',
+    if (remainder > 0) '$remainder ${remainder == 1 ? 'day' : 'days'}',
+    'left',
+  ].join(' ');
+}
+
 StatusInfo statusOf(Medicine record, WarningSettings settings, DateTime today) {
   final days = record.daysLeft(today);
   if (record.archived)
@@ -27,9 +39,7 @@ StatusInfo statusOf(Medicine record, WarningSettings settings, DateTime today) {
       1,
       days,
     );
-  final label = days == 0
-      ? 'Expires today'
-      : '$days ${days == 1 ? 'day' : 'days'} left';
+  final label = remainingTimeLabel(days);
   if (days <= settings.shortDays)
     return StatusInfo(
       StockStatus.shortExpiry,
@@ -40,9 +50,7 @@ StatusInfo statusOf(Medicine record, WarningSettings settings, DateTime today) {
   if (days <= settings.monthDays) {
     return StatusInfo(
       StockStatus.monthExpiry,
-      days < 30
-          ? label
-          : '${days ~/ 30} ${days < 60 ? 'month' : 'months'} left · $days days',
+      label,
       (1 - days / settings.monthDays).clamp(0, 1),
       days,
     );

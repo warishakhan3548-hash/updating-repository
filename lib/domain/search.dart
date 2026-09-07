@@ -1,4 +1,5 @@
 import 'dart:math';
+
 import 'inventory.dart';
 import 'medicine.dart';
 
@@ -33,6 +34,12 @@ String searchText(String value) {
   for (final entry in aliases.entries) {
     text = text.replaceAll(entry.key, entry.value);
   }
+  // OCR commonly reads a trailing zero as O when it touches a dosage unit.
+  // Keep this narrow so ordinary medicine names and product codes are intact.
+  text = text.replaceAllMapped(
+    RegExp(r'\b(\d+)o(?=\s*(?:mg|ml|mcg|g)\b)'),
+    (match) => '${match[1]}0',
+  );
   return text
       .replaceAll(RegExp(r'[^a-z0-9\u0900-\u097f.]+'), ' ')
       .replaceAllMapped(
@@ -74,7 +81,51 @@ double orderedSimilarity(String a, String b) {
   final sequence = lcs / a.length * .68 + lcs / b.length * .32;
   final distance = 1 - edit.last / max(a.length, b.length);
   final prefix = b.startsWith(a) ? .93 : 0.0;
-  return max(prefix, max(distance, sequence * .91));
+  final jaro = jaroWinkler(a, b);
+  return max(prefix, max(jaro * .98, max(distance, sequence * .91)));
+}
+
+double jaroWinkler(String a, String b) {
+  if (a == b) return 1;
+  if (a.isEmpty || b.isEmpty) return 0;
+  a = a.substring(0, min(a.length, 80));
+  b = b.substring(0, min(b.length, 80));
+  final distance = max(0, max(a.length, b.length) ~/ 2 - 1);
+  final aMatches = List<bool>.filled(a.length, false);
+  final bMatches = List<bool>.filled(b.length, false);
+  var matches = 0;
+  for (var i = 0; i < a.length; i++) {
+    final start = max(0, i - distance);
+    final end = min(i + distance + 1, b.length);
+    for (var j = start; j < end; j++) {
+      if (bMatches[j] || a[i] != b[j]) continue;
+      aMatches[i] = true;
+      bMatches[j] = true;
+      matches++;
+      break;
+    }
+  }
+  if (matches == 0) return 0;
+  var transpositions = 0;
+  var j = 0;
+  for (var i = 0; i < a.length; i++) {
+    if (!aMatches[i]) continue;
+    while (!bMatches[j]) {
+      j++;
+    }
+    if (a[i] != b[j]) transpositions++;
+    j++;
+  }
+  final jaro =
+      (matches / a.length +
+          matches / b.length +
+          (matches - transpositions / 2) / matches) /
+      3;
+  var prefix = 0;
+  while (prefix < min(4, min(a.length, b.length)) && a[prefix] == b[prefix]) {
+    prefix++;
+  }
+  return jaro + prefix * .1 * (1 - jaro);
 }
 
 class SearchHit {
@@ -82,6 +133,11 @@ class SearchHit {
   final String id, reason, query;
   final double score;
   bool get uncertain => score < .85;
+  String get confidence => score >= .85
+      ? 'High'
+      : score >= .68
+      ? 'Medium'
+      : 'Low';
 }
 
 class SearchDocument {
@@ -89,10 +145,19 @@ class SearchDocument {
     for (final value in [
       record.name,
       record.brand,
+      record.manufacturer,
       record.salt,
       record.strength,
+      record.form,
+      record.barcode,
+      record.id,
+      if (record.mfg != null) dateText(record.mfg!),
+      if (record.expiry != null) dateText(record.expiry!),
       record.ocrText,
       record.address,
+      if (record.block.isNotEmpty) 'b${record.block}',
+      if (record.row.isNotEmpty) 'r${record.row}',
+      if (record.vertical.isNotEmpty) 'v${record.vertical}',
       record.notes,
     ]) {
       terms.addAll(searchText(value).split(' ').where((e) => e.isNotEmpty));
@@ -178,13 +243,15 @@ class MedicineSearch {
     DateTime today, {
     int limit = 150,
   }) {
-    final allowed = {
-      for (final d in docs.values)
-        if (inScope(d.record, scope, settings, today)) d.record.id,
-    };
+    bool allowedId(String id) =>
+        inScope(docs[id]!.record, scope, settings, today);
     if (raw.trim().isEmpty) {
-      final records = allowed.map((id) => docs[id]!.record).toList()
-        ..sort((a, b) => expiryOrder(a, b, today));
+      final records =
+          docs.values
+              .map((document) => document.record)
+              .where((record) => inScope(record, scope, settings, today))
+              .toList()
+            ..sort((a, b) => expiryOrder(a, b, today));
       return records
           .take(limit)
           .map((m) => SearchHit(m.id, 1, 'Inventory', ''))
@@ -193,18 +260,32 @@ class MedicineSearch {
     // An exact product barcode can legitimately identify multiple stock entries.
     final barcodeIds = barcode[raw.trim()];
     if (barcodeIds != null) {
-      final ids = barcodeIds.where(allowed.contains).toList()
+      final ids = barcodeIds.where(allowedId).toList()
         ..sort((a, b) => expiryOrder(docs[a]!.record, docs[b]!.record, today));
       return ids.map((id) => SearchHit(id, 1, 'Exact barcode', raw)).toList();
     }
+    final allowed = {
+      for (final document in docs.values)
+        if (inScope(document.record, scope, settings, today))
+          document.record.id,
+    };
     final found = <String, SearchHit>{};
     for (final chunk in chunks(raw)) {
       final query = searchText(chunk);
-      final tokens = query
+      final rawTokens = query
           .split(' ')
-          .where((w) => w.length >= 2 && !noise.contains(w))
+          .where((word) => word.length >= 2)
+          .take(40)
+          .toList();
+      var tokens = rawTokens
+          .where((word) => !noise.contains(word))
           .take(14)
           .toList();
+      // A direct query such as "syrup" is useful even though form words are
+      // discarded as noise inside long prescription/invoice text.
+      if (tokens.isEmpty && rawTokens.isNotEmpty) {
+        tokens = rawTokens.take(14).toList();
+      }
       if (tokens.isEmpty) continue;
       final votes = <String, int>{};
       for (final token in tokens) {
@@ -240,8 +321,19 @@ class MedicineSearch {
       (m.brand, .99, 'Brand'),
       (m.salt, .98, 'Salt'),
       ('${m.name} ${m.strength}', 1.0, 'Name and strength'),
+      (m.barcode, .97, 'Barcode'),
+      (m.manufacturer, .86, 'Manufacturer'),
+      (m.form, .82, 'Medicine form'),
+      (m.expiry == null ? '' : dateText(m.expiry!), .78, 'Expiry date'),
+      (m.mfg == null ? '' : dateText(m.mfg!), .72, 'Manufacturing date'),
+      (m.id, .70, 'Internal record ID'),
       (m.ocrText, .78, 'Scanned keywords'),
       (m.address, .72, 'Location'),
+      (
+        '${m.block.isEmpty ? '' : 'b${m.block}'} ${m.row.isEmpty ? '' : 'r${m.row}'} ${m.vertical.isEmpty ? '' : 'v${m.vertical}'}',
+        .84,
+        'Location code',
+      ),
       (m.notes, .68, 'Note'),
     ];
     var best = 0.0;
@@ -277,7 +369,11 @@ class MedicineSearch {
         for (final token in usable) {
           var match = 0.0;
           final corrected = RegExp(r'[a-z]').hasMatch(token)
-              ? token.replaceAll('0', 'o').replaceAll('1', 'i')
+              ? token
+                    .replaceAll('0', 'o')
+                    .replaceAll('1', 'i')
+                    .replaceAll('5', 's')
+                    .replaceAll('8', 'b')
               : token;
           for (final word in words) {
             match = max(
@@ -308,7 +404,9 @@ class MedicineSearch {
     final numericTokens = tokens
         .where((t) => RegExp(r'^\d+$').hasMatch(t))
         .toList();
-    final identityText = searchText('${m.name} ${m.strength} ${m.barcode}');
+    final identityText = searchText(
+      '${m.name} ${m.strength} ${m.barcode} ${m.expiry == null ? '' : dateText(m.expiry!)} ${m.mfg == null ? '' : dateText(m.mfg!)} ${m.address}',
+    );
     if (numericTokens.isNotEmpty && !numericTokens.every(identityText.contains))
       best *= .66;
     return SearchHit(m.id, best.clamp(0, 1), reason, query);

@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import '../domain/medicine.dart';
 import '../domain/inventory.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
+import 'version_history_screen.dart';
 
 Future<void> openEditor(
   BuildContext context,
@@ -51,6 +55,7 @@ class _EditorScreenState extends State<EditorScreen> {
     for (final field in [
       'name',
       'brand',
+      'manufacturer',
       'salt',
       'strength',
       'mfg',
@@ -144,16 +149,18 @@ class _EditorScreenState extends State<EditorScreen> {
           'Mark sold',
         ))
           return;
-        draft = draft.patch({
+        draft = Medicine.fromJson({
+          ...draft.toJson(),
           'sold': true,
           'quantity': 0,
-          'soldAt': DateTime.now().toIso8601String(),
+          'soldAt': widget.controller.clock().toIso8601String(),
           'soldQuantity': draft.quantity,
           'soldUnitPricePaise': draft.unitPricePaise,
+          'revision': (widget.record?.revision ?? 0) + 1,
         });
       }
       if (widget.record == null) {
-        final matches = widget.controller.records
+        var matches = widget.controller.records
             .where(
               (m) =>
                   !m.archived &&
@@ -161,10 +168,24 @@ class _EditorScreenState extends State<EditorScreen> {
                       (draft.barcode.isNotEmpty && m.barcode == draft.barcode)),
             )
             .toList();
+        var matchKind = 'share this medicine or barcode';
+        if (matches.isEmpty) {
+          final hits = await widget.controller.search(
+            '${draft.name} ${draft.strength}',
+            SearchScope.all,
+          );
+          matches = hits
+              .where((hit) => hit.score >= .90)
+              .take(3)
+              .map((hit) => widget.controller.snapshot.records[hit.id])
+              .whereType<Medicine>()
+              .toList();
+          matchKind = 'look very similar';
+        }
         if (matches.isNotEmpty &&
             !await _confirm(
               'Matching medicine already exists',
-              '${matches.length} stock entries share this medicine or barcode. Save a separate stock entry only if this is different stock, expiry or location.',
+              '${matches.map((match) => match.title).join(', ')} $matchKind. Save a separate stock entry only if this has a different expiry, location or physical stock.',
               'Add separate stock',
             ))
           return;
@@ -244,6 +265,203 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
+  Future<void> _recordSale() async {
+    final record = widget.record;
+    if (record == null || record.sold || record.archived || _busy) return;
+    final quantity = TextEditingController(text: '1');
+    final amount = TextEditingController();
+    var markSoldOut = false;
+    DateTime? occurredAt;
+    String error = '';
+    final result = await showDialog<_SaleInput>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          title: Text('Record sale · ${record.name}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: quantity,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Quantity sold *',
+                    helperText: record.quantity == null
+                        ? 'Current stock quantity is unknown.'
+                        : '${record.quantity} units currently recorded',
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: amount,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Total sale amount · ₹ · optional',
+                    helperText: 'Leave blank when the amount is not recorded.',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final today = widget.controller.today;
+                    final chosen = await showDatePicker(
+                      context: ctx,
+                      firstDate: DateTime(
+                        today.year - 10,
+                        today.month,
+                        today.day,
+                      ),
+                      lastDate: DateTime(today.year, today.month, today.day),
+                      initialDate: occurredAt == null
+                          ? DateTime(today.year, today.month, today.day)
+                          : DateTime(
+                              occurredAt!.year,
+                              occurredAt!.month,
+                              occurredAt!.day,
+                            ),
+                      helpText: 'Choose sale date',
+                    );
+                    if (chosen != null) {
+                      setState(() => occurredAt = chosen);
+                    }
+                  },
+                  icon: const Icon(Icons.event_outlined),
+                  label: Text(
+                    occurredAt == null
+                        ? 'Sale date · today'
+                        : 'Sale date · ${dateText(occurredAt!)}',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                CheckboxListTile(
+                  value: markSoldOut,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Stock is completely finished'),
+                  subtitle: const Text(
+                    'Explicitly mark this entry SOLD and add it to reorder.',
+                  ),
+                  onChanged: (value) =>
+                      setState(() => markSoldOut = value == true),
+                ),
+                const Text(
+                  'Only aggregate medicine movement is saved. No customer or patient details are collected.',
+                  style: TextStyle(fontSize: 11, color: muted),
+                ),
+                if (error.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      error,
+                      style: const TextStyle(color: red, fontSize: 12),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                try {
+                  final units = int.tryParse(quantity.text.trim());
+                  if (units == null || units < 1) {
+                    throw const FormatException(
+                      'Enter a positive whole-number quantity.',
+                    );
+                  }
+                  final total = parseMoney(amount.text);
+                  if (markSoldOut &&
+                      record.quantity != null &&
+                      units != record.quantity) {
+                    throw FormatException(
+                      'Enter all ${record.quantity} remaining units to mark this stock sold.',
+                    );
+                  }
+                  Navigator.pop(
+                    ctx,
+                    _SaleInput(
+                      quantity: units,
+                      amountPaise: total,
+                      markSoldOut: markSoldOut,
+                      occurredAt: occurredAt,
+                    ),
+                  );
+                } catch (e) {
+                  setState(
+                    () => error = e.toString().replaceFirst(
+                      'FormatException: ',
+                      '',
+                    ),
+                  );
+                }
+              },
+              child: const Text('Record sale'),
+            ),
+          ],
+        ),
+      ),
+    );
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 300), () {
+        quantity.dispose();
+        amount.dispose();
+      }),
+    );
+    if (result == null || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.controller.recordSale(
+        record.id,
+        quantity: result.quantity,
+        totalAmountPaise: result.amountPaise,
+        markSoldOut: result.markSoldOut,
+        occurredAt: result.occurredAt,
+      );
+      if (mounted) {
+        setState(() => _allowPop = true);
+        Navigator.pop(context);
+        showSaved(
+          context,
+          result.markSoldOut
+              ? 'Sale recorded and stock added to reorder.'
+              : 'Sale recorded. Tracking and stock are updated.',
+        );
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _history() async {
+    final record = widget.record;
+    if (record == null || _busy) return;
+    final restored = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VersionHistoryScreen(
+          controller: widget.controller,
+          medicineId: record.id,
+        ),
+      ),
+    );
+    if (restored == true && mounted) {
+      setState(() => _allowPop = true);
+      Navigator.pop(context);
+      showSaved(context, 'Previous version restored.');
+    }
+  }
+
   Widget _field(
     String key,
     String label, {
@@ -291,6 +509,15 @@ class _EditorScreenState extends State<EditorScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(22, 10, 22, 30),
             children: [
+              if (record != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: OutlinedButton.icon(
+                    onPressed: _busy ? null : _history,
+                    icon: const Icon(Icons.history_rounded),
+                    label: const Text('Version history'),
+                  ),
+                ),
               if (record != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 18),
@@ -365,6 +592,7 @@ class _EditorScreenState extends State<EditorScreen> {
               const SizedBox(height: 24),
               _field('name', 'Medicine name *', hint: 'e.g. Paracetamol'),
               _field('brand', 'Brand · optional', hint: 'e.g. Dolo'),
+              _field('manufacturer', 'Manufacturer · optional'),
               _field('salt', 'Salt / composition · optional'),
               _field('strength', 'Strength · optional', hint: 'e.g. 650mg'),
               DropdownButtonFormField<String>(
@@ -414,12 +642,12 @@ class _EditorScreenState extends State<EditorScreen> {
               ),
               _field(
                 'price',
-                'Price per counted unit · ₹ · optional',
+                'Inventory unit cost · ₹ · optional',
                 hint: 'e.g. 2.50',
                 keyboard: const TextInputType.numberWithOptions(decimal: true),
               ),
               const Text(
-                'Use the same unit for quantity and price: tablets with tablet price, bottles with bottle price, or strips with strip price.',
+                'Use the same unit for quantity and cost: tablets with tablet cost, bottles with bottle cost, or strips with strip cost. Sale revenue is recorded separately.',
                 style: TextStyle(color: muted, fontSize: 12),
               ),
               const SectionHeading('Where to find it'),
@@ -467,6 +695,15 @@ class _EditorScreenState extends State<EditorScreen> {
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: OutlinedButton.icon(
+                    onPressed: _busy ? null : _recordSale,
+                    icon: const Icon(Icons.point_of_sale_outlined),
+                    label: const Text('Record sale / stock movement'),
+                  ),
+                ),
+              if (record != null && !record.sold)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: OutlinedButton.icon(
                     onPressed: _busy ? null : () => _save(sold: true),
                     icon: const Icon(Icons.check_circle_outline, color: amber),
                     label: const Text(
@@ -493,4 +730,18 @@ class _EditorScreenState extends State<EditorScreen> {
       ),
     );
   }
+}
+
+class _SaleInput {
+  const _SaleInput({
+    required this.quantity,
+    required this.amountPaise,
+    required this.markSoldOut,
+    required this.occurredAt,
+  });
+
+  final int quantity;
+  final int? amountPaise;
+  final bool markSoldOut;
+  final DateTime? occurredAt;
 }

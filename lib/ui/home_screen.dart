@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../state/pharmacy_controller.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
@@ -28,6 +29,7 @@ class HomeScreen extends StatelessWidget {
       final attention = [
         ...controller.list(SearchScope.expired),
         ...controller.list(SearchScope.shortExpiry),
+        ...controller.list(SearchScope.monthExpiry),
       ].take(4).toList();
       return ListView(
         padding: const EdgeInsets.fromLTRB(22, 22, 22, 30),
@@ -180,7 +182,8 @@ class HomeScreen extends StatelessWidget {
                   onTap: () => _open(context, SearchScope.shortExpiry),
                 ),
                 _OverviewTile(
-                  title: '${controller.settings.months} Months Left',
+                  title:
+                      '${controller.settings.months} ${controller.settings.months == 1 ? 'Month' : 'Months'} Left',
                   caption: 'Month warning',
                   count: controller.list(SearchScope.monthExpiry).length,
                   icon: Icons.date_range_rounded,
@@ -198,7 +201,7 @@ class HomeScreen extends StatelessWidget {
                   onTap: () => _open(context, SearchScope.sold),
                 ),
                 _OverviewTile(
-                  title: 'Expired',
+                  title: 'Expired Medicines',
                   caption: 'Review your stock',
                   count: controller.list(SearchScope.expired).length,
                   icon: Icons.event_busy_rounded,
@@ -238,8 +241,7 @@ class HomeScreen extends StatelessWidget {
           if (records.isEmpty)
             EmptyState(
               title: 'Start with your first medicine',
-              message:
-                  'Add a name now. Expiry, location and price can be filled in whenever you have them.',
+              message: 'Add a name now. Expiry, location and price can be filled in whenever you have them.',
               action: FilledButton.icon(
                 onPressed: () => openEditor(context, controller),
                 icon: const Icon(Icons.add),
@@ -405,6 +407,12 @@ Future<void> showWarningSettings(
   final days = TextEditingController(text: '${controller.settings.shortDays}'),
       months = TextEditingController(text: '${controller.settings.months}');
   String? error;
+  int? selectedDays = [3, 5, 8, 10].contains(controller.settings.shortDays)
+      ? controller.settings.shortDays
+      : null;
+  int? selectedMonths = [1, 2, 3].contains(controller.settings.months)
+      ? controller.settings.months
+      : null;
   final settings = await showDialog<WarningSettings>(
     context: context,
     builder: (ctx) => StatefulBuilder(
@@ -413,20 +421,63 @@ Future<void> showWarningSettings(
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const Text(
+                'Short-expiry alert',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final value in [3, 5, 8, 10])
+                    ChoiceChip(
+                      label: Text('$value days'),
+                      selected: selectedDays == value,
+                      onSelected: (_) => setState(() {
+                        selectedDays = value;
+                        days.text = '$value';
+                      }),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: days,
+                onChanged: (_) => setState(() => selectedDays = null),
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: 'Short warning · days',
+                  labelText: 'Custom short warning · days',
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 20),
+              const Text(
+                'Month-expiry alert',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final value in [1, 2, 3])
+                    ChoiceChip(
+                      label: Text('$value ${value == 1 ? 'month' : 'months'}'),
+                      selected: selectedMonths == value,
+                      onSelected: (_) => setState(() {
+                        selectedMonths = value;
+                        months.text = '$value';
+                      }),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: months,
+                onChanged: (_) => setState(() => selectedMonths = null),
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: 'Month warning · months',
+                  labelText: 'Custom month warning · months',
                 ),
               ),
               const SizedBox(height: 14),

@@ -1,4 +1,4 @@
-name: Pharmacy checks and Android APK
+name: Pharmacy checks
 on:
   push:
     branches: [main]
@@ -9,7 +9,7 @@ concurrency:
   group: pharmacy-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  verify-and-build:
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -32,15 +32,12 @@ jobs:
         run: dart analyze lib test
       - name: Domain, persistence and UI checks
         run: flutter test --reporter expanded
-      - name: Build installable Android APK
-        run: flutter build apk --release
-      - name: Upload app and UI review images
+      - name: Upload UI review images
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Aaris-Pharmacy-Android
+          name: Aaris-Pharmacy-UI-review
           path: |
-            build/app/outputs/flutter-apk/app-release.apk
             build/ui-review/*.png
           if-no-files-found: warn
           retention-days: 30

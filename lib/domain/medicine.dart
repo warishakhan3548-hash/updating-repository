@@ -11,6 +11,15 @@ String newId() {
 String normalize(String value) =>
     value.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
 
+String identityPart(String value) =>
+    normalize(value).replaceAll(RegExp(r'[^a-z0-9\u0900-\u097f]+'), '');
+
+String medicineIdentity(String name, String strength, String form) => [
+  identityPart(name),
+  identityPart(strength),
+  normalizeForm(form).toLowerCase(),
+].join('|');
+
 DateTime civilDay(DateTime value) =>
     DateTime.utc(value.year, value.month, value.day);
 String dateText(DateTime value) =>
@@ -20,9 +29,8 @@ String dateText(DateTime value) =>
 DateTime? parseDate(Object? raw, {bool monthEnd = false}) {
   if (raw == null || raw == '') return null;
   if (raw is! String) throw const FormatException('Date must be text.');
-  final match = RegExp(
-    r'^(\d{4})-(\d{2})(?:-(\d{2}))?$',
-  ).firstMatch(raw.trim());
+  final match = RegExp(r'^(\d{4})-(\d{2})(?:-(\d{2}))?$')
+      .firstMatch(raw.trim());
   if (match == null)
     throw const FormatException(
       'Use YYYY-MM-DD, or YYYY-MM for a printed expiry month.',
@@ -139,6 +147,7 @@ class Medicine {
     required this.id,
     required this.name,
     this.brand = '',
+    this.manufacturer = '',
     this.salt = '',
     this.strength = '',
     this.form = '',
@@ -165,6 +174,7 @@ class Medicine {
   final String id,
       name,
       brand,
+      manufacturer,
       salt,
       strength,
       form,
@@ -181,7 +191,7 @@ class Medicine {
   final String? soldAt;
   final int revision;
 
-  String get identity => [name, strength, form].map(normalize).join('|');
+  String get identity => medicineIdentity(name, strength, form);
   String get address => [
     if (block.isNotEmpty) 'Block $block',
     if (row.isNotEmpty) 'Row $row',
@@ -194,6 +204,7 @@ class Medicine {
   static const editable = <String>{
     'name',
     'brand',
+    'manufacturer',
     'salt',
     'strength',
     'form',
@@ -210,10 +221,22 @@ class Medicine {
     'ocrText',
   };
 
+  static const storedFields = <String>{
+    'id',
+    ...editable,
+    'sold',
+    'archived',
+    'soldAt',
+    'soldQuantity',
+    'soldUnitPricePaise',
+    'revision',
+  };
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
     'brand': brand,
+    'manufacturer': manufacturer,
     'salt': salt,
     'strength': strength,
     'form': form,
@@ -281,6 +304,7 @@ class Medicine {
       id: id,
       name: name,
       brand: text('brand'),
+      manufacturer: text('manufacturer'),
       salt: text('salt'),
       strength: text('strength'),
       form: normalizeForm(text('form')),

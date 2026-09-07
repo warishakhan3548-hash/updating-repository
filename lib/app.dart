@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'state/pharmacy_controller.dart';
 import 'domain/inventory.dart';
 import 'ui/design.dart';
@@ -97,9 +98,9 @@ class _ShellState extends State<_Shell> {
             label: 'AI',
           ),
           NavigationDestination(
-            icon: Icon(Icons.calculate_outlined),
-            selectedIcon: Icon(Icons.calculate),
-            label: 'Calculator',
+            icon: Icon(Icons.insights_outlined),
+            selectedIcon: Icon(Icons.insights_rounded),
+            label: 'Tracking',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline_rounded),

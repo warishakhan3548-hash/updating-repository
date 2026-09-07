@@ -1,10 +1,12 @@
 import 'dart:async';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
+
+import '../services/scan_service.dart';
 import 'design.dart';
 
 class ScanResult {
@@ -20,9 +22,7 @@ class ScannerScreen extends StatefulWidget {
 
 class _ScannerScreenState extends State<ScannerScreen>
     with WidgetsBindingObserver {
-  final _latin = TextRecognizer(script: TextRecognitionScript.latin);
-  final _hindi = TextRecognizer(script: TextRecognitionScript.devanagiri);
-  final _barcodes = BarcodeScanner();
+  final _vision = MedicineVisionService();
   CameraController? _camera;
   CameraDescription? _description;
   Future<void>? _frameWork;
@@ -43,8 +43,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     final generation = ++_generation;
     if (kIsWeb) {
       setState(
-        () => _error =
-            'Live camera OCR is available in the Android app. You can paste text into search.',
+        () => _error = 'Live camera OCR is available in the Android app. You can paste text into search.',
       );
       return;
     }
@@ -75,8 +74,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     } catch (e) {
       if (mounted && !_closed)
         setState(
-          () => _error =
-              'Camera unavailable. Allow camera access in your phone settings, then retry.',
+          () => _error = 'Camera unavailable. Allow camera access in your phone settings, then retry.',
         );
     }
   }
@@ -137,24 +135,12 @@ class _ScannerScreenState extends State<ScannerScreen>
     final generation = _generation;
     try {
       // A single immutable frame feeds all detectors; only one frame is in flight.
-      final result = await Future.wait<Object>([
-        _latin.processImage(input),
-        _hindi.processImage(input),
-        _barcodes.processImage(input),
-      ]);
+      final result = await _vision.analyze(input);
       if (_closed || !mounted || generation != _generation) return;
-      final lines = <String>{
-        ...((result[0] as RecognizedText).text.split('\n')),
-        ...((result[1] as RecognizedText).text.split('\n')),
-      }..removeWhere((s) => s.trim().isEmpty);
-      final barcodes = (result[2] as List<Barcode>)
-          .map((b) => b.rawValue ?? '')
-          .where((s) => s.isNotEmpty);
-      final text = lines.join('\n');
-      if (text.isNotEmpty || barcodes.isNotEmpty)
+      if (result.text.isNotEmpty || result.barcode.isNotEmpty)
         setState(() {
-          _text = text;
-          _barcode = barcodes.isNotEmpty ? barcodes.first : '';
+          _text = result.text;
+          _barcode = result.barcode;
           _error = '';
         });
     } catch (e) {
@@ -219,9 +205,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     unawaited(
       _stopCamera().then((_) async {
         await _frameWork;
-        await _latin.close();
-        await _hindi.close();
-        await _barcodes.close();
+        await _vision.close();
       }),
     );
     super.dispose();
@@ -294,9 +278,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                       right: 14,
                       bottom: 14,
                       child: Text(
-                        _manualOnly
-                            ? 'Tap Capture text to read this frame.'
-                            : 'Hold steady. Barcode and text are read together.',
+                        _manualOnly ? 'Tap Capture text to read this frame.' : 'Hold steady. Barcode and text are read together.',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           color: Colors.white,

@@ -1,6 +1,8 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../domain/ai_protocol.dart';
 import '../domain/medicine.dart';
 import '../services/ai_service.dart';
@@ -64,8 +66,7 @@ class _AiScreenState extends State<AiScreen> {
       await sharePharmacy(data);
       if (mounted)
         setState(
-          () => _notice =
-              'Prompt copied. Share the TXT with your AI, then bring its JSON back here.',
+          () => _notice = 'Prompt copied. Share the TXT with your AI, then bring its JSON back here.',
         );
     } catch (e) {
       if (mounted) showError(context, e);
@@ -254,8 +255,7 @@ class _AiScreenState extends State<AiScreen> {
                 maxLines: 5,
                 maxLength: 6000,
                 decoration: const InputDecoration(
-                  hintText:
-                      'What would you like to manage?\n“Find stock to reorder” or “organize these new medicines…”',
+                  hintText: 'What would you like to manage?\n“Find stock to reorder” or “organize these new medicines…”',
                 ),
               ),
               const SizedBox(height: 12),
@@ -480,8 +480,8 @@ String _operationLabel(String operation) =>
     operation;
 String _fieldLabel(String key) =>
     {
-      'unitPricePaise': 'Unit price',
-      'soldUnitPricePaise': 'Price when marked sold',
+      'unitPricePaise': 'Inventory unit cost',
+      'soldUnitPricePaise': 'Cost when marked sold',
       'soldQuantity': 'Quantity when marked sold',
       'ocrText': 'Scanned text',
       'mfg': 'Manufacturing date',

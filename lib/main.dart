@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:camera_android/camera_android.dart';
+
 import 'app.dart';
 import 'data/inventory_database.dart';
 import 'state/pharmacy_controller.dart';

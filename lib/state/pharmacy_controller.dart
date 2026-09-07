@@ -1,10 +1,14 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+
 import '../data/inventory_database.dart';
 import '../domain/ai_protocol.dart';
+import '../domain/backup.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/search.dart';
+import '../domain/tracking.dart';
 import '../services/search_worker.dart';
 
 class PharmacyController extends ChangeNotifier {
@@ -28,7 +32,10 @@ class PharmacyController extends ChangeNotifier {
   DateTime get today => civilDay(clock());
   WarningSettings get settings => snapshot.settings;
   Iterable<Medicine> get records => snapshot.records.values;
+  Iterable<SaleEvent> get sales => snapshot.sales.values;
   InventoryStats get stats => InventoryStats(records, today);
+  TrackingStats tracking(TrackingRange range) =>
+      TrackingStats(medicines: records, sales: sales, range: range);
 
   Future<void> initialize() async {
     snapshot = await storage.load();
@@ -111,6 +118,79 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
+  Future<void> recordSale(
+    String id, {
+    required int quantity,
+    int? totalAmountPaise,
+    DateTime? occurredAt,
+    bool markSoldOut = false,
+  }) async {
+    final medicine = snapshot.records[id];
+    if (medicine == null || medicine.archived) {
+      throw StateError('This stock entry is unavailable.');
+    }
+    if (medicine.sold) {
+      throw StateError('Restock this medicine before recording another sale.');
+    }
+    if (quantity < 1 || quantity > 100000000) {
+      throw const FormatException(
+        'Sale quantity must be a positive whole number.',
+      );
+    }
+    if (totalAmountPaise != null &&
+        (totalAmountPaise < 0 || totalAmountPaise > maxExactPaise)) {
+      throw const FormatException(
+        'Sale amount is outside the supported range.',
+      );
+    }
+    final current = medicine.quantity;
+    if (current != null && quantity > current) {
+      throw FormatException(
+        'Only $current units are recorded in stock. Correct the stock first or enter a smaller sale.',
+      );
+    }
+    if (markSoldOut && current != null && quantity != current) {
+      throw const FormatException(
+        'To mark this entry out of stock, the sale quantity must equal all remaining units.',
+      );
+    }
+    final time = occurredAt ?? clock();
+    if (civilDay(time).isAfter(today)) {
+      throw const FormatException('A sale cannot be recorded in the future.');
+    }
+    final remaining = current == null ? null : current - quantity;
+    final sale = SaleEvent(
+      id: newId(),
+      stockId: medicine.id,
+      medicineName: medicine.name,
+      strength: medicine.strength,
+      form: medicine.form,
+      salt: medicine.salt,
+      quantity: quantity,
+      occurredAt: time,
+      totalAmountPaise: totalAmountPaise,
+      savedUnitPricePaise: medicine.unitPricePaise,
+    );
+    final updated = medicine.patch({
+      'quantity': markSoldOut ? 0 : remaining,
+      if (markSoldOut) ...{
+        'sold': true,
+        'soldAt': time.toIso8601String(),
+        'soldQuantity': current,
+        'soldUnitPricePaise': medicine.unitPricePaise,
+      },
+    });
+    await _commit(
+      InventoryMutation(
+        expectedRevision: snapshot.revision,
+        label:
+            'Recorded sale · ${medicine.name} · $quantity ${quantity == 1 ? 'unit' : 'units'}${markSoldOut ? ' · marked sold' : ''}',
+        upserts: [updated],
+        upsertSales: [sale],
+      ),
+    );
+  }
+
   Future<void> archive(String id, String reason) async {
     final m = snapshot.records[id];
     if (m == null || m.archived) return;
@@ -149,6 +229,50 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
+  List<MedicineVersion> versionsFor(String id) {
+    final versions = <MedicineVersion>[];
+    for (final event in snapshot.events) {
+      final beforeRaw = event['before'];
+      if (beforeRaw is! Map || !beforeRaw.containsKey(id)) continue;
+      final value = beforeRaw[id];
+      if (value is! Map) continue;
+      try {
+        versions.add(
+          MedicineVersion(
+            sourceRevision: snapshot.revision,
+            eventRevision: event['revision'] as int,
+            label: event['label'] as String,
+            time: DateTime.parse(event['time'] as String),
+            record: Medicine.fromJson(Map<String, dynamic>.from(value)),
+          ),
+        );
+      } catch (_) {
+        // A corrupt legacy history row must not block the live inventory.
+      }
+    }
+    return versions;
+  }
+
+  Future<void> restoreVersion(MedicineVersion version) async {
+    if (version.sourceRevision != snapshot.revision) {
+      throw StateError(
+        'Inventory changed after this history was opened. Reopen version history.',
+      );
+    }
+    final current = snapshot.records[version.record.id];
+    final restored = Medicine.fromJson({
+      ...version.record.toJson(),
+      'revision': (current?.revision ?? version.record.revision) + 1,
+    });
+    await _commit(
+      InventoryMutation(
+        expectedRevision: snapshot.revision,
+        label: 'Restored previous version · ${restored.name}',
+        upserts: [restored],
+      ),
+    );
+  }
+
   bool get canUndo =>
       snapshot.events.isNotEmpty &&
       snapshot.events.first['revision'] == snapshot.revision &&
@@ -158,7 +282,11 @@ class PharmacyController extends ChangeNotifier {
     if (!canUndo) throw StateError('No current change is available to undo.');
     final event = snapshot.events.first;
     final before = Map<String, dynamic>.from(event['before'] as Map);
+    final salesBefore = Map<String, dynamic>.from(
+      event['salesBefore'] as Map? ?? const {},
+    );
     final upserts = <Medicine>[], removes = <String>[];
+    final upsertSales = <SaleEvent>[], removeSales = <String>[];
     for (final entry in before.entries) {
       if (entry.value == null) {
         removes.add(entry.key);
@@ -175,12 +303,23 @@ class PharmacyController extends ChangeNotifier {
         );
       }
     }
+    for (final entry in salesBefore.entries) {
+      if (entry.value == null) {
+        removeSales.add(entry.key);
+      } else {
+        upsertSales.add(
+          SaleEvent.fromJson(Map<String, dynamic>.from(entry.value as Map)),
+        );
+      }
+    }
     await _commit(
       InventoryMutation(
         expectedRevision: snapshot.revision,
         label: 'Undo: ${event['label']}',
         upserts: upserts,
+        upsertSales: upsertSales,
         removeIds: removes,
+        removeSaleIds: removeSales,
         settings: WarningSettings.fromJson(
           Map<String, dynamic>.from(event['settingsBefore'] as Map),
         ),
@@ -193,8 +332,62 @@ class PharmacyController extends ChangeNotifier {
   PharmacyExport export() => PharmacyExport(
     revision: snapshot.revision,
     records: records,
+    sales: sales,
     today: today,
   );
+  PharmacyBackup createBackup() => PharmacyBackup(
+    createdAt: clock(),
+    sourceRevision: snapshot.revision,
+    settings: settings,
+    records: snapshot.records,
+    sales: snapshot.sales,
+    soldValue: snapshot.soldValue,
+    unknownSold: snapshot.unknownSold,
+  );
+  Future<BackupReview> reviewBackup(String input) async => BackupReview(
+    backup: await compute(_parseBackup, input),
+    currentRevision: snapshot.revision,
+  );
+  Future<void> restoreBackup(BackupReview review) async {
+    if (review.currentRevision != snapshot.revision) {
+      throw StateError(
+        'Inventory changed after this backup was reviewed. Review it again before restoring.',
+      );
+    }
+    final restored = <Medicine>[];
+    for (final record in review.backup.records.values) {
+      final currentRevision = snapshot.records[record.id]?.revision ?? 0;
+      restored.add(
+        Medicine.fromJson({
+          ...record.toJson(),
+          'revision': currentRevision > record.revision
+              ? currentRevision + 1
+              : record.revision + 1,
+        }),
+      );
+    }
+    for (final record in snapshot.records.values) {
+      if (!review.backup.records.containsKey(record.id) && !record.archived) {
+        restored.add(record.patch({'archived': true}));
+      }
+    }
+    await _commit(
+      InventoryMutation(
+        expectedRevision: review.currentRevision,
+        label:
+            'Restored backup · ${review.activeMedicines} active medicines · ${review.sales} sales',
+        upserts: restored,
+        upsertSales: review.backup.sales.values.toList(),
+        removeSaleIds: snapshot.sales.keys
+            .where((id) => !review.backup.sales.containsKey(id))
+            .toList(),
+        settings: review.backup.settings,
+        soldValueOverride: review.backup.soldValue,
+        unknownSoldOverride: review.backup.unknownSold,
+      ),
+    );
+  }
+
   AiPlan review(String input) => parseAiPlan(
     input,
     snapshot.records,
@@ -299,3 +492,21 @@ AiPlan _parseReview(Map<String, dynamic> data) => parseAiPlan(
   data['receipts'] as Set<String>,
   data['now'] as DateTime,
 );
+
+PharmacyBackup _parseBackup(String input) => PharmacyBackup.parse(input);
+
+class MedicineVersion {
+  const MedicineVersion({
+    required this.sourceRevision,
+    required this.eventRevision,
+    required this.label,
+    required this.time,
+    required this.record,
+  });
+
+  final int sourceRevision;
+  final int eventRevision;
+  final String label;
+  final DateTime time;
+  final Medicine record;
+}

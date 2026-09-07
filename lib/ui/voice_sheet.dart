@@ -1,6 +1,8 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+
 import 'design.dart';
 
 final _speech = SpeechToText();
@@ -46,8 +48,17 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
           if (mounted) setState(() => _listening = status == 'listening');
         },
       );
-      _speech.errorListener = (error) { if (mounted) setState(() { _error = 'Speech is unavailable: ${error.errorMsg}. You can type instead.'; _listening = false; }); };
-      _speech.statusListener = (status) { if (mounted) setState(() => _listening = status == 'listening'); };
+      _speech.errorListener = (error) {
+        if (mounted)
+          setState(() {
+            _error =
+                'Speech is unavailable: ${error.errorMsg}. You can type instead.';
+            _listening = false;
+          });
+      };
+      _speech.statusListener = (status) {
+        if (mounted) setState(() => _listening = status == 'listening');
+      };
       final locales = enabled ? await _speech.locales() : <LocaleName>[];
       if (!mounted) return;
       setState(() {
@@ -60,15 +71,12 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
         if (_locales.isEmpty) _locales = locales;
         if (_locales.isNotEmpty && !_locales.any((l) => l.localeId == _locale))
           _locale = _locales.first.localeId;
-        if (!enabled)
-          _error =
-              'Allow microphone access and enable a speech service in your phone settings.';
+        if (!enabled) _error = 'Allow microphone access and enable a speech service in your phone settings.';
       });
     } catch (e) {
       if (mounted)
         setState(
-          () => _error =
-              'Voice search could not start. Typing and scanning are still available.',
+          () => _error = 'Voice search could not start. Typing and scanning are still available.',
         );
     }
   }
@@ -101,8 +109,7 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
     } catch (e) {
       if (mounted)
         setState(
-          () => _error =
-              'Speech recognition is unavailable for this language. Check the installed language pack.',
+          () => _error = 'Speech recognition is unavailable for this language. Check the installed language pack.',
         );
     } finally {
       _starting = false;

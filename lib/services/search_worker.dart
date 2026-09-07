@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:isolate';
+
 import '../domain/medicine.dart';
 import '../domain/search.dart';
 import '../domain/inventory.dart';

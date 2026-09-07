@@ -1,8 +1,11 @@
 import 'dart:convert';
+
 import '../lib/domain/medicine.dart';
 import '../lib/domain/inventory.dart';
 import '../lib/domain/search.dart';
 import '../lib/domain/ai_protocol.dart';
+import '../lib/domain/backup.dart';
+import '../lib/domain/tracking.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);
@@ -181,6 +184,11 @@ Map<String, void Function()> domainContract() {
         statusOf(m, contractSettings, contractToday).redFraction == .25,
         '45 of60 should be25% red.',
       );
+      check(
+        statusOf(m, contractSettings, contractToday).label ==
+            '1 month 15 days left',
+        'Month/day label lost remaining days.',
+      );
     },
     'sold overrides expiry but never deletes the entry': () {
       final m = stock('a', sold: true, expiry: '2020-01-01');
@@ -355,6 +363,20 @@ Map<String, void Function()> domainContract() {
         'Wrong strength marked confident.',
       );
     },
+    'OCR trailing O is normalized as zero beside dosage units': () {
+      final hits = MedicineSearch(
+        [
+          stock('650', name: 'Dolo', strength: '650mg'),
+          stock('500', name: 'Dolo', strength: '500mg'),
+        ],
+      ).search('D0L0 65O mg', SearchScope.all, contractSettings, contractToday);
+      check(
+        hits.isNotEmpty &&
+            hits.first.id == '650' &&
+            hits.first.confidence == 'High',
+        'OCR dosage correction ranked the wrong medicine.',
+      );
+    },
     'numeric product codes survive tokenization': () {
       final hits = MedicineSearch([
         stock('code', name: 'DTO 5111'),
@@ -371,6 +393,42 @@ Map<String, void Function()> domainContract() {
         stock('note', name: 'Cefixime', notes: 'Dolo'),
       ]).search('Dolo', SearchScope.all, contractSettings, contractToday);
       check(hits.first.id == 'true', 'Notes outrank name.');
+    },
+    'search indexes manufacturer form expiry and compact location': () {
+      final medicine = Medicine.fromJson({
+        ...stock('indexed', name: 'Alerid').toJson(),
+        'manufacturer': 'Cipla Limited',
+        'form': 'Syrup',
+        'expiry': '2027-04-30',
+        'block': '1',
+        'row': '3',
+        'vertical': '4',
+      });
+      final engine = MedicineSearch([medicine]);
+      for (final query in [
+        'Cipla',
+        'syrup',
+        '2027-04',
+        'B1',
+        'R3',
+        'indexed',
+      ]) {
+        final hits = engine.search(
+          query,
+          SearchScope.all,
+          contractSettings,
+          contractToday,
+        );
+        check(
+          hits.isNotEmpty && hits.first.id == 'indexed',
+          'Indexed field failed for $query.',
+        );
+      }
+    },
+    'identity normalizes punctuation and strength spacing': () {
+      final a = stock('a', name: 'Dolo-650', strength: '650 mg');
+      final b = stock('b', name: 'DOLO 650', strength: '650mg');
+      check(a.identity == b.identity, 'Equivalent medicine identity split.');
     },
     'bulk newline medicine text returns all matches': () {
       final engine = MedicineSearch([
@@ -529,6 +587,189 @@ Map<String, void Function()> domainContract() {
     'warning settings reject inverted or malformed windows': () {
       rejects(() => WarningSettings.fromJson({'shortDays': 60, 'months': 1}));
       rejects(() => WarningSettings.fromJson({'shortDays': 1.5, 'months': 2}));
+    },
+    'tracking filters sales by civil-date period': () {
+      final tracking = TrackingStats(
+        medicines: [stock('a')],
+        sales: [
+          SaleEvent(
+            id: 'sale_inside',
+            stockId: 'a',
+            medicineName: 'Paracetamol',
+            strength: '500mg',
+            form: 'Tablet',
+            quantity: 3,
+            totalAmountPaise: 900,
+            occurredAt: DateTime(2026, 9, 7, 23, 55),
+          ),
+          SaleEvent(
+            id: 'sale_outside',
+            stockId: 'a',
+            medicineName: 'Paracetamol',
+            quantity: 20,
+            occurredAt: DateTime(2026, 8, 1),
+          ),
+        ],
+        range: TrackingRange.lastDays(contractToday, 7),
+      );
+      check(
+        tracking.recordedSales == 1 &&
+            tracking.unitsSold == 3 &&
+            tracking.revenuePaise == 900,
+        'Tracking period leaked old sales.',
+      );
+    },
+    'on-hand stock without movement is reported as slow moving': () {
+      final tracking = TrackingStats(
+        medicines: [stock('quiet', name: 'Quiet medicine', quantity: 40)],
+        sales: const [],
+        range: TrackingRange.lastDays(contractToday, 30),
+      );
+      check(
+        tracking.slowMoving.length == 1 &&
+            tracking.slowMoving.single.currentQuantity == 40,
+        'Slow-moving stock was not identified.',
+      );
+    },
+    'sold-out stock creates an urgent reorder suggestion': () {
+      final tracking = TrackingStats(
+        medicines: [stock('a', sold: true)],
+        sales: const [],
+        range: TrackingRange.lastDays(contractToday, 30),
+      );
+      check(
+        tracking.reorder.single.priority == ReorderPriority.urgent &&
+            tracking.reorder.single.suggestedQuantity > 0,
+        'Sold stock was not queued for reorder.',
+      );
+    },
+    'sales velocity raises the low-stock reorder target': () {
+      final sales = List.generate(
+        7,
+        (index) => SaleEvent(
+          id: 'sale_$index',
+          stockId: 'a',
+          medicineName: 'Paracetamol',
+          strength: '500mg',
+          form: 'Tablet',
+          quantity: 4,
+          occurredAt: DateTime(2026, 9, 1 + index),
+        ),
+      );
+      final tracking = TrackingStats(
+        medicines: [stock('a', quantity: 5)],
+        sales: sales,
+        range: TrackingRange.lastDays(contractToday, 7),
+      );
+      check(
+        tracking.reorder.single.priority == ReorderPriority.soon &&
+            tracking.reorder.single.suggestedQuantity >= 100,
+        'Demand velocity did not influence the order quantity.',
+      );
+    },
+    'sale events reject customer-data-shaped invalid core fields': () {
+      rejects(
+        () => SaleEvent.fromJson({
+          'id': 'sale',
+          'stockId': 'stock',
+          'medicineName': 'Dolo',
+          'quantity': 0,
+          'occurredAt': '2026-09-07T10:00:00',
+        }),
+      );
+      rejects(
+        () => SaleEvent.fromJson({
+          'id': 'sale',
+          'stockId': 'stock',
+          'medicineName': 'Dolo',
+          'quantity': 1,
+          'occurredAt': 'not-a-date',
+        }),
+      );
+    },
+    'full backup round-trips medicines settings and sales': () {
+      final sale = SaleEvent(
+        id: 'sale_1',
+        stockId: 'existing',
+        medicineName: 'Paracetamol',
+        strength: '500mg',
+        form: 'Tablet',
+        quantity: 2,
+        totalAmountPaise: 500,
+        occurredAt: contractToday,
+      );
+      final encoded = PharmacyBackup(
+        createdAt: contractToday,
+        sourceRevision: 8,
+        settings: const WarningSettings(shortDays: 5, months: 3),
+        records: {'existing': current},
+        sales: {'sale_1': sale},
+        soldValue: 2000,
+        unknownSold: 1,
+      ).encode();
+      final restored = PharmacyBackup.parse(encoded);
+      check(
+        restored.records['existing']!.name == 'Paracetamol' &&
+            restored.sales['sale_1']!.quantity == 2 &&
+            restored.settings.shortDays == 5 &&
+            restored.soldValue == 2000,
+        'Backup lost pharmacy facts.',
+      );
+    },
+    'backup rejects unknown paths and orphan sale events': () {
+      rejects(
+        () => PharmacyBackup.parse(
+          jsonEncode({
+            'schema': pharmacyBackupSchema,
+            'createdAt': contractToday.toIso8601String(),
+            'sourceRevision': 1,
+            'settings': const WarningSettings().toJson(),
+            'medicines': [current.toJson()],
+            'sales': const [],
+            'soldValue': 0,
+            'unknownSold': 0,
+            'diary': const [],
+          }),
+        ),
+      );
+      rejects(
+        () => PharmacyBackup.parse(
+          jsonEncode({
+            'schema': pharmacyBackupSchema,
+            'createdAt': contractToday.toIso8601String(),
+            'sourceRevision': 1,
+            'settings': const WarningSettings().toJson(),
+            'medicines': [current.toJson()],
+            'sales': [
+              SaleEvent(
+                id: 'orphan',
+                stockId: 'missing',
+                medicineName: 'Unknown',
+                quantity: 1,
+                occurredAt: contractToday,
+              ).toJson(),
+            ],
+            'soldValue': 0,
+            'unknownSold': 0,
+          }),
+        ),
+      );
+      rejects(
+        () => PharmacyBackup.parse(
+          jsonEncode({
+            'schema': pharmacyBackupSchema,
+            'createdAt': contractToday.toIso8601String(),
+            'sourceRevision': 1,
+            'settings': const WarningSettings().toJson(),
+            'medicines': [
+              {...current.toJson(), 'foreignPath': 'diary'},
+            ],
+            'sales': const [],
+            'soldValue': 0,
+            'unknownSold': 0,
+          }),
+        ),
+      );
     },
   };
 }
