@@ -100,12 +100,6 @@ class HomeScreen extends StatelessWidget {
                   : constraints.maxWidth > 700
                   ? 4
                   : 2;
-              // Identical extents reserve two lines for labels and captions.
-              final height =
-                  106 +
-                  scaler.scale(36) * 1.2 +
-                  scaler.scale(14) * 2.6 +
-                  scaler.scale(11) * 2.6;
               final tiles = [
                 _OverviewTile(
                   title:
@@ -146,6 +140,37 @@ class HomeScreen extends StatelessWidget {
                   onTap: () => _open(context, SearchScope.expired),
                 ),
               ];
+              final cardWidth =
+                  (constraints.maxWidth - 14 * (columns - 1)) / columns;
+              double maxTextHeight(bool caption) {
+                var maxHeight = 0.0;
+                for (final tile in tiles) {
+                  final painter = TextPainter(
+                    text: TextSpan(
+                      text: caption ? tile.caption : tile.title,
+                      style: Theme.of(context).textTheme.bodyMedium!.copyWith(
+                        fontSize: caption ? 11 : 14,
+                        height: 1.3,
+                        fontWeight: caption
+                            ? FontWeight.normal
+                            : FontWeight.w800,
+                      ),
+                    ),
+                    textDirection: Directionality.of(context),
+                    textScaler: scaler,
+                  )..layout(maxWidth: cardWidth - 32);
+                  if (painter.height > maxHeight) maxHeight = painter.height;
+                  painter.dispose();
+                }
+                return maxHeight;
+              }
+
+              // Use one measured height for all four cards, including large text.
+              final height =
+                  102 +
+                  scaler.scale(36) * 1.2 +
+                  maxTextHeight(false) +
+                  maxTextHeight(true);
               return GridView.count(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -204,7 +229,8 @@ class HomeScreen extends StatelessWidget {
           if (records.isEmpty)
             EmptyState(
               title: 'Start with your first medicine',
-              message: 'Add its name now. Fill in expiry, location and price when you have them.',
+              message:
+                  'Add its name now. Fill in expiry, location and price when you have them.',
               action: FilledButton.icon(
                 onPressed: () => openEditor(context, controller),
                 icon: const Icon(Icons.add),
@@ -308,16 +334,19 @@ class _OverviewTile extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 13),
-                      Text(
-                        '$count',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 36,
-                          height: 1.2,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -1.2,
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '$count',
+
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 36,
+                            height: 1.2,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -1.2,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 8),

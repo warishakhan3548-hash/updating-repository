@@ -15,14 +15,14 @@ class DateInputFormatter extends TextInputFormatter {
     TextEditingValue newValue,
   ) {
     if (!newValue.composing.isCollapsed) return newValue;
-    var raw = normalizeDateDigits(newValue.text);
+    final raw = normalizeDateDigits(newValue.text);
     if (raw == oldValue.text) return newValue;
     final isoPattern = RegExp(
       monthOnly ? r'^\d{4}-\d{2}$' : r'^\d{4}-\d{2}-\d{2}$',
     );
-    if (isoPattern.hasMatch(raw)) {
+    if (isoPattern.hasMatch(raw.trim())) {
       // Preserve invalid dates for visible validation instead of inventing a day.
-      final pieces = raw.split('-');
+      final pieces = raw.trim().split('-');
       final text = monthOnly
           ? '${pieces[1]}/${pieces[0]}'
           : '${pieces[2]}/${pieces[1]}/${pieces[0]}';
@@ -84,21 +84,21 @@ class DateEntryField extends StatelessWidget {
     required this.label,
     this.monthOnly = false,
     this.enabled = true,
-    this.required = false,
+    this.isRequired = false,
     this.onChanged,
     this.firstDate,
     this.lastDate,
   });
   final TextEditingController controller;
   final String label;
-  final bool monthOnly, enabled, required;
+  final bool monthOnly, enabled, isRequired;
   final ValueChanged<String>? onChanged;
   final DateTime? firstDate, lastDate;
 
   String? _validate(String? value) {
     try {
       final iso = inputDateToIso(value ?? '', monthOnly: monthOnly);
-      if (iso == null) return required ? 'Enter a date.' : null;
+      if (iso == null) return isRequired ? 'Enter a date.' : null;
       final date = parseDate(iso, monthEnd: monthOnly)!;
       if (firstDate != null && date.isBefore(civilDay(firstDate!))) {
         return 'Choose ${inputDateText(firstDate!)} or later.';
@@ -156,7 +156,7 @@ class DateEntryField extends StatelessWidget {
     autocorrect: false,
     enableSuggestions: false,
     inputFormatters: [DateInputFormatter(monthOnly: monthOnly)],
-    autovalidateMode: AutovalidateMode.onUserInteraction,
+    autovalidateMode: AutovalidateMode.onUnfocus,
     validator: _validate,
     onChanged: onChanged,
     onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
@@ -238,7 +238,7 @@ class _DateEntryDialogState extends State<_DateEntryDialog> {
             DateEntryField(
               controller: start,
               label: widget.initialEnd == null ? 'Date' : 'From date',
-              required: true,
+              isRequired: true,
               firstDate: widget.firstDate,
               lastDate: widget.lastDate,
             ),
@@ -247,7 +247,7 @@ class _DateEntryDialogState extends State<_DateEntryDialog> {
               DateEntryField(
                 controller: end,
                 label: 'To date',
-                required: true,
+                isRequired: true,
                 firstDate: widget.firstDate,
                 lastDate: widget.lastDate,
               ),

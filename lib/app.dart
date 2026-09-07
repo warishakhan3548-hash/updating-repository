@@ -52,29 +52,54 @@ class _Shell extends StatefulWidget {
 
 class _ShellState extends State<_Shell> {
   int tab = 0;
+  final _visited = <int, Widget>{};
+
+  @override
+  void didUpdateWidget(covariant _Shell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _visited.clear();
+      tab = 0;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
+    // Keep visited tab drafts and scroll position; initialize each tab only once.
+    _visited.putIfAbsent(
+      tab,
+      () => switch (tab) {
+        0 => HomeScreen(
+          controller: c,
+          onDatabase: () => setState(() => tab = 1),
+        ),
+        1 => SearchScreen(
+          controller: c,
+          scope: SearchScope.all,
+          database: true,
+          embedded: true,
+        ),
+        2 => AiScreen(controller: c),
+        3 => StatsScreen(controller: c),
+        _ => ProfileScreen(controller: c),
+      },
+    );
     return Scaffold(
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
-            child: switch (tab) {
-              0 => HomeScreen(
-                controller: c,
-                onDatabase: () => setState(() => tab = 1),
-              ),
-              1 => SearchScreen(
-                controller: c,
-                scope: SearchScope.all,
-                database: true,
-                embedded: true,
-              ),
-              2 => AiScreen(controller: c),
-              3 => StatsScreen(controller: c),
-              _ => ProfileScreen(controller: c),
-            },
+            child: IndexedStack(
+              index: tab,
+              children: [
+                for (var index = 0; index < 5; index++)
+                  TickerMode(
+                    enabled: index == tab,
+                    child: _visited[index] ?? const SizedBox.shrink(),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

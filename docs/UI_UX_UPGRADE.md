@@ -45,3 +45,50 @@ protections on main must be retained.
 Sources consulted: Flutter TextInputFormatter, Flutter accessibility/design and
 GitHub skipping-workflow-runs documentation. Validation status is recorded at
 completion; screenshot parity and Android runtime behavior require a later run.
+
+## Completed source changes
+
+- Home shows four equally sized green/mint/yellow/red status cards before the
+  global Scan & Search action. Card height is measured from the actual text scale;
+  large counts remain complete. The medicine total remains below the scan action.
+- The original shared theme and surfaces provide gradients, depth, readable
+  fields, tap feedback, consistent buttons, dialogs and rounded navigation.
+- Search retains its scopes, fuzzy ranking, mic, barcode/OCR and bulk list flows.
+  Its header scrolls with lazy results, keeping actions reachable with a keyboard.
+- Editor fields are grouped into medicine, dates/stock, location/notes and scan
+  details. Save stays available at the bottom; history, restock, sale, SOLD,
+  archive and discard guards are retained.
+- All expiry/MFG/sale/tracking date input uses automatic slashes, a numeric
+  keyboard and calendar selection. Expiry offers MM/YYYY and DD/MM/YYYY.
+  Formatting handles selections, backspace, ISO paste and Hindi/Arabic/full-width
+  digits. Partial-date errors wait until leaving the field or submitting.
+- AI, imports/review, orders/PDF and backup/restore show clear step labels.
+  Calculator, profile, activity and version history use the same visual system.
+  Camera results show the complete captured evidence in a scrollable preview;
+  scanner and voice layouts also scroll on short screens or large text.
+- Visited main tabs retain their draft/query/period state. Tabs initialize lazily;
+  inactive tab tickers are disabled. A changed controller clears cached pages.
+
+## Verification and limits
+
+- Existing pure-Dart inventory contract: 45 passed, 0 failed.
+- New pure-Dart date-input contract: 24 passed, 0 failed. Includes invalid days,
+  leap years, month end, ISO round trips and manufacturing/expiry ordering.
+- Static analysis: no issues in the 14 selected UI/app/date files (all UI files
+  except scanner_screen.dart and voice_sheet.dart, plus app.dart and date_input).
+  Static analysis of scanner/voice is limited by missing camera/ML Kit/speech
+  packages in this checkout. No packages were downloaded.
+- All changed Dart files pass formatter parsing; git diff --check is clean.
+- Eight Flutter formatter interaction tests were added for typing, deleting,
+  pasting, range replacement and IME composition. They were not executed here.
+- No Flutter test run, application launch, APK build, dependency bootstrap or
+  workflow dispatch was performed. Existing backend/services and build workflows
+  are unchanged. Device layout, keyboard, camera and voice behavior need the
+  owner's subsequent run; exact screenshot parity is not claimed.
+
+Primary references:
+
+- https://api.flutter.dev/flutter/services/TextInputFormatter-class.html
+- https://docs.flutter.dev/ui/accessibility
+- https://docs.flutter.dev/ui/accessibility/ui-design-and-styling
+- https://docs.github.com/actions/managing-workflow-runs/skipping-workflow-runs

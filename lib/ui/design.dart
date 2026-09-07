@@ -363,9 +363,13 @@ class Surface extends StatelessWidget {
   final EdgeInsets padding;
   @override
   Widget build(BuildContext context) => Container(
-    padding: padding,
     decoration: depthDecoration(color),
-    child: child,
+    child: Material(
+      type: MaterialType.transparency,
+      borderRadius: BorderRadius.circular(24),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(padding: padding, child: child),
+    ),
   );
 }
 
