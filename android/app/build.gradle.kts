@@ -5,7 +5,7 @@ plugins {
 }
 android {
     namespace = "com.aaris.pharmacy"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -23,6 +23,7 @@ android {
         release {
             // Development distribution only. Configure an owner release key before store publication.
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }

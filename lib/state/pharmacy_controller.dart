@@ -8,9 +8,13 @@ import '../domain/search.dart';
 import '../services/search_worker.dart';
 
 class PharmacyController extends ChangeNotifier {
-  PharmacyController(this.storage, {DateTime Function()? clock})
-    : clock = clock ?? DateTime.now;
+  PharmacyController(
+    this.storage, {
+    DateTime Function()? clock,
+    this.backgroundSearch = true,
+  }) : clock = clock ?? DateTime.now;
   final InventoryStorage storage;
+  final bool backgroundSearch;
   final DateTime Function() clock;
   InventorySnapshot snapshot = InventorySnapshot();
   bool ready = false, _disposed = false, aiPreparing = false;
@@ -163,7 +167,8 @@ class PharmacyController extends ChangeNotifier {
           Map<String, dynamic>.from(entry.value as Map),
         );
         upserts.add(
-          record.patch({
+          Medicine.fromJson({
+            ...record.toJson(),
             'revision':
                 (snapshot.records[entry.key]?.revision ?? record.revision) + 1,
           }),
@@ -197,6 +202,13 @@ class PharmacyController extends ChangeNotifier {
     snapshot.receipts,
     clock(),
   );
+  Future<AiPlan> reviewAsync(String input) => compute(_parseReview, {
+    'input': input,
+    'records': snapshot.records,
+    'revision': snapshot.revision,
+    'receipts': snapshot.receipts,
+    'now': clock(),
+  });
   void cancelAi() {
     _cancelAi = true;
   }
@@ -246,7 +258,7 @@ class PharmacyController extends ChangeNotifier {
     final selectedSettings = settings;
     final date = today;
     // Isolate.run transfers the result; widgets bind it to their request generation.
-    if (kIsWeb) {
+    if (kIsWeb || !backgroundSearch) {
       if (_webRevision != snapshot.revision) {
         _webSearch = MedicineSearch(data);
         _webRevision = snapshot.revision;
@@ -279,3 +291,11 @@ class PharmacyController extends ChangeNotifier {
     super.dispose();
   }
 }
+
+AiPlan _parseReview(Map<String, dynamic> data) => parseAiPlan(
+  data['input'] as String,
+  data['records'] as Map<String, Medicine>,
+  data['revision'] as int,
+  data['receipts'] as Set<String>,
+  data['now'] as DateTime,
+);

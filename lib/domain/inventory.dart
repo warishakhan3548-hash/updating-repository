@@ -119,9 +119,10 @@ class InventoryStats {
       if (m.quantity == null || m.unitPricePaise == null) {
         unvaluedEntries++;
       } else {
-        final value = m.quantity! * m.unitPricePaise!;
-        onHandValue += value;
-        if ((m.daysLeft(today) ?? 1) < 0) expiredValue += value;
+        final value = stockValue(m.quantity!, m.unitPricePaise!);
+        onHandValue = checkedMoneySum(onHandValue, value);
+        if ((m.daysLeft(today) ?? 1) < 0)
+          expiredValue = checkedMoneySum(expiredValue, value);
         valuedEntries++;
       }
     }

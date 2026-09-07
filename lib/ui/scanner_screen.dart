@@ -154,7 +154,7 @@ class _ScannerScreenState extends State<ScannerScreen>
       if (text.isNotEmpty || barcodes.isNotEmpty)
         setState(() {
           _text = text;
-          if (barcodes.isNotEmpty) _barcode = barcodes.first;
+          _barcode = barcodes.isNotEmpty ? barcodes.first : '';
           _error = '';
         });
     } catch (e) {

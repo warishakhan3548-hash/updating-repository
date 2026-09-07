@@ -17,7 +17,8 @@ ThemeData pharmacyTheme() => ThemeData(
     brightness: Brightness.light,
   ).copyWith(primary: ink, secondary: green, surface: canvas, error: red),
   scaffoldBackgroundColor: canvas,
-  fontFamily: 'Roboto',
+  fontFamily: 'Manrope',
+  fontFamilyFallback: const ['NotoSansDevanagari'],
   textTheme: const TextTheme(
     headlineLarge: TextStyle(
       fontSize: 34,

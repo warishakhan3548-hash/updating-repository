@@ -46,6 +46,8 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
           if (mounted) setState(() => _listening = status == 'listening');
         },
       );
+      _speech.errorListener = (error) { if (mounted) setState(() { _error = 'Speech is unavailable: ${error.errorMsg}. You can type instead.'; _listening = false; }); };
+      _speech.statusListener = (status) { if (mounted) setState(() => _listening = status == 'listening'); };
       final locales = enabled ? await _speech.locales() : <LocaleName>[];
       if (!mounted) return;
       setState(() {
@@ -120,6 +122,8 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
     ++_generation;
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_speech.cancel());
+    _speech.errorListener = null;
+    _speech.statusListener = null;
     super.dispose();
   }
 

@@ -79,7 +79,7 @@ class _AiScreenState extends State<AiScreen> {
     setState(() => _reviewing = true);
     try {
       await Future<void>.delayed(Duration.zero);
-      final plan = widget.controller.review(_input.text);
+      final plan = await widget.controller.reviewAsync(_input.text);
       if (mounted)
         setState(() {
           _plan = plan;

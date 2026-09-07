@@ -56,6 +56,27 @@ int? parseMoney(String raw) {
       (parts.length == 1 ? 0 : int.parse(parts[1].padRight(2, '0')));
 }
 
+const maxExactPaise = 9007199254740991;
+int checkedMoneySum(int a, int b) {
+  final value = BigInt.from(a) + BigInt.from(b);
+  if (value.isNegative || value > BigInt.from(maxExactPaise)) {
+    throw const FormatException(
+      'Amount exceeds the supported exact accounting range.',
+    );
+  }
+  return value.toInt();
+}
+
+int stockValue(int quantity, int unitPricePaise) {
+  final value = BigInt.from(quantity) * BigInt.from(unitPricePaise);
+  if (value.isNegative || value > BigInt.from(maxExactPaise)) {
+    throw const FormatException(
+      'Quantity multiplied by unit price is too large. Check the units.',
+    );
+  }
+  return value.toInt();
+}
+
 String money(int paise) {
   final negative = paise < 0 ? '-' : '';
   final raw = (paise.abs() ~/ 100).toString();
@@ -254,6 +275,8 @@ class Medicine {
       throw const FormatException(
         'A sold entry must have zero available quantity.',
       );
+    final price = number('unitPricePaise', 99999999999);
+    if (quantity != null && price != null) stockValue(quantity, price);
     return Medicine(
       id: id,
       name: name,
@@ -267,7 +290,7 @@ class Medicine {
           json['expiry'] is String &&
           (json['expiry'] as String).trim().length == 7,
       quantity: quantity,
-      unitPricePaise: number('unitPricePaise', 99999999999),
+      unitPricePaise: price,
       barcode: text('barcode'),
       block: text('block'),
       row: text('row'),

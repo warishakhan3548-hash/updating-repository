@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import '../domain/medicine.dart';
+import '../domain/inventory.dart';
 
 class InventorySnapshot {
   InventorySnapshot({
@@ -53,14 +54,20 @@ Map<String, dynamic> makeEvent(
 ) {
   var soldValue = 0, unknownSold = 0;
   for (final m in mutation.upserts) {
-    if (m.sold && before.records[m.id]?.sold != true) {
+    if (mutation.undoEventId == null &&
+        m.sold &&
+        before.records[m.id]?.sold != true) {
       if (m.soldQuantity != null && m.soldUnitPricePaise != null) {
-        soldValue += m.soldQuantity! * m.soldUnitPricePaise!;
+        soldValue = checkedMoneySum(
+          soldValue,
+          stockValue(m.soldQuantity!, m.soldUnitPricePaise!),
+        );
       } else {
         unknownSold++;
       }
     }
   }
+  checkedMoneySum(before.soldValue, soldValue);
   return {
     'id': newId(),
     'revision': before.revision + 1,
@@ -81,11 +88,62 @@ Map<String, dynamic> makeEvent(
   };
 }
 
+InventorySnapshot nextSnapshot(
+  InventorySnapshot before,
+  InventoryMutation mutation,
+  Map<String, dynamic> event,
+) {
+  final records = {...before.records};
+  for (final record in mutation.upserts) {
+    records[record.id] = Medicine.fromJson(record.toJson());
+  }
+  for (final id in mutation.removeIds) {
+    records.remove(id);
+  }
+  // Validate aggregate money before committing, not while a statistics widget renders.
+  InventoryStats(records.values, DateTime.now());
+  var total = checkedMoneySum(before.soldValue, event['soldValue'] as int);
+  var missing = before.unknownSold + (event['unknownSold'] as int);
+  if (mutation.undoEventId != null) {
+    final undone = before.events
+        .where(
+          (e) =>
+              e['id'] == mutation.undoEventId &&
+              e['revision'] == before.revision &&
+              e['undone'] != true,
+        )
+        .toList();
+    if (undone.length != 1) throw StateError('Undo is no longer available.');
+    total -= undone.single['soldValue'] as int;
+    missing -= undone.single['unknownSold'] as int;
+  }
+  return InventorySnapshot(
+    revision: before.revision + 1,
+    settings: WarningSettings.fromJson(
+      (mutation.settings ?? before.settings).toJson(),
+    ),
+    records: records,
+    receipts: {
+      ...before.receipts,
+      if (mutation.requestId != null) mutation.requestId!,
+    },
+    events: [
+      event,
+      ...before.events.map(
+        (e) => e['id'] == mutation.undoEventId ? {...e, 'undone': true} : e,
+      ),
+    ].take(200).toList(),
+    soldValue: total,
+    unknownSold: missing,
+  );
+}
+
 class SqliteInventoryStorage implements InventoryStorage {
   SqliteInventoryStorage({this.path, this.factory});
   final String? path;
   final DatabaseFactory? factory;
   Database? _db;
+  InventorySnapshot? _cached;
   Future<Database> _open() async {
     if (_db != null) return _db!;
     final provider = factory ?? databaseFactory;
@@ -160,12 +218,22 @@ class SqliteInventoryStorage implements InventoryStorage {
   }
 
   @override
-  Future<InventorySnapshot> load() async => _read(await _open());
+  Future<InventorySnapshot> load() async =>
+      _cached = await _read(await _open());
   @override
   Future<InventorySnapshot> commit(InventoryMutation mutation) async {
     final db = await _open();
-    return db.transaction((tx) async {
-      final before = await _read(tx);
+    final result = await db.transaction((tx) async {
+      final diskRevision =
+          (await tx.query(
+                'meta',
+                columns: ['revision'],
+                where: 'id=1',
+              )).single['revision']
+              as int;
+      final before = _cached?.revision == diskRevision
+          ? _cached!
+          : await _read(tx);
       if (before.revision != mutation.expectedRevision)
         throw StateError(
           'Inventory changed. Reopen this review before saving.',
@@ -174,6 +242,7 @@ class SqliteInventoryStorage implements InventoryStorage {
           before.receipts.contains(mutation.requestId))
         throw StateError('This AI request has already been applied.');
       final event = makeEvent(before, mutation);
+      final after = nextSnapshot(before, mutation, event);
       for (final m in mutation.upserts) {
         // Revalidate at the persistence boundary, including manual caller changes.
         final valid = Medicine.fromJson(m.toJson());
@@ -209,14 +278,17 @@ class SqliteInventoryStorage implements InventoryStorage {
         'unknown_sold': event['unknownSold'],
         'undone': 0,
       });
-      return _read(tx);
+      return after;
     });
+    _cached = result;
+    return result;
   }
 
   @override
   Future<void> close() async {
     await _db?.close();
     _db = null;
+    _cached = null;
   }
 }
 
@@ -235,36 +307,7 @@ class MemoryInventoryStorage implements InventoryStorage {
         _state.receipts.contains(mutation.requestId))
       throw StateError('Request already applied.');
     final event = makeEvent(_state, mutation);
-    final records = {..._state.records};
-    for (final m in mutation.upserts) {
-      records[m.id] = Medicine.fromJson(m.toJson());
-    }
-    for (final id in mutation.removeIds) {
-      records.remove(id);
-    }
-    final events = [
-      event,
-      ..._state.events.map(
-        (e) => e['id'] == mutation.undoEventId ? {...e, 'undone': true} : e,
-      ),
-    ];
-    var soldValue = 0, unknown = 0;
-    for (final e in events.where((e) => e['undone'] != true)) {
-      soldValue += e['soldValue'] as int;
-      unknown += e['unknownSold'] as int;
-    }
-    _state = InventorySnapshot(
-      revision: _state.revision + 1,
-      settings: mutation.settings ?? _state.settings,
-      records: records,
-      events: events,
-      receipts: {
-        ..._state.receipts,
-        if (mutation.requestId != null) mutation.requestId!,
-      },
-      soldValue: soldValue,
-      unknownSold: unknown,
-    );
+    _state = nextSnapshot(_state, mutation, event);
     return _state;
   }
 
