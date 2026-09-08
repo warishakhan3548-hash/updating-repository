@@ -1,3 +1,4 @@
+import '../lib/domain/medicine.dart';
 import '../lib/domain/medicine_understanding.dart';
 
 Map<String, void Function()> medicineUnderstandingContract() => {
@@ -105,6 +106,99 @@ Excipients q.s.
     final draft = result.drafts.single;
     _equal(draft.mfg, '2026-08');
     _equal(draft.expiry, '2028-07');
+  },
+  'canonicalizes OCR-confused active ingredients inside composition': () {
+    final result = const MedicineUnderstandingEngine().understand([
+      const MedicineFrameEvidence(
+        sequence: 0,
+        quality: .91,
+        text: '''
+TEST 500
+COMPOSITION
+PARACETAM0L I.P. 500 mg
+''',
+      ),
+    ]);
+    _equal(result.drafts.single.salt, 'Paracetamol');
+    _equal(result.drafts.single.strength.toLowerCase(), '500 mg');
+  },
+  'uses a local product signature to repair brand and strength OCR': () {
+    final result =
+        const MedicineUnderstandingEngine(
+          knowledge: <MedicineKnowledgeEntry>[
+            MedicineKnowledgeEntry(
+              name: 'Dolo',
+              brand: 'Dolo',
+              salt: 'Paracetamol',
+              strength: '650 mg',
+              form: 'Tablet',
+            ),
+          ],
+        ).understand([
+          const MedicineFrameEvidence(
+            sequence: 0,
+            quality: .88,
+            text: 'D0L0 6SO\nTABLETS',
+          ),
+        ]);
+    final draft = result.drafts.single;
+    _equal(draft.name, 'Dolo');
+    _equal(draft.brand, 'Dolo');
+    _equal(draft.strength.toLowerCase(), '650 mg');
+  },
+  'fills only unambiguous identity facts from a verified local barcode': () {
+    final result =
+        const MedicineUnderstandingEngine(
+          knowledge: <MedicineKnowledgeEntry>[
+            MedicineKnowledgeEntry(
+              name: 'Calpol',
+              brand: 'Calpol',
+              salt: 'Paracetamol',
+              strength: '250 mg/5 ml',
+              form: 'Syrup',
+              manufacturer: 'GlaxoSmithKline',
+              barcode: '8901234567001',
+            ),
+          ],
+        ).understand([
+          const MedicineFrameEvidence(
+            sequence: 0,
+            barcode: '8901234567001',
+            text: 'blurred unreadable label',
+          ),
+        ]);
+    final draft = result.drafts.single;
+    _equal(draft.name, 'Calpol');
+    _equal(draft.salt, 'Paracetamol');
+    _equal(draft.strength, '250 mg/5 ml');
+    _equal(draft.form, 'Syrup');
+    _check(!draft.fields.containsKey('quantity'), 'barcode invented quantity');
+    _check(!draft.fields.containsKey('expiry'), 'barcode invented expiry');
+  },
+  'refuses conflicting local identities that share one barcode': () {
+    final result =
+        const MedicineUnderstandingEngine(
+          knowledge: <MedicineKnowledgeEntry>[
+            MedicineKnowledgeEntry(name: 'Alpha', barcode: '99887766'),
+            MedicineKnowledgeEntry(name: 'Beta', barcode: '99887766'),
+          ],
+        ).understand([
+          const MedicineFrameEvidence(sequence: 0, barcode: '99887766'),
+        ]);
+    _equal(result.drafts.single.name, '');
+    _equal(result.drafts.single.barcode, '99887766');
+  },
+  'builds bounded identity memory only from active local records': () {
+    final knowledge = medicineKnowledgeFromRecords(<Medicine>[
+      Medicine(id: 'active', name: 'Dolo', salt: 'Paracetamol'),
+      Medicine(id: 'archived', name: 'Old Drug', archived: true),
+    ]);
+    _equal(knowledge.length, 1);
+    _equal(knowledge.single.name, 'Dolo');
+    _check(
+      !knowledge.single.toMessage().containsKey('quantity'),
+      'knowledge leaked stock data',
+    );
   },
   'splits a sequential video into separate medicine drafts': () {
     final result = const MedicineUnderstandingEngine().understand([
@@ -296,6 +390,13 @@ Excipients q.s.
     _equal(decoded.allBarcodes.length, 2);
     final output = understandMedicineEvidenceMessage({
       'evidence': [frame.toMessage()],
+      'knowledge': const [
+        MedicineKnowledgeEntry(
+          name: 'Calpol',
+          brand: 'Calpol',
+          salt: 'Paracetamol',
+        ),
+      ].map((entry) => entry.toMessage()).toList(),
     });
     final result = MedicineUnderstandingResult.fromMessage(output);
     _equal(result.drafts.length, 1);

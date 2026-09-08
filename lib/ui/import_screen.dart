@@ -400,10 +400,17 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       _error = '';
     });
     try {
+      // Identity-only snapshot of pharmacist-reviewed local records. It stays
+      // on device and lets the isolate canonicalize OCR without copying stock,
+      // prices, notes or locations into the recognition pipeline.
+      final knowledge = medicineKnowledgeFromRecords(widget.controller.records);
       final payload =
           await compute(understandMedicineEvidenceMessage, <String, Object?>{
             'evidence': widget.evidence
                 .map((item) => item.toMessage())
+                .toList(growable: false),
+            'knowledge': knowledge
+                .map((entry) => entry.toMessage())
                 .toList(growable: false),
           });
       if (!mounted || generation != _generation) return;
