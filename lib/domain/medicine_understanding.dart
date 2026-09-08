@@ -1072,12 +1072,23 @@ class MedicineUnderstandingEngine {
         }
       }
 
+      final lineStrengths = !compositionLines.contains(index)
+          ? _strengths(line)
+          : const <String>[];
       if (!compositionLines.contains(index) &&
           !_priceNoise.hasMatch(lower) &&
           !_packNoise.hasMatch(lower) &&
           !_dateNoise.hasMatch(lower)) {
-        final strengths = _strengths(line);
-        if (strengths.isNotEmpty) add('strength', strengths.join(' + '), .88);
+        if (lineStrengths.isNotEmpty) {
+          add('strength', lineStrengths.join(' + '), .88);
+          if (!_looksLikeGenericLine(line)) {
+            // A known ingredient printed with a dose is strong semantic
+            // evidence even when OCR missed the words COMPOSITION or I.P.
+            for (final hit in knowledgeResolver.matchSalt(line)) {
+              add(hit.field, hit.value, max(.70, hit.score - .04));
+            }
+          }
+        }
       }
 
       final form = _formValue(lower);
@@ -1089,18 +1100,60 @@ class MedicineUnderstandingEngine {
       if (mrp.isNotEmpty) add('mrp', mrp, .92);
 
       if (!compositionLines.contains(index) && _eligibleNameLine(line, index)) {
-        for (final hit in knowledgeResolver.matchIdentity(line)) {
+        final identityHits = knowledgeResolver.matchIdentity(line);
+        for (final hit in identityHits) {
           add(hit.field, hit.value, hit.score);
         }
         final name = _productName(line);
         if (name.isNotEmpty) {
+          final ingredientHits = knowledgeResolver.matchSalt(name);
+          if (ingredientHits.length == 1 &&
+              ingredientHits.single.score >= .95 &&
+              _candidateKey('salt', name) ==
+                  _candidateKey('salt', ingredientHits.single.value)) {
+            add(
+              'salt',
+              ingredientHits.single.value,
+              ingredientHits.single.score - .035,
+            );
+            add(
+              'name',
+              ingredientHits.single.value,
+              ingredientHits.single.score - .025,
+            );
+          }
+          final manufacturerHits = knowledgeResolver.matchManufacturer(line);
+          final hasVerifiedIdentity = identityHits.any(
+            (hit) => hit.field == 'name' || hit.field == 'brand',
+          );
+          final isKnownManufacturer =
+              !hasVerifiedIdentity &&
+              manufacturerHits.length == 1 &&
+              manufacturerHits.single.score >= .96;
+          if (isKnownManufacturer) {
+            add(
+              'manufacturer',
+              manufacturerHits.single.value,
+              manufacturerHits.single.score - .10,
+            );
+            continue;
+          }
           final uppercase = _uppercaseRatio(line);
           final early = index < 3 ? .10 : 0.0;
           final trademark = RegExp(r'[®™]').hasMatch(line) ? .08 : 0.0;
+          final beforeComposition = compositionLines.any(
+            (compositionIndex) =>
+                compositionIndex > index && compositionIndex - index <= 2,
+          );
           add(
             'name',
             name,
-            (.61 + early + trademark + min(uppercase, .25)).clamp(.55, .91),
+            (.61 +
+                    early +
+                    trademark +
+                    (beforeComposition ? .07 : 0) +
+                    min(uppercase, .25))
+                .clamp(.55, .93),
           );
         }
       }
@@ -1179,8 +1232,18 @@ class _KnowledgeWindowMatch {
 /// complete noisy OCR document is never matched to one arbitrary medicine.
 class _OfflineMedicineKnowledge {
   _OfflineMedicineKnowledge(Iterable<MedicineKnowledgeEntry> source) {
-    for (final entry in source.take(maxMedicineKnowledgeEntries)) {
-      _addLocalEntry(entry);
+    final entries = source
+        .where((entry) => entry._hasIdentity)
+        .take(maxMedicineKnowledgeEntries)
+        .toList(growable: false);
+    // Priority order is intentional: even at the hard phrase limit every
+    // local product keeps its base identity. Optional component aliases can be
+    // truncated; canonical names and barcodes cannot.
+    for (final entry in entries) {
+      _addLocalIdentity(entry);
+    }
+    for (final entry in entries) {
+      _addSalt(entry.salt, verifiedLocal: true, includeComponents: false);
     }
     for (final salt in _embeddedActiveIngredients) {
       _addPhrase(
@@ -1200,6 +1263,18 @@ class _OfflineMedicineKnowledge {
         verifiedLocal: false,
       );
     }
+    for (final entry in entries) {
+      _addPhrase(
+        indexField: 'manufacturer',
+        outputField: 'manufacturer',
+        alias: entry.manufacturer,
+        value: entry.manufacturer,
+        verifiedLocal: true,
+      );
+    }
+    for (final entry in entries) {
+      _addSalt(entry.salt, verifiedLocal: true, includeComponents: true);
+    }
     _buildIndexes();
   }
 
@@ -1214,9 +1289,10 @@ class _OfflineMedicineKnowledge {
       <String, Map<String, List<int>>>{};
   final Map<String, List<MedicineKnowledgeEntry>> _barcodes =
       <String, List<MedicineKnowledgeEntry>>{};
+  final Map<String, List<String>> _strengthsByIdentity =
+      <String, List<String>>{};
 
-  void _addLocalEntry(MedicineKnowledgeEntry entry) {
-    if (!entry._hasIdentity) return;
+  void _addLocalIdentity(MedicineKnowledgeEntry entry) {
     final barcode = _barcodeKnowledgeKey(entry.barcode);
     if (barcode.length >= 4 && barcode.length <= 64) {
       _barcodes
@@ -1226,14 +1302,6 @@ class _OfflineMedicineKnowledge {
 
     _addIdentity('name', entry.name, entry.strength);
     _addIdentity('brand', entry.brand, entry.strength);
-    _addPhrase(
-      indexField: 'manufacturer',
-      outputField: 'manufacturer',
-      alias: entry.manufacturer,
-      value: entry.manufacturer,
-      verifiedLocal: true,
-    );
-    _addSalt(entry.salt, verifiedLocal: true);
   }
 
   void _addIdentity(String field, String value, String strength) {
@@ -1248,25 +1316,23 @@ class _OfflineMedicineKnowledge {
     );
     final strengthKey = _knowledgeStrengthKey(strength);
     if (strengthKey.isEmpty) return;
-    _addPhrase(
-      indexField: field,
-      outputField: field,
-      alias: '$clean $strengthKey',
-      value: clean,
-      verifiedLocal: true,
+    final values = _strengthsByIdentity.putIfAbsent(
+      _knowledgeKey(clean),
+      () => <String>[],
     );
-    // Strength is emitted only when OCR contains a numeric identity signature;
-    // a bare brand must never invent a strength from the only local record.
-    _addPhrase(
-      indexField: 'strengthHint',
-      outputField: 'strength',
-      alias: '$clean $strengthKey',
-      value: strength,
-      verifiedLocal: true,
-    );
+    final candidateKey = _candidateKey('strength', strength);
+    if (!values.any(
+      (value) => _candidateKey('strength', value) == candidateKey,
+    )) {
+      values.add(_cleanValue(strength));
+    }
   }
 
-  void _addSalt(String value, {required bool verifiedLocal}) {
+  void _addSalt(
+    String value, {
+    required bool verifiedLocal,
+    bool includeComponents = true,
+  }) {
     final clean = _cleanValue(value);
     if (clean.isEmpty) return;
     _addPhrase(
@@ -1276,6 +1342,7 @@ class _OfflineMedicineKnowledge {
       value: clean,
       verifiedLocal: verifiedLocal,
     );
+    if (!includeComponents) return;
     final components = clean
         .split(RegExp(r'\s*(?:\+|;)\s*'))
         .map(_cleanValue)
@@ -1368,12 +1435,52 @@ class _OfflineMedicineKnowledge {
   }
 
   List<_KnowledgeHit> matchIdentity(String raw) {
+    final nameHits = _match('name', raw);
+    final brandHits = _match('brand', raw);
     final hits = <_KnowledgeHit>[
-      ..._match('name', raw),
-      ..._match('brand', raw),
+      ...nameHits,
+      ...brandHits,
+      // The prominent trade name on a pack is the app's visible medicine name;
+      // keep the hidden brand metadata too, but do not leave noisy dosage text
+      // in the required name field when the verified brand itself was read.
+      for (final hit in brandHits)
+        _KnowledgeHit('name', hit.value, max(0, hit.score - .01)),
     ];
-    if (_knowledgeKey(raw).split(' ').any(_isNumericKnowledgeToken)) {
-      hits.addAll(_match('strengthHint', raw));
+    final evidenceNumbers = _knowledgeKey(
+      raw,
+    ).split(' ').where(_isNumericKnowledgeToken).toList(growable: false);
+    if (evidenceNumbers.isEmpty) return hits;
+
+    final supportedStrengths = <String, String>{};
+    var strongestIdentity = 0.0;
+    for (final identity in <_KnowledgeHit>[...nameHits, ...brandHits]) {
+      strongestIdentity = max(strongestIdentity, identity.score);
+      for (final strength
+          in _strengthsByIdentity[_knowledgeKey(identity.value)] ??
+              const <String>[]) {
+        final requiredNumbers = _knowledgeStrengthKey(
+          strength,
+        ).split(' ').where(_isNumericKnowledgeToken).toList(growable: false);
+        if (requiredNumbers.isEmpty ||
+            !_containsOrderedValues(evidenceNumbers, requiredNumbers)) {
+          continue;
+        }
+        supportedStrengths.putIfAbsent(
+          _candidateKey('strength', strength),
+          () => strength,
+        );
+      }
+    }
+    // Multiple locally known strengths with the same visible numeric evidence
+    // stay unresolved for human review instead of following insertion order.
+    if (supportedStrengths.length == 1) {
+      hits.add(
+        _KnowledgeHit(
+          'strength',
+          supportedStrengths.values.single,
+          min(.985, strongestIdentity),
+        ),
+      );
     }
     return hits;
   }
@@ -1426,7 +1533,6 @@ class _OfflineMedicineKnowledge {
       final threshold = switch (field) {
         'salt' => phrase.verifiedLocal ? .84 : .88,
         'manufacturer' => .90,
-        'strengthHint' => .91,
         _ => .87,
       };
       if (match.similarity < threshold) continue;
@@ -1471,9 +1577,27 @@ class _OfflineMedicineKnowledge {
   }
 
   List<int> _candidateIndexes(String field, String query) {
-    final exact = _exact[field]?[query];
-    if (exact != null && exact.isNotEmpty) {
-      return exact.take(_maxCandidatePhrases).toList(growable: false);
+    final exactIndex = _exact[field];
+    if (exactIndex != null) {
+      final tokens = query
+          .split(' ')
+          .where((value) => value.isNotEmpty)
+          .toList();
+      // Prefer the longest exact span. This makes "D0L0 6SO" (repaired to
+      // "dolo 650") find the exact local brand token before fuzzy retrieval,
+      // and keeps lookup stable even with tens of thousands of products.
+      for (var width = min(8, tokens.length); width >= 1; width--) {
+        final exactMatches = <int>{};
+        for (var start = 0; start + width <= tokens.length; start++) {
+          final key = tokens.sublist(start, start + width).join(' ');
+          exactMatches.addAll(exactIndex[key] ?? const <int>[]);
+        }
+        if (exactMatches.isNotEmpty) {
+          return exactMatches
+              .take(_maxCandidatePhrases)
+              .toList(growable: false);
+        }
+      }
     }
     final index = _grams[field];
     if (index == null || index.isEmpty) return const <int>[];
@@ -1585,6 +1709,17 @@ String _repairKnowledgeToken(String token) {
 
 bool _isNumericKnowledgeToken(String value) =>
     RegExp(r'^\d+(?:\.\d+)?$').hasMatch(value);
+
+bool _containsOrderedValues(List<String> values, List<String> expected) {
+  if (expected.isEmpty) return false;
+  var expectedIndex = 0;
+  for (final value in values) {
+    if (value != expected[expectedIndex]) continue;
+    expectedIndex++;
+    if (expectedIndex == expected.length) return true;
+  }
+  return false;
+}
 
 String _knowledgeStrengthKey(String value) => _knowledgeKey(
   value,
@@ -2042,8 +2177,11 @@ bool _eligibleNameLine(String line, int index) {
   if (_dateNoise.hasMatch(normalized) ||
       _priceNoise.hasMatch(normalized) ||
       _packNoise.hasMatch(normalized) ||
+      _packSize(line).isNotEmpty ||
       _compositionLabel.hasMatch(normalized) ||
       _manufacturerHeader.hasMatch(normalized) ||
+      _nonProductLine.hasMatch(normalized) ||
+      _companyMarker.hasMatch(normalized) ||
       RegExp(
         r'\b(?:batch|lot)\b|\bb\s*\.?\s*no\b',
         caseSensitive: false,
@@ -2055,6 +2193,7 @@ bool _eligibleNameLine(String line, int index) {
   }
   if (_looksLikeGenericLine(line)) return false;
   final tokens = normalized.split(' ');
+  if (tokens.every(_standaloneNameNoise.contains)) return false;
   if (_looksLikeMarketingOnly(tokens)) return false;
   if (tokens.length > 6) return false;
   if (tokens.every((token) => RegExp(r'^\d').hasMatch(token))) return false;
@@ -2083,6 +2222,13 @@ bool _looksLikeMarketingOnly(List<String> tokens) {
     'power',
     'care',
     'original',
+    'pack',
+    'packaging',
+    'pain',
+    'fever',
+    'quick',
+    'lasting',
+    'strength',
   };
   final words = tokens
       .where((token) => RegExp(r'[a-z\u0900-\u097f]').hasMatch(token))
@@ -2201,6 +2347,28 @@ const _identityNoise = <String>{
   'retail',
   'price',
   'only',
+};
+
+final _nonProductLine = RegExp(
+  r'\b(?:not\s+for\s+(?:sale|retail)|free\s+(?:medical\s+)?sample|physician(?:s)?\s+sample|government\s+supply|institutional\s+supply|hospital\s+supply|for\s+external\s+use|for\s+oral\s+use|shake\s+well|dose\s+as\s+directed|keep\s+out\s+of\s+reach|protect(?:ed)?\s+from)\b',
+  caseSensitive: false,
+);
+
+final _companyMarker = RegExp(
+  r'\b(?:pvt|private|ltd|limited|laborator(?:y|ies)|pharmaceuticals?|healthcare|industries|company|corporation|corp)\b',
+  caseSensitive: false,
+);
+
+const _standaloneNameNoise = <String>{
+  'rx',
+  'nrx',
+  'xrx',
+  'ip',
+  'bp',
+  'usp',
+  'schedule',
+  'drug',
+  'medicine',
 };
 
 String _candidateKey(String field, String value) {

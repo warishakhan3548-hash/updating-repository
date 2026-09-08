@@ -122,6 +122,36 @@ PARACETAM0L I.P. 500 mg
     _equal(result.drafts.single.salt, 'Paracetamol');
     _equal(result.drafts.single.strength.toLowerCase(), '500 mg');
   },
+  'recognizes a known generic salt when OCR misses the composition label': () {
+    final result = const MedicineUnderstandingEngine().understand([
+      const MedicineFrameEvidence(
+        sequence: 0,
+        quality: .9,
+        text: 'PARACETAM0L 500 mg\n10 TABLETS',
+      ),
+    ]);
+    final draft = result.drafts.single;
+    _equal(draft.name, 'Paracetamol');
+    _equal(draft.salt, 'Paracetamol');
+    _equal(draft.strength.toLowerCase(), '500 mg');
+  },
+  'rejects Rx supply slogans and company lines as medicine names': () {
+    final result = const MedicineUnderstandingEngine().understand([
+      const MedicineFrameEvidence(
+        sequence: 0,
+        quality: .93,
+        text: '''
+Rx
+GOVERNMENT SUPPLY NOT FOR SALE
+MICRO LABS LIMITED
+DOLO 650
+Paracetamol Tablets IP 650 mg
+''',
+      ),
+    ]);
+    _equal(result.drafts.single.name, 'Dolo');
+    _equal(result.drafts.single.salt, 'Paracetamol');
+  },
   'uses a local product signature to repair brand and strength OCR': () {
     final result =
         const MedicineUnderstandingEngine(
@@ -145,6 +175,27 @@ PARACETAM0L I.P. 500 mg
     _equal(draft.name, 'Dolo');
     _equal(draft.brand, 'Dolo');
     _equal(draft.strength.toLowerCase(), '650 mg');
+  },
+  'does not invent a strength from an ambiguous bare local brand': () {
+    final result =
+        const MedicineUnderstandingEngine(
+          knowledge: <MedicineKnowledgeEntry>[
+            MedicineKnowledgeEntry(
+              name: 'Dolo',
+              brand: 'Dolo',
+              strength: '500 mg',
+            ),
+            MedicineKnowledgeEntry(
+              name: 'Dolo',
+              brand: 'Dolo',
+              strength: '650 mg',
+            ),
+          ],
+        ).understand([
+          const MedicineFrameEvidence(sequence: 0, text: 'DOLO\nTABLETS'),
+        ]);
+    _equal(result.drafts.single.name, 'Dolo');
+    _equal(result.drafts.single.strength, '');
   },
   'fills only unambiguous identity facts from a verified local barcode': () {
     final result =
@@ -199,6 +250,27 @@ PARACETAM0L I.P. 500 mg
       !knowledge.single.toMessage().containsKey('quantity'),
       'knowledge leaked stock data',
     );
+  },
+  'keeps the last local identity searchable at the 12000-record bound': () {
+    final knowledge = List<MedicineKnowledgeEntry>.generate(
+      maxMedicineKnowledgeEntries,
+      (index) => MedicineKnowledgeEntry(
+        name: 'Medicine$index',
+        brand: 'Brand$index',
+        strength: index.isEven ? '500 mg' : '650 mg',
+      ),
+      growable: false,
+    );
+    final result = MedicineUnderstandingEngine(knowledge: knowledge)
+        .understand([
+          MedicineFrameEvidence(
+            text: 'BRAND${maxMedicineKnowledgeEntries - 1} 65O',
+            quality: .9,
+          ),
+        ]);
+    final draft = result.drafts.single;
+    _equal(draft.name, 'Brand${maxMedicineKnowledgeEntries - 1}');
+    _equal(draft.strength.toLowerCase(), '650 mg');
   },
   'splits a sequential video into separate medicine drafts': () {
     final result = const MedicineUnderstandingEngine().understand([
