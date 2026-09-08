@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../domain/sales_overview.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 
@@ -15,6 +16,10 @@ class StatsScreen extends StatelessWidget {
     animation: controller,
     builder: (context, _) {
       final inventory = controller.stats;
+      final sales = SalesOverview(controller.sales);
+      final ranked = sales.ranked;
+      final top = ranked.isEmpty ? null : ranked.first;
+      final topShare = top?.demandShare(sales.totalUnitsSold) ?? 0;
       final cards = [
         _SnapshotMetric(
           label: 'Medicines',
@@ -51,6 +56,27 @@ class StatsScreen extends StatelessWidget {
           value: '${inventory.uniqueMedicineNames}',
           detail: 'Distinct medicine names, not stock units',
           icon: Icons.format_list_numbered_rounded,
+        ),
+        _SnapshotMetric(
+          label: 'Sales Value',
+          value: _money(sales.salesValuePaise),
+          detail: sales.unknownValueSales == 0
+              ? 'From recorded medicine sales'
+              : '${sales.unknownValueSales} sales without a known value',
+          icon: Icons.payments_outlined,
+        ),
+        _SnapshotMetric(
+          label: 'Sold Medicine Tracker',
+          value: top == null ? '—' : '${(topShare * 100).round()}%',
+          detail: top == null
+              ? 'No recorded sales yet'
+              : '${top.name} · ${top.unitsSold} units sold',
+          icon: Icons.bar_chart_rounded,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => _SoldMedicineTrackerScreen(controller: controller),
+            ),
+          ),
         ),
       ];
 
@@ -125,8 +151,7 @@ class StatsScreen extends StatelessWidget {
                 crossAxisSpacing: spacing,
                 childAspectRatio: cardWidth / cardHeight,
                 children: [
-                  for (final metric in cards)
-                    _SnapshotCard(metric: metric),
+                  for (final metric in cards) _SnapshotCard(metric: metric),
                 ],
               );
             },
@@ -143,12 +168,14 @@ class _SnapshotMetric {
     required this.value,
     required this.detail,
     required this.icon,
+    this.onTap,
   });
 
   final String label;
   final String value;
   final String detail;
   final IconData icon;
+  final VoidCallback? onTap;
 }
 
 class _SnapshotCard extends StatelessWidget {
@@ -157,19 +184,25 @@ class _SnapshotCard extends StatelessWidget {
   final _SnapshotMetric metric;
 
   @override
-  Widget build(BuildContext context) => GlassPanel(
-    radius: 22,
-    elevation: 1,
-    child: Padding(
+  Widget build(BuildContext context) {
+    final content = Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          DepthIcon(
-            metric.icon,
-            color: primary,
-            background: primarySoft,
-            size: 40,
+          Row(
+            children: [
+              DepthIcon(
+                metric.icon,
+                color: primary,
+                background: primarySoft,
+                size: 40,
+              ),
+              if (metric.onTap != null) ...[
+                const Spacer(),
+                const Icon(Icons.chevron_right_rounded, color: primary, size: 22),
+              ],
+            ],
           ),
           const SizedBox(height: 13),
           FittedBox(
@@ -209,6 +242,183 @@ class _SnapshotCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+
+    return Semantics(
+      button: metric.onTap != null,
+      label: metric.onTap == null
+          ? null
+          : '${metric.label}. ${metric.detail}. Open full tracker.',
+      child: GlassPanel(
+        radius: 22,
+        elevation: 1,
+        child: metric.onTap == null
+            ? content
+            : Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: metric.onTap,
+                  borderRadius: BorderRadius.circular(22),
+                  child: content,
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+class _SoldMedicineTrackerScreen extends StatelessWidget {
+  const _SoldMedicineTrackerScreen({required this.controller});
+
+  final PharmacyController controller;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Sold Medicine Tracker')),
+    body: AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final overview = SalesOverview(controller.sales);
+        final ranked = overview.ranked;
+        if (ranked.isEmpty) {
+          return const EmptyState(
+            title: 'No recorded sales yet',
+            message: 'Record medicine sales to build the demand tracker.',
+          );
+        }
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+          children: [
+            GlassPanel(
+              tint: primarySoft,
+              accentColor: primary,
+              radius: 22,
+              elevation: .9,
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  const DepthIcon(
+                    Icons.bar_chart_rounded,
+                    color: primary,
+                    background: Colors.white,
+                    size: 44,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${overview.totalUnitsSold} units sold',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${ranked.length} medicines ranked by recorded demand',
+                          style: const TextStyle(color: muted, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            for (var i = 0; i < ranked.length; i++) ...[
+              _DemandRow(
+                rank: i + 1,
+                demand: ranked[i],
+                totalUnitsSold: overview.totalUnitsSold,
+              ),
+              if (i != ranked.length - 1) const SizedBox(height: 12),
+            ],
+          ],
+        );
+      },
     ),
   );
+}
+
+class _DemandRow extends StatelessWidget {
+  const _DemandRow({
+    required this.rank,
+    required this.demand,
+    required this.totalUnitsSold,
+  });
+
+  final int rank;
+  final SoldMedicineDemand demand;
+  final int totalUnitsSold;
+
+  @override
+  Widget build(BuildContext context) {
+    final share = demand.demandShare(totalUnitsSold);
+    final percentage = share * 100;
+    final percentText = percentage < 10 && percentage != percentage.roundToDouble()
+        ? '${percentage.toStringAsFixed(1)}%'
+        : '${percentage.round()}%';
+    return GlassPanel(
+      radius: 22,
+      elevation: .85,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: primarySoft,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$rank',
+                  style: const TextStyle(
+                    color: primaryDeep,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  demand.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                percentText,
+                style: const TextStyle(
+                  color: primaryDeep,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: share,
+              minHeight: 10,
+              backgroundColor: primarySoft,
+              color: primary,
+            ),
+          ),
+          const SizedBox(height: 9),
+          Text(
+            '${demand.unitsSold} units sold · ${demand.recordedSales} recorded ${demand.recordedSales == 1 ? 'sale' : 'sales'}',
+            style: const TextStyle(color: muted, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
 }
