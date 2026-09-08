@@ -74,22 +74,28 @@ Color _ambient(Color color) => Color.lerp(color, const Color(0xFF172033), .045)!
 
 List<BoxShadow> _surfaceDepth(double elevation) => [
   BoxShadow(
-    color: Colors.white.withAlpha(_alpha(248, elevation)),
+    color: const Color(0xFF172033).withAlpha(_alpha(50, elevation)),
+    blurRadius: 6,
+    spreadRadius: -2,
+    offset: const Offset(-3, -3),
+  ),
+  BoxShadow(
+    color: Colors.white.withAlpha(_alpha(238, elevation)),
     blurRadius: 18,
-    spreadRadius: -5,
-    offset: const Offset(-6, -6),
+    spreadRadius: -6,
+    offset: const Offset(-7, -7),
   ),
   BoxShadow(
-    color: const Color(0xFF243247).withAlpha(_alpha(38, elevation)),
-    blurRadius: 3.5,
+    color: const Color(0xFF172033).withAlpha(_alpha(64, elevation)),
+    blurRadius: 5,
     spreadRadius: -1,
-    offset: const Offset(0, 4),
+    offset: const Offset(0, 5),
   ),
   BoxShadow(
-    color: const Color(0xFF243247).withAlpha(_alpha(24, elevation)),
-    blurRadius: 25,
+    color: const Color(0xFF172033).withAlpha(_alpha(46, elevation)),
+    blurRadius: 29,
     spreadRadius: -7,
-    offset: const Offset(8, 12),
+    offset: const Offset(9, 14),
   ),
 ];
 
@@ -152,28 +158,34 @@ class GlassPanel extends StatelessWidget {
         final glow = _ambient(semantic ?? tint);
         shadows.addAll([
           BoxShadow(
-            color: glow.withAlpha(_alpha(62, elevation)),
-            blurRadius: 25,
+            color: glow.withAlpha(_alpha(66, elevation)),
+            blurRadius: 26,
             spreadRadius: -6,
             offset: const Offset(1, 8),
           ),
           BoxShadow(
-            color: Colors.white.withAlpha(_alpha(24, elevation)),
-            blurRadius: 13,
-            spreadRadius: -6,
-            offset: const Offset(-6, -6),
-          ),
-          BoxShadow(
-            color: Colors.black.withAlpha(_alpha(92, elevation)),
-            blurRadius: 4,
-            spreadRadius: -1,
-            offset: const Offset(0, 5),
-          ),
-          BoxShadow(
             color: Colors.black.withAlpha(_alpha(56, elevation)),
-            blurRadius: 24,
+            blurRadius: 6,
+            spreadRadius: -2,
+            offset: const Offset(-3, -3),
+          ),
+          BoxShadow(
+            color: Colors.white.withAlpha(_alpha(26, elevation)),
+            blurRadius: 14,
+            spreadRadius: -6,
+            offset: const Offset(-7, -7),
+          ),
+          BoxShadow(
+            color: Colors.black.withAlpha(_alpha(108, elevation)),
+            blurRadius: 5,
+            spreadRadius: -1,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withAlpha(_alpha(72, elevation)),
+            blurRadius: 29,
             spreadRadius: -7,
-            offset: const Offset(8, 13),
+            offset: const Offset(9, 14),
           ),
         ]);
       } else {
@@ -201,10 +213,10 @@ class GlassPanel extends StatelessWidget {
         shadows.addAll(_surfaceDepth(elevation));
         shadows.add(
           BoxShadow(
-            color: const Color(0xFF243247).withAlpha(_alpha(9, elevation)),
-            blurRadius: 19,
+            color: const Color(0xFF172033).withAlpha(_alpha(18, elevation)),
+            blurRadius: 21,
             spreadRadius: -9,
-            offset: const Offset(8, 13),
+            offset: const Offset(9, 14),
           ),
         );
       }
@@ -327,6 +339,74 @@ class GlassIconButton extends StatelessWidget {
   );
 }
 
+class RaisedActionButton extends StatelessWidget {
+  const RaisedActionButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.height = 54,
+    this.radius = 18,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final double height;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 150),
+      opacity: enabled ? 1 : .55,
+      child: GlassPanel(
+        tint: const Color(0xFFF0F5FF),
+        accentColor: primary,
+        radius: radius,
+        elevation: 1.1,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(radius),
+            splashColor: primary.withValues(alpha: .10),
+            highlightColor: primary.withValues(alpha: .05),
+            child: SizedBox(
+              height: height,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(icon, size: 19, color: primary),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          style: const TextStyle(
+                            color: primaryDeep,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 BoxDecoration depthDecoration(Color color, {double radius = 22}) {
   final strong = color.computeLuminance() < .20;
   return BoxDecoration(
@@ -352,16 +432,28 @@ BoxDecoration depthDecoration(Color color, {double radius = 22}) {
     boxShadow: strong
         ? [
             BoxShadow(
-              color: color.withValues(alpha: .18),
-              blurRadius: 22,
+              color: Colors.black.withValues(alpha: .20),
+              blurRadius: 6,
+              spreadRadius: -2,
+              offset: const Offset(-3, -3),
+            ),
+            BoxShadow(
+              color: color.withValues(alpha: .20),
+              blurRadius: 24,
               spreadRadius: -6,
-              offset: const Offset(1, 7),
+              offset: const Offset(1, 8),
+            ),
+            BoxShadow(
+              color: ink.withValues(alpha: .24),
+              blurRadius: 5,
+              spreadRadius: -1,
+              offset: const Offset(0, 6),
             ),
             BoxShadow(
               color: ink.withValues(alpha: .16),
-              blurRadius: 4,
-              spreadRadius: -1,
-              offset: const Offset(0, 5),
+              blurRadius: 27,
+              spreadRadius: -7,
+              offset: const Offset(9, 14),
             ),
           ]
         : _surfaceDepth(1),
@@ -617,12 +709,13 @@ ThemeData pharmacyTheme() => ThemeData(
   filledButtonTheme: FilledButtonThemeData(
     style: FilledButton.styleFrom(
       minimumSize: const Size(48, 56),
-      backgroundColor: primary,
-      foregroundColor: Colors.white,
-      disabledBackgroundColor: outline,
+      backgroundColor: primarySoft,
+      foregroundColor: primaryDeep,
+      disabledBackgroundColor: const Color(0xFFF1F4F9),
       disabledForegroundColor: muted,
-      shadowColor: primaryDeep.withValues(alpha: .34),
-      elevation: 6,
+      shadowColor: ink.withValues(alpha: .30),
+      elevation: 8,
+      side: BorderSide(color: primary.withValues(alpha: .14)),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       textStyle: const TextStyle(
         fontFamily: 'Manrope',
@@ -639,8 +732,8 @@ ThemeData pharmacyTheme() => ThemeData(
       foregroundColor: primaryDeep,
       backgroundColor: Colors.white,
       side: BorderSide(color: primary.withValues(alpha: .18)),
-      shadowColor: ink.withValues(alpha: .16),
-      elevation: 2,
+      shadowColor: ink.withValues(alpha: .24),
+      elevation: 5,
       textStyle: const TextStyle(
         fontFamily: 'Manrope',
         fontFamilyFallback: ['NotoSansDevanagari'],
@@ -723,8 +816,8 @@ ThemeData pharmacyTheme() => ThemeData(
   cardTheme: CardThemeData(
     color: Colors.white,
     surfaceTintColor: Colors.transparent,
-    elevation: 6,
-    shadowColor: ink.withValues(alpha: .18),
+    elevation: 8,
+    shadowColor: ink.withValues(alpha: .24),
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(24),
       side: const BorderSide(color: Colors.white),
