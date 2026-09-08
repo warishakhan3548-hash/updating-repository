@@ -5,13 +5,15 @@
 - Master local medicine database with atomic reactive updates and SQLite v3
   migrations for aggregate sales.
 - Configurable expiry dashboard, scoped/global type-mic-scan search, progressive
-  warning borders, exact-ID editor navigation and fuzzy confidence ranking.
+  warning borders, exact-ID editor navigation, bounded n-gram memory and fuzzy
+  confidence ranking.
 - Manual add/edit/remove/restock, explicit SOLD, aggregate sale recording,
   FEFO batch guidance, expired-sale/MFG-date guards, soft-delete history, latest
   Undo and per-medicine version restore.
 - Reviewed photo/text imports and adaptive local video import with frame sampling,
   bounded decode, blur/duplicate rejection, multi-frame consensus, explicit
-  list-row boundaries and temporary-file cleanup.
+  list-row boundaries, drain-before-restart cancellation, no silent catalog
+  lookup and temporary-file cleanup.
 - Pharmacy-only external-AI TXT/prompt, configurable API route, strict JSON/diff
   review, stale/replay protection, cancellation and atomic selected apply.
 - Tracking periods, medicine/stock/salt/form/value metrics, fast movement,
@@ -27,6 +29,9 @@
 
 ## Verification recorded
 
+- Current code-only verification (2026-09-08): 52 pure domain checks, 25 date
+  checks and 11 medicine-understanding checks passed; targeted domain static
+  analysis is clean. No APK or CI workflow was run.
 - Dart static analysis for `lib` and `test`: clean at source commit `e26e387`.
 - Pure-Dart domain contract: 45 checks passed, 0 failed.
 - Date-input contract: 24 checks passed, 0 failed.

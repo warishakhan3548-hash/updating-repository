@@ -492,6 +492,32 @@ Map<String, void Function()> domainContract() {
         );
       }
     },
+    'search index and hostile tokens stay memory bounded': () {
+      final longOcr = List.generate(1200, (index) => 'token$index').join(' ');
+      final longNote = List.filled(5000, 'x').join();
+      final longQuery = List.filled(30000, 'z').join();
+      final document = SearchDocument(
+        Medicine.fromJson({
+          ...stock('bounded').toJson(),
+          'ocrText': longOcr,
+          'notes': '$longNote tail note',
+        }),
+      );
+      check(
+        document.terms.length <= SearchDocument.maxTerms,
+        'One record created an unbounded search index.',
+      );
+      check(
+        document.terms.every(
+          (term) => term.length <= SearchDocument.maxTermLength,
+        ),
+        'An oversized token entered the n-gram index.',
+      );
+      final hits = MedicineSearch([
+        document.record,
+      ]).search(longQuery, SearchScope.all, contractSettings, contractToday);
+      check(hits.isEmpty, 'Hostile long query produced a false match.');
+    },
     'identity normalizes punctuation and strength spacing': () {
       final a = stock('a', name: 'Dolo-650', strength: '650 mg');
       final b = stock('b', name: 'DOLO 650', strength: '650mg');

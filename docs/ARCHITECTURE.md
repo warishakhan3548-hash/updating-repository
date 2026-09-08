@@ -77,9 +77,11 @@ internal ID, MFG/expiry, OCR text, block/row/vertical, free location and notes.
 Barcode exact match wins. Otherwise bounded n-gram candidates are ranked with
 exact/prefix/token, Jaro-Winkler, edit-distance and ordered-subsequence evidence.
 Strength conflicts are penalized, common OCR confusions are normalized narrowly,
-and notes/location cannot outrank a medicine-name match. Heavy ranking runs away
-from the Flutter UI isolate. High/medium/low confidence is visible; uncertain
-results never select or mutate a record automatically.
+and notes/location cannot outrank a medicine-name match. Per-document terms and
+individual token length are capped before n-gram creation, preventing unusually
+large OCR/notes or malformed queries from causing unbounded index memory. Heavy
+ranking runs away from the Flutter UI isolate. High/medium/low confidence is
+visible; uncertain results never select or mutate a record automatically.
 
 Photo and video imports are read locally. A long video is sampled approximately
 every three seconds with a frame cap. Android decodes bounded 1600-pixel frames
@@ -87,10 +89,13 @@ on supported devices, samples bucket midpoints, then discards blurry and
 perceptually duplicate frames before OCR. Evidence is clustered by repeated
 normalized lines and enters an Import Inbox. Explicit uploaded/pasted list rows
 carry hard item boundaries and an oversized list is rejected instead of silently
-truncated. The user opens an existing record or creates a new draft;
-low-confidence OCR never fills authoritative medical fields. Temporary raw
-media, camera captures and sampled frames are deleted after use and are never
-included in backup.
+truncated. The Import Inbox performs no automatic online catalog lookup and does
+not transmit captured text or barcodes. The user opens an existing record or
+creates a new draft; low-confidence OCR never fills authoritative medical fields.
+Cancellation stops at the next safe boundary, keeps other imports locked until
+the active ML step drains, then closes recognizers and deletes temporary files.
+Temporary raw media, camera captures and sampled frames are never included in
+backup.
 
 ## Tracking, sales and ordering
 
@@ -149,6 +154,7 @@ narrow screens and large text. Physical Android QA is still required for camera
 focus, vendor speech behavior, file pickers, long videos, PDF sharing and low-end
 device memory.
 
-GitHub Actions performs dependency resolution, static analysis and tests only.
-It does not build or publish an APK. Release signing and APK generation remain an
-explicit owner operation.
+This code-upgrade pass does not run workflows or build an APK. Its checkpoint
+commits carry `[skip ci]`; existing release workflow configuration remains
+untouched. Release signing, CI execution and APK generation remain explicit owner
+operations.

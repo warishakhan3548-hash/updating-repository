@@ -5,12 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/inventory.dart';
-import '../domain/medicine_discovery.dart';
 import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
 import '../services/backup_service.dart';
 import '../services/media_import_service.dart';
-import '../services/medicine_catalog_service.dart';
 import '../services/scan_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
@@ -33,6 +31,7 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
   int _done = 0;
   int _total = 0;
   int _generation = 0;
+  bool _cancelRequested = false;
 
   @override
   void dispose() {
@@ -66,6 +65,7 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
     final vision = MedicineVisionService();
     setState(() {
       _busy = true;
+      _cancelRequested = false;
       _done = 0;
       _total = 1;
     });
@@ -91,7 +91,12 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
           await _media.cleanup([picked.path]);
         } catch (_) {}
       }
-      if (mounted && generation == _generation) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _cancelRequested = false;
+        });
+      }
     }
   }
 
@@ -103,6 +108,7 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
     final vision = MedicineVisionService();
     setState(() {
       _busy = true;
+      _cancelRequested = false;
       _done = 0;
       _total = 0;
     });
@@ -154,14 +160,22 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
           ...sampledFrames,
         ]);
       } catch (_) {}
-      if (mounted && generation == _generation) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _cancelRequested = false;
+        });
+      }
     }
   }
 
   Future<void> _textFile() async {
     if (_busy) return;
     final generation = ++_generation;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _cancelRequested = false;
+    });
     try {
       final text = await _files.pickBackupText();
       if (text == null || !mounted || generation != _generation) return;
@@ -183,7 +197,12 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
     } catch (error) {
       if (mounted && generation == _generation) showError(context, error);
     } finally {
-      if (mounted && generation == _generation) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _cancelRequested = false;
+        });
+      }
     }
   }
 
@@ -273,18 +292,22 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
           LinearProgressIndicator(value: _total == 0 ? null : _done / _total),
           const SizedBox(height: 10),
           Text(
-            _total == 0
+            _cancelRequested
+                ? 'Finishing the current local step and cleaning temporary files…'
+                : _total == 0
                 ? 'Preparing local import…'
                 : 'Reading frame $_done of $_total locally…',
             textAlign: TextAlign.center,
             style: const TextStyle(color: muted, fontSize: 12),
           ),
           TextButton(
-            onPressed: () {
-              ++_generation;
-              setState(() => _busy = false);
-            },
-            child: const Text('Cancel'),
+            onPressed: _cancelRequested
+                ? null
+                : () {
+                    ++_generation;
+                    setState(() => _cancelRequested = true);
+                  },
+            child: Text(_cancelRequested ? 'Cancelling…' : 'Cancel'),
           ),
         ],
       ],
@@ -338,7 +361,6 @@ class ImportInboxScreen extends StatefulWidget {
 }
 
 class _ImportInboxScreenState extends State<ImportInboxScreen> {
-  final MedicineCatalogService _catalog = MedicineCatalogService();
   List<_ImportDraftReview> _drafts = const <_ImportDraftReview>[];
   int _ignoredFrames = 0;
   String _error = '';
@@ -357,7 +379,6 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
   @override
   void dispose() {
     ++_generation;
-    _catalog.close();
     widget.controller.removeListener(_inventoryChanged);
     super.dispose();
   }
@@ -432,7 +453,6 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           _ignoredFrames = understanding.ignoredFrames;
           _loading = false;
         });
-        unawaited(_discoverCatalog(generation));
       }
     } catch (error) {
       if (mounted && generation == _generation) {
@@ -441,38 +461,6 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           _error = 'The import inbox could not rank these scans. Try again.';
         });
       }
-    }
-  }
-
-  Future<void> _discoverCatalog(int generation) async {
-    final count = _drafts.length.clamp(0, 8);
-    for (var index = 0; index < count; index++) {
-      if (!mounted || generation != _generation) return;
-      final review = _drafts[index];
-      if (review.hasStrongLocalMatch) continue;
-      final draft = review.draft;
-      if (draft.barcode.isEmpty && draft.searchKeywords.isEmpty) continue;
-      final candidates = await _catalog.search(
-        barcode: draft.barcode,
-        text: <String>[
-          draft.name,
-          draft.brand,
-          draft.salt,
-          draft.strength,
-          draft.searchKeywords,
-        ].where((value) => value.isNotEmpty).join(' '),
-        limit: 3,
-      );
-      if (!mounted || generation != _generation || candidates.isEmpty) {
-        continue;
-      }
-      setState(() {
-        final updated = List<_ImportDraftReview>.of(_drafts);
-        if (index < updated.length && identical(updated[index], review)) {
-          updated[index] = review.withCatalog(candidates);
-          _drafts = updated;
-        }
-      });
     }
   }
 
@@ -579,31 +567,6 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           ),
           for (final hit in review.hits.take(3)) _hit(context, hit),
         ],
-        if (review.catalogCandidates.isNotEmpty) ...[
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text(
-              'Optional online identity matches',
-              style: TextStyle(color: muted, fontSize: 12),
-            ),
-          ),
-          for (final candidate in review.catalogCandidates)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: OutlinedButton.icon(
-                onPressed: () => openEditor(
-                  context,
-                  widget.controller,
-                  seed: candidate.seed.withScanBarcode(draft.barcode),
-                  scanDraft: draft,
-                ),
-                icon: const Icon(Icons.travel_explore_rounded),
-                label: Text(
-                  '${candidate.seed.name}${candidate.subtitle.isEmpty ? '' : ' · ${candidate.subtitle}'} · ${candidate.confidence}',
-                ),
-              ),
-            ),
-        ],
         Surface(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -664,12 +627,8 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
         ),
         const SizedBox(height: 12),
         FilledButton.icon(
-          onPressed: () => openEditor(
-            context,
-            widget.controller,
-            seed: review.preferredSeed,
-            scanDraft: draft,
-          ),
+          onPressed: () =>
+              openEditor(context, widget.controller, scanDraft: draft),
           icon: const Icon(Icons.rate_review_outlined),
           label: Text('Review & create medicine ${index + 1}'),
         ),
@@ -699,27 +658,10 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
 }
 
 class _ImportDraftReview {
-  const _ImportDraftReview({
-    required this.draft,
-    required this.hits,
-    this.catalogCandidates = const <MedicineCatalogCandidate>[],
-  });
+  const _ImportDraftReview({required this.draft, required this.hits});
 
   final MedicineScanDraft draft;
   final List<SearchHit> hits;
-  final List<MedicineCatalogCandidate> catalogCandidates;
 
   bool get hasStrongLocalMatch => hits.any((hit) => !hit.uncertain);
-
-  MedicineDraftSeed? get preferredSeed {
-    for (final candidate in catalogCandidates) {
-      if (candidate.score >= .92) {
-        return candidate.seed.withScanBarcode(draft.barcode);
-      }
-    }
-    return null;
-  }
-
-  _ImportDraftReview withCatalog(List<MedicineCatalogCandidate> value) =>
-      _ImportDraftReview(draft: draft, hits: hits, catalogCandidates: value);
 }

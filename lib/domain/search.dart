@@ -141,6 +141,9 @@ class SearchHit {
 }
 
 class SearchDocument {
+  static const maxTerms = 384;
+  static const maxTermLength = 96;
+
   SearchDocument(this.record) {
     for (final value in [
       record.name,
@@ -154,19 +157,38 @@ class SearchDocument {
       record.id,
       if (record.mfg != null) dateText(record.mfg!),
       if (record.expiry != null) dateText(record.expiry!),
-      record.ocrText,
       record.address,
       if (record.block.isNotEmpty) 'b${record.block}',
       if (record.row.isNotEmpty) 'r${record.row}',
       if (record.vertical.isNotEmpty) 'v${record.vertical}',
-      record.notes,
     ]) {
-      terms.addAll(searchText(value).split(' ').where((e) => e.isNotEmpty));
+      _addTerms(value, limit: 48);
     }
+    // Free text is useful, but it must never dominate index memory or crowd out
+    // authoritative identity, date, batch, barcode and location facts.
+    _addTerms(record.ocrText, limit: 176);
+    _addTerms(record.notes, limit: 80);
   }
   final Medicine record;
   final Set<String> terms = {};
+
+  void _addTerms(String value, {required int limit}) {
+    var added = 0;
+    for (final raw in searchText(value).split(' ')) {
+      if (raw.isEmpty) continue;
+      final term = _boundedSearchTerm(raw);
+      if (term.isEmpty) continue;
+      terms.add(term);
+      added++;
+      if (added >= limit || terms.length >= maxTerms) return;
+    }
+  }
 }
+
+String _boundedSearchTerm(String value) =>
+    value.length <= SearchDocument.maxTermLength
+    ? value
+    : value.substring(0, SearchDocument.maxTermLength);
 
 class MedicineSearch {
   MedicineSearch(Iterable<Medicine> records) {
@@ -276,6 +298,7 @@ class MedicineSearch {
       final rawTokens = query
           .split(' ')
           .where((word) => word.length >= 2 || RegExp(r'^\d$').hasMatch(word))
+          .map(_boundedSearchTerm)
           .take(40)
           .toList();
       var tokens = rawTokens
