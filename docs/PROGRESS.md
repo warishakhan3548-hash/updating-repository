@@ -34,11 +34,10 @@
   See [research and verification record](DESIGN_RESEARCH_2026_09_07.md) for exact runs.
 - Physical Android microphone/camera behavior still needs device acceptance.
 
-## Deliberately configuration-dependent or future
+## Deliberately outside the local core
 
-- Firebase backup/multi-device sync needs the owner’s Firebase project, platform
-  configuration and an explicit conflict policy. Local backup/restore is complete;
-  core runtime has no cloud dependency.
+- Firebase, cloud sync and external server sync are excluded by product contract.
+  Local SQLite plus reviewed backup/restore remain authoritative.
 - Optional downloadable local multimodal AI and worldwide catalog providers remain
   extension points, not fake or network-dependent core features.
 - Store signing and release hardening remain with the owner. The current generated

@@ -31,7 +31,8 @@ class SalesOverview {
     };
 
     for (final sale in saleList) {
-      final knownValue = sale.totalAmountPaise ??
+      final knownValue =
+          sale.totalAmountPaise ??
           (sale.savedUnitPricePaise == null
               ? null
               : stockValue(sale.quantity, sale.savedUnitPricePaise!));
@@ -48,6 +49,10 @@ class SalesOverview {
     // analytics so SOLD immediately updates Sales Value and the demand tracker.
     final directSoldStockIds = <String>{};
     for (final event in events) {
+      // Undo keeps the original event for audit history. It must not keep
+      // contributing phantom demand or value after its stock transition and
+      // aggregate totals have been reversed.
+      if (event['undone'] == true) continue;
       final soldValue = event['soldValue'];
       final unknownSold = event['unknownSold'];
       final hasSoldTransition =
@@ -82,12 +87,12 @@ class SalesOverview {
           isLatestDirectTransition && current != null && current.sold;
 
       final units = useCurrentSoldSnapshot
-          ? _positiveUnits(current!.soldQuantity)
+          ? _positiveUnits(current.soldQuantity)
           : _positiveUnits(before.quantity);
-      final name = useCurrentSoldSnapshot ? current!.name : before.name;
+      final name = useCurrentSoldSnapshot ? current.name : before.name;
 
       int? amount = useCurrentSoldSnapshot
-          ? current!.soldUnitPricePaise ?? current!.unitPricePaise
+          ? current.soldUnitPricePaise ?? current.unitPricePaise
           : before.unitPricePaise;
 
       // The legacy event aggregate stored quantity × amount. Recover the
@@ -113,8 +118,7 @@ class SalesOverview {
       _record(
         name: medicine.name,
         units: _positiveUnits(medicine.soldQuantity),
-        knownValuePaise:
-            medicine.soldUnitPricePaise ?? medicine.unitPricePaise,
+        knownValuePaise: medicine.soldUnitPricePaise ?? medicine.unitPricePaise,
       );
     }
   }
@@ -172,7 +176,9 @@ class SalesOverview {
   }
 
   List<SoldMedicineDemand> get ranked {
-    final result = _byMedicine.values.where((item) => item.unitsSold > 0).toList();
+    final result = _byMedicine.values
+        .where((item) => item.unitsSold > 0)
+        .toList();
     result.sort((a, b) {
       final units = b.unitsSold.compareTo(a.unitsSold);
       if (units != 0) return units;

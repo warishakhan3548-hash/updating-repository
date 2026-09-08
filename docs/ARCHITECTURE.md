@@ -18,7 +18,7 @@ flowchart TD
   X --> H["Home and scoped lists"]
   S --> H
   A["Reviewed AI or import plan"] --> D
-  D --> B["Backup and future sync boundary"]
+  D --> B["Local backup and restore"]
 ```
 
 Bottom navigation is **Home / Database / AI / Calculator / Profile**. Results open
@@ -115,7 +115,7 @@ before/after facts; duplicate additions and removes are not preselected. Only th
 owner’s chosen actions commit atomically. AI supplies stored facts; the app alone
 calculates expiry, warning membership, borders, counts and totals.
 
-## Backup and cloud boundary
+## Backup and local-only boundary
 
 Full local backup contains medicines (including removed entries), warning
 settings, aggregate sales and sold-value metadata. It contains no API key, raw
@@ -123,11 +123,11 @@ media or search cache. Restore uses strict schema/field validation and a typed
 confirmation. Current active records missing from the backup move to Removed
 stock instead of being silently destroyed, and the restore itself is undoable.
 
-Firebase is intentionally not a runtime dependency without an owner Firebase
-project and credentials. The local database remains authoritative. A future
-Firebase adapter must consume committed structured facts through a durable sync
-queue, support backup/restore and conflict metadata, and must not upload raw video,
-temporary OCR frames, AI models, keys or search indexes.
+The application has no Firebase, cloud-sync or server-sync adapter. Local SQLite
+is the sole source of truth. No runtime path may silently mirror inventory,
+temporary OCR frames, raw media, API keys or search indexes to another device or
+service. Portability is handled only through an explicit, owner-reviewed local
+backup export and restore.
 
 ## Verification and release boundary
 

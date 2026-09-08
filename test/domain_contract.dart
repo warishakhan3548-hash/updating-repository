@@ -5,6 +5,7 @@ import '../lib/domain/inventory.dart';
 import '../lib/domain/search.dart';
 import '../lib/domain/ai_protocol.dart';
 import '../lib/domain/backup.dart';
+import '../lib/domain/sales_overview.dart';
 import '../lib/domain/tracking.dart';
 
 void check(bool condition, String message) {
@@ -703,6 +704,29 @@ Map<String, void Function()> domainContract() {
           'quantity': 1,
           'occurredAt': 'not-a-date',
         }),
+      );
+    },
+    'undone direct SOLD transition is excluded from sales analytics': () {
+      final active = stock('sold-then-undone', quantity: 12);
+      final overview = SalesOverview(
+        const [],
+        medicines: [active],
+        events: [
+          {
+            'undone': true,
+            'soldValue': 2400,
+            'unknownSold': 0,
+            'salesBefore': <String, dynamic>{},
+            'before': <String, dynamic>{active.id: active.toJson()},
+          },
+        ],
+      );
+      check(
+        overview.recordedSales == 0 &&
+            overview.totalUnitsSold == 0 &&
+            overview.salesValuePaise == 0 &&
+            overview.ranked.isEmpty,
+        'Undo left a phantom sale in analytics.',
       );
     },
     'full backup round-trips medicines settings and sales': () {

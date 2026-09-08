@@ -25,6 +25,7 @@ class PharmacyController extends ChangeNotifier {
   int preparedActions = 0;
   bool _cancelAi = false;
   Timer? _midnight;
+  Future<void>? _initializing;
   Future<void> _writes = Future.value();
   final _searchWorker = SearchWorker();
   MedicineSearch? _webSearch;
@@ -34,11 +35,29 @@ class PharmacyController extends ChangeNotifier {
   Iterable<Medicine> get records => snapshot.records.values;
   Iterable<SaleEvent> get sales => snapshot.sales.values;
   InventoryStats get stats => InventoryStats(records, today);
-  TrackingStats tracking(TrackingRange range) =>
-      TrackingStats(medicines: records, sales: sales, range: range, today: today);
+  TrackingStats tracking(TrackingRange range) => TrackingStats(
+    medicines: records,
+    sales: sales,
+    range: range,
+    today: today,
+  );
 
-  Future<void> initialize() async {
-    snapshot = await storage.load();
+  Future<void> initialize() {
+    if (_disposed) return Future.error(StateError('App is closed.'));
+    final running = _initializing;
+    if (running != null) return running;
+    late final Future<void> operation;
+    operation = _load().whenComplete(() {
+      if (identical(_initializing, operation)) _initializing = null;
+    });
+    _initializing = operation;
+    return operation;
+  }
+
+  Future<void> _load() async {
+    final loaded = await storage.load();
+    if (_disposed) return;
+    snapshot = loaded;
     ready = true;
     _scheduleMidnight();
     _emit();
@@ -127,7 +146,9 @@ class PharmacyController extends ChangeNotifier {
     int? expectedRevision,
   }) async {
     if (expectedRevision != null && expectedRevision != snapshot.revision) {
-      throw StateError('Inventory changed. Reopen this entry before recording a sale.');
+      throw StateError(
+        'Inventory changed. Reopen this entry before recording a sale.',
+      );
     }
     final medicine = snapshot.records[id];
     if (medicine == null || medicine.archived) {
@@ -195,9 +216,15 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
-  Future<void> archive(String id, String reason, {int? expectedRevision}) async {
+  Future<void> archive(
+    String id,
+    String reason, {
+    int? expectedRevision,
+  }) async {
     if (expectedRevision != null && expectedRevision != snapshot.revision) {
-      throw StateError('Inventory changed. Reopen this entry before removing it.');
+      throw StateError(
+        'Inventory changed. Reopen this entry before removing it.',
+      );
     }
     final m = snapshot.records[id];
     if (m == null || m.archived) return;
@@ -487,12 +514,32 @@ class PharmacyController extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
+    final initializing = _initializing;
     _searchWorker.close();
     _midnight?.cancel();
     _cancelAi = true;
-    unawaited(_writes.whenComplete(storage.close));
+    unawaited(_closeWhenIdle(initializing));
     super.dispose();
+  }
+
+  Future<void> _closeWhenIdle(Future<void>? initializing) async {
+    try {
+      await initializing;
+    } catch (_) {
+      // A failed open still needs the same single storage close path.
+    }
+    try {
+      await _writes;
+    } catch (_) {
+      // The write caller receives its error; disposal only owns cleanup.
+    }
+    try {
+      await storage.close();
+    } catch (_) {
+      // Widget disposal cannot surface an asynchronous storage-close failure.
+    }
   }
 }
 
