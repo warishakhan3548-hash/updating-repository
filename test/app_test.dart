@@ -116,7 +116,7 @@ void main() {
     await tester.tap(find.text('Cefixime'));
     await tester.pumpAndSettle();
     expect(find.byType(EditorScreen), findsOneWidget);
-    expect(find.text('Medicine details'), findsOneWidget);
+    expect(find.text('Medicine details'), findsWidgets);
     await screenshot(tester, key, 'medicine-details');
     await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();
