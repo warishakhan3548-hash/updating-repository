@@ -30,7 +30,7 @@
 ## Verification recorded
 
 - Current code-only verification (2026-09-08): 52 pure domain checks, 25 date
-  checks and 11 medicine-understanding checks passed; targeted domain static
+  checks and 14 medicine-understanding checks passed; targeted domain static
   analysis is clean. No APK or CI workflow was run.
 - Dart static analysis for `lib` and `test`: clean at source commit `e26e387`.
 - Pure-Dart domain contract: 45 checks passed, 0 failed.

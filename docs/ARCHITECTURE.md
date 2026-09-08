@@ -87,11 +87,15 @@ Photo and video imports are read locally. A long video is sampled approximately
 every three seconds with a frame cap. Android decodes bounded 1600-pixel frames
 on supported devices, samples bucket midpoints, then discards blurry and
 perceptually duplicate frames before OCR. Evidence is clustered by repeated
-normalized lines and enters an Import Inbox. Explicit uploaded/pasted list rows
-carry hard item boundaries and an oversized list is rejected instead of silently
-truncated. The Import Inbox performs no automatic online catalog lookup and does
-not transmit captured text or barcodes. The user opens an existing record or
-creates a new draft; low-confidence OCR never fills authoritative medical fields.
+normalized lines and enters an Import Inbox. The parser treats composition as a
+bounded multi-line semantic scope, excludes its ingredient lines from brand-name
+competition, removes dotted pharmacopoeia notation such as I.P./U.S.P., rejects
+marketing-only headers, and binds MFG/EXP labels to adjacent OCR date lines.
+Explicit uploaded/pasted list rows carry hard item boundaries and an oversized
+list is rejected instead of silently truncated. The Import Inbox performs no
+automatic online catalog lookup and does not transmit captured text or barcodes.
+The user opens an existing record or creates a new draft; low-confidence OCR
+never fills authoritative medical fields.
 Cancellation stops at the next safe boundary, keeps other imports locked until
 the active ML step drains, then closes recognizers and deletes temporary files.
 Temporary raw media, camera captures and sampled frames are never included in

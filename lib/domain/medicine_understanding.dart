@@ -820,14 +820,49 @@ class MedicineUnderstandingEngine {
           );
     }
 
+    // Composition is a small labelled section, not necessarily one OCR line.
+    // Keep the span together so "Paracetamol I.P." and a following "650 mg"
+    // are understood as one ingredient fact, and never compete as a brand.
+    final compositionLines = <int>{};
+    for (var index = 0; index < lines.length; index++) {
+      if (compositionLines.contains(index) ||
+          !_compositionLabel.hasMatch(searchText(lines[index]))) {
+        continue;
+      }
+      compositionLines.add(index);
+      final parts = <String>[];
+      final after = _afterLabel(lines[index], _compositionLabel);
+      if (after.isNotEmpty) parts.add(after);
+      for (
+        var nextIndex = index + 1;
+        nextIndex < lines.length && nextIndex <= index + 5;
+        nextIndex++
+      ) {
+        final normalized = searchText(lines[nextIndex]);
+        if (_endsCompositionScope(normalized)) break;
+        compositionLines.add(nextIndex);
+        parts.add(lines[nextIndex]);
+        if (parts.fold<int>(0, (sum, value) => sum + value.length) > 260) {
+          break;
+        }
+      }
+      final source = parts.join(' ');
+      final salt = _saltValue(source);
+      if (salt.isNotEmpty) add('salt', salt, .94);
+      final strengths = _strengths(source);
+      if (strengths.isNotEmpty) {
+        add('strength', strengths.join(' + '), .93);
+      }
+    }
+
     for (var index = 0; index < lines.length; index++) {
       final line = lines[index];
       final lower = searchText(line);
       final next = index + 1 < lines.length ? lines[index + 1] : '';
 
-      final mfg = _labelledDate(line, _mfgLabel, expiry: false);
+      final mfg = _dateNearLabel(lines, index, _mfgLabel, expiry: false);
       if (mfg != null) add('mfg', mfg.value, mfg.confidence);
-      final expiry = _labelledDate(line, _expiryLabel, expiry: true);
+      final expiry = _dateNearLabel(lines, index, _expiryLabel, expiry: true);
       if (expiry != null) add('expiry', expiry.value, expiry.confidence);
 
       final batch = _labelValue(
@@ -864,18 +899,13 @@ class MedicineUnderstandingEngine {
         add('brand', value, .96);
       }
 
-      final compositionLabel = _compositionLabel.hasMatch(lower);
-      if (compositionLabel) {
-        final after = _afterLabel(line, _compositionLabel);
-        final source = after.isNotEmpty ? after : next;
-        final salt = _saltValue(source);
-        if (salt.isNotEmpty) add('salt', salt, .92);
-      } else if (_looksLikeGenericLine(line)) {
+      if (!compositionLines.contains(index) && _looksLikeGenericLine(line)) {
         final salt = _saltValue(line);
         if (salt.isNotEmpty) add('salt', salt, .76);
       }
 
-      if (!_priceNoise.hasMatch(lower) &&
+      if (!compositionLines.contains(index) &&
+          !_priceNoise.hasMatch(lower) &&
           !_packNoise.hasMatch(lower) &&
           !_dateNoise.hasMatch(lower)) {
         final strengths = _strengths(line);
@@ -890,7 +920,7 @@ class MedicineUnderstandingEngine {
       final mrp = _mrpValue(line);
       if (mrp.isNotEmpty) add('mrp', mrp, .92);
 
-      if (_eligibleNameLine(line, index)) {
+      if (!compositionLines.contains(index) && _eligibleNameLine(line, index)) {
         final name = _productName(line);
         if (name.isNotEmpty) {
           final uppercase = _uppercaseRatio(line);
@@ -991,6 +1021,10 @@ final _packNoise = RegExp(
   r'\b(?:pack|strip|blister|bottle|tablets?|capsules?|sachets?)\s*(?:of|size|x)?\s*\d+|\b\d+\s*x\s*\d+\b',
   caseSensitive: false,
 );
+final _compositionStop = RegExp(
+  r'\b(?:excipients?|colou?r|dosage|directions?|storage|warning|schedule|keep|manufactured|marketed|batch|lot|mfg|mfd|exp|expiry|mrp|price|net\s*(?:qty|content))\b',
+  caseSensitive: false,
+);
 
 String _cleanLine(String value) => value
     .replaceAll(RegExp(r'[\u0000-\u0008\u000B\u000C\u000E-\u001F]'), ' ')
@@ -1020,6 +1054,36 @@ _ParsedDate? _labelledDate(String line, RegExp label, {required bool expiry}) {
   final value = _canonicalPrintedDate(tail, expiry: expiry);
   if (value == null) return null;
   return _ParsedDate(value, value.length == 7 ? .91 : .94);
+}
+
+_ParsedDate? _dateNearLabel(
+  List<String> lines,
+  int index,
+  RegExp label, {
+  required bool expiry,
+}) {
+  final direct = _labelledDate(lines[index], label, expiry: expiry);
+  if (direct != null) return direct;
+  if (!label.hasMatch(searchText(lines[index]))) return null;
+  final otherLabel = expiry ? _mfgLabel : _expiryLabel;
+  for (
+    var nextIndex = index + 1;
+    nextIndex < lines.length && nextIndex <= index + 2;
+    nextIndex++
+  ) {
+    final next = lines[nextIndex];
+    final normalized = searchText(next);
+    if (otherLabel.hasMatch(normalized) ||
+        _compositionStop.hasMatch(normalized)) {
+      break;
+    }
+    final value = _canonicalPrintedDate(next, expiry: expiry);
+    if (value != null) {
+      final base = nextIndex == index + 1 ? .89 : .84;
+      return _ParsedDate(value, value.length == 7 ? base : base + .02);
+    }
+  }
+  return null;
 }
 
 String? _canonicalPrintedDate(String raw, {required bool expiry}) {
@@ -1076,6 +1140,17 @@ String? _canonicalPrintedDate(String raw, {required bool expiry}) {
     if (a > 99) return _validatedIso(a, b, c, expiry: expiry);
     return _validatedIso(_fullYear(c), b, a, expiry: expiry);
   }
+  final spacedFull = RegExp(
+    r'(?<!\d)(\d{1,2})\s+(\d{1,2})\s+(\d{2,4})(?!\d)',
+  ).firstMatch(value);
+  if (spacedFull != null) {
+    return _validatedIso(
+      _fullYear(int.parse(spacedFull[3]!)),
+      int.parse(spacedFull[2]!),
+      int.parse(spacedFull[1]!),
+      expiry: expiry,
+    );
+  }
   final month = RegExp(
     r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{2,4})(?!\s*[./-]\s*\d)',
   ).firstMatch(value);
@@ -1117,6 +1192,18 @@ DateTime? _dateForComparison(String value, {required bool monthEnd}) {
 bool _looksLikeDate(String value) =>
     RegExp(r'^\d{1,4}[./-]\d{1,2}(?:[./-]\d{1,4})?$').hasMatch(value);
 
+bool _endsCompositionScope(String normalized) =>
+    normalized.isEmpty ||
+    _compositionStop.hasMatch(normalized) ||
+    _dateNoise.hasMatch(normalized) ||
+    _manufacturerHeader.hasMatch(normalized) ||
+    _priceNoise.hasMatch(normalized) ||
+    _packNoise.hasMatch(normalized) ||
+    RegExp(
+      r'\b(?:batch|lot)\b|\bb\s*\.?\s*no\b',
+      caseSensitive: false,
+    ).hasMatch(normalized);
+
 List<String> _strengths(String line) {
   final normalized = line
       .replaceAll('μ', 'µ')
@@ -1151,7 +1238,14 @@ String _saltValue(String raw) {
       .replaceAll(_compositionLabel, ' ')
       .replaceAll(
         RegExp(
-          r'\b(?:equivalent\s+to|eq\.?\s*to|contains?|each|film\s+coated|uncoated|tablets?|capsules?|oral|solution|suspension|ip|bp|usp|ph\.?\s*eur|excipients?|colou?r|q\.?s\.?)\b',
+          r'\b(?:i\s*\.?\s*p|b\s*\.?\s*p|u\s*\.?\s*s\s*\.?\s*p|ph\s*\.?\s*eur)\s*\.?',
+          caseSensitive: false,
+        ),
+        ' ',
+      )
+      .replaceAll(
+        RegExp(
+          r'\b(?:equivalent\s+to|eq\.?\s*to|contains?|each|film\s+coated|uncoated|tablets?|capsules?|oral|solution|suspension|excipients?|colou?r|q\.?s\.?)\b',
           caseSensitive: false,
         ),
         ' ',
@@ -1229,6 +1323,7 @@ bool _eligibleNameLine(String line, int index) {
   }
   if (_looksLikeGenericLine(line)) return false;
   final tokens = normalized.split(' ');
+  if (_looksLikeMarketingOnly(tokens)) return false;
   if (tokens.length > 6) return false;
   if (tokens.every((token) => RegExp(r'^\d').hasMatch(token))) return false;
   if (index > 8 &&
@@ -1237,6 +1332,32 @@ bool _eligibleNameLine(String line, int index) {
     return false;
   }
   return true;
+}
+
+bool _looksLikeMarketingOnly(List<String> tokens) {
+  const marketing = <String>{
+    'new',
+    'improved',
+    'formula',
+    'advanced',
+    'effective',
+    'relief',
+    'fast',
+    'action',
+    'trusted',
+    'quality',
+    'better',
+    'extra',
+    'power',
+    'care',
+    'original',
+  };
+  final words = tokens
+      .where((token) => RegExp(r'[a-z\u0900-\u097f]').hasMatch(token))
+      .toList(growable: false);
+  if (words.length < 2) return false;
+  final hits = words.where(marketing.contains).length;
+  return hits >= 2 && hits / words.length >= .66;
 }
 
 double _uppercaseRatio(String value) {

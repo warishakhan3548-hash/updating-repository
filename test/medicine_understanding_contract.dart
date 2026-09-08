@@ -38,6 +38,74 @@ Manufactured by Micro Labs Limited
       'MRP became stock cost',
     );
   },
+  'ignores marketing headers and follows split composition and date labels':
+      () {
+        final result = const MedicineUnderstandingEngine().understand([
+          const MedicineFrameEvidence(
+            sequence: 0,
+            quality: .92,
+            text: '''
+NEW IMPROVED FORMULA
+DOLO 650
+COMPOSITION
+Each uncoated tablet contains
+Paracetamol I.P.
+650 mg
+Excipients q.s.
+MFG DATE
+08/2026
+EXP DATE
+07/2028
+''',
+          ),
+        ]);
+        final draft = result.drafts.single;
+        _equal(draft.name, 'Dolo');
+        _equal(draft.salt, 'Paracetamol');
+        _equal(draft.strength.toLowerCase(), '650 mg');
+        _equal(draft.mfg, '2026-08');
+        _equal(draft.expiry, '2028-07');
+      },
+  'keeps multi-line combination salts inside one composition scope': () {
+    final result = const MedicineUnderstandingEngine().understand([
+      const MedicineFrameEvidence(
+        sequence: 0,
+        quality: .95,
+        text: '''
+MONTEK LC
+COMPOSITION:
+Montelukast Sodium I.P. 10 mg +
+Levocetirizine Hydrochloride I.P.
+5 mg
+Excipients q.s.
+''',
+      ),
+    ]);
+    final draft = result.drafts.single;
+    _equal(draft.name, 'Montek LC');
+    _check(
+      draft.salt.toLowerCase().contains('montelukast sodium'),
+      'first composition ingredient was lost',
+    );
+    _check(
+      draft.salt.toLowerCase().contains('levocetirizine hydrochloride'),
+      'second composition ingredient was lost',
+    );
+    _check(!draft.salt.toLowerCase().contains('i p'), 'I.P. became a salt');
+    _check(draft.strength.contains('10 mg'), 'first strength missing');
+    _check(draft.strength.contains('5 mg'), 'second strength missing');
+  },
+  'links month-name dates placed below their field labels': () {
+    final result = const MedicineUnderstandingEngine().understand([
+      const MedicineFrameEvidence(
+        sequence: 0,
+        text: 'TESTMED\nMFD\nAUG 2026\nUSE BEFORE\nJUL 2028',
+      ),
+    ]);
+    final draft = result.drafts.single;
+    _equal(draft.mfg, '2026-08');
+    _equal(draft.expiry, '2028-07');
+  },
   'splits a sequential video into separate medicine drafts': () {
     final result = const MedicineUnderstandingEngine().understand([
       const MedicineFrameEvidence(
