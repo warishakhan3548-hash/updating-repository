@@ -248,11 +248,12 @@ class HomeScreen extends StatelessWidget {
           if (records.isEmpty)
             EmptyState(
               title: 'Start with your first medicine',
-              message: 'Add its name now. Fill in expiry, location and price when you have them.',
-              action: FilledButton.icon(
+              message:
+                  'Add its name now. Fill in expiry, location and price when you have them.',
+              action: RaisedActionButton(
+                icon: Icons.add_rounded,
+                label: 'Add medicine',
                 onPressed: () => openEditor(context, controller),
-                icon: const Icon(Icons.add),
-                label: const Text('Add medicine'),
               ),
             )
           else if (attention.isEmpty)
@@ -457,22 +458,26 @@ class _ScanBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GlassPanel(
-    tint: primaryDeep,
+    tint: const Color(0xFFF0F5FF),
+    accentColor: primary,
+    shadowColor: primary,
     radius: 22,
-    dark: true,
+    elevation: 1.12,
     child: Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(22),
+        splashColor: primary.withValues(alpha: .10),
+        highlightColor: primary.withValues(alpha: .05),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Row(
             children: [
               const DepthIcon(
                 Icons.qr_code_scanner_rounded,
-                color: Colors.white,
-                background: primary,
+                color: primary,
+                background: primarySoft,
                 size: 48,
               ),
               const SizedBox(width: 14),
@@ -482,14 +487,15 @@ class _ScanBanner extends StatelessWidget {
                   children: [
                     Text(
                       'Scan & Search',
-                      style: Theme.of(context).textTheme.titleLarge
-                          ?.copyWith(color: Colors.white),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: primaryDeep,
+                      ),
                     ),
                     const SizedBox(height: 5),
                     const Text(
                       'Scan a pack. Speak a name. Find your stock.',
                       style: TextStyle(
-                        color: inverseMuted,
+                        color: muted,
                         fontSize: 12,
                         height: 1.5,
                       ),
@@ -500,7 +506,7 @@ class _ScanBanner extends StatelessWidget {
               const SizedBox(width: 8),
               const Icon(
                 Icons.arrow_forward_rounded,
-                color: Colors.white,
+                color: primary,
                 size: 22,
               ),
             ],
