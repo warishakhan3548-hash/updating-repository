@@ -214,7 +214,7 @@ class _EditorScreenState extends State<EditorScreen> {
           textInputAction: TextInputAction.next,
           onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
           decoration: _editorDecoration(
-            label: isPrimary ? 'Salt name · optional' : 'Another salt · optional',
+            label: isPrimary ? 'Salt name' : 'Another salt',
             hint: isPrimary ? 'e.g. Paracetamol' : 'e.g. Caffeine',
             suffixIcon: isPrimary
                 ? IconButton(
@@ -939,28 +939,36 @@ class _EditorScreenState extends State<EditorScreen> {
                           Expanded(
                             child: _field(
                               'strength',
-                              'Strength · optional',
+                              'Strength',
                               hint: '500 mg',
                             ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: _field(
-                              'barcode',
-                              'Barcode · optional',
-                              hint: 'Scan or type',
+                              'price',
+                              'Amount (₹)',
+                              hint: '0.00',
+                              keyboard: const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
                             ),
                           ),
                         ],
                       ),
                       _field(
                         'location',
-                        'Location · optional',
+                        'Location',
                         hint: 'Room 2, Rack B, Shelf 4…',
                       ),
                       _field(
+                        'barcode',
+                        'Barcode',
+                        hint: 'Scan or type',
+                      ),
+                      _field(
                         'ocrText',
-                        'Captured search text · optional',
+                        'Captured search text',
                         hint: 'Scanner/OCR words from the pack',
                         lines: 2,
                         max: 30000,
