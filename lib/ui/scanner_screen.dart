@@ -51,11 +51,11 @@ class _ScannerScreenState extends State<ScannerScreen>
     final generation = ++_generation;
     if (kIsWeb) {
       setState(
-        () => _error =
-            'Live camera OCR is available in the Android app. You can paste text into search.',
+        () => _error = 'Live camera OCR is available in the Android app. You can paste text into search.',
       );
       return;
     }
+    CameraController? openingCamera;
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) throw StateError('No camera is available.');
@@ -71,20 +71,29 @@ class _ScannerScreenState extends State<ScannerScreen>
             ? ImageFormatGroup.nv21
             : ImageFormatGroup.bgra8888,
       );
+      openingCamera = camera;
       await camera.initialize();
       if (_closed || generation != _generation) {
         await camera.dispose();
+        openingCamera = null;
         return;
       }
       _description = description;
       _camera = camera;
       await camera.startImageStream(_onFrame);
+      openingCamera = null;
       if (mounted) setState(() => _error = '');
     } catch (e) {
+      if (identical(_camera, openingCamera)) {
+        _camera = null;
+        _description = null;
+      }
+      try {
+        await openingCamera?.dispose();
+      } catch (_) {}
       if (mounted && !_closed)
         setState(
-          () => _error =
-              'Camera unavailable. Allow camera access in your phone settings, then retry.',
+          () => _error = 'Camera unavailable. Allow camera access in your phone settings, then retry.',
         );
     }
   }
@@ -151,13 +160,25 @@ class _ScannerScreenState extends State<ScannerScreen>
         sequence: _scanSequence++,
       );
       if (_closed || !mounted || generation != _generation) return;
-      if (result.text.isNotEmpty || result.barcode.isNotEmpty)
+      if (result.text.isNotEmpty || result.barcode.isNotEmpty) {
+        final evidence = <ScanEvidence>[..._evidence, result];
+        if (evidence.length > 18) {
+          evidence.removeRange(0, evidence.length - 18);
+        }
+        final payload = await compute(
+          understandMedicineEvidenceMessage,
+          <String, Object?>{
+            'evidence': evidence
+                .map((item) => item.toMessage())
+                .toList(growable: false),
+          },
+        );
+        if (_closed || !mounted || generation != _generation) return;
+        final understood = MedicineUnderstandingResult.fromMessage(payload);
         setState(() {
-          _evidence.add(result);
-          if (_evidence.length > 18) _evidence.removeAt(0);
-          final understood = const MedicineUnderstandingEngine().understand(
-            _evidence,
-          );
+          _evidence
+            ..clear()
+            ..addAll(evidence);
           final current = understood.drafts.isEmpty
               ? null
               : understood.drafts.last;
@@ -165,6 +186,7 @@ class _ScannerScreenState extends State<ScannerScreen>
           _barcode = current?.barcode ?? result.barcode;
           _error = '';
         });
+      }
     } catch (e) {
       if (mounted && !_closed && _capturing)
         setState(
@@ -198,6 +220,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     ++_generation;
     final camera = _camera;
     _camera = null;
+    _description = null;
     if (camera != null) {
       try {
         await camera.dispose();
@@ -399,8 +422,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                             [
                               if (_barcode.isNotEmpty) 'Barcode: $_barcode',
                               if (_text.isNotEmpty) _text,
-                              if (_text.isEmpty && _barcode.isEmpty)
-                                'Point at packaging or a printed medicine list.',
+                              if (_text.isEmpty && _barcode.isEmpty) 'Point at packaging or a printed medicine list.',
                             ].join('\n\n'),
                             style: const TextStyle(color: muted, fontSize: 13),
                           ),

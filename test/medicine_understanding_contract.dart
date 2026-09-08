@@ -138,6 +138,44 @@ Manufactured by Micro Labs Limited
     _equal(result.ignoredFrames, 1);
     _equal(result.drafts.single.frameSequences.single, 1);
   },
+  'duplicate fusion keeps complementary barcode and labelled facts': () {
+    final result = const MedicineUnderstandingEngine().understand([
+      const MedicineFrameEvidence(
+        sequence: 0,
+        quality: .96,
+        text: 'CEFIX 200\nCefixime Tablets IP 200 mg',
+      ),
+      const MedicineFrameEvidence(
+        sequence: 1,
+        quality: .42,
+        barcode: '8901234567890',
+        text: 'CEFIX 200\nCefixime Tablets IP 200 mg\nEXP 08/2028',
+      ),
+    ]);
+    _equal(result.drafts.length, 1);
+    _equal(result.ignoredFrames, 1);
+    _equal(result.drafts.single.barcode, '8901234567890');
+    _equal(result.drafts.single.expiry, '2028-08');
+  },
+  'same product barcode with a different batch stays separate stock': () {
+    final result = const MedicineUnderstandingEngine().understand([
+      const MedicineFrameEvidence(
+        sequence: 0,
+        quality: 1,
+        barcode: '8901234567890',
+        text: 'CEFIX 200\nCefixime Tablets IP 200 mg\nBatch CF100\nEXP 08/2028',
+      ),
+      const MedicineFrameEvidence(
+        sequence: 1,
+        quality: 1,
+        barcode: '8901234567890',
+        text: 'CEFIX 200\nCefixime Tablets IP 200 mg\nBatch ZX900\nEXP 11/2028',
+      ),
+    ]);
+    _equal(result.drafts.length, 2);
+    _equal(result.drafts[0].batchNumber, 'CF100');
+    _equal(result.drafts[1].batchNumber, 'ZX900');
+  },
   'keeps MFG and expiry roles separate and rejects reversed chronology': () {
     final result = const MedicineUnderstandingEngine().understand([
       const MedicineFrameEvidence(

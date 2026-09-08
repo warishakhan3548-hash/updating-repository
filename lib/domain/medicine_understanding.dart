@@ -309,9 +309,11 @@ class MedicineUnderstandingEngine {
       }
       if (prepared.isNotEmpty && _nearDuplicate(prepared.last, current)) {
         final previous = prepared.last;
-        if (current.effectiveQuality > previous.effectiveQuality) {
-          prepared[prepared.length - 1] = current;
-        }
+        // Repeated camera frames must not vote multiple times, but dropping the
+        // weaker frame can also drop the only readable barcode/date/batch. Fuse
+        // complementary facts into one vote and retain the clearer frame as its
+        // temporal representative.
+        prepared[prepared.length - 1] = _fuseNearDuplicate(previous, current);
         ignored++;
         continue;
       }
@@ -378,6 +380,10 @@ class MedicineUnderstandingEngine {
   }
 
   bool _nearDuplicate(_PreparedFrame a, _PreparedFrame b) {
+    if (_strongFieldConflict(a, b, 'batchNumber', similarityFloor: .72) ||
+        _strongFieldConflict(a, b, 'expiry')) {
+      return false;
+    }
     if (a.barcodes.isNotEmpty && b.barcodes.isNotEmpty) {
       if (a.barcodes.toSet().intersection(b.barcodes.toSet()).isEmpty) {
         return false;
@@ -390,6 +396,19 @@ class MedicineUnderstandingEngine {
         _strengthKey(strengthA.value) != _strengthKey(strengthB.value)) {
       return false;
     }
+    final identityA = _bestIdentity(<_PreparedFrame>[a]);
+    final identityB = _bestIdentity(<_PreparedFrame>[b]);
+    if (identityA != null &&
+        identityB != null &&
+        identityA.score >= .62 &&
+        identityB.score >= .62 &&
+        orderedSimilarity(
+              searchText(identityA.value),
+              searchText(identityB.value),
+            ) >=
+            .91) {
+      return true;
+    }
     final tokensA = _identityTokens(a.normalizedText);
     final tokensB = _identityTokens(b.normalizedText);
     if (tokensA.isEmpty || tokensB.isEmpty) return false;
@@ -399,8 +418,90 @@ class MedicineUnderstandingEngine {
     return overlap >= .88;
   }
 
+  _PreparedFrame _fuseNearDuplicate(_PreparedFrame a, _PreparedFrame b) {
+    final primary = a.effectiveQuality >= b.effectiveQuality ? a : b;
+    final secondary = identical(primary, a) ? b : a;
+    final lines = <String>[];
+    final keys = <String>{};
+    for (final line in <String>[...primary.lines, ...secondary.lines]) {
+      if (keys.add(searchText(line))) lines.add(line);
+    }
+    final barcodes = <String>{
+      ...primary.barcodes,
+      ...secondary.barcodes,
+    }.take(8).toList(growable: false);
+    final representative = MedicineFrameEvidence(
+      barcode: barcodes.isEmpty ? '' : barcodes.first,
+      barcodes: barcodes,
+      text: lines.join('\n'),
+      source: primary.frame.source,
+      sequence: primary.frame.sequence,
+      timestampMs: primary.frame.timestampMs,
+      quality: max(a.frame.quality, b.frame.quality),
+    );
+    final effectiveQuality = max(a.effectiveQuality, b.effectiveQuality);
+    return _PreparedFrame(
+      frame: representative,
+      lines: lines,
+      normalizedText: searchText(lines.join(' ')),
+      barcodes: barcodes,
+      // Re-extraction makes the fused frame one vote, while keeping facts that
+      // were legible from only one angle.
+      candidates: _extractCandidates(lines, representative, effectiveQuality),
+      effectiveQuality: effectiveQuality,
+    );
+  }
+
+  bool _strongFieldConflict(
+    _PreparedFrame a,
+    _PreparedFrame b,
+    String field, {
+    double similarityFloor = 1,
+  }) {
+    final left = _bestCandidate(<_PreparedFrame>[a], field);
+    final right = _bestCandidate(<_PreparedFrame>[b], field);
+    if (left == null ||
+        right == null ||
+        left.score < .76 ||
+        right.score < .76) {
+      return false;
+    }
+    final leftKey = _candidateKey(field, left.value);
+    final rightKey = _candidateKey(field, right.value);
+    if (leftKey == rightKey) return false;
+    return similarityFloor >= 1 ||
+        orderedSimilarity(leftKey, rightKey) < similarityFloor;
+  }
+
   bool _startsNewMedicine(List<_PreparedFrame> group, _PreparedFrame next) {
     final recent = group.reversed.take(4).toList(growable: false);
+    // A GTIN commonly identifies a product, not a physical batch. Therefore a
+    // confidently different batch or expiry is a stronger stock boundary than
+    // seeing the same barcode again.
+    final recentBatch = _bestCandidate(recent, 'batchNumber');
+    final nextBatch = _bestCandidate(<_PreparedFrame>[next], 'batchNumber');
+    if (recentBatch != null &&
+        nextBatch != null &&
+        recentBatch.score >= .76 &&
+        nextBatch.score >= .76 &&
+        _candidateKey('batchNumber', recentBatch.value) !=
+            _candidateKey('batchNumber', nextBatch.value) &&
+        orderedSimilarity(
+              _candidateKey('batchNumber', recentBatch.value),
+              _candidateKey('batchNumber', nextBatch.value),
+            ) <
+            .72) {
+      return true;
+    }
+    final recentExpiry = _bestCandidate(recent, 'expiry');
+    final nextExpiry = _bestCandidate(<_PreparedFrame>[next], 'expiry');
+    if (recentExpiry != null &&
+        nextExpiry != null &&
+        recentExpiry.score >= .84 &&
+        nextExpiry.score >= .84 &&
+        recentExpiry.value != nextExpiry.value) {
+      return true;
+    }
     final knownBarcodes = recent.expand((frame) => frame.barcodes).toSet();
     if (knownBarcodes.isNotEmpty && next.barcodes.isNotEmpty) {
       if (knownBarcodes.intersection(next.barcodes.toSet()).isNotEmpty) {
@@ -814,9 +915,10 @@ String _cleanLine(String value) => value
     .replaceAll(RegExp(r'\s+'), ' ')
     .trim();
 
-String _cleanValue(String value) => _cleanLine(
-  value,
-).replaceAll(RegExp(r'^[\s:;,.#-]+|[\s:;,.#-]+$'), '').trim();
+String _cleanValue(String value) =>
+    _cleanLine(value)
+        .replaceAll(RegExp(r'^[\s:;,.#-]+|[\s:;,.#-]+$'), '')
+        .trim();
 
 String _labelValue(String line, RegExp expression) =>
     expression.firstMatch(line)?.group(1)?.trim() ?? '';
@@ -874,9 +976,8 @@ String? _canonicalPrintedDate(String raw, {required bool expiry}) {
     'dec': 12,
     'december': 12,
   };
-  final word = RegExp(
-    r'(?:(\d{1,2})[\s./-]+)?([a-z]{3,9})[\s./-]+(\d{2,4})',
-  ).firstMatch(value);
+  final word = RegExp(r'(?:(\d{1,2})[\s./-]+)?([a-z]{3,9})[\s./-]+(\d{2,4})')
+      .firstMatch(value);
   if (word != null && months.containsKey(word[2])) {
     final year = _fullYear(int.parse(word[3]!));
     final month = months[word[2]]!;
@@ -893,9 +994,8 @@ String? _canonicalPrintedDate(String raw, {required bool expiry}) {
     if (a > 99) return _validatedIso(a, b, c, expiry: expiry);
     return _validatedIso(_fullYear(c), b, a, expiry: expiry);
   }
-  final month = RegExp(
-    r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{2,4})(?!\s*[./-]\s*\d)',
-  ).firstMatch(value);
+  final month = RegExp(r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{2,4})(?!\s*[./-]\s*\d)')
+      .firstMatch(value);
   if (month == null) return null;
   final a = int.parse(month[1]!);
   final b = int.parse(month[2]!);
