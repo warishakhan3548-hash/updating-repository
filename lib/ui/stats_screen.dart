@@ -8,6 +8,8 @@ class StatsScreen extends StatelessWidget {
 
   final PharmacyController controller;
 
+  String _money(int paise) => '₹${(paise / 100).toStringAsFixed(2)}';
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: controller,
@@ -37,6 +39,18 @@ class StatsScreen extends StatelessWidget {
           value: '${inventory.soldEntries}',
           detail: 'Manual out-of-stock confirmations',
           icon: Icons.check_circle_outline_rounded,
+        ),
+        _SnapshotMetric(
+          label: 'Total amount',
+          value: _money(inventory.totalEnteredAmountPaise),
+          detail: 'Sum of amounts entered for medicines',
+          icon: Icons.currency_rupee_rounded,
+        ),
+        _SnapshotMetric(
+          label: 'Number of medicines',
+          value: '${inventory.uniqueMedicineNames}',
+          detail: 'Distinct medicine names, not stock units',
+          icon: Icons.format_list_numbered_rounded,
         ),
       ];
 
