@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
@@ -101,26 +103,59 @@ class MedicineVisionService {
 List<String> _mergeLines(Iterable<String> raw) {
   final values = <String>[];
   final normalized = <String>[];
+  final exact = <String, int>{};
+  final gramIndex = <String, Set<int>>{};
   for (final item in raw.take(500)) {
     final value = item.replaceAll(RegExp(r'\s+'), ' ').trim();
     final key = searchText(value);
     if (key.length < 2) continue;
-    var duplicate = -1;
-    for (var index = 0; index < normalized.length; index++) {
-      if (key == normalized[index] ||
-          (key.length >= 6 &&
-              normalized[index].length >= 6 &&
-              orderedSimilarity(key, normalized[index]) >= .96)) {
-        duplicate = index;
-        break;
+    var duplicate = exact[key] ?? -1;
+    if (duplicate < 0 && key.length >= 6) {
+      final votes = <int, int>{};
+      for (final gram in grams(key)) {
+        for (final index in gramIndex[gram] ?? const <int>{}) {
+          votes[index] = (votes[index] ?? 0) + 1;
+        }
+      }
+      final candidates = votes.entries.toList()
+        ..sort((a, b) {
+          final count = b.value.compareTo(a.value);
+          return count != 0 ? count : a.key.compareTo(b.key);
+        });
+      for (final candidate in candidates.take(16)) {
+        final other = normalized[candidate.key];
+        final longest = max(key.length, other.length);
+        if ((key.length - other.length).abs() >
+            max(2, (longest * .12).ceil())) {
+          continue;
+        }
+        if (orderedSimilarity(key, other) >= .96) {
+          duplicate = candidate.key;
+          break;
+        }
       }
     }
     if (duplicate < 0) {
+      final index = values.length;
       values.add(value);
       normalized.add(key);
+      exact[key] = index;
+      if (key.length >= 6) {
+        for (final gram in grams(key)) {
+          gramIndex.putIfAbsent(gram, () => <int>{}).add(index);
+        }
+      }
     } else if (_lineQuality(value) > _lineQuality(values[duplicate])) {
+      final oldKey = normalized[duplicate];
       values[duplicate] = value;
       normalized[duplicate] = key;
+      if (exact[oldKey] == duplicate) exact.remove(oldKey);
+      exact[key] = duplicate;
+      if (key.length >= 6) {
+        for (final gram in grams(key)) {
+          gramIndex.putIfAbsent(gram, () => <int>{}).add(duplicate);
+        }
+      }
     }
   }
   return values;
@@ -128,11 +163,18 @@ List<String> _mergeLines(Iterable<String> raw) {
 
 double _lineQuality(String value) {
   if (value.isEmpty) return 0;
-  final useful = value.runes.where((code) {
-    final character = String.fromCharCode(code);
-    return RegExp(r'[A-Za-z0-9\u0900-\u097f]').hasMatch(character);
-  }).length;
-  final replacement = RegExp(r'[�|{}]').allMatches(value).length;
+  var useful = 0, replacement = 0;
+  for (final code in value.runes) {
+    if ((code >= 48 && code <= 57) ||
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        (code >= 0x0900 && code <= 0x097F)) {
+      useful++;
+    }
+    if (code == 0xFFFD || code == 0x7C || code == 0x7B || code == 0x7D) {
+      replacement++;
+    }
+  }
   return useful / value.length - replacement * .08;
 }
 

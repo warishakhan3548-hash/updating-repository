@@ -9,7 +9,8 @@
 - Manual add/edit/remove/restock, explicit SOLD, aggregate sale recording,
   soft-delete history, latest Undo and per-medicine version restore.
 - Reviewed photo/text imports and adaptive local video import with frame sampling,
-  blur/duplicate rejection, multi-frame consensus and temporary-file cleanup.
+  bounded decode, blur/duplicate rejection, multi-frame consensus, explicit
+  list-row boundaries and temporary-file cleanup.
 - Pharmacy-only external-AI TXT/prompt, configurable API route, strict JSON/diff
   review, stale/replay protection, cancellation and atomic selected apply.
 - Tracking periods, medicine/stock/salt/form/value metrics, fast movement,

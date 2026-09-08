@@ -110,4 +110,13 @@ class MediaImportService {
     if (bounded.isEmpty) return;
     await _channel.invokeMethod<int>('deleteImportFiles', {'paths': bounded});
   }
+
+  Future<void> cleanupCameraCapture(String path) async {
+    if (path.isEmpty ||
+        kIsWeb ||
+        defaultTargetPlatform != TargetPlatform.android) {
+      return;
+    }
+    await _channel.invokeMethod<bool>('deleteCameraCapture', {'path': path});
+  }
 }

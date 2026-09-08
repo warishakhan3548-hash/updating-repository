@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 import '../domain/medicine_understanding.dart';
+import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
 import 'design.dart';
 
@@ -29,6 +30,7 @@ class ScannerScreen extends StatefulWidget {
 class _ScannerScreenState extends State<ScannerScreen>
     with WidgetsBindingObserver {
   final _vision = MedicineVisionService();
+  final _media = MediaImportService();
   CameraController? _camera;
   CameraDescription? _description;
   Future<void>? _frameWork;
@@ -51,7 +53,8 @@ class _ScannerScreenState extends State<ScannerScreen>
     final generation = ++_generation;
     if (kIsWeb) {
       setState(
-        () => _error = 'Live camera OCR is available in the Android app. You can paste text into search.',
+        () => _error =
+            'Live camera OCR is available in the Android app. You can paste text into search.',
       );
       return;
     }
@@ -93,7 +96,8 @@ class _ScannerScreenState extends State<ScannerScreen>
       } catch (_) {}
       if (mounted && !_closed)
         setState(
-          () => _error = 'Camera unavailable. Allow camera access in your phone settings, then retry.',
+          () => _error =
+              'Camera unavailable. Allow camera access in your phone settings, then retry.',
         );
     }
   }
@@ -165,14 +169,12 @@ class _ScannerScreenState extends State<ScannerScreen>
         if (evidence.length > 18) {
           evidence.removeRange(0, evidence.length - 18);
         }
-        final payload = await compute(
-          understandMedicineEvidenceMessage,
-          <String, Object?>{
-            'evidence': evidence
-                .map((item) => item.toMessage())
-                .toList(growable: false),
-          },
-        );
+        final payload =
+            await compute(understandMedicineEvidenceMessage, <String, Object?>{
+              'evidence': evidence
+                  .map((item) => item.toMessage())
+                  .toList(growable: false),
+            });
         if (_closed || !mounted || generation != _generation) return;
         final understood = MedicineUnderstandingResult.fromMessage(payload);
         setState(() {
@@ -202,16 +204,25 @@ class _ScannerScreenState extends State<ScannerScreen>
     final camera = _camera;
     if (camera == null || _capturing || _closed) return;
     setState(() => _capturing = true);
+    String? capturePath;
     try {
       if (camera.value.isStreamingImages) await camera.stopImageStream();
       await _frameWork;
       final photo = await camera.takePicture();
+      capturePath = photo.path;
       await _recognize(InputImage.fromFilePath(photo.path));
       if (!_closed && camera == _camera)
         await camera.startImageStream(_onFrame);
     } catch (e) {
       if (mounted) showError(context, 'Capture failed. Please retry.');
     } finally {
+      if (capturePath != null) {
+        try {
+          await _media.cleanupCameraCapture(capturePath);
+        } catch (_) {
+          // Cache cleanup must not hide a successfully recognized scan.
+        }
+      }
       if (mounted) setState(() => _capturing = false);
     }
   }
@@ -422,7 +433,8 @@ class _ScannerScreenState extends State<ScannerScreen>
                             [
                               if (_barcode.isNotEmpty) 'Barcode: $_barcode',
                               if (_text.isNotEmpty) _text,
-                              if (_text.isEmpty && _barcode.isEmpty) 'Point at packaging or a printed medicine list.',
+                              if (_text.isEmpty && _barcode.isEmpty)
+                                'Point at packaging or a printed medicine list.',
                             ].join('\n\n'),
                             style: const TextStyle(color: muted, fontSize: 13),
                           ),

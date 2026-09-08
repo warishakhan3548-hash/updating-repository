@@ -11,6 +11,7 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -91,6 +92,13 @@ class MainActivity : FlutterActivity() {
                         val paths = call.argument<List<String>>("paths").orEmpty()
                         Thread {
                             val deleted = deleteImportFiles(paths)
+                            runOnUiThread { result.success(deleted) }
+                        }.start()
+                    }
+                    "deleteCameraCapture" -> {
+                        val path = call.argument<String>("path").orEmpty()
+                        Thread {
+                            val deleted = deleteCameraCapture(path)
                             runOnUiThread { result.success(deleted) }
                         }.start()
                     }
@@ -313,6 +321,14 @@ class MainActivity : FlutterActivity() {
                 ?.toLongOrNull()
                 ?: throw IllegalArgumentException("The video duration could not be read.")
             if (durationMs < 1) throw IllegalArgumentException("The video is empty.")
+            val sourceWidth = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                ?.toIntOrNull()
+                ?: 0
+            val sourceHeight = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                ?.toIntOrNull()
+                ?: 0
             val intervalMs = when {
                 durationMs <= 20_000L -> 650.0
                 durationMs <= 60_000L -> 900.0
@@ -331,22 +347,37 @@ class MainActivity : FlutterActivity() {
             val result = mutableListOf<Map<String, Any>>()
 
             for (index in 0 until count) {
-                val timeUs = if (count == 1) {
-                    durationMs * 500L
+                // Sample the middle of each bucket. Exact endpoints are often
+                // black transition frames and add no medicine evidence.
+                val timeUs = durationMs * 1000L * (index * 2L + 1L) / (count * 2L)
+                val largestSource = maxOf(sourceWidth, sourceHeight)
+                val sourceScale = minOf(1.0, 1600.0 / largestSource.coerceAtLeast(1))
+                val scaledWidth = (sourceWidth * sourceScale).toInt().coerceAtLeast(1)
+                val scaledHeight = (sourceHeight * sourceScale).toInt().coerceAtLeast(1)
+                val original = if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1 &&
+                    sourceWidth > 0 &&
+                    sourceHeight > 0
+                ) {
+                    retriever.getScaledFrameAtTime(
+                        timeUs,
+                        MediaMetadataRetriever.OPTION_CLOSEST,
+                        scaledWidth,
+                        scaledHeight,
+                    )
                 } else {
-                    durationMs * 1000L * index / (count - 1)
-                }
-                val original = retriever.getFrameAtTime(
-                    timeUs,
-                    MediaMetadataRetriever.OPTION_CLOSEST,
-                ) ?: continue
+                    retriever.getFrameAtTime(
+                        timeUs,
+                        MediaMetadataRetriever.OPTION_CLOSEST,
+                    )
+                } ?: continue
                 val metrics = imageMetrics(original)
                 val timestampMs = timeUs / 1000L
                 val duplicate = acceptedHashes.takeLast(8).any {
                     abs(timestampMs - it.second) <= 8_000L &&
                         java.lang.Long.bitCount(it.first xor metrics.hash) <= 3
                 }
-                if (result.isNotEmpty() && (duplicate || metrics.quality < 0.16)) {
+                if (duplicate || metrics.quality < 0.16) {
                     original.recycle()
                     continue
                 }
@@ -411,6 +442,19 @@ class MainActivity : FlutterActivity() {
             }
         }
         return deleted
+    }
+
+    private fun deleteCameraCapture(path: String): Boolean {
+        if (path.isBlank()) return false
+        return try {
+            val root = cacheDir.canonicalFile
+            val target = File(path).canonicalFile
+            val allowed = target.isFile &&
+                target.path.startsWith(root.path + File.separator)
+            allowed && target.delete()
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun imageMetrics(bitmap: Bitmap): FrameMetrics {

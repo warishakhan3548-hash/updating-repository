@@ -18,6 +18,7 @@ class MedicineFrameEvidence {
     this.sequence = 0,
     this.timestampMs,
     this.quality = 1,
+    this.startsNewItem = false,
   });
 
   final String barcode;
@@ -29,6 +30,10 @@ class MedicineFrameEvidence {
 
   /// A bounded capture-quality hint. OCR richness is evaluated independently.
   final double quality;
+
+  /// True only for an explicit row/paragraph boundary from a structured local
+  /// import. Camera/video boundaries remain inferred from their evidence.
+  final bool startsNewItem;
 
   List<String> get allBarcodes {
     final values = <String>{
@@ -48,6 +53,7 @@ class MedicineFrameEvidence {
     'sequence': sequence,
     'timestampMs': timestampMs,
     'quality': quality,
+    'startsNewItem': startsNewItem,
   };
 
   factory MedicineFrameEvidence.fromMessage(Map<Object?, Object?> map) {
@@ -66,8 +72,76 @@ class MedicineFrameEvidence {
       quality: map['quality'] is num
           ? (map['quality']! as num).toDouble().clamp(0, 1)
           : 1,
+      startsNewItem: map['startsNewItem'] == true,
     );
   }
+}
+
+const maxMedicineListCharacters = 1000000;
+const maxMedicineListItems = 240;
+const maxMedicineEvidenceFrames = 240;
+
+/// Converts an explicitly pasted/uploaded medicine list into hard-bounded
+/// evidence items. It never guesses quantity or price columns and never drops
+/// overflow silently; every resulting draft still requires editor review.
+List<MedicineFrameEvidence> medicineListEvidence(
+  String input, {
+  required String source,
+}) {
+  var text = input.trim().replaceFirst('\uFEFF', '');
+  if (text.isEmpty) {
+    throw const FormatException('The medicine list is empty.');
+  }
+  if (text.length > maxMedicineListCharacters) {
+    throw const FormatException(
+      'This medicine list is too large. Split it into smaller files.',
+    );
+  }
+
+  final paragraphs = text
+      .split(RegExp(r'\r?\n\s*\r?\n'))
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
+  final paragraphRows = paragraphs
+      .map((value) => value.split(RegExp(r'[\r\n]+')).length)
+      .toList(growable: false);
+  final useParagraphs =
+      paragraphs.length > 1 && paragraphRows.every((count) => count <= 6);
+  final rawItems = useParagraphs
+      ? paragraphs
+      : text
+            .split(RegExp(r'[\r\n]+'))
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList(growable: false);
+  if (rawItems.length > maxMedicineListItems) {
+    throw FormatException(
+      'This list has ${rawItems.length} items. Import at most $maxMedicineListItems at a time so every medicine can be reviewed safely.',
+    );
+  }
+
+  final items = rawItems
+      .map(
+        (value) => value
+            .replaceFirst(RegExp(r'^\s*(?:[-*•]|\d{1,4}[.)])\s+'), '')
+            .trim(),
+      )
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
+  if (items.isEmpty) {
+    throw const FormatException('The medicine list has no readable items.');
+  }
+  return <MedicineFrameEvidence>[
+    for (var index = 0; index < items.length; index++)
+      MedicineFrameEvidence(
+        text: items[index],
+        source: '$source · item ${index + 1}',
+        sequence: index,
+        timestampMs: index * 12000,
+        startsNewItem: index > 0,
+      ),
+  ];
 }
 
 class ExtractedMedicineField {
@@ -279,14 +353,19 @@ class MedicineUnderstandingEngine {
   MedicineUnderstandingResult understand(
     Iterable<MedicineFrameEvidence> input,
   ) {
+    final supplied = input.toList(growable: false);
+    final eligible = supplied
+        .where(
+          (frame) =>
+              frame.text.trim().isNotEmpty || frame.allBarcodes.isNotEmpty,
+        )
+        .toList(growable: false);
+    var ignored = supplied.length - eligible.length;
+    if (eligible.length > maxMedicineEvidenceFrames) {
+      ignored += eligible.length - maxMedicineEvidenceFrames;
+    }
     final ordered =
-        input
-            .where(
-              (frame) =>
-                  frame.text.trim().isNotEmpty || frame.allBarcodes.isNotEmpty,
-            )
-            .take(120)
-            .toList(growable: false)
+        eligible.take(maxMedicineEvidenceFrames).toList(growable: false)
           ..sort((a, b) {
             final sequence = a.sequence.compareTo(b.sequence);
             if (sequence != 0) return sequence;
@@ -295,12 +374,11 @@ class MedicineUnderstandingEngine {
     if (ordered.isEmpty) {
       return MedicineUnderstandingResult(
         drafts: const <MedicineScanDraft>[],
-        ignoredFrames: input.length,
+        ignoredFrames: ignored,
       );
     }
 
     final prepared = <_PreparedFrame>[];
-    var ignored = 0;
     for (final frame in ordered) {
       final current = _prepare(frame);
       if (current.lines.isEmpty && current.barcodes.isEmpty) {
@@ -380,6 +458,7 @@ class MedicineUnderstandingEngine {
   }
 
   bool _nearDuplicate(_PreparedFrame a, _PreparedFrame b) {
+    if (b.frame.startsNewItem) return false;
     if (_strongFieldConflict(a, b, 'batchNumber', similarityFloor: .72) ||
         _strongFieldConflict(a, b, 'expiry')) {
       return false;
@@ -438,6 +517,8 @@ class MedicineUnderstandingEngine {
       sequence: primary.frame.sequence,
       timestampMs: primary.frame.timestampMs,
       quality: max(a.frame.quality, b.frame.quality),
+      startsNewItem:
+          primary.frame.startsNewItem || secondary.frame.startsNewItem,
     );
     final effectiveQuality = max(a.effectiveQuality, b.effectiveQuality);
     return _PreparedFrame(
@@ -474,6 +555,7 @@ class MedicineUnderstandingEngine {
   }
 
   bool _startsNewMedicine(List<_PreparedFrame> group, _PreparedFrame next) {
+    if (next.frame.startsNewItem) return true;
     final recent = group.reversed.take(4).toList(growable: false);
     // A GTIN commonly identifies a product, not a physical batch. Therefore a
     // confidently different batch or expiry is a stronger stock boundary than
@@ -915,10 +997,9 @@ String _cleanLine(String value) => value
     .replaceAll(RegExp(r'\s+'), ' ')
     .trim();
 
-String _cleanValue(String value) =>
-    _cleanLine(value)
-        .replaceAll(RegExp(r'^[\s:;,.#-]+|[\s:;,.#-]+$'), '')
-        .trim();
+String _cleanValue(String value) => _cleanLine(
+  value,
+).replaceAll(RegExp(r'^[\s:;,.#-]+|[\s:;,.#-]+$'), '').trim();
 
 String _labelValue(String line, RegExp expression) =>
     expression.firstMatch(line)?.group(1)?.trim() ?? '';
@@ -976,8 +1057,9 @@ String? _canonicalPrintedDate(String raw, {required bool expiry}) {
     'dec': 12,
     'december': 12,
   };
-  final word = RegExp(r'(?:(\d{1,2})[\s./-]+)?([a-z]{3,9})[\s./-]+(\d{2,4})')
-      .firstMatch(value);
+  final word = RegExp(
+    r'(?:(\d{1,2})[\s./-]+)?([a-z]{3,9})[\s./-]+(\d{2,4})',
+  ).firstMatch(value);
   if (word != null && months.containsKey(word[2])) {
     final year = _fullYear(int.parse(word[3]!));
     final month = months[word[2]]!;
@@ -994,8 +1076,9 @@ String? _canonicalPrintedDate(String raw, {required bool expiry}) {
     if (a > 99) return _validatedIso(a, b, c, expiry: expiry);
     return _validatedIso(_fullYear(c), b, a, expiry: expiry);
   }
-  final month = RegExp(r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{2,4})(?!\s*[./-]\s*\d)')
-      .firstMatch(value);
+  final month = RegExp(
+    r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{2,4})(?!\s*[./-]\s*\d)',
+  ).firstMatch(value);
   if (month == null) return null;
   final a = int.parse(month[1]!);
   final b = int.parse(month[2]!);

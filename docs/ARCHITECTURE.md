@@ -80,11 +80,15 @@ from the Flutter UI isolate. High/medium/low confidence is visible; uncertain
 results never select or mutate a record automatically.
 
 Photo and video imports are read locally. A long video is sampled approximately
-every three seconds with a frame cap, then blurry and perceptually duplicate
-frames are discarded before OCR. Evidence is clustered by repeated normalized
-lines and enters an Import Inbox. The user opens an existing record or creates a
-new draft; low-confidence OCR never fills authoritative medical fields. Temporary
-raw media/frame files are deleted after review and are never included in backup.
+every three seconds with a frame cap. Android decodes bounded 1600-pixel frames
+on supported devices, samples bucket midpoints, then discards blurry and
+perceptually duplicate frames before OCR. Evidence is clustered by repeated
+normalized lines and enters an Import Inbox. Explicit uploaded/pasted list rows
+carry hard item boundaries and an oversized list is rejected instead of silently
+truncated. The user opens an existing record or creates a new draft;
+low-confidence OCR never fills authoritative medical fields. Temporary raw
+media, camera captures and sampled frames are deleted after use and are never
+included in backup.
 
 ## Tracking, sales and ordering
 

@@ -170,9 +170,9 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
           'This is a full backup. Open Profile → Backup & Restore so it can be validated safely.',
         );
       }
-      await _openInbox([
-        ScanEvidence(text: text, source: 'Imported text file'),
-      ]);
+      await _openInbox(
+        medicineListEvidence(text, source: 'Imported text file'),
+      );
     } on MissingPluginException {
       if (mounted) {
         showError(
@@ -188,14 +188,18 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
   }
 
   Future<void> _pasteList() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (!mounted) return;
-    final text = data?.text?.trim() ?? '';
-    if (text.isEmpty) {
-      showError(context, 'Clipboard has no medicine text.');
-      return;
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      if (!mounted) return;
+      final text = data?.text?.trim() ?? '';
+      if (text.isEmpty) {
+        showError(context, 'Clipboard has no medicine text.');
+        return;
+      }
+      await _openInbox(medicineListEvidence(text, source: 'Clipboard'));
+    } catch (error) {
+      if (mounted) showError(context, error);
     }
-    await _openInbox([ScanEvidence(text: text, source: 'Clipboard')]);
   }
 
   Future<void> _openInbox(List<ScanEvidence> evidence) async {

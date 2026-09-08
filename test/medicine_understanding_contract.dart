@@ -176,6 +176,31 @@ Manufactured by Micro Labs Limited
     _equal(result.drafts[0].batchNumber, 'CF100');
     _equal(result.drafts[1].batchNumber, 'ZX900');
   },
+  'explicit local list rows become separate review drafts': () {
+    final evidence = medicineListEvidence(
+      '1. DOLO 650 mg\n2. DOLO 500 mg\n3. AZITHRAL 500 mg',
+      source: 'Clipboard',
+    );
+    _equal(evidence.length, 3);
+    final result = const MedicineUnderstandingEngine().understand(evidence);
+    _equal(result.drafts.length, 3);
+    _equal(result.drafts[0].name, 'Dolo');
+    _equal(result.drafts[0].strength.toLowerCase(), '650 mg');
+    _equal(result.drafts[1].strength.toLowerCase(), '500 mg');
+    _equal(result.drafts[2].name, 'Azithral');
+  },
+  'oversized local list is rejected instead of silently truncated': () {
+    var rejected = false;
+    try {
+      medicineListEvidence(
+        List.generate(241, (index) => 'Medicine $index').join('\n'),
+        source: 'Imported text file',
+      );
+    } on FormatException {
+      rejected = true;
+    }
+    _check(rejected, 'Oversized list was silently accepted.');
+  },
   'keeps MFG and expiry roles separate and rejects reversed chronology': () {
     final result = const MedicineUnderstandingEngine().understand([
       const MedicineFrameEvidence(
