@@ -2,9 +2,9 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../domain/medicine.dart';
 import '../domain/date_input.dart';
 import '../domain/inventory.dart';
+import '../domain/medicine.dart';
 
 // Shared palette: brand colors communicate actions; status colors communicate stock.
 const primary = Color(0xFF245BD6);
@@ -14,7 +14,9 @@ const accent = Color(0xFF0D747C);
 const accentSoft = Color(0xFFE8F5F5);
 const ink = Color(0xFF182A44);
 const muted = Color(0xFF596A82);
-const canvas = Color(0xFFF5F7FB);
+
+// Same calm off-white canvas recipe used by the reference ledger app.
+const canvas = Color(0xFFF3F5F8);
 const outline = Color(0xFFD9E2F0);
 const inverseMuted = Color(0xFFD5E2FF);
 const green = Color(0xFF1D7653);
@@ -24,24 +26,148 @@ const successSoft = Color(0xFFEDF7F1);
 const warningSoft = Color(0xFFFFF5E3);
 const errorSoft = Color(0xFFFFEFF1);
 
-/// One calm canvas behind all routes. Dense content never needs full-screen blur.
+/// Premium page canvas: a clean ceramic-white base with restrained ambient
+/// light. This is painted once behind the entire app rather than adding a
+/// decorative background layer to every screen.
 class PharmacyBackdrop extends StatelessWidget {
   const PharmacyBackdrop({super.key, required this.child});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => ColoredBox(
-    color: canvas,
-    child: BackdropGroup(child: child),
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      const RepaintBoundary(child: CustomPaint(painter: _PharmacyAmbientPainter())),
+      BackdropGroup(child: child),
+    ],
   );
 }
 
-/// One shared glass recipe for dashboard tiles, cards, sheets and navigation.
-///
-/// [blurSigma] is intentionally opt-in for dense scrolling content. The
-/// translucent gradient still reads as glass without making every list row a
-/// costly backdrop-filter layer.
+class _PharmacyAmbientPainter extends CustomPainter {
+  const _PharmacyAmbientPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bounds = Offset.zero & size;
+    canvas.drawRect(bounds, Paint()..color = canvasColor);
+    _paintGlow(
+      canvas,
+      bounds,
+      center: const Alignment(-1.15, -1.2),
+      radius: .88,
+      color: green.withAlpha(28),
+    );
+    _paintGlow(
+      canvas,
+      bounds,
+      center: const Alignment(1.15, 1.18),
+      radius: .96,
+      color: primary.withAlpha(24),
+    );
+    _paintGlow(
+      canvas,
+      bounds,
+      center: const Alignment(.08, 1.24),
+      radius: .68,
+      color: amber.withAlpha(10),
+    );
+  }
+
+  static const canvasColor = canvas;
+
+  void _paintGlow(
+    Canvas canvas,
+    Rect bounds, {
+    required Alignment center,
+    required double radius,
+    required Color color,
+  }) {
+    canvas.drawRect(
+      bounds,
+      Paint()
+        ..blendMode = BlendMode.srcOver
+        ..shader = RadialGradient(
+          center: center,
+          radius: radius,
+          colors: [
+            color,
+            color.withValues(alpha: color.a * .35),
+            Colors.transparent,
+          ],
+          stops: const [0, .45, 1],
+        ).createShader(bounds),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _PharmacyAmbientPainter oldDelegate) => false;
+}
+
+int _scaledAlpha(int alpha, double elevation) =>
+    (alpha * elevation.clamp(.25, 1.5)).round().clamp(0, 255);
+
+Color _ambientHue(Color color) =>
+    Color.lerp(color, const Color(0xFF172033), .045)!;
+
+List<BoxShadow> _ceramicDepth(double elevation) {
+  final e = elevation.clamp(.25, 1.5);
+  return [
+    BoxShadow(
+      color: Colors.white.withAlpha(_scaledAlpha(248, e)),
+      blurRadius: 18,
+      spreadRadius: -5,
+      offset: const Offset(-6, -6),
+    ),
+    BoxShadow(
+      color: const Color(0xFF243247).withAlpha(_scaledAlpha(38, e)),
+      blurRadius: 3.5,
+      spreadRadius: -1,
+      offset: const Offset(0, 4),
+    ),
+    BoxShadow(
+      color: const Color(0xFF243247).withAlpha(_scaledAlpha(24, e)),
+      blurRadius: 25,
+      spreadRadius: -7,
+      offset: const Offset(8, 12),
+    ),
+  ];
+}
+
+List<BoxShadow> _jewelDepth(Color color, double elevation) {
+  final e = elevation.clamp(.25, 1.5);
+  return [
+    BoxShadow(
+      color: Colors.white.withAlpha(_scaledAlpha(238, e)),
+      blurRadius: 11,
+      spreadRadius: -4,
+      offset: const Offset(-4, -4),
+    ),
+    BoxShadow(
+      color: color.withAlpha(_scaledAlpha(40, e)),
+      blurRadius: 15,
+      spreadRadius: -5,
+      offset: const Offset(2, 5),
+    ),
+    BoxShadow(
+      color: Colors.black.withAlpha(_scaledAlpha(28, e)),
+      blurRadius: 3.5,
+      spreadRadius: -1,
+      offset: const Offset(0, 4),
+    ),
+    BoxShadow(
+      color: Colors.black.withAlpha(_scaledAlpha(17, e)),
+      blurRadius: 18,
+      spreadRadius: -7,
+      offset: const Offset(6, 9),
+    ),
+  ];
+}
+
+/// Core raised-card primitive used by dashboard tiles, medicine rows, sheets,
+/// status chips and navigation surfaces. The light recipe deliberately mirrors
+/// the reference app's three-stop ceramic face, bevel light and physical depth.
+/// No screen-specific wrapper is required.
 class GlassPanel extends StatelessWidget {
   const GlassPanel({
     super.key,
@@ -52,6 +178,8 @@ class GlassPanel extends StatelessWidget {
     this.dark = false,
     this.blurSigma = 0,
     this.elevation = 1,
+    this.accentColor,
+    this.shadowColor,
   });
 
   final Widget child;
@@ -61,54 +189,184 @@ class GlassPanel extends StatelessWidget {
   final bool dark;
   final double blurSigma;
   final double elevation;
+  final Color? accentColor;
+  final Color? shadowColor;
 
   @override
   Widget build(BuildContext context) {
     final highContrast = MediaQuery.highContrastOf(context);
-    final isDark = dark || tint.computeLuminance() < .16;
+    final strongColor = dark || tint.computeLuminance() < .20;
     final borderRadius = BorderRadius.circular(radius);
-    final panel = Container(
-      padding: padding,
+    final semantic = shadowColor ?? accentColor ??
+        (tint == Colors.white ? null : tint);
+
+    final List<Color> surfaceColors = strongColor
+        ? [
+            Color.alphaBlend(Colors.white.withValues(alpha: .075), tint),
+            tint,
+            Color.lerp(tint, Colors.black, .12)!,
+          ]
+        : tint == Colors.white
+        ? const [
+            Color(0xFFFFFFFF),
+            Color(0xFFFAFCFE),
+            Color(0xFFEEF2F6),
+          ]
+        : [
+            Color.lerp(Colors.white, tint, .040)!,
+            Color.lerp(const Color(0xFFFAFCFE), tint, .028)!,
+            Color.lerp(const Color(0xFFEEF2F6), tint, .018)!,
+          ];
+
+    final resolvedBorder = highContrast
+        ? (strongColor ? Colors.white : ink)
+        : strongColor
+        ? Colors.white.withValues(alpha: .17)
+        : semantic == null
+        ? Colors.white
+        : Color.alphaBlend(
+            semantic.withValues(alpha: .067),
+            const Color(0xF0FFFFFF),
+          );
+
+    final shadows = <BoxShadow>[];
+    if (elevation > 0) {
+      if (strongColor) {
+        final glow = _ambientHue(semantic ?? tint);
+        shadows.addAll([
+          BoxShadow(
+            color: glow.withAlpha(_scaledAlpha(62, elevation)),
+            blurRadius: 25,
+            spreadRadius: -6,
+            offset: const Offset(1, 8),
+          ),
+          BoxShadow(
+            color: Colors.white.withAlpha(_scaledAlpha(24, elevation)),
+            blurRadius: 13,
+            spreadRadius: -6,
+            offset: const Offset(-6, -6),
+          ),
+          BoxShadow(
+            color: Colors.black.withAlpha(_scaledAlpha(92, elevation)),
+            blurRadius: 4,
+            spreadRadius: -1,
+            offset: const Offset(0, 5),
+          ),
+          BoxShadow(
+            color: Colors.black.withAlpha(_scaledAlpha(56, elevation)),
+            blurRadius: 24,
+            spreadRadius: -7,
+            offset: const Offset(8, 13),
+          ),
+        ]);
+      } else {
+        if (semantic != null) {
+          final glow = _ambientHue(semantic);
+          shadows.add(
+            BoxShadow(
+              color: glow.withAlpha(_scaledAlpha(46, elevation)),
+              blurRadius: 25,
+              spreadRadius: -6,
+              offset: const Offset(1, 7),
+            ),
+          );
+          if (tint != Colors.white) {
+            shadows.add(
+              BoxShadow(
+                color: glow.withAlpha(_scaledAlpha(21, elevation)),
+                blurRadius: 42,
+                spreadRadius: -13,
+                offset: const Offset(5, 13),
+              ),
+            );
+          }
+        }
+        shadows.addAll(_ceramicDepth(elevation));
+        shadows.add(
+          BoxShadow(
+            color: const Color(0xFF243247).withAlpha(
+              _scaledAlpha(9, elevation),
+            ),
+            blurRadius: 19,
+            spreadRadius: -9,
+            offset: const Offset(8, 13),
+          ),
+        );
+      }
+    }
+
+    final panel = DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: borderRadius,
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color.alphaBlend(
-              Colors.white.withValues(alpha: isDark ? .045 : .12),
-              tint,
+          stops: const [0, .52, 1],
+          colors: surfaceColors,
+        ),
+        borderRadius: borderRadius,
+      ),
+      child: DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          borderRadius: borderRadius,
+          border: Border.all(
+            color: resolvedBorder,
+            width: highContrast ? 1.5 : 1,
+          ),
+        ),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      stops: const [0, .23, .69, 1],
+                      colors: [
+                        Color.fromARGB(148, 255, 255, 255),
+                        Colors.transparent,
+                        Colors.transparent,
+                        Color.fromARGB(12, 0, 0, 0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
-            tint,
+            if (semantic != null && !strongColor)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        center: Alignment.bottomRight,
+                        radius: 1.28,
+                        colors: [
+                          semantic.withValues(alpha: .055),
+                          Colors.transparent,
+                        ],
+                        stops: const [0, .72],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            Padding(padding: padding, child: child),
           ],
         ),
-        border: Border.all(
-          color: highContrast
-              ? (isDark ? Colors.white : ink)
-              : isDark
-              ? Colors.white.withValues(alpha: .16)
-              : outline,
-          width: highContrast ? 1.5 : 1,
-        ),
       ),
-      child: child,
     );
+
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: borderRadius,
-        boxShadow: elevation <= 0
-            ? const []
-            : [
-                BoxShadow(
-                  color: ink.withValues(alpha: .055 * elevation.clamp(0, 1.5)),
-                  blurRadius: 20,
-                  spreadRadius: -6,
-                  offset: const Offset(0, 7),
-                ),
-              ],
+        boxShadow: shadows,
       ),
       child: ClipRRect(
         borderRadius: borderRadius,
+        clipBehavior: Clip.antiAlias,
         child: highContrast || blurSigma <= 0
             ? panel
             : BackdropFilter.grouped(
@@ -143,9 +401,11 @@ class GlassIconButton extends StatelessWidget {
     message: tooltip,
     child: GlassPanel(
       tint: tint,
+      accentColor: color,
+      shadowColor: color,
       radius: size * .5,
       blurSigma: 0,
-      elevation: .65,
+      elevation: 1,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -163,21 +423,45 @@ class GlassIconButton extends StatelessWidget {
 }
 
 BoxDecoration depthDecoration(Color color, {double radius = 22}) {
-  final dark = color.computeLuminance() < .16;
+  final strongColor = color.computeLuminance() < .20;
   return BoxDecoration(
-    color: color,
+    gradient: strongColor
+        ? LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color.alphaBlend(Colors.white.withValues(alpha: .07), color),
+              color,
+              Color.lerp(color, Colors.black, .10)!,
+            ],
+          )
+        : const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFFFFFFF), Color(0xFFFAFCFE), Color(0xFFEEF2F6)],
+          ),
     borderRadius: BorderRadius.circular(radius),
     border: Border.all(
-      color: dark ? Colors.white.withValues(alpha: .14) : outline,
+      color: strongColor
+          ? Colors.white.withValues(alpha: .16)
+          : Colors.white,
     ),
-    boxShadow: [
-      BoxShadow(
-        color: ink.withValues(alpha: .06),
-        blurRadius: 20,
-        spreadRadius: -6,
-        offset: const Offset(0, 7),
-      ),
-    ],
+    boxShadow: strongColor
+        ? [
+            BoxShadow(
+              color: color.withValues(alpha: .18),
+              blurRadius: 22,
+              spreadRadius: -6,
+              offset: const Offset(1, 7),
+            ),
+            BoxShadow(
+              color: ink.withValues(alpha: .16),
+              blurRadius: 4,
+              spreadRadius: -1,
+              offset: const Offset(0, 5),
+            ),
+          ]
+        : _ceramicDepth(1),
   );
 }
 
@@ -189,20 +473,31 @@ class DepthIcon extends StatelessWidget {
     this.background = primarySoft,
     this.size = 48,
   });
+
   final IconData icon;
   final Color color, background;
   final double size;
+
   @override
   Widget build(BuildContext context) => ExcludeSemantics(
     child: GlassPanel(
       tint: background,
-      radius: size * .32,
+      accentColor: color,
+      shadowColor: color,
+      radius: size * .34,
       blurSigma: 0,
-      elevation: .65,
+      elevation: 1.05,
       child: SizedBox(
         width: size,
         height: size,
-        child: Icon(icon, color: color, size: size * .52),
+        child: Icon(
+          icon,
+          color: color,
+          size: size * .52,
+          shadows: [
+            Shadow(color: color.withValues(alpha: .18), blurRadius: 10),
+          ],
+        ),
       ),
     ),
   );
@@ -216,9 +511,11 @@ class ScreenIntro extends StatelessWidget {
     required this.icon,
     this.color = primary,
   });
+
   final String title, message;
   final IconData icon;
   final Color color;
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 22),
@@ -247,8 +544,10 @@ class ScreenIntro extends StatelessWidget {
 
 class FlowSteps extends StatelessWidget {
   const FlowSteps(this.steps, {super.key, this.current = 0});
+
   final List<String> steps;
   final int current;
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 20),
@@ -259,9 +558,10 @@ class FlowSteps extends StatelessWidget {
         for (var i = 0; i < steps.length; i++)
           GlassPanel(
             tint: i == current ? primarySoft : Colors.white,
+            accentColor: i == current ? primary : null,
             radius: 14,
             blurSigma: 0,
-            elevation: i == current ? .55 : .3,
+            elevation: i == current ? .85 : .55,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             child: Text(
               '${i + 1}  ${steps[i]}',
@@ -279,7 +579,9 @@ class FlowSteps extends StatelessWidget {
 
 class ResponsivePair extends StatelessWidget {
   const ResponsivePair({super.key, required this.first, required this.second});
+
   final Widget first, second;
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
@@ -312,9 +614,11 @@ class FormSection extends StatelessWidget {
     required this.icon,
     required this.children,
   });
+
   final String title, message;
   final IconData icon;
   final List<Widget> children;
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 18),
@@ -364,6 +668,7 @@ ThemeData pharmacyTheme() => ThemeData(
     outline: outline,
   ),
   scaffoldBackgroundColor: Colors.transparent,
+  canvasColor: Colors.white,
   fontFamily: 'Manrope',
   fontFamilyFallback: const ['NotoSansDevanagari'],
   textTheme: const TextTheme(
@@ -394,14 +699,15 @@ ThemeData pharmacyTheme() => ThemeData(
     bodyMedium: TextStyle(fontSize: 14, height: 1.45, color: ink),
     bodySmall: TextStyle(fontSize: 12, height: 1.45, color: muted),
   ),
-  appBarTheme: const AppBarTheme(
-    backgroundColor: canvas,
+  appBarTheme: AppBarTheme(
+    backgroundColor: Colors.white.withValues(alpha: .90),
     foregroundColor: ink,
     centerTitle: false,
-    elevation: 0,
-    scrolledUnderElevation: 0,
+    elevation: 2,
+    scrolledUnderElevation: 4,
+    shadowColor: ink.withValues(alpha: .10),
     surfaceTintColor: Colors.transparent,
-    titleTextStyle: TextStyle(
+    titleTextStyle: const TextStyle(
       fontFamily: 'Manrope',
       fontFamilyFallback: ['NotoSansDevanagari'],
       fontSize: 19,
@@ -411,7 +717,7 @@ ThemeData pharmacyTheme() => ThemeData(
   ),
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
-    fillColor: Colors.white,
+    fillColor: const Color(0xFFFCFDFE),
     floatingLabelStyle: const TextStyle(
       color: primary,
       fontWeight: FontWeight.w700,
@@ -426,7 +732,7 @@ ThemeData pharmacyTheme() => ThemeData(
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(16),
-      borderSide: const BorderSide(color: outline),
+      borderSide: BorderSide(color: Colors.white.withValues(alpha: .95)),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(16),
@@ -443,36 +749,39 @@ ThemeData pharmacyTheme() => ThemeData(
   ),
   filledButtonTheme: FilledButtonThemeData(
     style: FilledButton.styleFrom(
-      minimumSize: const Size(48, 52),
+      minimumSize: const Size(48, 56),
       backgroundColor: primary,
       foregroundColor: Colors.white,
       disabledBackgroundColor: outline,
       disabledForegroundColor: muted,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shadowColor: primaryDeep.withValues(alpha: .34),
+      elevation: 6,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       textStyle: const TextStyle(
         fontFamily: 'Manrope',
         fontFamilyFallback: ['NotoSansDevanagari'],
-        fontSize: 14,
-        fontWeight: FontWeight.w700,
+        fontSize: 15,
+        fontWeight: FontWeight.w800,
       ),
-      elevation: 0,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
     ),
   ),
   outlinedButtonTheme: OutlinedButtonThemeData(
     style: OutlinedButton.styleFrom(
-      minimumSize: const Size(48, 50),
+      minimumSize: const Size(48, 52),
       foregroundColor: primaryDeep,
       backgroundColor: Colors.white,
-      side: const BorderSide(color: outline),
+      side: BorderSide(color: primary.withValues(alpha: .18)),
+      shadowColor: ink.withValues(alpha: .16),
+      elevation: 2,
       textStyle: const TextStyle(
         fontFamily: 'Manrope',
         fontFamilyFallback: ['NotoSansDevanagari'],
         fontSize: 14,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w800,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     ),
   ),
   textButtonTheme: TextButtonThemeData(
@@ -481,6 +790,7 @@ ThemeData pharmacyTheme() => ThemeData(
       foregroundColor: primary,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      textStyle: const TextStyle(fontWeight: FontWeight.w800),
     ),
   ),
   iconButtonTheme: IconButtonThemeData(
@@ -512,58 +822,72 @@ ThemeData pharmacyTheme() => ThemeData(
   chipTheme: ChipThemeData(
     backgroundColor: Colors.white,
     selectedColor: primarySoft,
-    side: const BorderSide(color: outline),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    side: BorderSide(color: primary.withValues(alpha: .10)),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
     labelStyle: const TextStyle(
       fontFamily: 'Manrope',
       fontFamilyFallback: ['NotoSansDevanagari'],
       color: ink,
       fontSize: 13,
-      fontWeight: FontWeight.w600,
+      fontWeight: FontWeight.w700,
     ),
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-    elevation: 0,
-    pressElevation: 0,
+    elevation: 1,
+    pressElevation: 2,
+    shadowColor: ink.withValues(alpha: .10),
   ),
   dialogTheme: DialogThemeData(
     backgroundColor: Colors.white,
     surfaceTintColor: Colors.transparent,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+    elevation: 10,
+    shadowColor: ink.withValues(alpha: .18),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
   ),
-  bottomSheetTheme: const BottomSheetThemeData(
+  bottomSheetTheme: BottomSheetThemeData(
     backgroundColor: canvas,
     surfaceTintColor: Colors.transparent,
+    elevation: 12,
+    shadowColor: ink.withValues(alpha: .18),
     showDragHandle: true,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
     ),
   ),
   cardTheme: CardThemeData(
     color: Colors.white,
     surfaceTintColor: Colors.transparent,
-    elevation: 0,
+    elevation: 6,
+    shadowColor: ink.withValues(alpha: .18),
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(22),
-      side: const BorderSide(color: outline),
+      borderRadius: BorderRadius.circular(24),
+      side: const BorderSide(color: Colors.white),
     ),
   ),
   popupMenuTheme: PopupMenuThemeData(
     color: Colors.white,
     surfaceTintColor: Colors.transparent,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    elevation: 8,
+    shadowColor: ink.withValues(alpha: .18),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
   ),
   snackBarTheme: SnackBarThemeData(
     backgroundColor: ink,
     contentTextStyle: const TextStyle(color: Colors.white),
     behavior: SnackBarBehavior.floating,
+    elevation: 8,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
   ),
-  dividerTheme: const DividerThemeData(color: outline, thickness: 1, space: 1),
+  dividerTheme: DividerThemeData(
+    color: ink.withValues(alpha: .08),
+    thickness: 1,
+    space: 1,
+  ),
   progressIndicatorTheme: const ProgressIndicatorThemeData(color: primary),
   navigationBarTheme: NavigationBarThemeData(
-    backgroundColor: Colors.transparent,
+    backgroundColor: Colors.white.withValues(alpha: .92),
     surfaceTintColor: Colors.transparent,
-    elevation: 0,
+    elevation: 8,
+    shadowColor: ink.withValues(alpha: .12),
     height: 72,
     indicatorColor: primarySoft,
     indicatorShape: RoundedRectangleBorder(
@@ -593,28 +917,29 @@ class Surface extends StatelessWidget {
     this.color = Colors.white,
     this.padding = const EdgeInsets.all(20),
   });
+
   final Widget child;
   final Color color;
   final EdgeInsets padding;
+
   @override
   Widget build(BuildContext context) => GlassPanel(
     tint: color,
+    accentColor: color == Colors.white ? null : color,
+    shadowColor: color == Colors.white ? null : color,
     blurSigma: 0,
     elevation: 1,
     padding: padding,
-    child: Material(
-      type: MaterialType.transparency,
-      // The outer panel already clips its perimeter. Clipping this padded
-      // content again cuts the first letters and icons at the inner corners.
-      child: child,
-    ),
+    child: Material(type: MaterialType.transparency, child: child),
   );
 }
 
 class SectionHeading extends StatelessWidget {
   const SectionHeading(this.title, {super.key, this.action});
+
   final String title;
   final Widget? action;
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(top: 26, bottom: 14),
@@ -645,18 +970,22 @@ class SectionHeading extends StatelessWidget {
 
 class StatusPill extends StatelessWidget {
   const StatusPill(this.text, {super.key, this.color = green});
+
   final String text;
   final Color color;
+
   @override
   Widget build(BuildContext context) => GlassPanel(
-    tint: Color.alphaBlend(color.withValues(alpha: .12), Colors.white),
+    tint: Color.alphaBlend(color.withValues(alpha: .10), Colors.white),
+    accentColor: color,
+    shadowColor: color,
     radius: 30,
     blurSigma: 0,
-    elevation: .3,
+    elevation: .55,
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
     child: Text(
       text,
-      style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700),
+      style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800),
     ),
   );
 }
@@ -670,15 +999,17 @@ class MedicineCard extends StatelessWidget {
     required this.onTap,
     this.matchLabel,
   });
+
   final Medicine record;
   final WarningSettings settings;
   final DateTime today;
   final VoidCallback onTap;
   final String? matchLabel;
+
   @override
   Widget build(BuildContext context) {
     final state = statusOf(record, settings, today);
-    final accent = switch (state.status) {
+    final statusColor = switch (state.status) {
       StockStatus.sold => amber,
       StockStatus.expired => red,
       _ => green,
@@ -694,9 +1025,9 @@ class MedicineCard extends StatelessWidget {
     final timeline =
         state.status == StockStatus.shortExpiry ||
         state.status == StockStatus.monthExpiry;
-    const cardTint = Colors.white;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 14),
       child: Semantics(
         label: '${record.title}, ${state.label}, ${record.address}',
         button: true,
@@ -711,23 +1042,28 @@ class MedicineCard extends StatelessWidget {
                 ? amber
                 : timeline
                 ? green
-                : outline,
+                : Colors.transparent,
             timeline ||
                 state.status == StockStatus.expired ||
                 state.status == StockStatus.sold,
           ),
           child: GlassPanel(
-            tint: cardTint,
-            radius: 22,
+            tint: Colors.white,
+            accentColor: statusColor,
+            shadowColor: statusColor,
+            radius: 28,
             blurSigma: 0,
             elevation: 1,
             child: Material(
               color: Colors.transparent,
               child: InkWell(
                 onTap: onTap,
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(28),
                 child: Padding(
-                  padding: const EdgeInsets.all(18),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 17,
+                    vertical: 15,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -736,42 +1072,47 @@ class MedicineCard extends StatelessWidget {
                         children: [
                           GlassPanel(
                             tint: Color.alphaBlend(
-                              accent.withValues(alpha: .13),
-                              cardTint,
+                              statusColor.withValues(alpha: .10),
+                              Colors.white,
                             ),
-                            radius: 14,
+                            accentColor: statusColor,
+                            shadowColor: statusColor,
+                            radius: 18,
                             blurSigma: 0,
-                            elevation: .45,
+                            elevation: .95,
                             child: SizedBox(
-                              width: 46,
-                              height: 46,
+                              width: 52,
+                              height: 52,
                               child: Icon(
                                 state.status == StockStatus.sold
                                     ? Icons.check_rounded
                                     : icon,
-                                color: accent,
-                                size: 25,
+                                color: statusColor,
+                                size: 27,
+                                shadows: [
+                                  Shadow(
+                                    color: statusColor.withValues(alpha: .16),
+                                    blurRadius: 10,
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                          const SizedBox(width: 13),
+                          const SizedBox(width: 14),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   record.name,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium,
+                                  style: Theme.of(context).textTheme.titleMedium,
                                 ),
                                 if (record.strength.isNotEmpty ||
                                     record.brand.isNotEmpty)
                                   Text(
-                                    [
-                                      record.strength,
-                                      record.brand,
-                                    ].where((s) => s.isNotEmpty).join(' · '),
+                                    [record.strength, record.brand]
+                                        .where((s) => s.isNotEmpty)
+                                        .join(' · '),
                                     style: const TextStyle(
                                       color: muted,
                                       fontSize: 12,
@@ -801,26 +1142,26 @@ class MedicineCard extends StatelessWidget {
                             ),
                           ),
                           const Icon(
-                            Icons.arrow_outward_rounded,
+                            Icons.chevron_right_rounded,
                             color: muted,
-                            size: 20,
+                            size: 24,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 15),
                       Wrap(
                         spacing: 10,
                         runSpacing: 8,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          StatusPill(state.label, color: accent),
+                          StatusPill(state.label, color: statusColor),
                           if (record.expiry != null)
                             Text(
                               'EXP ${inputDateText(record.expiry!, monthOnly: record.expiryMonthOnly)}',
                               style: const TextStyle(
                                 fontSize: 11,
                                 color: muted,
-                                fontWeight: FontWeight.w500,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                         ],
@@ -872,20 +1213,23 @@ class MedicineCard extends StatelessWidget {
 
 class _ExpiryBorder extends CustomPainter {
   _ExpiryBorder(this.fraction, this.base, this.strong);
+
   final double fraction;
   final Color base;
   final bool strong;
+
   @override
   void paint(Canvas canvas, Size size) {
+    if (!strong) return;
     final path = Path()
       ..addRRect(
-        RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(22)),
+        RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(28)),
       );
     final paint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = strong ? 2 : 1
+      ..strokeWidth = 2
       ..color = base;
-    canvas.drawPath(path, paint);
+    if (base != Colors.transparent) canvas.drawPath(path, paint);
     if (fraction > 0) {
       final metric = path.computeMetrics().first;
       canvas.drawPath(
@@ -909,8 +1253,10 @@ class EmptyState extends StatelessWidget {
     required this.message,
     this.action,
   });
+
   final String title, message;
   final Widget? action;
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 12),
@@ -957,8 +1303,9 @@ void showError(BuildContext context, Object error) {
 }
 
 void showSaved(BuildContext context, String message) {
-  if (context.mounted)
+  if (context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
+  }
 }
