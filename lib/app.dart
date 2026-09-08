@@ -136,7 +136,7 @@ class _ShellState extends State<_Shell> {
               NavigationDestination(
                 icon: Icon(Icons.inventory_2_outlined),
                 selectedIcon: Icon(Icons.inventory_2_rounded),
-                label: 'Database',
+                label: 'Stock',
               ),
               NavigationDestination(
                 icon: Icon(Icons.auto_awesome_outlined),
