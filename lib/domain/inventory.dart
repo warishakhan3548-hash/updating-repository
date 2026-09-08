@@ -90,6 +90,78 @@ int expiryOrder(Medicine a, Medicine b, DateTime today) {
   return order != 0 ? order : a.id.compareTo(b.id);
 }
 
+/// Whether this physical stock entry is past its last valid dispensing day.
+///
+/// Missing expiry remains an explicitly unknown fact rather than being treated
+/// as expired. The UI must surface that uncertainty to the pharmacist.
+bool isExpiredOn(Medicine record, DateTime date) {
+  final days = record.daysLeft(civilDay(date));
+  return days != null && days < 0;
+}
+
+/// Stock that may participate in a dispensing decision on [date].
+///
+/// Quantity is deliberately not part of this predicate: an unknown quantity is
+/// still a real stock entry. Callers that need an available batch must separately
+/// exclude a known zero quantity.
+bool isDispensableOn(Medicine record, DateTime date) =>
+    !record.archived && !record.sold && !isExpiredOn(record, date);
+
+/// Rejects a stock movement on a date that contradicts immutable pack facts.
+/// Expiry is inclusive: dispensing on the recorded expiry day is valid.
+void validateDispensingDate(Medicine record, DateTime occurredAt) {
+  final day = civilDay(occurredAt);
+  if (record.mfg != null && day.isBefore(record.mfg!)) {
+    throw const FormatException(
+      'Sale date cannot be before this stock manufacturing date.',
+    );
+  }
+  if (isExpiredOn(record, day)) {
+    throw const FormatException(
+      'Expired stock cannot be sold. Choose a sale date on or before expiry only for a genuine historical entry.',
+    );
+  }
+}
+
+/// First-expiry-first-out (FEFO) choices for the same medicine identity.
+///
+/// Known, valid expiries are preferred over unknown expiries. A known zero
+/// quantity is unavailable, while an unknown quantity remains eligible but is
+/// sorted behind a known positive quantity when the expiry is identical.
+List<Medicine> dispensingCandidates(
+  Iterable<Medicine> records,
+  Medicine requested,
+  DateTime date,
+) {
+  final result = records
+      .where(
+        (record) =>
+            record.identity == requested.identity &&
+            isDispensableOn(record, date) &&
+            record.quantity != 0,
+      )
+      .toList();
+  result.sort(_fefoOrder);
+  return List<Medicine>.unmodifiable(result);
+}
+
+int _fefoOrder(Medicine a, Medicine b) {
+  final aExpiry = a.expiry;
+  final bExpiry = b.expiry;
+  if (aExpiry == null && bExpiry != null) return 1;
+  if (bExpiry == null && aExpiry != null) return -1;
+  if (aExpiry != null && bExpiry != null) {
+    final expiry = aExpiry.compareTo(bExpiry);
+    if (expiry != 0) return expiry;
+  }
+  if (a.quantity == null && b.quantity != null) return 1;
+  if (b.quantity == null && a.quantity != null) return -1;
+  var order = normalize(a.batchNumber).compareTo(normalize(b.batchNumber));
+  if (order != 0) return order;
+  order = normalize(a.address).compareTo(normalize(b.address));
+  return order != 0 ? order : a.id.compareTo(b.id);
+}
+
 String scopeTitle(SearchScope scope, WarningSettings settings) =>
     switch (scope) {
       SearchScope.all => 'All medicines',

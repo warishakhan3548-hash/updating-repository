@@ -7,7 +7,8 @@
 - Configurable expiry dashboard, scoped/global type-mic-scan search, progressive
   warning borders, exact-ID editor navigation and fuzzy confidence ranking.
 - Manual add/edit/remove/restock, explicit SOLD, aggregate sale recording,
-  soft-delete history, latest Undo and per-medicine version restore.
+  FEFO batch guidance, expired-sale/MFG-date guards, soft-delete history, latest
+  Undo and per-medicine version restore.
 - Reviewed photo/text imports and adaptive local video import with frame sampling,
   bounded decode, blur/duplicate rejection, multi-frame consensus, explicit
   list-row boundaries and temporary-file cleanup.

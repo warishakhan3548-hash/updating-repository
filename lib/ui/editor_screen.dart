@@ -485,6 +485,32 @@ class _EditorScreenState extends State<EditorScreen> {
       return;
     }
 
+    final today = widget.controller.today;
+    final expiredNow = isExpiredOn(record, today);
+    final preferred = widget.controller.preferredDispensingStock(record.id);
+    final earlierStock = preferred != null && preferred.id != record.id
+        ? preferred
+        : null;
+
+    String stockCue(Medicine medicine) {
+      final expiry = medicine.expiry == null
+          ? 'EXP unknown'
+          : 'EXP ${medicine.expiryMonthOnly ? dateText(medicine.expiry!).substring(0, 7) : dateText(medicine.expiry!)}';
+      return [
+        expiry,
+        if (medicine.batchNumber.isNotEmpty) 'Batch ${medicine.batchNumber}',
+        if (medicine.address.isNotEmpty) medicine.address,
+      ].join(' · ');
+    }
+
+    final String? safetyMessage = expiredNow
+        ? 'This entry expired ${dateText(record.expiry!)}. A current sale is blocked; only enter a genuine historical sale dated on or before expiry.'
+        : earlierStock != null
+        ? 'FEFO: use ${earlierStock.title} (${stockCue(earlierStock)}) first to reduce expiry waste.'
+        : record.expiry == null
+        ? 'Expiry is not recorded. Verify the physical pack before dispensing.'
+        : null;
+
     final quantity = TextEditingController(text: '1');
     final amount = TextEditingController();
     var markSoldOut = false;
@@ -501,6 +527,40 @@ class _EditorScreenState extends State<EditorScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (safetyMessage != null)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: (expiredNow ? red : amber).withValues(alpha: .09),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: (expiredNow ? red : amber).withValues(
+                          alpha: .32,
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          expiredNow
+                              ? Icons.block_rounded
+                              : Icons.warning_amber_rounded,
+                          color: expiredNow ? red : amber,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text(
+                            safetyMessage,
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 TextField(
                   controller: quantity,
                   autofocus: true,
@@ -814,6 +874,10 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   Widget build(BuildContext context) {
     final record = widget.record;
+    final expiredNow =
+        record != null &&
+        !record.sold &&
+        isExpiredOn(record, widget.controller.today);
     return PopScope(
       canPop: _allowPop || (!_dirty && !_busy),
       onPopInvokedWithResult: (didPop, result) async {
@@ -1038,16 +1102,31 @@ class _EditorScreenState extends State<EditorScreen> {
                 if (record != null && !record.sold)
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
-                    child: OutlinedButton.icon(
-                      onPressed: _busy ? null : () => _save(sold: true),
-                      icon: const Icon(
-                        Icons.check_circle_outline,
-                        color: amber,
+                    child: Tooltip(
+                      message: expiredNow
+                          ? 'Expired stock must be removed with reason Expired.'
+                          : 'Mark the whole entry out of stock.',
+                      child: OutlinedButton.icon(
+                        onPressed: _busy || expiredNow
+                            ? null
+                            : () => _save(sold: true),
+                        icon: const Icon(
+                          Icons.check_circle_outline,
+                          color: amber,
+                        ),
+                        label: const Text(
+                          'Mark stock SOLD',
+                          style: TextStyle(color: amber),
+                        ),
                       ),
-                      label: const Text(
-                        'Mark stock SOLD',
-                        style: TextStyle(color: amber),
-                      ),
+                    ),
+                  ),
+                if (expiredNow)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Expired stock stays in the expiry workflow. Remove it with reason Expired; do not relabel it SOLD.',
+                      style: TextStyle(color: red, fontSize: 12),
                     ),
                   ),
                 if (record != null)

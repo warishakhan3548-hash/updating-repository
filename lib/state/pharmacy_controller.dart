@@ -88,6 +88,17 @@ class PharmacyController extends ChangeNotifier {
       records.where((m) => inScope(m, scope, settings, today)).toList()
         ..sort((a, b) => expiryOrder(a, b, today));
 
+  List<Medicine> dispensingChoices(String id, {DateTime? on}) {
+    final requested = snapshot.records[id];
+    if (requested == null) return const [];
+    return dispensingCandidates(records, requested, on ?? today);
+  }
+
+  Medicine? preferredDispensingStock(String id, {DateTime? on}) {
+    final choices = dispensingChoices(id, on: on);
+    return choices.isEmpty ? null : choices.first;
+  }
+
   Future<void> _commit(InventoryMutation mutation) {
     final result = _writes.then((_) async {
       if (_disposed) throw StateError('App is closed.');
@@ -98,16 +109,24 @@ class PharmacyController extends ChangeNotifier {
     return result;
   }
 
-  Future<void> save(Medicine record, {required int expectedRevision}) =>
-      _commit(
-        InventoryMutation(
-          expectedRevision: expectedRevision,
-          label: snapshot.records.containsKey(record.id)
-              ? 'Edited ${record.name}'
-              : 'Added ${record.name}',
-          upserts: [record],
-        ),
+  Future<void> save(Medicine record, {required int expectedRevision}) {
+    final existing = snapshot.records[record.id];
+    if (record.sold && existing?.sold != true && isExpiredOn(record, today)) {
+      throw const FormatException(
+        'Expired stock cannot be marked SOLD. Remove it with reason Expired so it stays in the correct safety history.',
       );
+    }
+    return _commit(
+      InventoryMutation(
+        expectedRevision: expectedRevision,
+        label: existing == null
+            ? 'Added ${record.name}'
+            : 'Edited ${record.name}',
+        upserts: [record],
+      ),
+    );
+  }
+
   Future<void> setWarnings(WarningSettings value) => _commit(
     InventoryMutation(
       expectedRevision: snapshot.revision,
@@ -120,6 +139,12 @@ class PharmacyController extends ChangeNotifier {
     final m = snapshot.records[id];
     if (m == null || m.archived) throw StateError('This entry is unavailable.');
     if (m.sold) return;
+    final now = clock();
+    if (isExpiredOn(m, now)) {
+      throw const FormatException(
+        'Expired stock cannot be marked SOLD. Remove it with reason Expired instead.',
+      );
+    }
     await _commit(
       InventoryMutation(
         expectedRevision: snapshot.revision,
@@ -128,7 +153,7 @@ class PharmacyController extends ChangeNotifier {
           m.patch({
             'sold': true,
             'quantity': 0,
-            'soldAt': clock().toIso8601String(),
+            'soldAt': now.toIso8601String(),
             'soldQuantity': m.quantity,
             'soldUnitPricePaise': m.unitPricePaise,
           }),
@@ -168,6 +193,11 @@ class PharmacyController extends ChangeNotifier {
         'Sale amount is outside the supported range.',
       );
     }
+    final time = occurredAt ?? clock();
+    if (civilDay(time).isAfter(today)) {
+      throw const FormatException('A sale cannot be recorded in the future.');
+    }
+    validateDispensingDate(medicine, time);
     final current = medicine.quantity;
     if (current != null && quantity > current) {
       throw FormatException(
@@ -178,10 +208,6 @@ class PharmacyController extends ChangeNotifier {
       throw const FormatException(
         'To mark this entry out of stock, the sale quantity must equal all remaining units.',
       );
-    }
-    final time = occurredAt ?? clock();
-    if (civilDay(time).isAfter(today)) {
-      throw const FormatException('A sale cannot be recorded in the future.');
     }
     final remaining = current == null ? null : current - quantity;
     final sale = SaleEvent(

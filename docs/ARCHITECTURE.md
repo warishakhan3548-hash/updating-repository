@@ -59,7 +59,9 @@ the exact invisible stock ID; they never repeat a name search to find an editor.
   fully red, SOLD is amber, and every color has a text label.
 - Expired status is deterministic and never deletes stock. SOLD is a pharmacist’s
   explicit whole-entry out-of-stock confirmation and feeds reorder. Quantity zero
-  alone never silently marks an entry SOLD.
+  alone never silently marks an entry SOLD. Expired stock cannot be relabelled
+  SOLD or recorded as a current sale; a genuine backdated sale is accepted only
+  when its date is not before MFG and not after expiry.
 - Remove is soft archive. Restore, latest-change Undo and bounded per-record
   version history protect against accidental and bulk changes.
 
@@ -99,11 +101,15 @@ quantity is shown as unavailable and is never converted to a fake zero.
 
 A sale event stores medicine snapshot, quantity, timestamp and optional aggregate
 amount—never customer/patient identity. It may reduce a known stock quantity and
-can explicitly mark the entry completely SOLD. Seven-, 30-, 90-day and custom
-periods drive velocity and fast-moving metrics. Reorder uses available stock,
-explicit SOLD state and recent units/day. Suggestions remain editable. Android
-creates a reviewed multi-page purchase-order PDF; rows without cost remain marked
-unavailable and are excluded from the known estimated total.
+can explicitly mark the entry completely SOLD. Same-identity physical entries use
+a deterministic first-expiry-first-out (FEFO) order: earliest valid known expiry
+first, unknown expiry last, with expired/SOLD/removed/known-zero stock excluded.
+The sale dialog surfaces an earlier batch/location before the pharmacist commits.
+Seven-, 30-, 90-day and custom periods drive velocity and fast-moving metrics.
+Reorder uses available stock, explicit SOLD state and recent units/day. Suggestions
+remain editable. Android creates a reviewed multi-page purchase-order PDF; rows
+without cost remain marked unavailable and are excluded from the known estimated
+total.
 
 ## AI safety contract
 

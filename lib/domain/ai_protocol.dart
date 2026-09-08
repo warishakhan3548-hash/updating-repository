@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'inventory.dart';
 import 'medicine.dart';
 import 'tracking.dart';
 
@@ -218,6 +219,10 @@ AiPlan parseAiPlan(
         if (op == 'mark_sold') {
           if (before.sold)
             throw const FormatException('This entry is already sold.');
+          if (isExpiredOn(before, now))
+            throw const FormatException(
+              'Expired stock cannot be marked sold. Remove it as expired instead.',
+            );
           after = before.patch({
             'sold': true,
             'quantity': 0,

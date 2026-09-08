@@ -334,6 +334,86 @@ void main() {
     expect(controller.snapshot.records['a']!.quantity, 10);
     expect(controller.sales, isEmpty);
   });
+  test('expired stock cannot become a current sale or SOLD state', () async {
+    await controller.save(
+      stock('expired', expiry: '2026-09-06'),
+      expectedRevision: 0,
+    );
+    await expectLater(
+      controller.recordSale('expired', quantity: 1),
+      throwsFormatException,
+    );
+    await expectLater(controller.markSold('expired'), throwsFormatException);
+    final record = controller.snapshot.records['expired']!;
+    await expectLater(
+      controller.save(
+        record.patch({'sold': true, 'quantity': 0}),
+        expectedRevision: controller.snapshot.revision,
+      ),
+      throwsFormatException,
+    );
+    expect(controller.snapshot.revision, 1);
+    expect(controller.sales, isEmpty);
+    expect(controller.list(SearchScope.expired).single.id, 'expired');
+  });
+  test(
+    'expiry day allows a genuine historical sale but not a later one',
+    () async {
+      await controller.save(
+        stock('historical', expiry: '2026-09-06'),
+        expectedRevision: 0,
+      );
+      await controller.recordSale(
+        'historical',
+        quantity: 1,
+        occurredAt: DateTime(2026, 9, 6, 23, 59),
+      );
+      expect(controller.sales.single.quantity, 1);
+      await expectLater(
+        controller.recordSale(
+          'historical',
+          quantity: 1,
+          occurredAt: DateTime(2026, 9, 7),
+        ),
+        throwsFormatException,
+      );
+      expect(controller.snapshot.records['historical']!.quantity, 9);
+      expect(controller.sales.length, 1);
+    },
+  );
+  test('sale date cannot predate the manufacturing fact', () async {
+    final manufactured = Medicine.fromJson({
+      ...stock('manufactured', expiry: '2026-10-01').toJson(),
+      'mfg': '2026-09-05',
+    });
+    await controller.save(manufactured, expectedRevision: 0);
+    await expectLater(
+      controller.recordSale(
+        'manufactured',
+        quantity: 1,
+        occurredAt: DateTime(2026, 9, 4),
+      ),
+      throwsFormatException,
+    );
+    expect(controller.sales, isEmpty);
+  });
+  test('controller exposes the deterministic FEFO stock choice', () async {
+    await controller.save(
+      stock('later', expiry: '2026-10-01'),
+      expectedRevision: 0,
+    );
+    await controller.save(
+      stock('first', expiry: '2026-09-08'),
+      expectedRevision: 1,
+    );
+    await controller.save(stock('unknown', expiry: ''), expectedRevision: 2);
+    expect(controller.preferredDispensingStock('later')!.id, 'first');
+    expect(controller.dispensingChoices('later').map((record) => record.id), [
+      'first',
+      'later',
+      'unknown',
+    ]);
+  });
   test('recorded sales survive a database reopen', () async {
     final directory = await Directory.systemTemp.createTemp(
       'pharmacy_sales_test_',

@@ -242,6 +242,54 @@ Map<String, void Function()> domainContract() {
       ]..sort((a, b) => expiryOrder(a, b, contractToday));
       check(list.first.id == 'b', 'Expired sort wrong.');
     },
+    'dispensing eligibility is expiry-day safe': () {
+      check(
+        isDispensableOn(stock('today', expiry: '2026-09-07'), contractToday),
+        'Stock became unavailable before the expiry day ended.',
+      );
+      check(
+        !isDispensableOn(stock('expired', expiry: '2026-09-06'), contractToday),
+        'Expired stock was offered for dispensing.',
+      );
+      check(
+        !isDispensableOn(stock('sold', sold: true), contractToday),
+        'Sold stock was offered for dispensing.',
+      );
+      check(
+        isDispensableOn(stock('unknown', expiry: ''), contractToday),
+        'Unknown expiry was silently converted into expired stock.',
+      );
+    },
+    'FEFO prefers earliest valid stock and defers unknown expiry': () {
+      final requested = stock('requested', expiry: '2026-10-10');
+      final candidates = dispensingCandidates(
+        [
+          requested,
+          stock('first', expiry: '2026-09-08'),
+          stock('unknown', expiry: ''),
+          stock('empty', expiry: '2026-09-07', quantity: 0),
+          stock('expired', expiry: '2026-09-06'),
+          stock('other', strength: '650mg', expiry: '2026-09-07'),
+        ],
+        requested,
+        contractToday,
+      );
+      check(
+        candidates.map((record) => record.id).join(',') ==
+            'first,requested,unknown',
+        'FEFO returned an unsafe or unstable stock order.',
+      );
+    },
+    'sale date respects manufacturing and inclusive expiry facts': () {
+      final dated = Medicine.fromJson({
+        ...stock('dated', expiry: '2026-09-07').toJson(),
+        'mfg': '2026-09-01',
+      });
+      validateDispensingDate(dated, DateTime(2026, 9, 1));
+      validateDispensingDate(dated, DateTime(2026, 9, 7, 23, 59));
+      rejects(() => validateDispensingDate(dated, DateTime(2026, 8, 31)));
+      rejects(() => validateDispensingDate(dated, DateTime(2026, 9, 8)));
+    },
     'paise arithmetic avoids floating rounding': () {
       check(parseMoney('2.50') == 250, 'Price parsing wrong.');
       check(parseMoney('0.01') == 1, 'Paisa missing.');
@@ -586,6 +634,20 @@ Map<String, void Function()> domainContract() {
             m.soldQuantity == 10 &&
             m.soldUnitPricePaise == 200,
         'Sold facts wrong.',
+      );
+    },
+    'AI cannot relabel expired stock as sold': () {
+      final expired = stock('expired', expiry: '2026-09-06');
+      rejects(
+        () => parseAiPlan(
+          envelope([
+            {'op': 'mark_sold', 'id': 'expired'},
+          ]),
+          {'expired': expired},
+          0,
+          const {},
+          contractToday,
+        ),
       );
     },
     'AI rejects batches over 250 actions': () {
