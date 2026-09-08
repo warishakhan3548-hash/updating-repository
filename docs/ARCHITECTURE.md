@@ -31,6 +31,7 @@ the exact invisible stock ID; they never repeat a name search to find an editor.
 | `domain/medicine.dart` | Strict stored medicine facts, civil dates, paise and normalized identity |
 | `domain/inventory.dart` | Status precedence, warning perimeter, scopes and inventory totals |
 | `domain/search.dart` | Medical normalization, bounded index, candidate retrieval, deep fuzzy ranking and confidence |
+| `domain/medicine_understanding.dart` | Layout-aware OCR fusion, private local knowledge and safe draft extraction |
 | `domain/tracking.dart` | Privacy-safe sale events, period movement and reorder suggestions |
 | `domain/ai_protocol.dart` | Pharmacy-only export and strict reviewed mutation protocol |
 | `domain/backup.dart` | Versioned full-backup envelope and restore validation |
@@ -87,10 +88,34 @@ Photo and video imports are read locally. A long video is sampled approximately
 every three seconds with a frame cap. Android decodes bounded 1600-pixel frames
 on supported devices, samples bucket midpoints, then discards blurry and
 perceptually duplicate frames before OCR. Evidence is clustered by repeated
-normalized lines and enters an Import Inbox. The parser treats composition as a
-bounded multi-line semantic scope, excludes its ingredient lines from brand-name
-competition, removes dotted pharmacopoeia notation such as I.P./U.S.P., rejects
-marketing-only headers, and binds MFG/EXP labels to adjacent OCR date lines.
+normalized lines and enters an Import Inbox. OCR line bounding boxes survive the
+service/domain boundary, so relative line height and page position can support a
+prominent product name without replacing textual evidence. The parser treats
+composition as a bounded multi-line semantic scope, excludes its ingredient
+lines from brand-name competition, removes dotted pharmacopoeia notation such as
+I.P./U.S.P., rejects Rx/supply/company/marketing/packaging noise, and binds
+MFG/EXP labels to adjacent OCR date lines.
+
+Before parsing, the inbox creates an identity-only snapshot of at most 12,000
+active, pharmacist-reviewed local records. A bounded field-scoped inverted index
+uses exact longest spans first and fuzzy candidates second. Name/brand matching
+never receives the whole OCR document; salt matching runs only against
+composition, generic or dose-supported spans. Mixed OCR tokens such as `D0L0`,
+`6SO`, `PARACETAM0L` and `CEF1XIME` are repaired only inside this candidate
+resolver. A bare brand never supplies a strength unless the same line contains
+matching numeric evidence. An exact barcode may supply only identity facts on
+which all local records for that barcode agree; duplicate barcode conflicts stay
+unresolved. Saved pharmacist corrections therefore improve the next scan without
+adding another database or sending a learning event anywhere.
+
+A conservative built-in ingredient vocabulary can canonicalize a medicine span
+that OCR already supports; it is not a treatment catalogue and cannot invent a
+brand, batch, stock count, price or date. Date chronology, valid months and field
+roles remain deterministic. A generic TFLite/NER package is not treated as a
+medical model: model-backed extraction may replace this stage only after a
+pharmacy-labelled model artifact, calibration set and device acceptance tests
+exist.
+
 Explicit uploaded/pasted list rows carry hard item boundaries and an oversized
 list is rejected instead of silently truncated. The Import Inbox performs no
 automatic online catalog lookup and does not transmit captured text or barcodes.

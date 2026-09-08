@@ -4,6 +4,50 @@ import 'medicine.dart';
 import 'medicine_discovery.dart';
 import 'search.dart';
 
+/// Geometry retained from on-device OCR. Coordinates stay detector-native;
+/// only their relative position and line-height ratio are used by the parser.
+class MedicineTextLineEvidence {
+  const MedicineTextLineEvidence({
+    required this.text,
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+  });
+
+  final String text;
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+
+  Map<String, Object?> toMessage() => <String, Object?>{
+    'text': text,
+    'left': left,
+    'top': top,
+    'width': width,
+    'height': height,
+  };
+
+  factory MedicineTextLineEvidence.fromMessage(Map<Object?, Object?> map) {
+    double finiteNumber(String key) {
+      final value = map[key];
+      if (value is! num || !value.isFinite) return 0;
+      return value.toDouble().clamp(-1000000, 1000000).toDouble();
+    }
+
+    final rawText = map['text'];
+    final text = rawText is String ? _cleanLine(rawText) : '';
+    return MedicineTextLineEvidence(
+      text: text.length <= 300 ? text : text.substring(0, 300),
+      left: finiteNumber('left'),
+      top: finiteNumber('top'),
+      width: max(0.0, finiteNumber('width')),
+      height: max(0.0, finiteNumber('height')),
+    );
+  }
+}
+
 /// Immutable OCR/barcode evidence from one image or one ordered video frame.
 ///
 /// The domain layer deliberately knows nothing about CameraImage, ML Kit, file
@@ -13,6 +57,7 @@ class MedicineFrameEvidence {
   const MedicineFrameEvidence({
     this.barcode = '',
     this.barcodes = const <String>[],
+    this.layoutLines = const <MedicineTextLineEvidence>[],
     this.text = '',
     this.source = '',
     this.sequence = 0,
@@ -23,6 +68,7 @@ class MedicineFrameEvidence {
 
   final String barcode;
   final List<String> barcodes;
+  final List<MedicineTextLineEvidence> layoutLines;
   final String text;
   final String source;
   final int sequence;
@@ -48,6 +94,10 @@ class MedicineFrameEvidence {
   Map<String, Object?> toMessage() => <String, Object?>{
     'barcode': barcode,
     'barcodes': barcodes,
+    'layoutLines': layoutLines
+        .take(240)
+        .map((line) => line.toMessage())
+        .toList(growable: false),
     'text': text,
     'source': source,
     'sequence': sequence,
@@ -58,11 +108,24 @@ class MedicineFrameEvidence {
 
   factory MedicineFrameEvidence.fromMessage(Map<Object?, Object?> map) {
     final rawBarcodes = map['barcodes'];
+    final rawLayoutLines = map['layoutLines'];
     return MedicineFrameEvidence(
       barcode: map['barcode'] is String ? map['barcode']! as String : '',
       barcodes: rawBarcodes is List
           ? rawBarcodes.whereType<String>().take(8).toList(growable: false)
           : const <String>[],
+      layoutLines: rawLayoutLines is List
+          ? rawLayoutLines
+                .whereType<Map>()
+                .take(240)
+                .map(
+                  (value) => MedicineTextLineEvidence.fromMessage(
+                    Map<Object?, Object?>.from(value),
+                  ),
+                )
+                .where((line) => line.text.isNotEmpty && line.height > 0)
+                .toList(growable: false)
+          : const <MedicineTextLineEvidence>[],
       text: map['text'] is String ? map['text']! as String : '',
       source: map['source'] is String ? map['source']! as String : '',
       sequence: map['sequence'] is int ? map['sequence']! as int : 0,
@@ -644,6 +707,10 @@ class MedicineUnderstandingEngine {
     final representative = MedicineFrameEvidence(
       barcode: barcodes.isEmpty ? '' : barcodes.first,
       barcodes: barcodes,
+      layoutLines: <MedicineTextLineEvidence>[
+        ...primary.frame.layoutLines,
+        ...secondary.frame.layoutLines,
+      ].take(240).toList(growable: false),
       text: lines.join('\n'),
       source: primary.frame.source,
       sequence: primary.frame.sequence,
@@ -1145,16 +1212,15 @@ class MedicineUnderstandingEngine {
             (compositionIndex) =>
                 compositionIndex > index && compositionIndex - index <= 2,
           );
-          add(
-            'name',
-            name,
-            (.61 +
-                    early +
-                    trademark +
-                    (beforeComposition ? .07 : 0) +
-                    min(uppercase, .25))
-                .clamp(.55, .93),
-          );
+          final layoutProminence = _layoutNameBoost(frame, line);
+          final textualScore =
+              (.61 +
+                      early +
+                      trademark +
+                      (beforeComposition ? .07 : 0) +
+                      min(uppercase, .25))
+                  .clamp(.55, .93);
+          add('name', name, (textualScore + layoutProminence).clamp(.55, .98));
         }
       }
     }
@@ -2163,6 +2229,33 @@ String _productName(String raw) {
       .trim();
   if (value.length < 2 || value.length > 70) return '';
   return _smartTitle(value);
+}
+
+double _layoutNameBoost(MedicineFrameEvidence frame, String line) {
+  if (frame.layoutLines.length < 2) return 0;
+  final target = searchText(line);
+  final matches = frame.layoutLines
+      .where((value) => searchText(value.text) == target && value.height > 0)
+      .toList(growable: false);
+  if (matches.isEmpty) return 0;
+  final valid = frame.layoutLines
+      .where((value) => value.height > 0 && value.height.isFinite)
+      .toList(growable: false);
+  if (valid.length < 2) return 0;
+  final heights = valid.map((value) => value.height).toList(growable: false)
+    ..sort();
+  final median = heights[heights.length ~/ 2];
+  if (median <= 0) return 0;
+  final selected = matches.reduce((a, b) => a.height >= b.height ? a : b);
+  final ratio = selected.height / median;
+  if (ratio < 1.08) return 0;
+  final minTop = valid.map((value) => value.top).reduce(min);
+  final maxBottom = valid.map((value) => value.top + value.height).reduce(max);
+  final span = maxBottom - minTop;
+  final relativeTop = span <= 0 ? 1.0 : (selected.top - minTop) / span;
+  final sizeBoost = ((ratio - 1) * .09).clamp(0, .12).toDouble();
+  final topBoost = relativeTop <= .52 ? .025 : 0.0;
+  return (sizeBoost + topBoost).clamp(0, .145).toDouble();
 }
 
 bool _eligibleNameLine(String line, int index) {

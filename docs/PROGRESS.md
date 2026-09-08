@@ -14,6 +14,10 @@
   bounded decode, blur/duplicate rejection, multi-frame consensus, explicit
   list-row boundaries, drain-before-restart cancellation, no silent catalog
   lookup and temporary-file cleanup.
+- Layout-aware pharmacy understanding with split composition/date scopes,
+  conservative ingredient canonicalization, 12,000-record private local identity
+  memory, barcode consensus, OCR-confusion repair and ambiguity-safe strength
+  matching. Saved corrections improve future scans without cloud learning.
 - Pharmacy-only external-AI TXT/prompt, configurable API route, strict JSON/diff
   review, stale/replay protection, cancellation and atomic selected apply.
 - Tracking periods, medicine/stock/salt/form/value metrics, fast movement,
@@ -30,8 +34,8 @@
 ## Verification recorded
 
 - Current code-only verification (2026-09-08): 52 pure domain checks, 25 date
-  checks and 14 medicine-understanding checks passed; targeted domain static
-  analysis is clean. No APK or CI workflow was run.
+  checks and 24 medicine-understanding checks passed; source formatting and
+  whitespace validation are clean. No APK or CI workflow was run.
 - Dart static analysis for `lib` and `test`: clean at source commit `e26e387`.
 - Pure-Dart domain contract: 45 checks passed, 0 failed.
 - Date-input contract: 24 checks passed, 0 failed.

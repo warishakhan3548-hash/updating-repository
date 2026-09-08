@@ -73,6 +73,10 @@ class MedicineVisionService {
       if (hindi is RecognizedText)
         ...(hindi as RecognizedText).text.split('\n'),
     ]);
+    final layoutLines = _mergeLayoutLines([
+      if (latin is RecognizedText) ..._layoutEvidence(latin as RecognizedText),
+      if (hindi is RecognizedText) ..._layoutEvidence(hindi as RecognizedText),
+    ]);
     final barcodes = barcodeResult is List<Barcode>
         ? _rankBarcodes(
             (barcodeResult as List<Barcode>)
@@ -83,6 +87,7 @@ class MedicineVisionService {
     return ScanEvidence(
       barcode: barcodes.isEmpty ? '' : barcodes.first,
       barcodes: barcodes,
+      layoutLines: layoutLines,
       text: lines.join('\n'),
       source: source,
       sequence: sequence,
@@ -98,6 +103,48 @@ class MedicineVisionService {
     await _hindi.close();
     await _barcodes.close();
   }
+}
+
+Iterable<MedicineTextLineEvidence> _layoutEvidence(
+  RecognizedText result,
+) sync* {
+  for (final block in result.blocks) {
+    for (final line in block.lines) {
+      final text = line.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+      final box = line.boundingBox;
+      if (text.isEmpty || box.width <= 0 || box.height <= 0) continue;
+      yield MedicineTextLineEvidence(
+        text: text,
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        height: box.height,
+      );
+    }
+  }
+}
+
+List<MedicineTextLineEvidence> _mergeLayoutLines(
+  Iterable<MedicineTextLineEvidence> raw,
+) {
+  final values = <MedicineTextLineEvidence>[];
+  final positions = <String, int>{};
+  for (final item in raw.take(500)) {
+    final key = searchText(item.text);
+    if (key.length < 2) continue;
+    final existing = positions[key];
+    if (existing == null) {
+      positions[key] = values.length;
+      values.add(item);
+      continue;
+    }
+    final current = values[existing];
+    final itemScore = _lineQuality(item.text) + min(item.height / 1000, .08);
+    final currentScore =
+        _lineQuality(current.text) + min(current.height / 1000, .08);
+    if (itemScore > currentScore) values[existing] = item;
+  }
+  return values.take(240).toList(growable: false);
 }
 
 List<String> _mergeLines(Iterable<String> raw) {

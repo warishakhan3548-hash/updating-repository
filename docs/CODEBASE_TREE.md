@@ -14,13 +14,13 @@ lib/
 │   ├── medicine.dart                 validated stock facts and civil dates
 │   ├── inventory.dart                status, warning scopes and totals
 │   ├── search.dart                   normalized fuzzy search and ranking
-│   ├── medicine_understanding.dart   OCR evidence fusion and draft extraction
+│   ├── medicine_understanding.dart   layout + local-knowledge evidence resolver
 │   ├── tracking.dart                 sale velocity and reorder suggestions
 │   ├── sales_overview.dart           deterministic all-time sales analytics
 │   ├── backup.dart                   strict local backup envelope
 │   └── ai_protocol.dart              reviewed mutation envelope only
 ├── services/
-│   ├── scan_service.dart             on-device Latin/Hindi OCR plus barcode
+│   ├── scan_service.dart             on-device OCR/barcode plus line geometry
 │   ├── media_import_service.dart     sandboxed photo/video picker bridge
 │   ├── search_worker.dart            persistent background search isolate
 │   └── backup_service.dart           explicit local export/import bridge
@@ -42,8 +42,9 @@ test/                                 domain, persistence, lifecycle and UI guar
 ```mermaid
 flowchart TD
   C["Camera / photo / video"] --> V["On-device OCR + barcode"]
-  V --> E["Immutable frame evidence"]
+  V --> E["Text + geometry evidence"]
   E --> U["Background understanding engine"]
+  K["Reviewed local identity memory"] --> U
   U --> I["Review inbox"]
   I --> M["Exact local match or new draft"]
   M --> R["Pharmacist review"]
@@ -54,6 +55,10 @@ flowchart TD
 Safety invariants:
 
 - OCR, barcode and imported text create evidence or drafts, never stock writes.
+- Identity memory contains no quantity, price, location, note, batch or date and
+  never leaves the device.
+- Candidate matching is field-scoped; an exact barcode contributes only local
+  facts that do not conflict across records sharing that code.
 - A GTIN may identify several physical batches; batch/expiry boundaries stay
   separate and every stock record keeps an invisible stable ID.
 - Duplicate frames contribute one confidence vote but retain complementary

@@ -152,6 +152,43 @@ Paracetamol Tablets IP 650 mg
     _equal(result.drafts.single.name, 'Dolo');
     _equal(result.drafts.single.salt, 'Paracetamol');
   },
+  'uses OCR layout prominence to separate product name from header text': () {
+    final result = const MedicineUnderstandingEngine().understand([
+      const MedicineFrameEvidence(
+        sequence: 0,
+        quality: .94,
+        text: '''
+AARIS HEALTH
+DOLO 650
+Paracetamol Tablets IP 650 mg
+''',
+        layoutLines: <MedicineTextLineEvidence>[
+          MedicineTextLineEvidence(
+            text: 'AARIS HEALTH',
+            left: 20,
+            top: 10,
+            width: 180,
+            height: 12,
+          ),
+          MedicineTextLineEvidence(
+            text: 'DOLO 650',
+            left: 18,
+            top: 45,
+            width: 250,
+            height: 40,
+          ),
+          MedicineTextLineEvidence(
+            text: 'Paracetamol Tablets IP 650 mg',
+            left: 20,
+            top: 105,
+            width: 270,
+            height: 12,
+          ),
+        ],
+      ),
+    ]);
+    _equal(result.drafts.single.name, 'Dolo');
+  },
   'uses a local product signature to repair brand and strength OCR': () {
     final result =
         const MedicineUnderstandingEngine(
@@ -450,6 +487,15 @@ Paracetamol Tablets IP 650 mg
     const frame = MedicineFrameEvidence(
       barcode: '123456',
       barcodes: ['123456', '999999'],
+      layoutLines: <MedicineTextLineEvidence>[
+        MedicineTextLineEvidence(
+          text: 'CALPOL',
+          left: 12,
+          top: 24,
+          width: 120,
+          height: 32,
+        ),
+      ],
       text: 'CALPOL\nParacetamol 250 mg',
       source: 'frame 1',
       sequence: 4,
@@ -460,6 +506,7 @@ Paracetamol Tablets IP 650 mg
     _equal(decoded.sequence, 4);
     _equal(decoded.timestampMs, 2200);
     _equal(decoded.allBarcodes.length, 2);
+    _equal(decoded.layoutLines.single.height, 32);
     final output = understandMedicineEvidenceMessage({
       'evidence': [frame.toMessage()],
       'knowledge': const [
