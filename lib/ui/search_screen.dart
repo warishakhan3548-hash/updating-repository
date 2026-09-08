@@ -255,22 +255,86 @@ class _SearchScreenState extends State<SearchScreen> {
     Widget blueAction({
       required IconData icon,
       required String label,
-      required VoidCallback onPressed,
-    }) => FilledButton.icon(
-      onPressed: onPressed,
-      style: FilledButton.styleFrom(
-        minimumSize: const Size(0, 54),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
-        backgroundColor: primary,
-        foregroundColor: Colors.white,
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
-      ),
-      icon: Icon(icon, size: 19),
-      label: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text(label, maxLines: 1),
-      ),
-    );
+      required VoidCallback? onPressed,
+    }) {
+      final enabled = onPressed != null;
+      return AnimatedOpacity(
+        duration: const Duration(milliseconds: 150),
+        opacity: enabled ? 1 : .55,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFFF9FBFF),
+                Color(0xFFF0F5FF),
+                Color(0xFFE7EEFF),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: primary.withValues(alpha: .16)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.white.withValues(alpha: .95),
+                blurRadius: 14,
+                spreadRadius: -4,
+                offset: const Offset(-5, -5),
+              ),
+              BoxShadow(
+                color: primaryDeep.withValues(alpha: .13),
+                blurRadius: 4,
+                spreadRadius: -1,
+                offset: const Offset(0, 4),
+              ),
+              BoxShadow(
+                color: primary.withValues(alpha: .10),
+                blurRadius: 22,
+                spreadRadius: -7,
+                offset: const Offset(7, 10),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(18),
+            child: InkWell(
+              onTap: onPressed,
+              borderRadius: BorderRadius.circular(18),
+              splashColor: primary.withValues(alpha: .10),
+              highlightColor: primary.withValues(alpha: .05),
+              child: SizedBox(
+                height: 54,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(icon, size: 19, color: primary),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            style: const TextStyle(
+                              color: primaryDeep,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     final body = CustomScrollView(
       key: PageStorageKey('search-${widget.scope}-${widget.database}'),
@@ -366,7 +430,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       child: blueAction(
                         icon: Icons.mic_none_rounded,
                         label: 'Voice',
-                        onPressed: _mic,
+                        onPressed: _voiceOpening ? null : _mic,
                       ),
                     ),
                     const SizedBox(width: 8),
