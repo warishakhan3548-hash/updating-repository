@@ -31,13 +31,17 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final _query = TextEditingController();
   final _catalog = MedicineCatalogService();
-  Timer? _debounce;
+  Timer? _debounce, _onlineDebounce;
   List<SearchHit> _hits = [];
   List<MedicineCatalogCandidate> _catalogHits = [];
-  bool _loading = true, _catalogLoading = false, _voiceOpening = false;
+  bool _loading = true,
+      _catalogLoading = false,
+      _voiceOpening = false,
+      _onlineMode = false;
   String _error = '', _catalogError = '';
   int _generation = 0, _catalogGeneration = 0;
   ScanResult? _scan;
+
   @override
   void initState() {
     super.initState();
@@ -47,11 +51,13 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _changed() {
     _debounce?.cancel();
+    _onlineDebounce?.cancel();
     if (mounted) unawaited(_search());
   }
 
   Future<void> _search() async {
     final generation = ++_generation;
+    final typedQuery = _query.text;
     if (!mounted) return;
     setState(() {
       _loading = true;
@@ -59,20 +65,45 @@ class _SearchScreenState extends State<SearchScreen> {
       _error = '';
     });
     try {
-      final hits = await widget.controller.search(_query.text, widget.scope);
-      if (mounted && generation == _generation)
-        setState(() {
-          _hits = hits;
-          _error = '';
-          _loading = false;
-        });
+      final hits = await widget.controller.search(typedQuery, widget.scope);
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _hits = hits;
+        _error = '';
+        _loading = false;
+      });
+      _scheduleTypedOnlineLookup(typedQuery);
     } catch (e) {
-      if (mounted && generation == _generation)
+      if (mounted && generation == _generation) {
         setState(() {
           _error = 'Search could not finish. Please try again.';
           _loading = false;
         });
+      }
     }
+  }
+
+  bool _catalogEligibleText(String value) {
+    final text = value.trim();
+    return text.length >= 3 &&
+        text.length <= 120 &&
+        !text.contains('\n') &&
+        !text.contains('\r');
+  }
+
+  void _scheduleTypedOnlineLookup(String value) {
+    _onlineDebounce?.cancel();
+    if (!widget.database ||
+        !_onlineMode ||
+        _scan != null ||
+        !_catalogEligibleText(value)) {
+      return;
+    }
+    final expected = value.trim();
+    _onlineDebounce = Timer(const Duration(milliseconds: 420), () {
+      if (!mounted || !_onlineMode || _query.text.trim() != expected) return;
+      unawaited(_discoverTextOnline(expected));
+    });
   }
 
   void _clearCatalog() {
@@ -85,6 +116,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void _typed(String value) {
     ++_generation;
     _debounce?.cancel();
+    _onlineDebounce?.cancel();
     setState(() {
       _hits = [];
       _loading = true;
@@ -100,12 +132,24 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _setQuery(String value) {
     _debounce?.cancel();
+    _onlineDebounce?.cancel();
     setState(() {
       _query.text = value;
       _scan = null;
       _clearCatalog();
     });
     unawaited(_search());
+  }
+
+  void _toggleOnlineMode(bool enabled) {
+    _onlineDebounce?.cancel();
+    setState(() {
+      _onlineMode = enabled;
+      _clearCatalog();
+    });
+    if (enabled && _catalogEligibleText(_query.text)) {
+      _scheduleTypedOnlineLookup(_query.text);
+    }
   }
 
   bool _scanHasConfidentLocalMatch(ScanResult scan) {
@@ -120,8 +164,42 @@ class _SearchScreenState extends State<SearchScreen> {
     return _hits.any((hit) => hit.score >= .90);
   }
 
+  Future<void> _discoverTextOnline(String text) async {
+    if (!widget.database || !_onlineMode || !mounted) return;
+    final clean = text.trim();
+    if (!_catalogEligibleText(clean) || _query.text.trim() != clean) return;
+    final generation = ++_catalogGeneration;
+    setState(() {
+      _catalogLoading = true;
+      _catalogHits = [];
+      _catalogError = '';
+    });
+    try {
+      final candidates = await _catalog.search(text: clean);
+      if (!mounted ||
+          generation != _catalogGeneration ||
+          !_onlineMode ||
+          _query.text.trim() != clean) {
+        return;
+      }
+      setState(() {
+        _catalogHits = candidates;
+        _catalogLoading = false;
+        _catalogError = candidates.isEmpty
+            ? 'No matching medicine identity was found in the free public catalogs.'
+            : '';
+      });
+    } catch (_) {
+      if (!mounted || generation != _catalogGeneration) return;
+      setState(() {
+        _catalogLoading = false;
+        _catalogError = 'Online medicine lookup is unavailable right now.';
+      });
+    }
+  }
+
   Future<void> _discoverOnline(ScanResult scan) async {
-    if (!widget.database || !mounted) return;
+    if (!widget.database || !_onlineMode || !mounted) return;
     final generation = ++_catalogGeneration;
     setState(() {
       _catalogLoading = true;
@@ -133,7 +211,7 @@ class _SearchScreenState extends State<SearchScreen> {
         barcode: scan.barcode,
         text: scan.text,
       );
-      if (!mounted || generation != _catalogGeneration) return;
+      if (!mounted || generation != _catalogGeneration || !_onlineMode) return;
       setState(() {
         _catalogHits = candidates;
         _catalogLoading = false;
@@ -157,6 +235,7 @@ class _SearchScreenState extends State<SearchScreen> {
     );
     if (result == null || !mounted) return;
     _debounce?.cancel();
+    _onlineDebounce?.cancel();
     ++_catalogGeneration;
     setState(() {
       _scan = result;
@@ -166,7 +245,10 @@ class _SearchScreenState extends State<SearchScreen> {
       _catalogLoading = false;
     });
     await _search();
-    if (!mounted || !widget.database || _scanHasConfidentLocalMatch(result)) {
+    if (!mounted ||
+        !widget.database ||
+        !_onlineMode ||
+        _scanHasConfidentLocalMatch(result)) {
       return;
     }
     await _discoverOnline(result);
@@ -238,6 +320,7 @@ class _SearchScreenState extends State<SearchScreen> {
     ++_catalogGeneration;
     widget.controller.removeListener(_changed);
     _debounce?.cancel();
+    _onlineDebounce?.cancel();
     _catalog.close();
     _query.dispose();
     super.dispose();
@@ -392,6 +475,24 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   ],
                 ),
+                if (widget.database)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Tooltip(
+                      message:
+                          'When enabled, a short single-medicine query can also search free public medicine catalogs. Stock dates and pharmacy-specific values are never taken from the internet.',
+                      child: FilterChip(
+                        avatar: Icon(
+                          Icons.public_rounded,
+                          size: 18,
+                          color: _onlineMode ? primary : muted,
+                        ),
+                        label: Text(_onlineMode ? 'Online search on' : 'Online search'),
+                        selected: _onlineMode,
+                        onSelected: _toggleOnlineMode,
+                      ),
+                    ),
+                  ),
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   child: Row(
@@ -444,13 +545,13 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ),
         if (_catalogLoading)
-          const SliverToBoxAdapter(
+          SliverToBoxAdapter(
             child: Padding(
-              padding: EdgeInsets.fromLTRB(22, 2, 22, 14),
+              padding: const EdgeInsets.fromLTRB(22, 2, 22, 14),
               child: Surface(
                 color: accentSoft,
-                padding: EdgeInsets.all(16),
-                child: Row(
+                padding: const EdgeInsets.all(16),
+                child: const Row(
                   children: [
                     SizedBox(
                       width: 20,
@@ -460,7 +561,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Not found confidently in your database. Looking up the medicine identity online…',
+                        'Searching free public medicine catalogs for matching identity and strength options…',
                       ),
                     ),
                   ],
@@ -476,12 +577,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Choose the medicine found online',
+                    'Online medicine options',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Internet is used only to prefill identity fields such as name, brand, salt, strength, form and manufacturer. Expiry and your stock details stay blank.',
+                    'Tap the matching strength or form to prefill medicine name, salt, strength, brand and other identity data. MFG, EXP and your pharmacy stock values stay for you to enter.',
                     style: TextStyle(color: muted, fontSize: 12, height: 1.45),
                   ),
                   const SizedBox(height: 14),
@@ -494,7 +595,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
           ),
-        if (_catalogError.isNotEmpty && _scan != null && widget.database)
+        if (_catalogError.isNotEmpty && widget.database && _onlineMode)
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(22, 0, 22, 12),
@@ -533,7 +634,13 @@ class _SearchScreenState extends State<SearchScreen> {
                   ? 'No medicines here yet'
                   : 'No matching medicines',
               message: _scan != null && widget.database
-                  ? 'This scan was not matched confidently in your database or public medicine catalogs. You can still add it manually and review the pack.'
+                  ? _onlineMode
+                        ? 'This scan was not matched confidently in your database or public medicine catalogs. You can still add it manually and review the pack.'
+                        : 'This scan was not matched confidently in your database. Turn on Online search to check public medicine catalogs, or add it manually.'
+                  : widget.database && _query.text.trim().isNotEmpty
+                  ? _onlineMode
+                        ? 'No local or online match was found. Try another spelling or add the medicine manually.'
+                        : 'No local match. Turn on Online search to look for medicine identity and strength options, or add it manually.'
                   : widget.scope == SearchScope.all
                   ? 'Try a name, salt, location, barcode or words from your notes.'
                   : 'No matches in this category. You can also search the whole inventory.',
