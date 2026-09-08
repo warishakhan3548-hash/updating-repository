@@ -256,85 +256,11 @@ class _SearchScreenState extends State<SearchScreen> {
       required IconData icon,
       required String label,
       required VoidCallback? onPressed,
-    }) {
-      final enabled = onPressed != null;
-      return AnimatedOpacity(
-        duration: const Duration(milliseconds: 150),
-        opacity: enabled ? 1 : .55,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFFF9FBFF),
-                Color(0xFFF0F5FF),
-                Color(0xFFE7EEFF),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: primary.withValues(alpha: .16)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.white.withValues(alpha: .95),
-                blurRadius: 14,
-                spreadRadius: -4,
-                offset: const Offset(-5, -5),
-              ),
-              BoxShadow(
-                color: primaryDeep.withValues(alpha: .13),
-                blurRadius: 4,
-                spreadRadius: -1,
-                offset: const Offset(0, 4),
-              ),
-              BoxShadow(
-                color: primary.withValues(alpha: .10),
-                blurRadius: 22,
-                spreadRadius: -7,
-                offset: const Offset(7, 10),
-              ),
-            ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(18),
-            child: InkWell(
-              onTap: onPressed,
-              borderRadius: BorderRadius.circular(18),
-              splashColor: primary.withValues(alpha: .10),
-              highlightColor: primary.withValues(alpha: .05),
-              child: SizedBox(
-                height: 54,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(icon, size: 19, color: primary),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            label,
-                            maxLines: 1,
-                            style: const TextStyle(
-                              color: primaryDeep,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
+    }) => RaisedActionButton(
+      icon: icon,
+      label: label,
+      onPressed: onPressed,
+    );
 
     final body = CustomScrollView(
       key: PageStorageKey('search-${widget.scope}-${widget.database}'),
@@ -394,25 +320,48 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                   const SizedBox(height: 16),
                 ],
-                TextField(
-                  controller: _query,
-                  onChanged: _typed,
-                  maxLength: 30000,
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: _setQuery,
-                  onTapOutside: (_) =>
-                      FocusManager.instance.primaryFocus?.unfocus(),
-                  decoration: InputDecoration(
-                    counterText: '',
-                    hintText: 'Search medicines…',
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    suffixIcon: _query.text.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: 'Clear search',
-                            onPressed: () => _setQuery(''),
-                            icon: const Icon(Icons.close_rounded),
-                          ),
+                GlassPanel(
+                  tint: Colors.white,
+                  radius: 18,
+                  elevation: 1.12,
+                  child: TextField(
+                    controller: _query,
+                    onChanged: _typed,
+                    maxLength: 30000,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: _setQuery,
+                    onTapOutside: (_) =>
+                        FocusManager.instance.primaryFocus?.unfocus(),
+                    decoration: InputDecoration(
+                      filled: false,
+                      counterText: '',
+                      hintText: 'Search medicines…',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide(
+                          color: primary.withValues(alpha: .08),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(
+                          color: primary,
+                          width: 1.5,
+                        ),
+                      ),
+                      suffixIcon: _query.text.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              onPressed: () => _setQuery(''),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -589,15 +538,20 @@ class _SearchScreenState extends State<SearchScreen> {
                   ? 'Try a name, salt, location, barcode or words from your notes.'
                   : 'No matches in this category. You can also search the whole inventory.',
               action: widget.database
-                  ? FilledButton.icon(
-                      onPressed: () => openEditor(
-                        context,
-                        controller,
-                        barcode: _scan?.barcode ?? '',
-                        ocrText: _scan?.text ?? '',
+                  ? SizedBox(
+                      width: 230,
+                      child: RaisedActionButton(
+                        icon: Icons.add_rounded,
+                        label: 'Add medicine',
+                        height: 56,
+                        radius: 20,
+                        onPressed: () => openEditor(
+                          context,
+                          controller,
+                          barcode: _scan?.barcode ?? '',
+                          ocrText: _scan?.text ?? '',
+                        ),
                       ),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add medicine'),
                     )
                   : widget.scope != SearchScope.all
                   ? OutlinedButton(
