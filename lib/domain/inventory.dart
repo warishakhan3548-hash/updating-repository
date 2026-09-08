@@ -108,12 +108,27 @@ class FormCount {
 
 class InventoryStats {
   InventoryStats(Iterable<Medicine> records, DateTime today) {
-    final names = <String>{}, salts = <String>{};
+    final identities = <String>{},
+        medicineNames = <String>{},
+        salts = <String>{};
     for (final m in records.where((m) => !m.archived)) {
       stockEntries++;
-      names.add(m.identity);
+      identities.add(m.identity);
+      final normalizedName = normalize(m.name);
+      if (normalizedName.isNotEmpty) medicineNames.add(normalizedName);
       if (m.salt.isNotEmpty) salts.add(normalize(m.salt));
       if (m.salt.isEmpty) missingSalt++;
+
+      // `Amount` in the medicine editor is a money value belonging to that
+      // medicine entry. Snapshot total intentionally sums the entered amounts
+      // themselves; it does not multiply them by stock quantity.
+      if (m.unitPricePaise != null) {
+        totalEnteredAmountPaise = checkedMoneySum(
+          totalEnteredAmountPaise,
+          m.unitPricePaise!,
+        );
+      }
+
       if (m.sold) {
         soldEntries++;
         continue;
@@ -140,14 +155,22 @@ class InventoryStats {
         valuedEntries++;
       }
     }
-    uniqueMedicines = names.length;
+    uniqueMedicines = identities.length;
+    uniqueMedicineNames = medicineNames.length;
     uniqueSalts = salts.length;
   }
-  int stockEntries = 0, uniqueMedicines = 0, uniqueSalts = 0, knownUnits = 0;
+  int stockEntries = 0,
+      uniqueMedicines = 0,
+      uniqueMedicineNames = 0,
+      uniqueSalts = 0,
+      knownUnits = 0;
   int unknownQuantity = 0,
       unvaluedEntries = 0,
       valuedEntries = 0,
       missingSalt = 0;
-  int onHandValue = 0, expiredValue = 0, soldEntries = 0;
+  int onHandValue = 0,
+      expiredValue = 0,
+      totalEnteredAmountPaise = 0,
+      soldEntries = 0;
   final Map<String, FormCount> byForm = {};
 }
