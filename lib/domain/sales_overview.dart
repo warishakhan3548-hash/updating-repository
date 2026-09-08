@@ -87,7 +87,7 @@ class SalesOverview {
       final name = useCurrentSoldSnapshot ? current!.name : before.name;
 
       int? amount = useCurrentSoldSnapshot
-          ? current!.soldUnitPricePaise ?? current.unitPricePaise
+          ? current!.soldUnitPricePaise ?? current!.unitPricePaise
           : before.unitPricePaise;
 
       // The legacy event aggregate stored quantity × amount. Recover the
