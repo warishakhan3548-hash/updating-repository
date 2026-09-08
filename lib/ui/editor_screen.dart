@@ -169,36 +169,70 @@ class _EditorScreenState extends State<EditorScreen> {
     setState(() => _dirty = true);
   }
 
+  OutlineInputBorder _editorBorder({Color? color, double width = 1}) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: color == null
+            ? BorderSide.none
+            : BorderSide(color: color, width: width),
+      );
+
+  InputDecoration _editorDecoration({
+    required String label,
+    String? hint,
+    Widget? suffixIcon,
+    bool multiline = false,
+  }) => InputDecoration(
+    labelText: label,
+    hintText: hint,
+    filled: false,
+    counterText: '',
+    alignLabelWithHint: multiline,
+    border: _editorBorder(),
+    enabledBorder: _editorBorder(color: primary.withValues(alpha: .08)),
+    focusedBorder: _editorBorder(color: primary, width: 1.4),
+    suffixIcon: suffixIcon,
+  );
+
+  Widget _raisedFieldSurface(Widget child) => GlassPanel(
+    tint: Colors.white,
+    radius: 18,
+    elevation: 1.12,
+    child: child,
+  );
+
   Widget _saltField({TextEditingController? controller, int? extraIndex}) {
     final isPrimary = controller == null;
     final textController = controller ?? fields['salt']!;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: TextFormField(
-        controller: textController,
-        enabled: !_busy,
-        onChanged: (_) => setState(() => _dirty = true),
-        textInputAction: TextInputAction.next,
-        onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-        decoration: InputDecoration(
-          labelText: isPrimary ? 'Salt name · optional' : 'Another salt · optional',
-          hintText: isPrimary ? 'e.g. Paracetamol' : 'e.g. Caffeine',
-          helperText: isPrimary
-              ? 'Some medicines contain 2 or 3 salts. Tap + only when you need another one.'
-              : null,
-          suffixIcon: isPrimary
-              ? IconButton(
-                  tooltip: 'Add another salt',
-                  onPressed: _busy ? null : _addSalt,
-                  icon: const Icon(Icons.add_circle_outline_rounded),
-                )
-              : IconButton(
-                  tooltip: 'Remove this salt',
-                  onPressed: _busy || extraIndex == null
-                      ? null
-                      : () => _removeSalt(extraIndex),
-                  icon: const Icon(Icons.remove_circle_outline_rounded),
-                ),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: _raisedFieldSurface(
+        TextFormField(
+          controller: textController,
+          enabled: !_busy,
+          onChanged: (_) => setState(() => _dirty = true),
+          textInputAction: TextInputAction.next,
+          onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+          decoration: _editorDecoration(
+            label: isPrimary ? 'Salt name · optional' : 'Another salt · optional',
+            hint: isPrimary ? 'e.g. Paracetamol' : 'e.g. Caffeine',
+            suffixIcon: isPrimary
+                ? IconButton(
+                    tooltip: 'Add another salt',
+                    onPressed: _busy ? null : _addSalt,
+                    icon: const Icon(Icons.add_circle_rounded, color: primary),
+                  )
+                : IconButton(
+                    tooltip: 'Remove this salt',
+                    onPressed: _busy || extraIndex == null
+                        ? null
+                        : () => _removeSalt(extraIndex),
+                    icon: const Icon(
+                      Icons.remove_circle_outline_rounded,
+                      color: red,
+                    ),
+                  ),
+          ),
         ),
       ),
     );
@@ -642,34 +676,101 @@ class _EditorScreenState extends State<EditorScreen> {
     int lines = 1,
     TextInputType? keyboard,
     int? max,
-    String? helper,
   }) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: TextFormField(
-      controller: fields[key],
-      autovalidateMode: AutovalidateMode.onUserInteraction,
-      validator: key == 'name'
-          ? (value) => (value?.trim().isEmpty ?? true)
-                ? 'Enter the medicine name.'
-                : null
-          : null,
-      enabled: !_busy,
-      onChanged: (_) => setState(() => _dirty = true),
-      maxLines: lines,
-      maxLength: max,
-      keyboardType: keyboard,
-      textInputAction: lines > 1
-          ? TextInputAction.newline
-          : TextInputAction.next,
-      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        helperText: helper,
-        alignLabelWithHint: lines > 1,
+    padding: const EdgeInsets.only(bottom: 10),
+    child: _raisedFieldSurface(
+      TextFormField(
+        controller: fields[key],
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        validator: key == 'name'
+            ? (value) => (value?.trim().isEmpty ?? true)
+                  ? 'Enter the medicine name.'
+                  : null
+            : null,
+        enabled: !_busy,
+        onChanged: (_) => setState(() => _dirty = true),
+        maxLines: lines,
+        maxLength: max,
+        keyboardType: keyboard,
+        textInputAction: lines > 1
+            ? TextInputAction.newline
+            : TextInputAction.next,
+        onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+        decoration: _editorDecoration(
+          label: label,
+          hint: hint,
+          multiline: lines > 1,
+        ),
       ),
     ),
   );
+
+  Widget _dateField({
+    required TextEditingController controller,
+    required String label,
+    bool monthOnly = false,
+    Key? key,
+  }) => GlassPanel(
+    key: key,
+    tint: Colors.white,
+    radius: 18,
+    elevation: 1.12,
+    child: DateEntryField(
+      controller: controller,
+      label: label,
+      monthOnly: monthOnly,
+      enabled: !_busy,
+      showHelper: false,
+      surfaceStyle: true,
+      iconColor: green,
+      onChanged: (_) => setState(() => _dirty = true),
+    ),
+  );
+
+  Widget _expiryMode(bool monthOnly) {
+    final selected = _expiryMonthOnly == monthOnly;
+    return GlassPanel(
+      tint: selected ? primarySoft : Colors.white,
+      accentColor: primary,
+      shadowColor: selected ? primary : null,
+      radius: 18,
+      elevation: selected ? 1.12 : 1,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _busy ? null : () => _changeExpiryFormat(monthOnly),
+          borderRadius: BorderRadius.circular(18),
+          splashColor: primary.withValues(alpha: .10),
+          highlightColor: primary.withValues(alpha: .05),
+          child: SizedBox(
+            height: 54,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (selected) ...[
+                  const Icon(Icons.check_rounded, color: primary, size: 20),
+                  const SizedBox(width: 7),
+                ],
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      monthOnly ? 'Month / year' : 'Full date',
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: selected ? primaryDeep : ink,
+                        fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -785,140 +886,91 @@ class _EditorScreenState extends State<EditorScreen> {
                       'New stock · add the dates you know and save',
                     ),
                   ),
-                if (record == null && widget.seed != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: Surface(
-                      color: accentSoft,
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
+                GlassPanel(
+                  tint: Colors.white,
+                  radius: 28,
+                  elevation: 1.06,
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      _field(
+                        'name',
+                        'Medicine name *',
+                        hint: 'e.g. Paracetamol',
+                      ),
+                      _saltField(),
+                      for (var i = 0; i < _extraSaltControllers.length; i++)
+                        _saltField(
+                          controller: _extraSaltControllers[i],
+                          extraIndex: i,
+                        ),
+                      Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.auto_awesome_rounded, color: accent),
-                          const SizedBox(width: 12),
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Useful identity data captured',
-                                  style: TextStyle(fontWeight: FontWeight.w800),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'From ${widget.seed!.source}. Extra identity metadata stays in the record for search without making this form longer. Verify the pack dates yourself.',
-                                  style: const TextStyle(
-                                    color: muted,
-                                    fontSize: 12,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
+                            child: _dateField(
+                              controller: fields['mfg']!,
+                              label: 'MFG date',
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _dateField(
+                              key: ValueKey('expiry-$_expiryMonthOnly'),
+                              controller: fields['expiry']!,
+                              label: 'EXP date',
+                              monthOnly: _expiryMonthOnly,
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                Text(
-                  record == null
-                      ? 'Add only what helps you later.'
-                      : 'Keep the stock entry simple.',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Only the medicine name is required. Add one or more salts when useful; scanner/OCR text can stay messy on purpose so future searches still match the pack.',
-                  style: TextStyle(color: muted, fontSize: 13, height: 1.45),
-                ),
-                const SizedBox(height: 24),
-                FormSection(
-                  title: 'Medicine details',
-                  message: 'One short form for the information pharmacists actually use.',
-                  icon: Icons.medication_outlined,
-                  children: [
-                    _field(
-                      'name',
-                      'Medicine name *',
-                      hint: 'e.g. Paracetamol',
-                    ),
-                    _saltField(),
-                    for (var i = 0; i < _extraSaltControllers.length; i++)
-                      _saltField(
-                        controller: _extraSaltControllers[i],
-                        extraIndex: i,
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(child: _expiryMode(true)),
+                          const SizedBox(width: 10),
+                          Expanded(child: _expiryMode(false)),
+                        ],
                       ),
-                    DateEntryField(
-                      controller: fields['mfg']!,
-                      label: 'Manufacturing date · optional',
-                      enabled: !_busy,
-                      onChanged: (_) => setState(() => _dirty = true),
-                    ),
-                    const SizedBox(height: 18),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        const Text(
-                          'Expiry format',
-                          style: TextStyle(
-                            color: muted,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        for (final monthOnly in [true, false])
-                          ChoiceChip(
-                            label: Text(
-                              monthOnly ? 'Month / year' : 'Full date',
+                      const SizedBox(height: 10),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: _field(
+                              'strength',
+                              'Strength · optional',
+                              hint: '500 mg',
                             ),
-                            selected: _expiryMonthOnly == monthOnly,
-                            onSelected: _busy
-                                ? null
-                                : (_) => _changeExpiryFormat(monthOnly),
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    DateEntryField(
-                      key: ValueKey('expiry-$_expiryMonthOnly'),
-                      controller: fields['expiry']!,
-                      label: 'Expiry date · optional',
-                      monthOnly: _expiryMonthOnly,
-                      enabled: !_busy,
-                      onChanged: (_) => setState(() => _dirty = true),
-                    ),
-                    const SizedBox(height: 18),
-                    _field(
-                      'strength',
-                      'Strength · optional',
-                      hint: 'e.g. 500 mg or 650 mg',
-                    ),
-                    _field(
-                      'location',
-                      'Location · optional',
-                      hint: 'Anything you recognise: Room 2, Rack B, Shelf 4…',
-                      lines: 2,
-                    ),
-                    _field(
-                      'barcode',
-                      'Barcode · optional',
-                      hint: 'Filled automatically when scanned',
-                    ),
-                    _field(
-                      'ocrText',
-                      'Captured search text · optional',
-                      hint: 'Scanner/OCR words from the pack can stay here even if messy',
-                      helper: 'This is intentionally broad search text. OCR can fill it automatically so the medicine is easier to find later.',
-                      lines: 4,
-                      max: 30000,
-                    ),
-                  ],
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _field(
+                              'barcode',
+                              'Barcode · optional',
+                              hint: 'Scan or type',
+                            ),
+                          ),
+                        ],
+                      ),
+                      _field(
+                        'location',
+                        'Location · optional',
+                        hint: 'Room 2, Rack B, Shelf 4…',
+                      ),
+                      _field(
+                        'ocrText',
+                        'Captured search text · optional',
+                        hint: 'Scanner/OCR words from the pack',
+                        lines: 2,
+                        max: 30000,
+                      ),
+                    ],
+                  ),
                 ),
                 if (_error.isNotEmpty)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
+                    padding: const EdgeInsets.only(top: 14, bottom: 18),
                     child: Text(_error, style: const TextStyle(color: red)),
                   ),
                 if (record != null) const SectionHeading('Stock actions'),
