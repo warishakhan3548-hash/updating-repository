@@ -6,7 +6,6 @@ import '../domain/date_input.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 
-// Shared palette: brand colors communicate actions; status colors communicate stock.
 const primary = Color(0xFF245BD6);
 const primaryDeep = Color(0xFF183F99);
 const primarySoft = Color(0xFFEAF0FF);
@@ -14,8 +13,6 @@ const accent = Color(0xFF0D747C);
 const accentSoft = Color(0xFFE8F5F5);
 const ink = Color(0xFF182A44);
 const muted = Color(0xFF596A82);
-
-// Same calm off-white canvas recipe used by the reference ledger app.
 const canvas = Color(0xFFF3F5F8);
 const outline = Color(0xFFD9E2F0);
 const inverseMuted = Color(0xFFD5E2FF);
@@ -26,63 +23,33 @@ const successSoft = Color(0xFFEDF7F1);
 const warningSoft = Color(0xFFFFF5E3);
 const errorSoft = Color(0xFFFFEFF1);
 
-/// Premium page canvas: a clean ceramic-white base with restrained ambient
-/// light. This is painted once behind the entire app rather than adding a
-/// decorative background layer to every screen.
 class PharmacyBackdrop extends StatelessWidget {
   const PharmacyBackdrop({super.key, required this.child});
-
   final Widget child;
 
   @override
   Widget build(BuildContext context) => Stack(
     fit: StackFit.expand,
     children: [
-      const RepaintBoundary(child: CustomPaint(painter: _PharmacyAmbientPainter())),
+      const RepaintBoundary(child: CustomPaint(painter: _AmbientPainter())),
       BackdropGroup(child: child),
     ],
   );
 }
 
-class _PharmacyAmbientPainter extends CustomPainter {
-  const _PharmacyAmbientPainter();
+class _AmbientPainter extends CustomPainter {
+  const _AmbientPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
     final bounds = Offset.zero & size;
-    canvas.drawRect(bounds, Paint()..color = canvasColor);
-    _paintGlow(
-      canvas,
-      bounds,
-      center: const Alignment(-1.15, -1.2),
-      radius: .88,
-      color: green.withAlpha(28),
-    );
-    _paintGlow(
-      canvas,
-      bounds,
-      center: const Alignment(1.15, 1.18),
-      radius: .96,
-      color: primary.withAlpha(24),
-    );
-    _paintGlow(
-      canvas,
-      bounds,
-      center: const Alignment(.08, 1.24),
-      radius: .68,
-      color: amber.withAlpha(10),
-    );
+    canvas.drawRect(bounds, Paint()..color = const Color(0xFFF3F5F8));
+    _glow(canvas, bounds, const Alignment(-1.15, -1.2), .88, green.withAlpha(28));
+    _glow(canvas, bounds, const Alignment(1.15, 1.18), .96, primary.withAlpha(24));
+    _glow(canvas, bounds, const Alignment(.08, 1.24), .68, amber.withAlpha(10));
   }
 
-  static const canvasColor = canvas;
-
-  void _paintGlow(
-    Canvas canvas,
-    Rect bounds, {
-    required Alignment center,
-    required double radius,
-    required Color color,
-  }) {
+  void _glow(Canvas canvas, Rect bounds, Alignment center, double radius, Color color) {
     canvas.drawRect(
       bounds,
       Paint()
@@ -90,84 +57,42 @@ class _PharmacyAmbientPainter extends CustomPainter {
         ..shader = RadialGradient(
           center: center,
           radius: radius,
-          colors: [
-            color,
-            color.withValues(alpha: color.a * .35),
-            Colors.transparent,
-          ],
+          colors: [color, color.withValues(alpha: color.a * .35), Colors.transparent],
           stops: const [0, .45, 1],
         ).createShader(bounds),
     );
   }
 
   @override
-  bool shouldRepaint(covariant _PharmacyAmbientPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _AmbientPainter oldDelegate) => false;
 }
 
-int _scaledAlpha(int alpha, double elevation) =>
-    (alpha * elevation.clamp(.25, 1.5)).round().clamp(0, 255);
+int _alpha(int value, double elevation) =>
+    (value * elevation.clamp(.25, 1.5)).round().clamp(0, 255);
 
-Color _ambientHue(Color color) =>
-    Color.lerp(color, const Color(0xFF172033), .045)!;
+Color _ambient(Color color) => Color.lerp(color, const Color(0xFF172033), .045)!;
 
-List<BoxShadow> _ceramicDepth(double elevation) {
-  final e = elevation.clamp(.25, 1.5);
-  return [
-    BoxShadow(
-      color: Colors.white.withAlpha(_scaledAlpha(248, e)),
-      blurRadius: 18,
-      spreadRadius: -5,
-      offset: const Offset(-6, -6),
-    ),
-    BoxShadow(
-      color: const Color(0xFF243247).withAlpha(_scaledAlpha(38, e)),
-      blurRadius: 3.5,
-      spreadRadius: -1,
-      offset: const Offset(0, 4),
-    ),
-    BoxShadow(
-      color: const Color(0xFF243247).withAlpha(_scaledAlpha(24, e)),
-      blurRadius: 25,
-      spreadRadius: -7,
-      offset: const Offset(8, 12),
-    ),
-  ];
-}
+List<BoxShadow> _surfaceDepth(double elevation) => [
+  BoxShadow(
+    color: Colors.white.withAlpha(_alpha(248, elevation)),
+    blurRadius: 18,
+    spreadRadius: -5,
+    offset: const Offset(-6, -6),
+  ),
+  BoxShadow(
+    color: const Color(0xFF243247).withAlpha(_alpha(38, elevation)),
+    blurRadius: 3.5,
+    spreadRadius: -1,
+    offset: const Offset(0, 4),
+  ),
+  BoxShadow(
+    color: const Color(0xFF243247).withAlpha(_alpha(24, elevation)),
+    blurRadius: 25,
+    spreadRadius: -7,
+    offset: const Offset(8, 12),
+  ),
+];
 
-List<BoxShadow> _jewelDepth(Color color, double elevation) {
-  final e = elevation.clamp(.25, 1.5);
-  return [
-    BoxShadow(
-      color: Colors.white.withAlpha(_scaledAlpha(238, e)),
-      blurRadius: 11,
-      spreadRadius: -4,
-      offset: const Offset(-4, -4),
-    ),
-    BoxShadow(
-      color: color.withAlpha(_scaledAlpha(40, e)),
-      blurRadius: 15,
-      spreadRadius: -5,
-      offset: const Offset(2, 5),
-    ),
-    BoxShadow(
-      color: Colors.black.withAlpha(_scaledAlpha(28, e)),
-      blurRadius: 3.5,
-      spreadRadius: -1,
-      offset: const Offset(0, 4),
-    ),
-    BoxShadow(
-      color: Colors.black.withAlpha(_scaledAlpha(17, e)),
-      blurRadius: 18,
-      spreadRadius: -7,
-      offset: const Offset(6, 9),
-    ),
-  ];
-}
-
-/// Core raised-card primitive used by dashboard tiles, medicine rows, sheets,
-/// status chips and navigation surfaces. The light recipe deliberately mirrors
-/// the reference app's three-stop ceramic face, bevel light and physical depth.
-/// No screen-specific wrapper is required.
 class GlassPanel extends StatelessWidget {
   const GlassPanel({
     super.key,
@@ -195,65 +120,57 @@ class GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highContrast = MediaQuery.highContrastOf(context);
-    final strongColor = dark || tint.computeLuminance() < .20;
-    final borderRadius = BorderRadius.circular(radius);
-    final semantic = shadowColor ?? accentColor ??
-        (tint == Colors.white ? null : tint);
+    final strong = dark || tint.computeLuminance() < .20;
+    final semantic = shadowColor ?? accentColor ?? (tint == Colors.white ? null : tint);
+    final r = BorderRadius.circular(radius);
 
-    final List<Color> surfaceColors = strongColor
+    final colors = strong
         ? [
             Color.alphaBlend(Colors.white.withValues(alpha: .075), tint),
             tint,
             Color.lerp(tint, Colors.black, .12)!,
           ]
         : tint == Colors.white
-        ? const [
-            Color(0xFFFFFFFF),
-            Color(0xFFFAFCFE),
-            Color(0xFFEEF2F6),
-          ]
+        ? const [Color(0xFFFFFFFF), Color(0xFFFAFCFE), Color(0xFFEEF2F6)]
         : [
             Color.lerp(Colors.white, tint, .040)!,
             Color.lerp(const Color(0xFFFAFCFE), tint, .028)!,
             Color.lerp(const Color(0xFFEEF2F6), tint, .018)!,
           ];
 
-    final resolvedBorder = highContrast
-        ? (strongColor ? Colors.white : ink)
-        : strongColor
+    final border = highContrast
+        ? (strong ? Colors.white : ink)
+        : strong
         ? Colors.white.withValues(alpha: .17)
         : semantic == null
         ? Colors.white
-        : Color.alphaBlend(
-            semantic.withValues(alpha: .067),
-            const Color(0xF0FFFFFF),
-          );
+        : Color.alphaBlend(semantic.withValues(alpha: .067), const Color(0xF0FFFFFF));
 
     final shadows = <BoxShadow>[];
     if (elevation > 0) {
-      if (strongColor) {
-        final glow = _ambientHue(semantic ?? tint);
+      if (strong) {
+        final glow = _ambient(semantic ?? tint);
         shadows.addAll([
           BoxShadow(
-            color: glow.withAlpha(_scaledAlpha(62, elevation)),
+            color: glow.withAlpha(_alpha(62, elevation)),
             blurRadius: 25,
             spreadRadius: -6,
             offset: const Offset(1, 8),
           ),
           BoxShadow(
-            color: Colors.white.withAlpha(_scaledAlpha(24, elevation)),
+            color: Colors.white.withAlpha(_alpha(24, elevation)),
             blurRadius: 13,
             spreadRadius: -6,
             offset: const Offset(-6, -6),
           ),
           BoxShadow(
-            color: Colors.black.withAlpha(_scaledAlpha(92, elevation)),
+            color: Colors.black.withAlpha(_alpha(92, elevation)),
             blurRadius: 4,
             spreadRadius: -1,
             offset: const Offset(0, 5),
           ),
           BoxShadow(
-            color: Colors.black.withAlpha(_scaledAlpha(56, elevation)),
+            color: Colors.black.withAlpha(_alpha(56, elevation)),
             blurRadius: 24,
             spreadRadius: -7,
             offset: const Offset(8, 13),
@@ -261,10 +178,10 @@ class GlassPanel extends StatelessWidget {
         ]);
       } else {
         if (semantic != null) {
-          final glow = _ambientHue(semantic);
+          final glow = _ambient(semantic);
           shadows.add(
             BoxShadow(
-              color: glow.withAlpha(_scaledAlpha(46, elevation)),
+              color: glow.withAlpha(_alpha(46, elevation)),
               blurRadius: 25,
               spreadRadius: -6,
               offset: const Offset(1, 7),
@@ -273,7 +190,7 @@ class GlassPanel extends StatelessWidget {
           if (tint != Colors.white) {
             shadows.add(
               BoxShadow(
-                color: glow.withAlpha(_scaledAlpha(21, elevation)),
+                color: glow.withAlpha(_alpha(21, elevation)),
                 blurRadius: 42,
                 spreadRadius: -13,
                 offset: const Offset(5, 13),
@@ -281,12 +198,10 @@ class GlassPanel extends StatelessWidget {
             );
           }
         }
-        shadows.addAll(_ceramicDepth(elevation));
+        shadows.addAll(_surfaceDepth(elevation));
         shadows.add(
           BoxShadow(
-            color: const Color(0xFF243247).withAlpha(
-              _scaledAlpha(9, elevation),
-            ),
+            color: const Color(0xFF243247).withAlpha(_alpha(9, elevation)),
             blurRadius: 19,
             spreadRadius: -9,
             offset: const Offset(8, 13),
@@ -295,35 +210,32 @@ class GlassPanel extends StatelessWidget {
       }
     }
 
-    final panel = DecoratedBox(
+    final face = DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           stops: const [0, .52, 1],
-          colors: surfaceColors,
+          colors: colors,
         ),
-        borderRadius: borderRadius,
+        borderRadius: r,
       ),
       child: DecoratedBox(
         position: DecorationPosition.foreground,
         decoration: BoxDecoration(
-          borderRadius: borderRadius,
-          border: Border.all(
-            color: resolvedBorder,
-            width: highContrast ? 1.5 : 1,
-          ),
+          borderRadius: r,
+          border: Border.all(color: border, width: highContrast ? 1.5 : 1),
         ),
         child: Stack(
           children: [
             Positioned.fill(
               child: IgnorePointer(
                 child: DecoratedBox(
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      stops: const [0, .23, .69, 1],
+                      stops: [0, .23, .69, 1],
                       colors: [
                         Color.fromARGB(148, 255, 255, 255),
                         Colors.transparent,
@@ -335,7 +247,7 @@ class GlassPanel extends StatelessWidget {
                 ),
               ),
             ),
-            if (semantic != null && !strongColor)
+            if (semantic != null && !strong)
               Positioned.fill(
                 child: IgnorePointer(
                   child: DecoratedBox(
@@ -343,10 +255,7 @@ class GlassPanel extends StatelessWidget {
                       gradient: RadialGradient(
                         center: Alignment.bottomRight,
                         radius: 1.28,
-                        colors: [
-                          semantic.withValues(alpha: .055),
-                          Colors.transparent,
-                        ],
+                        colors: [semantic.withValues(alpha: .055), Colors.transparent],
                         stops: const [0, .72],
                       ),
                     ),
@@ -360,18 +269,15 @@ class GlassPanel extends StatelessWidget {
     );
 
     return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: borderRadius,
-        boxShadow: shadows,
-      ),
+      decoration: BoxDecoration(borderRadius: r, boxShadow: shadows),
       child: ClipRRect(
-        borderRadius: borderRadius,
+        borderRadius: r,
         clipBehavior: Clip.antiAlias,
         child: highContrast || blurSigma <= 0
-            ? panel
+            ? face
             : BackdropFilter.grouped(
                 filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
-                child: panel,
+                child: face,
               ),
       ),
     );
@@ -404,7 +310,6 @@ class GlassIconButton extends StatelessWidget {
       accentColor: color,
       shadowColor: color,
       radius: size * .5,
-      blurSigma: 0,
       elevation: 1,
       child: Material(
         color: Colors.transparent,
@@ -423,9 +328,9 @@ class GlassIconButton extends StatelessWidget {
 }
 
 BoxDecoration depthDecoration(Color color, {double radius = 22}) {
-  final strongColor = color.computeLuminance() < .20;
+  final strong = color.computeLuminance() < .20;
   return BoxDecoration(
-    gradient: strongColor
+    gradient: strong
         ? LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -442,11 +347,9 @@ BoxDecoration depthDecoration(Color color, {double radius = 22}) {
           ),
     borderRadius: BorderRadius.circular(radius),
     border: Border.all(
-      color: strongColor
-          ? Colors.white.withValues(alpha: .16)
-          : Colors.white,
+      color: strong ? Colors.white.withValues(alpha: .16) : Colors.white,
     ),
-    boxShadow: strongColor
+    boxShadow: strong
         ? [
             BoxShadow(
               color: color.withValues(alpha: .18),
@@ -461,7 +364,7 @@ BoxDecoration depthDecoration(Color color, {double radius = 22}) {
               offset: const Offset(0, 5),
             ),
           ]
-        : _ceramicDepth(1),
+        : _surfaceDepth(1),
   );
 }
 
@@ -485,7 +388,6 @@ class DepthIcon extends StatelessWidget {
       accentColor: color,
       shadowColor: color,
       radius: size * .34,
-      blurSigma: 0,
       elevation: 1.05,
       child: SizedBox(
         width: size,
@@ -494,9 +396,7 @@ class DepthIcon extends StatelessWidget {
           icon,
           color: color,
           size: size * .52,
-          shadows: [
-            Shadow(color: color.withValues(alpha: .18), blurRadius: 10),
-          ],
+          shadows: [Shadow(color: color.withValues(alpha: .18), blurRadius: 10)],
         ),
       ),
     ),
@@ -511,7 +411,6 @@ class ScreenIntro extends StatelessWidget {
     required this.icon,
     this.color = primary,
   });
-
   final String title, message;
   final IconData icon;
   final Color color;
@@ -544,7 +443,6 @@ class ScreenIntro extends StatelessWidget {
 
 class FlowSteps extends StatelessWidget {
   const FlowSteps(this.steps, {super.key, this.current = 0});
-
   final List<String> steps;
   final int current;
 
@@ -560,7 +458,6 @@ class FlowSteps extends StatelessWidget {
             tint: i == current ? primarySoft : Colors.white,
             accentColor: i == current ? primary : null,
             radius: 14,
-            blurSigma: 0,
             elevation: i == current ? .85 : .55,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             child: Text(
@@ -579,14 +476,12 @@ class FlowSteps extends StatelessWidget {
 
 class ResponsivePair extends StatelessWidget {
   const ResponsivePair({super.key, required this.first, required this.second});
-
   final Widget first, second;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      if (constraints.maxWidth < 300 ||
-          MediaQuery.textScalerOf(context).scale(14) > 20) {
+      if (constraints.maxWidth < 300 || MediaQuery.textScalerOf(context).scale(14) > 20) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [first, const SizedBox(height: 12), second],
@@ -614,7 +509,6 @@ class FormSection extends StatelessWidget {
     required this.icon,
     required this.children,
   });
-
   final String title, message;
   final IconData icon;
   final List<Widget> children;
@@ -631,12 +525,7 @@ class FormSection extends StatelessWidget {
             children: [
               DepthIcon(icon, size: 38),
               const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
+              Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium)),
             ],
           ),
           const SizedBox(height: 10),
@@ -672,29 +561,10 @@ ThemeData pharmacyTheme() => ThemeData(
   fontFamily: 'Manrope',
   fontFamilyFallback: const ['NotoSansDevanagari'],
   textTheme: const TextTheme(
-    headlineLarge: TextStyle(
-      fontSize: 34,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -1,
-      color: ink,
-    ),
-    headlineMedium: TextStyle(
-      fontSize: 27,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -.7,
-      color: ink,
-    ),
-    titleLarge: TextStyle(
-      fontSize: 21,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -.4,
-      color: ink,
-    ),
-    titleMedium: TextStyle(
-      fontSize: 16,
-      fontWeight: FontWeight.w700,
-      color: ink,
-    ),
+    headlineLarge: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: -1, color: ink),
+    headlineMedium: TextStyle(fontSize: 27, fontWeight: FontWeight.w800, letterSpacing: -.7, color: ink),
+    titleLarge: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, letterSpacing: -.4, color: ink),
+    titleMedium: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: ink),
     bodyLarge: TextStyle(fontSize: 16, height: 1.45, color: ink),
     bodyMedium: TextStyle(fontSize: 14, height: 1.45, color: ink),
     bodySmall: TextStyle(fontSize: 12, height: 1.45, color: muted),
@@ -718,10 +588,7 @@ ThemeData pharmacyTheme() => ThemeData(
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
     fillColor: const Color(0xFFFCFDFE),
-    floatingLabelStyle: const TextStyle(
-      color: primary,
-      fontWeight: FontWeight.w700,
-    ),
+    floatingLabelStyle: const TextStyle(color: primary, fontWeight: FontWeight.w700),
     hintStyle: const TextStyle(color: muted),
     helperMaxLines: 3,
     errorMaxLines: 3,
@@ -877,11 +744,7 @@ ThemeData pharmacyTheme() => ThemeData(
     elevation: 8,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
   ),
-  dividerTheme: DividerThemeData(
-    color: ink.withValues(alpha: .08),
-    thickness: 1,
-    space: 1,
-  ),
+  dividerTheme: DividerThemeData(color: ink.withValues(alpha: .08), thickness: 1, space: 1),
   progressIndicatorTheme: const ProgressIndicatorThemeData(color: primary),
   navigationBarTheme: NavigationBarThemeData(
     backgroundColor: Colors.white.withValues(alpha: .92),
@@ -890,9 +753,7 @@ ThemeData pharmacyTheme() => ThemeData(
     shadowColor: ink.withValues(alpha: .12),
     height: 72,
     indicatorColor: primarySoft,
-    indicatorShape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(16),
-    ),
+    indicatorShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     iconTheme: WidgetStateProperty.resolveWith(
       (states) => IconThemeData(
         color: states.contains(WidgetState.selected) ? primary : muted,
@@ -901,9 +762,7 @@ ThemeData pharmacyTheme() => ThemeData(
     labelTextStyle: WidgetStateProperty.resolveWith(
       (states) => TextStyle(
         fontSize: 11,
-        fontWeight: states.contains(WidgetState.selected)
-            ? FontWeight.w800
-            : FontWeight.w600,
+        fontWeight: states.contains(WidgetState.selected) ? FontWeight.w800 : FontWeight.w600,
         color: states.contains(WidgetState.selected) ? primary : muted,
       ),
     ),
@@ -917,7 +776,6 @@ class Surface extends StatelessWidget {
     this.color = Colors.white,
     this.padding = const EdgeInsets.all(20),
   });
-
   final Widget child;
   final Color color;
   final EdgeInsets padding;
@@ -927,7 +785,6 @@ class Surface extends StatelessWidget {
     tint: color,
     accentColor: color == Colors.white ? null : color,
     shadowColor: color == Colors.white ? null : color,
-    blurSigma: 0,
     elevation: 1,
     padding: padding,
     child: Material(type: MaterialType.transparency, child: child),
@@ -936,7 +793,6 @@ class Surface extends StatelessWidget {
 
 class SectionHeading extends StatelessWidget {
   const SectionHeading(this.title, {super.key, this.action});
-
   final String title;
   final Widget? action;
 
@@ -945,24 +801,15 @@ class SectionHeading extends StatelessWidget {
     padding: const EdgeInsets.only(top: 26, bottom: 14),
     child: LayoutBuilder(
       builder: (context, constraints) {
-        final heading = Text(
-          title,
-          style: Theme.of(context).textTheme.titleLarge,
-        );
+        final heading = Text(title, style: Theme.of(context).textTheme.titleLarge);
         if (action != null &&
-            (constraints.maxWidth < 350 ||
-                MediaQuery.textScalerOf(context).scale(14) > 20)) {
+            (constraints.maxWidth < 350 || MediaQuery.textScalerOf(context).scale(14) > 20)) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [heading, const SizedBox(height: 8), action!],
           );
         }
-        return Row(
-          children: [
-            Expanded(child: heading),
-            if (action != null) action!,
-          ],
-        );
+        return Row(children: [Expanded(child: heading), if (action != null) action!]);
       },
     ),
   );
@@ -970,7 +817,6 @@ class SectionHeading extends StatelessWidget {
 
 class StatusPill extends StatelessWidget {
   const StatusPill(this.text, {super.key, this.color = green});
-
   final String text;
   final Color color;
 
@@ -980,7 +826,6 @@ class StatusPill extends StatelessWidget {
     accentColor: color,
     shadowColor: color,
     radius: 30,
-    blurSigma: 0,
     elevation: .55,
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
     child: Text(
@@ -999,7 +844,6 @@ class MedicineCard extends StatelessWidget {
     required this.onTap,
     this.matchLabel,
   });
-
   final Medicine record;
   final WarningSettings settings;
   final DateTime today;
@@ -1023,8 +867,7 @@ class MedicineCard extends StatelessWidget {
       _ => Icons.medication_rounded,
     };
     final timeline =
-        state.status == StockStatus.shortExpiry ||
-        state.status == StockStatus.monthExpiry;
+        state.status == StockStatus.shortExpiry || state.status == StockStatus.monthExpiry;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -1043,16 +886,13 @@ class MedicineCard extends StatelessWidget {
                 : timeline
                 ? green
                 : Colors.transparent,
-            timeline ||
-                state.status == StockStatus.expired ||
-                state.status == StockStatus.sold,
+            timeline || state.status == StockStatus.expired || state.status == StockStatus.sold,
           ),
           child: GlassPanel(
             tint: Colors.white,
             accentColor: statusColor,
             shadowColor: statusColor,
             radius: 28,
-            blurSigma: 0,
             elevation: 1,
             child: Material(
               color: Colors.transparent,
@@ -1060,10 +900,7 @@ class MedicineCard extends StatelessWidget {
                 onTap: onTap,
                 borderRadius: BorderRadius.circular(28),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 17,
-                    vertical: 15,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 15),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1078,15 +915,12 @@ class MedicineCard extends StatelessWidget {
                             accentColor: statusColor,
                             shadowColor: statusColor,
                             radius: 18,
-                            blurSigma: 0,
                             elevation: .95,
                             child: SizedBox(
                               width: 52,
                               height: 52,
                               child: Icon(
-                                state.status == StockStatus.sold
-                                    ? Icons.check_rounded
-                                    : icon,
+                                state.status == StockStatus.sold ? Icons.check_rounded : icon,
                                 color: statusColor,
                                 size: 27,
                                 shadows: [
@@ -1103,49 +937,32 @@ class MedicineCard extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  record.name,
-                                  style: Theme.of(context).textTheme.titleMedium,
-                                ),
-                                if (record.strength.isNotEmpty ||
-                                    record.brand.isNotEmpty)
+                                Text(record.name, style: Theme.of(context).textTheme.titleMedium),
+                                if (record.strength.isNotEmpty || record.brand.isNotEmpty)
                                   Text(
                                     [record.strength, record.brand]
                                         .where((s) => s.isNotEmpty)
                                         .join(' · '),
-                                    style: const TextStyle(
-                                      color: muted,
-                                      fontSize: 12,
-                                    ),
+                                    style: const TextStyle(color: muted, fontSize: 12),
                                   ),
                                 if (record.manufacturer.isNotEmpty)
                                   Text(
                                     record.manufacturer,
-                                    style: const TextStyle(
-                                      color: muted,
-                                      fontSize: 12,
-                                    ),
+                                    style: const TextStyle(color: muted, fontSize: 12),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 if (record.salt.isNotEmpty)
                                   Text(
                                     record.salt,
-                                    style: const TextStyle(
-                                      color: muted,
-                                      fontSize: 12,
-                                    ),
+                                    style: const TextStyle(color: muted, fontSize: 12),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                               ],
                             ),
                           ),
-                          const Icon(
-                            Icons.chevron_right_rounded,
-                            color: muted,
-                            size: 24,
-                          ),
+                          const Icon(Icons.chevron_right_rounded, color: muted, size: 24),
                         ],
                       ),
                       const SizedBox(height: 15),
@@ -1171,19 +988,12 @@ class MedicineCard extends StatelessWidget {
                           padding: const EdgeInsets.only(top: 12),
                           child: Row(
                             children: [
-                              const Icon(
-                                Icons.location_on_outlined,
-                                size: 15,
-                                color: muted,
-                              ),
+                              const Icon(Icons.location_on_outlined, size: 15, color: muted),
                               const SizedBox(width: 4),
                               Expanded(
                                 child: Text(
                                   record.address,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: muted,
-                                  ),
+                                  style: const TextStyle(fontSize: 12, color: muted),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -1194,10 +1004,7 @@ class MedicineCard extends StatelessWidget {
                       if (matchLabel != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 10),
-                          child: Text(
-                            matchLabel!,
-                            style: const TextStyle(fontSize: 12, color: amber),
-                          ),
+                          child: Text(matchLabel!, style: const TextStyle(fontSize: 12, color: amber)),
                         ),
                     ],
                   ),
@@ -1213,7 +1020,6 @@ class MedicineCard extends StatelessWidget {
 
 class _ExpiryBorder extends CustomPainter {
   _ExpiryBorder(this.fraction, this.base, this.strong);
-
   final double fraction;
   final Color base;
   final bool strong;
@@ -1253,7 +1059,6 @@ class EmptyState extends StatelessWidget {
     required this.message,
     this.action,
   });
-
   final String title, message;
   final Widget? action;
 
@@ -1262,23 +1067,11 @@ class EmptyState extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 12),
     child: Column(
       children: [
-        const DepthIcon(
-          Icons.inventory_2_outlined,
-          size: 76,
-          background: primarySoft,
-        ),
+        const DepthIcon(Icons.inventory_2_outlined, size: 76, background: primarySoft),
         const SizedBox(height: 18),
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
+        Text(title, style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
         const SizedBox(height: 8),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: muted),
-        ),
+        Text(message, textAlign: TextAlign.center, style: const TextStyle(color: muted)),
         if (action != null)
           Padding(padding: const EdgeInsets.only(top: 20), child: action!),
       ],
