@@ -59,8 +59,9 @@ class DateInputFormatter extends TextInputFormatter {
     final offsets = <int>[0];
     for (var i = 0; i < digits.length; i++) {
       buffer.write(digits[i]);
-      if (boundaries.contains(i + 1) && (i + 1 < digits.length || !deleting))
+      if (boundaries.contains(i + 1) && (i + 1 < digits.length || !deleting)) {
         buffer.write('/');
+      }
       offsets.add(buffer.length);
     }
     return TextEditingValue(
@@ -88,12 +89,17 @@ class DateEntryField extends StatelessWidget {
     this.onChanged,
     this.firstDate,
     this.lastDate,
+    this.showHelper = true,
+    this.surfaceStyle = false,
+    this.iconColor,
   });
   final TextEditingController controller;
   final String label;
   final bool monthOnly, enabled, isRequired;
   final ValueChanged<String>? onChanged;
   final DateTime? firstDate, lastDate;
+  final bool showHelper, surfaceStyle;
+  final Color? iconColor;
 
   String? _validate(String? value) {
     try {
@@ -148,33 +154,66 @@ class DateEntryField extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => TextFormField(
-    controller: controller,
-    enabled: enabled,
-    keyboardType: TextInputType.number,
-    textInputAction: TextInputAction.next,
-    autocorrect: false,
-    enableSuggestions: false,
-    inputFormatters: [DateInputFormatter(monthOnly: monthOnly)],
-    autovalidateMode: AutovalidateMode.onUnfocus,
-    validator: _validate,
-    onChanged: onChanged,
-    onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-    decoration: InputDecoration(
-      labelText: label,
-      hintText: monthOnly ? 'MM/YYYY' : 'DD/MM/YYYY',
-      helperText: monthOnly
-          ? 'Type 042026 → 04/2026. Valid through the end of the month.'
-          : 'Type 04092026 → 04/09/2026. Slashes are added for you.',
-      helperMaxLines: 3,
-      errorMaxLines: 3,
-      suffixIcon: IconButton(
-        tooltip: 'Choose $label from calendar',
-        onPressed: enabled ? () => _calendar(context) : null,
-        icon: const Icon(Icons.calendar_month_outlined),
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(18);
+    return TextFormField(
+      controller: controller,
+      enabled: enabled,
+      keyboardType: TextInputType.number,
+      textInputAction: TextInputAction.next,
+      autocorrect: false,
+      enableSuggestions: false,
+      inputFormatters: [DateInputFormatter(monthOnly: monthOnly)],
+      autovalidateMode: AutovalidateMode.onUnfocus,
+      validator: _validate,
+      onChanged: onChanged,
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: monthOnly ? 'MM/YYYY' : 'DD/MM/YYYY',
+        helperText: showHelper
+            ? monthOnly
+                  ? 'Type 042026 → 04/2026. Valid through the end of the month.'
+                  : 'Type 04092026 → 04/09/2026. Slashes are added for you.'
+            : null,
+        helperMaxLines: 3,
+        errorMaxLines: 3,
+        filled: surfaceStyle ? false : null,
+        isDense: surfaceStyle,
+        contentPadding: surfaceStyle
+            ? const EdgeInsets.symmetric(horizontal: 14, vertical: 18)
+            : null,
+        border: surfaceStyle
+            ? OutlineInputBorder(borderRadius: radius, borderSide: BorderSide.none)
+            : null,
+        enabledBorder: surfaceStyle
+            ? OutlineInputBorder(
+                borderRadius: radius,
+                borderSide: BorderSide(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: .08),
+                ),
+              )
+            : null,
+        focusedBorder: surfaceStyle
+            ? OutlineInputBorder(
+                borderRadius: radius,
+                borderSide: BorderSide(
+                  color: Theme.of(context).colorScheme.primary,
+                  width: 1.4,
+                ),
+              )
+            : null,
+        suffixIconConstraints: surfaceStyle
+            ? const BoxConstraints(minWidth: 42, minHeight: 42)
+            : null,
+        suffixIcon: IconButton(
+          tooltip: 'Choose $label from calendar',
+          onPressed: enabled ? () => _calendar(context) : null,
+          icon: Icon(Icons.calendar_month_outlined, color: iconColor),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 Future<DateTimeRange?> showDateEntryDialog({
