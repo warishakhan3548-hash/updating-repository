@@ -197,7 +197,8 @@ class _SearchScreenState extends State<SearchScreen> {
             maxLines: 12,
             maxLength: 30000,
             decoration: const InputDecoration(
-              hintText: 'Paste text from an invoice or a medicine list. Put each medicine on its own line.',
+              hintText:
+                  'Paste text from an invoice or a medicine list. Put each medicine on its own line.',
             ),
           ),
         ),
@@ -250,6 +251,27 @@ class _SearchScreenState extends State<SearchScreen> {
         : widget.scope == SearchScope.all
         ? 'Scan & Search'
         : scopeTitle(widget.scope, controller.settings);
+
+    Widget blueAction({
+      required IconData icon,
+      required String label,
+      required VoidCallback onPressed,
+    }) => FilledButton.icon(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(0, 54),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+        backgroundColor: primary,
+        foregroundColor: Colors.white,
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+      ),
+      icon: Icon(icon, size: 19),
+      label: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(label, maxLines: 1),
+      ),
+    );
+
     final body = CustomScrollView(
       key: PageStorageKey('search-${widget.scope}-${widget.database}'),
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -263,7 +285,8 @@ class _SearchScreenState extends State<SearchScreen> {
                 if (widget.embedded)
                   ScreenIntro(
                     title: title,
-                    message: 'Find a medicine to edit, record a sale or remove stock.',
+                    message:
+                        'Find a medicine to edit, record a sale or remove stock.',
                     icon: Icons.inventory_2_outlined,
                   )
                 else
@@ -277,32 +300,35 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   ),
                 if (widget.database) ...[
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
+                  Row(
                     children: [
-                      FilledButton.icon(
-                        onPressed: () => openEditor(context, controller),
-                        icon: const Icon(Icons.add_rounded),
-                        label: const Text('Add medicine'),
+                      Expanded(
+                        child: blueAction(
+                          icon: Icons.add_rounded,
+                          label: 'Add medicine',
+                          onPressed: () => openEditor(context, controller),
+                        ),
                       ),
-                      Tooltip(
-                        message: 'Add / Import medicines',
-                        child: OutlinedButton.icon(
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) =>
-                                  ImportCenterScreen(controller: controller),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Tooltip(
+                          message: 'Add / Import medicines',
+                          child: blueAction(
+                            icon: Icons.file_upload_outlined,
+                            label: 'Import stock',
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    ImportCenterScreen(controller: controller),
+                              ),
                             ),
                           ),
-                          icon: const Icon(Icons.file_upload_outlined),
-                          label: const Text('Import stock'),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
                 ],
                 TextField(
                   controller: _query,
@@ -326,24 +352,30 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                Row(
                   children: [
-                    FilledButton.tonalIcon(
-                      onPressed: _scanner,
-                      icon: const Icon(Icons.qr_code_scanner_rounded, size: 19),
-                      label: const Text('Scan'),
+                    Expanded(
+                      child: blueAction(
+                        icon: Icons.qr_code_scanner_rounded,
+                        label: 'Scan',
+                        onPressed: _scanner,
+                      ),
                     ),
-                    OutlinedButton.icon(
-                      onPressed: _voiceOpening ? null : _mic,
-                      icon: const Icon(Icons.mic_none_rounded, size: 19),
-                      label: const Text('Voice'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: blueAction(
+                        icon: Icons.mic_none_rounded,
+                        label: 'Voice',
+                        onPressed: _mic,
+                      ),
                     ),
-                    OutlinedButton.icon(
-                      onPressed: _bulk,
-                      icon: const Icon(Icons.playlist_add_rounded, size: 19),
-                      label: const Text('Paste list'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: blueAction(
+                        icon: Icons.playlist_add_rounded,
+                        label: 'Paste list',
+                        onPressed: _bulk,
+                      ),
                     ),
                   ],
                 ),
