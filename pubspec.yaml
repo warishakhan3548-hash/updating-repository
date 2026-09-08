@@ -16,7 +16,12 @@ dependencies:
   google_mlkit_text_recognition: 0.17.1
   google_mlkit_barcode_scanning: 0.16.1
   speech_to_text: 7.4.0
-  flutter_secure_storage: 11.0.0
+  # v11 raises Android compileSdk to 37. Codemagic currently installs the
+  # preview platform as android-37.0 while Gradle resolves android-37, which
+  # makes release builds fail. v10.3.1 keeps the modern secure-cipher backend
+  # while targeting Android SDK 36 and supports the read/write/delete API used
+  # by AiService.
+  flutter_secure_storage: 10.3.1
   share_plus: 13.3.0
   http: 1.6.0
   path_provider: 2.1.6
