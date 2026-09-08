@@ -9,6 +9,17 @@ import 'ui/ai_screen.dart';
 import 'ui/stats_screen.dart';
 import 'ui/profile_screen.dart';
 
+ThemeData _appTheme() {
+  final base = pharmacyTheme();
+  return base.copyWith(
+    inputDecorationTheme: base.inputDecorationTheme.copyWith(
+      floatingLabelBehavior: FloatingLabelBehavior.never,
+      labelStyle: const TextStyle(color: muted),
+      floatingLabelStyle: const TextStyle(color: muted),
+    ),
+  );
+}
+
 class PharmacyApp extends StatefulWidget {
   const PharmacyApp({super.key, required this.controller});
   final PharmacyController controller;
@@ -38,7 +49,7 @@ class _PharmacyAppState extends State<PharmacyApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) => MaterialApp(
     title: 'Aaris Pharmacy',
     debugShowCheckedModeBanner: false,
-    theme: pharmacyTheme(),
+    theme: _appTheme(),
     builder: (context, child) =>
         PharmacyBackdrop(child: child ?? const SizedBox.shrink()),
     home: _Shell(controller: widget.controller),
