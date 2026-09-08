@@ -6,12 +6,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
+import '../domain/medicine_understanding.dart';
 import '../services/scan_service.dart';
 import 'design.dart';
 
 class ScanResult {
-  const ScanResult({this.barcode = '', this.text = ''});
+  const ScanResult({
+    this.barcode = '',
+    this.text = '',
+    this.evidence = const <ScanEvidence>[],
+  });
   final String barcode, text;
+  final List<ScanEvidence> evidence;
 }
 
 class ScannerScreen extends StatefulWidget {
@@ -30,7 +36,9 @@ class _ScannerScreenState extends State<ScannerScreen>
   DateTime _lastFrame = DateTime.fromMillisecondsSinceEpoch(0);
   bool _busy = false, _closed = false, _capturing = false;
   int _generation = 0;
+  int _scanSequence = 0;
   String _text = '', _barcode = '', _error = '';
+  final List<ScanEvidence> _evidence = <ScanEvidence>[];
   bool _manualOnly = false;
   @override
   void initState() {
@@ -43,7 +51,8 @@ class _ScannerScreenState extends State<ScannerScreen>
     final generation = ++_generation;
     if (kIsWeb) {
       setState(
-        () => _error = 'Live camera OCR is available in the Android app. You can paste text into search.',
+        () => _error =
+            'Live camera OCR is available in the Android app. You can paste text into search.',
       );
       return;
     }
@@ -74,7 +83,8 @@ class _ScannerScreenState extends State<ScannerScreen>
     } catch (e) {
       if (mounted && !_closed)
         setState(
-          () => _error = 'Camera unavailable. Allow camera access in your phone settings, then retry.',
+          () => _error =
+              'Camera unavailable. Allow camera access in your phone settings, then retry.',
         );
     }
   }
@@ -135,12 +145,24 @@ class _ScannerScreenState extends State<ScannerScreen>
     final generation = _generation;
     try {
       // A single immutable frame feeds all detectors; only one frame is in flight.
-      final result = await _vision.analyze(input);
+      final result = await _vision.analyze(
+        input,
+        source: 'Live camera frame ${_scanSequence + 1}',
+        sequence: _scanSequence++,
+      );
       if (_closed || !mounted || generation != _generation) return;
       if (result.text.isNotEmpty || result.barcode.isNotEmpty)
         setState(() {
-          _text = result.text;
-          _barcode = result.barcode;
+          _evidence.add(result);
+          if (_evidence.length > 18) _evidence.removeAt(0);
+          final understood = const MedicineUnderstandingEngine().understand(
+            _evidence,
+          );
+          final current = understood.drafts.isEmpty
+              ? null
+              : understood.drafts.last;
+          _text = current?.rawText ?? result.text;
+          _barcode = current?.barcode ?? result.barcode;
           _error = '';
         });
     } catch (e) {
@@ -377,7 +399,8 @@ class _ScannerScreenState extends State<ScannerScreen>
                             [
                               if (_barcode.isNotEmpty) 'Barcode: $_barcode',
                               if (_text.isNotEmpty) _text,
-                              if (_text.isEmpty && _barcode.isEmpty) 'Point at packaging or a printed medicine list.',
+                              if (_text.isEmpty && _barcode.isEmpty)
+                                'Point at packaging or a printed medicine list.',
                             ].join('\n\n'),
                             style: const TextStyle(color: muted, fontSize: 13),
                           ),
@@ -417,7 +440,13 @@ class _ScannerScreenState extends State<ScannerScreen>
                               ? null
                               : () => Navigator.pop(
                                   context,
-                                  ScanResult(barcode: _barcode, text: _text),
+                                  ScanResult(
+                                    barcode: _barcode,
+                                    text: _text,
+                                    evidence: List<ScanEvidence>.unmodifiable(
+                                      _evidence,
+                                    ),
+                                  ),
                                 ),
                           icon: const Icon(Icons.arrow_forward_rounded),
                           label: const Text('Use scan'),

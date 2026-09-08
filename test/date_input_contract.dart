@@ -72,6 +72,17 @@ Map<String, void Function()> dateInputContract() => {
     _equal(medicine.daysLeft(DateTime.utc(2026, 4, 30)), 0);
     _equal(medicine.daysLeft(DateTime.utc(2026, 5, 1)), -1);
   },
+  'month-only manufacturing precision round trips without inventing a day': () {
+    final medicine = Medicine.fromJson({
+      'id': 'mfg-month-test',
+      'name': 'Example',
+      'mfg': inputDateToIso('082026', monthOnly: true),
+      'expiry': '2028-07',
+    });
+    _equal(medicine.mfgMonthOnly, true);
+    _equal(medicine.toJson()['mfg'], '2026-08');
+    _equal(inputDateText(medicine.mfg!, monthOnly: true), '08/2026');
+  },
   'manufacturing after expiry still rejected': () => _invalid(
     () => Medicine.fromJson({
       'id': 'invalid-order',

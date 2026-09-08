@@ -1,12 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/inventory.dart';
+import '../domain/medicine_discovery.dart';
+import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
 import '../services/backup_service.dart';
 import '../services/media_import_service.dart';
+import '../services/medicine_catalog_service.dart';
 import '../services/scan_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
@@ -42,13 +46,17 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
       MaterialPageRoute(builder: (_) => const ScannerScreen()),
     );
     if (result == null || !mounted) return;
-    await _openInbox([
-      ScanEvidence(
-        barcode: result.barcode,
-        text: result.text,
-        source: 'Live camera',
-      ),
-    ]);
+    await _openInbox(
+      result.evidence.isNotEmpty
+          ? result.evidence
+          : <ScanEvidence>[
+              ScanEvidence(
+                barcode: result.barcode,
+                text: result.text,
+                source: 'Live camera',
+              ),
+            ],
+    );
   }
 
   Future<void> _photo() async {
@@ -103,7 +111,7 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
       picked = source;
       if (source == null || !mounted || generation != _generation) return;
       final frames = await _media.sampleVideo(source.path);
-      sampledFrames = frames;
+      sampledFrames = frames.map((frame) => frame.path).toList();
       if (!mounted || generation != _generation) return;
       setState(() => _total = frames.length);
       final evidence = <ScanEvidence>[];
@@ -111,8 +119,11 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
         if (!mounted || generation != _generation) return;
         try {
           final result = await vision.analyzeFile(
-            frames[index],
+            frames[index].path,
             source: '${source.name} · frame ${index + 1}',
+            sequence: frames[index].sequence,
+            timestampMs: frames[index].timestampMs,
+            quality: frames[index].quality,
           );
           if (result.text.isNotEmpty || result.barcode.isNotEmpty) {
             evidence.add(result);
@@ -212,7 +223,8 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
       children: [
         const ScreenIntro(
           title: 'Add your medicines',
-          message: 'Choose the easiest way to start. Review captured details before saving.',
+          message:
+              'Choose the easiest way to start. Review captured details before saving.',
           icon: Icons.add_box_outlined,
         ),
         const FlowSteps(['Add or scan', 'Review', 'Save']),
@@ -322,9 +334,9 @@ class ImportInboxScreen extends StatefulWidget {
 }
 
 class _ImportInboxScreenState extends State<ImportInboxScreen> {
-  List<SearchHit> _hits = const [];
-  String _consensusText = '';
-  String _barcode = '';
+  final MedicineCatalogService _catalog = MedicineCatalogService();
+  List<_ImportDraftReview> _drafts = const <_ImportDraftReview>[];
+  int _ignoredFrames = 0;
   String _error = '';
   bool _loading = true;
   int _generation = 0;
@@ -341,6 +353,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
   @override
   void dispose() {
     ++_generation;
+    _catalog.close();
     widget.controller.removeListener(_inventoryChanged);
     super.dispose();
   }
@@ -362,67 +375,60 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       _error = '';
     });
     try {
-      final barcodeCounts = <String, int>{};
-      final lineCounts = <String, int>{};
-      final originals = <String, String>{};
-      for (final evidence in widget.evidence) {
-        if (evidence.barcode.isNotEmpty) {
-          barcodeCounts[evidence.barcode] =
-              (barcodeCounts[evidence.barcode] ?? 0) + 1;
-        }
-        final boundedText = evidence.text.length > 30000
-            ? evidence.text.substring(0, 30000)
-            : evidence.text;
-        for (final line in boundedText.split('\n').take(1000)) {
-          final normalized = searchText(line);
-          if (normalized.length < 2) continue;
-          lineCounts[normalized] = (lineCounts[normalized] ?? 0) + 1;
-          originals.putIfAbsent(normalized, () => line.trim());
-        }
-      }
-      final orderedLines = lineCounts.keys.toList()
-        ..sort((a, b) {
-          final count = lineCounts[b]!.compareTo(lineCounts[a]!);
-          return count != 0 ? count : a.compareTo(b);
-        });
-      final consensus = orderedLines
-          .take(500)
-          .map((key) => originals[key]!)
-          .join('\n');
-      final primaryBarcode = barcodeCounts.keys.isEmpty
-          ? ''
-          : (barcodeCounts.keys.toList()..sort(
-                  (a, b) => barcodeCounts[b]!.compareTo(barcodeCounts[a]!),
-                ))
-                .first;
-      final found = <String, SearchHit>{};
-      for (final barcode in barcodeCounts.keys.take(20)) {
-        for (final hit in await widget.controller.search(
-          barcode,
-          SearchScope.all,
-        )) {
-          found[hit.id] = hit;
-        }
-      }
-      if (consensus.isNotEmpty) {
-        for (final hit in await widget.controller.search(
-          consensus,
-          SearchScope.all,
-        )) {
-          if (found[hit.id] == null || found[hit.id]!.score < hit.score) {
+      final payload =
+          await compute(understandMedicineEvidenceMessage, <String, Object?>{
+            'evidence': widget.evidence
+                .map((item) => item.toMessage())
+                .toList(growable: false),
+          });
+      if (!mounted || generation != _generation) return;
+      final understanding = MedicineUnderstandingResult.fromMessage(payload);
+      final reviews = <_ImportDraftReview>[];
+      for (final draft in understanding.drafts) {
+        if (!mounted || generation != _generation) return;
+        final found = <String, SearchHit>{};
+        if (draft.barcode.isNotEmpty) {
+          for (final hit in await widget.controller.search(
+            draft.barcode,
+            SearchScope.all,
+          )) {
             found[hit.id] = hit;
           }
         }
+        final identityQuery = <String>[
+          draft.name,
+          draft.brand,
+          draft.salt,
+          draft.strength,
+          draft.batchNumber,
+          draft.rawText,
+        ].where((value) => value.trim().isNotEmpty).join('\n');
+        if (identityQuery.isNotEmpty) {
+          for (final hit in await widget.controller.search(
+            identityQuery,
+            SearchScope.all,
+          )) {
+            if (found[hit.id] == null || found[hit.id]!.score < hit.score) {
+              found[hit.id] = hit;
+            }
+          }
+        }
+        final hits = found.values.toList()
+          ..sort((a, b) => b.score.compareTo(a.score));
+        reviews.add(
+          _ImportDraftReview(
+            draft: draft,
+            hits: hits.take(6).toList(growable: false),
+          ),
+        );
       }
-      final hits = found.values.toList()
-        ..sort((a, b) => b.score.compareTo(a.score));
       if (mounted && generation == _generation) {
         setState(() {
-          _hits = hits;
-          _consensusText = consensus;
-          _barcode = primaryBarcode;
+          _drafts = reviews;
+          _ignoredFrames = understanding.ignoredFrames;
           _loading = false;
         });
+        unawaited(_discoverCatalog(generation));
       }
     } catch (error) {
       if (mounted && generation == _generation) {
@@ -434,14 +440,42 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
     }
   }
 
+  Future<void> _discoverCatalog(int generation) async {
+    final count = _drafts.length.clamp(0, 8);
+    for (var index = 0; index < count; index++) {
+      if (!mounted || generation != _generation) return;
+      final review = _drafts[index];
+      if (review.hasStrongLocalMatch) continue;
+      final draft = review.draft;
+      if (draft.barcode.isEmpty && draft.searchKeywords.isEmpty) continue;
+      final candidates = await _catalog.search(
+        barcode: draft.barcode,
+        text: <String>[
+          draft.name,
+          draft.brand,
+          draft.salt,
+          draft.strength,
+          draft.searchKeywords,
+        ].where((value) => value.isNotEmpty).join(' '),
+        limit: 3,
+      );
+      if (!mounted || generation != _generation || candidates.isEmpty) {
+        continue;
+      }
+      setState(() {
+        final updated = List<_ImportDraftReview>.of(_drafts);
+        if (index < updated.length && identical(updated[index], review)) {
+          updated[index] = review.withCatalog(candidates);
+          _drafts = updated;
+        }
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final ready = _hits.where((hit) => !hit.uncertain).toList();
-    final review = _hits.where((hit) => hit.uncertain).toList();
-    final unidentified =
-        _hits.isEmpty && (_consensusText.isNotEmpty || _barcode.isNotEmpty)
-        ? 1
-        : 0;
+    final ready = _drafts.where((item) => item.hasStrongLocalMatch).length;
+    final review = _drafts.length - ready;
     return Scaffold(
       appBar: AppBar(title: const Text('Review import')),
       body: _loading
@@ -465,7 +499,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        '${ready.length} ready · ${review.length} need review · $unidentified raw group',
+                        '${_drafts.length} medicine draft${_drafts.length == 1 ? '' : 's'} · $ready matched · $review need review',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 19,
@@ -485,55 +519,30 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                     padding: const EdgeInsets.only(top: 14),
                     child: Text(_error, style: const TextStyle(color: red)),
                   ),
-                if (ready.isNotEmpty) ...[
-                  const SectionHeading('High-confidence existing matches'),
-                  for (final hit in ready) _hit(context, hit),
-                ],
-                if (review.isNotEmpty) ...[
-                  const SectionHeading('Needs review'),
-                  for (final hit in review) _hit(context, hit),
-                ],
-                const SectionHeading('Captured evidence'),
-                Surface(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (_barcode.isNotEmpty) ...[
-                        const Text(
-                          'BARCODE',
-                          style: TextStyle(
-                            color: muted,
-                            fontSize: 10,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                        SelectableText(_barcode),
-                        const SizedBox(height: 12),
-                      ],
-                      SelectableText(
-                        _consensusText.isEmpty
-                            ? 'No readable packaging text.'
-                            : _consensusText,
-                        maxLines: 20,
-                      ),
-                    ],
+                if (_drafts.isEmpty && _error.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 20),
+                    child: Text(
+                      'No readable medicine evidence was found. Try a closer, steadier scan.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: muted),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                FilledButton.icon(
-                  onPressed: () => openEditor(
-                    context,
-                    widget.controller,
-                    barcode: _barcode,
-                    ocrText: _consensusText,
+                for (var index = 0; index < _drafts.length; index++)
+                  _draftReview(context, _drafts[index], index),
+                if (_ignoredFrames > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      '$_ignoredFrames duplicate or unreadable frame${_ignoredFrames == 1 ? '' : 's'} ignored automatically.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: muted, fontSize: 11),
+                    ),
                   ),
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Create new stock draft'),
-                ),
                 const Padding(
                   padding: EdgeInsets.only(top: 10),
                   child: Text(
-                    'OCR text stays separate from your personal note. Low-confidence text never fills medical facts automatically.',
+                    'OCR text stays separate from your personal note. Every auto-filled fact remains a review draft until you press Save.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: muted, fontSize: 11),
                   ),
@@ -542,6 +551,133 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
             ),
     );
   }
+
+  Widget _draftReview(
+    BuildContext context,
+    _ImportDraftReview review,
+    int index,
+  ) {
+    final draft = review.draft;
+    final title = draft.name.isEmpty ? 'Medicine ${index + 1}' : draft.name;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionHeading('$title · ${_confidence(draft.overallConfidence)}'),
+        if (review.hits.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              review.hasStrongLocalMatch
+                  ? 'Existing stock match found'
+                  : 'Possible existing stock — verify carefully',
+              style: const TextStyle(color: muted, fontSize: 12),
+            ),
+          ),
+          for (final hit in review.hits.take(3)) _hit(context, hit),
+        ],
+        if (review.catalogCandidates.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Optional online identity matches',
+              style: TextStyle(color: muted, fontSize: 12),
+            ),
+          ),
+          for (final candidate in review.catalogCandidates)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: OutlinedButton.icon(
+                onPressed: () => openEditor(
+                  context,
+                  widget.controller,
+                  seed: candidate.seed.withScanBarcode(draft.barcode),
+                  scanDraft: draft,
+                ),
+                icon: const Icon(Icons.travel_explore_rounded),
+                label: Text(
+                  '${candidate.seed.name}${candidate.subtitle.isEmpty ? '' : ' · ${candidate.subtitle}'} · ${candidate.confidence}',
+                ),
+              ),
+            ),
+        ],
+        Surface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'AUTO-FILLED FACTS',
+                style: TextStyle(
+                  color: muted,
+                  fontSize: 10,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 10),
+              for (final entry in <(String, String)>[
+                ('Medicine', 'name'),
+                ('Brand', 'brand'),
+                ('Salt / composition', 'salt'),
+                ('Strength', 'strength'),
+                ('Form', 'form'),
+                ('Manufacturer', 'manufacturer'),
+                ('MFG', 'mfg'),
+                ('EXP', 'expiry'),
+                ('Batch', 'batchNumber'),
+                ('Barcode', 'barcode'),
+              ])
+                if (!draft.field(entry.$2).isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: Text(
+                      '${entry.$1}: ${draft.field(entry.$2).value} · ${_confidence(draft.field(entry.$2).confidence)}${draft.field(entry.$2).conflicted ? ' · verify conflict' : ''}',
+                      style: TextStyle(
+                        color: draft.field(entry.$2).needsReview ? amber : ink,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              if (draft.printedPackSize.isNotEmpty)
+                Text(
+                  'Printed pack: ${draft.printedPackSize} · not stock quantity',
+                  style: const TextStyle(color: muted, fontSize: 11),
+                ),
+              if (draft.printedMrp.isNotEmpty)
+                Text(
+                  'Printed MRP: ${draft.printedMrp} · not entered amount',
+                  style: const TextStyle(color: muted, fontSize: 11),
+                ),
+              const SizedBox(height: 10),
+              SelectableText(
+                draft.rawText.isEmpty
+                    ? 'No readable packaging text.'
+                    : draft.rawText,
+                maxLines: 12,
+                style: const TextStyle(color: muted, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: () => openEditor(
+            context,
+            widget.controller,
+            seed: review.preferredSeed,
+            scanDraft: draft,
+          ),
+          icon: const Icon(Icons.rate_review_outlined),
+          label: Text('Review & create medicine ${index + 1}'),
+        ),
+      ],
+    );
+  }
+
+  String _confidence(double value) => value >= .85
+      ? 'high confidence'
+      : value >= .68
+      ? 'medium confidence'
+      : 'review needed';
 
   Widget _hit(BuildContext context, SearchHit hit) {
     final record = widget.controller.snapshot.records[hit.id];
@@ -556,4 +692,30 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           : '${hit.confidence} confidence · ${hit.reason} · matched from import',
     );
   }
+}
+
+class _ImportDraftReview {
+  const _ImportDraftReview({
+    required this.draft,
+    required this.hits,
+    this.catalogCandidates = const <MedicineCatalogCandidate>[],
+  });
+
+  final MedicineScanDraft draft;
+  final List<SearchHit> hits;
+  final List<MedicineCatalogCandidate> catalogCandidates;
+
+  bool get hasStrongLocalMatch => hits.any((hit) => !hit.uncertain);
+
+  MedicineDraftSeed? get preferredSeed {
+    for (final candidate in catalogCandidates) {
+      if (candidate.score >= .92) {
+        return candidate.seed.withScanBarcode(draft.barcode);
+      }
+    }
+    return null;
+  }
+
+  _ImportDraftReview withCatalog(List<MedicineCatalogCandidate> value) =>
+      _ImportDraftReview(draft: draft, hits: hits, catalogCandidates: value);
 }

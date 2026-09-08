@@ -23,6 +23,7 @@ import java.util.Locale
 import java.nio.charset.StandardCharsets
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.sqrt
 
 class MainActivity : FlutterActivity() {
     private val documentsChannel = "com.aaris.pharmacy/documents"
@@ -289,7 +290,15 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 
-    private fun sampleVideo(path: String, maxFrames: Int): List<String> {
+    private data class FrameMetrics(
+        val hash: Long,
+        val sharpness: Double,
+        val contrast: Double,
+        val exposure: Double,
+        val quality: Double,
+    )
+
+    private fun sampleVideo(path: String, maxFrames: Int): List<Map<String, Any>> {
         val source = File(path).canonicalFile
         val importRoot = File(cacheDir, "inventory_imports").canonicalFile
         if (!source.isFile || !source.path.startsWith(importRoot.path + File.separator)) {
@@ -304,7 +313,13 @@ class MainActivity : FlutterActivity() {
                 ?.toLongOrNull()
                 ?: throw IllegalArgumentException("The video duration could not be read.")
             if (durationMs < 1) throw IllegalArgumentException("The video is empty.")
-            val proposed = ceil(durationMs / 3000.0).toInt().coerceAtLeast(1)
+            val intervalMs = when {
+                durationMs <= 20_000L -> 650.0
+                durationMs <= 60_000L -> 900.0
+                durationMs <= 180_000L -> 1_400.0
+                else -> durationMs.toDouble() / maxFrames.coerceAtLeast(1)
+            }
+            val proposed = (ceil(durationMs / intervalMs).toInt() + 1).coerceAtLeast(1)
             val count = minOf(maxFrames, proposed)
             val frameRoot = File(cacheDir, "video_frames").apply { mkdirs() }
             frameRoot.listFiles()?.filter {
@@ -312,8 +327,8 @@ class MainActivity : FlutterActivity() {
             }?.forEach { it.deleteRecursively() }
             val directory = File(frameRoot, "${System.currentTimeMillis()}").apply { mkdirs() }
             frameDirectory = directory
-            val acceptedHashes = mutableListOf<Long>()
-            val result = mutableListOf<String>()
+            val acceptedHashes = mutableListOf<Pair<Long, Long>>()
+            val result = mutableListOf<Map<String, Any>>()
 
             for (index in 0 until count) {
                 val timeUs = if (count == 1) {
@@ -323,22 +338,24 @@ class MainActivity : FlutterActivity() {
                 }
                 val original = retriever.getFrameAtTime(
                     timeUs,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    MediaMetadataRetriever.OPTION_CLOSEST,
                 ) ?: continue
                 val metrics = imageMetrics(original)
-                val duplicate = acceptedHashes.any {
-                    java.lang.Long.bitCount(it xor metrics.first) < 6
+                val timestampMs = timeUs / 1000L
+                val duplicate = acceptedHashes.takeLast(8).any {
+                    abs(timestampMs - it.second) <= 8_000L &&
+                        java.lang.Long.bitCount(it.first xor metrics.hash) <= 3
                 }
-                if (acceptedHashes.isNotEmpty() && (duplicate || metrics.second < 5.0)) {
+                if (result.isNotEmpty() && (duplicate || metrics.quality < 0.16)) {
                     original.recycle()
                     continue
                 }
-                acceptedHashes.add(metrics.first)
-                val width = minOf(1280, original.width)
-                val height = (original.height * (width.toDouble() / original.width))
-                    .toInt()
-                    .coerceAtLeast(1)
-                val frame = if (width == original.width) {
+                acceptedHashes.add(metrics.hash to timestampMs)
+                val largest = maxOf(original.width, original.height)
+                val scale = minOf(1.0, 1600.0 / largest.coerceAtLeast(1))
+                val width = (original.width * scale).toInt().coerceAtLeast(1)
+                val height = (original.height * scale).toInt().coerceAtLeast(1)
+                val frame = if (width == original.width && height == original.height) {
                     original
                 } else {
                     Bitmap.createScaledBitmap(original, width, height, true).also {
@@ -347,12 +364,19 @@ class MainActivity : FlutterActivity() {
                 }
                 val file = File(directory, "frame_${index.toString().padStart(3, '0')}.jpg")
                 FileOutputStream(file).use { stream ->
-                    if (!frame.compress(Bitmap.CompressFormat.JPEG, 88, stream)) {
+                    if (!frame.compress(Bitmap.CompressFormat.JPEG, 92, stream)) {
                         throw IllegalStateException("A sampled frame could not be saved.")
                     }
                 }
                 frame.recycle()
-                result.add(file.absolutePath)
+                result.add(
+                    mapOf(
+                        "path" to file.absolutePath,
+                        "sequence" to index,
+                        "timestampMs" to timestampMs,
+                        "quality" to metrics.quality,
+                    ),
+                )
             }
             if (result.isEmpty()) {
                 throw IllegalArgumentException(
@@ -389,23 +413,52 @@ class MainActivity : FlutterActivity() {
         return deleted
     }
 
-    private fun imageMetrics(bitmap: Bitmap): Pair<Long, Double> {
-        val small = Bitmap.createScaledBitmap(bitmap, 8, 8, false)
-        val pixels = IntArray(64)
-        small.getPixels(pixels, 0, 8, 0, 0, 8, 8)
+    private fun imageMetrics(bitmap: Bitmap): FrameMetrics {
+        val side = 32
+        val small = Bitmap.createScaledBitmap(bitmap, side, side, false)
+        val pixels = IntArray(side * side)
+        small.getPixels(pixels, 0, side, 0, 0, side, side)
         if (small !== bitmap) small.recycle()
         val luminance = pixels.map { color ->
-            (Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114) / 1000
+            (Color.red(color) * 299.0 +
+                Color.green(color) * 587.0 +
+                Color.blue(color) * 114.0) / 1000.0
         }
         val average = luminance.average()
+        val variance = luminance.sumOf { value ->
+            val distance = value - average
+            distance * distance
+        } / luminance.size
+        val contrast = sqrt(variance)
         var hash = 0L
-        var edge = 0L
-        luminance.forEachIndexed { index, value ->
-            if (value >= average) hash = hash or (1L shl index)
-            if (index % 8 != 0) edge += abs(value - luminance[index - 1])
-            if (index >= 8) edge += abs(value - luminance[index - 8])
+        for (y in 0 until 8) {
+            for (x in 0 until 8) {
+                val value = luminance[(y * 4 + 2) * side + (x * 4 + 2)]
+                val bit = y * 8 + x
+                if (value >= average) hash = hash or (1L shl bit)
+            }
         }
-        return hash to edge / 112.0
+        var edge = 0.0
+        var edgeCount = 0
+        for (y in 0 until side) {
+            for (x in 0 until side) {
+                val index = y * side + x
+                if (x > 0) {
+                    edge += abs(luminance[index] - luminance[index - 1])
+                    edgeCount += 1
+                }
+                if (y > 0) {
+                    edge += abs(luminance[index] - luminance[index - side])
+                    edgeCount += 1
+                }
+            }
+        }
+        val sharpness = (edge / edgeCount.coerceAtLeast(1) / 28.0).coerceIn(0.0, 1.0)
+        val contrastScore = (contrast / 58.0).coerceIn(0.0, 1.0)
+        val exposure = (1.0 - abs(average - 128.0) / 128.0).coerceIn(0.0, 1.0)
+        val quality = (sharpness * 0.52 + contrastScore * 0.28 + exposure * 0.20)
+            .coerceIn(0.0, 1.0)
+        return FrameMetrics(hash, sharpness, contrast, exposure, quality)
     }
 
     private fun createPurchaseOrderPdf(arguments: Map<String, Any?>): String {

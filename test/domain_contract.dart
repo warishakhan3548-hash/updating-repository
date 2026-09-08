@@ -27,6 +27,7 @@ Medicine stock(
   String strength = '500mg',
   String expiry = '2026-09-10',
   String barcode = '',
+  String batchNumber = '',
   String notes = '',
   String salt = '',
   int? quantity = 10,
@@ -39,6 +40,7 @@ Medicine stock(
   'strength': strength,
   'expiry': expiry,
   'barcode': barcode,
+  'batchNumber': batchNumber,
   'notes': notes,
   'salt': salt,
   'quantity': sold ? 0 : quantity,
@@ -319,6 +321,22 @@ Map<String, void Function()> domainContract() {
                 .length ==
             2,
         'Barcode lost a stock entry.',
+      );
+    },
+    'batch number is searchable without acting like stock quantity': () {
+      final engine = MedicineSearch([
+        stock('batch-a', batchNumber: 'DL-2407'),
+        stock('batch-b', batchNumber: 'AZ-9912'),
+      ]);
+      final hits = engine.search(
+        'DL-2407',
+        SearchScope.all,
+        contractSettings,
+        contractToday,
+      );
+      check(
+        hits.isNotEmpty && hits.first.id == 'batch-a',
+        'Batch number was not indexed.',
       );
     },
     'fuzzy DROTAVRIN DOTIN and ROTAEN find Drotaverine': () {

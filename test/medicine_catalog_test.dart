@@ -113,17 +113,40 @@ void main() {
     expect(results.single.provider, 'strong');
     expect(results.single.score, .94);
   });
+
+  test('catalog service coalesces and caches repeated scan lookups', () async {
+    final provider = _FakeProvider([
+      const MedicineCatalogCandidate(
+        seed: MedicineDraftSeed(name: 'Dolo', strength: '650 mg'),
+        score: .94,
+        provider: 'cache-test',
+      ),
+    ]);
+    final service = MedicineCatalogService(providers: [provider]);
+    addTearDown(service.close);
+
+    final first = service.search(text: 'Dolo 650');
+    final second = service.search(text: 'Dolo 650');
+    await Future.wait([first, second]);
+    await service.search(text: 'Dolo 650');
+
+    expect(provider.calls, 1);
+  });
 }
 
 class _FakeProvider implements MedicineCatalogProvider {
   _FakeProvider(this.results);
 
   final List<MedicineCatalogCandidate> results;
+  int calls = 0;
 
   @override
   Future<List<MedicineCatalogCandidate>> search({
     required String barcode,
     required String text,
     required int limit,
-  }) async => results;
+  }) async {
+    calls++;
+    return results;
+  }
 }

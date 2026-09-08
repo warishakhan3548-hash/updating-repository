@@ -6,6 +6,7 @@ import '../domain/date_input.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/medicine_discovery.dart';
+import '../domain/medicine_understanding.dart';
 import '../state/pharmacy_controller.dart';
 import 'date_field.dart';
 import 'design.dart';
@@ -16,6 +17,7 @@ Future<void> openEditor(
   PharmacyController controller, {
   Medicine? record,
   MedicineDraftSeed? seed,
+  MedicineScanDraft? scanDraft,
   String barcode = '',
   String ocrText = '',
 }) => Navigator.of(context).push<void>(
@@ -24,6 +26,7 @@ Future<void> openEditor(
       controller: controller,
       record: record,
       seed: seed,
+      scanDraft: scanDraft,
       barcode: barcode,
       ocrText: ocrText,
     ),
@@ -36,6 +39,7 @@ class EditorScreen extends StatefulWidget {
     required this.controller,
     this.record,
     this.seed,
+    this.scanDraft,
     this.barcode = '',
     this.ocrText = '',
   });
@@ -43,6 +47,7 @@ class EditorScreen extends StatefulWidget {
   final PharmacyController controller;
   final Medicine? record;
   final MedicineDraftSeed? seed;
+  final MedicineScanDraft? scanDraft;
   final String barcode, ocrText;
 
   @override
@@ -55,7 +60,7 @@ class _EditorScreenState extends State<EditorScreen> {
   final _formKey = GlobalKey<FormState>();
   late final int _baseRevision;
 
-  bool _expiryMonthOnly = true;
+  bool _mfgMonthOnly = false, _expiryMonthOnly = true;
   String _form = '', _error = '';
   bool _busy = false, _restocking = false, _dirty = false, _allowPop = false;
 
@@ -64,18 +69,31 @@ class _EditorScreenState extends State<EditorScreen> {
     super.initState();
     _baseRevision = widget.controller.snapshot.revision;
     final seed = widget.seed;
+    final scan = widget.scanDraft;
+    String identityValue(String? catalog, String scanned) =>
+        catalog?.trim().isNotEmpty == true ? catalog!.trim() : scanned;
     final data =
         widget.record?.toJson() ??
         <String, dynamic>{
-          'name': seed?.name ?? '',
-          'brand': seed?.brand ?? '',
-          'manufacturer': seed?.manufacturer ?? '',
-          'salt': seed?.salt ?? '',
-          'strength': seed?.strength ?? '',
+          'name': identityValue(seed?.name, scan?.name ?? ''),
+          'brand': identityValue(seed?.brand, scan?.brand ?? ''),
+          'manufacturer': identityValue(
+            seed?.manufacturer,
+            scan?.manufacturer ?? '',
+          ),
+          'salt': identityValue(seed?.salt, scan?.salt ?? ''),
+          'strength': identityValue(seed?.strength, scan?.strength ?? ''),
+          'mfg': scan?.mfg ?? '',
+          'expiry': scan?.expiry ?? '',
+          'batchNumber': scan?.batchNumber ?? '',
           'barcode': seed?.barcode.isNotEmpty == true
               ? seed!.barcode
+              : scan?.barcode.isNotEmpty == true
+              ? scan!.barcode
               : widget.barcode,
-          'ocrText': widget.ocrText,
+          'ocrText': widget.ocrText.trim().isNotEmpty
+              ? widget.ocrText
+              : scan?.searchableOcrText ?? '',
         };
 
     // Keep legacy/automatic metadata in the model so existing records and
@@ -91,6 +109,7 @@ class _EditorScreenState extends State<EditorScreen> {
       'expiry',
       'quantity',
       'barcode',
+      'batchNumber',
       'block',
       'row',
       'vertical',
@@ -126,16 +145,39 @@ class _EditorScreenState extends State<EditorScreen> {
       }
     }
 
-    _form = widget.record?.form ?? seed?.form ?? '';
     final record = widget.record;
+    _form = record?.form ?? identityValue(seed?.form, scan?.form ?? '');
+    _mfgMonthOnly = record?.mfg == null
+        ? scan?.mfgMonthOnly ?? false
+        : record!.mfgMonthOnly;
     _expiryMonthOnly = record?.expiry == null || record!.expiryMonthOnly;
+    if (record?.expiry == null && scan?.expiry.isNotEmpty == true) {
+      _expiryMonthOnly = scan!.expiryMonthOnly;
+      final value = parseDate(scan.expiry, monthEnd: _expiryMonthOnly);
+      if (value != null) {
+        fields['expiry']!.text = inputDateText(
+          value,
+          monthOnly: _expiryMonthOnly,
+        );
+      }
+    }
     if (record?.expiry != null) {
       fields['expiry']!.text = inputDateText(
         record!.expiry!,
         monthOnly: _expiryMonthOnly,
       );
     }
-    if (record?.mfg != null) fields['mfg']!.text = inputDateText(record!.mfg!);
+    if (record?.mfg != null) {
+      fields['mfg']!.text = inputDateText(
+        record!.mfg!,
+        monthOnly: record.mfgMonthOnly,
+      );
+    } else if (scan?.mfg.isNotEmpty == true) {
+      final value = parseDate(scan!.mfg, monthStart: _mfgMonthOnly);
+      if (value != null) {
+        fields['mfg']!.text = inputDateText(value, monthOnly: _mfgMonthOnly);
+      }
+    }
   }
 
   @override
@@ -194,12 +236,8 @@ class _EditorScreenState extends State<EditorScreen> {
     suffixIcon: suffixIcon,
   );
 
-  Widget _raisedFieldSurface(Widget child) => GlassPanel(
-    tint: Colors.white,
-    radius: 18,
-    elevation: 1.12,
-    child: child,
-  );
+  Widget _raisedFieldSurface(Widget child) =>
+      GlassPanel(tint: Colors.white, radius: 18, elevation: 1.12, child: child);
 
   Widget _saltField({TextEditingController? controller, int? extraIndex}) {
     final isPrimary = controller == null;
@@ -256,7 +294,7 @@ class _EditorScreenState extends State<EditorScreen> {
         fields['expiry']!.text,
         monthOnly: _expiryMonthOnly,
       ),
-      'mfg': inputDateToIso(fields['mfg']!.text),
+      'mfg': inputDateToIso(fields['mfg']!.text, monthOnly: _mfgMonthOnly),
       'id': old?.id ?? newId(),
       'form': _form,
       'quantity': quantity,
@@ -520,9 +558,8 @@ class _EditorScreenState extends State<EditorScreen> {
                   subtitle: const Text(
                     'Explicitly mark this entry SOLD and add it to reorder.',
                   ),
-                  onChanged: (value) => setDialogState(
-                    () => markSoldOut = value == true,
-                  ),
+                  onChanged: (value) =>
+                      setDialogState(() => markSoldOut = value == true),
                 ),
                 const Text(
                   'Only aggregate medicine movement is saved. No customer or patient details are collected.',
@@ -759,7 +796,9 @@ class _EditorScreenState extends State<EditorScreen> {
                       maxLines: 1,
                       style: TextStyle(
                         color: selected ? primaryDeep : ink,
-                        fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                        fontWeight: selected
+                            ? FontWeight.w800
+                            : FontWeight.w700,
                       ),
                     ),
                   ),
@@ -843,7 +882,9 @@ class _EditorScreenState extends State<EditorScreen> {
                             ).label,
                             color: record.sold
                                 ? amber
-                                : (record.daysLeft(widget.controller.today) ?? 1) < 0
+                                : (record.daysLeft(widget.controller.today) ??
+                                          1) <
+                                      0
                                 ? red
                                 : green,
                           ),
@@ -871,6 +912,7 @@ class _EditorScreenState extends State<EditorScreen> {
                                 _dirty = true;
                                 fields['quantity']!.clear();
                                 _expiryMonthOnly = true;
+                                _mfgMonthOnly = false;
                                 fields['expiry']!.clear();
                                 fields['mfg']!.clear();
                               });
@@ -911,6 +953,7 @@ class _EditorScreenState extends State<EditorScreen> {
                             child: _dateField(
                               controller: fields['mfg']!,
                               label: 'MFG date',
+                              monthOnly: _mfgMonthOnly,
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -961,10 +1004,11 @@ class _EditorScreenState extends State<EditorScreen> {
                         'Location',
                         hint: 'Room 2, Rack B, Shelf 4…',
                       ),
+                      _field('barcode', 'Barcode', hint: 'Scan or type'),
                       _field(
-                        'barcode',
-                        'Barcode',
-                        hint: 'Scan or type',
+                        'batchNumber',
+                        'Batch / lot number',
+                        hint: 'Read from the medicine pack',
                       ),
                       _field(
                         'ocrText',

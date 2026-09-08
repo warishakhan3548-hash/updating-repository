@@ -150,6 +150,7 @@ class SearchDocument {
       record.strength,
       record.form,
       record.barcode,
+      record.batchNumber,
       record.id,
       if (record.mfg != null) dateText(record.mfg!),
       if (record.expiry != null) dateText(record.expiry!),
@@ -329,6 +330,7 @@ class MedicineSearch {
       (m.salt, .98, 'Salt'),
       ('${m.name} ${m.strength}', 1.0, 'Name and strength'),
       (m.barcode, .97, 'Barcode'),
+      (m.batchNumber, .91, 'Batch number'),
       (m.manufacturer, .86, 'Manufacturer'),
       (m.form, .82, 'Medicine form'),
       (m.expiry == null ? '' : dateText(m.expiry!), .78, 'Expiry date'),
@@ -401,12 +403,18 @@ class MedicineSearch {
       }
       // Check numbers in the field that actually matched, not an unrelated date.
       if (numericTokens.isNotEmpty) {
-        final numbers = RegExp(r'\d+(?:\.\d+)?')
-            .allMatches(value).map((match) => match[0]!).toList();
-        final matchesNumbers = numericTokens.every((token) => numbers.any(
-          (number) => number == token ||
-              (token.length > 1 && !token.contains('.') && number.startsWith(token)),
-        ));
+        final numbers = RegExp(
+          r'\d+(?:\.\d+)?',
+        ).allMatches(value).map((match) => match[0]!).toList();
+        final matchesNumbers = numericTokens.every(
+          (token) => numbers.any(
+            (number) =>
+                number == token ||
+                (token.length > 1 &&
+                    !token.contains('.') &&
+                    number.startsWith(token)),
+          ),
+        );
         if (!matchesNumbers) score *= .66;
       }
       score *= weight;

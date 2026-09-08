@@ -1250,6 +1250,7 @@ String _fieldLabel(String key) =>
       'soldUnitPricePaise': 'Cost when marked sold',
       'soldQuantity': 'Quantity when marked sold',
       'ocrText': 'Scanned text',
+      'batchNumber': 'Batch / lot number',
       'mfg': 'Manufacturing date',
       'soldAt': 'Marked sold at',
     }[key] ??

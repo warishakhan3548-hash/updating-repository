@@ -40,6 +40,9 @@ class MedicineCatalogService {
   final http.Client _client;
   final bool _ownsClient;
   final List<MedicineCatalogProvider> _providers;
+  final Map<String, _CatalogCacheEntry> _cache = <String, _CatalogCacheEntry>{};
+  final Map<String, Future<List<MedicineCatalogCandidate>>> _inflight =
+      <String, Future<List<MedicineCatalogCandidate>>>{};
 
   Future<List<MedicineCatalogCandidate>> search({
     String barcode = '',
@@ -49,14 +52,46 @@ class MedicineCatalogService {
     final cleanBarcode = barcode.trim();
     final cleanText = _catalogQuery(text);
     if (cleanBarcode.isEmpty && cleanText.isEmpty) return const [];
+    final boundedLimit = min(limit, 12);
+    final key = '$cleanBarcode|$cleanText|$boundedLimit';
+    final now = DateTime.now();
+    final cached = _cache[key];
+    if (cached != null && now.isBefore(cached.expiresAt)) {
+      return cached.values;
+    }
+    final running = _inflight[key];
+    if (running != null) return running;
 
+    final future = _searchProviders(
+      barcode: cleanBarcode,
+      text: cleanText,
+      limit: boundedLimit,
+    ).then((values) {
+      _cache[key] = _CatalogCacheEntry(
+        values,
+        now.add(Duration(minutes: values.isEmpty ? 5 : 360)),
+      );
+      while (_cache.length > 64) {
+        _cache.remove(_cache.keys.first);
+      }
+      return values;
+    }).whenComplete(() => _inflight.remove(key));
+    _inflight[key] = future;
+    return future;
+  }
+
+  Future<List<MedicineCatalogCandidate>> _searchProviders({
+    required String barcode,
+    required String text,
+    required int limit,
+  }) async {
     final jobs = _providers.map((provider) async {
       try {
         return await provider
             .search(
-              barcode: cleanBarcode,
-              text: cleanText,
-              limit: min(limit, 12),
+              barcode: barcode,
+              text: text,
+              limit: limit,
             )
             .timeout(const Duration(seconds: 5));
       } catch (_) {
@@ -87,8 +122,17 @@ class MedicineCatalogService {
   }
 
   void close() {
+    _cache.clear();
+    _inflight.clear();
     if (_ownsClient) _client.close();
   }
+}
+
+class _CatalogCacheEntry {
+  const _CatalogCacheEntry(this.values, this.expiresAt);
+
+  final List<MedicineCatalogCandidate> values;
+  final DateTime expiresAt;
 }
 
 class OpenFdaNdcProvider implements MedicineCatalogProvider {

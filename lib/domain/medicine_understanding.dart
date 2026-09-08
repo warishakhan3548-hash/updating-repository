@@ -493,6 +493,7 @@ class MedicineUnderstandingEngine {
 
     final fields = <String, ExtractedMedicineField>{};
     for (final entry in candidates.entries) {
+      if (entry.key == 'packSize' || entry.key == 'mrp') continue;
       final resolved = _resolve(entry.key, entry.value);
       if (!resolved.isEmpty) fields[entry.key] = resolved;
     }
@@ -813,10 +814,9 @@ String _cleanLine(String value) => value
     .replaceAll(RegExp(r'\s+'), ' ')
     .trim();
 
-String _cleanValue(String value) =>
-    _cleanLine(value)
-        .replaceAll(RegExp(r'^[\s:;,.#-]+|[\s:;,.#-]+$'), '')
-        .trim();
+String _cleanValue(String value) => _cleanLine(
+  value,
+).replaceAll(RegExp(r'^[\s:;,.#-]+|[\s:;,.#-]+$'), '').trim();
 
 String _labelValue(String line, RegExp expression) =>
     expression.firstMatch(line)?.group(1)?.trim() ?? '';
@@ -874,8 +874,9 @@ String? _canonicalPrintedDate(String raw, {required bool expiry}) {
     'dec': 12,
     'december': 12,
   };
-  final word = RegExp(r'(?:(\d{1,2})[\s./-]+)?([a-z]{3,9})[\s./-]+(\d{2,4})')
-      .firstMatch(value);
+  final word = RegExp(
+    r'(?:(\d{1,2})[\s./-]+)?([a-z]{3,9})[\s./-]+(\d{2,4})',
+  ).firstMatch(value);
   if (word != null && months.containsKey(word[2])) {
     final year = _fullYear(int.parse(word[3]!));
     final month = months[word[2]]!;
@@ -892,8 +893,9 @@ String? _canonicalPrintedDate(String raw, {required bool expiry}) {
     if (a > 99) return _validatedIso(a, b, c, expiry: expiry);
     return _validatedIso(_fullYear(c), b, a, expiry: expiry);
   }
-  final month = RegExp(r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{2,4})(?!\s*[./-]\s*\d)')
-      .firstMatch(value);
+  final month = RegExp(
+    r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{2,4})(?!\s*[./-]\s*\d)',
+  ).firstMatch(value);
   if (month == null) return null;
   final a = int.parse(month[1]!);
   final b = int.parse(month[2]!);

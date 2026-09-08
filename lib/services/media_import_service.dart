@@ -20,6 +20,30 @@ class PickedImportSource {
       );
 }
 
+class VideoFrameSample {
+  const VideoFrameSample({
+    required this.path,
+    required this.sequence,
+    required this.timestampMs,
+    required this.quality,
+  });
+
+  final String path;
+  final int sequence;
+  final int timestampMs;
+  final double quality;
+
+  factory VideoFrameSample.fromMap(
+    Map<Object?, Object?> map, {
+    required int fallbackSequence,
+  }) => VideoFrameSample(
+    path: map['path'] as String,
+    sequence: map['sequence'] as int? ?? fallbackSequence,
+    timestampMs: map['timestampMs'] as int? ?? 0,
+    quality: (map['quality'] as num? ?? 1).toDouble().clamp(0, 1),
+  );
+}
+
 class MediaImportService {
   static const _channel = MethodChannel('com.aaris.pharmacy/documents');
 
@@ -43,13 +67,41 @@ class MediaImportService {
     return raw == null ? null : PickedImportSource.fromMap(raw);
   }
 
-  Future<List<String>> sampleVideo(String path, {int maxFrames = 60}) async {
+  Future<List<VideoFrameSample>> sampleVideo(
+    String path, {
+    int maxFrames = 60,
+  }) async {
     _requireAndroid();
-    final frames = await _channel.invokeListMethod<String>('sampleVideo', {
+    final frames = await _channel.invokeListMethod<Object?>('sampleVideo', {
       'path': path,
       'maxFrames': maxFrames.clamp(1, 72),
     });
-    return frames ?? const [];
+    if (frames == null) return const <VideoFrameSample>[];
+    final result = <VideoFrameSample>[];
+    for (var index = 0; index < frames.length; index++) {
+      final raw = frames[index];
+      // Accept the old native response during hot upgrades, but all current
+      // Android builds return ordered metadata maps.
+      if (raw is String && raw.isNotEmpty) {
+        result.add(
+          VideoFrameSample(
+            path: raw,
+            sequence: index,
+            timestampMs: index * 3000,
+            quality: 1,
+          ),
+        );
+      } else if (raw is Map && raw['path'] is String) {
+        result.add(
+          VideoFrameSample.fromMap(
+            Map<Object?, Object?>.from(raw),
+            fallbackSequence: index,
+          ),
+        );
+      }
+    }
+    result.sort((a, b) => a.sequence.compareTo(b.sequence));
+    return result;
   }
 
   Future<void> cleanup(Iterable<String> paths) async {

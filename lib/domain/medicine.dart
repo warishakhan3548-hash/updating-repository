@@ -27,11 +27,16 @@ String dateText(DateTime value) =>
     '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 
 /// Strict civil dates. A printed YYYY-MM expiry means the last day of that month.
-DateTime? parseDate(Object? raw, {bool monthEnd = false}) {
+DateTime? parseDate(
+  Object? raw, {
+  bool monthEnd = false,
+  bool monthStart = false,
+}) {
   if (raw == null || raw == '') return null;
   if (raw is! String) throw const FormatException('Date must be text.');
-  final match = RegExp(r'^(\d{4})-(\d{2})(?:-(\d{2}))?$')
-      .firstMatch(raw.trim());
+  final match = RegExp(
+    r'^(\d{4})-(\d{2})(?:-(\d{2}))?$',
+  ).firstMatch(raw.trim());
   if (match == null)
     throw const FormatException(
       'Use YYYY-MM-DD, or YYYY-MM for a printed expiry month.',
@@ -41,10 +46,15 @@ DateTime? parseDate(Object? raw, {bool monthEnd = false}) {
   if (year < 1900 || year > 2200 || month < 1 || month > 12) {
     throw const FormatException('Date is outside the supported range.');
   }
-  if (match[3] == null && !monthEnd)
+  if (monthEnd && monthStart) {
+    throw const FormatException('A date cannot use two month precisions.');
+  }
+  if (match[3] == null && !monthEnd && !monthStart)
     throw const FormatException('Enter the full manufacturing date.');
   final day = match[3] == null
-      ? DateTime.utc(year, month + 1, 0).day
+      ? monthEnd
+            ? DateTime.utc(year, month + 1, 0).day
+            : 1
       : int.parse(match[3]!);
   final date = DateTime.utc(year, month, day);
   if (date.month != month || date.year != year || date.day != day)
@@ -153,11 +163,13 @@ class Medicine {
     this.strength = '',
     this.form = '',
     this.mfg,
+    this.mfgMonthOnly = false,
     this.expiry,
     this.expiryMonthOnly = false,
     this.quantity,
     this.unitPricePaise,
     this.barcode = '',
+    this.batchNumber = '',
     this.block = '',
     this.row = '',
     this.vertical = '',
@@ -180,6 +192,7 @@ class Medicine {
       strength,
       form,
       barcode,
+      batchNumber,
       block,
       row,
       vertical,
@@ -187,7 +200,7 @@ class Medicine {
       notes,
       ocrText;
   final DateTime? mfg, expiry;
-  final bool expiryMonthOnly, sold, archived;
+  final bool mfgMonthOnly, expiryMonthOnly, sold, archived;
   final int? quantity, unitPricePaise, soldQuantity, soldUnitPricePaise;
   final String? soldAt;
   final int revision;
@@ -214,6 +227,7 @@ class Medicine {
     'quantity',
     'unitPricePaise',
     'barcode',
+    'batchNumber',
     'block',
     'row',
     'vertical',
@@ -241,7 +255,11 @@ class Medicine {
     'salt': salt,
     'strength': strength,
     'form': form,
-    'mfg': mfg == null ? null : dateText(mfg!),
+    'mfg': mfg == null
+        ? null
+        : mfgMonthOnly
+        ? dateText(mfg!).substring(0, 7)
+        : dateText(mfg!),
     'expiry': expiry == null
         ? null
         : expiryMonthOnly
@@ -250,6 +268,7 @@ class Medicine {
     'quantity': quantity,
     'unitPricePaise': unitPricePaise,
     'barcode': barcode,
+    'batchNumber': batchNumber,
     'block': block,
     'row': row,
     'vertical': vertical,
@@ -285,7 +304,7 @@ class Medicine {
     final id = text('id');
     if (name.isEmpty || id.isEmpty)
       throw const FormatException('Medicine name and record ID are required.');
-    final mfg = parseDate(json['mfg']);
+    final mfg = parseDate(json['mfg'], monthStart: true);
     final expiry = parseDate(json['expiry'], monthEnd: true);
     if (mfg != null && expiry != null && mfg.isAfter(expiry))
       throw const FormatException('Manufacturing date cannot be after expiry.');
@@ -310,6 +329,8 @@ class Medicine {
       strength: text('strength'),
       form: normalizeForm(text('form')),
       mfg: mfg,
+      mfgMonthOnly:
+          json['mfg'] is String && (json['mfg'] as String).trim().length == 7,
       expiry: expiry,
       expiryMonthOnly:
           json['expiry'] is String &&
@@ -317,6 +338,7 @@ class Medicine {
       quantity: quantity,
       unitPricePaise: price,
       barcode: text('barcode'),
+      batchNumber: text('batchNumber'),
       block: text('block'),
       row: text('row'),
       vertical: text('vertical'),
