@@ -58,7 +58,8 @@ class SalesOverview {
       // recordSale(markSoldOut: true) already writes a real SaleEvent in the
       // same mutation. Do not synthesize a second sale for that transition.
       final salesBefore = event['salesBefore'];
-      if (salesBefore is Map && salesBefore.values.any((value) => value == null)) {
+      if (salesBefore is Map &&
+          salesBefore.values.any((value) => value == null)) {
         continue;
       }
 
@@ -81,12 +82,12 @@ class SalesOverview {
           isLatestDirectTransition && current != null && current.sold;
 
       final units = useCurrentSoldSnapshot
-          ? _positiveUnits(current.soldQuantity)
+          ? _positiveUnits(current!.soldQuantity)
           : _positiveUnits(before.quantity);
-      final name = useCurrentSoldSnapshot ? current.name : before.name;
+      final name = useCurrentSoldSnapshot ? current!.name : before.name;
 
       int? amount = useCurrentSoldSnapshot
-          ? current.soldUnitPricePaise ?? current.unitPricePaise
+          ? current!.soldUnitPricePaise ?? current.unitPricePaise
           : before.unitPricePaise;
 
       // The legacy event aggregate stored quantity × amount. Recover the
