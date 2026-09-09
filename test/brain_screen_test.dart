@@ -44,7 +44,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'exact Brain remove command opens protected action and never mutates before confirmation',
+    'exact Brain remove command is protected and restore-it reuses only exact archived context',
     (tester) async {
       final medicine = _stock(
         'brain-remove-target',
@@ -106,6 +106,27 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
       expect(controller.snapshot.records[medicine.id]!.archived, isTrue);
+      expect(controller.canUndo, isTrue);
+      expect(controller.operationalTarget, isNull);
+      expect(controller.archivedOperationalTargetId, medicine.id);
+      expect(tester.takeException(), isNull);
+
+      // A follow-up pronoun is never fuzzy-searched. RemovedStockScreen resolves
+      // it through the session-only archived ID and immediately opens the same
+      // revision-bound restore review. No write occurs before confirmation.
+      await tester.enterText(find.byType(TextField).first, 'restore isko');
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(find.text('Restore this removed stock?'), findsOneWidget);
+      expect(controller.snapshot.records[medicine.id]!.archived, isTrue);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Restore stock'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+      expect(controller.archivedOperationalTarget, isNull);
+      expect(controller.operationalTargetId, medicine.id);
       expect(controller.canUndo, isTrue);
       expect(tester.takeException(), isNull);
 
