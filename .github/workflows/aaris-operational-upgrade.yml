@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - upgrade/aaris-operational-brain-20260910
+  pull_request:
+    branches:
+      - main
 permissions:
   contents: write
 concurrency:
@@ -10,6 +13,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   upgrade-and-verify:
+    if: github.event_name == 'push' || github.head_ref == 'upgrade/aaris-operational-brain-20260910'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -49,4 +53,5 @@ jobs:
           git add -A
           git diff --cached --check
           git commit -m "Upgrade Aaris Brain with reviewed stock relocation"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          target_branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git push origin "HEAD:${target_branch}"
