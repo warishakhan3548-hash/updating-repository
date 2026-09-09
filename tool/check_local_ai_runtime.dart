@@ -84,7 +84,7 @@ Future<void> main() async {
   );
   var rejected = false;
   try {
-    runtime.generate('system', 'too early');
+    unawaited(runtime.generate('system', 'too early'));
   } on StateError {
     rejected = true;
   }
@@ -196,7 +196,7 @@ Future<void> main() async {
   final closing = draining.close();
   var refused = false;
   try {
-    draining.generate('system', 'late request');
+    unawaited(draining.generate('system', 'late request'));
   } on StateError {
     refused = true;
   }

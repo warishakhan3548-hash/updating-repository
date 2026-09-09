@@ -105,6 +105,13 @@ void main() {
       expect(controller.snapshot.records[medicine.id]!.archived, isTrue);
       expect(controller.canUndo, isTrue);
       expect(tester.takeException(), isNull);
+
+      // Widget-test teardown hooks run after Flutter verifies that no timers are
+      // pending. Unmount first, then synchronously dispose the controller so its
+      // midnight refresh timer is cancelled before that invariant is checked.
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await tester.pump();
     },
   );
 }

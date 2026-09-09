@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../lib/domain/default_local_model.dart';
 import '../lib/domain/local_model.dart';
 
@@ -44,5 +46,5 @@ void main() {
   ]);
   assert(wrongRepository == null);
 
-  print('Aaris default local AI policy checks passed.');
+  stdout.writeln('Aaris default local AI policy checks passed.');
 }
