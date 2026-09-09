@@ -81,10 +81,12 @@ class PharmacyStockRiskReport {
     final groups = <String, List<Medicine>>{};
 
     for (final medicine in allRecords) {
-      if (medicine.archived || medicine.sold || medicine.quantity == 0)
+      if (medicine.archived || medicine.sold || medicine.quantity == 0) {
         continue;
-      if (medicine.mfg != null && civilDay(medicine.mfg!).isAfter(day))
+      }
+      if (medicine.mfg != null && civilDay(medicine.mfg!).isAfter(day)) {
         continue;
+      }
       final days = medicine.daysLeft(day);
       if (days != null && days < 0) continue;
       groups.putIfAbsent(medicine.identity, () => <Medicine>[]).add(medicine);
@@ -106,7 +108,6 @@ class PharmacyStockRiskReport {
       }
       if (!saleDay.isBefore(start7)) {
         item.units7 += sale.quantity;
-        item.events7++;
       }
     }
 
@@ -155,23 +156,29 @@ class PharmacyStockRiskReport {
         return batch != 0 ? batch : a.id.compareTo(b.id);
       });
 
-      var cumulativeFefoUnits = 0;
+      // Track only demand actually allocated to earlier FEFO batches. A surplus
+      // in an early batch expires and must not incorrectly consume demand that
+      // occurs after that batch is gone. This keeps later-batch risk from being
+      // overstated when an earlier lot is itself projected to have leftovers.
+      var projectedConsumedEarlier = 0;
       for (final medicine in positive) {
         final days = medicine.daysLeft(day)!;
         if (days > maxHorizonDays) break;
         final quantity = medicine.quantity!;
-        cumulativeFefoUnits += quantity;
 
         // Expiry is inclusive, so a batch expiring today still has one possible
         // dispensing day. Project only recorded operational demand; never infer
         // any clinical need or future prescription volume.
         final horizonDays = math.max(1, days + 1);
-        final expectedFefoDemand = (planningVelocity * horizonDays).ceil();
-        final cumulativeExcess = math.max(
+        final expectedDemandByExpiry = (planningVelocity * horizonDays).ceil();
+        final demandAvailableForBatch = math.max(
           0,
-          cumulativeFefoUnits - expectedFefoDemand,
+          expectedDemandByExpiry - projectedConsumedEarlier,
         );
-        final atRisk = math.min(quantity, cumulativeExcess);
+        final projectedConsumed = math.min(quantity, demandAvailableForBatch);
+        final atRisk = quantity - projectedConsumed;
+        projectedConsumedEarlier += projectedConsumed;
+
         final minimumSignal = math.max(2, (quantity * .20).ceil());
         if (atRisk < minimumSignal) continue;
 
@@ -220,6 +227,5 @@ class _VelocityEvidence {
   int units30 = 0;
   int events30 = 0;
   int units7 = 0;
-  int events7 = 0;
   DateTime? firstDay;
 }
