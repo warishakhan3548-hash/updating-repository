@@ -1,0 +1,45 @@
+name: Harden Quick Intake Labeled Facts
+
+on:
+  push:
+    branches:
+      - upgrade/aaris-brain-quick-intake-20260910
+
+permissions:
+  contents: write
+
+concurrency:
+  group: harden-quick-intake-labeled-facts
+  cancel-in-progress: true
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply explicit-fact boundary hardening
+        run: python3 tool/harden_quick_intake_labeled_facts.py
+
+      - name: Reject whitespace damage
+        run: git diff --check
+
+      - name: Commit hardened production change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm --ignore-unmatch \
+            tool/harden_quick_intake_labeled_facts.py \
+            .github/workflows/harden-quick-intake-labeled-facts.yml
+          git add lib/domain/medicine_entry_prefill.dart
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "aaris-upgrade-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "Harden quick-intake explicit fact parsing"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
