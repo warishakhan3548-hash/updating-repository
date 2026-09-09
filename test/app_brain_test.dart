@@ -209,11 +209,13 @@ void main() {
       }
     });
 
-    test('scanner language routes to the authoritative stock surface', () {
-      final intent = parseAppBrainIntent('scanner kholo');
-      expect(intent.action, AppBrainAction.navigate);
-      expect(intent.section, AppSection.stock);
-      expect(intent.destructive, isFalse);
+    test('scanner language launches the reviewed scanner pipeline', () {
+      for (final command in ['scanner kholo', 'scan medicine', 'स्कैन करो']) {
+        final intent = parseAppBrainIntent(command);
+        expect(intent.action, AppBrainAction.scanMedicine, reason: command);
+        expect(intent.destructive, isFalse, reason: command);
+        expect(intent.needsMedicineTarget, isFalse, reason: command);
+      }
     });
 
     test('routes proactive attention brief locally', () {
