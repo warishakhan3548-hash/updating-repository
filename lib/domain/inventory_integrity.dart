@@ -3,9 +3,7 @@ import 'medicine.dart';
 enum InventoryIntegritySeverity { high, medium, low }
 
 enum InventoryIntegrityKind {
-  barcodeIdentityConflict,
   conflictingLotFacts,
-  futureManufactureDate,
   soldAuditGap,
   staleSoldMetadata,
 }
@@ -31,10 +29,6 @@ class InventoryIntegrityIssue {
 /// Deterministic, local-only checks for saved stock facts that can make
 /// automation unsafe. This engine never changes inventory and never infers
 /// clinical facts; it only compares facts already saved by the pharmacist.
-///
-/// Keep scanner ambiguity, physical-lot contradictions and date impossibilities
-/// here instead of duplicating them in UI code. The persistence safety gate and
-/// the Needs-attention surface therefore reason from exactly the same facts.
 class InventoryIntegrityReport {
   InventoryIntegrityReport._(List<InventoryIntegrityIssue> source)
     : issues = List.unmodifiable(source);
@@ -49,9 +43,7 @@ class InventoryIntegrityReport {
         .toList(growable: false);
     final issues = <InventoryIntegrityIssue>[];
 
-    _addBarcodeIdentityConflicts(records, issues);
     _addConflictingLotFacts(records, issues);
-    _addFutureManufactureDates(records, day, issues);
     _addSaleAuditIssues(records, day, issues);
 
     issues.sort((a, b) {
@@ -66,40 +58,6 @@ class InventoryIntegrityReport {
 
   final List<InventoryIntegrityIssue> issues;
   bool get isEmpty => issues.isEmpty;
-}
-
-void _addBarcodeIdentityConflicts(
-  List<Medicine> records,
-  List<InventoryIntegrityIssue> issues,
-) {
-  final groups = <String, List<Medicine>>{};
-  for (final medicine in records) {
-    final barcode = medicine.barcode.trim();
-    if (barcode.isEmpty) continue;
-    groups.putIfAbsent(barcode, () => <Medicine>[]).add(medicine);
-  }
-
-  for (final entry in groups.entries) {
-    final identities = entry.value.map((medicine) => medicine.identity).toSet();
-    if (identities.length < 2) continue;
-    final ids = entry.value.map((medicine) => medicine.id).toList()..sort();
-    final titles = entry.value
-        .map((medicine) => medicine.title)
-        .toSet()
-        .take(3)
-        .join(' · ');
-    issues.add(
-      InventoryIntegrityIssue(
-        key: 'barcode-identity:${entry.key}:${ids.join(':')}',
-        kind: InventoryIntegrityKind.barcodeIdentityConflict,
-        severity: InventoryIntegritySeverity.high,
-        title: 'Barcode ${entry.key} needs identity review',
-        detail:
-            '$titles share one barcode but do not share one medicine identity. Scanner auto-selection and stock automation must stay blocked for these rows until the barcode or medicine identity is verified.',
-        stockIds: List.unmodifiable(ids),
-      ),
-    );
-  }
 }
 
 void _addConflictingLotFacts(
@@ -131,7 +89,7 @@ void _addConflictingLotFacts(
 
   for (final group in groups.values.where((rows) => rows.length > 1)) {
     // A shared barcode with different product identities is handled by the
-    // stronger barcode-identity rule above.
+    // stronger barcode-identity rule in the attention engine.
     if (group.map((medicine) => medicine.identity).toSet().length != 1) {
       continue;
     }
@@ -174,29 +132,6 @@ void _addConflictingLotFacts(
         detail:
             '${group.length} active rows appear to describe the same physical lot ($lotCue) but disagree on ${_joined(conflicts)}. Verify the physical packs before FEFO, scanner selection, stock receiving or consolidation. Aaris will not merge or overwrite these rows automatically.',
         stockIds: List.unmodifiable(ids),
-      ),
-    );
-  }
-}
-
-void _addFutureManufactureDates(
-  List<Medicine> records,
-  DateTime day,
-  List<InventoryIntegrityIssue> issues,
-) {
-  for (final medicine in records.where((medicine) => !medicine.sold)) {
-    final mfg = medicine.mfg;
-    if (mfg == null || !civilDay(mfg).isAfter(day)) continue;
-    final startsIn = civilDay(mfg).difference(day).inDays;
-    issues.add(
-      InventoryIntegrityIssue(
-        key: 'future-mfg:${medicine.id}',
-        kind: InventoryIntegrityKind.futureManufactureDate,
-        severity: InventoryIntegritySeverity.high,
-        title: '${medicine.title} · manufacturing date is in the future',
-        detail:
-            '${_stockCue(medicine)} · recorded MFG is $startsIn day${startsIn == 1 ? '' : 's'} ahead. Verify the physical pack/date; Aaris excludes this row from FEFO and current-stock reorder coverage and will not automate stock movement until the date is corrected.',
-        stockIds: List.unmodifiable(<String>[medicine.id]),
       ),
     );
   }
@@ -276,16 +211,6 @@ Set<String> _textValues(
     .map((medicine) => normalize(select(medicine)))
     .where((value) => value.isNotEmpty)
     .toSet();
-
-String _stockCue(Medicine medicine) {
-  final parts = <String>[
-    if (medicine.batchNumber.trim().isNotEmpty)
-      'Batch ${medicine.batchNumber.trim()}',
-    if (medicine.address.trim().isNotEmpty) medicine.address.trim(),
-    if (medicine.quantity != null) '${medicine.quantity} units',
-  ];
-  return parts.isEmpty ? 'Exact stock entry' : parts.join(' · ');
-}
 
 String _joined(List<String> values) {
   if (values.length == 1) return values.single;
