@@ -8,6 +8,7 @@ import 'ui/search_screen.dart';
 import 'ui/ai_screen.dart';
 import 'ui/stats_screen.dart';
 import 'ui/profile_screen.dart';
+import 'ui/pharmacy_brain_sheet.dart';
 
 ThemeData _appTheme() {
   final base = pharmacyTheme();
@@ -76,6 +77,14 @@ class _ShellState extends State<_Shell> {
     }
   }
 
+  Future<void> _openBrain() => showPharmacyBrain(
+    context,
+    widget.controller,
+    onOpenAi: () {
+      if (mounted) setState(() => tab = 2);
+    },
+  );
+
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -116,6 +125,13 @@ class _ShellState extends State<_Shell> {
           ),
         ),
       ),
+      floatingActionButton: tab == 2
+          ? null
+          : FloatingActionButton.small(
+              tooltip: 'Aaris Brain',
+              onPressed: _openBrain,
+              child: const Icon(Icons.auto_awesome_rounded),
+            ),
       bottomNavigationBar: SafeArea(
         top: false,
         minimum: const EdgeInsets.fromLTRB(12, 0, 12, 10),

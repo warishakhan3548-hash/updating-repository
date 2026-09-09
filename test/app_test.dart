@@ -95,6 +95,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final controller = await seeded();
+    addTearDown(controller.dispose);
     final key = GlobalKey();
     await tester.pumpWidget(
       RepaintBoundary(
@@ -119,9 +120,8 @@ void main() {
     expect(find.text('Medicine details'), findsWidgets);
     await screenshot(tester, key, 'medicine-details');
     await tester.pumpWidget(const SizedBox.shrink());
-    controller.dispose();
   });
-  testWidgets('Database add flow saves a name-only entry and updates Home', (
+  testWidgets('Stock add flow saves a name-only entry and updates Home', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -132,10 +132,11 @@ void main() {
       MemoryInventoryStorage(),
       backgroundSearch: false,
     );
+    addTearDown(controller.dispose);
     await controller.initialize();
     await tester.pumpWidget(PharmacyApp(controller: controller));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Database'));
+    await tester.tap(find.text('Stock'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Add / Import medicines'));
     await tester.pumpAndSettle();
@@ -150,7 +151,6 @@ void main() {
     expect(controller.list(SearchScope.shortExpiry), isEmpty);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
-    controller.dispose();
   });
   testWidgets('All main tabs fit a narrow phone at large text scale', (
     tester,
@@ -162,16 +162,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     final c = await seeded();
+    addTearDown(c.dispose);
     await tester.pumpWidget(PharmacyApp(controller: c));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    for (final tab in ['Database', 'AI', 'Calculator', 'Profile']) {
+    for (final tab in ['Stock', 'AI', 'Calculator', 'Profile']) {
       await tester.tap(find.text(tab).last);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'Overflow in $tab');
     }
     await tester.pumpWidget(const SizedBox.shrink());
-    c.dispose();
   });
   testWidgets('Tracking and AI hub have reviewable screenshots', (
     tester,
@@ -181,6 +181,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final c = await seeded();
+    addTearDown(c.dispose);
     final key = GlobalKey();
     await tester.pumpWidget(
       RepaintBoundary(
@@ -196,16 +197,16 @@ void main() {
     await tester.pumpAndSettle();
     await screenshot(tester, key, 'ai-controller');
     await tester.pumpWidget(const SizedBox.shrink());
-    c.dispose();
   });
   testWidgets(
-    'Database, Profile, import and backup share the same visual system',
+    'Stock, Profile, import and backup share the same visual system',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final c = await seeded();
+      addTearDown(c.dispose);
       final key = GlobalKey();
       await tester.pumpWidget(
         RepaintBoundary(
@@ -214,7 +215,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      for (final tab in ['Database', 'Profile']) {
+      for (final tab in ['Stock', 'Profile']) {
         await tester.tap(find.text(tab).last);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
@@ -240,7 +241,6 @@ void main() {
         await screenshot(tester, key, entry.key);
       }
       await tester.pumpWidget(const SizedBox.shrink());
-      c.dispose();
     },
   );
 }
