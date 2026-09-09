@@ -24,11 +24,14 @@ void main() {
       expect(intent.query, 'Crocin 500');
     });
 
-    test('query cleanup never removes filler letters inside a medicine name', () {
-      final intent = parseAppBrainIntent('Koflet delete karo');
-      expect(intent.action, AppBrainAction.removeMedicine);
-      expect(intent.query, 'Koflet');
-    });
+    test(
+      'query cleanup never removes filler letters inside a medicine name',
+      () {
+        final intent = parseAppBrainIntent('Koflet delete karo');
+        expect(intent.action, AppBrainAction.removeMedicine);
+        expect(intent.query, 'Koflet');
+      },
+    );
 
     test('blocks bulk destructive natural-language commands', () {
       final intent = parseAppBrainIntent('sab medicines delete karo');
@@ -110,40 +113,100 @@ void main() {
       expect(intent.confidence, greaterThanOrEqualTo(.98));
     });
 
-    test('expiry question becomes a local stock lookup without medical inference', () {
-      final intent = parseAppBrainIntent('Dolo 650 expiry kab hai');
-      expect(intent.action, AppBrainAction.search);
-      expect(intent.query, 'Dolo 650');
-      expect(intent.destructive, isFalse);
-    });
+    test(
+      'expiry question becomes a local stock lookup without medical inference',
+      () {
+        final intent = parseAppBrainIntent('Dolo 650 expiry kab hai');
+        expect(intent.action, AppBrainAction.search);
+        expect(intent.query, 'Dolo 650');
+        expect(intent.destructive, isFalse);
+      },
+    );
 
-    test('FEFO question stays read-only and resolves through inventory search', () {
-      final intent = parseAppBrainIntent('Dolo 650 pehle kaunsi batch');
-      expect(intent.action, AppBrainAction.search);
-      expect(intent.query, 'Dolo 650');
-      expect(intent.confidence, greaterThanOrEqualTo(.99));
-      expect(intent.destructive, isFalse);
-    });
+    test(
+      'FEFO question stays read-only and resolves through inventory search',
+      () {
+        final intent = parseAppBrainIntent('Dolo 650 pehle kaunsi batch');
+        expect(intent.action, AppBrainAction.search);
+        expect(intent.query, 'Dolo 650');
+        expect(intent.confidence, greaterThanOrEqualTo(.99));
+        expect(intent.destructive, isFalse);
+      },
+    );
 
-    test('read-only sales and movement language never becomes a sale mutation', () {
-      for (final command in [
-        'aaj ki bikri kitni',
-        'sales report',
-        'fast moving medicines',
-        'slow moving stock',
-      ]) {
-        final intent = parseAppBrainIntent(command);
-        expect(intent.action, AppBrainAction.navigate, reason: command);
-        expect(intent.section, AppSection.calculator, reason: command);
-        expect(intent.destructive, isFalse, reason: command);
-      }
-    });
+    test(
+      'read-only sales and movement language never becomes a sale mutation',
+      () {
+        for (final command in [
+          'aaj ki bikri kitni',
+          'sales report',
+          'fast moving medicines',
+          'slow moving stock',
+        ]) {
+          final intent = parseAppBrainIntent(command);
+          expect(intent.action, AppBrainAction.navigate, reason: command);
+          expect(intent.section, AppSection.calculator, reason: command);
+          expect(intent.destructive, isFalse, reason: command);
+        }
+      },
+    );
 
     test('explicit record-sale command still owns the write path', () {
       final intent = parseAppBrainIntent('Dolo 650 record sale');
       expect(intent.action, AppBrainAction.recordSale);
       expect(intent.query, 'Dolo 650');
       expect(intent.destructive, isTrue);
+    });
+
+    test(
+      'explicit sale units are parsed without confusing medicine strength',
+      () {
+        final intent = parseAppBrainIntent('Dolo 650 12 units record sale');
+        expect(intent.action, AppBrainAction.recordSale);
+        expect(intent.query, 'Dolo 650');
+        expect(intent.quantity, 12);
+
+        final qtyIntent = parseAppBrainIntent('Dolo 650 record sale qty 7');
+        expect(qtyIntent.query, 'Dolo 650');
+        expect(qtyIntent.quantity, 7);
+
+        final hindiDigits = parseAppBrainIntent('Dolo 650 ५ units record sale');
+        expect(hindiDigits.query, 'Dolo 650');
+        expect(hindiDigits.quantity, 5);
+
+        final strengthOnly = parseAppBrainIntent('Dolo 650 record sale');
+        expect(strengthOnly.query, 'Dolo 650');
+        expect(strengthOnly.quantity, isNull);
+      },
+    );
+
+    test('ambiguous multiple sale quantities never auto-plan a mutation', () {
+      final intent = parseAppBrainIntent('Dolo 650 qty 5 6 units record sale');
+      expect(intent.action, AppBrainAction.recordSale);
+      expect(intent.quantity, isNull);
+    });
+
+    test(
+      'phrase boundaries prevent medicine text from becoming a write command',
+      () {
+        final intent = parseAppBrainIntent('Wholesaler 10');
+        expect(intent.action, AppBrainAction.search);
+        expect(intent.query, 'Wholesaler 10');
+        expect(intent.destructive, isFalse);
+      },
+    );
+
+    test('data quality language opens the deterministic attention engine', () {
+      for (final command in [
+        'data quality check',
+        'barcode conflict',
+        'missing expiry',
+        'future mfg',
+      ]) {
+        final intent = parseAppBrainIntent(command);
+        expect(intent.action, AppBrainAction.attentionBrief, reason: command);
+        expect(intent.destructive, isFalse, reason: command);
+      }
     });
 
     test('scanner language routes to the authoritative stock surface', () {

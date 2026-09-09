@@ -13,6 +13,8 @@ enum AttentionKind {
   reorderReview,
   unknownExpiry,
   unknownQuantity,
+  futureManufactureDate,
+  possibleDuplicateBatch,
 }
 
 class AttentionItem {
@@ -59,6 +61,20 @@ class PharmacyAttentionReport {
 
     for (final medicine in active) {
       if (medicine.sold) continue;
+      if (medicine.mfg != null && civilDay(medicine.mfg!).isAfter(day)) {
+        final startsIn = civilDay(medicine.mfg!).difference(day).inDays;
+        items.add(
+          AttentionItem(
+            key: 'future-mfg:${medicine.id}',
+            kind: AttentionKind.futureManufactureDate,
+            severity: AttentionSeverity.high,
+            title: '${medicine.title} · manufacturing date is in the future',
+            detail:
+                '${_stockCue(medicine)} · recorded MFG is $startsIn day${startsIn == 1 ? '' : 's'} ahead. Verify the physical pack/date; Aaris excludes this row from FEFO and current-stock reorder coverage until the date is valid.',
+            stockIds: [medicine.id],
+          ),
+        );
+      }
       final status = statusOf(medicine, settings, day).status;
       final cue = _stockCue(medicine);
 
@@ -142,9 +158,14 @@ class PharmacyAttentionReport {
       barcodeGroups.putIfAbsent(barcode, () => []).add(medicine);
     }
     for (final entry in barcodeGroups.entries) {
-      final identities = entry.value.map((medicine) => medicine.identity).toSet();
+      final identities = entry.value
+          .map((medicine) => medicine.identity)
+          .toSet();
       if (identities.length < 2) continue;
-      final titles = entry.value.map((medicine) => medicine.title).toSet().take(3);
+      final titles = entry.value
+          .map((medicine) => medicine.title)
+          .toSet()
+          .take(3);
       items.add(
         AttentionItem(
           key: 'barcode:${entry.key}',
@@ -153,7 +174,41 @@ class PharmacyAttentionReport {
           title: 'Barcode ${entry.key} needs identity review',
           detail:
               '${titles.join(' · ')} share one barcode but do not share one medicine identity. Scanner auto-selection must remain blocked until reviewed.',
-          stockIds: entry.value.map((medicine) => medicine.id).toList(growable: false),
+          stockIds: entry.value
+              .map((medicine) => medicine.id)
+              .toList(growable: false),
+        ),
+      );
+    }
+
+    final duplicateGroups = <String, List<Medicine>>{};
+    for (final medicine in active.where((medicine) => !medicine.sold)) {
+      final batch = normalize(medicine.batchNumber);
+      if (batch.isEmpty) continue;
+      final barcode = normalize(medicine.barcode);
+      final address = normalize(medicine.address);
+      // Batch alone can legitimately repeat across locations. Require another
+      // physical locator before raising a probable-duplicate review item.
+      if (barcode.isEmpty && address.isEmpty) continue;
+      final key = '${medicine.identity}|$batch|$barcode|$address';
+      duplicateGroups.putIfAbsent(key, () => []).add(medicine);
+    }
+    for (final group in duplicateGroups.values.where(
+      (group) => group.length > 1,
+    )) {
+      final first = group.first;
+      items.add(
+        AttentionItem(
+          key:
+              'duplicate-batch:${group.map((medicine) => medicine.id).join(':')}',
+          kind: AttentionKind.possibleDuplicateBatch,
+          severity: AttentionSeverity.medium,
+          title: '${first.title} · possible duplicate batch entries',
+          detail:
+              '${group.length} active rows share the same medicine identity, batch and barcode/location. Verify the physical stock before totals or reorder decisions; Aaris will never merge or delete them automatically.',
+          stockIds: group
+              .map((medicine) => medicine.id)
+              .toList(growable: false),
         ),
       );
     }
@@ -166,10 +221,9 @@ class PharmacyAttentionReport {
           kind: urgent
               ? AttentionKind.urgentReorder
               : AttentionKind.reorderReview,
-          severity: urgent
-              ? AttentionSeverity.high
-              : AttentionSeverity.medium,
-          title: '${suggestion.title} · ${urgent ? 'urgent reorder' : 'reorder review'}',
+          severity: urgent ? AttentionSeverity.high : AttentionSeverity.medium,
+          title:
+              '${suggestion.title} · ${urgent ? 'urgent reorder' : 'reorder review'}',
           detail:
               '${suggestion.reason} · suggested ${suggestion.suggestedQuantity} · ${suggestion.confidenceLabel}${suggestion.reviewRequired ? ' · pharmacist review required' : ''}.',
           stockIds: suggestion.stockIds,

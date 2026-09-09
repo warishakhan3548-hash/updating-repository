@@ -102,10 +102,16 @@ bool isExpiredOn(Medicine record, DateTime date) {
 /// Stock that may participate in a dispensing decision on [date].
 ///
 /// Quantity is deliberately not part of this predicate: an unknown quantity is
-/// still a real stock entry. Callers that need an available batch must separately
-/// exclude a known zero quantity.
-bool isDispensableOn(Medicine record, DateTime date) =>
-    !record.archived && !record.sold && !isExpiredOn(record, date);
+/// still a real stock entry. A recorded manufacturing date in the future is not
+/// dispensable and must be verified rather than treated as usable stock. Callers
+/// that need an available batch must separately exclude a known zero quantity.
+bool isDispensableOn(Medicine record, DateTime date) {
+  final day = civilDay(date);
+  return !record.archived &&
+      !record.sold &&
+      !isExpiredOn(record, day) &&
+      (record.mfg == null || !day.isBefore(civilDay(record.mfg!)));
+}
 
 /// Rejects a stock movement on a date that contradicts immutable pack facts.
 /// Expiry is inclusive: dispensing on the recorded expiry day is valid.

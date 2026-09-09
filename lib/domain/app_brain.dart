@@ -24,6 +24,7 @@ class AppBrainIntent {
     this.section,
     this.scope = SearchScope.all,
     this.query = '',
+    this.quantity,
     this.confidence = 0,
   });
 
@@ -31,6 +32,7 @@ class AppBrainIntent {
   final AppSection? section;
   final SearchScope scope;
   final String query;
+  final int? quantity;
   final double confidence;
 
   bool get needsMedicineTarget => switch (action) {
@@ -122,9 +124,11 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   }
 
   if (_containsAny(text, _saleTerms)) {
+    final saleInput = _extractExplicitSaleQuantity(raw);
     return AppBrainIntent(
       action: AppBrainAction.recordSale,
-      query: _extractMedicineQuery(raw, _saleTerms),
+      query: _extractMedicineQuery(saleInput.remainingText, _saleTerms),
+      quantity: saleInput.quantity,
       confidence: .96,
     );
   }
@@ -137,20 +141,7 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
-  if (_containsAny(text, const [
-    'what needs attention',
-    'needs attention',
-    'attention brief',
-    'attention summary',
-    'risk summary',
-    'problem stock',
-    'aaj kya dekhna hai',
-    'aaj kya karna hai',
-    'kya dikkat hai',
-    'क्या देखना है',
-    'आज क्या करना है',
-    'क्या दिक्कत है',
-  ])) {
+  if (_containsAny(text, _attentionTerms)) {
     return const AppBrainIntent(
       action: AppBrainAction.attentionBrief,
       confidence: .98,
@@ -482,8 +473,14 @@ String _normalized(String value) => value
     .replaceAll(RegExp(r'\s+'), ' ')
     .trim();
 
-bool _containsAny(String text, List<String> phrases) =>
-    phrases.any((phrase) => text.contains(_normalized(phrase)));
+bool _containsAny(String text, List<String> phrases) => phrases.any((phrase) {
+  final needle = _normalized(phrase);
+  if (needle.isEmpty) return false;
+  return text == needle ||
+      text.startsWith('$needle ') ||
+      text.endsWith(' $needle') ||
+      text.contains(' $needle ');
+});
 
 bool _isBulkRemoval(String text) {
   if (!_containsAny(text, _removeTerms)) return false;
@@ -557,6 +554,44 @@ bool _looksLikeDirectLookup(String raw, String text) {
     return false;
   }
   return RegExp(r'[a-z0-9\u0900-\u097f]', unicode: true).hasMatch(text);
+}
+
+class _ExplicitSaleQuantity {
+  const _ExplicitSaleQuantity(this.remainingText, this.quantity);
+
+  final String remainingText;
+  final int? quantity;
+}
+
+_ExplicitSaleQuantity _extractExplicitSaleQuantity(String raw) {
+  final expression = RegExp(
+    r'(?:(?:qty|quantity)\s*[:=]?\s*([0-9०-९]{1,9})|([0-9०-९]{1,9})\s*(?:units?|pcs?|pieces?|यूनिट(?:्स)?))',
+    caseSensitive: false,
+    unicode: true,
+  );
+  final matches = expression.allMatches(raw).toList();
+  // Multiple quantity statements are ambiguous. Preserve the original command
+  // and fall back to the reviewed editor instead of guessing which number wins.
+  if (matches.length != 1) return _ExplicitSaleQuantity(raw, null);
+  final match = matches.single;
+  final digits = _asciiDigits(match.group(1) ?? match.group(2) ?? '');
+  final quantity = int.tryParse(digits);
+  if (quantity == null || quantity < 1 || quantity > 100000000) {
+    return _ExplicitSaleQuantity(raw, null);
+  }
+  final remaining = raw.replaceRange(match.start, match.end, ' ');
+  return _ExplicitSaleQuantity(remaining, quantity);
+}
+
+String _asciiDigits(String value) {
+  const devanagari = '०१२३४५६७८९';
+  final output = StringBuffer();
+  for (final rune in value.runes) {
+    final char = String.fromCharCode(rune);
+    final index = devanagari.indexOf(char);
+    output.write(index < 0 ? char : index.toString());
+  }
+  return output.toString();
 }
 
 String _extractMedicineQuery(String raw, List<String> terms) {
@@ -695,6 +730,34 @@ const _analyticsReadTerms = <String>[
   'तेज बिक',
   'आज की बिक्री',
   'बिक्री रिपोर्ट',
+];
+
+const _attentionTerms = <String>[
+  'what needs attention',
+  'needs attention',
+  'attention brief',
+  'attention summary',
+  'risk summary',
+  'problem stock',
+  'data quality',
+  'data quality check',
+  'inventory problems',
+  'stock problems',
+  'duplicate stock',
+  'duplicate entries',
+  'barcode conflict',
+  'scan conflict',
+  'missing expiry',
+  'missing quantity',
+  'future mfg',
+  'future manufacturing date',
+  'aaj kya dekhna hai',
+  'aaj kya karna hai',
+  'kya dikkat hai',
+  'क्या देखना है',
+  'आज क्या करना है',
+  'क्या दिक्कत है',
+  'डाटा क्वालिटी',
 ];
 
 const _scanTerms = <String>[

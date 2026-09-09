@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'inventory.dart';
 import 'medicine.dart';
 
 class SaleEvent {
@@ -243,7 +244,7 @@ class TrackingStats {
     DateTime? today,
   }) {
     final stockDate = civilDay(today ?? range.end);
-    bool usable(Medicine m) => !m.sold && (m.daysLeft(stockDate) ?? 0) >= 0;
+    bool usable(Medicine m) => isDispensableOn(m, stockDate);
     final current = <String, List<Medicine>>{};
     final byId = <String, Medicine>{};
     for (final medicine in medicines.where((m) => !m.archived)) {
@@ -286,6 +287,12 @@ class TrackingStats {
     final keys = {...current.keys, ...movements.keys};
     for (final key in keys) {
       final records = current[key] ?? const <Medicine>[];
+      final hasFutureManufacture = records.any(
+        (medicine) =>
+            !medicine.sold &&
+            medicine.mfg != null &&
+            civilDay(medicine.mfg!).isAfter(stockDate),
+      );
       final representative =
           records.where(usable).firstOrNull ?? records.firstOrNull;
       if (representative == null) continue;
@@ -317,15 +324,18 @@ class TrackingStats {
       final hasSoldEntry = records.any((m) => m.sold);
       final knownOutOfStock = !hasUnknownQuantity && currentQuantity == 0;
       final outOfStock = !hasAvailable || knownOutOfStock;
-      final expiredOnly = active.isEmpty && records.any(
-        (m) => !m.sold && (m.daysLeft(stockDate) ?? 0) < 0,
-      );
+      final expiredOnly =
+          active.isEmpty &&
+          records.any((m) => !m.sold && (m.daysLeft(stockDate) ?? 0) < 0);
 
       final velocity = movement.unitsPerDay;
       const leadDays = 7;
       const targetDays = 30;
       final reorderPoint = max(5, (velocity * leadDays).ceil());
-      final target = max(10, max(reorderPoint * 2, (velocity * targetDays).ceil()));
+      final target = max(
+        10,
+        max(reorderPoint * 2, (velocity * targetDays).ceil()),
+      );
       final low = currentQuantity != null && currentQuantity <= reorderPoint;
 
       var expiringWithinLeadUnits = 0;
@@ -366,7 +376,9 @@ class TrackingStats {
           : max(1, target - effectiveQuantity);
       final suggested = rawSuggested.clamp(1, 100000000);
 
-      final confidence = hasUnknownQuantity
+      final confidence = hasFutureManufacture
+          ? .35
+          : hasUnknownQuantity
           ? .35
           : hasUnknownExpiry
           ? movement.recordedSales >= 3
@@ -377,7 +389,10 @@ class TrackingStats {
           : movement.recordedSales > 0
           ? .82
           : .62;
-      final reviewRequired = confidence < .75 || movement.recordedSales == 0;
+      final reviewRequired =
+          hasFutureManufacture ||
+          confidence < .75 ||
+          movement.recordedSales == 0;
       final coverageDays = velocity > 0 && currentQuantity != null
           ? currentQuantity / velocity
           : null;
@@ -401,7 +416,9 @@ class TrackingStats {
           priority: needsReplacement
               ? ReorderPriority.urgent
               : ReorderPriority.soon,
-          reason: expiredOnly
+          reason: hasFutureManufacture && active.isEmpty
+              ? 'Manufacturing date needs review before reorder'
+              : expiredOnly
               ? 'Only expired stock remains'
               : outOfStock || hasSoldEntry && !hasAvailable
               ? 'Out of stock'

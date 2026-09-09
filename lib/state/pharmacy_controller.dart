@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../data/inventory_database.dart';
 import '../domain/ai_protocol.dart';
 import '../domain/backup.dart';
+import '../domain/dispensing_plan.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/search.dart';
@@ -97,6 +98,111 @@ class PharmacyController extends ChangeNotifier {
   Medicine? preferredDispensingStock(String id, {DateTime? on}) {
     final choices = dispensingChoices(id, on: on);
     return choices.isEmpty ? null : choices.first;
+  }
+
+  ReviewedFefoSale reviewFefoSale(
+    String id, {
+    required int quantity,
+    DateTime? occurredAt,
+  }) {
+    final anchor = snapshot.records[id];
+    if (anchor == null || anchor.archived || anchor.sold) {
+      throw StateError(
+        'Choose an active stock entry before recording a FEFO sale.',
+      );
+    }
+    final time = occurredAt ?? clock();
+    if (civilDay(time).isAfter(today)) {
+      throw const FormatException('A sale cannot be recorded in the future.');
+    }
+    final plan = planFefoDispensing(
+      records: records,
+      requested: anchor,
+      quantity: quantity,
+      date: time,
+    );
+    return ReviewedFefoSale(
+      baseRevision: snapshot.revision,
+      occurredAt: time,
+      plan: plan,
+    );
+  }
+
+  Future<void> applyFefoSale(ReviewedFefoSale review) async {
+    if (review.baseRevision != snapshot.revision) {
+      throw StateError(
+        'Inventory changed after the FEFO review. Review the sale again before saving.',
+      );
+    }
+    final plan = review.plan;
+    if (!plan.complete || plan.allocations.isEmpty) {
+      throw StateError(
+        'This FEFO sale is incomplete and cannot be saved automatically.',
+      );
+    }
+
+    final updates = <Medicine>[];
+    final saleEvents = <SaleEvent>[];
+    for (final allocation in plan.allocations) {
+      final live = snapshot.records[allocation.stockId];
+      if (live == null || live.archived || live.sold) {
+        throw StateError(
+          'A reviewed FEFO batch is no longer available. Review the sale again.',
+        );
+      }
+      if (live.identity != plan.productKey) {
+        throw StateError(
+          'A reviewed FEFO batch no longer matches the medicine identity.',
+        );
+      }
+      validateDispensingDate(live, review.occurredAt);
+      final available = live.quantity;
+      if (available == null || available != allocation.availableQuantity) {
+        throw StateError(
+          'A reviewed FEFO batch quantity changed or became unknown. Review again.',
+        );
+      }
+      if (allocation.quantity < 1 || allocation.quantity > available) {
+        throw StateError('The reviewed FEFO allocation is no longer valid.');
+      }
+
+      final remaining = available - allocation.quantity;
+      final soldOut = remaining == 0;
+      updates.add(
+        live.patch({
+          'quantity': remaining,
+          if (soldOut) ...{
+            'sold': true,
+            'soldAt': review.occurredAt.toIso8601String(),
+            'soldQuantity': available,
+            'soldUnitPricePaise': live.unitPricePaise,
+          },
+        }),
+      );
+      saleEvents.add(
+        SaleEvent(
+          id: newId(),
+          stockId: live.id,
+          medicineName: live.name,
+          strength: live.strength,
+          form: live.form,
+          salt: live.salt,
+          quantity: allocation.quantity,
+          occurredAt: review.occurredAt,
+          savedUnitPricePaise: live.unitPricePaise,
+        ),
+      );
+    }
+
+    await _commit(
+      InventoryMutation(
+        expectedRevision: review.baseRevision,
+        label:
+            'FEFO sale · ${plan.title} · ${plan.requestedQuantity} units · ${plan.allocations.length} ${plan.allocations.length == 1 ? 'batch' : 'batches'}',
+        upserts: updates,
+        upsertSales: saleEvents,
+      ),
+    );
   }
 
   Future<void> _commit(InventoryMutation mutation) {
