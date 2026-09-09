@@ -84,14 +84,16 @@ void main() {
       );
     });
 
-    test('archived context supports exact recovery without caching live facts', () async {
+    test('reviewed archive migrates exact Brain target into archived context', () async {
       final controller = await controllerForContext();
       addTearDown(controller.dispose);
       await controller.save(stock('a'), expectedRevision: 0);
       controller.rememberOperationalTarget('a');
 
       await controller.archive('a', 'Correction', expectedRevision: 1);
-      controller.rememberArchivedOperationalTarget('a');
+      // This mirrors BrainScreen: it clears the active target after the archive
+      // commit. The context extension may migrate only the exact same identity.
+      controller.clearOperationalTarget('a');
 
       expect(controller.operationalTarget, isNull);
       expect(controller.archivedOperationalTargetId, 'a');
