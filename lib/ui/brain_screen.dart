@@ -94,6 +94,8 @@ class _BrainScreenState extends State<BrainScreen> {
         await _searchIntent(intent);
         return;
       case AppBrainAction.editMedicine:
+      case AppBrainAction.setQuantity:
+      case AppBrainAction.receiveStock:
       case AppBrainAction.removeMedicine:
       case AppBrainAction.markSold:
       case AppBrainAction.recordSale:
@@ -250,17 +252,22 @@ class _BrainScreenState extends State<BrainScreen> {
     final prefix = fromContext
         ? 'Using your last exact selection: ${record.title}. '
         : '';
-    final instruction =
-        action == AppBrainAction.recordSale && requestedQuantity != null
-        ? '${record.title} matched. Preparing a deterministic $requestedQuantity-unit FEFO allocation across active batches.'
-        : _editorInstruction(action, record);
+    final instruction = switch (action) {
+      AppBrainAction.recordSale when requestedQuantity != null =>
+        '${record.title} matched. Preparing a deterministic $requestedQuantity-unit FEFO allocation across active batches.',
+      AppBrainAction.setQuantity when requestedQuantity != null =>
+        '${record.title} matched. Preparing an exact stock correction to $requestedQuantity units.',
+      AppBrainAction.receiveStock when requestedQuantity != null =>
+        '${record.title} matched. Preparing a reviewed +$requestedQuantity-unit stock receipt.',
+      _ => _editorInstruction(action, record),
+    };
     setState(() => _reply = '$prefix$instruction');
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
 
-    // These two actions are short deterministic transactions. Aaris opens the
-    // protected confirmation directly after exact record resolution, but the
-    // controller remains the only mutation gateway and nothing changes silently.
+    // Short deterministic mutations always resolve an exact stock row first,
+    // prepare a review tied to the current inventory revision, and still require
+    // a pharmacist confirmation before the controller can commit anything.
     if (action == AppBrainAction.removeMedicine) {
       await _removeTarget(record);
       return;
@@ -273,10 +280,90 @@ class _BrainScreenState extends State<BrainScreen> {
       await _recordFefoSale(record, requestedQuantity);
       return;
     }
+    if ((action == AppBrainAction.setQuantity ||
+            action == AppBrainAction.receiveStock) &&
+        requestedQuantity != null) {
+      await _reviewStockAdjustment(record, action, requestedQuantity);
+      return;
+    }
 
     // Editing and sales without an explicit unit quantity keep the richer editor
     // because it owns amount entry, historical-sale validation and field review.
     await openEditor(context, widget.controller, record: record);
+  }
+
+  Future<void> _reviewStockAdjustment(
+    Medicine original,
+    AppBrainAction action,
+    int quantity,
+  ) async {
+    if (!mounted) return;
+    final kind = action == AppBrainAction.receiveStock
+        ? StockAdjustmentKind.receive
+        : StockAdjustmentKind.setExact;
+    final review = widget.controller.reviewStockAdjustment(
+      original.id,
+      kind: kind,
+      quantity: quantity,
+    );
+    final live = widget.controller.snapshot.records[review.stockId];
+    if (live == null || live.archived) {
+      throw StateError('That stock entry is no longer active. Nothing changed.');
+    }
+
+    if (!review.changesQuantity && kind == StockAdjustmentKind.setExact) {
+      setState(
+        () => _reply = '${live.title} already has ${review.afterQuantity} units recorded. No inventory change was needed.',
+      );
+      return;
+    }
+
+    final before = review.beforeQuantity == null
+        ? 'unknown'
+        : '${review.beforeQuantity} units';
+    final content = kind == StockAdjustmentKind.receive
+        ? '${_stockIdentityCue(live)}\n\nReceive: +${review.requestedQuantity} units\nBefore: $before\nAfter: ${review.afterQuantity} units\n\n${review.wasSold ? 'This stock entry is currently SOLD. Confirming will explicitly reopen it for the received stock; historical sales remain unchanged.\n\n' : ''}This is a stock receipt, not a customer sale. Aaris will save one audited, undoable inventory transaction.'
+        : '${_stockIdentityCue(live)}\n\nCorrect recorded quantity\nBefore: $before\nAfter: ${review.afterQuantity} units\n\nThis is an inventory correction, not a sale. It will not invent a sale event or change sales history.${review.afterQuantity == 0 && !live.sold ? ' Zero quantity does not silently mark the entry SOLD.' : ''}';
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: Text(
+              kind == StockAdjustmentKind.receive
+                  ? 'Receive ${review.requestedQuantity} units?'
+                  : 'Set stock to ${review.afterQuantity} units?',
+            ),
+            content: Text(content),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(
+                  kind == StockAdjustmentKind.receive
+                      ? 'Receive stock'
+                      : 'Save correction',
+                ),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) {
+      setState(() => _reply = 'Stock action cancelled. Nothing changed.');
+      return;
+    }
+
+    await widget.controller.applyStockAdjustment(review);
+    if (!mounted) return;
+    setState(
+      () => _reply = kind == StockAdjustmentKind.receive
+          ? '${live.title}: +${review.requestedQuantity} units received; stock is now ${review.afterQuantity}. The transaction is audited and Undo is available.'
+          : '${live.title}: recorded stock corrected to ${review.afterQuantity} units. Sales history was not changed; Undo is available.',
+    );
   }
 
   Future<void> _removeTarget(Medicine original) async {
@@ -786,7 +873,7 @@ class _BrainScreenState extends State<BrainScreen> {
   void _bulkRemoveBlocked() {
     widget.onOpenSection(AppSection.profile);
     setState(
-      () => _reply = 'Bulk removal is intentionally blocked from natural-language commands. Profile opened at the protected owner area; “Remove all inventory” still requires its dedicated multi-step confirmation so a voice/AI misunderstanding cannot wipe stock.',
+      () => _reply = 'Bulk removal is intentionally blocked from natural-language commands. Profile opened at the protected owner area; “Remove all inventory” still requires its dedicated multi-step confirmation and a revision-bound inventory review so a voice/AI misunderstanding cannot wipe stock.',
     );
   }
 
@@ -807,6 +894,10 @@ class _BrainScreenState extends State<BrainScreen> {
       '${record.title} matched exactly. Medicine Database opened and the whole-stock SOLD confirmation is ready now.',
     AppBrainAction.recordSale =>
       '${record.title} opened in Medicine Database. The sale dialog remains inside the editor so FEFO, expiry date, quantity and historical-sale validation stay authoritative.',
+    AppBrainAction.setQuantity =>
+      '${record.title} opened for an exact stock correction review.',
+    AppBrainAction.receiveStock =>
+      '${record.title} opened for a received-stock review.',
     AppBrainAction.editMedicine =>
       '${record.title} opened in Medicine Database for review/edit.',
     _ => '${record.title} opened.',
@@ -816,6 +907,8 @@ class _BrainScreenState extends State<BrainScreen> {
     AppBrainAction.removeMedicine => 'Choose stock to remove · $query',
     AppBrainAction.markSold => 'Choose stock to mark sold · $query',
     AppBrainAction.recordSale => 'Choose stock for sale · $query',
+    AppBrainAction.setQuantity => 'Choose stock to correct · $query',
+    AppBrainAction.receiveStock => 'Choose stock to receive · $query',
     AppBrainAction.editMedicine => 'Choose stock to edit · $query',
     _ => 'Choose medicine · $query',
   };
@@ -878,7 +971,7 @@ class _BrainScreenState extends State<BrainScreen> {
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => unawaited(_run()),
                   decoration: const InputDecoration(
-                    hintText: 'Dolo 650 delete karo · order now · batch AB12',
+                    hintText: 'Dolo stock add 12 units · delete karo · order now',
                     prefixIcon: Icon(Icons.bolt_rounded),
                   ),
                 ),

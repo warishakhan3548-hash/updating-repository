@@ -10,13 +10,17 @@ class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key, required this.controller});
   final PharmacyController controller;
   Future<void> _removeAll(BuildContext context) async {
-    final reviewedRevision = controller.snapshot.revision;
+    final review = controller.reviewArchiveAll();
+    if (review.activeCount == 0) {
+      showSaved(context, 'There is no active inventory to remove.');
+      return;
+    }
     final first = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Remove all inventory?'),
-        content: const Text(
-          'All stock entries will be removed from search, dashboard and totals. They remain in removed history so you can restore them.',
+        content: Text(
+          '${review.activeCount} active stock ${review.activeCount == 1 ? 'entry' : 'entries'} will be removed from search, dashboard and totals. They remain in removed history so you can restore them. The exact reviewed inventory snapshot must still match when you confirm.',
         ),
         actions: [
           TextButton(
@@ -34,15 +38,27 @@ class ProfileScreen extends StatelessWidget {
     var phrase = '';
     final confirmed = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setState) => AlertDialog(
           title: const Text('Confirm removal'),
-          content: TextField(
-            onChanged: (s) => setState(() => phrase = s),
-            decoration: const InputDecoration(
-              labelText: 'Type REMOVE ALL',
-              hintText: 'REMOVE ALL',
-            ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Final check: this action targets the ${review.activeCount} stock ${review.activeCount == 1 ? 'entry' : 'entries'} reviewed before the first confirmation. If anything changed in inventory since then, Aaris will reject the operation instead of removing a different snapshot.',
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                autofocus: true,
+                onChanged: (s) => setState(() => phrase = s),
+                decoration: const InputDecoration(
+                  labelText: 'Type REMOVE ALL',
+                  hintText: 'REMOVE ALL',
+                ),
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -61,12 +77,13 @@ class ProfileScreen extends StatelessWidget {
     );
     if (confirmed == true && context.mounted) {
       try {
-        await controller.archiveAll(expectedRevision: reviewedRevision);
-        if (context.mounted)
+        await controller.applyArchiveAll(review);
+        if (context.mounted) {
           showSaved(
             context,
-            'Inventory removed. Undo is available in Activity.',
+            '${review.activeCount} stock ${review.activeCount == 1 ? 'entry' : 'entries'} removed. Undo is available in Activity.',
           );
+        }
       } catch (e) {
         if (context.mounted) showError(context, e);
       }

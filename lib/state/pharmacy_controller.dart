@@ -12,6 +12,45 @@ import '../domain/search.dart';
 import '../domain/tracking.dart';
 import '../services/search_worker.dart';
 
+const _maxStockQuantity = 100000000;
+
+enum StockAdjustmentKind { setExact, receive }
+
+class ReviewedStockAdjustment {
+  const ReviewedStockAdjustment({
+    required this.baseRevision,
+    required this.stockId,
+    required this.recordRevision,
+    required this.kind,
+    required this.requestedQuantity,
+    required this.beforeQuantity,
+    required this.afterQuantity,
+    required this.wasSold,
+  });
+
+  final int baseRevision;
+  final String stockId;
+  final int recordRevision;
+  final StockAdjustmentKind kind;
+  final int requestedQuantity;
+  final int? beforeQuantity;
+  final int afterQuantity;
+  final bool wasSold;
+
+  bool get changesQuantity => beforeQuantity != afterQuantity;
+}
+
+class BulkArchiveReview {
+  BulkArchiveReview({
+    required this.baseRevision,
+    required Iterable<String> activeIds,
+  }) : activeIds = Set.unmodifiable(activeIds);
+
+  final int baseRevision;
+  final Set<String> activeIds;
+  int get activeCount => activeIds.length;
+}
+
 class PharmacyController extends ChangeNotifier {
   PharmacyController(
     this.storage, {
@@ -241,6 +280,7 @@ class PharmacyController extends ChangeNotifier {
       settings: value,
     ),
   );
+
   Future<void> markSold(String id) async {
     final m = snapshot.records[id];
     if (m == null || m.archived) throw StateError('This entry is unavailable.');
@@ -268,6 +308,116 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
+  ReviewedStockAdjustment reviewStockAdjustment(
+    String id, {
+    required StockAdjustmentKind kind,
+    required int quantity,
+  }) {
+    final medicine = snapshot.records[id];
+    if (medicine == null || medicine.archived) {
+      throw StateError('Choose an active stock entry before changing stock.');
+    }
+    if (quantity < 0 || quantity > _maxStockQuantity) {
+      throw const FormatException('Stock quantity is outside the supported range.');
+    }
+
+    final current = medicine.quantity;
+    late final int after;
+    switch (kind) {
+      case StockAdjustmentKind.setExact:
+        if (medicine.sold && quantity > 0) {
+          throw StateError(
+            'This entry is SOLD. Use Receive stock so Aaris can explicitly reopen it and preserve the sold-history facts.',
+          );
+        }
+        after = quantity;
+      case StockAdjustmentKind.receive:
+        if (quantity < 1) {
+          throw const FormatException(
+            'Received stock must be a positive whole-number quantity.',
+          );
+        }
+        if (isExpiredOn(medicine, today)) {
+          throw const FormatException(
+            'This physical stock entry is expired. Add a new stock entry with its own batch and expiry instead of receiving stock into the expired entry.',
+          );
+        }
+        if (current == null) {
+          throw const FormatException(
+            'Current stock quantity is unknown. Verify or set the physical count first; Aaris will not add received units to an unknown baseline.',
+          );
+        }
+        if (quantity > _maxStockQuantity - current) {
+          throw const FormatException(
+            'Received stock would exceed the supported quantity range.',
+          );
+        }
+        after = current + quantity;
+    }
+
+    return ReviewedStockAdjustment(
+      baseRevision: snapshot.revision,
+      stockId: medicine.id,
+      recordRevision: medicine.revision,
+      kind: kind,
+      requestedQuantity: quantity,
+      beforeQuantity: current,
+      afterQuantity: after,
+      wasSold: medicine.sold,
+    );
+  }
+
+  Future<void> applyStockAdjustment(ReviewedStockAdjustment review) async {
+    if (review.baseRevision != snapshot.revision) {
+      throw StateError(
+        'Inventory changed after the stock review. Review this stock action again before saving.',
+      );
+    }
+    final live = snapshot.records[review.stockId];
+    if (live == null || live.archived || live.revision != review.recordRevision) {
+      throw StateError(
+        'The reviewed stock entry changed or is no longer active. Review it again.',
+      );
+    }
+
+    final fresh = reviewStockAdjustment(
+      live.id,
+      kind: review.kind,
+      quantity: review.requestedQuantity,
+    );
+    if (fresh.beforeQuantity != review.beforeQuantity ||
+        fresh.afterQuantity != review.afterQuantity ||
+        fresh.wasSold != review.wasSold) {
+      throw StateError(
+        'Stock facts changed after review. Nothing was saved; review the action again.',
+      );
+    }
+    if (!fresh.changesQuantity &&
+        !(fresh.kind == StockAdjustmentKind.receive && fresh.wasSold)) {
+      return;
+    }
+
+    final changes = <String, dynamic>{'quantity': fresh.afterQuantity};
+    if (fresh.kind == StockAdjustmentKind.receive && live.sold) {
+      changes.addAll({
+        'sold': false,
+        'soldAt': null,
+        'soldQuantity': null,
+        'soldUnitPricePaise': null,
+      });
+    }
+    final label = fresh.kind == StockAdjustmentKind.receive
+        ? 'Received stock · ${live.name} · +${fresh.requestedQuantity} units · ${fresh.beforeQuantity}→${fresh.afterQuantity}'
+        : 'Corrected stock · ${live.name} · ${fresh.beforeQuantity == null ? 'unknown' : fresh.beforeQuantity}→${fresh.afterQuantity} units';
+    await _commit(
+      InventoryMutation(
+        expectedRevision: review.baseRevision,
+        label: label,
+        upserts: [live.patch(changes)],
+      ),
+    );
+  }
+
   Future<void> recordSale(
     String id, {
     required int quantity,
@@ -288,7 +438,7 @@ class PharmacyController extends ChangeNotifier {
     if (medicine.sold) {
       throw StateError('Restock this medicine before recording another sale.');
     }
-    if (quantity < 1 || quantity > 100000000) {
+    if (quantity < 1 || quantity > _maxStockQuantity) {
       throw const FormatException(
         'Sale quantity must be a positive whole number.',
       );
@@ -308,6 +458,11 @@ class PharmacyController extends ChangeNotifier {
     if (current != null && quantity > current) {
       throw FormatException(
         'Only $current units are recorded in stock. Correct the stock first or enter a smaller sale.',
+      );
+    }
+    if (markSoldOut && current == null) {
+      throw const FormatException(
+        'Stock quantity is unknown, so this sale cannot safely mark the entry completely finished. Verify the physical quantity first or use the explicit whole-stock SOLD action.',
       );
     }
     if (markSoldOut && current != null && quantity != current) {
@@ -371,16 +526,43 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
-  Future<void> archiveAll({int? expectedRevision}) => _commit(
-    InventoryMutation(
-      expectedRevision: expectedRevision ?? snapshot.revision,
-      label: 'Removed all inventory',
-      upserts: records
-          .where((m) => !m.archived)
-          .map((m) => m.patch({'archived': true}))
-          .toList(),
+  BulkArchiveReview reviewArchiveAll() => BulkArchiveReview(
+    baseRevision: snapshot.revision,
+    activeIds: records.where((m) => !m.archived).map((m) => m.id),
+  );
+
+  Future<void> applyArchiveAll(BulkArchiveReview review) async {
+    if (review.baseRevision != snapshot.revision) {
+      throw StateError(
+        'Inventory changed after bulk removal was reviewed. Start the protected removal flow again.',
+      );
+    }
+    final activeIds = records.where((m) => !m.archived).map((m) => m.id).toSet();
+    if (!setEquals(activeIds, review.activeIds)) {
+      throw StateError(
+        'The active inventory no longer matches the reviewed bulk action. Nothing was removed.',
+      );
+    }
+    if (activeIds.isEmpty) return;
+    final orderedIds = activeIds.toList()..sort();
+    await _commit(
+      InventoryMutation(
+        expectedRevision: review.baseRevision,
+        label: 'Removed all inventory · ${orderedIds.length} stock entries',
+        upserts: [
+          for (final id in orderedIds) snapshot.records[id]!.patch({'archived': true}),
+        ],
+      ),
+    );
+  }
+
+  @Deprecated('Use reviewArchiveAll() followed by applyArchiveAll(review).')
+  Future<void> archiveAll({int? expectedRevision}) => Future<void>.error(
+    StateError(
+      'Bulk removal requires a reviewed inventory snapshot and the protected confirmation flow.',
     ),
   );
+
   Future<void> restoreArchived(String id) async {
     final m = snapshot.records[id];
     if (m == null || !m.archived) return;

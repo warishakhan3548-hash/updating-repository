@@ -8,6 +8,8 @@ enum AppBrainAction {
   search,
   addMedicine,
   editMedicine,
+  setQuantity,
+  receiveStock,
   removeMedicine,
   markSold,
   recordSale,
@@ -37,6 +39,8 @@ class AppBrainIntent {
 
   bool get needsMedicineTarget => switch (action) {
     AppBrainAction.editMedicine ||
+    AppBrainAction.setQuantity ||
+    AppBrainAction.receiveStock ||
     AppBrainAction.removeMedicine ||
     AppBrainAction.markSold ||
     AppBrainAction.recordSale => true,
@@ -44,6 +48,7 @@ class AppBrainIntent {
   };
 
   bool get destructive => switch (action) {
+    AppBrainAction.setQuantity ||
     AppBrainAction.removeMedicine ||
     AppBrainAction.markSold ||
     AppBrainAction.recordSale ||
@@ -95,6 +100,13 @@ AppBrainIntent parseAppBrainIntent(String raw) {
       confidence: .98,
     );
   }
+
+  // Explicit stock correction / receiving commands are parsed before generic
+  // "add stock" and "edit" vocabulary. The parser accepts an exact quantity
+  // only when one command-shaped quantity can be isolated; medicine strengths
+  // therefore remain search evidence instead of becoming stock counts.
+  final stockAdjustment = _stockAdjustmentIntent(raw);
+  if (stockAdjustment != null) return stockAdjustment;
 
   // Explicit write intent wins over category words such as "expired".
   if (_containsAny(text, _removeTerms)) {
@@ -265,6 +277,37 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   }
 
   return const AppBrainIntent(action: AppBrainAction.unknown);
+}
+
+AppBrainIntent? _stockAdjustmentIntent(String raw) {
+  final exact = _extractStockAdjustment(
+    raw,
+    _setQuantityPatterns,
+    allowZero: true,
+  );
+  if (exact != null) {
+    return AppBrainIntent(
+      action: AppBrainAction.setQuantity,
+      query: _extractMedicineQuery(exact.remainingText, const <String>[]),
+      quantity: exact.quantity,
+      confidence: .99,
+    );
+  }
+
+  final received = _extractStockAdjustment(
+    raw,
+    _receiveStockPatterns,
+    allowZero: false,
+  );
+  if (received != null) {
+    return AppBrainIntent(
+      action: AppBrainAction.receiveStock,
+      query: _extractMedicineQuery(received.remainingText, const <String>[]),
+      quantity: received.quantity,
+      confidence: .99,
+    );
+  }
+  return null;
 }
 
 AppBrainIntent? _operationalReadIntent(String raw, String text) {
@@ -442,6 +485,8 @@ bool isAppBrainContextReference(String raw) {
     'same',
     'same one',
     'same medicine',
+    'selected one',
+    'selected medicine',
     'last one',
     'last medicine',
     'isko',
@@ -455,6 +500,7 @@ bool isAppBrainContextReference(String raw) {
     'ye',
     'yeh',
     'wahi',
+    'jo select kiya',
     'इसको',
     'इसे',
     'इसका',
@@ -563,6 +609,20 @@ class _ExplicitSaleQuantity {
   final int? quantity;
 }
 
+class _ExplicitStockAdjustment {
+  const _ExplicitStockAdjustment(this.remainingText, this.quantity);
+
+  final String remainingText;
+  final int quantity;
+}
+
+class _StockAdjustmentMatch {
+  const _StockAdjustmentMatch(this.start, this.end, this.quantityText);
+
+  final int start, end;
+  final String quantityText;
+}
+
 _ExplicitSaleQuantity _extractExplicitSaleQuantity(String raw) {
   final expression = RegExp(
     r'(?:(?:qty|quantity)\s*[:=]?\s*([0-9०-९]{1,9})|([0-9०-९]{1,9})\s*(?:units?|pcs?|pieces?|यूनिट(?:्स)?))',
@@ -576,11 +636,42 @@ _ExplicitSaleQuantity _extractExplicitSaleQuantity(String raw) {
   final match = matches.single;
   final digits = _asciiDigits(match.group(1) ?? match.group(2) ?? '');
   final quantity = int.tryParse(digits);
-  if (quantity == null || quantity < 1 || quantity > 100000000) {
+  if (quantity == null || quantity < 1 || quantity > _maxCommandQuantity) {
     return _ExplicitSaleQuantity(raw, null);
   }
   final remaining = raw.replaceRange(match.start, match.end, ' ');
   return _ExplicitSaleQuantity(remaining, quantity);
+}
+
+_ExplicitStockAdjustment? _extractStockAdjustment(
+  String raw,
+  List<RegExp> patterns, {
+  required bool allowZero,
+}) {
+  final found = <_StockAdjustmentMatch>[];
+  final seen = <String>{};
+  for (final pattern in patterns) {
+    for (final match in pattern.allMatches(raw)) {
+      final quantityText = match.group(1) ?? '';
+      final key = '${match.start}:${match.end}:$quantityText';
+      if (seen.add(key)) {
+        found.add(
+          _StockAdjustmentMatch(match.start, match.end, quantityText),
+        );
+      }
+    }
+  }
+  if (found.length != 1) return null;
+  final match = found.single;
+  final quantity = int.tryParse(_asciiDigits(match.quantityText));
+  final minimum = allowZero ? 0 : 1;
+  if (quantity == null ||
+      quantity < minimum ||
+      quantity > _maxCommandQuantity) {
+    return null;
+  }
+  final remaining = raw.replaceRange(match.start, match.end, ' ');
+  return _ExplicitStockAdjustment(remaining, quantity);
 }
 
 String _asciiDigits(String value) {
@@ -628,6 +719,54 @@ String _stripWholePhrase(String source, String phrase) {
   );
 }
 
+const _maxCommandQuantity = 100000000;
+
+final _setQuantityPatterns = <RegExp>[
+  RegExp(
+    r'(?:set|correct)\s+(?:stock\s+)?(?:qty|quantity)\s*(?:to\s*)?[:=]?\s*([0-9०-९]{1,9})(?:\s*units?)?',
+    caseSensitive: false,
+    unicode: true,
+  ),
+  RegExp(
+    r'(?:stock\s+)?(?:qty|quantity)\s*(?:to\s*)?[:=]?\s*([0-9०-९]{1,9})\s*(?:set|correct|karo|kar do)',
+    caseSensitive: false,
+    unicode: true,
+  ),
+  RegExp(
+    r'stock\s+(?:set|correct)\s*(?:to\s*)?[:=]?\s*([0-9०-९]{1,9})(?:\s*units?)?',
+    caseSensitive: false,
+    unicode: true,
+  ),
+  RegExp(
+    r'(?:स्टॉक\s+)?(?:क्वांटिटी|मात्रा)\s*([0-9०-९]{1,9})\s*(?:सेट|करो|कर दो)',
+    caseSensitive: false,
+    unicode: true,
+  ),
+];
+
+final _receiveStockPatterns = <RegExp>[
+  RegExp(
+    r'(?:restock|stock\s+add|add\s+stock|receive\s+stock|stock\s+receive)\s*(?:by\s*)?[:=]?\s*([0-9०-९]{1,9})(?:\s*(?:units?|pcs?|pieces?))?',
+    caseSensitive: false,
+    unicode: true,
+  ),
+  RegExp(
+    r'([0-9०-९]{1,9})\s*(?:units?|pcs?|pieces?)\s*(?:restock|stock\s+add|add\s+stock|receive\s+stock)',
+    caseSensitive: false,
+    unicode: true,
+  ),
+  RegExp(
+    r'(?:stock\s+badhao|stock\s+badha do|stock\s+badhado)\s*([0-9०-९]{1,9})(?:\s*units?)?',
+    caseSensitive: false,
+    unicode: true,
+  ),
+  RegExp(
+    r'(?:स्टॉक\s+जोड़ो|स्टॉक\s+बढ़ाओ|स्टॉक\s+बढ़ा दो)\s*([0-9०-९]{1,9})(?:\s*(?:यूनिट|यूनिट्स))?',
+    caseSensitive: false,
+    unicode: true,
+  ),
+];
+
 const _fillers = <String>[
   'please',
   'plz',
@@ -645,8 +784,6 @@ const _fillers = <String>[
   'mera',
   'meri',
   'the',
-  'this',
-  'that',
   'hai',
   'hain',
   'stock',

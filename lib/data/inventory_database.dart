@@ -61,6 +61,60 @@ abstract class InventoryStorage {
   Future<void> close();
 }
 
+void _validateMutationShape(InventoryMutation mutation) {
+  if (mutation.expectedRevision < 0) {
+    throw const FormatException('Invalid inventory revision.');
+  }
+  final label = mutation.label.trim();
+  if (label.isEmpty || label.length > 1200) {
+    throw const FormatException('Invalid inventory activity label.');
+  }
+
+  Set<String> uniqueIds(Iterable<String> values, String description) {
+    final list = values.toList(growable: false);
+    if (list.any((id) => id.trim().isEmpty || id.length > 300)) {
+      throw FormatException('Invalid $description ID.');
+    }
+    final ids = list.toSet();
+    if (ids.length != list.length) {
+      throw StateError('One inventory transaction cannot repeat a $description ID.');
+    }
+    return ids;
+  }
+
+  final upsertIds = uniqueIds(
+    mutation.upserts.map((record) => record.id),
+    'medicine upsert',
+  );
+  final removeIds = uniqueIds(mutation.removeIds, 'medicine removal');
+  if (upsertIds.intersection(removeIds).isNotEmpty) {
+    throw StateError(
+      'One inventory transaction cannot both upsert and remove the same medicine ID.',
+    );
+  }
+
+  final upsertSaleIds = uniqueIds(
+    mutation.upsertSales.map((sale) => sale.id),
+    'sale upsert',
+  );
+  final removeSaleIds = uniqueIds(mutation.removeSaleIds, 'sale removal');
+  if (upsertSaleIds.intersection(removeSaleIds).isNotEmpty) {
+    throw StateError(
+      'One inventory transaction cannot both upsert and remove the same sale ID.',
+    );
+  }
+
+  for (final entry in <String, String?>{
+    'AI request': mutation.requestId,
+    'undo event': mutation.undoEventId,
+  }.entries) {
+    final value = entry.value;
+    if (value != null && (value.trim().isEmpty || value.length > 300)) {
+      throw FormatException('Invalid ${entry.key} ID.');
+    }
+  }
+}
+
 Map<String, dynamic> makeEvent(
   InventorySnapshot before,
   InventoryMutation mutation,
@@ -310,6 +364,7 @@ class SqliteInventoryStorage implements InventoryStorage {
         throw StateError(
           'Inventory changed. Reopen this review before saving.',
         );
+      _validateMutationShape(mutation);
       if (mutation.requestId != null &&
           before.receipts.contains(mutation.requestId))
         throw StateError('This AI request has already been applied.');
@@ -391,6 +446,7 @@ class MemoryInventoryStorage implements InventoryStorage {
   Future<InventorySnapshot> commit(InventoryMutation mutation) async {
     if (_state.revision != mutation.expectedRevision)
       throw StateError('Inventory changed. Reopen this review.');
+    _validateMutationShape(mutation);
     if (mutation.requestId != null &&
         _state.receipts.contains(mutation.requestId))
       throw StateError('Request already applied.');
