@@ -5,26 +5,37 @@ import 'package:flutter_test/flutter_test.dart';
 
 Medicine stock(
   String id, {
+  String name = 'Dolo',
+  String strength = '650 mg',
+  String form = 'Tablet',
   int? quantity = 40,
   String? expiry = '2026-09-20',
   String batch = 'B1',
 }) => Medicine.fromJson({
   'id': id,
-  'name': 'Dolo',
-  'strength': '650 mg',
-  'form': 'Tablet',
+  'name': name,
+  'strength': strength,
+  'form': form,
   'quantity': quantity,
   if (expiry != null) 'expiry': expiry,
   'batchNumber': batch,
   'revision': 1,
 });
 
-SaleEvent sale(String id, int quantity, DateTime occurredAt) => SaleEvent(
+SaleEvent sale(
+  String id,
+  int quantity,
+  DateTime occurredAt, {
+  String stockId = 'a',
+  String name = 'Dolo',
+  String strength = '650 mg',
+  String form = 'Tablet',
+}) => SaleEvent(
   id: id,
-  stockId: 'a',
-  medicineName: 'Dolo',
-  strength: '650 mg',
-  form: 'Tablet',
+  stockId: stockId,
+  medicineName: name,
+  strength: strength,
+  form: form,
   quantity: quantity,
   occurredAt: occurredAt,
 );
@@ -117,5 +128,42 @@ void main() {
     expect(byId.keys, containsAll(<String>['a', 'b']));
     expect(byId['a']!.atRiskUnits, 11);
     expect(byId['b']!.atRiskUnits, 34);
+  });
+
+  test('live identity edits never relabel historical sale evidence', () {
+    final report = PharmacyStockRiskReport.build(
+      medicines: [
+        stock(
+          'a',
+          name: 'Paracetamol',
+          strength: '500 mg',
+          quantity: 50,
+        ),
+      ],
+      sales: [
+        sale(
+          's1',
+          2,
+          DateTime(2026, 9, 5),
+          name: 'Dolo',
+          strength: '650 mg',
+        ),
+        sale(
+          's2',
+          2,
+          DateTime(2026, 9, 8),
+          name: 'Dolo',
+          strength: '650 mg',
+        ),
+      ],
+      today: today,
+    );
+
+    expect(
+      report.expiryWaste,
+      isEmpty,
+      reason:
+          'SaleEvent is an immutable product snapshot; correcting the current stock identity must not manufacture demand for the new identity.',
+    );
   });
 }
