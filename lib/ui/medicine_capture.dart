@@ -4,6 +4,7 @@ import '../domain/medicine_understanding.dart';
 import '../services/media_import_service.dart';
 import '../services/medicine_intake_service.dart';
 import '../state/pharmacy_controller.dart';
+import 'default_ai_prompt.dart';
 import 'design.dart';
 import 'scanner_screen.dart';
 
@@ -22,6 +23,13 @@ Future<void> openMedicineCapture(
       throw UnsupportedError(
         'Photo/video intake is available in the Android app.',
       );
+
+    // The default local model is optional and explicitly consented to because
+    // it is a large network download. Skipping/failing it leaves the existing
+    // deterministic pharmacy extractor fully available.
+    await offerAarisDefaultAi(context);
+    if (!context.mounted) return;
+
     final choice = await showModalBottomSheet<String>(
       context: context,
       useSafeArea: true,
@@ -31,7 +39,7 @@ Future<void> openMedicineCapture(
           const ListTile(
             title: Text('Capture to local review queue'),
             subtitle: Text(
-              'OCR → selected local AI → Add / Ask / Edit. Stock changes require Save.',
+              'OCR → selected/default local AI when available → Add / Ask / Edit. Stock changes require Save.',
             ),
           ),
           for (final item in const [
