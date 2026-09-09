@@ -91,7 +91,11 @@ void main() {
       expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
 
       await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
-      await tester.pumpAndSettle();
+      // The Brain contains a deliberate busy progress animation while the async
+      // controller transaction is finishing, so a fixed pump is more precise
+      // than pumpAndSettle (which waits for every animation to become idle).
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
       expect(controller.snapshot.records[medicine.id]!.archived, isTrue);
       expect(controller.canUndo, isTrue);
       expect(tester.takeException(), isNull);
