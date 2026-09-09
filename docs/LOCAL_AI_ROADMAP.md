@@ -71,3 +71,16 @@ clinical accuracy, 100% video recall or unattended authoritative auto-save.
 - Available Flutter SDK executable crashed during dependency-tool startup;
   native integration is not device-tested. Source-only dependency/static checks
   are being attempted separately. No APK or CI was run.
+- Source-only package resolution subsequently succeeded using the installed
+  Flutter 3.47.2 sources and the working standalone Dart SDK; the lockfile now
+  includes the pinned model runtime and also matches the existing secure-storage
+  pin. `dart analyze lib test tool` passed. This is not native execution testing.
+- AI Hub and import share a durable, bounded capture inbox. Rapid capture
+  acknowledges the private file + job write before OCR. Video is processed in
+  20-second windows, preserving unresolved evidence across boundaries and
+  checkpointing completed drafts + cursor together. Drafts never auto-write stock.
+- Duplicate OCR frames still count as one confidence vote, but now retain all
+  source frame IDs. Without that provenance, a video window could lose the one
+  weak view containing EXP when carrying the clearer front view forward.
+- Combination suggestions are salt/adjacent-strength pairs with source quotes,
+  not two independently sorted lists. Unsupported/reordered pairings are rejected.

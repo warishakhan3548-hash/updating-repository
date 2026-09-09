@@ -22,7 +22,15 @@ class ScanResult {
 }
 
 class ScannerScreen extends StatefulWidget {
-  const ScannerScreen({super.key});
+  const ScannerScreen({
+    super.key,
+    this.autoSubmit = false,
+    this.onCaptureQueued,
+  });
+  final bool autoSubmit;
+
+  /// Acknowledge only after the capture is durably copied; OCR happens in queue.
+  final Future<void> Function(String path)? onCaptureQueued;
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
 }
@@ -83,7 +91,8 @@ class _ScannerScreenState extends State<ScannerScreen>
       }
       _description = description;
       _camera = camera;
-      await camera.startImageStream(_onFrame);
+      if (widget.onCaptureQueued == null)
+        await camera.startImageStream(_onFrame);
       openingCamera = null;
       if (mounted) setState(() => _error = '');
     } catch (e) {
@@ -103,6 +112,7 @@ class _ScannerScreenState extends State<ScannerScreen>
   }
 
   void _onFrame(CameraImage image) {
+    if (widget.onCaptureQueued != null) return;
     if (_closed ||
         _busy ||
         _capturing ||
@@ -210,11 +220,39 @@ class _ScannerScreenState extends State<ScannerScreen>
       await _frameWork;
       final photo = await camera.takePicture();
       capturePath = photo.path;
-      await _recognize(InputImage.fromFilePath(photo.path));
-      if (!_closed && camera == _camera)
+      if (widget.onCaptureQueued != null) {
+        await widget.onCaptureQueued!(photo.path);
+        if (mounted)
+          setState(
+            () => _text =
+                '${++_scanSequence} photos queued. Capture the next pack. Review in AI Hub.',
+          );
+      } else {
+        if (widget.autoSubmit) {
+          _evidence.clear();
+          _text = '';
+          _barcode = '';
+        }
+        await _recognize(InputImage.fromFilePath(photo.path));
+        if (widget.autoSubmit &&
+            mounted &&
+            (_text.isNotEmpty || _barcode.isNotEmpty)) {
+          Navigator.pop(
+            context,
+            ScanResult(
+              barcode: _barcode,
+              text: _text,
+              evidence: List.of(_evidence),
+            ),
+          );
+          return;
+        }
+      }
+      if (!_closed && camera == _camera && widget.onCaptureQueued == null)
         await camera.startImageStream(_onFrame);
     } catch (e) {
-      if (mounted) showError(context, 'Capture failed. Please retry.');
+      if (mounted)
+        showError(context, 'Capture was not queued/read. Please retry. $e');
     } finally {
       if (capturePath != null) {
         try {
@@ -414,9 +452,14 @@ class _ScannerScreenState extends State<ScannerScreen>
                                     : 'Ready to scan',
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
-                              const Text(
-                                'Check the result, then tap Use scan.',
-                                style: TextStyle(color: muted, fontSize: 12),
+                              Text(
+                                widget.onCaptureQueued != null
+                                    ? 'Keep capturing. Processing continues in the saved inbox.'
+                                    : 'Check the result, then tap Use scan.',
+                                style: const TextStyle(
+                                  color: muted,
+                                  fontSize: 12,
+                                ),
                               ),
                             ],
                           ),
@@ -470,7 +513,9 @@ class _ScannerScreenState extends State<ScannerScreen>
                           ),
                         ),
                         FilledButton.icon(
-                          onPressed: _text.isEmpty && _barcode.isEmpty
+                          onPressed: widget.onCaptureQueued != null
+                              ? () => Navigator.pop(context)
+                              : _text.isEmpty && _barcode.isEmpty
                               ? null
                               : () => Navigator.pop(
                                   context,
@@ -483,7 +528,11 @@ class _ScannerScreenState extends State<ScannerScreen>
                                   ),
                                 ),
                           icon: const Icon(Icons.arrow_forward_rounded),
-                          label: const Text('Use scan'),
+                          label: Text(
+                            widget.onCaptureQueued != null
+                                ? 'Finish captures'
+                                : 'Use scan',
+                          ),
                         ),
                       ],
                     ),

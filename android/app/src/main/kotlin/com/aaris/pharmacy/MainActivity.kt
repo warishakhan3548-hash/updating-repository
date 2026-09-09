@@ -90,6 +90,26 @@ class MainActivity : FlutterActivity() {
                             }
                         }.start()
                     }
+                    "sampleVideoWindow" -> {
+                        val path = call.argument<String>("path")
+                        val start = call.argument<Number>("startMs")?.toLong() ?: 0L
+                        if (path == null || start < 0) {
+                            result.error("invalid_video", "Invalid video window.", null)
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            try {
+                                val duration = videoDuration(path)
+                                if (duration > 3_600_000L) throw IllegalArgumentException("Split videos longer than one hour.")
+                                val end = minOf(start + 20_000L, duration)
+                                val frames = if (start >= duration) emptyList() else sampleVideo(path, 24, start, end)
+                                runOnUiThread { result.success(mapOf("frames" to frames,
+                                    "durationMs" to duration, "nextStartMs" to end)) }
+                            } catch (error: Exception) {
+                                runOnUiThread { result.error("video_window_error", error.message, null) }
+                            }
+                        }.start()
+                    }
                     "deleteImportFiles" -> {
                         val paths = call.argument<List<String>>("paths").orEmpty()
                         Thread {
@@ -321,21 +341,38 @@ class MainActivity : FlutterActivity() {
         val quality: Double,
     )
 
-    private fun sampleVideo(path: String, maxFrames: Int): List<Map<String, Any>> {
+    private fun videoSource(path: String): File {
         val source = File(path).canonicalFile
-        val importRoot = File(cacheDir, "inventory_imports").canonicalFile
-        if (!source.isFile || !source.path.startsWith(importRoot.path + File.separator)) {
+        val roots = listOf(File(cacheDir, "inventory_imports").canonicalFile,
+            File(filesDir, "medicine_intake").canonicalFile)
+        if (!source.isFile || roots.none { source.path.startsWith(it.path + File.separator) }) {
             throw IllegalArgumentException("The selected video is no longer available.")
         }
+        return source
+    }
+
+    private fun videoDuration(path: String): Long {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(videoSource(path).absolutePath)
+            return retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()?.takeIf { it > 0 }
+                ?: throw IllegalArgumentException("Video duration unavailable.")
+        } finally { retriever.release() }
+    }
+
+    private fun sampleVideo(path: String, maxFrames: Int, startMs: Long = 0L, endMs: Long? = null): List<Map<String, Any>> {
+        val source = videoSource(path)
         val retriever = MediaMetadataRetriever()
         var frameDirectory: File? = null
         try {
             retriever.setDataSource(source.absolutePath)
-            val durationMs = retriever
+            val totalDurationMs = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
                 ?: throw IllegalArgumentException("The video duration could not be read.")
-            if (durationMs < 1) throw IllegalArgumentException("The video is empty.")
+            val durationMs = minOf(endMs ?: totalDurationMs, totalDurationMs) - startMs
+            if (durationMs < 1) return emptyList()
             val sourceWidth = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
                 ?.toIntOrNull()
@@ -356,7 +393,7 @@ class MainActivity : FlutterActivity() {
             frameRoot.listFiles()?.filter {
                 System.currentTimeMillis() - it.lastModified() > 24 * 60 * 60 * 1000L
             }?.forEach { it.deleteRecursively() }
-            val directory = File(frameRoot, "${System.currentTimeMillis()}").apply { mkdirs() }
+            val directory = File(frameRoot, java.util.UUID.randomUUID().toString()).apply { mkdirs() }
             frameDirectory = directory
             val acceptedHashes = mutableListOf<Pair<Long, Long>>()
             val result = mutableListOf<Map<String, Any>>()
@@ -364,7 +401,7 @@ class MainActivity : FlutterActivity() {
             for (index in 0 until count) {
                 // Sample the middle of each bucket. Exact endpoints are often
                 // black transition frames and add no medicine evidence.
-                val timeUs = durationMs * 1000L * (index * 2L + 1L) / (count * 2L)
+                val timeUs = startMs * 1000L + durationMs * 1000L * (index * 2L + 1L) / (count * 2L)
                 val largestSource = maxOf(sourceWidth, sourceHeight)
                 val sourceScale = minOf(1.0, 1600.0 / largestSource.coerceAtLeast(1))
                 val scaledWidth = (sourceWidth * sourceScale).toInt().coerceAtLeast(1)
@@ -386,11 +423,14 @@ class MainActivity : FlutterActivity() {
                         MediaMetadataRetriever.OPTION_CLOSEST,
                     )
                 } ?: continue
+                var frame: Bitmap? = null
+                try {
                 val metrics = imageMetrics(original)
                 val timestampMs = timeUs / 1000L
                 val duplicate = acceptedHashes.takeLast(8).any {
-                    abs(timestampMs - it.second) <= 8_000L &&
-                        java.lang.Long.bitCount(it.first xor metrics.hash) <= 3
+                    // Similar-looking cartons can have different tiny expiry
+                    // text. Do not throw those away using a coarse hash distance.
+                    abs(timestampMs - it.second) <= 600L && it.first == metrics.hash
                 }
                 if (duplicate || metrics.quality < 0.16) {
                     original.recycle()
@@ -401,30 +441,35 @@ class MainActivity : FlutterActivity() {
                 val scale = minOf(1.0, 1600.0 / largest.coerceAtLeast(1))
                 val width = (original.width * scale).toInt().coerceAtLeast(1)
                 val height = (original.height * scale).toInt().coerceAtLeast(1)
-                val frame = if (width == original.width && height == original.height) {
+                val outputFrame = if (width == original.width && height == original.height) {
                     original
                 } else {
                     Bitmap.createScaledBitmap(original, width, height, true).also {
                         original.recycle()
                     }
                 }
+                frame = outputFrame
                 val file = File(directory, "frame_${index.toString().padStart(3, '0')}.jpg")
                 FileOutputStream(file).use { stream ->
-                    if (!frame.compress(Bitmap.CompressFormat.JPEG, 92, stream)) {
+                    if (!outputFrame.compress(Bitmap.CompressFormat.JPEG, 92, stream)) {
                         throw IllegalStateException("A sampled frame could not be saved.")
                     }
                 }
-                frame.recycle()
+                outputFrame.recycle()
                 result.add(
                     mapOf(
                         "path" to file.absolutePath,
-                        "sequence" to index,
+                        "sequence" to timestampMs.toInt(),
                         "timestampMs" to timestampMs,
                         "quality" to metrics.quality,
                     ),
                 )
+                } finally {
+                    frame?.let { if (!it.isRecycled) it.recycle() }
+                    if (!original.isRecycled) original.recycle()
+                }
             }
-            if (result.isEmpty()) {
+            if (result.isEmpty() && endMs == null) {
                 throw IllegalArgumentException(
                     "No clear frame could be sampled. Try a shorter, steadier video.",
                 )

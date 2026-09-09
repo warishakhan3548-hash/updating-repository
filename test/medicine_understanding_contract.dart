@@ -407,7 +407,8 @@ Paracetamol Tablets IP 650 mg
     ]);
     _equal(result.drafts.length, 1);
     _equal(result.ignoredFrames, 1);
-    _equal(result.drafts.single.frameSequences.single, 1);
+    _equal(result.drafts.single.frameSequences.join(','), '0,1');
+    _equal(result.drafts.single.field('salt').support, 1);
   },
   'duplicate fusion keeps complementary barcode and labelled facts': () {
     final result = const MedicineUnderstandingEngine().understand([

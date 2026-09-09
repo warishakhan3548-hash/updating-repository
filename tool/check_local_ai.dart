@@ -6,6 +6,7 @@ import '../lib/domain/local_ai_protocol.dart';
 import '../lib/domain/local_model.dart';
 import '../lib/domain/medicine.dart';
 import '../lib/domain/medicine_understanding.dart';
+import '../lib/domain/medicine_intake.dart';
 
 void main() {
   var passed = 0;
@@ -161,6 +162,103 @@ void main() {
       },
     }),
     'Strength becomes quantity',
+  );
+  const videoFrames = [
+    MedicineFrameEvidence(
+      sequence: 0,
+      quality: .95,
+      text: 'CEFIX 200\nCefixime Tablets IP 200 mg',
+    ),
+    MedicineFrameEvidence(
+      sequence: 1,
+      quality: .4,
+      text: 'CEFIX 200\nCefixime Tablets IP 200 mg\nEXP 08/2028',
+    ),
+  ];
+  final parsed = const MedicineUnderstandingEngine().understand(videoFrames);
+  final carry = finishMedicineVideoWindow(
+    videoFrames,
+    parsed.drafts,
+    isLast: false,
+  );
+  check(
+    carry.completed.isEmpty && carry.carry.length == 2,
+    'Video carry retains complementary evidence after confidence dedupe',
+  );
+  final finalWindow = finishMedicineVideoWindow(
+    carry.carry,
+    const MedicineUnderstandingEngine().understand(carry.carry).drafts,
+    isLast: true,
+  );
+  check(
+    finalWindow.completed.single.expiry == '2028-08',
+    'EXP survives video window',
+  );
+  check(finalWindow.carry.isEmpty, 'Final video object flushes once');
+  final job = MedicineIntakeJob(
+    id: intakeId(),
+    kind: 'video',
+    title: 'Test',
+    evidence: carry.carry,
+    drafts: finalWindow.completed,
+    cursorMs: 20000,
+  );
+  final restored = MedicineIntakeJob.fromJson(
+    jsonDecode(jsonEncode(job.toJson())) as Map<String, dynamic>,
+  );
+  check(
+    restored.cursorMs == 20000 && restored.drafts.single.expiry == '2028-08',
+    'Capture cursor and facts recover together',
+  );
+  check(!restored.ready, 'Queued job is not inventory/save authority');
+  const combo = MedicineScanDraft(
+    fields: {},
+    rawText:
+        'Rifampicin 150 mg Isoniazid 75 mg Pyrazinamide 400 mg Ethambutol 275 mg',
+    searchKeywords: '',
+    frameSequences: [1],
+  );
+  final ingredients = [
+    {'salt': 'Rifampicin', 'strength': '150 mg', 'quote': 'Rifampicin 150 mg'},
+    {'salt': 'Isoniazid', 'strength': '75 mg', 'quote': 'Isoniazid 75 mg'},
+    {
+      'salt': 'Pyrazinamide',
+      'strength': '400 mg',
+      'quote': 'Pyrazinamide 400 mg',
+    },
+    {'salt': 'Ethambutol', 'strength': '275 mg', 'quote': 'Ethambutol 275 mg'},
+  ];
+  final paired = validateLocalScan(combo, {
+    'fields': {},
+    'ingredients': ingredients,
+  });
+  check(
+    paired.salt == 'Rifampicin + Isoniazid + Pyrazinamide + Ethambutol',
+    'Combination identity pairing',
+  );
+  check(
+    paired.strength == '150 mg + 75 mg + 400 mg + 275 mg',
+    'Printed strength order',
+  );
+  rejects(
+    () => validateLocalScan(combo, {
+      'fields': {},
+      'ingredients': [
+        {
+          'salt': 'Rifampicin',
+          'strength': '75 mg',
+          'quote': 'Rifampicin 150 mg Isoniazid 75 mg',
+        },
+      ],
+    }),
+    'Cross-salt amount',
+  );
+  rejects(
+    () => validateLocalScan(combo, {
+      'fields': {},
+      'ingredients': ingredients.reversed.toList(),
+    }),
+    'Reordered combination',
   );
   stdout.writeln('Local AI contract: $passed passed.');
 }

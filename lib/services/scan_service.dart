@@ -99,9 +99,8 @@ class MedicineVisionService {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    await _latin.close();
-    await _hindi.close();
-    await _barcodes.close();
+    // Release every native recognizer even if one close operation fails.
+    await Future.wait([_latin.close(), _hindi.close(), _barcodes.close()]);
   }
 }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -10,10 +11,13 @@ import '../domain/search.dart';
 import '../services/backup_service.dart';
 import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
+import '../services/local_ai_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'editor_screen.dart';
 import 'scanner_screen.dart';
+import 'medicine_capture.dart';
+import 'medicine_intake_panel.dart';
 
 class ImportCenterScreen extends StatefulWidget {
   const ImportCenterScreen({super.key, required this.controller});
@@ -252,6 +256,16 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
         ),
         const FlowSteps(['Add or scan', 'Review', 'Save']),
         _ImportAction(
+          icon: Icons.burst_mode_outlined,
+          title: 'Queued photo / video capture',
+          detail:
+              'Rapid capture, resumable processing, selected local AI and saved drafts.',
+          onTap: _busy
+              ? null
+              : () => openMedicineCapture(context, widget.controller),
+        ),
+        MedicineIntakePanel(controller: widget.controller),
+        _ImportAction(
           icon: Icons.edit_note_rounded,
           title: 'Add manually',
           detail: 'Only medicine name is required.',
@@ -351,10 +365,12 @@ class ImportInboxScreen extends StatefulWidget {
     super.key,
     required this.controller,
     required this.evidence,
+    this.preparedDrafts,
   });
 
   final PharmacyController controller;
   final List<ScanEvidence> evidence;
+  final List<MedicineScanDraft>? preparedDrafts;
 
   @override
   State<ImportInboxScreen> createState() => _ImportInboxScreenState();
@@ -367,6 +383,8 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
   bool _loading = true;
   int _generation = 0;
   int _inventoryRevision = -1;
+  final _semanticCache = <String, MedicineScanDraft>{};
+  String _semanticWarning = '';
 
   @override
   void initState() {
@@ -404,19 +422,38 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       // on device and lets the isolate canonicalize OCR without copying stock,
       // prices, notes or locations into the recognition pipeline.
       final knowledge = medicineKnowledgeFromRecords(widget.controller.records);
-      final payload =
-          await compute(understandMedicineEvidenceMessage, <String, Object?>{
-            'evidence': widget.evidence
-                .map((item) => item.toMessage())
-                .toList(growable: false),
-            'knowledge': knowledge
-                .map((entry) => entry.toMessage())
-                .toList(growable: false),
-          });
+      final payload = widget.preparedDrafts != null
+          ? MedicineUnderstandingResult(
+              drafts: widget.preparedDrafts!,
+            ).toMessage()
+          : await compute(understandMedicineEvidenceMessage, <String, Object?>{
+              'evidence': widget.evidence
+                  .map((item) => item.toMessage())
+                  .toList(growable: false),
+              'knowledge': knowledge
+                  .map((entry) => entry.toMessage())
+                  .toList(growable: false),
+            });
       if (!mounted || generation != _generation) return;
       final understanding = MedicineUnderstandingResult.fromMessage(payload);
       final reviews = <_ImportDraftReview>[];
-      for (final draft in understanding.drafts) {
+      final local = LocalAiService.instance;
+      await local.initialize();
+      for (final original in understanding.drafts) {
+        if (!mounted || generation != _generation) return;
+        var draft = original;
+        if (widget.preparedDrafts == null &&
+            local.hasSelection &&
+            local.scannerEnabled) {
+          final key = '${local.activeId}:${jsonEncode(original.toMessage())}';
+          try {
+            draft = _semanticCache[key] ?? await local.understand(original);
+            _semanticCache[key] = draft;
+          } catch (_) {
+            _semanticWarning =
+                'Local AI unavailable or unsupported suggestion. Original OCR drafts retained; nothing was sent to an external AI.';
+          }
+        }
         if (!mounted || generation != _generation) return;
         final found = <String, SearchHit>{};
         if (draft.barcode.isNotEmpty) {
@@ -518,6 +555,8 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                     padding: const EdgeInsets.only(top: 14),
                     child: Text(_error, style: const TextStyle(color: red)),
                   ),
+                if (_semanticWarning.isNotEmpty)
+                  Text(_semanticWarning, style: const TextStyle(color: amber)),
                 if (_drafts.isEmpty && _error.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 20),

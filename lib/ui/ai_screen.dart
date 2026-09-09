@@ -11,6 +11,8 @@ import '../services/local_ai_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'local_models_panel.dart';
+import 'medicine_capture.dart';
+import 'medicine_intake_panel.dart';
 import 'voice_sheet.dart';
 
 const Color _aiPurple = Color(0xFF7857D8);
@@ -618,6 +620,15 @@ class _AiScreenState extends State<AiScreen> {
                   ),
                 ),
               if (_plan != null) _reviewPanel(context),
+              MedicineIntakePanel(
+                controller: widget.controller,
+                onAsk: (evidence) {
+                  _request.text =
+                      'Explain only the captured identity, salt and expiry and check existing stock; do not add stock or give treatment advice. OCR DATA: '
+                      '${evidence.length > 2200 ? evidence.substring(0, 2200) : evidence}';
+                  unawaited(_ask());
+                },
+              ),
               const SizedBox(height: 8),
             ],
           ),
@@ -643,6 +654,7 @@ class _AiScreenState extends State<AiScreen> {
           controller: _request,
           busy: _requesting || _reviewing || widget.controller.aiPreparing,
           onSend: _sendComposer,
+          onCamera: () => openMedicineCapture(context, widget.controller),
           onMic: () async {
             final words = await voiceSearch(
               context,
@@ -894,12 +906,14 @@ class _AiComposer extends StatelessWidget {
     required this.busy,
     required this.onSend,
     required this.onMic,
+    required this.onCamera,
   });
 
   final TextEditingController controller;
   final bool busy;
   final VoidCallback onSend;
   final VoidCallback onMic;
+  final VoidCallback onCamera;
 
   @override
   Widget build(BuildContext context) => SafeArea(
@@ -923,6 +937,11 @@ class _AiComposer extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          IconButton(
+            tooltip: 'Camera, rapid photos or video',
+            onPressed: onCamera,
+            icon: const Icon(Icons.camera_alt_outlined),
+          ),
           Expanded(
             child: TextField(
               controller: controller,

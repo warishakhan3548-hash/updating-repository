@@ -111,6 +111,30 @@ class MediaImportService {
     await _channel.invokeMethod<int>('deleteImportFiles', {'paths': bounded});
   }
 
+  Future<VideoWindow> sampleVideoWindow(String path, int startMs) async {
+    _requireAndroid();
+    final raw = await _channel.invokeMapMethod<Object?, Object?>(
+      'sampleVideoWindow',
+      {'path': path, 'startMs': startMs},
+    );
+    if (raw == null ||
+        raw['frames'] is! List ||
+        raw['nextStartMs'] is! int ||
+        raw['durationMs'] is! int)
+      throw StateError('Invalid video window response.');
+    return VideoWindow(
+      frames: [
+        for (final frame in (raw['frames'] as List).whereType<Map>())
+          VideoFrameSample.fromMap(
+            Map<Object?, Object?>.from(frame),
+            fallbackSequence: startMs,
+          ),
+      ],
+      nextStartMs: raw['nextStartMs'] as int,
+      durationMs: raw['durationMs'] as int,
+    );
+  }
+
   Future<void> cleanupCameraCapture(String path) async {
     if (path.isEmpty ||
         kIsWeb ||
@@ -119,4 +143,15 @@ class MediaImportService {
     }
     await _channel.invokeMethod<bool>('deleteCameraCapture', {'path': path});
   }
+}
+
+class VideoWindow {
+  const VideoWindow({
+    required this.frames,
+    required this.nextStartMs,
+    required this.durationMs,
+  });
+  final List<VideoFrameSample> frames;
+  final int nextStartMs, durationMs;
+  bool get complete => nextStartMs >= durationMs;
 }

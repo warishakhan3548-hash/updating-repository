@@ -114,7 +114,7 @@ packages:
     source: hosted
     version: "0.3.5+5"
   crypto:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: crypto
       sha256: c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf
@@ -153,6 +153,70 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.1"
+  file_selector:
+    dependency: "direct main"
+    description:
+      name: file_selector
+      sha256: bd15e43e9268db636b53eeaca9f56324d1622af30e5c34d6e267649758c84d9a
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.0"
+  file_selector_android:
+    dependency: transitive
+    description:
+      name: file_selector_android
+      sha256: "7c76473740e33a11343c8fce88166049230850d2f19cd8a652ea935fcb8c9206"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.5.2+10"
+  file_selector_ios:
+    dependency: transitive
+    description:
+      name: file_selector_ios
+      sha256: "97269e5307a0ab813b1fa2430bada0a96e0afb74848417f8676f64ba5de0051c"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.5.3+6"
+  file_selector_linux:
+    dependency: transitive
+    description:
+      name: file_selector_linux
+      sha256: da76400e7872ce7637ffdce12749ec24169c25f6195c28372208e65a24bcd2ab
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.9.4+1"
+  file_selector_macos:
+    dependency: transitive
+    description:
+      name: file_selector_macos
+      sha256: d57c62362766b5e7ae739448650b66c6aab7a68ba7ecc65e04018652645ae0f4
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.9.5+1"
+  file_selector_platform_interface:
+    dependency: transitive
+    description:
+      name: file_selector_platform_interface
+      sha256: "35e0bd61ebcdb91a3505813b055b09b79dfdc7d0aee9c09a7ba59ae4bb13dc85"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.7.0"
+  file_selector_web:
+    dependency: transitive
+    description:
+      name: file_selector_web
+      sha256: "73181fbc5257776d8ecaa6a94ab3c8e920ad143b9132a6d984a9271dfc6928d3"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.9.5"
+  file_selector_windows:
+    dependency: transitive
+    description:
+      name: file_selector_windows
+      sha256: fbefc5fb92c6d3cbe8d284a2cd971b593bb07d2cd6da8557b81a862250b4acec
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.9.3+6"
   fixnum:
     dependency: transitive
     description:
@@ -178,18 +242,18 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_secure_storage
-      sha256: "15e8c8fe269fdf7d469b23008ab3df521c8b826ed345820532364c31bdebace6"
+      sha256: "7686b1d6a29985dcbb808c59518226e603e3bfa7c0ddfd1a0d00e4cda77c868e"
       url: "https://pub.dev"
     source: hosted
-    version: "11.0.0"
+    version: "10.3.1"
   flutter_secure_storage_darwin:
     dependency: transitive
     description:
       name: flutter_secure_storage_darwin
-      sha256: ac6d76a752de0cd738334eb4b21743fc4943f449f5b6e308f18838b048c02ac0
+      sha256: "82329fa5cdf343773b1b6897dea959105a29f092454259edff92f9f6637e8149"
       url: "https://pub.dev"
     source: hosted
-    version: "0.4.0"
+    version: "0.3.2"
   flutter_secure_storage_linux:
     dependency: transitive
     description:
@@ -344,6 +408,78 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.2"
+  lib_llama_cpp:
+    dependency: "direct main"
+    description:
+      name: lib_llama_cpp
+      sha256: "94cb9dd4cae4e3138be5fb4a666b565f9030d4d053298520628290dcbdf277c6"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.3"
+  lib_llama_cpp_android:
+    dependency: transitive
+    description:
+      name: lib_llama_cpp_android
+      sha256: "2f3f8c185df3eb4ac8e1634706b293f7cf96ea25c97ef43c9f1642d7111d9ba7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.3"
+  lib_llama_cpp_ffi:
+    dependency: transitive
+    description:
+      name: lib_llama_cpp_ffi
+      sha256: "75352b6b23416150f8c57e4259b053cc704e406c4627beb1d1fd216d1de90c4c"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.3"
+  lib_llama_cpp_ios:
+    dependency: transitive
+    description:
+      name: lib_llama_cpp_ios
+      sha256: f159c87e864e8c5199d4966cc690b29d451e2461d94cea13f1e66ab274205dcc
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.3"
+  lib_llama_cpp_linux:
+    dependency: transitive
+    description:
+      name: lib_llama_cpp_linux
+      sha256: f427d653742c2b1d8b38247d4fece8d4cea7e46024b18c271e914e4b4e8c5eef
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.3"
+  lib_llama_cpp_macos:
+    dependency: transitive
+    description:
+      name: lib_llama_cpp_macos
+      sha256: e70100333ce0c573117187e95dbcd2dc0bae122a5aaa37919b971086e8ac94f6
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.3"
+  lib_llama_cpp_platform_interface:
+    dependency: transitive
+    description:
+      name: lib_llama_cpp_platform_interface
+      sha256: "34347118906c7065aa9ac93746dfc60d61b88aa31cb23c6764dde810b7f1e1e6"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.3"
+  lib_llama_cpp_server:
+    dependency: transitive
+    description:
+      name: lib_llama_cpp_server
+      sha256: "082b5e658a7dbca42331ddabe81140da1208f8157528b34f24a56f16b51d5aa1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.3"
+  lib_llama_cpp_windows:
+    dependency: transitive
+    description:
+      name: lib_llama_cpp_windows
+      sha256: cd7250985c38d973e635e8e6c7559c9fd1c72334d44d54d453e28cd7b3e915e6
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.3"
   logging:
     dependency: transitive
     description:

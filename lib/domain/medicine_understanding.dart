@@ -640,6 +640,7 @@ class MedicineUnderstandingEngine {
     );
     return _PreparedFrame(
       frame: frame,
+      sourceSequences: [frame.sequence],
       lines: lines,
       normalizedText: searchText(lines.join(' ')),
       barcodes: frame.allBarcodes,
@@ -722,6 +723,8 @@ class MedicineUnderstandingEngine {
     final effectiveQuality = max(a.effectiveQuality, b.effectiveQuality);
     return _PreparedFrame(
       frame: representative,
+      sourceSequences: {...a.sourceSequences, ...b.sourceSequences}.toList()
+        ..sort(),
       lines: lines,
       normalizedText: searchText(lines.join(' ')),
       barcodes: barcodes,
@@ -948,7 +951,8 @@ class MedicineUnderstandingEngine {
       rawText: safeRaw,
       searchKeywords: keywords,
       frameSequences: group
-          .map((frame) => frame.frame.sequence)
+          .expand((frame) => frame.sourceSequences)
+          .toSet()
           .toList(growable: false),
       expiryMonthOnly: fields['expiry']?.value.length == 7,
       mfgMonthOnly: fields['mfg']?.value.length == 7,
@@ -1694,6 +1698,7 @@ class _OfflineMedicineKnowledge {
 class _PreparedFrame {
   const _PreparedFrame({
     required this.frame,
+    required this.sourceSequences,
     required this.lines,
     required this.normalizedText,
     required this.barcodes,
@@ -1701,6 +1706,8 @@ class _PreparedFrame {
     required this.effectiveQuality,
   });
   final MedicineFrameEvidence frame;
+  // Provenance survives vote deduplication, especially across video windows.
+  final List<int> sourceSequences;
   final List<String> lines;
   final String normalizedText;
   final List<String> barcodes;
