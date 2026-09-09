@@ -47,6 +47,7 @@ class _AiScreenState extends State<AiScreen> {
   Set<int> _selected = {};
   String _error = '';
   bool _requesting = false;
+  bool _preparingRequest = false;
   bool _sharing = false;
   bool _reviewing = false;
   bool _externalReady = false;
@@ -204,14 +205,27 @@ class _AiScreenState extends State<AiScreen> {
   }
 
   Future<void> _ask() async {
-    if (_requesting || _reviewing || widget.controller.aiPreparing) return;
+    if (_preparingRequest ||
+        _requesting ||
+        _reviewing ||
+        widget.controller.aiPreparing)
+      return;
     final request = _request.text.trim();
     if (request.isEmpty) return;
-    await _local.initialize();
-    if (!_local.hasSelection && _configuration.key.isEmpty) {
-      await _openConnections();
-      if (!mounted || (!_local.hasSelection && _configuration.key.isEmpty))
-        return;
+    setState(() => _preparingRequest = true);
+    try {
+      await _local.initialize();
+      if (!mounted) return;
+      if (!_local.hasSelection && _configuration.key.isEmpty) {
+        await _openConnections();
+        if (!mounted || (!_local.hasSelection && _configuration.key.isEmpty))
+          return;
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+      return;
+    } finally {
+      if (mounted) setState(() => _preparingRequest = false);
     }
 
     final generation = ++_generation;
@@ -652,9 +666,16 @@ class _AiScreenState extends State<AiScreen> {
           ),
         _AiComposer(
           controller: _request,
-          busy: _requesting || _reviewing || widget.controller.aiPreparing,
+          busy:
+              _preparingRequest ||
+              _requesting ||
+              _reviewing ||
+              widget.controller.aiPreparing,
           onSend: _sendComposer,
-          onCamera: () => openMedicineCapture(context, widget.controller),
+          onCamera: () async {
+            await openMedicineCapture(context, widget.controller);
+            if (mounted) _scrollToEnd();
+          },
           onMic: () async {
             final words = await voiceSearch(
               context,

@@ -178,6 +178,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (localAiPlatform.activityResult(requestCode, resultCode, data?.data)) return
         if (requestCode == pickImageRequest || requestCode == pickVideoRequest) {
             handlePickedMedia(requestCode, resultCode, data?.data)
             return
@@ -325,7 +326,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        localAiPlatform.cancel()
+        localAiPlatform.dispose()
         pendingTextResult?.error("activity_closed", "File selection was cancelled.", null)
         pendingTextResult = null
         pendingMediaResult?.error("activity_closed", "File selection was cancelled.", null)

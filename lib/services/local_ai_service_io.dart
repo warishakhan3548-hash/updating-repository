@@ -240,10 +240,12 @@ class LocalAiService extends ChangeNotifier {
   Future<void> download(LocalModelFile model) async {
     model.validate();
     await initialize();
-    await _checkResources(storageBytes: model.bytes);
     if (_transferring || busy)
       throw StateError('Finish the current local AI operation first.');
-    if (_models.any((m) => m.id == model.sha256)) return;
+    if (_models.any((m) => m.id == model.sha256)) {
+      await _save();
+      return;
+    }
     final generation = ++_transferGeneration;
     _transferring = true;
     _progress = null;
@@ -261,6 +263,7 @@ class LocalAiService extends ChangeNotifier {
         await part.delete();
         offset = 0;
       }
+      await _checkResources(storageBytes: model.bytes - offset);
       if (offset < model.bytes) {
         final response = await _downloadResponse(
           client,
@@ -281,6 +284,9 @@ class LocalAiService extends ChangeNotifier {
         } else if (response.statusCode == 200) {
           offset =
               0; // Server ignored Range: restart, never append a full file.
+          // The old partial will be truncated, so its space can be reused.
+          final occupied = await part.exists() ? await part.length() : 0;
+          await _checkResources(storageBytes: model.bytes - occupied);
         } else {
           throw StateError(
             'Download failed (${response.statusCode}). No model activated.',
@@ -349,18 +355,28 @@ class LocalAiService extends ChangeNotifier {
           : error.toString();
       rethrow;
     } finally {
-      await writer?.close();
-      client.close(force: true);
-      _transfer = null;
-      _transferring = false;
-      _progress = null;
-      notifyListeners();
+      try {
+        await writer?.close();
+      } finally {
+        client.close(force: true);
+        _transfer = null;
+        _transferring = false;
+        _progress = null;
+        notifyListeners();
+      }
     }
   }
 
   void cancelTransfer() {
     ++_transferGeneration;
     _transfer?.close(force: true);
+    if (Platform.isAndroid) {
+      unawaited(
+        const MethodChannel(
+          'com.aaris.pharmacy/documents',
+        ).invokeMethod<void>('cancelModelImport').catchError((Object _) {}),
+      );
+    }
   }
 
   Future<void> importModel() async {
@@ -368,30 +384,59 @@ class LocalAiService extends ChangeNotifier {
     if (_transferring || busy)
       throw StateError('Finish the current local AI operation first.');
     _transferring = true;
+    final generation = ++_transferGeneration;
+    _status = 'Choose a trusted GGUF file · importing on device';
     notifyListeners();
     File? part;
     try {
-      final selected = await openFile(
-        acceptedTypeGroups: const [
-          XTypeGroup(label: 'GGUF weights', extensions: ['gguf']),
-        ],
-      );
-      if (selected == null) return;
-      if (!isSingleGguf(selected.name))
+      String name;
+      String? verifiedHash;
+      if (Platform.isAndroid) {
+        final raw = await const MethodChannel(
+          'com.aaris.pharmacy/documents',
+        ).invokeMapMethod<String, dynamic>('pickLocalModel');
+        if (raw == null) return;
+        final path = raw['path'];
+        if (path is! String ||
+            !path.startsWith('${_directory!.path}/import_') ||
+            !RegExp(
+              r'^import_[a-f0-9-]{36}\.part$',
+            ).hasMatch(path.split('/').last)) {
+          throw StateError('Unexpected native model staging path.');
+        }
+        part = File(path);
+        name = raw['name'] as String;
+        verifiedHash = raw['sha256'] as String;
+        if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(verifiedHash)) {
+          throw StateError('Invalid native import checksum.');
+        }
+      } else {
+        final selected = await openFile(
+          acceptedTypeGroups: const [
+            XTypeGroup(label: 'GGUF weights', extensions: ['gguf']),
+          ],
+        );
+        if (selected == null) return;
+        name = selected.name;
+        final source = File(selected.path);
+        await _checkGguf(source);
+        part = File('${_directory!.path}/import.part');
+        await source.copy(part.path);
+      }
+      if (!isSingleGguf(name))
         throw const FormatException(
           'Import one complete GGUF language-model weight file.',
         );
-      final source = File(selected.path);
-      await _checkResources(storageBytes: await source.length());
-      await _checkGguf(source);
-      _status = 'Copying selected model to private storage…';
-      notifyListeners();
-      part = File('${_directory!.path}/import.part');
-      // File.copy streams in the OS; never read a multi-GB model into Dart RAM.
-      await source.copy(part.path);
+      if (generation != _transferGeneration)
+        throw StateError('Model import cancelled.');
+      await _checkGguf(part);
       final bytes = await part.length();
-      final hash = await _hash(part.path);
+      final hash = verifiedHash ?? await _hash(part.path);
+      if (generation != _transferGeneration) {
+        throw StateError('Model import cancelled after verification.');
+      }
       if (_models.any((m) => m.id == hash)) {
+        await _save();
         await part.delete();
         part = null;
         _status = 'This model is already installed.';
@@ -399,16 +444,20 @@ class LocalAiService extends ChangeNotifier {
       }
       await part.rename(_weights(hash).path);
       part = null;
-      _models.add(
-        InstalledLocalModel(id: hash, label: selected.name, bytes: bytes),
-      );
+      _models.add(InstalledLocalModel(id: hash, label: name, bytes: bytes));
       await _save();
       _status =
           'Import ready. Publisher authenticity is not verified; activate to test compatibility.';
+    } catch (error) {
+      _status = error.toString();
+      rethrow;
     } finally {
-      if (part != null && await part.exists()) await part.delete();
-      _transferring = false;
-      notifyListeners();
+      try {
+        if (part != null && await part.exists()) await part.delete();
+      } finally {
+        _transferring = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -554,14 +603,26 @@ class LocalAiService extends ChangeNotifier {
 
   Future<void> deactivate() => _exclusive((_) async {
     await _release();
+    final previous = _activeId;
     _activeId = null;
-    await _save();
+    try {
+      await _save();
+    } catch (_) {
+      _activeId = previous;
+      rethrow;
+    }
     _status = 'Local disabled · existing provider settings apply';
   });
 
   Future<void> setScannerEnabled(bool value) => _exclusive((_) async {
+    final previous = _scannerEnabled;
     _scannerEnabled = value;
-    await _save();
+    try {
+      await _save();
+    } catch (_) {
+      _scannerEnabled = previous;
+      rethrow;
+    }
   });
 
   Future<void> remove(String id) => _exclusive((_) async {
@@ -649,6 +710,19 @@ Future<void> _checkResources({
     'localAiDeviceInfo',
   );
   final free = info?['freeStorage'], total = info?['totalMemory'];
+  if (weightBytes > 0) {
+    final abis = info?['abis'], sdk = info?['sdkInt'];
+    // The pinned package ships an Android arm64 prebuilt. Keep unsupported
+    // devices on the deterministic engine; never try to load a missing ABI.
+    if (sdk is! int ||
+        sdk < 28 ||
+        abis is! List ||
+        !abis.contains('arm64-v8a')) {
+      throw StateError(
+        'This local runtime needs arm64 Android 9+. The offline scanner still works without it.',
+      );
+    }
+  }
   const reserve = 512 * 1024 * 1024;
   if (storageBytes > 0 && free is int && free < storageBytes + reserve) {
     throw StateError(

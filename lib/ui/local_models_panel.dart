@@ -150,7 +150,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'First 30 search results. Enter an exact repository for new/unlisted models. Choose an instruction-tuned single GGUF; not every architecture is compatible.',
+                'First 30 search results. Enter an exact repository for new/unlisted models. Android local inference needs arm64 Android 9+. Choose an instruction-tuned single GGUF; not every architecture is compatible.',
                 style: TextStyle(fontSize: 11),
               ),
               if (searching) const LinearProgressIndicator(),

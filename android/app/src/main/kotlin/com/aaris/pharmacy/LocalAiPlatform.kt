@@ -11,6 +11,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -19,12 +21,15 @@ import io.flutter.plugin.common.MethodChannel
 
 /** Platform facts and genuinely on-device speech; never falls back to a network recognizer. */
 internal class LocalAiPlatform(private val activity: Activity) {
-    companion object { const val microphoneRequest = 4080 }
+    companion object { const val microphoneRequest = 4080; const val modelRequest = 4081 }
     private var pending: MethodChannel.Result? = null
     private var recognizer: SpeechRecognizer? = null
     private var locale = "hi-IN"
     private val handler = Handler(Looper.getMainLooper())
     private val timeout = Runnable { finish(null, "Offline microphone timed out. Try again or type.") }
+    private var modelResult: MethodChannel.Result? = null
+    @Volatile private var copyingModel = false
+    @Volatile private var cancelModel = false
 
     fun handle(call: MethodCall, result: MethodChannel.Result): Boolean {
         when (call.method) {
@@ -33,6 +38,7 @@ internal class LocalAiPlatform(private val activity: Activity) {
                 val memory = ActivityManager.MemoryInfo()
                 manager.getMemoryInfo(memory)
                 result.success(mapOf("totalMemory" to memory.totalMem,
+                    "sdkInt" to Build.VERSION.SDK_INT, "abis" to Build.SUPPORTED_ABIS.toList(),
                     "availableMemory" to memory.availMem, "lowMemory" to memory.lowMemory,
                     "freeStorage" to StatFs(activity.filesDir.absolutePath).availableBytes,
                     "cores" to Runtime.getRuntime().availableProcessors()))
@@ -58,6 +64,8 @@ internal class LocalAiPlatform(private val activity: Activity) {
                 } else start()
             }
             "cancelOfflineSpeech" -> { cancel(); result.success(null) }
+            "pickLocalModel" -> pickModel(result)
+            "cancelModelImport" -> { cancelModel = true; result.success(null) }
             else -> return false
         }
         return true
@@ -108,4 +116,102 @@ internal class LocalAiPlatform(private val activity: Activity) {
         else result?.error("offline_speech_error", error, null)
     }
     fun cancel() = finish(null, null)
+
+    private fun pickModel(result: MethodChannel.Result) {
+        if (modelResult != null || copyingModel) {
+            result.error("model_import_busy", "A model import is already open.", null)
+            return
+        }
+        modelResult = result
+        cancelModel = false
+        try {
+            activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+            }, modelRequest)
+        } catch (_: Exception) {
+            modelResult = null
+            result.error("model_picker_unavailable", "The model file picker is unavailable.", null)
+        }
+    }
+
+    fun activityResult(requestCode: Int, resultCode: Int, uri: Uri?): Boolean {
+        if (requestCode != modelRequest) return false
+        val result = modelResult ?: return true
+        if (resultCode != Activity.RESULT_OK || uri == null) {
+            modelResult = null
+            result.success(null)
+            return true
+        }
+        copyingModel = true
+        // Multi-GB model import MUST NOT run on onActivityResult's UI thread.
+        // Copy once, with a bounded buffer, into the same private model store.
+        Thread {
+            var target: java.io.File? = null
+            try {
+                var name = "Imported.gguf"
+                var declaredSize = -1L
+                activity.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (nameColumn >= 0) name = cursor.getString(nameColumn) ?: name
+                        if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) declaredSize = cursor.getLong(sizeColumn)
+                    }
+                }
+                if (!name.endsWith(".gguf", true)) throw IllegalArgumentException("Select one complete GGUF model file.")
+                val reserve = 512L * 1024 * 1024
+                val free = StatFs(activity.filesDir.absolutePath).availableBytes
+                if (declaredSize > 0 && declaredSize > free - reserve) throw IllegalArgumentException("Not enough private storage for this model.")
+                val root = java.io.File(activity.filesDir, "local_ai").apply { mkdirs() }
+                val output = java.io.File(root, "import_${java.util.UUID.randomUUID()}.part")
+                target = output
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                var copied = 0L
+                activity.contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) throw IllegalArgumentException("Cannot open the selected model.")
+                    java.io.FileOutputStream(output).use { stream ->
+                        val buffer = ByteArray(128 * 1024)
+                        while (true) {
+                            if (cancelModel) throw IllegalStateException("Model import cancelled.")
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            copied += count
+                            if (copied > free - reserve || copied > 128L * 1024 * 1024 * 1024) {
+                                throw IllegalArgumentException("Model import exceeds free storage or the file limit.")
+                            }
+                            stream.write(buffer, 0, count)
+                            digest.update(buffer, 0, count)
+                        }
+                        stream.fd.sync()
+                    }
+                }
+                if (copied < 1024 || (declaredSize > 0 && copied != declaredSize)) throw IllegalArgumentException("Model file is incomplete.")
+                val hash = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                activity.runOnUiThread {
+                    if (modelResult !== result) { output.delete(); return@runOnUiThread }
+                    modelResult = null
+                    if (cancelModel) { output.delete(); result.error("model_cancelled", "Model import cancelled.", null) }
+                    else result.success(mapOf("path" to output.absolutePath, "name" to name, "bytes" to copied, "sha256" to hash))
+                }
+            } catch (error: Exception) {
+                target?.delete()
+                activity.runOnUiThread {
+                    if (modelResult === result) {
+                        modelResult = null
+                        result.error("model_import_error", error.message, null)
+                    }
+                }
+            } finally { copyingModel = false }
+        }.start()
+        return true
+    }
+
+    fun dispose() {
+        cancel()
+        cancelModel = true
+        val result = modelResult
+        modelResult = null
+        result?.error("activity_closed", "Model import interrupted. Select the file again.", null)
+    }
 }
