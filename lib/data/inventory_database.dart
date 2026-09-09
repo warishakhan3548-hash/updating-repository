@@ -371,7 +371,7 @@ class SqliteInventoryStorage implements InventoryStorage {
           )
           .toList(),
       soldValue: meta['sold_value'] as int,
-      unknownSold: meta['unknownSold'] as int,
+      unknownSold: meta['unknown_sold'] as int,
     );
   }
 
