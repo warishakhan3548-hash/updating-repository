@@ -1,12 +1,42 @@
 import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/app_brain.dart';
+import 'package:aaris_pharmacy/domain/inventory.dart';
+import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
 import 'package:aaris_pharmacy/ui/brain_screen.dart';
 import 'package:aaris_pharmacy/ui/design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'domain_contract.dart';
+Medicine _stock(
+  String id, {
+  String name = 'Paracetamol',
+  String strength = '500mg',
+  String expiry = '2026-09-10',
+  String barcode = '',
+  String batchNumber = '',
+  String notes = '',
+  String salt = '',
+  int? quantity = 10,
+  int? price = 200,
+  String form = 'Tablet',
+  bool sold = false,
+}) => Medicine.fromJson({
+  'id': id,
+  'name': name,
+  'strength': strength,
+  'expiry': expiry,
+  'barcode': barcode,
+  'batchNumber': batchNumber,
+  'notes': notes,
+  'salt': salt,
+  'quantity': sold ? 0 : quantity,
+  'unitPricePaise': price,
+  'form': form,
+  'sold': sold,
+});
+
+final _today = DateTime(2026, 9, 7, 23, 59);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -14,7 +44,7 @@ void main() {
   testWidgets(
     'exact Brain remove command opens protected action and never mutates before confirmation',
     (tester) async {
-      final medicine = stock(
+      final medicine = _stock(
         'brain-remove-target',
         name: 'Dolo',
         strength: '650mg',
@@ -25,7 +55,7 @@ void main() {
         MemoryInventoryStorage(
           InventorySnapshot(records: {medicine.id: medicine}),
         ),
-        clock: () => contractToday,
+        clock: () => _today,
         backgroundSearch: false,
       );
       await controller.initialize();
