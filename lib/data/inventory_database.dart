@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../domain/automation_guard.dart';
+import '../domain/sale_ledger_guard.dart';
 import '../domain/medicine.dart';
 import '../domain/inventory.dart';
 import '../domain/tracking.dart';
@@ -197,6 +198,13 @@ InventorySnapshot nextSnapshot(
         ...mutation.removeIds,
       },
       today: DateTime.now(),
+    );
+    ensureSafeSaleLedgerMutation(
+      beforeRecords: before.records,
+      afterRecords: records,
+      beforeSales: before.sales,
+      upsertSales: mutation.upsertSales,
+      removeSaleIds: mutation.removeSaleIds,
     );
   }
 
