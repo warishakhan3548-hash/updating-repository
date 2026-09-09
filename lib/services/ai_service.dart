@@ -62,6 +62,10 @@ class AiService {
   http.Client? _client;
   bool _localRequest = false;
   Future<AiConfiguration> loadConfiguration() async {
+    // AI Hub startup is also a route warm-up: restore an already-installed
+    // Aaris Default AI before the UI decides that a cloud connection is needed.
+    // No inventory is read or exported during this preflight.
+    await preparePreferredLocalRoute();
     final raw = await _storage.read(key: 'pharmacy.ai.configuration');
     return raw == null
         ? const AiConfiguration()
