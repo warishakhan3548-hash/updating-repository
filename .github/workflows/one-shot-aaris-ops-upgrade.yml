@@ -50,9 +50,28 @@ jobs:
         run: dart analyze lib test tool third_party/lib_llama_cpp/lib
 
       - name: Full regression suite
-        run: flutter test --reporter expanded
+        id: regression
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded 2>&1 | tee /tmp/aaris-regression.log
+
+      - name: Upload regression diagnostics
+        if: steps.regression.outcome != 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aaris-fefo-regression-diagnostics
+          path: /tmp/aaris-regression.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Stop on regression failure
+        if: steps.regression.outcome != 'success'
+        run: exit 1
 
       - name: Commit verified upgrade
+        if: steps.regression.outcome == 'success'
         shell: bash
         run: |
           rm .github/workflows/one-shot-aaris-ops-upgrade.yml
