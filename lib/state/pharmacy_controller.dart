@@ -2,9 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../data/inventory_database.dart';
+import '../data/inventory_storage.dart';
 import '../domain/ai_protocol.dart';
-import '../domain/backup.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/search.dart';
@@ -17,54 +16,70 @@ class PharmacyController extends ChangeNotifier {
     DateTime Function()? clock,
     this.backgroundSearch = true,
   }) : clock = clock ?? DateTime.now;
-  final InventoryStorage storage;
-  final bool backgroundSearch;
-  final DateTime Function() clock;
-  InventorySnapshot snapshot = InventorySnapshot();
-  bool ready = false, _disposed = false, aiPreparing = false;
-  int preparedActions = 0;
-  bool _cancelAi = false;
-  Timer? _midnight;
-  Future<void>? _initializing;
-  Future<void> _writes = Future.value();
-  final _searchWorker = SearchWorker();
-  MedicineSearch? _webSearch;
-  int _webRevision = -1;
-  DateTime get today => civilDay(clock());
-  WarningSettings get settings => snapshot.settings;
-  Iterable<Medicine> get records => snapshot.records.values;
-  Iterable<SaleEvent> get sales => snapshot.sales.values;
-  InventoryStats get stats => InventoryStats(records, today);
-  TrackingStats tracking(TrackingRange range) => TrackingStats(
-    medicines: records,
-    sales: sales,
-    range: range,
-    today: today,
-  );
 
-  Future<void> initialize() {
-    if (_disposed) return Future.error(StateError('App is closed.'));
-    final running = _initializing;
-    if (running != null) return running;
-    late final Future<void> operation;
-    operation = _load().whenComplete(() {
-      if (identical(_initializing, operation)) _initializing = null;
-    });
-    _initializing = operation;
-    return operation;
+  final InventoryStorage storage;
+  final DateTime Function() clock;
+  final bool backgroundSearch;
+  InventorySnapshot snapshot = InventorySnapshot();
+  bool ready = false;
+  Future<void>? _load;
+  Future<void> _writes = Future.value();
+  bool _disposed = false;
+  Timer? _midnight;
+  SearchWorker? _searchWorker;
+
+  WarningSettings get settings => snapshot.settings;
+  DateTime get today => clock();
+  List<Medicine> get records => snapshot.records.values.toList();
+  List<SaleRecord> get sales => snapshot.sales;
+  InventoryStats get stats => inventoryStats(records);
+  bool get canUndo => snapshot.undoJournal.isNotEmpty;
+  bool get canRedo => snapshot.redoJournal.isNotEmpty;
+
+  Future<void> initialize() => _load ??= _initialize();
+
+  Future<void> _initialize() async {
+    try {
+      snapshot = await storage.load();
+      if (_disposed) return;
+      if (backgroundSearch) {
+        final worker = SearchWorker();
+        _searchWorker = worker;
+        await worker.replace(records);
+        if (_disposed) {
+          await worker.close();
+          if (identical(_searchWorker, worker)) _searchWorker = null;
+          return;
+        }
+      }
+      ready = true;
+      _scheduleMidnight();
+      _emit();
+    } catch (_) {
+      if (!_disposed) rethrow;
+    } finally {
+      if (_disposed) await storage.close();
+    }
   }
 
-  Future<void> _load() async {
-    final loaded = await storage.load();
+  @override
+  void dispose() {
     if (_disposed) return;
-    snapshot = loaded;
-    ready = true;
-    _scheduleMidnight();
-    _emit();
+    _disposed = true;
+    _midnight?.cancel();
+    _midnight = null;
+    final worker = _searchWorker;
+    _searchWorker = null;
+    if (worker != null) unawaited(worker.close());
+    if (_load == null) unawaited(storage.close());
+    super.dispose();
   }
 
   void _emit() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    notifyListeners();
+    final worker = _searchWorker;
+    if (worker != null) unawaited(worker.replace(records));
   }
 
   void refreshDay() {
@@ -109,14 +124,14 @@ class PharmacyController extends ChangeNotifier {
     return result;
   }
 
-  Future<void> save(Medicine record, {required int expectedRevision}) {
+  Future<void> save(Medicine record, {required int expectedRevision}) async {
     final existing = snapshot.records[record.id];
     if (record.sold && existing?.sold != true && isExpiredOn(record, today)) {
       throw const FormatException(
         'Expired stock cannot be marked SOLD. Remove it with reason Expired so it stays in the correct safety history.',
       );
     }
-    return _commit(
+    await _commit(
       InventoryMutation(
         expectedRevision: expectedRevision,
         label: existing == null
@@ -135,6 +150,7 @@ class PharmacyController extends ChangeNotifier {
       settings: value,
     ),
   );
+
   Future<void> markSold(String id) async {
     final m = snapshot.records[id];
     if (m == null || m.archived) throw StateError('This entry is unavailable.');
@@ -149,15 +165,7 @@ class PharmacyController extends ChangeNotifier {
       InventoryMutation(
         expectedRevision: snapshot.revision,
         label: 'Marked ${m.name} sold',
-        upserts: [
-          m.patch({
-            'sold': true,
-            'quantity': 0,
-            'soldAt': now.toIso8601String(),
-            'soldQuantity': m.quantity,
-            'soldUnitPricePaise': m.unitPricePaise,
-          }),
-        ],
+        upserts: [m.patch({'sold': true, 'quantity': 0})],
       ),
     );
   }
@@ -167,430 +175,195 @@ class PharmacyController extends ChangeNotifier {
     required int quantity,
     int? totalAmountPaise,
     DateTime? occurredAt,
-    bool markSoldOut = false,
-    int? expectedRevision,
   }) async {
-    if (expectedRevision != null && expectedRevision != snapshot.revision) {
-      throw StateError(
-        'Inventory changed. Reopen this entry before recording a sale.',
-      );
+    final m = snapshot.records[id];
+    if (m == null || m.archived) throw StateError('This entry is unavailable.');
+    if (m.sold) throw const FormatException('This stock entry is already sold.');
+    if (quantity <= 0) throw const FormatException('Sale quantity must be positive.');
+    final available = m.quantity;
+    if (available == null) {
+      throw const FormatException('Set a known stock quantity before recording a sale.');
     }
-    final medicine = snapshot.records[id];
-    if (medicine == null || medicine.archived) {
-      throw StateError('This stock entry is unavailable.');
+    if (quantity > available) {
+      throw FormatException('Only $available units are available in this stock entry.');
     }
-    if (medicine.sold) {
-      throw StateError('Restock this medicine before recording another sale.');
+    final at = occurredAt ?? clock();
+    if (isExpiredOn(m, at)) {
+      throw const FormatException('Expired stock cannot be recorded as a sale.');
     }
-    if (quantity < 1 || quantity > 100000000) {
-      throw const FormatException(
-        'Sale quantity must be a positive whole number.',
-      );
+    if (m.manufacturingDate != null &&
+        at.isBefore(DateTime(
+          m.manufacturingDate!.year,
+          m.manufacturingDate!.month,
+          m.manufacturingDate!.day,
+        ))) {
+      throw const FormatException('Sale date cannot be before manufacturing date.');
     }
-    if (totalAmountPaise != null &&
-        (totalAmountPaise < 0 || totalAmountPaise > maxExactPaise)) {
-      throw const FormatException(
-        'Sale amount is outside the supported range.',
-      );
-    }
-    final time = occurredAt ?? clock();
-    if (civilDay(time).isAfter(today)) {
-      throw const FormatException('A sale cannot be recorded in the future.');
-    }
-    validateDispensingDate(medicine, time);
-    final current = medicine.quantity;
-    if (current != null && quantity > current) {
-      throw FormatException(
-        'Only $current units are recorded in stock. Correct the stock first or enter a smaller sale.',
-      );
-    }
-    if (markSoldOut && current != null && quantity != current) {
-      throw const FormatException(
-        'To mark this entry out of stock, the sale quantity must equal all remaining units.',
-      );
-    }
-    final remaining = current == null ? null : current - quantity;
-    final sale = SaleEvent(
-      id: newId(),
-      stockId: medicine.id,
-      medicineName: medicine.name,
-      strength: medicine.strength,
-      form: medicine.form,
-      salt: medicine.salt,
+    final remaining = available - quantity;
+    final sale = SaleRecord(
+      id: '${at.microsecondsSinceEpoch}-$id',
+      medicineId: id,
+      medicineName: m.name,
+      batch: m.batch,
       quantity: quantity,
-      occurredAt: time,
       totalAmountPaise: totalAmountPaise,
-      savedUnitPricePaise: medicine.unitPricePaise,
+      occurredAt: at,
     );
-    final updated = medicine.patch({
-      'quantity': markSoldOut ? 0 : remaining,
-      if (markSoldOut) ...{
-        'sold': true,
-        'soldAt': time.toIso8601String(),
-        'soldQuantity': current,
-        'soldUnitPricePaise': medicine.unitPricePaise,
-      },
-    });
     await _commit(
       InventoryMutation(
         expectedRevision: snapshot.revision,
-        label:
-            'Recorded sale · ${medicine.name} · $quantity ${quantity == 1 ? 'unit' : 'units'}${markSoldOut ? ' · marked sold' : ''}',
-        upserts: [updated],
-        upsertSales: [sale],
+        label: 'Recorded sale of ${m.name}',
+        upserts: [m.patch({'quantity': remaining, 'sold': remaining == 0})],
+        salesToAdd: [sale],
       ),
     );
   }
 
   Future<void> archive(
-    String id,
-    String reason, {
-    int? expectedRevision,
+    String id, {
+    required RemovalReason reason,
+    required int expectedRevision,
   }) async {
-    if (expectedRevision != null && expectedRevision != snapshot.revision) {
-      throw StateError(
-        'Inventory changed. Reopen this entry before removing it.',
-      );
-    }
     final m = snapshot.records[id];
-    if (m == null || m.archived) return;
-    await _commit(
-      InventoryMutation(
-        expectedRevision: snapshot.revision,
-        label: 'Removed ${m.name} · $reason',
-        upserts: [
-          m.patch({'archived': true}),
-        ],
-      ),
-    );
-  }
-
-  Future<void> archiveAll({int? expectedRevision}) => _commit(
-    InventoryMutation(
-      expectedRevision: expectedRevision ?? snapshot.revision,
-      label: 'Removed all inventory',
-      upserts: records
-          .where((m) => !m.archived)
-          .map((m) => m.patch({'archived': true}))
-          .toList(),
-    ),
-  );
-  Future<void> restoreArchived(String id) async {
-    final m = snapshot.records[id];
-    if (m == null || !m.archived) return;
-    await _commit(
-      InventoryMutation(
-        expectedRevision: snapshot.revision,
-        label: 'Restored ${m.name}',
-        upserts: [
-          m.patch({'archived': false}),
-        ],
-      ),
-    );
-  }
-
-  List<MedicineVersion> versionsFor(String id) {
-    final versions = <MedicineVersion>[];
-    for (final event in snapshot.events) {
-      final beforeRaw = event['before'];
-      if (beforeRaw is! Map || !beforeRaw.containsKey(id)) continue;
-      final value = beforeRaw[id];
-      if (value is! Map) continue;
-      try {
-        versions.add(
-          MedicineVersion(
-            sourceRevision: snapshot.revision,
-            eventRevision: event['revision'] as int,
-            label: event['label'] as String,
-            time: DateTime.parse(event['time'] as String),
-            record: Medicine.fromJson(Map<String, dynamic>.from(value)),
-          ),
-        );
-      } catch (_) {
-        // A corrupt legacy history row must not block the live inventory.
-      }
+    if (m == null || m.archived) throw StateError('This entry is unavailable.');
+    if (snapshot.revision != expectedRevision) {
+      throw StateError('This stock changed. Reopen it before removing.');
     }
-    return versions;
-  }
-
-  Future<void> restoreVersion(MedicineVersion version) async {
-    if (version.sourceRevision != snapshot.revision) {
-      throw StateError(
-        'Inventory changed after this history was opened. Reopen version history.',
-      );
-    }
-    final current = snapshot.records[version.record.id];
-    final restored = Medicine.fromJson({
-      ...version.record.toJson(),
-      'revision': (current?.revision ?? version.record.revision) + 1,
-    });
     await _commit(
       InventoryMutation(
-        expectedRevision: snapshot.revision,
-        label: 'Restored previous version · ${restored.name}',
-        upserts: [restored],
-      ),
-    );
-  }
-
-  bool get canUndo =>
-      snapshot.events.isNotEmpty &&
-      snapshot.events.first['revision'] == snapshot.revision &&
-      snapshot.events.first['undoable'] == true &&
-      snapshot.events.first['undone'] != true;
-  Future<void> undo() async {
-    if (!canUndo) throw StateError('No current change is available to undo.');
-    final event = snapshot.events.first;
-    final before = Map<String, dynamic>.from(event['before'] as Map);
-    final salesBefore = Map<String, dynamic>.from(
-      event['salesBefore'] as Map? ?? const {},
-    );
-    final upserts = <Medicine>[], removes = <String>[];
-    final upsertSales = <SaleEvent>[], removeSales = <String>[];
-    for (final entry in before.entries) {
-      if (entry.value == null) {
-        removes.add(entry.key);
-      } else {
-        final record = Medicine.fromJson(
-          Map<String, dynamic>.from(entry.value as Map),
-        );
-        upserts.add(
-          Medicine.fromJson({
-            ...record.toJson(),
-            'revision':
-                (snapshot.records[entry.key]?.revision ?? record.revision) + 1,
+        expectedRevision: expectedRevision,
+        label: 'Removed ${m.name} · ${reason.label}',
+        upserts: [
+          m.patch({
+            'archived': true,
+            'removalReason': reason.name,
+            'removedAt': clock().toIso8601String(),
           }),
-        );
-      }
+        ],
+      ),
+    );
+  }
+
+  Future<void> archiveAll({required int expectedRevision}) async {
+    if (snapshot.revision != expectedRevision) {
+      throw StateError('Inventory changed. Review the database before removing all.');
     }
-    for (final entry in salesBefore.entries) {
-      if (entry.value == null) {
-        removeSales.add(entry.key);
-      } else {
-        upsertSales.add(
-          SaleEvent.fromJson(Map<String, dynamic>.from(entry.value as Map)),
-        );
-      }
-    }
+    final active = records.where((m) => !m.archived).toList();
+    if (active.isEmpty) return;
+    final at = clock().toIso8601String();
+    await _commit(
+      InventoryMutation(
+        expectedRevision: expectedRevision,
+        label: 'Removed all inventory (${active.length} entries)',
+        upserts: [
+          for (final m in active)
+            m.patch({
+              'archived': true,
+              'removalReason': RemovalReason.correction.name,
+              'removedAt': at,
+            }),
+        ],
+      ),
+    );
+  }
+
+  Future<void> undo() async {
+    if (!canUndo) return;
     await _commit(
       InventoryMutation(
         expectedRevision: snapshot.revision,
-        label: 'Undo: ${event['label']}',
-        upserts: upserts,
-        upsertSales: upsertSales,
-        removeIds: removes,
-        removeSaleIds: removeSales,
-        settings: WarningSettings.fromJson(
-          Map<String, dynamic>.from(event['settingsBefore'] as Map),
-        ),
-        undoEventId: event['id'] as String,
-        undoable: false,
+        label: 'Undo',
+        undo: true,
       ),
     );
   }
 
-  PharmacyExport export() => PharmacyExport(
-    revision: snapshot.revision,
-    records: records,
-    sales: sales,
-    today: today,
-  );
-  PharmacyBackup createBackup() => PharmacyBackup(
-    createdAt: clock(),
-    sourceRevision: snapshot.revision,
-    settings: settings,
-    records: snapshot.records,
-    sales: snapshot.sales,
-    soldValue: snapshot.soldValue,
-    unknownSold: snapshot.unknownSold,
-  );
-  Future<BackupReview> reviewBackup(String input) async => BackupReview(
-    backup: await compute(_parseBackup, input),
-    currentRevision: snapshot.revision,
-  );
-  Future<void> restoreBackup(BackupReview review) async {
-    if (review.currentRevision != snapshot.revision) {
-      throw StateError(
-        'Inventory changed after this backup was reviewed. Review it again before restoring.',
+  Future<void> redo() async {
+    if (!canRedo) return;
+    await _commit(
+      InventoryMutation(
+        expectedRevision: snapshot.revision,
+        label: 'Redo',
+        redo: true,
+      ),
+    );
+  }
+
+  Future<List<SearchHit>> search(String query, SearchScope scope) async {
+    final worker = _searchWorker;
+    if (worker != null) {
+      return worker.search(
+        query,
+        scope: scope,
+        settings: settings,
+        today: today,
       );
     }
-    final restored = <Medicine>[];
-    for (final record in review.backup.records.values) {
-      final currentRevision = snapshot.records[record.id]?.revision ?? 0;
-      restored.add(
-        Medicine.fromJson({
-          ...record.toJson(),
-          'revision': currentRevision > record.revision
-              ? currentRevision + 1
-              : record.revision + 1,
-        }),
-      );
-    }
-    for (final record in snapshot.records.values) {
-      if (!review.backup.records.containsKey(record.id) && !record.archived) {
-        restored.add(record.patch({'archived': true}));
-      }
+    return searchRecords(records, query, scope, settings, today);
+  }
+
+  TrackingSummary tracking(TrackingRange range) =>
+      trackingSummary(sales, range: range, today: today);
+
+  Future<void> applyAiChanges(
+    ReviewedAiResponse reviewed,
+    Set<int> selected, {
+    required int expectedRevision,
+  }) async {
+    final frozenSelection = Set<int>.unmodifiable(selected);
+    final plan = await prepareAiMutation(
+      snapshot,
+      reviewed,
+      frozenSelection,
+      now: clock(),
+    );
+    if (snapshot.revision != expectedRevision) {
+      throw StateError('Inventory changed while the AI plan was being reviewed. Review again.');
     }
     await _commit(
       InventoryMutation(
-        expectedRevision: review.currentRevision,
-        label:
-            'Restored backup · ${review.activeMedicines} active medicines · ${review.sales} sales',
-        upserts: restored,
-        upsertSales: review.backup.sales.values.toList(),
-        removeSaleIds: snapshot.sales.keys
-            .where((id) => !review.backup.sales.containsKey(id))
-            .toList(),
-        settings: review.backup.settings,
-        soldValueOverride: review.backup.soldValue,
-        unknownSoldOverride: review.backup.unknownSold,
+        expectedRevision: expectedRevision,
+        label: reviewed.requestId.isEmpty
+            ? 'Applied reviewed AI changes'
+            : 'AI ${reviewed.requestId}',
+        upserts: plan.upserts,
+        requestId: reviewed.requestId,
       ),
     );
   }
 
-  AiPlan review(String input) => parseAiPlan(
-    input,
-    snapshot.records,
-    snapshot.revision,
-    snapshot.receipts,
-    clock(),
-  );
-  Future<AiPlan> reviewAsync(String input) => compute(_parseReview, {
-    'input': input,
-    'records': snapshot.records,
-    'revision': snapshot.revision,
-    'receipts': snapshot.receipts,
-    'now': clock(),
-  });
-  void cancelAi() {
-    _cancelAi = true;
-  }
-
-  Future<void> applyAi(AiPlan plan, Set<int> selected) async {
-    if (aiPreparing) throw StateError('Another AI plan is preparing.');
-    if (plan.baseRevision != snapshot.revision)
-      throw StateError(
-        'Inventory changed after review. Review a fresh snapshot.',
-      );
-    final selection = Set<int>.unmodifiable(selected);
-    if (selection.any((i) => i < 0 || i >= plan.changes.length)) {
-      throw StateError('The AI selection is invalid. Review the result again.');
-    }
-    if (selection.isEmpty) return;
-    aiPreparing = true;
-    _cancelAi = false;
-    preparedActions = 0;
-    _emit();
-    try {
-      final changes = <Medicine>[];
-      for (var start = 0; start < plan.changes.length; start += 25) {
-        if (_cancelAi || _disposed)
-          throw StateError('Cancelled. No inventory changes were saved.');
-        for (var i = start; i < plan.changes.length && i < start + 25; i++) {
-          if (selection.contains(i))
-            changes.add(Medicine.fromJson(plan.changes[i].after.toJson()));
-        }
-        preparedActions = (start + 25).clamp(0, plan.changes.length);
-        _emit();
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-      }
-      if (_cancelAi || _disposed)
-        throw StateError('Cancelled. No inventory changes were saved.');
-      await _commit(
-        InventoryMutation(
-          expectedRevision: plan.baseRevision,
-          label: 'AI: applied ${changes.length} reviewed changes',
-          upserts: changes,
-          requestId: plan.requestId,
-        ),
-      );
-    } finally {
-      aiPreparing = false;
-      _emit();
-    }
-  }
-
-  Future<List<SearchHit>> search(String raw, SearchScope scope) async {
-    final data = records.toList();
-    final selectedSettings = settings;
-    final date = today;
-    // Isolate.run transfers the result; widgets bind it to their request generation.
-    if (kIsWeb || !backgroundSearch) {
-      if (_webRevision != snapshot.revision) {
-        _webSearch = MedicineSearch(data);
-        _webRevision = snapshot.revision;
-      }
-      return _webSearch!.search(
-        raw,
-        scope,
-        selectedSettings,
-        date,
-        limit: raw.trim().isEmpty ? 100000 : 150,
-      );
-    }
-    return _searchWorker.search(
-      data,
-      snapshot.revision,
-      raw,
-      scope,
-      selectedSettings,
-      date,
+  Future<void> restoreBackup(
+    InventorySnapshot imported, {
+    required int expectedRevision,
+  }) async {
+    final currentIds = snapshot.records.keys.toSet();
+    final importedIds = imported.records.keys.toSet();
+    final absent = currentIds.difference(importedIds);
+    final at = clock().toIso8601String();
+    final upserts = <Medicine>[
+      ...imported.records.values,
+      for (final id in absent)
+        snapshot.records[id]!.patch({
+          'archived': true,
+          'removalReason': RemovalReason.correction.name,
+          'removedAt': at,
+        }),
+    ];
+    await _commit(
+      InventoryMutation(
+        expectedRevision: expectedRevision,
+        label: 'Restored reviewed backup',
+        upserts: upserts,
+        replaceSales: imported.sales,
+        settings: imported.settings,
+      ),
     );
   }
 
-  @override
-  void dispose() {
-    if (_disposed) return;
-    _disposed = true;
-    final initializing = _initializing;
-    _searchWorker.close();
-    _midnight?.cancel();
-    _cancelAi = true;
-    unawaited(_closeWhenIdle(initializing));
-    super.dispose();
+  Future<void> restoreVersion(
+    MedicineVersion version, {
+    required int expectedRevision,
+  }) async {
+    await save(version.record, expectedRevision: expectedRevision);
   }
-
-  Future<void> _closeWhenIdle(Future<void>? initializing) async {
-    try {
-      await initializing;
-    } catch (_) {
-      // A failed open still needs the same single storage close path.
-    }
-    try {
-      await _writes;
-    } catch (_) {
-      // The write caller receives its error; disposal only owns cleanup.
-    }
-    try {
-      await storage.close();
-    } catch (_) {
-      // Widget disposal cannot surface an asynchronous storage-close failure.
-    }
-  }
-}
-
-AiPlan _parseReview(Map<String, dynamic> data) => parseAiPlan(
-  data['input'] as String,
-  data['records'] as Map<String, Medicine>,
-  data['revision'] as int,
-  data['receipts'] as Set<String>,
-  data['now'] as DateTime,
-);
-
-PharmacyBackup _parseBackup(String input) => PharmacyBackup.parse(input);
-
-class MedicineVersion {
-  const MedicineVersion({
-    required this.sourceRevision,
-    required this.eventRevision,
-    required this.label,
-    required this.time,
-    required this.record,
-  });
-
-  final int sourceRevision;
-  final int eventRevision;
-  final String label;
-  final DateTime time;
-  final Medicine record;
 }
