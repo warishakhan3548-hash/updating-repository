@@ -7,6 +7,7 @@ import '../domain/attention.dart';
 import '../domain/dispensing_plan.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
+import '../domain/medicine_brief.dart';
 import '../domain/search.dart';
 import '../domain/tracking.dart';
 import '../services/scan_service.dart';
@@ -40,7 +41,7 @@ class _BrainScreenState extends State<BrainScreen> {
   final _command = TextEditingController();
   bool _busy = false, _voiceOpening = false;
   String _reply =
-      'Ready. Search stock, open safe actions, remember an exact selection, or ask “aaj kya dekhna hai”.';
+      'Ready. Ask stock, expiry, location or FEFO from the local Medicine Database, open safe actions, or ask “aaj kya dekhna hai”.';
 
   @override
   void dispose() {
@@ -202,14 +203,40 @@ class _BrainScreenState extends State<BrainScreen> {
     setState(
       () => _reply = remembered == null
           ? 'Scan review closed. No stock was changed automatically.'
-          : '${remembered.title} is now the exact session context. You can say “isko edit karo”, “isko remove karo”, or another reviewed stock command.',
+          : '${remembered.title} is now the exact session context. You can say “isko edit karo”, “isko stock kitna hai”, “isko remove karo”, or another reviewed command.',
     );
   }
 
   Future<void> _searchIntent(AppBrainIntent intent) async {
     final query = intent.query.trim();
+    final briefFocus = intent.briefFocus;
+
+    if (briefFocus != null && isAppBrainContextReference(query)) {
+      final remembered = _rememberedTarget();
+      if (remembered == null) {
+        widget.onOpenSection(AppSection.stock);
+        if (mounted) {
+          setState(
+            () => _reply =
+                'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact medicine first.',
+          );
+        }
+        return;
+      }
+      _answerOperationalBrief(remembered, briefFocus);
+      return;
+    }
+
     if (query.isEmpty) {
       if (!mounted) return;
+      if (briefFocus != null) {
+        widget.onOpenSection(AppSection.stock);
+        setState(
+          () => _reply =
+              'Medicine name, batch, barcode or an exact previous selection is missing. Medicine Database opened instead of guessing which medicine you meant.',
+        );
+        return;
+      }
       if (intent.scope == SearchScope.all) {
         widget.onOpenSection(AppSection.stock);
         setState(() => _reply = 'Medicine Database opened.');
@@ -231,9 +258,33 @@ class _BrainScreenState extends State<BrainScreen> {
 
     final hits = await widget.controller.search(query, intent.scope);
     if (!mounted) return;
-    final direct = _singleSafeTarget(
-      hits.where((hit) => hit.score >= .90).take(8).toList(),
-    );
+    final viable = hits.where((hit) => hit.score >= .90).take(12).toList();
+
+    if (briefFocus != null) {
+      if (viable.isEmpty) {
+        widget.onOpenSection(AppSection.stock);
+        setState(
+          () => _reply =
+              'I could not safely identify “$query” in the local Medicine Database. I will not invent a stock, expiry, location or FEFO answer.',
+        );
+        return;
+      }
+      final productTarget = _singleSafeReadProductTarget(viable);
+      if (productTarget != null) {
+        _answerOperationalBrief(productTarget, briefFocus);
+        return;
+      }
+      await _showMatches(
+        viable,
+        title: 'Choose medicine for ${_briefLabel(briefFocus)} · $query',
+        emptyReply:
+            'No safe local match found. Aaris will not guess an operational answer.',
+        briefFocus: briefFocus,
+      );
+      return;
+    }
+
+    final direct = _singleSafeTarget(viable.take(8).toList());
     if (direct != null) {
       final record = widget.controller.snapshot.records[direct.id];
       if (record != null && !record.archived) _remember(record);
@@ -244,6 +295,29 @@ class _BrainScreenState extends State<BrainScreen> {
       emptyReply:
           'No confident local stock match for “$query”. I opened the Medicine Database so you can scan or search another spelling.',
     );
+  }
+
+  void _answerOperationalBrief(
+    Medicine anchor,
+    MedicineBriefFocus focus,
+  ) {
+    if (!mounted) return;
+    final live = widget.controller.snapshot.records[anchor.id];
+    if (live == null || live.archived) {
+      widget.controller.clearOperationalTarget(anchor.id);
+      setState(
+        () => _reply =
+            'That stock entry is no longer active. Choose the medicine again so Aaris can answer from the current inventory snapshot.',
+      );
+      return;
+    }
+    final brief = MedicineOperationalBrief.build(
+      records: widget.controller.records,
+      anchor: live,
+      today: widget.controller.today,
+    );
+    _remember(live);
+    setState(() => _reply = brief.describe(focus));
   }
 
   Future<void> _medicineAction(AppBrainIntent intent) async {
@@ -731,12 +805,29 @@ class _BrainScreenState extends State<BrainScreen> {
     return records.first;
   }
 
+  Medicine? _singleSafeReadProductTarget(List<SearchHit> hits) {
+    if (hits.isEmpty || hits.first.uncertain || hits.first.score < .95) {
+      return null;
+    }
+    final records = hits
+        .map((hit) => widget.controller.snapshot.records[hit.id])
+        .whereType<Medicine>()
+        .where((medicine) => !medicine.archived)
+        .toList(growable: false);
+    if (records.isEmpty) return null;
+    if (records.map((medicine) => medicine.identity).toSet().length != 1) {
+      return null;
+    }
+    return records.first;
+  }
+
   Future<void> _showMatches(
     List<SearchHit> hits, {
     required String title,
     required String emptyReply,
     AppBrainAction action = AppBrainAction.search,
     int? requestedQuantity,
+    MedicineBriefFocus? briefFocus,
   }) async {
     final records = <Medicine>[];
     final seen = <String>{};
@@ -753,7 +844,11 @@ class _BrainScreenState extends State<BrainScreen> {
       return;
     }
     setState(
-      () => _reply = records.length == 1
+      () => _reply = briefFocus != null
+          ? records.length == 1
+                ? '1 stock entry found. Select it and Aaris will answer read-only from the current Medicine Database.'
+                : '${records.length} possible stock entries found. Choose the exact medicine/batch; Aaris will not combine ambiguous products.'
+          : records.length == 1
           ? '1 stock entry found. Open it to make that exact batch the context for follow-up commands.'
           : '${records.length} possible stock entries found. Choose the exact batch; Aaris will not guess.',
     );
@@ -788,14 +883,25 @@ class _BrainScreenState extends State<BrainScreen> {
                   ],
                 ),
               ),
-              if (action != AppBrainAction.search)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              if (briefFocus != null)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Read-only answer from saved inventory facts. Selecting a row does not edit, sell, remove or otherwise mutate stock.',
+                      style: TextStyle(color: muted, fontSize: 12),
+                    ),
+                  ),
+                )
+              else if (action != AppBrainAction.search)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
                       'Choose the exact medicine/batch. Aaris will remember this choice; existing safety confirmation remains mandatory.',
-                      style: const TextStyle(color: muted, fontSize: 12),
+                      style: TextStyle(color: muted, fontSize: 12),
                     ),
                   ),
                 ),
@@ -813,6 +919,10 @@ class _BrainScreenState extends State<BrainScreen> {
                         Navigator.pop(sheetContext);
                         if (!mounted) return;
                         _remember(record);
+                        if (briefFocus != null) {
+                          _answerOperationalBrief(record, briefFocus);
+                          return;
+                        }
                         if (action == AppBrainAction.search) {
                           widget.onOpenSection(AppSection.stock);
                           setState(
@@ -988,6 +1098,14 @@ class _BrainScreenState extends State<BrainScreen> {
     _ => 'Choose medicine · $query',
   };
 
+  String _briefLabel(MedicineBriefFocus focus) => switch (focus) {
+    MedicineBriefFocus.stock => 'stock',
+    MedicineBriefFocus.expiry => 'expiry',
+    MedicineBriefFocus.location => 'location',
+    MedicineBriefFocus.fefo => 'FEFO',
+    MedicineBriefFocus.summary => 'operational summary',
+  };
+
   String _sectionReply(AppSection section) => switch (section) {
     AppSection.home => 'Home opened.',
     AppSection.stock => 'Medicine Database opened.',
@@ -1046,7 +1164,8 @@ class _BrainScreenState extends State<BrainScreen> {
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => unawaited(_run()),
                   decoration: const InputDecoration(
-                    hintText: 'Dolo stock add 12 units · delete karo · order now',
+                    hintText:
+                        'Dolo stock kitna · expiry kab · add 12 units · delete karo',
                     prefixIcon: Icon(Icons.bolt_rounded),
                   ),
                 ),
