@@ -365,7 +365,11 @@ class TrackingStats {
       // uncertainty visible elsewhere rather than fabricating an order amount.
       if (!needsReplacement && !low && !expiryPressure) continue;
 
+      // Historical SOLD quantity is useful evidence only when it belongs to a
+      // row that is actually SOLD. A corrupt/legacy active row can retain stale
+      // sold metadata; never let that stale field inflate a reorder quantity.
       final previousStock = records
+          .where((m) => m.sold)
           .map((m) => m.soldQuantity ?? 0)
           .fold<int>(0, max);
       final effectiveQuantity = expiryPressure
@@ -403,7 +407,7 @@ class TrackingStats {
               .firstOrNull
               ?.unitPricePaise ??
           records
-              .where((m) => m.soldUnitPricePaise != null)
+              .where((m) => m.sold && m.soldUnitPricePaise != null)
               .firstOrNull
               ?.soldUnitPricePaise;
       reorder.add(
