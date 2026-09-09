@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../domain/automation_guard.dart';
+import '../domain/sale_ledger_guard.dart';
 import '../domain/medicine.dart';
 import '../domain/inventory.dart';
 import '../domain/tracking.dart';
@@ -198,6 +199,14 @@ InventorySnapshot nextSnapshot(
       },
       today: DateTime.now(),
     );
+    ensureSafeSaleLedgerMutation(
+      beforeRecords: before.records,
+      afterRecords: records,
+      beforeSales: before.sales,
+      upsertSales: mutation.upsertSales,
+      removeSaleIds: mutation.removeSaleIds,
+      now: DateTime.now(),
+    );
   }
 
   for (final sale in mutation.upsertSales) {
@@ -362,7 +371,7 @@ class SqliteInventoryStorage implements InventoryStorage {
           )
           .toList(),
       soldValue: meta['sold_value'] as int,
-      unknownSold: meta['unknown_sold'] as int,
+      unknownSold: meta['unknownSold'] as int,
     );
   }
 
