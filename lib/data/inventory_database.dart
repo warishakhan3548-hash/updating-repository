@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
+import '../domain/automation_guard.dart';
 import '../domain/medicine.dart';
 import '../domain/inventory.dart';
 import '../domain/tracking.dart';
@@ -177,6 +178,28 @@ InventorySnapshot nextSnapshot(
   for (final id in mutation.removeIds) {
     records.remove(id);
   }
+
+  // Cross-row integrity is enforced at the same authoritative boundary as
+  // revision, money and schema validation. This closes the gap where Attention
+  // could correctly flag one physical lot with contradictory batch facts while
+  // a later sale/receive/SOLD path still mutated that row. Undo must faithfully
+  // restore the immediately previous state, and an explicitly reviewed backup
+  // restore must reproduce its source snapshot, so those two recovery paths are
+  // intentionally exempt from this prospective guard.
+  final recoveryRestore =
+      mutation.soldValueOverride != null || mutation.unknownSoldOverride != null;
+  if (mutation.undoEventId == null && !recoveryRestore) {
+    ensureIntegritySafeInventoryMutation(
+      before: before.records,
+      after: records,
+      touchedStockIds: {
+        ...mutation.upserts.map((record) => record.id),
+        ...mutation.removeIds,
+      },
+      today: DateTime.now(),
+    );
+  }
+
   for (final sale in mutation.upsertSales) {
     sales[sale.id] = SaleEvent.fromJson(sale.toJson());
   }
