@@ -79,9 +79,9 @@ class LocalInventoryContext {
 Return ONLY one JSON object, no reasoning or markdown.
 To READ use {"tool":"search","query":"name/salt/barcode","offset":0}, {"tool":"get","id":"exact ID"}, {"tool":"expiring","days":30,"offset":0}, {"tool":"expired","offset":0}, {"tool":"sold","offset":0}, {"tool":"archived","offset":0}, or {"tool":"sales","days":30}. Search matches literal normalized terms in active stock (not sold/archived); use the actual medicine name, not a whole sentence. Empty search lists active stock. Expiring covers today through the requested future day; expired is strictly before today. Sales days includes today: 1 means today only. Get retrieves detailed facts for one exact ID, including archived stock. Results are paged, not the whole database. Do not claim a page is the entire stock or omitted/truncated fields are empty.
 To ANSWER/PROPOSE use {"reply":"explanation","actions":[]}.
-Allowed proposals: {"op":"add","fields":{"name":"..."}}, {"op":"update","id":"retrieved ID","fields":{"quantity":25}}, {"op":"remove","id":"retrieved ID"}, {"op":"mark_sold","id":"retrieved ID"}, {"op":"restock","id":"retrieved ID","fields":{"quantity":25}}.
+Allowed proposals: {"op":"add","fields":{"name":"..."}}, {"op":"update","id":"retrieved ID","fields":{"quantity":25}}, {"op":"remove","id":"retrieved ID"}, {"op":"mark_sold","id":"retrieved ID"}, {"op":"restock","id":"retrieved ID","fields":{"quantity":25}}, {"op":"restore","id":"retrieved archived ID"}.
 Editable fields: name, brand, salt, strength, form, manufacturer, mfg, expiry, batchNumber, barcode, quantity, unitPricePaise, location, notes. Dates YYYY-MM-DD or printed month YYYY-MM. Expiry month includes its last day. Do not invent dates, quantities or costs. Printed MRP is NOT inventory cost; pack size is NOT stock quantity. Never equate unknown quantity with zero. Never combine stock quantities of different strengths/forms or stock units.
-Only propose mutations explicitly requested by the owner. Questions mean actions:[]. Ambiguous matches require a question, not a guessed ID. Remove archives, never deletes permanently. No raw SQL, paths or hidden tools. At most 8 proposals. EVERY mutation requires the app's review before saving. Expiry/status and sales totals come from deterministic tools, not your memory.
+Only propose mutations explicitly requested by the owner. Questions mean actions:[]. Ambiguous matches require a question, not a guessed ID. Remove archives, never deletes permanently. Restore only an exact archived row returned by the archived/get tool; never guess a removed ID. No raw SQL, paths or hidden tools. At most 8 proposals. EVERY mutation requires the app's review before saving. Expiry/status and sales totals come from deterministic tools, not your memory.
 FACTS: ${jsonEncode(summary)}''';
 
   Map<String, Object?> read(
@@ -225,6 +225,10 @@ FACTS: ${jsonEncode(summary)}''';
       'quantity': m.quantity,
       'sold': m.sold,
       'archived': m.archived,
+      if (m.archived) ...{
+        'archiveReason': text('archiveReason', m.archiveReason),
+        'archivedAt': m.archivedAt?.toIso8601String(),
+      },
       'batchNumber': text('batchNumber', m.batchNumber),
       'location': text('location', m.location),
       'unitPricePaise': m.unitPricePaise,

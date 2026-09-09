@@ -318,7 +318,9 @@ class PharmacyController extends ChangeNotifier {
       throw StateError('Choose an active stock entry before changing stock.');
     }
     if (quantity < 0 || quantity > _maxStockQuantity) {
-      throw const FormatException('Stock quantity is outside the supported range.');
+      throw const FormatException(
+        'Stock quantity is outside the supported range.',
+      );
     }
 
     final current = medicine.quantity;
@@ -374,7 +376,9 @@ class PharmacyController extends ChangeNotifier {
       );
     }
     final live = snapshot.records[review.stockId];
-    if (live == null || live.archived || live.revision != review.recordRevision) {
+    if (live == null ||
+        live.archived ||
+        live.revision != review.recordRevision) {
       throw StateError(
         'The reviewed stock entry changed or is no longer active. Review it again.',
       );
@@ -519,9 +523,7 @@ class PharmacyController extends ChangeNotifier {
       InventoryMutation(
         expectedRevision: snapshot.revision,
         label: 'Removed ${m.name} · $reason',
-        upserts: [
-          m.patch({'archived': true}),
-        ],
+        upserts: [archiveMedicine(m, reason: reason, at: clock())],
       ),
     );
   }
@@ -537,7 +539,10 @@ class PharmacyController extends ChangeNotifier {
         'Inventory changed after bulk removal was reviewed. Start the protected removal flow again.',
       );
     }
-    final activeIds = records.where((m) => !m.archived).map((m) => m.id).toSet();
+    final activeIds = records
+        .where((m) => !m.archived)
+        .map((m) => m.id)
+        .toSet();
     if (!setEquals(activeIds, review.activeIds)) {
       throw StateError(
         'The active inventory no longer matches the reviewed bulk action. Nothing was removed.',
@@ -545,12 +550,18 @@ class PharmacyController extends ChangeNotifier {
     }
     if (activeIds.isEmpty) return;
     final orderedIds = activeIds.toList()..sort();
+    final removedAt = clock();
     await _commit(
       InventoryMutation(
         expectedRevision: review.baseRevision,
         label: 'Removed all inventory · ${orderedIds.length} stock entries',
         upserts: [
-          for (final id in orderedIds) snapshot.records[id]!.patch({'archived': true}),
+          for (final id in orderedIds)
+            archiveMedicine(
+              snapshot.records[id]!,
+              reason: 'Protected bulk removal',
+              at: removedAt,
+            ),
         ],
       ),
     );
@@ -570,9 +581,7 @@ class PharmacyController extends ChangeNotifier {
       InventoryMutation(
         expectedRevision: snapshot.revision,
         label: 'Restored ${m.name}',
-        upserts: [
-          m.patch({'archived': false}),
-        ],
+        upserts: [restoreArchivedMedicine(m)],
       ),
     );
   }
@@ -703,6 +712,7 @@ class PharmacyController extends ChangeNotifier {
       );
     }
     final restored = <Medicine>[];
+    final restoreStartedAt = clock();
     for (final record in review.backup.records.values) {
       final currentRevision = snapshot.records[record.id]?.revision ?? 0;
       restored.add(
@@ -716,7 +726,13 @@ class PharmacyController extends ChangeNotifier {
     }
     for (final record in snapshot.records.values) {
       if (!review.backup.records.containsKey(record.id) && !record.archived) {
-        restored.add(record.patch({'archived': true}));
+        restored.add(
+          archiveMedicine(
+            record,
+            reason: 'Not present in restored backup',
+            at: restoreStartedAt,
+          ),
+        );
       }
     }
     await _commit(

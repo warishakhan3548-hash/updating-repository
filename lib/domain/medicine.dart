@@ -34,9 +34,8 @@ DateTime? parseDate(
 }) {
   if (raw == null || raw == '') return null;
   if (raw is! String) throw const FormatException('Date must be text.');
-  final match = RegExp(
-    r'^(\d{4})-(\d{2})(?:-(\d{2}))?$',
-  ).firstMatch(raw.trim());
+  final match = RegExp(r'^(\d{4})-(\d{2})(?:-(\d{2}))?$')
+      .firstMatch(raw.trim());
   if (match == null)
     throw const FormatException(
       'Use YYYY-MM-DD, or YYYY-MM for a printed expiry month.',
@@ -178,6 +177,8 @@ class Medicine {
     this.ocrText = '',
     this.sold = false,
     this.archived = false,
+    this.archivedAt,
+    this.archiveReason = '',
     this.soldAt,
     this.soldQuantity,
     this.soldUnitPricePaise,
@@ -202,6 +203,8 @@ class Medicine {
   final DateTime? mfg, expiry;
   final bool mfgMonthOnly, expiryMonthOnly, sold, archived;
   final int? quantity, unitPricePaise, soldQuantity, soldUnitPricePaise;
+  final DateTime? archivedAt;
+  final String archiveReason;
   final String? soldAt;
   final int revision;
 
@@ -241,6 +244,8 @@ class Medicine {
     ...editable,
     'sold',
     'archived',
+    'archivedAt',
+    'archiveReason',
     'soldAt',
     'soldQuantity',
     'soldUnitPricePaise',
@@ -277,6 +282,8 @@ class Medicine {
     'ocrText': ocrText,
     'sold': sold,
     'archived': archived,
+    'archivedAt': archivedAt?.toIso8601String(),
+    'archiveReason': archiveReason,
     'soldAt': soldAt,
     'soldQuantity': soldQuantity,
     'soldUnitPricePaise': soldUnitPricePaise,
@@ -313,6 +320,30 @@ class Medicine {
         throw FormatException('Invalid $key.');
     }
     final sold = json['sold'] == true;
+    final archived = json['archived'] == true;
+    final archiveReason = text('archiveReason');
+    final archivedAtRaw = json['archivedAt'];
+    DateTime? archivedAt;
+    if (archivedAtRaw != null && archivedAtRaw != '') {
+      if (archivedAtRaw is! String || archivedAtRaw.length > 80) {
+        throw const FormatException('Invalid archivedAt.');
+      }
+      final parsed = DateTime.tryParse(archivedAtRaw);
+      if (parsed == null || parsed.year < 2000 || parsed.year > 2200) {
+        throw const FormatException('Invalid archivedAt.');
+      }
+      archivedAt = parsed.toUtc();
+    }
+    if (!archived && (archivedAt != null || archiveReason.isNotEmpty)) {
+      throw const FormatException(
+        'Active stock cannot carry removed-stock audit facts.',
+      );
+    }
+    if (archived && ((archivedAt == null) != archiveReason.isEmpty)) {
+      throw const FormatException(
+        'Removed-stock audit reason and time must be recorded together.',
+      );
+    }
     final quantity = number('quantity', 100000000);
     if (sold && quantity != 0)
       throw const FormatException(
@@ -346,7 +377,9 @@ class Medicine {
       notes: text('notes', 10000),
       ocrText: text('ocrText', 30000),
       sold: sold,
-      archived: json['archived'] == true,
+      archived: archived,
+      archivedAt: archivedAt,
+      archiveReason: archiveReason,
       soldAt: json['soldAt'] as String?,
       soldQuantity: number('soldQuantity', 100000000),
       soldUnitPricePaise: number('soldUnitPricePaise', 99999999999),
@@ -359,6 +392,42 @@ class Medicine {
     ...changes,
     'id': id,
     'revision': revision + 1,
+  });
+}
+
+/// The single authoritative transition into Removed stock.
+///
+/// Removal provenance is system-owned metadata, not an AI-editable medicine
+/// fact. Legacy archived rows may have no provenance; every new removal records
+/// a bounded reason and an unambiguous UTC timestamp.
+Medicine archiveMedicine(
+  Medicine record, {
+  required String reason,
+  required DateTime at,
+}) {
+  final cleanReason = reason.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (cleanReason.isEmpty || cleanReason.length > 300) {
+    throw const FormatException('Choose a valid removal reason.');
+  }
+  if (record.archived) {
+    throw StateError('This stock entry is already removed.');
+  }
+  return record.patch({
+    'archived': true,
+    'archivedAt': at.toUtc().toIso8601String(),
+    'archiveReason': cleanReason,
+  });
+}
+
+/// The single authoritative transition back from Removed stock.
+Medicine restoreArchivedMedicine(Medicine record) {
+  if (!record.archived) {
+    throw StateError('This stock entry is not removed.');
+  }
+  return record.patch({
+    'archived': false,
+    'archivedAt': null,
+    'archiveReason': '',
   });
 }
 
