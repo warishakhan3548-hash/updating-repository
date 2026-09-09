@@ -1,0 +1,90 @@
+name: Aaris autonomous upgrade
+
+on:
+  push:
+    branches:
+      - upgrade/aaris-autonomous-safety-20260910
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aaris-autonomous-upgrade-20260910
+  cancel-in-progress: false
+
+jobs:
+  upgrade-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - name: Checkout exact upgrade branch
+        uses: actions/checkout@v4
+        with:
+          ref: upgrade/aaris-autonomous-safety-20260910
+          fetch-depth: 0
+
+      - name: Fetch reviewed quick-intake source branch
+        run: git fetch origin upgrade/aaris-brain-quick-intake-20260910
+
+      - name: Apply surgical upgrade
+        run: python3 tool/aaris_autonomous_upgrade_20260910.py
+
+      - name: Format source
+        run: dart --version || true
+        continue-on-error: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Format modified Dart
+        run: dart format lib test
+
+      - name: Verify clean patch shape
+        run: git diff --check
+
+      - name: Resolve pinned dependencies
+        run: flutter pub get
+
+      - name: Static checks
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+
+      - name: Full Flutter regression suite
+        run: flutter test --reporter expanded
+
+      - name: Compile Android integration
+        run: flutter build apk --debug --no-pub
+
+      - name: Remove one-shot upgrade machinery
+        run: |
+          rm -f tool/aaris_autonomous_upgrade_20260910.py
+          rm -f .github/workflows/aaris-autonomous-upgrade.yml
+          git diff --check
+
+      - name: Commit verified production upgrade
+        run: |
+          git config user.name "Aaris Upgrade Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git diff --cached --check
+          git commit -m "Upgrade Aaris autonomous pharmacy safety and quick intake"
+          git push origin HEAD:upgrade/aaris-autonomous-safety-20260910
+
+      - name: Upload verified debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aaris-Pharmacy-autonomous-upgrade-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
