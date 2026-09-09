@@ -203,7 +203,7 @@ class _TaskCard extends StatelessWidget {
     PharmacistTaskKind.reorder => Icons.add_shopping_cart_rounded,
     PharmacistTaskKind.missingExpiry => Icons.event_note_outlined,
     PharmacistTaskKind.missingQuantity => Icons.numbers_rounded,
-    PharmacistTaskKind.missingLocation => Icons.shelves,
+    PharmacistTaskKind.missingLocation => Icons.location_on_outlined,
   };
 
   String get priorityLabel => switch (task.priority) {
