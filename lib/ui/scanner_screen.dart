@@ -55,7 +55,9 @@ class _ScannerScreenState extends State<ScannerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_bootstrap());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_closed) unawaited(_bootstrap());
+    });
   }
 
   Future<void> _bootstrap() async {
