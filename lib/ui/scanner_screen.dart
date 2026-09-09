@@ -9,6 +9,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import '../domain/medicine_understanding.dart';
 import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
+import 'default_ai_prompt.dart';
 import 'design.dart';
 
 class ScanResult {
@@ -54,7 +55,15 @@ class _ScannerScreenState extends State<ScannerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_start());
+    unawaited(_bootstrap());
+  }
+
+  Future<void> _bootstrap() async {
+    // Ask once for the small default brain before opening the camera. If the
+    // owner declines or setup fails, offerAarisDefaultAi returns normally and
+    // the existing deterministic scanner starts unchanged.
+    await offerAarisDefaultAi(context);
+    if (!_closed && mounted) await _start();
   }
 
   Future<void> _start() async {
