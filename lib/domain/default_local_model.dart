@@ -16,7 +16,7 @@ const int aarisDefaultModelMaxBytes = 420 * 1000 * 1000;
 const int aarisDefaultModelTargetBytes = 398 * 1000 * 1000;
 
 const String aarisDefaultModelDisplayName = 'Aaris Default Local AI';
-const String aarisDefaultModelDownloadHint = 'about 400 MB';
+const String aarisDefaultModelDownloadHint = '400 MB';
 
 /// Prefer a balanced 4-bit quant, then progressively smaller compatible files.
 /// The runtime still has the final say: catalogue presence never equals support.
