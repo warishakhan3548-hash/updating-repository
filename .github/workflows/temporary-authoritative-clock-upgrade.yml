@@ -41,11 +41,24 @@ jobs:
         run: flutter test --reporter expanded
       - name: Diff integrity
         run: |
-          git add -N test/authoritative_business_clock_test.dart
+          git checkout -- pubspec.lock 2>/dev/null || true
           git diff --check
-          changed="$(git diff --name-only | sort)"
-          expected="$(printf '%s\n' lib/data/inventory_database.dart lib/state/pharmacy_controller.dart test/authoritative_business_clock_test.dart | sort)"
-          test "$changed" = "$expected"
+          python3 - <<'PY'
+          import subprocess
+          expected = {
+              'lib/data/inventory_database.dart',
+              'lib/state/pharmacy_controller.dart',
+              'test/authoritative_business_clock_test.dart',
+          }
+          rows = subprocess.check_output(
+              ['git', 'status', '--porcelain'], text=True
+          ).splitlines()
+          changed = {row[3:] for row in rows}
+          if changed != expected:
+              raise SystemExit(
+                  f'Unexpected working-tree paths: {sorted(changed)}; expected: {sorted(expected)}'
+              )
+          PY
       - name: Remove temporary surgeon and commit verified result
         run: |
           rm tool/temporary_authoritative_clock_upgrade.py
