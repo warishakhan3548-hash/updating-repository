@@ -176,7 +176,7 @@ void main() {
     'reply': 'Review stock update',
     'actions': [
       {
-        'op': 'update',
+        'op': 'set_quantity',
         'id': id,
         'fields': {'quantity': 25},
       },
@@ -380,8 +380,7 @@ void main() {
   );
   const combo = MedicineScanDraft(
     fields: {},
-    rawText:
-        'Rifampicin 150 mg Isoniazid 75 mg Pyrazinamide 400 mg Ethambutol 275 mg',
+    rawText: 'Rifampicin 150 mg Isoniazid 75 mg Pyrazinamide 400 mg Ethambutol 275 mg',
     searchKeywords: '',
     frameSequences: [1],
   );

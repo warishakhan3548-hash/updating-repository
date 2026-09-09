@@ -69,11 +69,13 @@ Return one JSON object with this exact envelope:
 Allowed actions:
 {"op":"add","fields":{"name":"Medicine name","manufacturer":"Maker","strength":"500mg","form":"Tablet","expiry":"2027-02","quantity":20,"unitPricePaise":250,"location":"Rack 2","notes":""}}
 {"op":"update","id":"EXACT_EXISTING_ID","fields":{"expiry":"2027-02-28"}}
+{"op":"set_quantity","id":"EXACT_EXISTING_ID","fields":{"quantity":18}}
+{"op":"receive_stock","id":"EXACT_EXISTING_ID","fields":{"quantity":12}}
 {"op":"mark_sold","id":"EXACT_EXISTING_ID"}
 {"op":"restock","id":"EXACT_EXISTING_ID","fields":{"quantity":20,"expiry":"2028-01"}}
 {"op":"remove","id":"EXACT_EXISTING_ID"}
-All editable fields: name, brand, manufacturer, salt, strength, form, mfg, expiry, quantity, unitPricePaise, barcode, batchNumber, block, row, vertical, location, notes, ocrText.
-Dates: YYYY-MM-DD; printed MFG YYYY-MM means that exact month and printed expiry YYYY-MM means month end. Quantity is an integer in the owner's stock unit. unitPricePaise is the inventory/purchase cost in integer paise PER SAME UNIT (250 = Rs 2.50), not assumed sale revenue or printed MRP. Never confuse pack size with stock quantity or strip cost with tablet cost. Name is required; other fields may be missing. Never infer quantities or costs.
+Editable fact fields: name, brand, manufacturer, salt, strength, form, mfg, expiry, unitPricePaise, barcode, batchNumber, block, row, vertical, location, notes, ocrText. Generic update MUST NOT change quantity. Use set_quantity for an exact physical-count correction and receive_stock for a positive newly-received quantity delta. Quantity remains allowed when adding new stock or restocking a SOLD entry.
+Dates: YYYY-MM-DD; printed MFG YYYY-MM means that exact month and printed expiry YYYY-MM means month end. Quantity is an integer in the owner's stock unit. unitPricePaise is the inventory/purchase cost in integer paise PER SAME UNIT (250 = Rs 2.50), not assumed sale revenue or printed MRP. Never confuse pack size with stock quantity or strip cost with tablet cost. Name is required; other fields may be missing. Never infer quantities or costs. For receive_stock, fields.quantity is the positive number of units newly received and is added to the known current quantity. For set_quantity, fields.quantity is the exact counted quantity after correction and may be zero without implying SOLD. If current quantity is unknown, do not use receive_stock; request a physical count and use set_quantity. Do not receive into expired stock.
 Aggregate sales contain medicine movement only and no customer identity. Do not invent or modify sales events through this protocol.
 Do not emit daysLeft, status, expired, warning colors, totals, paths, diary data, API keys or credentials. The app computes expiry. Sold means explicitly confirmed completely out of stock, not one unit sold. Remove means archive only and requires an explicit owner request.
 Existing stock changes require the exact inventory ID, never guess by name. Multiple expiries/locations are distinct entries. Prefer updating a matching known ID over duplicate additions, but ask if ambiguous. Maximum 250 actions; at most one action per existing ID. Omit unchanged fields in updates. Return an empty actions list for a question-only answer. Every mutation is reviewed in the app before it can be saved.''';
@@ -178,6 +180,8 @@ AiPlan parseAiPlan(
         'update',
         'remove',
         'mark_sold',
+        'set_quantity',
+        'receive_stock',
         'restock',
         'restore',
       }.contains(op))
@@ -243,6 +247,64 @@ AiPlan parseAiPlan(
             'soldQuantity': before.quantity,
             'soldUnitPricePaise': before.unitPricePaise,
           });
+        } else if (op == 'set_quantity') {
+          if (fields.length != 1 || !fields.containsKey('quantity')) {
+            throw const FormatException(
+              'set_quantity accepts only the exact counted quantity.',
+            );
+          }
+          final quantity = fields['quantity'];
+          if (quantity is! int || quantity < 0 || quantity > 100000000) {
+            throw const FormatException(
+              'set_quantity needs an exact stock count from 0 to 100000000.',
+            );
+          }
+          if (before.sold) {
+            throw const FormatException(
+              'A SOLD entry must be reopened with restock, not set_quantity.',
+            );
+          }
+          if (before.quantity == quantity) {
+            throw const FormatException(
+              'set_quantity must change the current counted quantity.',
+            );
+          }
+          after = before.patch({'quantity': quantity});
+        } else if (op == 'receive_stock') {
+          if (fields.length != 1 || !fields.containsKey('quantity')) {
+            throw const FormatException(
+              'receive_stock accepts only the positive received quantity delta.',
+            );
+          }
+          final received = fields['quantity'];
+          if (received is! int || received <= 0 || received > 100000000) {
+            throw const FormatException(
+              'receive_stock needs a positive received quantity.',
+            );
+          }
+          if (before.sold) {
+            throw const FormatException(
+              'A SOLD entry must be reopened with restock, including a reviewed expiry.',
+            );
+          }
+          if (isExpiredOn(before, now)) {
+            throw const FormatException(
+              'Do not receive new units into an expired stock entry. Add or select the correct active batch.',
+            );
+          }
+          final current = before.quantity;
+          if (current == null) {
+            throw const FormatException(
+              'Current quantity is unknown. Count the stock and use set_quantity first.',
+            );
+          }
+          final target = current + received;
+          if (target > 100000000) {
+            throw const FormatException(
+              'Received quantity exceeds the supported stock limit. Check the stock unit.',
+            );
+          }
+          after = before.patch({'quantity': target});
         } else if (op == 'remove') {
           after = archiveMedicine(
             before,
@@ -272,6 +334,11 @@ AiPlan parseAiPlan(
         } else {
           if (fields.isEmpty)
             throw const FormatException('Update has no changes.');
+          if (fields.containsKey('quantity')) {
+            throw const FormatException(
+              'Generic update cannot change stock quantity. Use set_quantity or receive_stock.',
+            );
+          }
           after = before.patch(fields);
         }
       }

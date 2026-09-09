@@ -175,7 +175,7 @@ class _AiScreenState extends State<AiScreen> {
         _selected = {
           for (var i = 0; i < plan.changes.length; i++)
             if (plan.changes[i].possibleDuplicates.isEmpty &&
-                !_requiresExplicitLifecycleSelection(plan.changes[i].operation))
+                !_requiresExplicitMutationSelection(plan.changes[i].operation))
               i,
         };
       });
@@ -385,6 +385,8 @@ class _AiScreenState extends State<AiScreen> {
     'update' => primary,
     'remove' => red,
     'mark_sold' => amber,
+    'set_quantity' => amber,
+    'receive_stock' => green,
     'restock' => _aiPurple,
     'restore' => green,
     _ => muted,
@@ -574,7 +576,7 @@ class _AiScreenState extends State<AiScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Unselected changes stay untouched. Remove, SOLD and Restore actions are never pre-selected.',
+              'Unselected changes stay untouched. Removal, SOLD, restore and stock-quantity operations are never pre-selected.',
               style: TextStyle(fontSize: 10.5, color: muted),
             ),
           ],
@@ -1371,8 +1373,13 @@ class _ExternalAiIcon extends StatelessWidget {
   );
 }
 
-bool _requiresExplicitLifecycleSelection(String operation) =>
-    const {'remove', 'mark_sold', 'restore'}.contains(operation);
+bool _requiresExplicitMutationSelection(String operation) => const {
+  'remove',
+  'mark_sold',
+  'restore',
+  'set_quantity',
+  'receive_stock',
+}.contains(operation);
 
 String _operationLabel(String operation) =>
     {
@@ -1380,6 +1387,8 @@ String _operationLabel(String operation) =>
       'update': 'Edit existing stock',
       'remove': 'Remove from inventory',
       'mark_sold': 'Mark out of stock · reorder',
+      'set_quantity': 'Set exact counted quantity · review required',
+      'receive_stock': 'Receive stock quantity · review required',
       'restock': 'Restock medicine',
       'restore': 'Restore removed stock',
     }[operation] ??
