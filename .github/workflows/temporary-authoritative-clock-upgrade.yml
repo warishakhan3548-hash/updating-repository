@@ -41,6 +41,7 @@ jobs:
         run: flutter test --reporter expanded
       - name: Diff integrity
         run: |
+          git add -N test/authoritative_business_clock_test.dart
           git diff --check
           changed="$(git diff --name-only | sort)"
           expected="$(printf '%s\n' lib/data/inventory_database.dart lib/state/pharmacy_controller.dart test/authoritative_business_clock_test.dart | sort)"
