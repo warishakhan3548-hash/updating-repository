@@ -345,8 +345,8 @@ void main() {
     );
     await expectLater(controller.markSold('expired'), throwsFormatException);
     final record = controller.snapshot.records['expired']!;
-    await expectLater(
-      controller.save(
+    expect(
+      () => controller.save(
         record.patch({'sold': true, 'quantity': 0}),
         expectedRevision: controller.snapshot.revision,
       ),
