@@ -3,6 +3,9 @@
 The existing AI Hub remains the only AI control surface. SQLite, the reviewed
 action protocol and the OCR/layout resolver remain the core, not parallel copies.
 
+For the implemented discovery/preflight/runtime upgrade and its current test
+boundaries, see [9 September upgrade](LOCAL_AI_UPGRADE_2026_09_09.md).
+
 ## Source map and responsibilities
 
 | Existing core | Integration |

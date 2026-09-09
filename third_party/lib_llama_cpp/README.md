@@ -14,6 +14,10 @@ Local fixes, directly in the runtime (no package overrides or stacked adapters):
 - Clear native sequence/KV memory before each independent full prompt while
   retaining loaded weights. Otherwise consecutive scans/tool rounds accumulate
   stale tokens and can contaminate the next medicine or exhaust the context.
+- Check actual prompt tokens plus the requested output budget before decoding.
+- Bound CPU threads and prompt microbatches to preserve camera/OCR capacity.
+- Decode generated UTF-8 across token byte boundaries, preserving Hindi/Urdu
+  and rejecting invalid output instead of replacing medicine text.
 
 The application waits for command completion even after error/state events;
 it cannot accidentally treat the previous command's completion as a new reply.

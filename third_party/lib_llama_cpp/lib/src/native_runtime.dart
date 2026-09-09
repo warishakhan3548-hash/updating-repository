@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:lib_llama_cpp_ffi/lib_llama_cpp_ffi.dart';
@@ -13,6 +14,8 @@ import 'llama_response.dart';
 import 'llama_state.dart';
 import 'llama_tool.dart';
 import 'tool_aware_streaming.dart';
+import 'context_budget.dart';
+import 'token_text_decoder.dart';
 
 final class NativeLlamaRuntime {
   NativeLlamaRuntime({required LlamaCppLibraryDescriptor library})
@@ -59,9 +62,16 @@ final class NativeLlamaRuntime {
 
       final contextParams = _bindings.llama_context_default_params();
       contextParams.n_ctx = command.contextSize ?? 0;
-      final threads = math.max(1, Platform.numberOfProcessors - 1);
+      final mobile = Platform.isAndroid || Platform.isIOS;
+      final threads = math.max(
+        1,
+        math.min(mobile ? 4 : 8, Platform.numberOfProcessors - 1),
+      );
       contextParams.n_threads = threads;
       contextParams.n_threads_batch = threads;
+      // Bound prompt workspace and leave CPU capacity for camera/OCR/UI.
+      contextParams.n_batch = mobile ? 256 : 512;
+      contextParams.n_ubatch = mobile ? 128 : 256;
 
       context = _bindings.llama_new_context_with_model(model, contextParams);
       if (context == nullptr) {
@@ -154,6 +164,11 @@ final class NativeLlamaRuntime {
     }
 
     final contextSize = _bindings.llama_n_ctx(loaded.context);
+    validateContextBudget(
+      promptTokens: promptTokens.length,
+      contextTokens: contextSize,
+      outputTokens: command.maxTokens,
+    );
     if (promptTokens.length >= contextSize) {
       throw NativeLlamaException(
         'Prompt token count ${promptTokens.length} exceeds context size $contextSize.',
@@ -202,6 +217,7 @@ final class NativeLlamaRuntime {
       loaded: loaded,
       prompt: templateResult.prompt,
       mediaInputs: mediaInputs,
+      outputTokens: command.maxTokens,
     );
 
     final grammar = _samplingGrammarFor(templateResult);
@@ -272,6 +288,7 @@ final class NativeLlamaRuntime {
       grammarTriggers: grammarTriggers,
     );
     final stopMatcher = _StopMatcher(command.stop);
+    final textDecoder = TokenTextDecoder();
     var generated = 0;
 
     try {
@@ -286,7 +303,7 @@ final class NativeLlamaRuntime {
         }
 
         _bindings.llama_sampler_accept(sampler, token);
-        final piece = _tokenToPiece(loaded.vocab, token);
+        final piece = textDecoder.add(_tokenToBytes(loaded.vocab, token));
         final delta = stopMatcher.add(piece);
         if (delta.isNotEmpty) {
           yield LlamaTokenResponse(text: delta, index: generated);
@@ -308,6 +325,11 @@ final class NativeLlamaRuntime {
         _decodeTokens(loaded.context, [token]);
       }
 
+      if (!stopMatcher.isStopped) {
+        final remaining = stopMatcher.add(textDecoder.finish());
+        if (remaining.isNotEmpty)
+          yield LlamaTokenResponse(text: remaining, index: generated);
+      }
       final tail = stopMatcher.flush();
       if (tail.isNotEmpty) {
         yield LlamaTokenResponse(text: tail, index: generated);
@@ -321,6 +343,7 @@ final class NativeLlamaRuntime {
     required _LoadedModel loaded,
     required String prompt,
     required List<_MediaInput> mediaInputs,
+    int? outputTokens,
   }) {
     if (mediaInputs.isEmpty) {
       final promptTokens = _tokenize(loaded.vocab, prompt);
@@ -329,6 +352,11 @@ final class NativeLlamaRuntime {
       }
 
       final contextSize = _bindings.llama_n_ctx(loaded.context);
+      validateContextBudget(
+        promptTokens: promptTokens.length,
+        contextTokens: contextSize,
+        outputTokens: outputTokens,
+      );
       if (promptTokens.length >= contextSize) {
         throw NativeLlamaException(
           'Prompt token count ${promptTokens.length} exceeds context size $contextSize.',
@@ -737,7 +765,7 @@ final class NativeLlamaRuntime {
     return pointer;
   }
 
-  String _tokenToPiece(Pointer<llama_vocab> vocab, int token) {
+  Uint8List _tokenToBytes(Pointer<llama_vocab> vocab, int token) {
     var capacity = 32;
     Pointer<Char> buffer = calloc<Char>(capacity);
 
@@ -751,6 +779,8 @@ final class NativeLlamaRuntime {
         false,
       );
       if (length < 0) {
+        if (-length > 1024 * 1024)
+          throw const NativeLlamaException('Token piece exceeds 1 MB.');
         calloc.free(buffer);
         capacity = -length;
         buffer = calloc<Char>(capacity);
@@ -764,13 +794,13 @@ final class NativeLlamaRuntime {
         );
       }
 
-      if (length < 0) {
+      if (length < 0 || length > capacity) {
         throw NativeLlamaException(
           'Failed to convert token $token to text: llama.cpp returned $length.',
         );
       }
 
-      return buffer.cast<Utf8>().toDartString(length: length);
+      return Uint8List.fromList(buffer.cast<Uint8>().asTypedList(length));
     } finally {
       calloc.free(buffer);
     }

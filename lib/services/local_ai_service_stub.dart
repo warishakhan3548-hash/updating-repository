@@ -15,8 +15,11 @@ class LocalAiService extends ChangeNotifier {
   String get status =>
       'Local native models need the installed Android/desktop app.';
   String get activeLabel => '';
+  String get executionSummary => '';
   String? get activeId => null;
   List<InstalledLocalModel> get installed => const [];
+  List<LocalModelFile> get pendingDownloads => const [];
+  Future<void> discardDownload(String sha256) async {}
   Future<void> initialize() async {}
   Future<ModelSearchPage> searchPage(
     String query, {

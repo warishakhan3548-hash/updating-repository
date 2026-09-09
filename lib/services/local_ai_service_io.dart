@@ -2,24 +2,28 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../domain/local_ai_protocol.dart';
+import '../domain/gguf_metadata.dart';
+import 'gguf_inspector.dart';
 import '../domain/local_model.dart';
+import '../domain/local_model_checks.dart';
 import '../domain/model_catalogue.dart';
 import 'model_catalogue_service.dart';
 import '../domain/medicine_understanding.dart';
 import 'local_ai_runtime.dart';
 
-class LocalAiService extends ChangeNotifier {
+class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   static final instance = LocalAiService();
   final List<InstalledLocalModel> _models = [];
+  final List<LocalModelFile> _downloads = [];
   Future<void>? _initializing;
   Directory? _directory;
   LocalAiRuntime? _runtime;
@@ -30,6 +34,11 @@ class LocalAiService extends ChangeNotifier {
   double? _progress;
   String _status = 'No local model selected';
   Timer? _idle;
+  bool _observingMemory = false, _releaseForMemory = false;
+  LocalExecutionPlan? _executionPlan;
+  String get executionSummary => _executionPlan == null
+      ? ''
+      : '${_executionPlan!.contextTokens} token context · estimated ${modelSize(_executionPlan!.estimatedBytes)} working memory';
 
   bool get supported =>
       Platform.isAndroid ||
@@ -45,6 +54,7 @@ class LocalAiService extends ChangeNotifier {
   String get status => _status;
   String? get activeId => _activeId;
   List<InstalledLocalModel> get installed => List.unmodifiable(_models);
+  List<LocalModelFile> get pendingDownloads => List.unmodifiable(_downloads);
   String get activeLabel =>
       _models.where((m) => m.id == _activeId).map((m) => m.label).firstOrNull ??
       (hasSelection ? 'Selected model unavailable' : '');
@@ -86,13 +96,39 @@ class LocalAiService extends ChangeNotifier {
       _models
         ..clear()
         ..addAll(models);
+      final downloads = json['downloads'] ?? [];
+      if (downloads is! List ||
+          downloads.length > 32 ||
+          downloads.any((d) => d is! Map)) {
+        throw const FormatException('Invalid saved model download list.');
+      }
+      _downloads
+        ..clear()
+        ..addAll(
+          downloads.map(
+            (d) => LocalModelFile.fromJson(Map<String, dynamic>.from(d as Map)),
+          ),
+        );
       _activeId = id as String?;
       _scannerEnabled = json['scannerEnabled'] != false;
       _status = hasSelection
           ? 'Local selected · loads on demand'
           : 'No local model selected';
     }
+    if (!_observingMemory) {
+      WidgetsBinding.instance.addObserver(this);
+      _observingMemory = true;
+    }
     notifyListeners();
+  }
+
+  @override
+  void didHaveMemoryPressure() {
+    _releaseForMemory = true;
+    cancelRequest();
+    if (!busy && !_transferring) {
+      unawaited(_exclusive((_) async {}).catchError((Object _) {}));
+    }
   }
 
   File _weights(String id) {
@@ -109,6 +145,7 @@ class LocalAiService extends ChangeNotifier {
         'activeId': _activeId,
         'scannerEnabled': _scannerEnabled,
         'models': _models.map((m) => m.toJson()).toList(),
+        'downloads': _downloads.map((m) => m.toJson()).toList(),
       }),
       flush: true,
     );
@@ -144,6 +181,7 @@ class LocalAiService extends ChangeNotifier {
     for (var redirects = 0; redirects <= 6; redirects++) {
       final host = uri.host.toLowerCase();
       if (uri.scheme != 'https' ||
+          uri.port != 443 ||
           uri.userInfo.isNotEmpty ||
           !(host == 'huggingface.co' ||
               host.endsWith('.huggingface.co') ||
@@ -190,6 +228,14 @@ class LocalAiService extends ChangeNotifier {
     final part = File('${_directory!.path}/${model.sha256}.part');
     RandomAccessFile? writer;
     try {
+      if (!_downloads.any((m) => m.sha256 == model.sha256)) {
+        if (_downloads.length >= 32)
+          throw StateError('Remove or finish a paused model download first.');
+        _downloads.add(model);
+      }
+      // Save the exact revision + checksum before transferring any bytes.
+      // Resume no longer depends on finding the same search result after restart.
+      await _save();
       var offset = await part.exists() ? await part.length() : 0;
       if (offset > model.bytes) {
         await part.delete();
@@ -269,7 +315,7 @@ class LocalAiService extends ChangeNotifier {
       }
       if (generation != _transferGeneration)
         throw StateError('Download paused after verification.');
-      await _checkGguf(part);
+      final metadata = await _checkGguf(part);
       await part.rename(_weights(hash).path);
       _models.add(
         InstalledLocalModel(
@@ -277,8 +323,10 @@ class LocalAiService extends ChangeNotifier {
           label: model.label,
           bytes: model.bytes,
           source: '${model.repository}@${model.revision}',
+          metadata: metadata,
         ),
       );
+      _downloads.removeWhere((m) => m.sha256 == model.sha256);
       await _save();
       _status = 'Download verified. Activate to test this model.';
     } catch (error) {
@@ -310,6 +358,21 @@ class LocalAiService extends ChangeNotifier {
       );
     }
   }
+
+  Future<void> discardDownload(String sha256) => _exclusive((_) async {
+    final model = _downloads.where((m) => m.sha256 == sha256).firstOrNull;
+    if (model == null) return;
+    _downloads.remove(model);
+    try {
+      await _save();
+    } catch (_) {
+      _downloads.add(model);
+      rethrow;
+    }
+    final partial = File('${_directory!.path}/${model.sha256}.part');
+    if (await partial.exists()) await partial.delete();
+    _status = 'Partial download removed';
+  });
 
   Future<void> importModel() async {
     await initialize();
@@ -361,7 +424,7 @@ class LocalAiService extends ChangeNotifier {
         );
       if (generation != _transferGeneration)
         throw StateError('Model import cancelled.');
-      await _checkGguf(part);
+      final metadata = await _checkGguf(part);
       final bytes = await part.length();
       final hash = verifiedHash ?? await _hash(part.path);
       if (generation != _transferGeneration) {
@@ -376,7 +439,14 @@ class LocalAiService extends ChangeNotifier {
       }
       await part.rename(_weights(hash).path);
       part = null;
-      _models.add(InstalledLocalModel(id: hash, label: name, bytes: bytes));
+      _models.add(
+        InstalledLocalModel(
+          id: hash,
+          label: name,
+          bytes: bytes,
+          metadata: metadata,
+        ),
+      );
       await _save();
       _status =
           'Import ready. Publisher authenticity is not verified; activate to test compatibility.';
@@ -405,6 +475,14 @@ class LocalAiService extends ChangeNotifier {
       try {
         return await action(generation);
       } finally {
+        if (_releaseForMemory) {
+          _releaseForMemory = false;
+          try {
+            await _release();
+          } catch (_) {}
+          _status =
+              'Memory pressure · local model unloaded; selection retained';
+        }
         _working = false;
         notifyListeners();
         _idle = Timer(const Duration(minutes: 3), () {
@@ -448,8 +526,12 @@ class LocalAiService extends ChangeNotifier {
 
   Future<void> _release() async {
     final runtime = _runtime;
-    if (runtime != null) await runtime.close();
-    _runtime = null;
+    try {
+      if (runtime != null) await runtime.close();
+    } finally {
+      _runtime = null;
+      _executionPlan = null;
+    }
   }
 
   Future<void> _loadSelected() async {
@@ -465,12 +547,24 @@ class LocalAiService extends ChangeNotifier {
       );
     }
     if (_runtime?.modelPath != file.path) {
-      await _checkResources(weightBytes: model.bytes);
+      final metadata = await _checkGguf(file);
+      final facts = await _checkResources(weightBytes: model.bytes);
+      _executionPlan = planLocalExecution(
+        weightBytes: model.bytes,
+        metadata: metadata,
+        totalMemory: facts?['totalMemory'] as int?,
+        availableMemory: facts?['availableMemory'] as int?,
+        lowMemory: facts?['lowMemory'] == true,
+        phone: Platform.isAndroid || Platform.isIOS,
+      );
+      _runtime ??= LocalAiRuntime();
+      _status = 'Local AI · loading · $executionSummary';
+      notifyListeners();
+      await _runtime!.load(
+        file.path,
+        contextTokens: _executionPlan!.contextTokens,
+      );
     }
-    _runtime ??= LocalAiRuntime();
-    _status = 'Local AI · loading / processing';
-    notifyListeners();
-    await _runtime!.load(file.path);
   }
 
   Future<void> activate(String id) => _exclusive((generation) async {
@@ -481,7 +575,7 @@ class LocalAiService extends ChangeNotifier {
     _activeId = id;
     try {
       final file = _weights(id);
-      await _checkGguf(file);
+      final metadata = await _checkGguf(file);
       _status = 'Verifying model before activation…';
       notifyListeners();
       if (await _hash(file.path) != id)
@@ -490,43 +584,40 @@ class LocalAiService extends ChangeNotifier {
         );
       _checkRequest(generation);
       await _loadSelected();
-      const system =
-          'Extract salt and labelled expiry from SOURCE. Unknown is null. Return only JSON {"salt":null,"expiry":null}. Expiry format YYYY-MM. Never infer expiry from MFG.';
-      final first = localJsonObject(
-        await _runtime!.generate(
-          system,
-          'SOURCE: Paracetamol 500 mg. MFG 08/2026. EXP 07/2028.',
-          maxTokens: 180,
-        ),
-      );
-      _checkRequest(generation);
-      final second = localJsonObject(
-        await _runtime!.generate(
-          system,
-          'SOURCE: BATCH AB12. MFG 09/2026.',
-          maxTokens: 180,
-        ),
-      );
-      if (first['salt'] != 'Paracetamol' ||
-          first['expiry'] != '2028-07' ||
-          second['salt'] != null ||
-          second['expiry'] != null) {
-        throw StateError(
-          'Setup checks failed: structured extraction/unknown fields. Try an instruction-tuned model.',
+      for (var i = 0; i < localSetupChecks.length; i++) {
+        final probe = localSetupChecks[i];
+        _status =
+            'Setup check ${i + 1}/${localSetupChecks.length} · structured extraction';
+        notifyListeners();
+        final answer = localJsonObject(
+          await _runtime!.generate(
+            localSetupPrompt,
+            jsonEncode({'SOURCE': probe.source}),
+            maxTokens: 180,
+          ),
         );
+        _checkRequest(generation);
+        if (!passesLocalSetup(answer, probe))
+          throw StateError(
+            'Setup check ${i + 1} failed: printed fields/unknowns/decimal or denominator handling. Try another instruction-tuned model.',
+          );
       }
-      _checkRequest(generation);
       _models[_models.indexOf(model)] = InstalledLocalModel(
         id: model.id,
         label: model.label,
         bytes: model.bytes,
         source: model.source,
         smokeTestPassed: true,
+        metadata: metadata,
+        testedRuntime: '$localRuntimeBuild/setup-$localSetupCheckVersion',
       );
       await _save();
-      _status = 'Local active · 2 setup checks passed · review required';
+      _status =
+          'Local active · ${localSetupChecks.length} setup checks passed · review required';
     } catch (_) {
       _activeId = previous;
+      final index = _models.indexWhere((m) => m.id == model.id);
+      if (index >= 0) _models[index] = model;
       await _release();
       _status = 'Activation failed; previous selection preserved';
       rethrow;
@@ -634,16 +725,16 @@ class LocalAiService extends ChangeNotifier {
   }
 }
 
-Future<void> _checkResources({
+Future<Map<String, dynamic>?> _checkResources({
   int storageBytes = 0,
   int weightBytes = 0,
 }) async {
-  if (!Platform.isAndroid) return;
+  if (!Platform.isAndroid) return null;
   const channel = MethodChannel('com.aaris.pharmacy/documents');
   final info = await channel.invokeMapMethod<String, dynamic>(
     'localAiDeviceInfo',
   );
-  final free = info?['freeStorage'], total = info?['totalMemory'];
+  final free = info?['freeStorage'];
   if (weightBytes > 0) {
     final abis = info?['abis'], sdk = info?['sdkInt'];
     // The pinned package ships an Android arm64 prebuilt. Keep unsupported
@@ -663,33 +754,16 @@ Future<void> _checkResources({
       'Not enough free storage for the model plus 512 MB safety reserve.',
     );
   }
-  if (weightBytes > 0 &&
-      (info?['lowMemory'] == true ||
-          (total is int && weightBytes * 1.2 + reserve > total * .8))) {
+  if (weightBytes > 0 && info?['lowMemory'] == true) {
     throw StateError(
-      'This model exceeds the conservative memory budget for this device. Choose smaller quantized weights. File size is not runtime RAM.',
+      'Device memory is under pressure. Close other apps or choose smaller weights.',
     );
   }
+  return info;
 }
 
 Future<String> _hash(String path) => Isolate.run(
   () async => (await sha256.bind(File(path).openRead()).first).toString(),
 );
 
-Future<void> _checkGguf(File file) async {
-  if (await file.length() < 1024)
-    throw const FormatException('Model file is incomplete.');
-  final reader = await file.open();
-  try {
-    final bytes = await reader.read(24);
-    if (bytes.length != 24 ||
-        ascii.decode(bytes.take(4).toList(), allowInvalid: true) != 'GGUF') {
-      throw const FormatException('This is not a GGUF model file.');
-    }
-    final version = ByteData.sublistView(bytes).getUint32(4, Endian.little);
-    if (version != 2 && version != 3)
-      throw const FormatException('Unsupported GGUF container version.');
-  } finally {
-    await reader.close();
-  }
-}
+Future<GgufMetadata> _checkGguf(File file) => inspectGgufFile(file.path);

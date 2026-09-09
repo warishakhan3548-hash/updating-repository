@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -17,7 +18,7 @@ import 'scan_service.dart';
 /// Persistent, bounded work queue shared by AI Hub and ordinary import.
 /// Captures are acknowledged after private-file copy + SQLite job commit,
 /// independently of OCR/LLM latency. Inventory is never written by this service.
-class MedicineIntakeService extends ChangeNotifier {
+class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   MedicineIntakeService._() {
     LocalAiService.instance.addListener(_modelChanged);
   }
@@ -30,7 +31,7 @@ class MedicineIntakeService extends ChangeNotifier {
   Future<void>? _initializing;
   Future<void> _intakeWrites = Future.value();
   bool _running = false, _paused = false;
-  bool _ready = false, _preferReasoning = false;
+  bool _ready = false, _preferReasoning = false, _observingMemory = false;
   String persistenceError = '';
   Iterable<Medicine> Function()? _records;
 
@@ -94,6 +95,10 @@ class MedicineIntakeService extends ChangeNotifier {
     _jobs
       ..clear()
       ..addAll(restored);
+    if (!_observingMemory) {
+      WidgetsBinding.instance.addObserver(this);
+      _observingMemory = true;
+    }
     _ready = true;
     notifyListeners();
   }
@@ -209,6 +214,12 @@ class MedicineIntakeService extends ChangeNotifier {
     notifyListeners();
     _kick();
   });
+
+  @override
+  void didHaveMemoryPressure() {
+    _paused = true;
+    notifyListeners();
+  }
 
   void setPaused(bool value) {
     _paused = value;

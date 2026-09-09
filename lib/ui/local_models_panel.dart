@@ -180,6 +180,11 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             Text(local.status, style: Theme.of(context).textTheme.bodySmall),
+            if (local.executionSummary.isNotEmpty)
+              Text(
+                local.executionSummary,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             if (local.busy || local.transferring) ...[
               const SizedBox(height: 8),
               LinearProgressIndicator(value: local.progress),
@@ -339,6 +344,51 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                 label: const Text('Import GGUF from device'),
               ),
               const Divider(),
+              if (local.pendingDownloads.isNotEmpty) ...[
+                const Text(
+                  'Paused / unfinished downloads',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                for (final pending in local.pendingDownloads)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      pending.label,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    subtitle: Text(
+                      '${modelSize(pending.bytes)} · resume from verified revision',
+                    ),
+                    trailing: Wrap(
+                      children: [
+                        IconButton(
+                          tooltip: 'Resume download',
+                          icon: const Icon(Icons.download),
+                          onPressed: local.busy || local.transferring
+                              ? null
+                              : () => _run(() => local.download(pending)),
+                        ),
+                        IconButton(
+                          tooltip: 'Remove partial download',
+                          icon: const Icon(Icons.close),
+                          onPressed: local.busy || local.transferring
+                              ? null
+                              : () async {
+                                  if (await _confirm(
+                                    'Remove partial download?',
+                                    'Only unfinished weights are removed.',
+                                  )) {
+                                    await _run(
+                                      () =>
+                                          local.discardDownload(pending.sha256),
+                                    );
+                                  }
+                                },
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
               const Text(
                 'Installed models',
                 style: TextStyle(fontWeight: FontWeight.w800),
@@ -355,7 +405,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                     style: const TextStyle(fontSize: 12),
                   ),
                   subtitle: Text(
-                    '${modelSize(model.bytes)} · ${model.smokeTestPassed ? 'Setup checks passed; review-only' : 'Not tested'}',
+                    '${modelSize(model.bytes)} · ${model.metadata?.architecture ?? 'Inspect on activation'} · ${model.smokeTestPassed ? 'Setup checks passed; review-only' : 'Not tested'}',
                   ),
                   trailing: Wrap(
                     children: [

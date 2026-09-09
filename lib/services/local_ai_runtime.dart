@@ -15,6 +15,9 @@ class LocalAiRuntime {
   final _text = StringBuffer();
   Object? _commandError;
   bool _loading = false, _closed = false;
+  bool _closing = false;
+  Future<void>? _closeFuture;
+  int? _contextTokens;
   String? modelPath;
 
   bool get busy => _pending != null;
@@ -24,6 +27,7 @@ class LocalAiRuntime {
         .transform(_commands.stream)
         .listen(
           (response) {
+            if (_closed) return;
             if (response is LlamaErrorResponse) {
               // Do not release the lease before this command's Done event;
               // otherwise its trailing completion could finish the next call.
@@ -49,7 +53,13 @@ class LocalAiRuntime {
               _complete();
             }
           },
-          onError: (Object error) => _fail(error),
+          onError: (Object error) {
+            // A transport error has no command ID or trustworthy trailing Done.
+            // Poison this runtime; never lend the lease to a later request.
+            _closed = true;
+            modelPath = null;
+            _fail(error);
+          },
           onDone: () {
             _closed = true;
             modelPath = null;
@@ -82,59 +92,87 @@ class LocalAiRuntime {
     if (pending != null && !pending.isCompleted) pending.completeError(error);
   }
 
-  Future<String> _run(LlamaCommand command) {
-    if (_closed || busy)
+  Future<String> _run(LlamaCommand command, {bool disposing = false}) {
+    if (_closed || busy || (_closing && !disposing))
       throw StateError('Local runtime is unavailable or still processing.');
     final pending = Completer<String>();
     _pending = pending;
     _text.clear();
     _commandError = null;
+    _loading = command is LlamaLoadModelCommand;
     _start();
     _commands.add(command);
     return pending.future;
   }
 
-  Future<void> load(String path) async {
-    if (modelPath == path) return;
-    _loading = true;
-    await _run(
-      LlamaLoadModelCommand(
-        modelPath: path,
-        contextSize: 8192,
-        gpuLayerCount: 0,
+  Future<void> load(String path, {int contextTokens = 4096}) async {
+    if (_closed || _closing || busy)
+      throw StateError('Local runtime is busy or closing.');
+    if (contextTokens < 2048 || contextTokens > 8192)
+      throw ArgumentError('Unsupported context budget.');
+    if (modelPath == path && _contextTokens == contextTokens) return;
+    modelPath = null;
+    _contextTokens = null;
+    try {
+      await _run(
+        LlamaLoadModelCommand(
+          modelPath: path,
+          contextSize: contextTokens,
+          gpuLayerCount: 0,
+        ),
+      );
+      if (modelPath != path)
+        throw StateError('Native model did not become ready.');
+      _contextTokens = contextTokens;
+    } catch (_) {
+      modelPath = null;
+      rethrow;
+    }
+  }
+
+  Future<String> generate(String system, String input, {int maxTokens = 1200}) {
+    if (maxTokens <= 0 || maxTokens > 2048)
+      throw ArgumentError('Invalid output token budget.');
+    if (modelPath == null)
+      throw StateError('Load a local model before generating.');
+    return _run(
+      LlamaGenerateMessagesCommand(
+        messages: [
+          LlamaMessage(role: 'system', content: system),
+          LlamaMessage(role: 'user', content: input),
+        ],
+        maxTokens: maxTokens,
+        temperature: 0,
+        topP: 1,
       ),
     );
   }
 
-  Future<String> generate(
-    String system,
-    String input, {
-    int maxTokens = 1200,
-  }) => _run(
-    LlamaGenerateMessagesCommand(
-      messages: [
-        LlamaMessage(role: 'system', content: system),
-        LlamaMessage(role: 'user', content: input),
-      ],
-      maxTokens: maxTokens,
-      temperature: 0,
-      topP: 1,
-    ),
-  );
+  Future<void> close() => _closeFuture ??= _close();
 
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> _close() async {
+    _closing = true;
     final pending = _pending;
     if (pending != null) {
       try {
         await pending.future;
       } catch (_) {}
     }
-    if (_closed) return;
-    await _run(const LlamaDisposeCommand());
-    modelPath = null;
-    await _commands.close();
-    await _subscription?.cancel();
-    _closed = true;
+    try {
+      if (!_closed && _subscription != null)
+        await _run(const LlamaDisposeCommand(), disposing: true);
+    } finally {
+      modelPath = null;
+      _contextTokens = null;
+      _closed = true;
+      // Closing a never-listened single-subscription controller does not finish
+      // until a listener appears. It owns no engine in that case.
+      if (_subscription == null) {
+        unawaited(_commands.close());
+      } else {
+        unawaited(_commands.close());
+        await _subscription?.cancel();
+      }
+    }
   }
 }

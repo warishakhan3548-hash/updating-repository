@@ -1,17 +1,19 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:lib_llama_cpp/lib_llama_cpp.dart';
 import 'package:lib_llama_cpp_platform_interface/lib_llama_cpp_platform_interface.dart';
 
 import '../lib/services/local_ai_runtime.dart';
+import '../third_party/lib_llama_cpp/lib/src/token_text_decoder.dart';
 
 // Exercises real app lifecycle against a controlled command stream. Does not
 // claim model accuracy, Android linkage or physical-device inference testing.
 class ControlledEngine implements LlamaEngine {
   final loadState = Completer<void>(), releaseLoad = Completer<void>();
   final errorState = Completer<void>(), releaseError = Completer<void>();
-  int disposals = 0;
+  int disposals = 0, contextTokens = 0;
 
   @override
   Stream<LlamaResponse> transform(
@@ -21,6 +23,7 @@ class ControlledEngine implements LlamaEngine {
   }) async* {
     await for (final command in commands) {
       if (command is LlamaLoadModelCommand) {
+        contextTokens = command.contextSize ?? 0;
         yield LlamaStateChangedResponse(
           state: LlamaState(modelPath: command.modelPath, isModelLoaded: true),
         );
@@ -117,8 +120,10 @@ Future<void> main() async {
     await runtime.generate('system', 'third') == '{"reply":"third"}',
     'Output buffer resets between requests',
   );
-  await runtime.close();
-  await runtime.close();
+  check(engine.contextTokens == 4096, 'Phone default context is bounded');
+  final close1 = runtime.close(), close2 = runtime.close();
+  check(identical(close1, close2), 'Concurrent close calls share one disposal');
+  await close1;
   check(
     engine.disposals == 1 && runtime.modelPath == null,
     'Idempotent graceful disposal',
@@ -146,6 +151,39 @@ Future<void> main() async {
   check(
     events.whereType<LlamaErrorResponse>().length == 2,
     'Real worker reports both failed commands',
+  );
+  await LocalAiRuntime(
+    engine: ControlledEngine(),
+  ).close().timeout(const Duration(seconds: 1));
+  check(true, 'Closing unused runtime does not wait for an absent listener');
+  const multilingual = 'नमस्ते بھائی · 0.5 mg · ₹500 · 🧪';
+  final encoded = utf8.encode(multilingual);
+  for (var split = 1; split <= 5; split++) {
+    final decoder = TokenTextDecoder(), output = StringBuffer();
+    for (var offset = 0; offset < encoded.length; offset += split) {
+      output.write(
+        decoder.add(
+          encoded.sublist(offset, (offset + split).clamp(0, encoded.length)),
+        ),
+      );
+    }
+    output.write(decoder.finish());
+    check(
+      output.toString() == multilingual,
+      'UTF-8 preserves characters across $split-byte token pieces',
+    );
+  }
+  var invalidRejected = false;
+  try {
+    TokenTextDecoder()
+      ..add([0xe0])
+      ..finish();
+  } on FormatException {
+    invalidRejected = true;
+  }
+  check(
+    invalidRejected,
+    'Incomplete UTF-8 is not replaced with corrupted medicine text',
   );
   stdout.writeln(
     'Local AI runtime lifecycle: $passed passed (no model/device execution).',

@@ -1,3 +1,5 @@
+import 'gguf_metadata.dart';
+
 /// Public catalogue facts, not execution authority. Native load is the final
 /// architecture/quantization compatibility check for the pinned runtime.
 class LocalModelFile {
@@ -14,7 +16,11 @@ class LocalModelFile {
   String get label => '$repository · ${filename.split('/').last}';
 
   void validate() {
-    if (!RegExp(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$').hasMatch(repository) ||
+    if (!RegExp(
+          r'^[A-Za-z0-9_][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*$',
+        ).hasMatch(repository) ||
+        repository.contains('..') ||
+        repository.length > 250 ||
         !RegExp(r'^[a-f0-9]{40}$').hasMatch(revision) ||
         !RegExp(r'^[a-f0-9]{64}$').hasMatch(sha256) ||
         bytes < 1024 ||
@@ -24,6 +30,39 @@ class LocalModelFile {
         'Choose a single GGUF weight file with a pinned revision, size and SHA-256.',
       );
     }
+  }
+
+  Map<String, Object?> toJson() => {
+    'repository': repository,
+    'revision': revision,
+    'filename': filename,
+    'bytes': bytes,
+    'sha256': sha256,
+    'license': license,
+  };
+
+  factory LocalModelFile.fromJson(Map<String, dynamic> json) {
+    if ([
+          'repository',
+          'revision',
+          'filename',
+          'sha256',
+        ].any((k) => json[k] is! String) ||
+        json['bytes'] is! int) {
+      throw const FormatException('Invalid saved model download.');
+    }
+    final file = LocalModelFile(
+      repository: json['repository'] as String,
+      revision: json['revision'] as String,
+      filename: json['filename'] as String,
+      bytes: json['bytes'] as int,
+      sha256: json['sha256'] as String,
+      license: json['license'] is String
+          ? json['license'] as String
+          : 'Check publisher model card',
+    );
+    file.validate();
+    return file;
   }
 
   Uri get downloadUri {
@@ -61,16 +100,22 @@ class InstalledLocalModel {
     required this.bytes,
     this.source = 'Local import',
     this.smokeTestPassed = false,
+    this.metadata,
+    this.testedRuntime,
   });
   final String id, label, source;
   final int bytes;
   final bool smokeTestPassed;
+  final GgufMetadata? metadata;
+  final String? testedRuntime;
   Map<String, Object?> toJson() => {
     'id': id,
     'label': label,
     'bytes': bytes,
     'source': source,
     'smokeTestPassed': smokeTestPassed,
+    if (metadata != null) 'metadata': metadata!.toJson(),
+    if (testedRuntime != null) 'testedRuntime': testedRuntime,
   };
   factory InstalledLocalModel.fromJson(Map<String, dynamic> json) {
     final id = json['id'], label = json['label'], bytes = json['bytes'];
@@ -90,6 +135,14 @@ class InstalledLocalModel {
           ? json['source'] as String
           : 'Local import',
       smokeTestPassed: json['smokeTestPassed'] == true,
+      metadata: json['metadata'] is Map
+          ? GgufMetadata.fromJson(
+              Map<String, dynamic>.from(json['metadata'] as Map),
+            )
+          : null,
+      testedRuntime: json['testedRuntime'] is String
+          ? json['testedRuntime'] as String
+          : null,
     );
   }
 }
