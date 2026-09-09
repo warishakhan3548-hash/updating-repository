@@ -118,6 +118,11 @@ void main() {
       await tester.tap(find.byTooltip('Run command').first);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 700));
+      // The removed-stock page schedules the protected review after its first
+      // rendered frame. Give that post-frame Navigator push one additional
+      // frame to materialize the AlertDialog; this mirrors the next vsync on a
+      // real device without waiting for Brain's intentionally-live busy ticker.
+      await tester.pump();
       expect(find.text('Restore this removed stock?'), findsOneWidget);
       expect(controller.snapshot.records[medicine.id]!.archived, isTrue);
 
