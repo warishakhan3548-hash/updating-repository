@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../domain/app_brain.dart';
 import '../domain/medicine.dart';
 import '../domain/search.dart';
+import '../state/operational_context.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 
@@ -27,9 +29,8 @@ class RemovedStockScreen extends StatefulWidget {
 }
 
 class _RemovedStockScreenState extends State<RemovedStockScreen> {
-  late final TextEditingController _query = TextEditingController(
-    text: widget.initialQuery,
-  );
+  late final TextEditingController _query;
+  String? _initialContextRestoreId;
   Timer? _debounce;
   List<SearchHit> _hits = const [];
   bool _loading = true;
@@ -39,8 +40,51 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
   @override
   void initState() {
     super.initState();
+
+    // Aaris Brain may route a command such as “restore it” after the exact row
+    // was removed moments earlier. Resolve only the session-bound archived ID;
+    // never reinterpret a pronoun through fuzzy medicine-name search. The
+    // visible search text remains human-readable while the scheduled review
+    // below is anchored to the exact ID and archive provenance.
+    final rawInitial = widget.initialQuery.trim();
+    final contextual = isAppBrainContextReference(rawInitial)
+        ? widget.controller.archivedOperationalTarget
+        : null;
+    _initialContextRestoreId = contextual?.id;
+    _query = TextEditingController(
+      text: contextual == null
+          ? widget.initialQuery
+          : _contextSearchText(contextual),
+    );
+
     widget.controller.addListener(_inventoryChanged);
     unawaited(_search());
+    if (_initialContextRestoreId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_reviewInitialContextRestore());
+      });
+    }
+  }
+
+  String _contextSearchText(Medicine record) {
+    if (record.barcode.trim().isNotEmpty) return record.barcode.trim();
+    if (record.batchNumber.trim().isNotEmpty) {
+      return '${record.title} ${record.batchNumber.trim()}'.trim();
+    }
+    return record.title;
+  }
+
+  Future<void> _reviewInitialContextRestore() async {
+    final id = _initialContextRestoreId;
+    _initialContextRestoreId = null;
+    if (id == null || !mounted) return;
+    final record = widget.controller.snapshot.records[id];
+    if (record == null || !record.archived) {
+      // Context already became stale or the row was restored elsewhere. The
+      // normal removed-stock search remains available; no substitute is chosen.
+      return;
+    }
+    await _reviewRestore(record);
   }
 
   void _inventoryChanged() {
@@ -159,12 +203,21 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
 
     try {
       await widget.controller.applyArchivedRestore(review);
-      if (mounted) {
-        showSaved(
-          context,
-          '${live.title} restored to the Medicine Database. Undo is available in Activity.',
-        );
+      if (!mounted) return;
+
+      // Recovery is a lifecycle transition of the exact same row. Move session
+      // context back to the active side only after the revision-bound restore
+      // commits successfully. This enables safe follow-ups such as “edit it”
+      // without caching inventory facts or performing another fuzzy lookup.
+      widget.controller.clearArchivedOperationalTarget(live.id);
+      final restored = widget.controller.snapshot.records[live.id];
+      if (restored != null && !restored.archived) {
+        widget.controller.rememberOperationalTarget(restored.id);
       }
+      showSaved(
+        context,
+        '${live.title} restored to the Medicine Database. Undo is available in Activity.',
+      );
     } catch (error) {
       if (mounted) showError(context, error);
     }
