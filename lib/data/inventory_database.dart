@@ -205,7 +205,6 @@ InventorySnapshot nextSnapshot(
       beforeSales: before.sales,
       upsertSales: mutation.upsertSales,
       removeSaleIds: mutation.removeSaleIds,
-      now: DateTime.now(),
     );
   }
 
