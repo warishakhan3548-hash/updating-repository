@@ -33,9 +33,11 @@ jobs:
         run: git fetch origin upgrade/aaris-brain-quick-intake-20260910
 
       - name: Apply surgical upgrade
-        run: python3 tool/aaris_autonomous_upgrade_20260910.py
+        run: |
+          python3 tool/aaris_autonomous_upgrade_20260910.py
+          sed -i "/domain\/medicine.dart/d" test/reviewed_operation_idempotency_test.dart
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -46,8 +48,20 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Format modified Dart
-        run: dart format lib test
+      - name: Format only upgraded Dart
+        run: |
+          dart format \
+            lib/data/inventory_database.dart \
+            lib/domain/app_brain.dart \
+            lib/domain/dispensing_plan.dart \
+            lib/domain/medicine_entry_prefill.dart \
+            lib/state/pharmacy_controller.dart \
+            lib/state/stock_location_operations.dart \
+            lib/ui/brain_screen.dart \
+            lib/ui/editor_screen.dart \
+            test/medicine_entry_prefill_prefix_guard_test.dart \
+            test/medicine_entry_prefill_test.dart \
+            test/reviewed_operation_idempotency_test.dart
 
       - name: Verify clean patch shape
         run: git diff --check
