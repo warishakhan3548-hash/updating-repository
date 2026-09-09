@@ -121,7 +121,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();
   });
-  testWidgets('Database add flow saves a name-only entry and updates Home', (
+  testWidgets('Stock add flow saves a name-only entry and updates Home', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -135,7 +135,7 @@ void main() {
     await controller.initialize();
     await tester.pumpWidget(PharmacyApp(controller: controller));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Database'));
+    await tester.tap(find.text('Stock'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Add / Import medicines'));
     await tester.pumpAndSettle();
@@ -165,7 +165,7 @@ void main() {
     await tester.pumpWidget(PharmacyApp(controller: c));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    for (final tab in ['Database', 'AI', 'Calculator', 'Profile']) {
+    for (final tab in ['Stock', 'Aaris Brain', 'Calculator', 'Profile']) {
       await tester.tap(find.text(tab).last);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'Overflow in $tab');
@@ -173,7 +173,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();
   });
-  testWidgets('Tracking and AI hub have reviewable screenshots', (
+  testWidgets('Calculator and Aaris Brain have reviewable screenshots', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -191,15 +191,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Calculator'));
     await tester.pumpAndSettle();
-    await screenshot(tester, key, 'tracking');
-    await tester.tap(find.text('AI').last);
+    await screenshot(tester, key, 'calculator');
+    await tester.tap(find.text('Aaris Brain').last);
     await tester.pumpAndSettle();
-    await screenshot(tester, key, 'ai-controller');
+    await screenshot(tester, key, 'aaris-brain');
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();
   });
   testWidgets(
-    'Database, Profile, import and backup share the same visual system',
+    'Stock, Profile, import and backup share the same visual system',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
@@ -214,7 +214,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      for (final tab in ['Database', 'Profile']) {
+      for (final tab in ['Stock', 'Profile']) {
         await tester.tap(find.text(tab).last);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
