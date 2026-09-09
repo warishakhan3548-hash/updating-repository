@@ -1,4 +1,4 @@
-# Implementation status — 2026-09-09
+# Implementation status — 2026-09-10
 
 ## Offline AI upgrade — code-only handoff
 
@@ -33,8 +33,10 @@
   warning borders, exact-ID editor navigation, bounded n-gram memory and fuzzy
   confidence ranking.
 - Manual add/edit/remove/restock, explicit SOLD, aggregate sale recording,
-  FEFO batch guidance, expired-sale/MFG-date guards, soft-delete history, latest
-  Undo and per-medicine version restore.
+  FEFO batch guidance, expired-sale/MFG-date guards, durable removal reason/time,
+  local-AI reviewed recovery of exact archived rows, soft-delete history, latest
+  Undo and per-medicine version restore. Remove/SOLD/Restore AI lifecycle actions
+  require explicit checkbox selection before the final atomic Apply.
 - Reviewed photo/text imports and adaptive local video import with frame sampling,
   bounded decode, blur/duplicate rejection, multi-frame consensus, explicit
   list-row boundaries, drain-before-restart cancellation, no silent catalog

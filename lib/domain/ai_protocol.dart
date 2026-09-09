@@ -173,7 +173,14 @@ AiPlan parseAiPlan(
             'sold': 'mark_sold',
           }[op] ??
           op;
-      if (!{'add', 'update', 'remove', 'mark_sold', 'restock'}.contains(op))
+      if (!{
+        'add',
+        'update',
+        'remove',
+        'mark_sold',
+        'restock',
+        'restore',
+      }.contains(op))
         throw const FormatException('Unknown pharmacy operation.');
       final fieldValue = raw['fields'] ?? raw['data'] ?? <String, dynamic>{};
       if (fieldValue is! Map<String, dynamic> ||
@@ -210,12 +217,18 @@ AiPlan parseAiPlan(
             'Multiple actions target the same stock entry. Combine them first.',
           );
         before = records[id]!;
-        if (before.archived)
+        if (before.archived && op != 'restore') {
           throw const FormatException('This entry has been removed.');
-        if ((op == 'remove' || op == 'mark_sold') && fields.isNotEmpty)
+        }
+        if (op == 'restore' && !before.archived) {
+          throw const FormatException('Restore targets a removed stock entry.');
+        }
+        if ((op == 'remove' || op == 'mark_sold' || op == 'restore') &&
+            fields.isNotEmpty) {
           throw const FormatException(
             'This operation cannot also edit medicine facts.',
           );
+        }
         if (op == 'mark_sold') {
           if (before.sold)
             throw const FormatException('This entry is already sold.');
@@ -231,7 +244,13 @@ AiPlan parseAiPlan(
             'soldUnitPricePaise': before.unitPricePaise,
           });
         } else if (op == 'remove') {
-          after = before.patch({'archived': true});
+          after = archiveMedicine(
+            before,
+            reason: 'AI reviewed removal',
+            at: now,
+          );
+        } else if (op == 'restore') {
+          after = restoreArchivedMedicine(before);
         } else if (op == 'restock') {
           if (!before.sold)
             throw const FormatException(

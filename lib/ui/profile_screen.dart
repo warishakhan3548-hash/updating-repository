@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../domain/medicine.dart';
 import '../state/pharmacy_controller.dart';
 import '../services/ai_service.dart';
 import 'design.dart';
@@ -314,7 +315,18 @@ class _RemovedScreen extends StatelessWidget {
     body: AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final records = controller.records.where((m) => m.archived).toList();
+        final records = controller.records.where((m) => m.archived).toList()
+          ..sort((a, b) {
+            final aTime = a.archivedAt;
+            final bTime = b.archivedAt;
+            if (aTime == null && bTime != null) return 1;
+            if (bTime == null && aTime != null) return -1;
+            if (aTime != null && bTime != null) {
+              final recent = bTime.compareTo(aTime);
+              if (recent != 0) return recent;
+            }
+            return a.title.compareTo(b.title);
+          });
         return ListView(
           padding: const EdgeInsets.all(22),
           children: [
@@ -337,7 +349,14 @@ class _RemovedScreen extends StatelessWidget {
                   padding: const EdgeInsets.all(10),
                   child: ListTile(
                     title: Text(m.title),
-                    subtitle: Text(m.address),
+                    subtitle: Text(
+                      [
+                        if (m.archiveReason.isNotEmpty) m.archiveReason,
+                        if (m.archivedAt != null)
+                          'Removed ${dateText(m.archivedAt!.toLocal())}',
+                        if (m.address.isNotEmpty) m.address,
+                      ].join(' · '),
+                    ),
                     trailing: TextButton(
                       onPressed: () async {
                         try {

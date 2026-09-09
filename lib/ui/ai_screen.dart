@@ -175,7 +175,7 @@ class _AiScreenState extends State<AiScreen> {
         _selected = {
           for (var i = 0; i < plan.changes.length; i++)
             if (plan.changes[i].possibleDuplicates.isEmpty &&
-                plan.changes[i].operation != 'remove')
+                !_requiresExplicitLifecycleSelection(plan.changes[i].operation))
               i,
         };
       });
@@ -386,6 +386,7 @@ class _AiScreenState extends State<AiScreen> {
     'remove' => red,
     'mark_sold' => amber,
     'restock' => _aiPurple,
+    'restore' => green,
     _ => muted,
   };
 
@@ -470,9 +471,8 @@ class _AiScreenState extends State<AiScreen> {
                   color: Colors.white.withAlpha(185),
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: _operationColor(
-                      plan.changes[i].operation,
-                    ).withAlpha(45),
+                    color: _operationColor(plan.changes[i].operation)
+                        .withAlpha(45),
                   ),
                 ),
                 child: Column(
@@ -574,7 +574,7 @@ class _AiScreenState extends State<AiScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Unselected changes stay untouched. Remove actions are never pre-selected.',
+              'Unselected changes stay untouched. Remove, SOLD and Restore actions are never pre-selected.',
               style: TextStyle(fontSize: 10.5, color: muted),
             ),
           ],
@@ -1371,6 +1371,9 @@ class _ExternalAiIcon extends StatelessWidget {
   );
 }
 
+bool _requiresExplicitLifecycleSelection(String operation) =>
+    const {'remove', 'mark_sold', 'restore'}.contains(operation);
+
 String _operationLabel(String operation) =>
     {
       'add': 'Add new stock',
@@ -1378,6 +1381,7 @@ String _operationLabel(String operation) =>
       'remove': 'Remove from inventory',
       'mark_sold': 'Mark out of stock · reorder',
       'restock': 'Restock medicine',
+      'restore': 'Restore removed stock',
     }[operation] ??
     operation;
 
@@ -1390,6 +1394,8 @@ String _fieldLabel(String key) =>
       'batchNumber': 'Batch / lot number',
       'mfg': 'Manufacturing date',
       'soldAt': 'Marked sold at',
+      'archiveReason': 'Removal reason',
+      'archivedAt': 'Removed at',
     }[key] ??
     key;
 

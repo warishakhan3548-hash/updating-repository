@@ -70,8 +70,12 @@ verification boundaries are documented in the
   alone never silently marks an entry SOLD. Expired stock cannot be relabelled
   SOLD or recorded as a current sale; a genuine backdated sale is accepted only
   when its date is not before MFG and not after expiry.
-- Remove is soft archive. Restore, latest-change Undo and bounded per-record
-  version history protect against accidental and bulk changes.
+- Remove is soft archive. Every new removal carries system-owned durable
+  provenance (bounded reason + UTC removal timestamp) on the same medicine row,
+  so the reason survives the 200-event activity window and full backup/restore.
+  Legacy removed rows without provenance remain readable. Restore clears the
+  removal marker atomically; latest-change Undo and bounded per-record version
+  history still protect against accidental and bulk changes.
 
 ## Search and capture contract
 
