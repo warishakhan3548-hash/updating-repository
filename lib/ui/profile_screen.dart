@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 
-import '../domain/medicine.dart';
 import '../state/pharmacy_controller.dart';
 import '../services/ai_service.dart';
+import 'backup_screen.dart';
 import 'design.dart';
 import 'home_screen.dart';
-import 'backup_screen.dart';
+import 'removed_stock_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key, required this.controller});
   final PharmacyController controller;
+
   Future<void> _removeAll(BuildContext context) async {
     final review = controller.reviewArchiveAll();
     if (review.activeCount == 0) {
@@ -162,12 +163,14 @@ class ProfileScreen extends StatelessWidget {
                   background: warningSoft,
                 ),
                 title: const Text('Removed stock'),
-                subtitle: const Text('Find and restore archived medicines'),
+                subtitle: const Text(
+                  'Search history and review an exact row before restoring',
+                ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute<void>(
-                    builder: (_) => _RemovedScreen(controller: controller),
+                    builder: (_) => RemovedStockScreen(controller: controller),
                   ),
                 ),
               ),
@@ -222,6 +225,42 @@ class ProfileScreen extends StatelessWidget {
 class ActivityScreen extends StatelessWidget {
   const ActivityScreen({super.key, required this.controller});
   final PharmacyController controller;
+
+  Future<void> _undoLast(BuildContext context) async {
+    if (!controller.canUndo || controller.snapshot.events.isEmpty) return;
+    final event = controller.snapshot.events.first;
+    final label = '${event['label']}';
+    final revision = event['revision'];
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Undo the latest change?'),
+            content: Text(
+              'Aaris will reverse the latest saved change only:\n\n$label\n\nRevision $revision is still current. If inventory changes before the commit, the undo is rejected instead of touching a newer state.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.undo_rounded),
+                label: const Text('Undo latest change'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !context.mounted) return;
+    try {
+      await controller.undo();
+      if (context.mounted) showSaved(context, 'The last change was undone.');
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Activity & Undo')),
@@ -232,23 +271,14 @@ class ActivityScreen extends StatelessWidget {
         children: [
           const ScreenIntro(
             title: 'Your recent activity',
-            message: 'See the latest 200 changes. Undo reverses the most recent saved change, including an approved import.',
+            message:
+                'See the latest 200 changes. Undo reverses only the most recent current change, including an approved import.',
             icon: Icons.history_rounded,
           ),
           FilledButton.icon(
-            onPressed: controller.canUndo
-                ? () async {
-                    try {
-                      await controller.undo();
-                      if (context.mounted)
-                        showSaved(context, 'The last change was undone.');
-                    } catch (e) {
-                      if (context.mounted) showError(context, e);
-                    }
-                  }
-                : null,
+            onPressed: controller.canUndo ? () => _undoLast(context) : null,
             icon: const Icon(Icons.undo_rounded),
-            label: const Text('Undo last change'),
+            label: const Text('Review & undo last change'),
           ),
           const SizedBox(height: 22),
           if (controller.snapshot.events.isEmpty)
@@ -302,78 +332,6 @@ class ActivityScreen extends StatelessWidget {
           ),
         ],
       ),
-    ),
-  );
-}
-
-class _RemovedScreen extends StatelessWidget {
-  const _RemovedScreen({required this.controller});
-  final PharmacyController controller;
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Removed stock')),
-    body: AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) {
-        final records = controller.records.where((m) => m.archived).toList()
-          ..sort((a, b) {
-            final aTime = a.archivedAt;
-            final bTime = b.archivedAt;
-            if (aTime == null && bTime != null) return 1;
-            if (bTime == null && aTime != null) return -1;
-            if (aTime != null && bTime != null) {
-              final recent = bTime.compareTo(aTime);
-              if (recent != 0) return recent;
-            }
-            return a.title.compareTo(b.title);
-          });
-        return ListView(
-          padding: const EdgeInsets.all(22),
-          children: [
-            const ScreenIntro(
-              title: 'Restore removed stock',
-              message: 'Choose a medicine to return it to your inventory.',
-              icon: Icons.inventory_2_outlined,
-              color: amber,
-            ),
-            if (records.isEmpty)
-              const EmptyState(
-                title: 'No removed stock',
-                message:
-                    'Removed entries will appear here and can be restored.',
-              ),
-            ...records.map(
-              (m) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Surface(
-                  padding: const EdgeInsets.all(10),
-                  child: ListTile(
-                    title: Text(m.title),
-                    subtitle: Text(
-                      [
-                        if (m.archiveReason.isNotEmpty) m.archiveReason,
-                        if (m.archivedAt != null)
-                          'Removed ${dateText(m.archivedAt!.toLocal())}',
-                        if (m.address.isNotEmpty) m.address,
-                      ].join(' · '),
-                    ),
-                    trailing: TextButton(
-                      onPressed: () async {
-                        try {
-                          await controller.restoreArchived(m.id);
-                        } catch (e) {
-                          if (context.mounted) showError(context, e);
-                        }
-                      },
-                      child: const Text('Restore'),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
     ),
   );
 }
