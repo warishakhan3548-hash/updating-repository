@@ -30,15 +30,17 @@ jobs:
           channel: stable
           cache: true
       - name: Apply guarded surgery
-        run: python3 tool/temporary_ai_stock_intent_firewall.py
+        run: |
+          python3 tool/temporary_ai_stock_intent_firewall.py
+          python3 tool/temporary_ai_stock_intent_followup.py
       - name: Format changed Dart
-        run: dart format lib/domain/ai_protocol.dart lib/ui/ai_screen.dart test/ai_stock_intent_firewall_test.dart
+        run: dart format lib/domain/ai_protocol.dart lib/domain/local_ai_protocol.dart lib/ui/ai_screen.dart tool/check_local_ai.dart test/ai_stock_intent_firewall_test.dart
       - name: Resolve pinned dependencies
         run: flutter pub get
       - name: Static checks
         run: dart analyze lib test tool third_party/lib_llama_cpp/lib
       - name: Focused AI stock firewall tests
-        run: flutter test test/ai_stock_intent_firewall_test.dart --reporter expanded
+        run: flutter test test/ai_stock_intent_firewall_test.dart test/local_model_architecture_test.dart --reporter expanded
       - name: Full regression suite
         run: flutter test --reporter expanded
       - name: Diff whitespace integrity
@@ -48,11 +50,12 @@ jobs:
       - name: Commit verified production changes
         run: |
           rm tool/temporary_ai_stock_intent_firewall.py
+          rm tool/temporary_ai_stock_intent_followup.py
           rm .github/workflows/temporary-ai-stock-intent-firewall.yml
           git config user.name "Aaris Pharmacy Upgrade Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add lib/domain/ai_protocol.dart lib/ui/ai_screen.dart test/ai_stock_intent_firewall_test.dart
-          git add -u tool/temporary_ai_stock_intent_firewall.py .github/workflows/temporary-ai-stock-intent-firewall.yml
+          git add lib/domain/ai_protocol.dart lib/domain/local_ai_protocol.dart lib/ui/ai_screen.dart tool/check_local_ai.dart test/ai_stock_intent_firewall_test.dart
+          git add -u tool/temporary_ai_stock_intent_firewall.py tool/temporary_ai_stock_intent_followup.py .github/workflows/temporary-ai-stock-intent-firewall.yml
           git diff --cached --check
           git commit -m "Make AI stock quantities explicit and review-gated [ai-stock-intent-firewall]"
           git push origin HEAD:upgrade/ai-stock-intent-firewall-20260910
