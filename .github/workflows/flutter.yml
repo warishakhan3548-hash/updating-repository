@@ -34,6 +34,8 @@ jobs:
         run: dart analyze lib test tool third_party/lib_llama_cpp/lib
       - name: Domain, persistence and UI checks
         run: flutter test --reporter expanded
+      - name: Compile Android integration
+        run: flutter build apk --debug --no-pub
       - name: Upload UI review images
         if: always()
         uses: actions/upload-artifact@v4

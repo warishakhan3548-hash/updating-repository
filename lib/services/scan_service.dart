@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
@@ -12,7 +13,10 @@ class MedicineVisionService {
   final _latin = TextRecognizer(script: TextRecognitionScript.latin);
   final _hindi = TextRecognizer(script: TextRecognitionScript.devanagiri);
   final _barcodes = BarcodeScanner();
-  bool _closed = false;
+  bool _closing = false, _closed = false;
+  int _inFlight = 0;
+  Completer<void>? _drained;
+  Future<void>? _closeFuture;
 
   Future<ScanEvidence> analyzeFile(
     String path, {
@@ -35,72 +39,96 @@ class MedicineVisionService {
     int? timestampMs,
     double quality = 1,
   }) async {
-    if (_closed) throw StateError('Medicine scanner is closed.');
-    Object? latin;
-    Object? hindi;
-    Object? barcodeResult;
-    final errors = <Object>[];
-    await Future.wait<void>([
-      _latin
-          .processImage(input)
-          .then<void>(
-            (value) => latin = value,
-            onError: (Object error, StackTrace _) => errors.add(error),
-          ),
-      _hindi
-          .processImage(input)
-          .then<void>(
-            (value) => hindi = value,
-            onError: (Object error, StackTrace _) => errors.add(error),
-          ),
-      _barcodes
-          .processImage(input)
-          .then<void>(
-            (value) => barcodeResult = value,
-            onError: (Object error, StackTrace _) => errors.add(error),
-          ),
-    ]);
-    if (latin == null && hindi == null && barcodeResult == null) {
-      throw StateError(
-        errors.isEmpty
-            ? 'Medicine recognition produced no result.'
-            : 'Medicine recognition is temporarily unavailable.',
+    // Acquire the native-recognizer lease synchronously before the first await.
+    // close() therefore cannot race between admission and the in-flight count.
+    if (_closing || _closed) throw StateError('Medicine scanner is closed.');
+    _inFlight++;
+    try {
+      Object? latin;
+      Object? hindi;
+      Object? barcodeResult;
+      final errors = <Object>[];
+      await Future.wait<void>([
+        _latin
+            .processImage(input)
+            .then<void>(
+              (value) => latin = value,
+              onError: (Object error, StackTrace _) => errors.add(error),
+            ),
+        _hindi
+            .processImage(input)
+            .then<void>(
+              (value) => hindi = value,
+              onError: (Object error, StackTrace _) => errors.add(error),
+            ),
+        _barcodes
+            .processImage(input)
+            .then<void>(
+              (value) => barcodeResult = value,
+              onError: (Object error, StackTrace _) => errors.add(error),
+            ),
+      ]);
+      if (latin == null && hindi == null && barcodeResult == null) {
+        throw StateError(
+          errors.isEmpty
+              ? 'Medicine recognition produced no result.'
+              : 'Medicine recognition is temporarily unavailable.',
+        );
+      }
+      final lines = _mergeLines([
+        if (latin is RecognizedText)
+          ...(latin as RecognizedText).text.split('\n'),
+        if (hindi is RecognizedText)
+          ...(hindi as RecognizedText).text.split('\n'),
+      ]);
+      final layoutLines = _mergeLayoutLines([
+        if (latin is RecognizedText) ..._layoutEvidence(latin as RecognizedText),
+        if (hindi is RecognizedText) ..._layoutEvidence(hindi as RecognizedText),
+      ]);
+      final barcodes = barcodeResult is List<Barcode>
+          ? _rankBarcodes(
+              (barcodeResult as List<Barcode>)
+                  .map((barcode) => barcode.rawValue ?? '')
+                  .where((value) => value.trim().isNotEmpty),
+            )
+          : const <String>[];
+      return ScanEvidence(
+        barcode: barcodes.isEmpty ? '' : barcodes.first,
+        barcodes: barcodes,
+        layoutLines: layoutLines,
+        text: lines.join('\n'),
+        source: source,
+        sequence: sequence,
+        timestampMs: timestampMs,
+        quality: quality.clamp(0, 1),
       );
+    } finally {
+      _inFlight--;
+      if (_inFlight == 0) {
+        final drained = _drained;
+        _drained = null;
+        if (drained != null && !drained.isCompleted) drained.complete();
+      }
     }
-    final lines = _mergeLines([
-      if (latin is RecognizedText)
-        ...(latin as RecognizedText).text.split('\n'),
-      if (hindi is RecognizedText)
-        ...(hindi as RecognizedText).text.split('\n'),
-    ]);
-    final layoutLines = _mergeLayoutLines([
-      if (latin is RecognizedText) ..._layoutEvidence(latin as RecognizedText),
-      if (hindi is RecognizedText) ..._layoutEvidence(hindi as RecognizedText),
-    ]);
-    final barcodes = barcodeResult is List<Barcode>
-        ? _rankBarcodes(
-            (barcodeResult as List<Barcode>)
-                .map((barcode) => barcode.rawValue ?? '')
-                .where((value) => value.trim().isNotEmpty),
-          )
-        : const <String>[];
-    return ScanEvidence(
-      barcode: barcodes.isEmpty ? '' : barcodes.first,
-      barcodes: barcodes,
-      layoutLines: layoutLines,
-      text: lines.join('\n'),
-      source: source,
-      sequence: sequence,
-      timestampMs: timestampMs,
-      quality: quality.clamp(0, 1),
-    );
   }
 
-  Future<void> close() async {
+  Future<void> close() => _closeFuture ??= _closeWhenDrained();
+
+  Future<void> _closeWhenDrained() async {
     if (_closed) return;
-    _closed = true;
-    // Release every native recognizer even if one close operation fails.
-    await Future.wait([_latin.close(), _hindi.close(), _barcodes.close()]);
+    _closing = true;
+    if (_inFlight > 0) {
+      _drained ??= Completer<void>();
+      await _drained!.future;
+    }
+    try {
+      // Release every native recognizer only after admitted work has drained.
+      // Future.wait still gives every recognizer a chance to close if one close
+      // operation fails, preventing native resources from leaking on teardown.
+      await Future.wait([_latin.close(), _hindi.close(), _barcodes.close()]);
+    } finally {
+      _closed = true;
+    }
   }
 }
 

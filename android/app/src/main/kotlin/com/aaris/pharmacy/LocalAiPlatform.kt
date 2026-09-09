@@ -26,7 +26,8 @@ internal class LocalAiPlatform(private val activity: Activity) {
     private var recognizer: SpeechRecognizer? = null
     private var locale = "hi-IN"
     private val handler = Handler(Looper.getMainLooper())
-    private val timeout = Runnable { finish(null, "Offline microphone timed out. Try again or type.") }
+    private var speechGeneration = 0L
+    private var speechTimeout: Runnable? = null
     private var modelResult: MethodChannel.Result? = null
     @Volatile private var copyingModel = false
     @Volatile private var cancelModel = false
@@ -73,15 +74,18 @@ internal class LocalAiPlatform(private val activity: Activity) {
 
     fun permissionResult(granted: Boolean) {
         if (pending == null) return
-        if (granted) start() else finish(null, "Microphone permission was not granted.")
+        if (granted) start() else failPending("Microphone permission was not granted.")
     }
 
     private fun start() {
         if (pending == null || Build.VERSION.SDK_INT < 31) return
+        val generation = ++speechGeneration
+        var createdSpeech: SpeechRecognizer? = null
         try {
-            val speech = SpeechRecognizer.createOnDeviceSpeechRecognizer(activity)
-            recognizer = speech
-            speech.setRecognitionListener(object : RecognitionListener {
+            val sessionSpeech = SpeechRecognizer.createOnDeviceSpeechRecognizer(activity)
+            createdSpeech = sessionSpeech
+            recognizer = sessionSpeech
+            sessionSpeech.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
@@ -89,33 +93,97 @@ internal class LocalAiPlatform(private val activity: Activity) {
                 override fun onEndOfSpeech() {}
                 override fun onPartialResults(partialResults: Bundle?) {}
                 override fun onEvent(eventType: Int, params: Bundle?) {}
-                override fun onError(error: Int) { finish(null, "On-device speech unavailable or language not installed (code $error).") }
+                override fun onError(error: Int) {
+                    finishSpeech(
+                        generation,
+                        sessionSpeech,
+                        null,
+                        "On-device speech unavailable or language not installed (code $error).",
+                    )
+                }
                 override fun onResults(results: Bundle?) {
-                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                    finish(text?.take(3000), null)
+                    val text = results
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.firstOrNull()
+                    finishSpeech(generation, sessionSpeech, text?.take(3000), null)
                 }
             })
+            val timeout = Runnable {
+                finishSpeech(
+                    generation,
+                    sessionSpeech,
+                    null,
+                    "Offline microphone timed out. Try again or type.",
+                )
+            }
+            speechTimeout = timeout
             handler.postDelayed(timeout, 30000)
-            speech.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            sessionSpeech.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             })
-        } catch (_: Exception) { finish(null, "Could not start on-device speech. Use the keyboard.") }
+        } catch (_: Exception) {
+            // If construction/start failed after creating a recognizer, destroy
+            // exactly that recognizer and complete only the still-current request.
+            val failedSpeech = createdSpeech
+            if (failedSpeech != null && recognizer === failedSpeech && generation == speechGeneration) {
+                recognizer = null
+                try { failedSpeech.cancel(); failedSpeech.destroy() } catch (_: Exception) {}
+            }
+            failPending("Could not start on-device speech. Use the keyboard.")
+        }
     }
 
-    private fun finish(text: String?, error: String?) {
+    /**
+     * Completes only the recognizer session that produced this callback.
+     * Android speech services can deliver a late onError/onResults after cancel
+     * or destroy. Without both the generation and object identity checks, a
+     * stale callback from session A can otherwise consume session B's pending
+     * MethodChannel result and destroy B's recognizer.
+     */
+    private fun finishSpeech(
+        generation: Long,
+        speech: SpeechRecognizer,
+        text: String?,
+        error: String?,
+    ) {
+        if (generation != speechGeneration || recognizer !== speech) return
         val result = pending
         pending = null
-        handler.removeCallbacks(timeout)
-        val speech = recognizer
         recognizer = null
-        try { speech?.cancel(); speech?.destroy() } catch (_: Exception) {}
+        ++speechGeneration
+        speechTimeout?.let { handler.removeCallbacks(it) }
+        speechTimeout = null
+        try { speech.cancel(); speech.destroy() } catch (_: Exception) {}
         if (error == null) result?.success(text)
         else result?.error("offline_speech_error", error, null)
     }
-    fun cancel() = finish(null, null)
+
+    private fun failPending(error: String) {
+        val result = pending
+        pending = null
+        ++speechGeneration
+        speechTimeout?.let { handler.removeCallbacks(it) }
+        speechTimeout = null
+        val speech = recognizer
+        recognizer = null
+        try { speech?.cancel(); speech?.destroy() } catch (_: Exception) {}
+        result?.error("offline_speech_error", error, null)
+    }
+
+    fun cancel() {
+        val result = pending
+        pending = null
+        ++speechGeneration
+        speechTimeout?.let { handler.removeCallbacks(it) }
+        speechTimeout = null
+        val speech = recognizer
+        recognizer = null
+        try { speech?.cancel(); speech?.destroy() } catch (_: Exception) {}
+        result?.success(null)
+    }
 
     private fun pickModel(result: MethodChannel.Result) {
         if (modelResult != null || copyingModel) {
