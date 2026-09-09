@@ -1,5 +1,5 @@
 name: Aaris Pharmacy Release APK
-# Rebuild marker for latest main APK generation (2026-09-09 03:05 UTC)
+# Rebuild marker for latest main APK generation (2026-09-10)
 
 on:
   push:
@@ -8,6 +8,9 @@ on:
       - main
     paths:
       - 'lib/**'
+      - 'test/**'
+      - 'tool/**'
+      - 'third_party/lib_llama_cpp/**'
       - 'android/**'
       - 'assets/**'
       - 'pubspec.yaml'
@@ -46,8 +49,18 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Resolve dependencies
+      - name: Resolve pinned dependencies
         run: flutter pub get
+
+      # A production artifact must never be published from source that did not
+      # pass the same deterministic safety gates as the application CI. Keeping
+      # this check inside the release job prevents an APK artifact from racing
+      # ahead while the separate pull/push verification workflow is failing.
+      - name: Static safety gate
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+
+      - name: Full pharmacy regression gate
+        run: flutter test --reporter expanded
 
       - name: Build release APK
         run: flutter build apk --release
@@ -59,13 +72,15 @@ jobs:
           test -s "$APK"
           ls -lh "$APK"
           sha256sum "$APK" | tee build/app-release.sha256
+          printf '%s\n' "commit=${GITHUB_SHA}" "ref=${GITHUB_REF_NAME}" > build/app-release-source.txt
 
-      - name: Upload release APK
+      - name: Upload verified release APK
         uses: actions/upload-artifact@v4
         with:
           name: Aaris-Pharmacy-release-apk
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app-release.sha256
+            build/app-release-source.txt
           if-no-files-found: error
           retention-days: 30
