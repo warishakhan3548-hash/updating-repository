@@ -26,7 +26,7 @@ Future<PharmacyController> controllerForContext() async {
 
 void main() {
   group('Aaris operational context', () {
-    test('stores only an exact active inventory ID and resolves live state', () async {
+    test('keeps live operational facts while exact medicine identity is stable', () async {
       final controller = await controllerForContext();
       addTearDown(controller.dispose);
       await controller.save(stock('a'), expectedRevision: 0);
@@ -43,9 +43,29 @@ void main() {
       });
       await controller.save(updated, expectedRevision: 1);
 
-      // Context does not cache medicine facts. It re-resolves the exact ID from
-      // the authoritative current snapshot every time.
+      // Context never caches operational facts such as quantity. It re-resolves
+      // the exact row through the authoritative current snapshot every time.
       expect(controller.operationalTarget?.quantity, 7);
+      expect(controller.operationalTargetId, 'a');
+    });
+
+    test('identity-changing edits invalidate stale this/same-one context', () async {
+      final controller = await controllerForContext();
+      addTearDown(controller.dispose);
+      await controller.save(stock('a'), expectedRevision: 0);
+      controller.rememberOperationalTarget('a');
+
+      final live = controller.snapshot.records['a']!;
+      await controller.save(
+        live.patch({'batchNumber': 'CORRECTED-BATCH'}),
+        expectedRevision: 1,
+      );
+
+      // The stock ID still exists, but a prior conversational reference was
+      // anchored to different physical identity facts. Aaris must ask the user
+      // to choose the exact row again instead of silently following the edit.
+      expect(controller.operationalTarget, isNull);
+      expect(controller.operationalTargetId, isNull);
     });
 
     test('removed or unknown targets fail closed instead of becoming stale', () async {
