@@ -263,9 +263,7 @@ class PharmacyBrain {
     for (final entry in replacements.entries) {
       text = text.replaceAll(entry.key, entry.value);
     }
-    return searchText(text)
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
+    return searchText(text).replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   static String _extractQuery(String command, PharmacyBrainIntent intent) {
@@ -300,7 +298,6 @@ class PharmacyBrain {
       'ke',
       'se',
       'mein',
-      'me',
       'mujhe',
       'mera',
       'meri',
@@ -343,8 +340,10 @@ class PharmacyBrain {
     };
     final filtered = command
         .split(' ')
-        .where((word) =>
-            word.isNotEmpty && !filler.contains(word) && !extra.contains(word))
+        .where(
+          (word) =>
+              word.isNotEmpty && !filler.contains(word) && !extra.contains(word),
+        )
         .join(' ');
     return searchText(filtered);
   }
@@ -369,7 +368,8 @@ class PharmacyBrain {
     return true;
   }
 
-  static bool _looksLikeQuestion(String command) => RegExp(
+  static bool _looksLikeQuestion(String command) =>
+      RegExp(
         r'\b(?:what|why|how|when|where|which|who|can|should|could|is|are|kya|kyu|kyun|kaise|kab|kahan|क्या|क्यों|कैसे|कब|कहाँ)\b',
       ).hasMatch(command) ||
       command.contains('?');
