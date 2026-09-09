@@ -215,6 +215,7 @@ class MedicineSearch {
     }
   }
 
+  static const maxArchivedResults = 150;
   final Map<String, SearchDocument> docs = {};
   final Map<String, Set<String>> index = {}, exact = {}, barcode = {};
   static const noise = {
@@ -285,17 +286,19 @@ class MedicineSearch {
 
   /// Fuzzy search over already-removed rows only. It is read-only and uses the
   /// same barcode, field weighting, OCR normalization, strength conflict
-  /// penalty and confidence scores as normal Medicine Database search.
+  /// penalty and confidence scores as normal Medicine Database search. Browsing
+  /// is bounded so years of recovery history cannot inflate a single UI frame;
+  /// a query still searches the complete local archive index.
   List<SearchHit> searchArchived(
     String raw,
     DateTime today, {
-    int limit = 150,
+    int limit = maxArchivedResults,
   }) => _searchMatching(
     raw,
     allowedRecord: (record) => record.archived,
     order: _archivedOrder,
     emptyReason: 'Removed stock',
-    limit: limit,
+    limit: min(limit, maxArchivedResults),
   );
 
   List<SearchHit> _searchMatching(
@@ -329,7 +332,10 @@ class MedicineSearch {
     if (barcodeIds != null) {
       final ids = barcodeIds.where(allowedId).toList()
         ..sort((a, b) => order(docs[a]!.record, docs[b]!.record));
-      return ids.map((id) => SearchHit(id, 1, 'Exact barcode', raw)).toList();
+      return ids
+          .take(limit)
+          .map((id) => SearchHit(id, 1, 'Exact barcode', raw))
+          .toList();
     }
 
     final allowed = {
