@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/app_brain.dart';
 import '../domain/attention.dart';
+import '../domain/dispensing_plan.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/search.dart';
@@ -59,12 +60,10 @@ class _BrainScreenState extends State<BrainScreen> {
     } catch (error) {
       if (mounted) {
         setState(
-          () => _reply = error
-              .toString()
-              .replaceFirst(
-                RegExp(r'^(FormatException|Bad state|StateError):\s*'),
-                '',
-              ),
+          () => _reply = error.toString().replaceFirst(
+            RegExp(r'^(FormatException|Bad state|StateError):\s*'),
+            '',
+          ),
         );
       }
     } finally {
@@ -137,10 +136,8 @@ class _BrainScreenState extends State<BrainScreen> {
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (_) => SearchScreen(
-            controller: widget.controller,
-            scope: intent.scope,
-          ),
+          builder: (_) =>
+              SearchScreen(controller: widget.controller, scope: intent.scope),
         ),
       );
       return;
@@ -171,13 +168,17 @@ class _BrainScreenState extends State<BrainScreen> {
         widget.onOpenSection(AppSection.stock);
         if (mounted) {
           setState(
-            () => _reply =
-                'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact stock entry first.',
+            () => _reply = 'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact stock entry first.',
           );
         }
         return;
       }
-      await _openActionTarget(intent.action, remembered, fromContext: true);
+      await _openActionTarget(
+        intent.action,
+        remembered,
+        fromContext: true,
+        requestedQuantity: intent.quantity,
+      );
       return;
     }
 
@@ -185,8 +186,7 @@ class _BrainScreenState extends State<BrainScreen> {
       if (!mounted) return;
       widget.onOpenSection(AppSection.stock);
       setState(
-        () => _reply =
-            'Medicine name, batch, barcode or location is missing. Medicine Database opened so you can choose the exact stock entry safely.',
+        () => _reply = 'Medicine name, batch, barcode or location is missing. Medicine Database opened so you can choose the exact stock entry safely.',
       );
       return;
     }
@@ -203,11 +203,27 @@ class _BrainScreenState extends State<BrainScreen> {
       return;
     }
 
+    if (intent.action == AppBrainAction.recordSale && intent.quantity != null) {
+      final productTarget = _singleSafeProductTarget(viable);
+      if (productTarget != null) {
+        await _openActionTarget(
+          intent.action,
+          productTarget,
+          requestedQuantity: intent.quantity,
+        );
+        return;
+      }
+    }
+
     final direct = _singleSafeTarget(viable);
     if (direct != null) {
       final record = widget.controller.snapshot.records[direct.id];
       if (record != null && !record.archived) {
-        await _openActionTarget(intent.action, record);
+        await _openActionTarget(
+          intent.action,
+          record,
+          requestedQuantity: intent.quantity,
+        );
         return;
       }
     }
@@ -217,6 +233,7 @@ class _BrainScreenState extends State<BrainScreen> {
       title: _choiceTitle(intent.action, query),
       emptyReply: 'No safe match found. I will not guess a medicine or batch.',
       action: intent.action,
+      requestedQuantity: intent.quantity,
     );
   }
 
@@ -224,6 +241,7 @@ class _BrainScreenState extends State<BrainScreen> {
     AppBrainAction action,
     Medicine record, {
     bool fromContext = false,
+    int? requestedQuantity,
   }) async {
     _remember(record);
     widget.onOpenSection(AppSection.stock);
@@ -232,7 +250,11 @@ class _BrainScreenState extends State<BrainScreen> {
     final prefix = fromContext
         ? 'Using your last exact selection: ${record.title}. '
         : '';
-    setState(() => _reply = '$prefix${_editorInstruction(action, record)}');
+    final instruction =
+        action == AppBrainAction.recordSale && requestedQuantity != null
+        ? '${record.title} matched. Preparing a deterministic $requestedQuantity-unit FEFO allocation across active batches.'
+        : _editorInstruction(action, record);
+    setState(() => _reply = '$prefix$instruction');
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
 
@@ -247,9 +269,13 @@ class _BrainScreenState extends State<BrainScreen> {
       await _markSoldTarget(record);
       return;
     }
+    if (action == AppBrainAction.recordSale && requestedQuantity != null) {
+      await _recordFefoSale(record, requestedQuantity);
+      return;
+    }
 
-    // Editing and sales keep the richer editor because it owns field validation,
-    // FEFO guidance, historical-sale validation and amount/quantity review.
+    // Editing and sales without an explicit unit quantity keep the richer editor
+    // because it owns amount entry, historical-sale validation and field review.
     await openEditor(context, widget.controller, record: record);
   }
 
@@ -310,7 +336,8 @@ class _BrainScreenState extends State<BrainScreen> {
       return;
     }
 
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           barrierDismissible: false,
           builder: (ctx) => AlertDialog(
@@ -375,7 +402,8 @@ class _BrainScreenState extends State<BrainScreen> {
       return;
     }
     final expectedRevision = widget.controller.snapshot.revision;
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           barrierDismissible: false,
           builder: (ctx) => AlertDialog(
@@ -414,13 +442,84 @@ class _BrainScreenState extends State<BrainScreen> {
     }
   }
 
+  Future<void> _recordFefoSale(Medicine anchor, int quantity) async {
+    final review = widget.controller.reviewFefoSale(
+      anchor.id,
+      quantity: quantity,
+    );
+    final plan = review.plan;
+    if (!plan.complete) {
+      if (!mounted) return;
+      setState(() {
+        _reply = plan.blockedByUnknownQuantity
+            ? 'FEFO automation stopped safely: an earlier-priority batch has unknown quantity. Verify that physical batch first; no stock or sale was changed.'
+            : 'FEFO automation found only ${plan.plannedQuantity} safely allocatable known units for the requested ${plan.requestedQuantity}. No sale was recorded.';
+      });
+      return;
+    }
+
+    String allocationLine(FefoAllocation allocation) {
+      final expiry = allocation.expiry == null
+          ? 'EXP unknown'
+          : allocation.expiryMonthOnly
+          ? 'EXP ${dateText(allocation.expiry!).substring(0, 7)}'
+          : 'EXP ${dateText(allocation.expiry!)}';
+      final batch = allocation.batchNumber.trim().isEmpty
+          ? 'Batch not set'
+          : 'Batch ${allocation.batchNumber.trim()}';
+      final location = allocation.address.trim().isEmpty
+          ? 'Location not set'
+          : allocation.address.trim();
+      return '${allocation.quantity} units · $batch · $expiry · $location${allocation.emptiesStock ? ' · stock finishes' : ''}';
+    }
+
+    final lines = plan.allocations.map(allocationLine).join('\n');
+    final expiryWarning = plan.requiresExpiryVerification
+        ? '\n\nAt least one allocated batch has no recorded expiry. Verify its physical pack before confirming.'
+        : '';
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: Text('Record FEFO sale · ${plan.requestedQuantity} units?'),
+            content: SingleChildScrollView(
+              child: Text(
+                'Aaris will use the earliest valid expiry first and split this sale across ${plan.allocations.length} ${plan.allocations.length == 1 ? 'batch' : 'batches'}:\n\n$lines$expiryWarning\n\nExpired, SOLD, removed and future-manufacturing-date stock is excluded. The reviewed movements save as one atomic, undoable inventory transaction. No customer or patient data is collected.',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Record FEFO sale'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) {
+      setState(() => _reply = 'FEFO sale cancelled. Nothing changed.');
+      return;
+    }
+
+    await widget.controller.applyFefoSale(review);
+    if (!mounted) return;
+    setState(
+      () => _reply =
+          '${plan.requestedQuantity} units recorded across ${plan.allocations.length} FEFO ${plan.allocations.length == 1 ? 'batch' : 'batches'}. Stock, sales tracking and reorder intelligence updated atomically; Undo is available.',
+    );
+  }
+
   String _stockIdentityCue(Medicine record) {
     final parts = <String>[
       record.title,
       if (record.batchNumber.trim().isNotEmpty)
         'Batch ${record.batchNumber.trim()}',
-      if (record.barcode.trim().isNotEmpty)
-        'Barcode ${record.barcode.trim()}',
+      if (record.barcode.trim().isNotEmpty) 'Barcode ${record.barcode.trim()}',
       if (record.address.trim().isNotEmpty) record.address.trim(),
       if (record.quantity != null) '${record.quantity} units',
     ];
@@ -454,11 +553,28 @@ class _BrainScreenState extends State<BrainScreen> {
     return first;
   }
 
+  Medicine? _singleSafeProductTarget(List<SearchHit> hits) {
+    if (hits.isEmpty || hits.first.uncertain || hits.first.score < .95) {
+      return null;
+    }
+    final records = hits
+        .map((hit) => widget.controller.snapshot.records[hit.id])
+        .whereType<Medicine>()
+        .where((medicine) => !medicine.archived && !medicine.sold)
+        .toList(growable: false);
+    if (records.isEmpty) return null;
+    if (records.map((medicine) => medicine.identity).toSet().length != 1) {
+      return null;
+    }
+    return records.first;
+  }
+
   Future<void> _showMatches(
     List<SearchHit> hits, {
     required String title,
     required String emptyReply,
     AppBrainAction action = AppBrainAction.search,
+    int? requestedQuantity,
   }) async {
     final records = <Medicine>[];
     final seen = <String>{};
@@ -551,7 +667,11 @@ class _BrainScreenState extends State<BrainScreen> {
                           }
                           return;
                         }
-                        await _openActionTarget(action, record);
+                        await _openActionTarget(
+                          action,
+                          record,
+                          requestedQuantity: requestedQuantity,
+                        );
                       },
                     );
                   },
@@ -585,7 +705,8 @@ class _BrainScreenState extends State<BrainScreen> {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => OrderScreen(controller: widget.controller, range: range),
+        builder: (_) =>
+            OrderScreen(controller: widget.controller, range: range),
       ),
     );
   }
@@ -595,7 +716,8 @@ class _BrainScreenState extends State<BrainScreen> {
       setState(() => _reply = 'There is no current change available to undo.');
       return;
     }
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Undo last inventory change?'),
@@ -664,8 +786,7 @@ class _BrainScreenState extends State<BrainScreen> {
   void _bulkRemoveBlocked() {
     widget.onOpenSection(AppSection.profile);
     setState(
-      () => _reply =
-          'Bulk removal is intentionally blocked from natural-language commands. Profile opened at the protected owner area; “Remove all inventory” still requires its dedicated multi-step confirmation so a voice/AI misunderstanding cannot wipe stock.',
+      () => _reply = 'Bulk removal is intentionally blocked from natural-language commands. Profile opened at the protected owner area; “Remove all inventory” still requires its dedicated multi-step confirmation so a voice/AI misunderstanding cannot wipe stock.',
     );
   }
 
@@ -676,18 +797,20 @@ class _BrainScreenState extends State<BrainScreen> {
     );
   }
 
-  String _editorInstruction(AppBrainAction action, Medicine record) =>
-      switch (action) {
-        AppBrainAction.removeMedicine =>
-          '${record.title} matched exactly. Medicine Database opened and the protected Remove flow is ready now.',
-        AppBrainAction.markSold =>
-          '${record.title} matched exactly. Medicine Database opened and the whole-stock SOLD confirmation is ready now.',
-        AppBrainAction.recordSale =>
-          '${record.title} opened in Medicine Database. The sale dialog remains inside the editor so FEFO, expiry date, quantity and historical-sale validation stay authoritative.',
-        AppBrainAction.editMedicine =>
-          '${record.title} opened in Medicine Database for review/edit.',
-        _ => '${record.title} opened.',
-      };
+  String _editorInstruction(
+    AppBrainAction action,
+    Medicine record,
+  ) => switch (action) {
+    AppBrainAction.removeMedicine =>
+      '${record.title} matched exactly. Medicine Database opened and the protected Remove flow is ready now.',
+    AppBrainAction.markSold =>
+      '${record.title} matched exactly. Medicine Database opened and the whole-stock SOLD confirmation is ready now.',
+    AppBrainAction.recordSale =>
+      '${record.title} opened in Medicine Database. The sale dialog remains inside the editor so FEFO, expiry date, quantity and historical-sale validation stay authoritative.',
+    AppBrainAction.editMedicine =>
+      '${record.title} opened in Medicine Database for review/edit.',
+    _ => '${record.title} opened.',
+  };
 
   String _choiceTitle(AppBrainAction action, String query) => switch (action) {
     AppBrainAction.removeMedicine => 'Choose stock to remove · $query',
@@ -799,25 +922,26 @@ class _BrainScreenState extends State<BrainScreen> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: [
-                _QuickCommand('Needs attention', 'aaj kya dekhna hai'),
-                _QuickCommand('Order review', 'order now'),
-                _QuickCommand('Expired', 'expired medicines dikhao'),
-                _QuickCommand('Sold', 'sold medicines dikhao'),
-                _QuickCommand('Stock summary', 'stock summary'),
-                _QuickCommand('Add medicine', 'add medicine'),
-                _QuickCommand('Undo', 'undo last'),
-              ]
-                  .map(
-                    (item) => Padding(
-                      padding: const EdgeInsets.only(right: 7),
-                      child: ActionChip(
-                        label: Text(item.label),
-                        onPressed: _busy ? null : () => _run(item.command),
-                      ),
-                    ),
-                  )
-                  .toList(),
+              children:
+                  [
+                        _QuickCommand('Needs attention', 'aaj kya dekhna hai'),
+                        _QuickCommand('Order review', 'order now'),
+                        _QuickCommand('Expired', 'expired medicines dikhao'),
+                        _QuickCommand('Sold', 'sold medicines dikhao'),
+                        _QuickCommand('Stock summary', 'stock summary'),
+                        _QuickCommand('Add medicine', 'add medicine'),
+                        _QuickCommand('Undo', 'undo last'),
+                      ]
+                      .map(
+                        (item) => Padding(
+                          padding: const EdgeInsets.only(right: 7),
+                          child: ActionChip(
+                            label: Text(item.label),
+                            onPressed: _busy ? null : () => _run(item.command),
+                          ),
+                        ),
+                      )
+                      .toList(),
             ),
           ),
         ],

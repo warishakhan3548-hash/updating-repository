@@ -213,6 +213,8 @@ class _AttentionCard extends StatelessWidget {
     AttentionKind.reorderReview => Icons.shopping_cart_checkout_rounded,
     AttentionKind.unknownExpiry => Icons.event_note_rounded,
     AttentionKind.unknownQuantity => Icons.numbers_rounded,
+    AttentionKind.futureManufactureDate => Icons.event_repeat_rounded,
+    AttentionKind.possibleDuplicateBatch => Icons.content_copy_rounded,
   };
 
   @override
