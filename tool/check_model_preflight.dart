@@ -138,6 +138,12 @@ Future<void> main() async {
     availableMemory: 2500 * 1024 * 1024,
   );
   check(tight.contextTokens == 2048, 'Context falls back to fit available RAM');
+  check(
+    tight.outputTokens == 512 &&
+        tight.inventoryRows == 1 &&
+        tight.evidenceCharacters == 1800,
+    'Small context also reduces output, read pages and OCR source',
+  );
   final desktop = planLocalExecution(
     weightBytes: 2 * gib,
     metadata: model,

@@ -7,9 +7,10 @@ import '../domain/local_model.dart';
 import '../domain/model_catalogue.dart';
 
 class CatalogueResponse {
-  const CatalogueResponse(this.body, {this.link});
+  const CatalogueResponse(this.body, {this.link, this.payloadBytes = 0});
   final Object? body;
   final String? link;
+  final int payloadBytes;
 }
 
 /// Additional metadata providers can implement this boundary without gaining
@@ -38,8 +39,12 @@ class HuggingFaceModelCatalogue implements ModelCatalogueProvider {
     }
     try {
       final response = await _fetch(uri);
-      if (_cache.length >= 12) _cache.remove(_cache.keys.first);
-      _cache[key] = (_clock(), response);
+      // Parsed JSON costs more RAM than its wire representation. Large repos
+      // remain browsable without accumulating twelve multi-MB parsed objects.
+      if (response.payloadBytes <= 512 * 1024) {
+        if (_cache.length >= 12) _cache.remove(_cache.keys.first);
+        _cache[key] = (_clock(), response);
+      }
       return (response, false);
     } on IOException {
       if (saved != null) return (saved.$2, true);
@@ -194,9 +199,11 @@ Future<CatalogueResponse> _publicMetadata(Uri uri) async {
         }
         bytes.add(chunk);
       }
+      final payloadBytes = bytes.length;
       return CatalogueResponse(
         jsonDecode(utf8.decode(bytes.takeBytes())),
         link: response.headers.value('link'),
+        payloadBytes: payloadBytes,
       );
     })().timeout(const Duration(seconds: 30));
   } finally {

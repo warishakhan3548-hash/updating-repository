@@ -22,6 +22,9 @@ protocol, and durable video/photo inbox remain authoritative.
 | Quote validation accepted evidence beyond the text sent to the model | One shared bounded excerpt for prompting and quote authority | Full raw evidence and deterministic fields remain in the draft |
 | Salt/strength proposals could disagree or crop a denominator from a quote | Adjacent pair requirements, consistent paired/flat representations, exact dose/unit/denominator checks and full printed-dose boundaries | Changes remain review-needed and dates remain deterministic |
 | Memory pressure did not stop background model pressure | Capture queue pauses; local result is cancelled and loaded model released after its lease drains | Selected model and saved drafts survive; user can resume |
+| Smaller contexts still received large chat/OCR payloads | Context profiles also limit output tokens, inventory page size, conversation history and the exact OCR evidence window | Exact tokenizer reservation remains the final check; omitted rows never gain mutation authority |
+| Every video window rebuilt the reviewed inventory snapshot | Revision-keyed identity snapshot reuse, invalidated on inventory edits, source attachment and memory pressure | No independent knowledge database or stale learned inventory copy |
+| Large catalogue responses could occupy the phone cache repeatedly | Cache only responses up to 512 KB, with at most 12 entries | Large repositories remain browsable without retained multi-MB response objects |
 
 ## Extension and trust boundaries
 
@@ -72,12 +75,22 @@ dart tool/check_date_input.dart
 dart tool/check_medicine_understanding.dart
 ```
 
-At the second checkpoint all **344 assertions passed**: catalogue 23,
-preflight/setup 134 (including 100 malformed header inputs), local AI 65, runtime
-lifecycle/text 21, domain 52, dates 25 and understanding 24. Analysis is clean.
+Final verification: **352 assertions passed**: catalogue 24,
+preflight/setup 135 (including 100 malformed header inputs), local AI 69, runtime
+lifecycle/text 23, domain 52, dates 25 and understanding 24. Analysis is clean.
 Catalogue tests use a controlled HTTP transport; GGUF tests use synthetic files.
 The lifecycle suite exercises controlled command streams and the actual worker's
 missing-library path, not a loaded model's semantic accuracy.
+
+Live production-provider checks also succeeded: 50 newly created model results,
+the next 50 results through the returned cursor, and three complete file
+manifests from `ggml-org/Qwen3.5-0.8B-GGUF`, pinned to revision
+`8fea620810c4afa23dd6443f999a48574c1611a3`. The actual first 32 MB of its
+`Qwen3.5-0.8B-Q4_0.gguf` file passed the production metadata parser: `qwen35`,
+320 tensors, 24 blocks, context 262144, embedding 1024, heads 8, KV heads 2,
+key/value width 256. An initial 8 MB prefix was correctly rejected as incomplete.
+This checked metadata/container parsing only; no complete model was downloaded
+or run, and this is not a model recommendation or performance benchmark.
 
 Full Flutter widget/device tests could not start: the installed Flutter SDK has
 no usable tester artifacts and its tool dependencies are incomplete. The bundled
@@ -100,3 +113,4 @@ clinical accuracy or complete video recall from source tests.
 
 GitHub checkpoints use `[skip ci]`, preserve owner changes, and never force-push.
 First discovery checkpoint: `7c3dbfd` on `main`.
+Second preflight/runtime/evidence checkpoint: `ff7eab7` on `main`.

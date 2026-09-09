@@ -523,5 +523,40 @@ void main() {
     unknown.salt.isEmpty && unknown.expiry.isEmpty,
     'Abstention remains unknown',
   );
+  rejects(
+    () => validateLocalScan(
+      source('${'x' * 2000}\nCefixime 200 mg'),
+      pair('Cefixime', '200 mg', 'Cefixime 200 mg'),
+      sourceLimit: 1800,
+    ),
+    'Small-context evidence window is also the quote authority',
+  );
+  final compactContext = LocalInventoryContext(
+    records: records,
+    sales: [],
+    revision: 7,
+    today: today,
+  );
+  final compactPage = compactContext.read({
+    'tool': 'search',
+    'query': '',
+  }, rowLimit: 1);
+  check(
+    (compactPage['rows'] as List).length == 1 && compactPage['nextOffset'] == 1,
+    'Small-context tool page retains pagination',
+  );
+  rejects(
+    () => compactContext.finish({
+      'reply': 'change',
+      'actions': [
+        {'op': 'remove', 'id': 'stock_1'},
+      ],
+    }),
+    'Omitted small-context rows are not mutation authority',
+  );
+  rejects(
+    () => compactContext.read({'tool': 'search'}, rowLimit: 0),
+    'Empty page cannot stall pagination',
+  );
   stdout.writeln('Local AI contract: $passed passed.');
 }

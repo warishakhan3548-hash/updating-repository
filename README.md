@@ -18,6 +18,9 @@ prescription product.
   demand-aware reorder suggestions and purchase-order PDF sharing on Android.
 - Pharmacy-only AI export/API flows with strict JSON validation, readable diffs,
   explicit approval, stale-review checks, replay protection and atomic apply.
+- Existing AI Hub local-model discovery, pinned/resumable GGUF downloads and
+  imports, device/context preflight, and evidence-grounded offline scan reasoning.
+  See the [Local AI upgrade and verification record](docs/LOCAL_AI_UPGRADE_2026_09_09.md).
 - Soft removal, recent activity/Undo, per-medicine version restore and full local
   backup/restore. API keys are stored separately and never enter exports.
 

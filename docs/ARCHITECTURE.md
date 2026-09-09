@@ -32,6 +32,9 @@ the exact invisible stock ID; they never repeat a name search to find an editor.
 | `domain/inventory.dart` | Status precedence, warning perimeter, scopes and inventory totals |
 | `domain/search.dart` | Medical normalization, bounded index, candidate retrieval, deep fuzzy ranking and confidence |
 | `domain/medicine_understanding.dart` | Layout-aware OCR fusion, private local knowledge and safe draft extraction |
+| `domain/model_catalogue.dart`, `services/model_catalogue_service.dart` | Live provider discovery, validated pagination, exact repository/file links and immutable download manifests |
+| `domain/gguf_metadata.dart`, `services/gguf_inspector.dart` | Bounded GGUF inspection and device-aware weight/KV/context budgets |
+| `services/local_ai_runtime.dart`, `third_party/lib_llama_cpp` | One inference lease, exact prompt token limits and continuous UTF-8 token decoding |
 | `domain/tracking.dart` | Privacy-safe sale events, period movement and reorder suggestions |
 | `domain/ai_protocol.dart` | Pharmacy-only export and strict reviewed mutation protocol |
 | `domain/backup.dart` | Versioned full-backup envelope and restore validation |
@@ -40,6 +43,10 @@ the exact invisible stock ID; they never repeat a name search to find an editor.
 | `services/` | OCR/barcode, media import, speech, AI transport, backup sharing and purchase orders |
 | `ui/` | Premium responsive views; no business-rule ownership |
 | Android `MainActivity.kt` | Sandboxed picker bridge, adaptive video frames and native multi-page PDF |
+
+Local model discovery, download resumption, runtime admission and the current
+verification boundaries are documented in the
+[9 September Local AI upgrade](LOCAL_AI_UPGRADE_2026_09_09.md).
 
 ## Medicine facts and lifecycle
 

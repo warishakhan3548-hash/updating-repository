@@ -342,6 +342,8 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         _transfer = null;
         _transferring = false;
         _progress = null;
+        if (_releaseForMemory)
+          unawaited(_exclusive((_) async {}).catchError((Object _) {}));
         notifyListeners();
       }
     }
@@ -458,6 +460,8 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         if (part != null && await part.exists()) await part.delete();
       } finally {
         _transferring = false;
+        if (_releaseForMemory)
+          unawaited(_exclusive((_) async {}).catchError((Object _) {}));
         notifyListeners();
       }
     }
@@ -670,8 +674,9 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     }
     await _loadSelected();
     _checkRequest(generation);
-    final recentConversation = conversation.length > 2500
-        ? conversation.substring(conversation.length - 2500)
+    final conversationLimit = _executionPlan!.conversationCharacters;
+    final recentConversation = conversation.length > conversationLimit
+        ? conversation.substring(conversation.length - conversationLimit)
         : conversation;
     var input = jsonEncode({
       'ownerRequest': instruction,
@@ -679,7 +684,11 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     });
     final results = <Map<String, Object?>>[];
     for (var round = 0; round <= 4; round++) {
-      final raw = await _runtime!.generate(context.instructions, input);
+      final raw = await _runtime!.generate(
+        context.instructions,
+        input,
+        maxTokens: _executionPlan!.outputTokens,
+      );
       _checkRequest(generation);
       final answer = localJsonObject(raw);
       if (!answer.containsKey('tool')) {
@@ -690,7 +699,10 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         throw StateError(
           'Local AI reached the read-tool limit. Ask a narrower question.',
         );
-      final facts = context.read(answer);
+      final facts = context.read(
+        answer,
+        rowLimit: _executionPlan!.inventoryRows,
+      );
       results.add({'call': answer, 'result': facts});
       // Keep the last two pages, with explicit pagination metadata. The app
       // retains retrieved-ID authority independently of this bounded prompt.
@@ -714,13 +726,18 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     return _exclusive((generation) async {
       await _loadSelected();
       _checkRequest(generation);
+      final sourceLimit = _executionPlan!.evidenceCharacters;
       final raw = await _runtime!.generate(
-        localScanPrompt(draft),
+        localScanPrompt(draft, sourceLimit: sourceLimit),
         'Return the evidence-grounded fields for this one medicine.',
-        maxTokens: 1000,
+        maxTokens: _executionPlan!.outputTokens.clamp(1, 1000),
       );
       _checkRequest(generation);
-      return validateLocalScan(draft, localJsonObject(raw));
+      return validateLocalScan(
+        draft,
+        localJsonObject(raw),
+        sourceLimit: sourceLimit,
+      );
     });
   }
 }

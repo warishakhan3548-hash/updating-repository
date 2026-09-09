@@ -120,7 +120,10 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
       picked = source;
       if (source == null || !mounted || generation != _generation) return;
       final queue = MedicineIntakeService.instance;
-      await queue.attach(() => widget.controller.records);
+      await queue.attach(
+        () => widget.controller.records,
+        revision: () => widget.controller.snapshot.revision,
+      );
       if (!mounted || generation != _generation) return;
       // The existing Upload button shares the durable windowed engine. Do not
       // keep the legacy whole-video 60-frame path as a second implementation.

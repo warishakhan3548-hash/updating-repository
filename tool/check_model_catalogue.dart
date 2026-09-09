@@ -150,6 +150,21 @@ Future<void> main() async {
     (await catalog.files(file)).cached && calls == before + 1,
     'Marked stale metadata fallback',
   );
+  var largeCalls = 0;
+  final large = HuggingFaceModelCatalogue(
+    fetch: (_) async {
+      largeCalls++;
+      return const CatalogueResponse([
+        {'id': 'owner/model'},
+      ], payloadBytes: 600000);
+    },
+  );
+  await large.search('large');
+  await large.search('large');
+  check(
+    largeCalls == 2,
+    'Large parsed catalogues do not accumulate in phone cache',
+  );
   stdout.writeln(
     'Model catalogue: $passed passed (fixture transport, no live model download).',
   );

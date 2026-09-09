@@ -13,7 +13,10 @@ Future<void> openMedicineCapture(
 ) async {
   final queue = MedicineIntakeService.instance;
   try {
-    await queue.attach(() => controller.records);
+    await queue.attach(
+      () => controller.records,
+      revision: () => controller.snapshot.revision,
+    );
     if (!context.mounted) return;
     if (!queue.supported)
       throw UnsupportedError(

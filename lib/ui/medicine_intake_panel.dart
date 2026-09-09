@@ -25,7 +25,14 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
   @override
   void initState() {
     super.initState();
-    unawaited(_run(() => queue.attach(() => widget.controller.records)));
+    unawaited(
+      _run(
+        () => queue.attach(
+          () => widget.controller.records,
+          revision: () => widget.controller.snapshot.revision,
+        ),
+      ),
+    );
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -91,6 +98,8 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
             'Drafts are saved locally. OCR/AI processes while the app is alive; interrupted jobs resume here. Nothing enters stock without review.',
             style: TextStyle(fontSize: 11, color: muted),
           ),
+          if (queue.pauseReason.isNotEmpty)
+            Text(queue.pauseReason, style: const TextStyle(color: amber)),
           if (queue.persistenceError.isNotEmpty)
             Text(queue.persistenceError, style: const TextStyle(color: red)),
           if (error.isNotEmpty) Text(error, style: const TextStyle(color: red)),

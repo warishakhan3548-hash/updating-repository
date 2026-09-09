@@ -34,6 +34,10 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   bool _ready = false, _preferReasoning = false, _observingMemory = false;
   String persistenceError = '';
   Iterable<Medicine> Function()? _records;
+  int Function()? _revision;
+  int? _knowledgeRevision;
+  List<Map<String, Object?>>? _knowledge;
+  String pauseReason = '';
 
   List<MedicineIntakeJob> get jobs => List.unmodifiable(_jobs);
   bool get full => _jobs.length >= capacity;
@@ -42,8 +46,14 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   bool get supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
-  Future<void> attach(Iterable<Medicine> Function() records) async {
+  Future<void> attach(
+    Iterable<Medicine> Function() records, {
+    int Function()? revision,
+  }) async {
     _records = records;
+    _revision = revision;
+    _knowledgeRevision = null;
+    _knowledge = null;
     await initialize();
     _kick();
   }
@@ -218,11 +228,16 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didHaveMemoryPressure() {
     _paused = true;
+    pauseReason =
+        'Device memory is low. Close other apps, then resume this saved queue.';
+    _knowledge = null;
+    _knowledgeRevision = null;
     notifyListeners();
   }
 
   void setPaused(bool value) {
     _paused = value;
+    if (!value) pauseReason = '';
     notifyListeners();
     if (!value) _kick();
   }
@@ -250,11 +265,19 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   Future<MedicineUnderstandingResult> _understand(
     List<MedicineFrameEvidence> frames,
   ) async {
-    final knowledge = medicineKnowledgeFromRecords(_records!());
+    final revision = _revision?.call();
+    if (_knowledge == null ||
+        revision == null ||
+        revision != _knowledgeRevision) {
+      _knowledge = medicineKnowledgeFromRecords(
+        _records!(),
+      ).map((k) => k.toMessage()).toList();
+      _knowledgeRevision = revision;
+    }
     return MedicineUnderstandingResult.fromMessage(
       await compute(understandMedicineEvidenceMessage, <String, Object?>{
         'evidence': frames.map((e) => e.toMessage()).toList(),
-        'knowledge': knowledge.map((k) => k.toMessage()).toList(),
+        'knowledge': _knowledge!,
       }),
     );
   }

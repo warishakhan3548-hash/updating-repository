@@ -115,7 +115,7 @@ GgufMetadata inspectGgufPrefix(Uint8List prefix, {required int fileBytes}) {
     final type = reader.u32();
     // Only small scalar facts are retained; vocabulary and templates are skipped.
     final value = reader.value(type, retain: key != 'tokenizer.chat_template');
-    values[key] = key == 'tokenizer.chat_template' ? true : value;
+    values[key] = key == 'tokenizer.chat_template' ? type == 8 : value;
   }
   final architecture = values['general.architecture'];
   if (architecture is! String ||
@@ -283,6 +283,13 @@ class _GgufReader {
         _ => null,
       };
     }
+    if (type == 10 &&
+        result is int &&
+        (result < 0 || result > 9007199254740991)) {
+      throw const FormatException(
+        'GGUF metadata integer exceeds supported range.',
+      );
+    }
     offset += width;
     return result;
   }
@@ -297,6 +304,22 @@ class LocalExecutionPlan {
   });
   final int contextTokens, estimatedBytes, estimatedKvBytes;
   final bool geometryKnown;
+  int get outputTokens => contextTokens <= 2048
+      ? 512
+      : contextTokens <= 4096
+      ? 1000
+      : 1200;
+  int get evidenceCharacters => contextTokens <= 2048
+      ? 1800
+      : contextTokens <= 4096
+      ? 5000
+      : 7000;
+  int get inventoryRows => contextTokens <= 2048
+      ? 1
+      : contextTokens <= 4096
+      ? 3
+      : 8;
+  int get conversationCharacters => contextTokens <= 2048 ? 400 : 1500;
 }
 
 /// Conservative admission estimate, not a promise of successful allocation.

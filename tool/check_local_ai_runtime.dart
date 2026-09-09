@@ -185,6 +185,32 @@ Future<void> main() async {
     invalidRejected,
     'Incomplete UTF-8 is not replaced with corrupted medicine text',
   );
+  final drainingEngine = ControlledEngine();
+  final draining = LocalAiRuntime(engine: drainingEngine);
+  final drainLoad = draining.load('/test/draining.gguf', contextTokens: 2048);
+  await drainingEngine.loadState.future;
+  drainingEngine.releaseLoad.complete();
+  await drainLoad;
+  final drainingError = failure(draining.generate('system', 'fail'));
+  await drainingEngine.errorState.future;
+  final closing = draining.close();
+  var refused = false;
+  try {
+    draining.generate('system', 'late request');
+  } on StateError {
+    refused = true;
+  }
+  check(
+    refused && drainingEngine.disposals == 0,
+    'Shutdown rejects new work while the previous command drains',
+  );
+  drainingEngine.releaseError.complete();
+  await drainingError;
+  await closing;
+  check(
+    drainingEngine.disposals == 1 && drainingEngine.contextTokens == 2048,
+    'Selected context forwarded; exactly one disposal after drain',
+  );
   stdout.writeln(
     'Local AI runtime lifecycle: $passed passed (no model/device execution).',
   );
