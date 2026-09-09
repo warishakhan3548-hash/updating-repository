@@ -68,7 +68,7 @@ void main() {
       expect(controller.operationalTargetId, isNull);
     });
 
-    test('removed or unknown targets fail closed instead of becoming stale', () async {
+    test('removed or unknown active targets fail closed instead of becoming stale', () async {
       final controller = await controllerForContext();
       addTearDown(controller.dispose);
       await controller.save(stock('a'), expectedRevision: 0);
@@ -84,7 +84,54 @@ void main() {
       );
     });
 
-    test('clearing another ID cannot erase the current exact target', () async {
+    test('archived context supports exact recovery without caching live facts', () async {
+      final controller = await controllerForContext();
+      addTearDown(controller.dispose);
+      await controller.save(stock('a'), expectedRevision: 0);
+      controller.rememberOperationalTarget('a');
+
+      await controller.archive('a', 'Correction', expectedRevision: 1);
+      controller.rememberArchivedOperationalTarget('a');
+
+      expect(controller.operationalTarget, isNull);
+      expect(controller.archivedOperationalTargetId, 'a');
+      expect(controller.archivedOperationalTarget?.archiveReason, 'Correction');
+      expect(controller.archivedOperationalTarget?.quantity, 10);
+    });
+
+    test('restore invalidates archived context and active context can be rebound', () async {
+      final controller = await controllerForContext();
+      addTearDown(controller.dispose);
+      await controller.save(stock('a'), expectedRevision: 0);
+      await controller.archive('a', 'Damaged', expectedRevision: 1);
+      controller.rememberArchivedOperationalTarget('a');
+
+      final review = controller.reviewArchivedRestore('a');
+      await controller.applyArchivedRestore(review);
+
+      expect(controller.archivedOperationalTarget, isNull);
+      expect(controller.archivedOperationalTargetId, isNull);
+      controller.rememberOperationalTarget('a');
+      expect(controller.operationalTargetId, 'a');
+      expect(controller.operationalTarget?.archived, isFalse);
+    });
+
+    test('a new archive lifecycle cannot reuse stale archived context', () async {
+      final controller = await controllerForContext();
+      addTearDown(controller.dispose);
+      await controller.save(stock('a'), expectedRevision: 0);
+      await controller.archive('a', 'Correction', expectedRevision: 1);
+      controller.rememberArchivedOperationalTarget('a');
+      final oldArchivedAt = controller.archivedOperationalTarget!.archivedAt;
+
+      await controller.applyArchivedRestore(controller.reviewArchivedRestore('a'));
+      await controller.archive('a', 'Returned', expectedRevision: 3);
+
+      expect(oldArchivedAt, isNotNull);
+      expect(controller.archivedOperationalTarget, isNull);
+    });
+
+    test('clearing another ID cannot erase the current exact targets', () async {
       final controller = await controllerForContext();
       addTearDown(controller.dispose);
       await controller.save(stock('a'), expectedRevision: 0);
@@ -94,8 +141,15 @@ void main() {
       controller.clearOperationalTarget('a');
       expect(controller.operationalTarget?.id, 'b');
 
+      await controller.archive('a', 'Correction', expectedRevision: 2);
+      controller.rememberArchivedOperationalTarget('a');
+      controller.clearArchivedOperationalTarget('b');
+      expect(controller.archivedOperationalTarget?.id, 'a');
+
       controller.clearOperationalTarget('b');
+      controller.clearArchivedOperationalTarget('a');
       expect(controller.operationalTarget, isNull);
+      expect(controller.archivedOperationalTarget, isNull);
     });
   });
 }
