@@ -1135,6 +1135,7 @@ class _BrainScreenState extends State<BrainScreen> {
       settings: widget.controller.settings,
       today: widget.controller.today,
       reorder: widget.controller.tracking(range).reorder,
+      sales: widget.controller.sales,
     );
     if (mounted) {
       setState(

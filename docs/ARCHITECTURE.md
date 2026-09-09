@@ -36,6 +36,7 @@ the exact invisible stock ID; they never repeat a name search to find an editor.
 | `domain/gguf_metadata.dart`, `services/gguf_inspector.dart` | Bounded GGUF inspection and device-aware weight/KV/context budgets |
 | `services/local_ai_runtime.dart`, `third_party/lib_llama_cpp` | One inference lease, exact prompt token limits and continuous UTF-8 token decoding |
 | `domain/tracking.dart` | Privacy-safe sale events, period movement and reorder suggestions |
+| `domain/stock_risk.dart` | Read-only FEFO expiry-waste pressure from known stock plus recorded sales; uncertainty fails closed |
 | `domain/ai_protocol.dart` | Pharmacy-only export and strict reviewed mutation protocol |
 | `domain/backup.dart` | Versioned full-backup envelope and restore validation |
 | `data/inventory_database.dart` | SQLite v3, serialized atomic commits, events, receipts and Undo facts |
