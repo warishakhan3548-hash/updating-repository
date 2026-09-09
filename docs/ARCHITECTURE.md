@@ -40,6 +40,7 @@ the exact invisible stock ID; they never repeat a name search to find an editor.
 | `domain/backup.dart` | Versioned full-backup envelope and restore validation |
 | `data/inventory_database.dart` | SQLite v3, serialized atomic commits, events, receipts and Undo facts |
 | `state/pharmacy_controller.dart` | Reactive state, midnight rollover, commands and isolate search orchestration |
+| `state/stock_location_operations.dart` | Revision-bound reviewed physical-stock relocation; no clinical or sales write authority |
 | `services/` | OCR/barcode, media import, speech, AI transport, backup sharing and purchase orders |
 | `ui/` | Premium responsive views; no business-rule ownership |
 | Android `MainActivity.kt` | Sandboxed picker bridge, adaptive video frames and native multi-page PDF |

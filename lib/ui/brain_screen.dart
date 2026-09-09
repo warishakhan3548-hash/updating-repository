@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/app_brain.dart';
 import '../domain/attention.dart';
+import '../domain/brain_operations.dart';
 import '../domain/dispensing_plan.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
@@ -13,6 +14,7 @@ import '../domain/tracking.dart';
 import '../services/scan_service.dart';
 import '../state/operational_context.dart';
 import '../state/pharmacy_controller.dart';
+import '../state/stock_location_operations.dart';
 import 'ai_screen.dart';
 import 'attention_screen.dart';
 import 'design.dart';
@@ -103,6 +105,7 @@ class _BrainScreenState extends State<BrainScreen> {
       case AppBrainAction.editMedicine:
       case AppBrainAction.setQuantity:
       case AppBrainAction.receiveStock:
+      case AppBrainAction.relocateMedicine:
       case AppBrainAction.removeMedicine:
       case AppBrainAction.markSold:
       case AppBrainAction.recordSale:
@@ -133,8 +136,7 @@ class _BrainScreenState extends State<BrainScreen> {
     if (!mounted) return;
     widget.onOpenSection(AppSection.stock);
     setState(
-      () => _reply =
-          'Opening the existing local scanner. Barcode + OCR evidence will be reviewed before any stock can change.',
+      () => _reply = 'Opening the existing local scanner. Barcode + OCR evidence will be reviewed before any stock can change.',
     );
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
@@ -150,8 +152,7 @@ class _BrainScreenState extends State<BrainScreen> {
     }
     if (result.barcode.trim().isEmpty && result.text.trim().isEmpty) {
       setState(
-        () => _reply =
-            'The scan contained no usable barcode or medicine text. Nothing changed.',
+        () => _reply = 'The scan contained no usable barcode or medicine text. Nothing changed.',
       );
       return;
     }
@@ -217,8 +218,7 @@ class _BrainScreenState extends State<BrainScreen> {
         widget.onOpenSection(AppSection.stock);
         if (mounted) {
           setState(
-            () => _reply =
-                'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact medicine first.',
+            () => _reply = 'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact medicine first.',
           );
         }
         return;
@@ -232,8 +232,7 @@ class _BrainScreenState extends State<BrainScreen> {
       if (briefFocus != null) {
         widget.onOpenSection(AppSection.stock);
         setState(
-          () => _reply =
-              'Medicine name, batch, barcode or an exact previous selection is missing. Medicine Database opened instead of guessing which medicine you meant.',
+          () => _reply = 'Medicine name, batch, barcode or an exact previous selection is missing. Medicine Database opened instead of guessing which medicine you meant.',
         );
         return;
       }
@@ -277,8 +276,7 @@ class _BrainScreenState extends State<BrainScreen> {
       await _showMatches(
         viable,
         title: 'Choose medicine for ${_briefLabel(briefFocus)} · $query',
-        emptyReply:
-            'No safe local match found. Aaris will not guess an operational answer.',
+        emptyReply: 'No safe local match found. Aaris will not guess an operational answer.',
         briefFocus: briefFocus,
       );
       return;
@@ -297,17 +295,13 @@ class _BrainScreenState extends State<BrainScreen> {
     );
   }
 
-  void _answerOperationalBrief(
-    Medicine anchor,
-    MedicineBriefFocus focus,
-  ) {
+  void _answerOperationalBrief(Medicine anchor, MedicineBriefFocus focus) {
     if (!mounted) return;
     final live = widget.controller.snapshot.records[anchor.id];
     if (live == null || live.archived) {
       widget.controller.clearOperationalTarget(anchor.id);
       setState(
-        () => _reply =
-            'That stock entry is no longer active. Choose the medicine again so Aaris can answer from the current inventory snapshot.',
+        () => _reply = 'That stock entry is no longer active. Choose the medicine again so Aaris can answer from the current inventory snapshot.',
       );
       return;
     }
@@ -338,6 +332,8 @@ class _BrainScreenState extends State<BrainScreen> {
         remembered,
         fromContext: true,
         requestedQuantity: intent.quantity,
+        locationPatch: intent.locationPatch,
+        removalReason: intent.removalReason,
       );
       return;
     }
@@ -370,6 +366,8 @@ class _BrainScreenState extends State<BrainScreen> {
           intent.action,
           productTarget,
           requestedQuantity: intent.quantity,
+          locationPatch: intent.locationPatch,
+          removalReason: intent.removalReason,
         );
         return;
       }
@@ -383,6 +381,8 @@ class _BrainScreenState extends State<BrainScreen> {
           intent.action,
           record,
           requestedQuantity: intent.quantity,
+          locationPatch: intent.locationPatch,
+          removalReason: intent.removalReason,
         );
         return;
       }
@@ -394,6 +394,8 @@ class _BrainScreenState extends State<BrainScreen> {
       emptyReply: 'No safe match found. I will not guess a medicine or batch.',
       action: intent.action,
       requestedQuantity: intent.quantity,
+      locationPatch: intent.locationPatch,
+      removalReason: intent.removalReason,
     );
   }
 
@@ -402,6 +404,8 @@ class _BrainScreenState extends State<BrainScreen> {
     Medicine record, {
     bool fromContext = false,
     int? requestedQuantity,
+    StockLocationPatch? locationPatch,
+    RemovalReasonHint? removalReason,
   }) async {
     _remember(record);
     widget.onOpenSection(AppSection.stock);
@@ -417,6 +421,8 @@ class _BrainScreenState extends State<BrainScreen> {
         '${record.title} matched. Preparing an exact stock correction to $requestedQuantity units.',
       AppBrainAction.receiveStock when requestedQuantity != null =>
         '${record.title} matched. Preparing a reviewed +$requestedQuantity-unit stock receipt.',
+      AppBrainAction.relocateMedicine when locationPatch != null =>
+        '${record.title} matched. Preparing a reviewed location change: ${describeStockLocationPatch(locationPatch)}.',
       _ => _editorInstruction(action, record),
     };
     setState(() => _reply = '$prefix$instruction');
@@ -427,7 +433,20 @@ class _BrainScreenState extends State<BrainScreen> {
     // prepare a review tied to the current inventory revision, and still require
     // a pharmacist confirmation before the controller can commit anything.
     if (action == AppBrainAction.removeMedicine) {
-      await _removeTarget(record);
+      if (removalReason == RemovalReasonHint.soldOut) {
+        await _markSoldTarget(record);
+      } else {
+        await _removeTarget(record, reasonHint: removalReason);
+      }
+      return;
+    }
+    if (action == AppBrainAction.relocateMedicine) {
+      if (locationPatch == null) {
+        throw StateError(
+          'The reviewed location command is incomplete. Nothing changed.',
+        );
+      }
+      await _reviewLocationUpdate(record, locationPatch);
       return;
     }
     if (action == AppBrainAction.markSold) {
@@ -466,12 +485,15 @@ class _BrainScreenState extends State<BrainScreen> {
     );
     final live = widget.controller.snapshot.records[review.stockId];
     if (live == null || live.archived) {
-      throw StateError('That stock entry is no longer active. Nothing changed.');
+      throw StateError(
+        'That stock entry is no longer active. Nothing changed.',
+      );
     }
 
     if (!review.changesQuantity && kind == StockAdjustmentKind.setExact) {
       setState(
-        () => _reply = '${live.title} already has ${review.afterQuantity} units recorded. No inventory change was needed.',
+        () => _reply =
+            '${live.title} already has ${review.afterQuantity} units recorded. No inventory change was needed.',
       );
       return;
     }
@@ -524,7 +546,70 @@ class _BrainScreenState extends State<BrainScreen> {
     );
   }
 
-  Future<void> _removeTarget(Medicine original) async {
+  Future<void> _reviewLocationUpdate(
+    Medicine original,
+    StockLocationPatch patch,
+  ) async {
+    if (!mounted) return;
+    final review = widget.controller.reviewStockLocationUpdate(
+      original.id,
+      patch,
+    );
+    final live = widget.controller.snapshot.records[review.stockId];
+    if (live == null || live.archived) {
+      throw StateError(
+        'That stock entry is no longer active. Nothing changed.',
+      );
+    }
+    if (!review.changesLocation) {
+      setState(
+        () => _reply =
+            '${live.title} already has that stock location. No inventory change was needed.',
+      );
+      return;
+    }
+
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: Text('Update ${live.name} location?'),
+            content: Text(
+              '${_stockIdentityCue(live)}\n\nBefore: ${review.beforeDisplay}\nAfter: ${review.afterDisplay}\n\nOnly physical storage-location fields will change. Medicine identity, expiry, quantity, price and sales are untouched. The write is revision-checked and Undo remains available.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Update location'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) {
+      setState(() => _reply = 'Location update cancelled. Nothing changed.');
+      return;
+    }
+
+    await widget.controller.applyStockLocationUpdate(review);
+    if (!mounted) return;
+    final updated = widget.controller.snapshot.records[live.id];
+    if (updated != null && !updated.archived) _remember(updated);
+    setState(
+      () => _reply =
+          '${live.title} moved to ${review.afterDisplay}. The reviewed location change is audited and Undo is available.',
+    );
+  }
+
+  Future<void> _removeTarget(
+    Medicine original, {
+    RemovalReasonHint? reasonHint,
+  }) async {
     if (!mounted) return;
     final live = widget.controller.snapshot.records[original.id];
     if (live == null || live.archived) {
@@ -544,33 +629,41 @@ class _BrainScreenState extends State<BrainScreen> {
       'Correction',
     ];
 
-    final reason = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => SimpleDialog(
-        title: Text('Why remove ${live.name}?'),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
-            child: Text(
-              _stockIdentityCue(live),
-              style: const TextStyle(color: muted, fontSize: 12),
-            ),
+    final reason =
+        reasonHint?.archiveReason ??
+        await showDialog<String>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => SimpleDialog(
+            title: Text('Why remove ${live.name}?'),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
+                child: Text(
+                  _stockIdentityCue(live),
+                  style: const TextStyle(color: muted, fontSize: 12),
+                ),
+              ),
+              for (final item in reasons)
+                SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, item),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 15,
+                  ),
+                  child: Text(item),
+                ),
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 15,
+                ),
+                child: const Text('Cancel', style: TextStyle(color: muted)),
+              ),
+            ],
           ),
-          for (final item in reasons)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, item),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
-              child: Text(item),
-            ),
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
-            child: const Text('Cancel', style: TextStyle(color: muted)),
-          ),
-        ],
-      ),
-    );
+        );
     if (reason == null || !mounted) {
       setState(() => _reply = 'Remove cancelled. Nothing changed.');
       return;
@@ -772,7 +865,8 @@ class _BrainScreenState extends State<BrainScreen> {
   }
 
   void _remember(Medicine record) {
-    if (!record.archived) widget.controller.rememberOperationalTarget(record.id);
+    if (!record.archived)
+      widget.controller.rememberOperationalTarget(record.id);
   }
 
   Medicine? _rememberedTarget() => widget.controller.operationalTarget;
@@ -828,6 +922,8 @@ class _BrainScreenState extends State<BrainScreen> {
     AppBrainAction action = AppBrainAction.search,
     int? requestedQuantity,
     MedicineBriefFocus? briefFocus,
+    StockLocationPatch? locationPatch,
+    RemovalReasonHint? removalReason,
   }) async {
     final records = <Medicine>[];
     final seen = <String>{};
@@ -943,6 +1039,8 @@ class _BrainScreenState extends State<BrainScreen> {
                           action,
                           record,
                           requestedQuantity: requestedQuantity,
+                          locationPatch: locationPatch,
+                          removalReason: removalReason,
                         );
                       },
                     );
@@ -1083,6 +1181,8 @@ class _BrainScreenState extends State<BrainScreen> {
       '${record.title} opened for an exact stock correction review.',
     AppBrainAction.receiveStock =>
       '${record.title} opened for a received-stock review.',
+    AppBrainAction.relocateMedicine =>
+      '${record.title} opened for a reviewed stock-location change.',
     AppBrainAction.editMedicine =>
       '${record.title} opened in Medicine Database for review/edit.',
     _ => '${record.title} opened.',
@@ -1094,6 +1194,7 @@ class _BrainScreenState extends State<BrainScreen> {
     AppBrainAction.recordSale => 'Choose stock for sale · $query',
     AppBrainAction.setQuantity => 'Choose stock to correct · $query',
     AppBrainAction.receiveStock => 'Choose stock to receive · $query',
+    AppBrainAction.relocateMedicine => 'Choose stock to relocate · $query',
     AppBrainAction.editMedicine => 'Choose stock to edit · $query',
     _ => 'Choose medicine · $query',
   };
@@ -1164,8 +1265,7 @@ class _BrainScreenState extends State<BrainScreen> {
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => unawaited(_run()),
                   decoration: const InputDecoration(
-                    hintText:
-                        'Dolo stock kitna · expiry kab · add 12 units · delete karo',
+                    hintText: 'Dolo stock kitna · expiry kab · add 12 units · delete karo',
                     prefixIcon: Icon(Icons.bolt_rounded),
                   ),
                 ),
