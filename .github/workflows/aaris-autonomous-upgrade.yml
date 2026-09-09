@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - upgrade/aaris-autonomous-safety-20260910
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -31,10 +34,6 @@ jobs:
 
       - name: Apply surgical upgrade
         run: python3 tool/aaris_autonomous_upgrade_20260910.py
-
-      - name: Format source
-        run: dart --version || true
-        continue-on-error: true
 
       - uses: actions/setup-java@v4
         with:
