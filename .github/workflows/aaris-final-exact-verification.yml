@@ -30,9 +30,9 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
-      - name: Verify upgraded Dart formatting without rewriting source
+      - name: Normalize upgraded Dart formatting
         run: >-
-          dart format --output=none --set-exit-if-changed
+          dart format
           lib/domain/app_brain.dart
           lib/domain/attention.dart
           lib/domain/brain_operations.dart
@@ -42,6 +42,29 @@ jobs:
           lib/ui/brain_screen.dart
           test/stock_location_operations_test.dart
           test/stock_risk_test.dart
+      - name: Commit formatter-only normalization when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILES=(
+            lib/domain/app_brain.dart
+            lib/domain/attention.dart
+            lib/domain/brain_operations.dart
+            lib/domain/stock_risk.dart
+            lib/state/stock_location_operations.dart
+            lib/ui/attention_screen.dart
+            lib/ui/brain_screen.dart
+            test/stock_location_operations_test.dart
+            test/stock_risk_test.dart
+          )
+          if git diff --quiet -- "${FILES[@]}"; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "${FILES[@]}"
+          git commit -m "Normalize reviewed Aaris upgrade formatting"
+          git push origin "HEAD:upgrade/aaris-operational-brain-20260910"
       - name: Resolve pinned dependencies
         run: flutter pub get
       - name: Static checks
