@@ -95,15 +95,17 @@ class PharmacyBrainController {
       }
       if (medicine.quantity == 0) zeroQuantity++;
       if (medicine.expiry == null) unknownExpiry++;
-      switch (statusOf(medicine, controller.settings, controller.today).status) {
-        case StockStatus.expired:
-          expired++;
-        case StockStatus.shortExpiry:
-          shortExpiry++;
-        case StockStatus.monthExpiry:
-          monthExpiry++;
-        case StockStatus.normal || StockStatus.sold || StockStatus.archived:
-          break;
+      final status = statusOf(
+        medicine,
+        controller.settings,
+        controller.today,
+      ).status;
+      if (status == StockStatus.expired) {
+        expired++;
+      } else if (status == StockStatus.shortExpiry) {
+        shortExpiry++;
+      } else if (status == StockStatus.monthExpiry) {
+        monthExpiry++;
       }
     }
     return PharmacyBrainPulse(
