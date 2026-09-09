@@ -175,9 +175,8 @@ class PharmacyStockRiskReport {
       positive.sort((a, b) {
         final expiry = a.expiry!.compareTo(b.expiry!);
         if (expiry != 0) return expiry;
-        final batch = normalize(a.batchNumber).compareTo(
-          normalize(b.batchNumber),
-        );
+        final batch = normalize(a.batchNumber)
+            .compareTo(normalize(b.batchNumber));
         return batch != 0 ? batch : a.id.compareTo(b.id);
       });
 

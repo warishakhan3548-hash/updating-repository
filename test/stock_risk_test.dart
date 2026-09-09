@@ -137,28 +137,11 @@ void main() {
   test('live identity edits never relabel historical sale evidence', () {
     final report = PharmacyStockRiskReport.build(
       medicines: [
-        stock(
-          'a',
-          name: 'Paracetamol',
-          strength: '500 mg',
-          quantity: 50,
-        ),
+        stock('a', name: 'Paracetamol', strength: '500 mg', quantity: 50),
       ],
       sales: [
-        sale(
-          's1',
-          2,
-          DateTime(2026, 9, 5),
-          name: 'Dolo',
-          strength: '650 mg',
-        ),
-        sale(
-          's2',
-          2,
-          DateTime(2026, 9, 8),
-          name: 'Dolo',
-          strength: '650 mg',
-        ),
+        sale('s1', 2, DateTime(2026, 9, 5), name: 'Dolo', strength: '650 mg'),
+        sale('s2', 2, DateTime(2026, 9, 8), name: 'Dolo', strength: '650 mg'),
       ],
       today: today,
     );
@@ -166,29 +149,16 @@ void main() {
     expect(
       report.expiryWaste,
       isEmpty,
-      reason:
-          'SaleEvent is an immutable product snapshot; correcting the current stock identity must not manufacture demand for the new identity.',
+      reason: 'SaleEvent is an immutable product snapshot; correcting the current stock identity must not manufacture demand for the new identity.',
     );
   });
 
   test('conflicting known salt evidence fails closed', () {
     final report = PharmacyStockRiskReport.build(
-      medicines: [
-        stock('a', quantity: 50, salt: 'Paracetamol'),
-      ],
+      medicines: [stock('a', quantity: 50, salt: 'Paracetamol')],
       sales: [
-        sale(
-          's1',
-          2,
-          DateTime(2026, 9, 5),
-          salt: 'Paracetamol + Caffeine',
-        ),
-        sale(
-          's2',
-          2,
-          DateTime(2026, 9, 8),
-          salt: 'Paracetamol + Caffeine',
-        ),
+        sale('s1', 2, DateTime(2026, 9, 5), salt: 'Paracetamol + Caffeine'),
+        sale('s2', 2, DateTime(2026, 9, 8), salt: 'Paracetamol + Caffeine'),
       ],
       today: today,
     );
@@ -196,8 +166,7 @@ void main() {
     expect(
       report.expiryWaste,
       isEmpty,
-      reason:
-          'Known conflicting composition facts must be reviewed instead of being aggregated into an operational demand forecast.',
+      reason: 'Known conflicting composition facts must be reviewed instead of being aggregated into an operational demand forecast.',
     );
   });
 }
