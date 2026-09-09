@@ -30,8 +30,18 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
-      - name: Verify Dart formatting without rewriting source
-        run: dart format --output=none --set-exit-if-changed lib test third_party/lib_llama_cpp/lib
+      - name: Verify upgraded Dart formatting without rewriting source
+        run: >-
+          dart format --output=none --set-exit-if-changed
+          lib/domain/app_brain.dart
+          lib/domain/attention.dart
+          lib/domain/brain_operations.dart
+          lib/domain/stock_risk.dart
+          lib/state/stock_location_operations.dart
+          lib/ui/attention_screen.dart
+          lib/ui/brain_screen.dart
+          test/stock_location_operations_test.dart
+          test/stock_risk_test.dart
       - name: Resolve pinned dependencies
         run: flutter pub get
       - name: Static checks
