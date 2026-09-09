@@ -56,13 +56,13 @@ class _BrainScreenState extends State<BrainScreen> {
     if (_busy) return;
     final raw = (supplied ?? _command.text).trim();
     if (raw.isEmpty) return;
-    final intent = parseAppBrainIntent(raw);
     setState(() {
       _busy = true;
       _reply = 'Understanding command…';
       if (supplied != null) _command.text = supplied;
     });
     try {
+      final intent = parseAppBrainIntent(raw);
       await _execute(intent, raw);
     } catch (error) {
       if (mounted) {
