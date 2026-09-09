@@ -1,4 +1,5 @@
 name: One-shot Aaris operations upgrade
+# Revalidated after syncing the latest main lifecycle hardening.
 
 on:
   push:
