@@ -5,16 +5,20 @@ import 'package:flutter_test/flutter_test.dart';
 
 Medicine _lot(
   String id, {
+  String name = 'Dolo',
+  String strength = '650mg',
   String expiry = '2027-01',
+  String mfg = '',
   String barcode = '8901234567890',
   String batch = 'LOT-17',
   int quantity = 10,
   String notes = '',
 }) => Medicine.fromJson({
   'id': id,
-  'name': 'Dolo',
-  'strength': '650mg',
+  'name': name,
+  'strength': strength,
   'form': 'Tablet',
+  'mfg': mfg,
   'expiry': expiry,
   'barcode': barcode,
   'batchNumber': batch,
@@ -143,6 +147,177 @@ void main() {
         ),
       );
       expect(archiveResult.records['b']!.archived, isTrue);
+    });
+  });
+
+  group('autonomous scanner identity firewall', () {
+    test('blocks one barcode from being assigned to different medicines', () async {
+      final a = _lot('a', name: 'Dolo', strength: '650mg', barcode: '111222333');
+      final b = _lot(
+        'b',
+        name: 'Crocin',
+        strength: '500mg',
+        barcode: '111222333',
+        batch: 'OTHER-2',
+      );
+      final storage = MemoryInventoryStorage(
+        InventorySnapshot(records: {a.id: a}),
+      );
+
+      await expectLater(
+        storage.commit(
+          InventoryMutation(
+            expectedRevision: 0,
+            label: 'Add scanned stock',
+            upserts: [b],
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('barcode 111222333'), contains('different medicine identities')),
+          ),
+        ),
+      );
+      expect((await storage.load()).records.keys.toSet(), {'a'});
+    });
+
+    test('pauses stock movement on an already-conflicting barcode', () async {
+      final a = _lot('a', name: 'Dolo', strength: '650mg', barcode: '777');
+      final b = _lot(
+        'b',
+        name: 'Crocin',
+        strength: '500mg',
+        barcode: '777',
+        batch: 'OTHER-2',
+      );
+      final storage = MemoryInventoryStorage(_snapshot(a, b));
+
+      await expectLater(
+        storage.commit(
+          InventoryMutation(
+            expectedRevision: 0,
+            label: 'Receive stock',
+            upserts: [a.patch({'quantity': 11})],
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('barcode identity conflict'),
+          ),
+        ),
+      );
+      expect((await storage.load()).records['a']!.quantity, 10);
+    });
+
+    test('allows the pharmacist to resolve a barcode conflict atomically', () async {
+      final a = _lot('a', name: 'Dolo', strength: '650mg', barcode: '777');
+      final b = _lot(
+        'b',
+        name: 'Crocin',
+        strength: '500mg',
+        barcode: '777',
+        batch: 'OTHER-2',
+      );
+      final storage = MemoryInventoryStorage(_snapshot(a, b));
+
+      final result = await storage.commit(
+        InventoryMutation(
+          expectedRevision: 0,
+          label: 'Correct barcode',
+          upserts: [b.patch({'barcode': '888'})],
+        ),
+      );
+
+      expect(result.revision, 1);
+      expect(result.records['b']!.barcode, '888');
+    });
+  });
+
+  group('impossible manufacturing-date firewall', () {
+    test('blocks newly introduced active stock manufactured in the future', () async {
+      final future = _lot(
+        'future',
+        mfg: '2099-01',
+        expiry: '2100-01',
+        barcode: 'future-1',
+      );
+      final storage = MemoryInventoryStorage();
+
+      await expectLater(
+        storage.commit(
+          InventoryMutation(
+            expectedRevision: 0,
+            label: 'Add future stock',
+            upserts: [future],
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('manufacturing date in the future'),
+          ),
+        ),
+      );
+      expect((await storage.load()).records, isEmpty);
+    });
+
+    test('allows harmless review but blocks stock movement until MFG is fixed', () async {
+      final future = _lot(
+        'future',
+        mfg: '2099-01',
+        expiry: '2100-01',
+        barcode: 'future-1',
+      );
+
+      final noteStorage = MemoryInventoryStorage(
+        InventorySnapshot(records: {future.id: future}),
+      );
+      final reviewed = await noteStorage.commit(
+        InventoryMutation(
+          expectedRevision: 0,
+          label: 'Record verification note',
+          upserts: [future.patch({'notes': 'Pack date needs recheck'})],
+        ),
+      );
+      expect(reviewed.records['future']!.notes, 'Pack date needs recheck');
+
+      final movementStorage = MemoryInventoryStorage(
+        InventorySnapshot(records: {future.id: future}),
+      );
+      await expectLater(
+        movementStorage.commit(
+          InventoryMutation(
+            expectedRevision: 0,
+            label: 'Receive stock',
+            upserts: [future.patch({'quantity': 12})],
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('manufacturing date in the future'),
+          ),
+        ),
+      );
+
+      final repairStorage = MemoryInventoryStorage(
+        InventorySnapshot(records: {future.id: future}),
+      );
+      final repaired = await repairStorage.commit(
+        InventoryMutation(
+          expectedRevision: 0,
+          label: 'Correct MFG',
+          upserts: [future.patch({'mfg': '2026-01'})],
+        ),
+      );
+      expect(repaired.revision, 1);
+      expect(repaired.records['future']!.mfg, DateTime.utc(2026, 1, 1));
     });
   });
 }
