@@ -9,28 +9,56 @@ void _searchEntry(SendPort main) {
   final receive = ReceivePort();
   main.send(receive.sendPort);
   MedicineSearch? engine;
+  MedicineSearch? archivedEngine;
+  List<Medicine>? indexedRecords;
   var revision = -1;
   receive.listen((dynamic raw) {
     final message = raw as Map;
     final id = message['id'] as int;
     try {
-      if (message['kind'] == 'index') {
-        engine = MedicineSearch((message['records'] as List).cast<Medicine>());
+      final kind = message['kind'] as String;
+      if (kind == 'index') {
+        indexedRecords = (message['records'] as List).cast<Medicine>();
+        engine = MedicineSearch(indexedRecords!);
+        // Removed history is intentionally indexed lazily. Normal medicine
+        // search stays as small and hot as before even when years of archived
+        // stock are retained for recovery/audit.
+        archivedEngine = null;
         revision = message['revision'] as int;
         main.send({'id': id, 'result': true});
       } else {
-        if (engine == null || revision != message['revision'])
+        if (engine == null ||
+            indexedRecords == null ||
+            revision != message['revision']) {
           throw StateError('Search index changed. Retry this search.');
-        main.send({
-          'id': id,
-          'result': engine!.search(
-            message['query'] as String,
-            message['scope'] as SearchScope,
-            message['settings'] as WarningSettings,
-            message['today'] as DateTime,
-            limit: message['limit'] as int,
-          ),
-        });
+        }
+        if (kind == 'searchArchived') {
+          archivedEngine ??= MedicineSearch(
+            indexedRecords!.where((medicine) => medicine.archived),
+            includeArchived: true,
+          );
+          main.send({
+            'id': id,
+            'result': archivedEngine!.searchArchived(
+              message['query'] as String,
+              message['today'] as DateTime,
+              limit: message['limit'] as int,
+            ),
+          });
+        } else if (kind == 'search') {
+          main.send({
+            'id': id,
+            'result': engine!.search(
+              message['query'] as String,
+              message['scope'] as SearchScope,
+              message['settings'] as WarningSettings,
+              message['today'] as DateTime,
+              limit: message['limit'] as int,
+            ),
+          });
+        } else {
+          throw StateError('Unknown search operation.');
+        }
       }
     } catch (e) {
       main.send({'id': id, 'error': e.toString()});
@@ -47,6 +75,7 @@ class SearchWorker {
   bool _closed = false;
   late final Future<void> _start = _initialize();
   Future<void> _queue = Future.value();
+
   Future<void> _initialize() async {
     if (_closed) return;
     _receive.listen((dynamic value) {
@@ -92,6 +121,17 @@ class SearchWorker {
     return completer.future;
   }
 
+  Future<void> _ensureIndex(List<Medicine> records, int revision) async {
+    await _start;
+    if (_revision == revision) return;
+    await _request({
+      'kind': 'index',
+      'records': records,
+      'revision': revision,
+    });
+    _revision = revision;
+  }
+
   Future<List<SearchHit>> search(
     List<Medicine> records,
     int revision,
@@ -101,21 +141,34 @@ class SearchWorker {
     DateTime today,
   ) {
     final result = _queue.then((_) async {
-      await _start;
-      if (_revision != revision) {
-        await _request({
-          'kind': 'index',
-          'records': records,
-          'revision': revision,
-        });
-        _revision = revision;
-      }
+      await _ensureIndex(records, revision);
       final response = await _request({
         'kind': 'search',
         'revision': revision,
         'query': query,
         'scope': scope,
         'settings': settings,
+        'today': today,
+        'limit': query.trim().isEmpty ? 100000 : 150,
+      });
+      return (response as List).cast<SearchHit>();
+    });
+    _queue = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return result;
+  }
+
+  Future<List<SearchHit>> searchArchived(
+    List<Medicine> records,
+    int revision,
+    String query,
+    DateTime today,
+  ) {
+    final result = _queue.then((_) async {
+      await _ensureIndex(records, revision);
+      final response = await _request({
+        'kind': 'searchArchived',
+        'revision': revision,
+        'query': query,
         'today': today,
         'limit': query.trim().isEmpty ? 100000 : 150,
       });
