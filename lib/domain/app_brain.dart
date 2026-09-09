@@ -1,3 +1,4 @@
+import 'brain_operations.dart';
 import 'inventory.dart';
 import 'medicine_brief.dart';
 
@@ -12,6 +13,7 @@ enum AppBrainAction {
   editMedicine,
   setQuantity,
   receiveStock,
+  relocateMedicine,
   removeMedicine,
   markSold,
   recordSale,
@@ -30,6 +32,8 @@ class AppBrainIntent {
     this.query = '',
     this.quantity,
     this.briefFocus,
+    this.locationPatch,
+    this.removalReason,
     this.confidence = 0,
   });
 
@@ -39,6 +43,8 @@ class AppBrainIntent {
   final String query;
   final int? quantity;
   final MedicineBriefFocus? briefFocus;
+  final StockLocationPatch? locationPatch;
+  final RemovalReasonHint? removalReason;
   final double confidence;
 
   bool get needsMedicineTarget =>
@@ -47,6 +53,7 @@ class AppBrainIntent {
         AppBrainAction.editMedicine ||
         AppBrainAction.setQuantity ||
         AppBrainAction.receiveStock ||
+        AppBrainAction.relocateMedicine ||
         AppBrainAction.removeMedicine ||
         AppBrainAction.markSold ||
         AppBrainAction.recordSale => true,
@@ -59,6 +66,17 @@ class AppBrainIntent {
     AppBrainAction.markSold ||
     AppBrainAction.recordSale ||
     AppBrainAction.bulkRemoveBlocked => true,
+    _ => false,
+  };
+
+  bool get mutatesInventory => switch (action) {
+    AppBrainAction.setQuantity ||
+    AppBrainAction.receiveStock ||
+    AppBrainAction.relocateMedicine ||
+    AppBrainAction.removeMedicine ||
+    AppBrainAction.markSold ||
+    AppBrainAction.recordSale ||
+    AppBrainAction.undoLast => true,
     _ => false,
   };
 }
@@ -114,11 +132,31 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   final stockAdjustment = _stockAdjustmentIntent(raw);
   if (stockAdjustment != null) return stockAdjustment;
 
-  // Explicit write intent wins over category words such as "expired".
+  // Physical stock relocation is a narrow deterministic write command. It is
+  // recognized before generic remove/edit language so "location hata do"
+  // clears only location facts and can never become a medicine deletion.
+  final locationUpdate = parseStockLocationCommand(raw);
+  if (locationUpdate != null) {
+    return AppBrainIntent(
+      action: AppBrainAction.relocateMedicine,
+      query: locationUpdate.query,
+      locationPatch: locationUpdate.patch,
+      confidence: .99,
+    );
+  }
+
+  // Explicit write intent wins over category words such as "expired". A
+  // bounded reason hint improves target resolution but never skips the final
+  // destructive confirmation in the UI.
   if (_containsAny(text, _removeTerms)) {
+    final reason = detectRemovalReason(raw);
     return AppBrainIntent(
       action: AppBrainAction.removeMedicine,
-      query: _extractMedicineQuery(raw, _removeTerms),
+      query: _extractMedicineQuery(raw, [
+        ..._removeTerms,
+        if (reason != null) ...reason.commandTerms,
+      ]),
+      removalReason: reason,
       confidence: .98,
     );
   }
@@ -330,9 +368,7 @@ AppBrainIntent? _operationalReadIntent(String raw, String text) {
   // Multiple operational questions about the same medicine are answered from
   // one coherent read-only snapshot instead of independently parsing each
   // clause. All matched vocabulary is stripped before fuzzy target resolution.
-  final terms = <String>[
-    for (final values in matches.values) ...values,
-  ];
+  final terms = <String>[for (final values in matches.values) ...values];
   final query = _extractMedicineQuery(raw, terms);
   if (matches.length == 1 &&
       matches.containsKey(MedicineBriefFocus.stock) &&
@@ -649,9 +685,7 @@ _ExplicitStockAdjustment? _extractStockAdjustment(
       final quantityText = match.group(1) ?? '';
       final key = '${match.start}:${match.end}:$quantityText';
       if (seen.add(key)) {
-        found.add(
-          _StockAdjustmentMatch(match.start, match.end, quantityText),
-        );
+        found.add(_StockAdjustmentMatch(match.start, match.end, quantityText));
       }
     }
   }

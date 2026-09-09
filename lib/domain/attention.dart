@@ -1,6 +1,7 @@
 import 'inventory.dart';
 import 'inventory_integrity.dart';
 import 'medicine.dart';
+import 'stock_risk.dart';
 import 'tracking.dart';
 
 enum AttentionSeverity { critical, high, medium, low }
@@ -8,6 +9,7 @@ enum AttentionSeverity { critical, high, medium, low }
 enum AttentionKind {
   expiredStock,
   shortExpiry,
+  expiryWastePressure,
   zeroQuantityMismatch,
   barcodeConflict,
   conflictingLotFacts,
@@ -58,6 +60,7 @@ class PharmacyAttentionReport {
     required WarningSettings settings,
     required DateTime today,
     required Iterable<ReorderSuggestion> reorder,
+    Iterable<SaleEvent> sales = const <SaleEvent>[],
   }) {
     final day = civilDay(today);
     final active = medicines.where((medicine) => !medicine.archived).toList();
@@ -235,6 +238,30 @@ class PharmacyAttentionReport {
           stockIds: group
               .map((medicine) => medicine.id)
               .toList(growable: false),
+        ),
+      );
+    }
+
+    final stockRisk = PharmacyStockRiskReport.build(
+      medicines: active,
+      sales: sales,
+      today: day,
+      maxHorizonDays: settings.monthDays,
+    );
+    for (final risk in stockRisk.expiryWaste) {
+      final shortWindow = risk.daysUntilExpiry <= settings.shortDays;
+      items.add(
+        AttentionItem(
+          key: 'expiry-waste:${risk.stockId}',
+          kind: AttentionKind.expiryWastePressure,
+          severity: shortWindow
+              ? AttentionSeverity.high
+              : AttentionSeverity.medium,
+          title: '${risk.title} · expiry waste pressure',
+          detail:
+              '${risk.stockCue} · about ${risk.atRiskUnits} of ${risk.batchQuantity} known units may remain by ${dateText(risk.expiry)} if the recent recorded sales pace continues. Planning pace ${risk.planningUnitsPerDay.toStringAsFixed(1)} units/day from ${risk.saleEvents} sale records (${risk.confidenceLabel}). Review FEFO placement and the next reorder; Aaris will not change stock or ordering automatically.',
+          stockIds: List.unmodifiable(<String>[risk.stockId]),
+          productKey: risk.productKey,
         ),
       );
     }
