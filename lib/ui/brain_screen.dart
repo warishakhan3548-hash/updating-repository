@@ -220,8 +220,6 @@ class _BrainScreenState extends State<BrainScreen> {
           ? 'Using your last exact selection: ${record.title}. ${_editorInstruction(action, record)}'
           : _editorInstruction(action, record),
     );
-    // Put the Medicine Database behind the editor route so the user lands in
-    // the correct inventory context instead of being stranded on the Brain tab.
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
     await openEditor(context, widget.controller, record: record);
@@ -274,10 +272,9 @@ class _BrainScreenState extends State<BrainScreen> {
       if (mounted) setState(() => _reply = emptyReply);
       return;
     }
-    if (records.length == 1) _remember(records.first);
     setState(
       () => _reply = records.length == 1
-          ? '1 stock entry found. I will remember it for follow-up commands like “isko edit karo”.'
+          ? '1 stock entry found. Open it to make that exact batch the context for follow-up commands.'
           : '${records.length} possible stock entries found. Choose the exact batch; Aaris will not guess.',
     );
     await showModalBottomSheet<void>(
