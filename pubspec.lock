@@ -411,11 +411,10 @@ packages:
   lib_llama_cpp:
     dependency: "direct main"
     description:
-      name: lib_llama_cpp
-      sha256: "94cb9dd4cae4e3138be5fb4a666b565f9030d4d053298520628290dcbdf277c6"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.7.3"
+      path: "third_party/lib_llama_cpp"
+      relative: true
+    source: path
+    version: "0.7.3+aaris.1"
   lib_llama_cpp_android:
     dependency: transitive
     description:
@@ -461,14 +460,6 @@ packages:
     description:
       name: lib_llama_cpp_platform_interface
       sha256: "34347118906c7065aa9ac93746dfc60d61b88aa31cb23c6764dde810b7f1e1e6"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.7.3"
-  lib_llama_cpp_server:
-    dependency: transitive
-    description:
-      name: lib_llama_cpp_server
-      sha256: "082b5e658a7dbca42331ddabe81140da1208f8157528b34f24a56f16b51d5aa1"
       url: "https://pub.dev"
     source: hosted
     version: "0.7.3"

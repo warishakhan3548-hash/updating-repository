@@ -4,38 +4,23 @@ This is the current source map for the offline inventory and smart-capture core.
 Business rules live below `domain/`; UI screens only collect intent and render
 committed state.
 
-```text
-lib/
-├── main.dart                         app bootstrap and SQLite ownership
-├── app.dart                          navigation and lifecycle refresh
-├── data/
-│   └── inventory_database.dart       serialized atomic SQLite transactions
-├── domain/
-│   ├── medicine.dart                 validated stock facts and civil dates
-│   ├── inventory.dart                status, warning scopes and totals
-│   ├── search.dart                   normalized fuzzy search and ranking
-│   ├── medicine_understanding.dart   layout + local-knowledge evidence resolver
-│   ├── tracking.dart                 sale velocity and reorder suggestions
-│   ├── sales_overview.dart           deterministic all-time sales analytics
-│   ├── backup.dart                   strict local backup envelope
-│   └── ai_protocol.dart              reviewed mutation envelope only
-├── services/
-│   ├── scan_service.dart             on-device OCR/barcode plus line geometry
-│   ├── media_import_service.dart     sandboxed photo/video picker bridge
-│   ├── search_worker.dart            persistent background search isolate
-│   └── backup_service.dart           explicit local export/import bridge
-├── state/
-│   ├── pharmacy_controller.dart      one reactive snapshot and write queue
-│   └── voice_search_controller.dart  bounded voice-search lifecycle
-└── ui/
-    ├── scanner_screen.dart           live capture and reviewed handoff
-    ├── import_screen.dart            staging inbox; never direct persistence
-    ├── editor_screen.dart            final human validation and save intent
-    └── ...                           projections over the same snapshot
-
-android/.../MainActivity.kt           bounded native file/video/PDF operations
-test/                                 domain, persistence, lifecycle and UI guards
-```
+| Area | Core files | Responsibility |
+| --- | --- | --- |
+| `lib/` | `main.dart`, `app.dart` | Bootstrap, navigation and lifecycle refresh |
+| `lib/data/` | `inventory_database.dart` | Serialized atomic inventory transactions |
+| `lib/domain/` | `medicine.dart`, `inventory.dart`, `tracking.dart`, `sales_overview.dart` | Validated facts, civil dates, stock projections and sales |
+| `lib/domain/` | `medicine_understanding.dart`, `search.dart` | Layout, identity memory, evidence grouping and scoped matching |
+| `lib/domain/` | `ai_protocol.dart`, `local_ai_protocol.dart` | Reviewed mutations, paged read tools, exact IDs and evidence quotes |
+| `lib/domain/` | `local_model.dart`, `medicine_intake.dart` | Model manifests, persistent job state and video carry/scheduling |
+| `lib/services/` | `ai_service.dart`, `local_ai_service.dart`, `local_ai_service_io.dart`, `local_ai_runtime.dart` | Explicit local routing, model store and exclusive in-process inference |
+| `lib/services/` | `scan_service.dart`, `media_import_service.dart`, `medicine_intake_service.dart` | Shared OCR, bounded video windows and durable draft queue |
+| `lib/services/` | `search_worker.dart`, `backup_service.dart` | Background search and explicit backup/import |
+| `lib/state/` | `pharmacy_controller.dart`, `voice_search_controller.dart` | Authoritative inventory snapshot/write gateway and voice lifecycle |
+| `lib/ui/` | `ai_screen.dart`, `local_models_panel.dart`, `voice_sheet.dart` | Existing AI Hub, model search/download/import/activation and microphone |
+| `lib/ui/` | `medicine_capture.dart`, `medicine_intake_panel.dart`, `scanner_screen.dart`, `import_screen.dart`, `editor_screen.dart` | Shared capture, Add/Ask/Edit draft review and explicit save |
+| `android/.../` | `MainActivity.kt`, `LocalAiPlatform.kt` | Private media/file operations, window sampling, large-model import and on-device speech |
+| `third_party/lib_llama_cpp/` | MIT-licensed in-process core | Audited command completion and prompt-memory reset; no server facade |
+| `tool/`, `test/` | Contract checks and test suites | Domain, runtime lifecycle, persistence and UI safety regressions |
 
 ## Capture-to-save flow
 
@@ -46,6 +31,9 @@ flowchart TD
   E --> U["Background understanding engine"]
   K["Reviewed local identity memory"] --> U
   U --> I["Review inbox"]
+  U --> L["Selected local model, once per draft"]
+  L --> Q["Quoted evidence and field validation"]
+  Q --> I
   I --> M["Exact local match or new draft"]
   M --> R["Pharmacist review"]
   R --> D["Atomic SQLite commit"]
@@ -62,7 +50,13 @@ Safety invariants:
 - A GTIN may identify several physical batches; batch/expiry boundaries stay
   separate and every stock record keeps an invisible stable ID.
 - Duplicate frames contribute one confidence vote but retain complementary
-  barcode, batch and date evidence.
+  barcode, batch and date evidence and all source-frame IDs.
+- AI Hub and ordinary video import share a durable job queue. Completed drafts,
+  unresolved video carry and cursor checkpoint together. Photos get OCR priority;
+  model work is serial and yields between video windows.
+- A selected local model never falls through to an external API. Model search
+  and download carry no inventory/OCR data. Independent prompts reset native
+  KV/sequence memory while keeping model weights loaded.
 - All writes validate the expected global revision and commit atomically.
 - Removed, SOLD, expired and warning screens are calculated projections, not
   copied databases.

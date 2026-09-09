@@ -647,11 +647,12 @@ class LocalAiService extends ChangeNotifier {
     }
     await _loadSelected();
     _checkRequest(generation);
+    final recentConversation = conversation.length > 2500
+        ? conversation.substring(conversation.length - 2500)
+        : conversation;
     var input = jsonEncode({
       'ownerRequest': instruction,
-      'recentConversation': conversation.length > 2500
-          ? conversation.substring(conversation.length - 2500)
-          : conversation,
+      'recentConversation': recentConversation,
     });
     final results = <Map<String, Object?>>[];
     for (var round = 0; round <= 4; round++) {
@@ -673,6 +674,7 @@ class LocalAiService extends ChangeNotifier {
       if (results.length > 2) results.removeAt(0);
       input = jsonEncode({
         'ownerRequest': instruction,
+        'recentConversation': recentConversation,
         'toolResults': results,
         'remainingReadCalls': 3 - round,
         'next': 'Answer or request one more page. Never invent omitted facts.',

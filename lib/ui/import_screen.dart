@@ -12,6 +12,7 @@ import '../services/backup_service.dart';
 import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
 import '../services/local_ai_service.dart';
+import '../services/medicine_intake_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'editor_screen.dart';
@@ -108,8 +109,6 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
     if (_busy) return;
     final generation = ++_generation;
     PickedImportSource? picked;
-    var sampledFrames = <String>[];
-    final vision = MedicineVisionService();
     setState(() {
       _busy = true;
       _cancelRequested = false;
@@ -120,49 +119,17 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
       final source = await _media.pick('video');
       picked = source;
       if (source == null || !mounted || generation != _generation) return;
-      final frames = await _media.sampleVideo(source.path);
-      sampledFrames = frames.map((frame) => frame.path).toList();
+      final queue = MedicineIntakeService.instance;
+      await queue.attach(() => widget.controller.records);
       if (!mounted || generation != _generation) return;
-      setState(() => _total = frames.length);
-      final evidence = <ScanEvidence>[];
-      for (var index = 0; index < frames.length; index++) {
-        if (!mounted || generation != _generation) return;
-        try {
-          final result = await vision.analyzeFile(
-            frames[index].path,
-            source: '${source.name} · frame ${index + 1}',
-            sequence: frames[index].sequence,
-            timestampMs: frames[index].timestampMs,
-            quality: frames[index].quality,
-          );
-          if (result.text.isNotEmpty || result.barcode.isNotEmpty) {
-            evidence.add(result);
-          }
-        } catch (_) {
-          // One unreadable frame must not discard the rest of a long video.
-        }
-        if (mounted && generation == _generation) {
-          setState(() => _done = index + 1);
-        }
-      }
-      if (evidence.isEmpty) {
-        throw StateError(
-          'No medicine text was found. Try a steadier video with closer labels and more light.',
-        );
-      }
-      if (!mounted || generation != _generation) return;
-      await _openInbox(evidence);
+      // The existing Upload button shares the durable windowed engine. Do not
+      // keep the legacy whole-video 60-frame path as a second implementation.
+      await queue.addFile(source.path, kind: 'video', title: source.name);
     } catch (error) {
       if (mounted && generation == _generation) showError(context, error);
     } finally {
       try {
-        await vision.close();
-      } catch (_) {}
-      try {
-        await _media.cleanup([
-          if (picked != null) picked.path,
-          ...sampledFrames,
-        ]);
+        if (picked != null) await _media.cleanup([picked.path]);
       } catch (_) {}
       if (mounted) {
         setState(() {

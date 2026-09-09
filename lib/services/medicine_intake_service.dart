@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -29,6 +30,7 @@ class MedicineIntakeService extends ChangeNotifier {
   Future<void>? _initializing;
   Future<void> _intakeWrites = Future.value();
   bool _running = false, _paused = false;
+  bool _ready = false, _preferReasoning = false;
   String persistenceError = '';
   Iterable<Medicine> Function()? _records;
 
@@ -47,6 +49,7 @@ class MedicineIntakeService extends ChangeNotifier {
 
   Future<void> initialize() =>
       _initializing ??= _initialize().catchError((Object e) {
+        _ready = false;
         _initializing = null;
         throw e;
       });
@@ -72,21 +75,26 @@ class MedicineIntakeService extends ChangeNotifier {
     );
     if (rows.length > capacity)
       throw StateError('Intake queue exceeds capacity.');
-    _jobs.clear();
+    final restored = <MedicineIntakeJob>[];
     for (final row in rows) {
       final raw = row['data'] as String;
       if (raw.length > 20000000) throw StateError('Saved intake is too large.');
       final job = MedicineIntakeJob.fromJson(
         jsonDecode(raw) as Map<String, dynamic>,
       );
+      if (row['id'] != job.id) throw StateError('Saved capture ID mismatch.');
       if (job.status == 'processing') job.status = 'queued';
       // Validate recovered paths before allowing read/delete operations.
       if (job.path.isNotEmpty && job.path != _capturePath(job.id, job.kind)) {
         throw StateError('Saved intake contains an unexpected file path.');
       }
-      _jobs.add(job);
+      restored.add(job);
     }
     await LocalAiService.instance.initialize();
+    _jobs
+      ..clear()
+      ..addAll(restored);
+    _ready = true;
     notifyListeners();
   }
 
@@ -104,12 +112,14 @@ class MedicineIntakeService extends ChangeNotifier {
         'created': DateTime.now().microsecondsSinceEpoch,
       });
     } else {
-      await _database!.update(
+      final changed = await _database!.update(
         'jobs',
         {'data': data},
         where: 'id=?',
         whereArgs: [job.id],
       );
+      if (changed != 1)
+        throw StateError('Capture checkpoint could not be saved.');
     }
     notifyListeners();
   }
@@ -145,7 +155,22 @@ class MedicineIntakeService extends ChangeNotifier {
     );
     job.path = _capturePath(job.id, kind);
     try {
+      final length = await File(path).length();
+      final facts = await const MethodChannel(
+        'com.aaris.pharmacy/documents',
+      ).invokeMapMethod<String, dynamic>('localAiDeviceInfo');
+      final free = facts?['freeStorage'];
+      if (length <= 0 || (free is int && free < length + 128 * 1024 * 1024)) {
+        throw StateError(
+          'Not enough private storage to safely queue this capture. Original file is unchanged.',
+        );
+      }
       await File(path).copy(job.path);
+      if (await File(job.path).length() != length) {
+        throw StateError(
+          'Incomplete capture copy. Please select the original again.',
+        );
+      }
       await _persist(job, insert: true);
       _jobs.add(job);
     } catch (_) {
@@ -198,6 +223,7 @@ class MedicineIntakeService extends ChangeNotifier {
   void _kick() {
     if (_running ||
         _paused ||
+        !_ready ||
         _database == null ||
         _records == null ||
         persistenceError.isNotEmpty)
@@ -230,18 +256,19 @@ class MedicineIntakeService extends ChangeNotifier {
       while (!_paused) {
         // OCR/capture work has priority, so fast photos are turned into durable
         // text before slower semantic reasoning monopolizes the native model.
-        final job =
-            _jobs.where((j) => j.status == 'queued').firstOrNull ??
-            _jobs.where((j) => j.status == 'reasoning').firstOrNull;
+        final local = LocalAiService.instance;
+        final job = nextMedicineIntakeJob(
+          _jobs,
+          allowReasoning: !local.busy && !local.transferring,
+          preferReasoning: _preferReasoning,
+        );
         if (job == null) break;
-        if (job.status == 'reasoning' &&
-            (LocalAiService.instance.busy ||
-                LocalAiService.instance.transferring))
-          break;
         try {
           if (job.status == 'reasoning') {
+            _preferReasoning = false;
             await _reason(job);
           } else {
+            _preferReasoning = true;
             job.status = 'processing';
             await _persist(job);
             if (job.kind == 'video')

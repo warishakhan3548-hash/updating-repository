@@ -49,6 +49,18 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
     );
   }
 
+  bool _expired(String value) {
+    try {
+      return parseDate(
+            value,
+            monthEnd: true,
+          )?.isBefore(civilDay(widget.controller.today)) ??
+          false;
+    } on FormatException {
+      return false; // A malformed recovered draft remains reviewable, not a UI crash.
+    }
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: queue,
@@ -123,11 +135,7 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                               'Salt: ${draft.salt.isEmpty ? 'Unknown' : draft.salt}\nEXP: ${draft.expiry.isEmpty ? 'Unknown' : draft.expiry}',
                               style: const TextStyle(fontSize: 12),
                             ),
-                            if (draft.expiry.isNotEmpty &&
-                                parseDate(
-                                  draft.expiry,
-                                  monthEnd: true,
-                                )!.isBefore(widget.controller.today))
+                            if (_expired(draft.expiry))
                               const Text(
                                 'Expired — do not dispense. Check the printed date.',
                                 style: TextStyle(

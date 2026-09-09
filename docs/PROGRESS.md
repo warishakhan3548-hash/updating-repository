@@ -1,4 +1,29 @@
-# Implementation status — 2026-09-07
+# Implementation status — 2026-09-09
+
+## Offline AI upgrade — code-only handoff
+
+- Existing AI Hub settings now contain public GGUF search, pinned/resumable
+  download, private import, explicit activation and selected-local routing.
+  No cloud fallback occurs while local is selected, even after a load failure.
+- Shared OCR plus evidence-quoted local reasoning proposes brand/salt/strength
+  fields and ordered ingredient pairs. Deterministic date/stock validators and
+  explicit review remain authoritative; unknown values are not invented.
+- AI Hub camera, rapid captures and ordinary video upload share durable local
+  drafts. Video windows retain complementary views and resume from checkpoints.
+  On-device Hindi/English microphone support requires a supported Android speech
+  service; unsupported devices use typing, not automatic online recognition.
+- Local chat reads paged inventory, expiry/archive details and deterministic
+  sales. Add/edit/archive/sold/restock proposals use the existing reviewed,
+  revision-checked transaction protocol, never direct model SQL.
+- A source audit found two upstream runtime defects. The minimal MIT core is
+  vendored with command completion and per-prompt KV-memory reset fixed directly;
+  the unused server dependency has been removed. Platform binaries stay pinned.
+- **167 executable checks passed**: domain 52, dates 25, medicine understanding
+  24, local AI protocol 54, runtime lifecycle 12. Static analysis includes
+  `lib`, `test`, `tool` and the vendored core and reports no issues.
+- No APK, Android compilation, workflow dispatch or model-weight download was
+  performed for this upgrade. Actual model/device execution remains a release
+  gate. See [source map](CODEBASE_TREE.md) and [scope/release gates](LOCAL_AI_ROADMAP.md).
 
 ## Completed in source
 
@@ -31,7 +56,7 @@
 - Existing GitHub workflows run source checks and produce an Android release APK.
   The local bootstrap remains a separate check path.
 
-## Verification recorded
+## Earlier verification recorded (not re-run as part of this upgrade)
 
 - Current code-only verification (2026-09-08): 52 pure domain checks, 25 date
   checks and 24 medicine-understanding checks passed; source formatting and
@@ -49,7 +74,8 @@
 
 - Firebase, cloud sync and external server sync are excluded by product contract.
   Local SQLite plus reviewed backup/restore remain authoritative.
-- Optional downloadable local multimodal AI and worldwide catalog providers remain
-  extension points, not fake or network-dependent core features.
+- Image/projector LLMs, trained pharmacy-specialist weights and verified worldwide
+  drug corpora remain outside this delivery. Local models receive OCR/layout
+  evidence; they do not directly watch the raw video or replace the knowledge DB.
 - Store signing and release hardening remain with the owner. The current generated
   release APK uses the repository's existing debug signing configuration.

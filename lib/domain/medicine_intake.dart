@@ -56,6 +56,37 @@ class MedicineIntakeJob {
         }.contains(status)) {
       throw const FormatException('Invalid saved capture job.');
     }
+    for (final key in ['title', 'path', 'error']) {
+      final value = json[key];
+      if (value is! String || value.length > 10000) {
+        throw const FormatException('Invalid saved capture text.');
+      }
+    }
+    final model = json['modelId'];
+    if (model != null &&
+        (model is! String || !RegExp(r'^[a-f0-9]{64}$').hasMatch(model))) {
+      throw const FormatException('Invalid saved capture model.');
+    }
+    for (final key in ['cursorMs', 'durationMs', 'aiIndex']) {
+      final value = json[key];
+      if (value is! int || value < 0 || value > 3600000) {
+        throw const FormatException('Invalid saved capture cursor.');
+      }
+    }
+    final rawEvidence = json['evidence'], rawDrafts = json['drafts'];
+    if (rawEvidence is! List ||
+        rawDrafts is! List ||
+        rawEvidence.length > maxMedicineEvidenceFrames ||
+        rawDrafts.length > 500 ||
+        rawEvidence.any((e) => e is! Map) ||
+        rawDrafts.any((d) => d is! Map) ||
+        (json['aiIndex'] as int) > rawDrafts.length ||
+        ((json['durationMs'] as int) > 0 &&
+            (json['cursorMs'] as int) > (json['durationMs'] as int))) {
+      throw const FormatException(
+        'Invalid saved capture evidence or checkpoint.',
+      );
+    }
     final evidence = (json['evidence'] as List)
         .whereType<Map>()
         .map(
@@ -89,6 +120,25 @@ class MedicineIntakeJob {
       drafts: drafts,
     );
   }
+}
+
+/// Photos become durable text first. Between video windows, allow a ready
+/// photo's model pass; a long video must not monopolize every other capture.
+/// When chat owns the model, OCR may continue but no second inference starts.
+MedicineIntakeJob? nextMedicineIntakeJob(
+  Iterable<MedicineIntakeJob> jobs, {
+  required bool allowReasoning,
+  required bool preferReasoning,
+}) {
+  final photo = jobs
+      .where((j) => j.status == 'queued' && j.kind != 'video')
+      .firstOrNull;
+  if (photo != null) return photo;
+  final video = jobs.where((j) => j.status == 'queued').firstOrNull;
+  final reasoning = allowReasoning
+      ? jobs.where((j) => j.status == 'reasoning').firstOrNull
+      : null;
+  return preferReasoning ? reasoning ?? video : video ?? reasoning;
 }
 
 /// Carry the final unresolved object across video windows. Completed objects

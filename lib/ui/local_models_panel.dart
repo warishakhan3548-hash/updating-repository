@@ -128,7 +128,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                     : local.cancelRequest,
                 child: Text(
                   local.transferring
-                      ? 'Pause download'
+                      ? 'Pause download / cancel import'
                       : 'Cancel result (native step drains safely)',
                 ),
               ),

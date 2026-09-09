@@ -513,7 +513,9 @@ class _ScannerScreenState extends State<ScannerScreen>
                           ),
                         ),
                         FilledButton.icon(
-                          onPressed: widget.onCaptureQueued != null
+                          onPressed: _capturing
+                              ? null
+                              : widget.onCaptureQueued != null
                               ? () => Navigator.pop(context)
                               : _text.isEmpty && _barcode.isEmpty
                               ? null

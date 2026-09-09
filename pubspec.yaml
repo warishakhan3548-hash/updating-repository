@@ -28,7 +28,8 @@ dependencies:
   crypto: 3.0.7
   file_selector: 1.1.0
   # In-process CPU inference. No HTTP inference server is started or used.
-  lib_llama_cpp: 0.7.3
+  lib_llama_cpp:
+    path: third_party/lib_llama_cpp
 
 dev_dependencies:
   flutter_test:

@@ -7,30 +7,44 @@ import 'package:lib_llama_cpp/lib_llama_cpp.dart';
 /// Dispose is sent through the command stream so native weights are freed before
 /// the worker is closed (killing an isolate alone can leak FFI allocations).
 class LocalAiRuntime {
+  LocalAiRuntime({LlamaEngine engine = const LibLlamaCpp()}) : _engine = engine;
+  final LlamaEngine _engine;
   final _commands = StreamController<LlamaCommand>();
   StreamSubscription<LlamaResponse>? _subscription;
   Completer<String>? _pending;
   final _text = StringBuffer();
+  Object? _commandError;
   bool _loading = false, _closed = false;
   String? modelPath;
 
   bool get busy => _pending != null;
 
   void _start() {
-    _subscription ??= const LibLlamaCpp()
+    _subscription ??= _engine
         .transform(_commands.stream)
         .listen(
           (response) {
             if (response is LlamaErrorResponse) {
-              _fail(StateError(response.message));
+              // Do not release the lease before this command's Done event;
+              // otherwise its trailing completion could finish the next call.
+              _commandError ??= StateError(response.message);
             } else if (response is LlamaTokenResponse) {
-              if (_text.length < 32000) _text.write(response.text);
+              if (_text.length + response.text.length > 32000) {
+                _commandError ??= StateError(
+                  'Local response exceeds the safety limit.',
+                );
+              } else {
+                _text.write(response.text);
+              }
             } else if (response is LlamaStateChangedResponse && _loading) {
               _loading = false;
               modelPath = response.state.isModelLoaded
                   ? response.state.modelPath
                   : null;
-              _complete();
+            } else if (response is LlamaToolCallResponse) {
+              _commandError ??= StateError(
+                'Return the app JSON contract, not native function calls.',
+              );
             } else if (response is LlamaDoneResponse) {
               _complete();
             }
@@ -39,7 +53,10 @@ class LocalAiRuntime {
           onDone: () {
             _closed = true;
             modelPath = null;
-            _fail(StateError('Local runtime closed. Reactivate the model.'));
+            _fail(
+              _commandError ??
+                  StateError('Local runtime closed. Reactivate the model.'),
+            );
           },
         );
   }
@@ -47,8 +64,15 @@ class LocalAiRuntime {
   void _complete() {
     final pending = _pending;
     _pending = null;
-    if (pending != null && !pending.isCompleted)
-      pending.complete(_text.toString());
+    _loading = false;
+    if (pending != null && !pending.isCompleted) {
+      final error = _commandError;
+      if (error != null)
+        pending.completeError(error);
+      else
+        pending.complete(_text.toString());
+    }
+    _commandError = null;
   }
 
   void _fail(Object error) {
@@ -64,6 +88,7 @@ class LocalAiRuntime {
     final pending = Completer<String>();
     _pending = pending;
     _text.clear();
+    _commandError = null;
     _start();
     _commands.add(command);
     return pending.future;

@@ -7,6 +7,7 @@ import '../lib/domain/local_model.dart';
 import '../lib/domain/medicine.dart';
 import '../lib/domain/medicine_understanding.dart';
 import '../lib/domain/medicine_intake.dart';
+import '../lib/domain/tracking.dart';
 
 void main() {
   var passed = 0;
@@ -60,11 +61,106 @@ void main() {
   check(ctx.summary['zeroQuantityEntries'] == 1, 'Unknown is not zero');
   check(ctx.summary['expiredEntries'] == 1, 'Civil expiry');
   check(ctx.summary['unknownExpiryEntries'] == 19, 'Unknown expiry');
+  check(
+    ctx.read({'tool': 'expiring', 'days': 30})['totalMatches'] == 0,
+    'Future-expiry query excludes expired and unknown dates',
+  );
+  check(
+    ctx.read({'tool': 'expired'})['totalMatches'] == 1,
+    'Expired stock has an explicit read tool',
+  );
+  final dated = LocalInventoryContext(
+    records: [
+      Medicine(id: 'today', name: 'Today', expiry: today),
+      Medicine(
+        id: 'tomorrow',
+        name: 'Tomorrow',
+        expiry: today.add(const Duration(days: 1)),
+      ),
+      Medicine(id: 'sold', name: 'Sold', sold: true, expiry: today),
+      Medicine(
+        id: 'archived',
+        name: 'Archived',
+        archived: true,
+        expiry: today,
+        notes: 'x' * 1500,
+        barcode: '8901234',
+        manufacturer: 'Test maker',
+      ),
+    ],
+    sales: [
+      SaleEvent(
+        id: 's1',
+        stockId: 'today',
+        medicineName: 'Today',
+        quantity: 2,
+        occurredAt: today,
+      ),
+      SaleEvent(
+        id: 's2',
+        stockId: 'today',
+        medicineName: 'Today',
+        quantity: 7,
+        occurredAt: today.subtract(const Duration(days: 1)),
+      ),
+      SaleEvent(
+        id: 's3',
+        stockId: 'today',
+        medicineName: 'Today',
+        quantity: 50,
+        occurredAt: today.add(const Duration(days: 1)),
+      ),
+    ],
+    revision: 1,
+    today: today,
+  );
+  check(
+    dated.read({'tool': 'expiring', 'days': 0})['totalMatches'] == 1,
+    'Expiry is valid through today, excludes sold/archived',
+  );
+  check(
+    dated.read({'tool': 'search'})['totalMatches'] == 2,
+    'Default inventory search excludes sold and archived stock',
+  );
+  check(
+    dated.read({'tool': 'sold'})['totalMatches'] == 1,
+    'Sold remains retrievable',
+  );
+  check(
+    dated.read({'tool': 'archived'})['totalMatches'] == 1,
+    'Archive remains retrievable',
+  );
+  final detail =
+      (dated.read({'tool': 'get', 'id': 'archived'})['rows'] as List).single
+          as Map;
+  check(
+    detail['barcode'] == '8901234' && detail['manufacturer'] == 'Test maker',
+    'Detailed get includes packaging facts',
+  );
+  check(
+    (detail['notes'] as String).length == 1200 &&
+        (detail['truncatedFields'] as List).contains('notes'),
+    'Bounded notes explicitly disclose truncation',
+  );
+  final todaySales = dated.read({'tool': 'sales', 'days': 1});
+  check(
+    ((todaySales['rows'] as List).single as Map)['unitsMoved'] == 2,
+    'One-day sales includes only today, not yesterday/future',
+  );
+  final twoDaySales = dated.read({'tool': 'sales', 'days': 2});
+  check(
+    ((twoDaySales['rows'] as List).single as Map)['unitsMoved'] == 9,
+    'Sales rolling window includes exactly requested civil days',
+  );
+  rejects(
+    () => dated.read({'tool': 'sales', 'days': 0}),
+    'Empty sales interval',
+  );
   rejects(
     () => ctx.finish({
       'reply': 'ok',
       'actions': [
-        {'op': 'remove', 'id': 'stock_0'},
+        {'op': 'remove', 'id': 'stock_19'},
       ],
     }),
     'unretrieved ID',
@@ -211,6 +307,77 @@ void main() {
     'Capture cursor and facts recover together',
   );
   check(!restored.ready, 'Queued job is not inventory/save authority');
+  rejects(
+    () => MedicineIntakeJob.fromJson({...job.toJson(), 'cursorMs': -1}),
+    'Negative saved video cursor',
+  );
+  rejects(
+    () => MedicineIntakeJob.fromJson({...job.toJson(), 'durationMs': 1000}),
+    'Video cursor exceeds duration',
+  );
+  rejects(
+    () => MedicineIntakeJob.fromJson({...job.toJson(), 'aiIndex': 2}),
+    'Reasoning cursor skips unsaved drafts',
+  );
+  rejects(
+    () =>
+        MedicineIntakeJob.fromJson({...job.toJson(), 'modelId': '../weights'}),
+    'Untrusted saved model ID',
+  );
+  rejects(
+    () => MedicineIntakeJob.fromJson({
+      ...job.toJson(),
+      'evidence': ['bad'],
+    }),
+    'Do not silently drop corrupted evidence',
+  );
+  final photoJob = MedicineIntakeJob(
+    id: intakeId(),
+    kind: 'photo',
+    title: 'Photo',
+  );
+  final reasoningJob = MedicineIntakeJob(
+    id: intakeId(),
+    kind: 'photo',
+    title: 'Ready',
+    status: 'reasoning',
+  );
+  check(
+    nextMedicineIntakeJob(
+          [job, reasoningJob, photoJob],
+          allowReasoning: true,
+          preferReasoning: true,
+        ) ==
+        photoJob,
+    'Rapid photo OCR has priority over long video and model work',
+  );
+  check(
+    nextMedicineIntakeJob(
+          [job, reasoningJob],
+          allowReasoning: true,
+          preferReasoning: true,
+        ) ==
+        reasoningJob,
+    'Video yields to a ready photo between windows',
+  );
+  check(
+    nextMedicineIntakeJob(
+          [job, reasoningJob],
+          allowReasoning: false,
+          preferReasoning: true,
+        ) ==
+        job,
+    'Video OCR continues while chat owns the model',
+  );
+  check(
+    nextMedicineIntakeJob(
+          [reasoningJob],
+          allowReasoning: false,
+          preferReasoning: true,
+        ) ==
+        null,
+    'No concurrent model work',
+  );
   const combo = MedicineScanDraft(
     fields: {},
     rawText:

@@ -679,7 +679,9 @@ class _AiScreenState extends State<AiScreen> {
           onMic: () async {
             final words = await voiceSearch(
               context,
-              offlineOnly: _local.hasSelection,
+              // This new Hub mic is on-device even before model settings have
+              // finished loading. Never let an initialization race use network STT.
+              offlineOnly: true,
               title: 'Speak to Aaris AI',
               actionLabel: 'Use message',
             );

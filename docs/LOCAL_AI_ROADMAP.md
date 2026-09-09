@@ -84,3 +84,40 @@ clinical accuracy, 100% video recall or unattended authoritative auto-save.
   weak view containing EXP when carrying the clearer front view forward.
 - Combination suggestions are salt/adjacent-strength pairs with source quotes,
   not two independently sorted lists. Unsupported/reordered pairings are rejected.
+- Native model import copies/hashes large GGUF files on a worker thread, not
+  Android's activity-result UI thread. Partial download ranges and storage are
+  checked; disabling local routing rolls back if its settings cannot be saved.
+- The pinned Android runtime supplies arm64 artifacts. Local activation is gated
+  to arm64 Android 9+; optional NNAPI/Vulkan build features are disabled so the
+  original app's older Android minimum need not be raised for the plain scanner.
+- The original Upload video action now uses the same durable windowed queue as
+  AI Hub. Photos cannot be starved by a long video. Queue recovery rejects invalid
+  cursors, mismatched IDs and corrupted evidence instead of silently dropping it.
+- Read tools distinguish expired from future-expiring stock, exclude sold/archive
+  from active searches, provide bounded detailed/archive reads, and count exactly
+  the requested number of civil sales days. Follow-up context survives tool rounds.
+- Dependency source audit found missing generation completion events and no
+  prompt-memory reset in upstream 0.7.3. The minimal MIT-licensed inference core
+  is now vendored via a normal path dependency, with fixes directly in its worker
+  and native runtime. Unused server/client exports and the server dependency were
+  removed. Platform binaries remain pinned; no inference server is introduced.
+- Latest checks: local AI contract 54, model lifecycle 12, medicine understanding
+  24, domain 52, date input 25 — **167 passing checks**. Full source analysis
+  includes the vendored core. Lifecycle tests use controlled streams and a real
+  worker's missing-library error path, not an actual model's semantic accuracy.
+
+## Deliberately not claimed as finished
+
+- No trained pharmacy-specialist weights or verified national drug corpus were
+  supplied or fabricated. The model is user-selected; existing reviewed local
+  knowledge remains the identity reference. Setup checks are not clinical scores.
+- Only supported, complete GGUF language weights can be attempted, not every
+  model format/repository. Public model search/download needs internet; inference
+  and inventory remain on device. Gated downloads are not impersonated/bypassed.
+- The repository's native app remains Android-focused. Desktop runtime selection
+  is portable code, not a promise of tested desktop packaging or camera support.
+- Unattended stock auto-save, direct SQL and permanent delete power are not
+  enabled. Captures/drafts persist automatically; reviewed actions still use the
+  existing transaction, revision, duplicate and replay guards.
+- Native model loading, low-memory behavior, process-death recovery, voice and
+  representative packaging/video accuracy require the owner's device tests.
