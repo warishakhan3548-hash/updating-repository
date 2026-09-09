@@ -1,5 +1,6 @@
 import 'package:aaris_pharmacy/domain/app_brain.dart';
 import 'package:aaris_pharmacy/domain/inventory.dart';
+import 'package:aaris_pharmacy/domain/medicine_brief.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -76,6 +77,7 @@ void main() {
         expect(intent.action, AppBrainAction.search, reason: entry.key);
         expect(intent.scope, entry.value, reason: entry.key);
         expect(intent.query, isEmpty, reason: entry.key);
+        expect(intent.briefFocus, isNull, reason: entry.key);
       }
     });
 
@@ -96,43 +98,71 @@ void main() {
     test('routes targetless inventory summary locally', () {
       final intent = parseAppBrainIntent('stock kitna hai');
       expect(intent.action, AppBrainAction.inventorySummary);
-    });
-
-    test('targeted stock quantity question searches that medicine, not global totals', () {
-      final intent = parseAppBrainIntent('Dolo 650 stock kitna hai');
-      expect(intent.action, AppBrainAction.search);
-      expect(intent.query, 'Dolo 650');
-      expect(intent.scope, SearchScope.all);
-      expect(intent.destructive, isFalse);
-    });
-
-    test('location question becomes an exact local stock lookup', () {
-      final intent = parseAppBrainIntent('Dolo 650 kahan hai');
-      expect(intent.action, AppBrainAction.search);
-      expect(intent.query, 'Dolo 650');
-      expect(intent.confidence, greaterThanOrEqualTo(.98));
+      expect(intent.briefFocus, isNull);
     });
 
     test(
-      'expiry question becomes a local stock lookup without medical inference',
+      'targeted stock quantity question requests a deterministic stock brief',
+      () {
+        final intent = parseAppBrainIntent('Dolo 650 stock kitna hai');
+        expect(intent.action, AppBrainAction.search);
+        expect(intent.query, 'Dolo 650');
+        expect(intent.scope, SearchScope.all);
+        expect(intent.briefFocus, MedicineBriefFocus.stock);
+        expect(intent.needsMedicineTarget, isTrue);
+        expect(intent.destructive, isFalse);
+      },
+    );
+
+    test('location question requests a deterministic local location brief', () {
+      final intent = parseAppBrainIntent('Dolo 650 kahan hai');
+      expect(intent.action, AppBrainAction.search);
+      expect(intent.query, 'Dolo 650');
+      expect(intent.briefFocus, MedicineBriefFocus.location);
+      expect(intent.confidence, greaterThanOrEqualTo(.98));
+      expect(intent.destructive, isFalse);
+    });
+
+    test(
+      'expiry question requests saved inventory facts without medical inference',
       () {
         final intent = parseAppBrainIntent('Dolo 650 expiry kab hai');
         expect(intent.action, AppBrainAction.search);
         expect(intent.query, 'Dolo 650');
+        expect(intent.briefFocus, MedicineBriefFocus.expiry);
         expect(intent.destructive, isFalse);
       },
     );
 
     test(
-      'FEFO question stays read-only and resolves through inventory search',
+      'FEFO question stays read-only and requests a deterministic FEFO brief',
       () {
         final intent = parseAppBrainIntent('Dolo 650 pehle kaunsi batch');
         expect(intent.action, AppBrainAction.search);
         expect(intent.query, 'Dolo 650');
+        expect(intent.briefFocus, MedicineBriefFocus.fefo);
         expect(intent.confidence, greaterThanOrEqualTo(.99));
         expect(intent.destructive, isFalse);
       },
     );
+
+    test('context follow-up can ask read-only stock facts about exact selection', () {
+      final intent = parseAppBrainIntent('iska stock kitna hai');
+      expect(intent.action, AppBrainAction.search);
+      expect(intent.query, 'iska');
+      expect(intent.briefFocus, MedicineBriefFocus.stock);
+      expect(intent.destructive, isFalse);
+    });
+
+    test('multiple operational questions collapse into one coherent summary', () {
+      final intent = parseAppBrainIntent(
+        'Dolo 650 stock kitna hai aur expiry kab hai aur kahan hai',
+      );
+      expect(intent.action, AppBrainAction.search);
+      expect(intent.query, 'Dolo 650');
+      expect(intent.briefFocus, MedicineBriefFocus.summary);
+      expect(intent.destructive, isFalse);
+    });
 
     test(
       'read-only sales and movement language never becomes a sale mutation',
@@ -239,6 +269,7 @@ void main() {
       final intent = parseAppBrainIntent('batch AB12');
       expect(intent.action, AppBrainAction.search);
       expect(intent.query, 'AB12');
+      expect(intent.briefFocus, isNull);
       expect(intent.confidence, greaterThanOrEqualTo(.95));
     });
 
@@ -246,6 +277,7 @@ void main() {
       final intent = parseAppBrainIntent('Dolo 650');
       expect(intent.action, AppBrainAction.search);
       expect(intent.query, 'Dolo 650');
+      expect(intent.briefFocus, isNull);
     });
 
     test('recognizes safe conversational follow-up references', () {

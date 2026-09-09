@@ -1,4 +1,5 @@
 import 'inventory.dart';
+import 'medicine_brief.dart';
 
 enum AppSection { home, stock, ai, calculator, profile }
 
@@ -28,6 +29,7 @@ class AppBrainIntent {
     this.scope = SearchScope.all,
     this.query = '',
     this.quantity,
+    this.briefFocus,
     this.confidence = 0,
   });
 
@@ -36,17 +38,20 @@ class AppBrainIntent {
   final SearchScope scope;
   final String query;
   final int? quantity;
+  final MedicineBriefFocus? briefFocus;
   final double confidence;
 
-  bool get needsMedicineTarget => switch (action) {
-    AppBrainAction.editMedicine ||
-    AppBrainAction.setQuantity ||
-    AppBrainAction.receiveStock ||
-    AppBrainAction.removeMedicine ||
-    AppBrainAction.markSold ||
-    AppBrainAction.recordSale => true,
-    _ => false,
-  };
+  bool get needsMedicineTarget =>
+      briefFocus != null ||
+      switch (action) {
+        AppBrainAction.editMedicine ||
+        AppBrainAction.setQuantity ||
+        AppBrainAction.receiveStock ||
+        AppBrainAction.removeMedicine ||
+        AppBrainAction.markSold ||
+        AppBrainAction.recordSale => true,
+        _ => false,
+      };
 
   bool get destructive => switch (action) {
     AppBrainAction.setQuantity ||
@@ -311,52 +316,41 @@ AppBrainIntent? _stockAdjustmentIntent(String raw) {
 }
 
 AppBrainIntent? _operationalReadIntent(String raw, String text) {
-  // These are intentionally read-only routings. The Brain resolves the phrase
-  // into the existing fuzzy Medicine Database rather than calculating or
-  // mutating hidden state itself.
-  if (_containsAny(text, _locationTerms)) {
-    final query = _extractMedicineQuery(raw, _locationTerms);
-    return AppBrainIntent(
-      action: AppBrainAction.search,
-      query: query,
-      confidence: query.isEmpty ? .76 : .98,
-    );
-  }
+  final matches = <MedicineBriefFocus, List<String>>{
+    if (_containsAny(text, _stockLookupTerms))
+      MedicineBriefFocus.stock: _stockLookupTerms,
+    if (_containsAny(text, _expiryLookupTerms))
+      MedicineBriefFocus.expiry: _expiryLookupTerms,
+    if (_containsAny(text, _locationTerms))
+      MedicineBriefFocus.location: _locationTerms,
+    if (_containsAny(text, _fefoTerms)) MedicineBriefFocus.fefo: _fefoTerms,
+  };
+  if (matches.isEmpty) return null;
 
-  if (_containsAny(text, _stockLookupTerms)) {
-    final query = _extractMedicineQuery(raw, _stockLookupTerms);
-    if (query.isNotEmpty) {
-      return AppBrainIntent(
-        action: AppBrainAction.search,
-        query: query,
-        confidence: .98,
-      );
-    }
+  // Multiple operational questions about the same medicine are answered from
+  // one coherent read-only snapshot instead of independently parsing each
+  // clause. All matched vocabulary is stripped before fuzzy target resolution.
+  final terms = <String>[
+    for (final values in matches.values) ...values,
+  ];
+  final query = _extractMedicineQuery(raw, terms);
+  if (matches.length == 1 &&
+      matches.containsKey(MedicineBriefFocus.stock) &&
+      query.isEmpty) {
     return const AppBrainIntent(
       action: AppBrainAction.inventorySummary,
       confidence: .98,
     );
   }
 
-  if (_containsAny(text, _expiryLookupTerms)) {
-    final query = _extractMedicineQuery(raw, _expiryLookupTerms);
-    return AppBrainIntent(
-      action: AppBrainAction.search,
-      query: query,
-      confidence: query.isEmpty ? .76 : .98,
-    );
-  }
-
-  if (_containsAny(text, _fefoTerms)) {
-    final query = _extractMedicineQuery(raw, _fefoTerms);
-    return AppBrainIntent(
-      action: AppBrainAction.search,
-      query: query,
-      confidence: query.isEmpty ? .76 : .99,
-    );
-  }
-
-  return null;
+  return AppBrainIntent(
+    action: AppBrainAction.search,
+    query: query,
+    briefFocus: matches.length == 1
+        ? matches.keys.single
+        : MedicineBriefFocus.summary,
+    confidence: query.isEmpty ? .76 : .99,
+  );
 }
 
 AppBrainIntent? _listIntent(String text) {
@@ -787,6 +781,9 @@ const _fillers = <String>[
   'hai',
   'hain',
   'stock',
+  'and',
+  'aur',
+  'और',
   'मेडिसिन',
   'दवा',
   'को',

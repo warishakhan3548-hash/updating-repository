@@ -1,6 +1,7 @@
 import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/app_brain.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
+import 'package:aaris_pharmacy/state/operational_context.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
 import 'package:aaris_pharmacy/ui/brain_screen.dart';
 import 'package:aaris_pharmacy/ui/design.dart';
@@ -20,6 +21,7 @@ Medicine _stock(
   int? price = 200,
   String form = 'Tablet',
   bool sold = false,
+  String location = '',
 }) => Medicine.fromJson({
   'id': id,
   'name': name,
@@ -33,6 +35,7 @@ Medicine _stock(
   'unitPricePaise': price,
   'form': form,
   'sold': sold,
+  'location': location,
 });
 
 final _today = DateTime(2026, 9, 7, 23, 59);
@@ -109,6 +112,91 @@ void main() {
       // Widget-test teardown hooks run after Flutter verifies that no timers are
       // pending. Unmount first, then synchronously dispose the controller so its
       // midnight refresh timer is cancelled before that invariant is checked.
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'Brain answers product stock and contextual expiry read-only from authoritative rows',
+    (tester) async {
+      final first = _stock(
+        'dolo-a',
+        name: 'Dolo',
+        strength: '650mg',
+        expiry: '2026-10-01',
+        batchNumber: 'A1',
+        salt: 'Paracetamol',
+        quantity: 10,
+        location: 'Rack A',
+      );
+      final second = _stock(
+        'dolo-b',
+        name: 'Dolo',
+        strength: '650mg',
+        expiry: '2026-11-01',
+        batchNumber: 'B1',
+        salt: 'Paracetamol',
+        quantity: 20,
+        location: 'Rack B',
+      );
+      final controller = PharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(records: {first.id: first, second.id: second}),
+        ),
+        clock: () => _today,
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      AppSection? openedSection;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: pharmacyTheme(),
+          home: Scaffold(
+            body: BrainScreen(
+              controller: controller,
+              onOpenSection: (section) => openedSection = section,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final beforeRevision = controller.snapshot.revision;
+      await tester.enterText(
+        find.byType(TextField).first,
+        'Dolo 650 stock kitna hai',
+      );
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(
+        find.textContaining('30 known units across 2 current batches'),
+        findsOneWidget,
+      );
+      expect(controller.snapshot.revision, beforeRevision);
+      expect(openedSection, isNull);
+      expect(controller.operationalTarget?.identity, first.identity);
+
+      await tester.enterText(
+        find.byType(TextField).first,
+        'iska expiry kab hai',
+      );
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(
+        find.textContaining('earliest recorded valid expiry is 2026-10-01'),
+        findsOneWidget,
+      );
+      expect(controller.snapshot.revision, beforeRevision);
+      expect(tester.takeException(), isNull);
+
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
       await tester.pump();
