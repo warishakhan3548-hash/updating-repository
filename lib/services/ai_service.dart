@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../domain/ai_protocol.dart';
 import '../domain/local_ai_protocol.dart';
+import 'aaris_default_ai_service.dart';
 import 'local_ai_service.dart';
 
 class AiConfiguration {
@@ -91,6 +92,13 @@ class AiService {
   }) async {
     final local = LocalAiService.instance;
     await local.initialize();
+
+    // A downloaded Aaris default is a persistent local fallback. A deliberately
+    // selected user model still wins because the coordinator never overrides an
+    // existing local selection. If restoring the installed default fails, do
+    // not silently leak the same request to a cloud provider.
+    await AarisDefaultAiService.instance.ensureActiveIfInstalled();
+
     // Selection is authoritative even while unloaded/missing/busy. No local
     // failure can fall through to config.uri or the HTTP client below.
     if (local.hasSelection) {
