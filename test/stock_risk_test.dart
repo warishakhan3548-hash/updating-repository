@@ -8,6 +8,7 @@ Medicine stock(
   String name = 'Dolo',
   String strength = '650 mg',
   String form = 'Tablet',
+  String salt = '',
   int? quantity = 40,
   String? expiry = '2026-09-20',
   String batch = 'B1',
@@ -16,6 +17,7 @@ Medicine stock(
   'name': name,
   'strength': strength,
   'form': form,
+  'salt': salt,
   'quantity': quantity,
   if (expiry != null) 'expiry': expiry,
   'batchNumber': batch,
@@ -30,12 +32,14 @@ SaleEvent sale(
   String name = 'Dolo',
   String strength = '650 mg',
   String form = 'Tablet',
+  String salt = '',
 }) => SaleEvent(
   id: id,
   stockId: stockId,
   medicineName: name,
   strength: strength,
   form: form,
+  salt: salt,
   quantity: quantity,
   occurredAt: occurredAt,
 );
@@ -164,6 +168,36 @@ void main() {
       isEmpty,
       reason:
           'SaleEvent is an immutable product snapshot; correcting the current stock identity must not manufacture demand for the new identity.',
+    );
+  });
+
+  test('conflicting known salt evidence fails closed', () {
+    final report = PharmacyStockRiskReport.build(
+      medicines: [
+        stock('a', quantity: 50, salt: 'Paracetamol'),
+      ],
+      sales: [
+        sale(
+          's1',
+          2,
+          DateTime(2026, 9, 5),
+          salt: 'Paracetamol + Caffeine',
+        ),
+        sale(
+          's2',
+          2,
+          DateTime(2026, 9, 8),
+          salt: 'Paracetamol + Caffeine',
+        ),
+      ],
+      today: today,
+    );
+
+    expect(
+      report.expiryWaste,
+      isEmpty,
+      reason:
+          'Known conflicting composition facts must be reviewed instead of being aggregated into an operational demand forecast.',
     );
   });
 }
