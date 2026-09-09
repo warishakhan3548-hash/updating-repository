@@ -56,7 +56,7 @@ void main() {
     await tester.tap(find.text('Cefixime · 200mg'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(EditorScreen), findsOneWidget);
-    expect(find.text('Cefixime'), findsWidgets);
+    final editor = tester.widget<EditorScreen>(find.byType(EditorScreen));
+    expect(editor.record?.id, 'expired-id');
   });
 }
