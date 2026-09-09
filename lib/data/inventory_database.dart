@@ -44,6 +44,7 @@ class InventoryMutation {
     this.undoable = true,
     this.soldValueOverride,
     this.unknownSoldOverride,
+    this.operationTime,
   });
   final int expectedRevision;
   final String label;
@@ -55,6 +56,23 @@ class InventoryMutation {
   final String? requestId, undoEventId;
   final bool undoable;
   final int? soldValueOverride, unknownSoldOverride;
+  final DateTime? operationTime;
+
+  InventoryMutation withOperationTime(DateTime value) => InventoryMutation(
+    expectedRevision: expectedRevision,
+    label: label,
+    upserts: upserts,
+    upsertSales: upsertSales,
+    removeIds: removeIds,
+    removeSaleIds: removeSaleIds,
+    settings: settings,
+    requestId: requestId,
+    undoEventId: undoEventId,
+    undoable: undoable,
+    soldValueOverride: soldValueOverride,
+    unknownSoldOverride: unknownSoldOverride,
+    operationTime: value,
+  );
 }
 
 abstract class InventoryStorage {
@@ -66,6 +84,11 @@ abstract class InventoryStorage {
 void _validateMutationShape(InventoryMutation mutation) {
   if (mutation.expectedRevision < 0) {
     throw const FormatException('Invalid inventory revision.');
+  }
+  final operationTime = mutation.operationTime;
+  if (operationTime != null &&
+      (operationTime.year < 2000 || operationTime.year > 2200)) {
+    throw const FormatException('Invalid inventory operation time.');
   }
   final label = mutation.label.trim();
   if (label.isEmpty || label.length > 1200) {
@@ -79,7 +102,9 @@ void _validateMutationShape(InventoryMutation mutation) {
     }
     final ids = list.toSet();
     if (ids.length != list.length) {
-      throw StateError('One inventory transaction cannot repeat a $description ID.');
+      throw StateError(
+        'One inventory transaction cannot repeat a $description ID.',
+      );
     }
     return ids;
   }
@@ -137,11 +162,18 @@ Map<String, dynamic> makeEvent(
     }
   }
   checkedMoneySum(before.soldValue, soldValue);
+  // One immutable operation timestamp drives both the durable audit event and
+  // every date-sensitive persistence guard for this transaction. Controller
+  // writes stamp this from the controller's injected business clock; direct
+  // storage callers fall back to one wall-clock read here.
+  final operationTime = mutation.operationTime ?? DateTime.now();
+  final operationDay = civilDay(operationTime);
   return {
     'id': newId(),
     'revision': before.revision + 1,
     'label': mutation.label,
-    'time': DateTime.now().toIso8601String(),
+    'time': operationTime.toUtc().toIso8601String(),
+    'businessDay': dateText(operationDay),
     'undoable': mutation.undoable,
     'undone': false,
     'before': {
@@ -173,6 +205,17 @@ InventorySnapshot nextSnapshot(
 ) {
   final records = {...before.records};
   final sales = {...before.sales};
+  final eventTimeRaw = event['time'];
+  if (eventTimeRaw is! String) {
+    throw const FormatException('Inventory event time is missing.');
+  }
+  final operationTime = DateTime.tryParse(eventTimeRaw);
+  if (operationTime == null ||
+      operationTime.year < 2000 ||
+      operationTime.year > 2200) {
+    throw const FormatException('Inventory event time is invalid.');
+  }
+  final operationDay = civilDay(operationTime);
   for (final record in mutation.upserts) {
     records[record.id] = Medicine.fromJson(record.toJson());
   }
@@ -188,7 +231,8 @@ InventorySnapshot nextSnapshot(
   // restore must reproduce its source snapshot, so those two recovery paths are
   // intentionally exempt from this prospective guard.
   final recoveryRestore =
-      mutation.soldValueOverride != null || mutation.unknownSoldOverride != null;
+      mutation.soldValueOverride != null ||
+      mutation.unknownSoldOverride != null;
   if (mutation.undoEventId == null && !recoveryRestore) {
     ensureIntegritySafeInventoryMutation(
       before: before.records,
@@ -197,7 +241,7 @@ InventorySnapshot nextSnapshot(
         ...mutation.upserts.map((record) => record.id),
         ...mutation.removeIds,
       },
-      today: DateTime.now(),
+      today: operationDay,
     );
     ensureSafeSaleLedgerMutation(
       beforeRecords: before.records,
@@ -215,7 +259,7 @@ InventorySnapshot nextSnapshot(
     sales.remove(id);
   }
   // Validate aggregate money before committing, not while a statistics widget renders.
-  InventoryStats(records.values, DateTime.now());
+  InventoryStats(records.values, operationDay);
   var total =
       mutation.soldValueOverride ??
       checkedMoneySum(before.soldValue, event['soldValue'] as int);

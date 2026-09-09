@@ -245,9 +245,14 @@ class PharmacyController extends ChangeNotifier {
   }
 
   Future<void> _commit(InventoryMutation mutation) {
+    // Stamp once at the authoritative controller boundary. Every downstream
+    // date-sensitive guard and the durable audit event uses this exact instant,
+    // so a transaction cannot observe two different business days around
+    // midnight or diverge from an injected/test business clock.
+    final committedMutation = mutation.withOperationTime(clock());
     final result = _writes.then((_) async {
       if (_disposed) throw StateError('App is closed.');
-      snapshot = await storage.commit(mutation);
+      snapshot = await storage.commit(committedMutation);
       _emit();
     });
     _writes = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
