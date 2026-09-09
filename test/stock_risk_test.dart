@@ -100,7 +100,7 @@ void main() {
     );
   });
 
-  test('FEFO cumulative stock can expose a later batch at risk', () {
+  test('early expired surplus never consumes later-period FEFO demand', () {
     final report = PharmacyStockRiskReport.build(
       medicines: [
         stock('a', quantity: 15, expiry: '2026-09-15', batch: 'EARLY'),
@@ -113,6 +113,9 @@ void main() {
       today: today,
     );
 
-    expect(report.expiryWaste.map((risk) => risk.stockId), contains('b'));
+    final byId = {for (final risk in report.expiryWaste) risk.stockId: risk};
+    expect(byId.keys, containsAll(<String>['a', 'b']));
+    expect(byId['a']!.atRiskUnits, 11);
+    expect(byId['b']!.atRiskUnits, 34);
   });
 }
