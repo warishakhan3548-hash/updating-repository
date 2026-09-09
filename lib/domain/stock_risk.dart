@@ -75,9 +75,6 @@ class PharmacyStockRiskReport {
 
     final day = civilDay(today);
     final allRecords = medicines.toList(growable: false);
-    final byId = <String, Medicine>{
-      for (final medicine in allRecords) medicine.id: medicine,
-    };
     final groups = <String, List<Medicine>>{};
 
     for (final medicine in allRecords) {
@@ -98,9 +95,13 @@ class PharmacyStockRiskReport {
     for (final sale in sales) {
       final saleDay = civilDay(sale.occurredAt);
       if (saleDay.isBefore(start30) || saleDay.isAfter(day)) continue;
-      final record = byId[sale.stockId];
-      final key = record?.identity ?? sale.productKey;
-      final item = evidence.putIfAbsent(key, _VelocityEvidence.new);
+
+      // SaleEvent stores an immutable product snapshot. Always attribute the
+      // historical movement to that snapshot identity, never to the current
+      // Medicine row behind stockId. A later pharmacist correction may change
+      // name/strength/form on the live row; retroactively relabelling old sales
+      // would otherwise manufacture false demand and unsafe expiry forecasts.
+      final item = evidence.putIfAbsent(sale.productKey, _VelocityEvidence.new);
       item.units30 += sale.quantity;
       item.events30++;
       if (item.firstDay == null || saleDay.isBefore(item.firstDay!)) {
@@ -151,8 +152,9 @@ class PharmacyStockRiskReport {
       positive.sort((a, b) {
         final expiry = a.expiry!.compareTo(b.expiry!);
         if (expiry != 0) return expiry;
-        final batch = normalize(a.batchNumber)
-            .compareTo(normalize(b.batchNumber));
+        final batch = normalize(a.batchNumber).compareTo(
+          normalize(b.batchNumber),
+        );
         return batch != 0 ? batch : a.id.compareTo(b.id);
       });
 
