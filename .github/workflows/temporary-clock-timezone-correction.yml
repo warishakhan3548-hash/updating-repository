@@ -1,0 +1,61 @@
+name: Temporary timezone-safe business clock correction
+on:
+  push:
+    branches: [upgrade/authoritative-business-clock-20260910]
+permissions:
+  contents: write
+concurrency:
+  group: clock-timezone-correction
+  cancel-in-progress: false
+jobs:
+  correct:
+    if: ${{ !contains(github.event.head_commit.message, '[clock-timezone-correction]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: upgrade/authoritative-business-clock-20260910
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Apply guarded timezone correction
+        run: python3 tool/temporary_clock_timezone_correction.py
+      - name: Format changed Dart
+        run: dart format lib/data/inventory_database.dart test/authoritative_business_clock_test.dart
+      - name: Resolve pinned dependencies
+        run: flutter pub get
+      - name: Static checks
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+      - name: Full regression suite
+        run: flutter test --reporter expanded
+      - name: Non-UTC midnight regression
+        env:
+          TZ: Asia/Kolkata
+          AARIS_REQUIRE_NON_UTC_CLOCK_TEST: '1'
+        run: flutter test test/authoritative_business_clock_test.dart --plain-name 'local business day survives UTC audit normalization'
+      - name: Diff whitespace integrity
+        run: |
+          git checkout -- pubspec.lock 2>/dev/null || true
+          git diff --check
+      - name: Commit verified correction only
+        run: |
+          rm tool/temporary_clock_timezone_correction.py
+          rm .github/workflows/temporary-clock-timezone-correction.yml
+          git config user.name "Aaris Pharmacy Upgrade Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add lib/data/inventory_database.dart test/authoritative_business_clock_test.dart
+          git add -u tool/temporary_clock_timezone_correction.py .github/workflows/temporary-clock-timezone-correction.yml
+          git diff --cached --check
+          git commit -m "Preserve local pharmacy day across UTC audit time [clock-timezone-correction]"
+          git push origin HEAD:upgrade/authoritative-business-clock-20260910
