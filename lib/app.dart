@@ -5,9 +5,10 @@ import 'domain/inventory.dart';
 import 'ui/design.dart';
 import 'ui/home_screen.dart';
 import 'ui/search_screen.dart';
-import 'ui/ai_screen.dart';
+import 'ui/scan_hub_screen.dart';
 import 'ui/stats_screen.dart';
 import 'ui/profile_screen.dart';
+import 'ui/pharmacy_brain_sheet.dart';
 
 ThemeData _appTheme() {
   final base = pharmacyTheme();
@@ -76,6 +77,11 @@ class _ShellState extends State<_Shell> {
     }
   }
 
+  void _selectTab(int index) {
+    if (!mounted || index < 0 || index > 4) return;
+    setState(() => tab = index);
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -85,7 +91,7 @@ class _ShellState extends State<_Shell> {
       () => switch (tab) {
         0 => HomeScreen(
           controller: c,
-          onDatabase: () => setState(() => tab = 1),
+          onDatabase: () => _selectTab(1),
         ),
         1 => SearchScreen(
           controller: c,
@@ -93,7 +99,7 @@ class _ShellState extends State<_Shell> {
           database: true,
           embedded: true,
         ),
-        2 => AiScreen(controller: c),
+        2 => ScanHubScreen(controller: c),
         3 => StatsScreen(controller: c),
         _ => ProfileScreen(controller: c),
       },
@@ -116,6 +122,17 @@ class _ShellState extends State<_Shell> {
           ),
         ),
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        tooltip: 'Aaris Brain',
+        onPressed: () => showPharmacyBrain(
+          context,
+          controller: c,
+          onSelectTab: _selectTab,
+        ),
+        icon: const Icon(Icons.auto_awesome_rounded),
+        label: const Text('Brain'),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: SafeArea(
         top: false,
         minimum: const EdgeInsets.fromLTRB(12, 0, 12, 10),
@@ -126,7 +143,7 @@ class _ShellState extends State<_Shell> {
           elevation: .65,
           child: NavigationBar(
             selectedIndex: tab,
-            onDestinationSelected: (index) => setState(() => tab = index),
+            onDestinationSelected: _selectTab,
             destinations: const [
               NavigationDestination(
                 icon: Icon(Icons.home_outlined),
@@ -136,17 +153,17 @@ class _ShellState extends State<_Shell> {
               NavigationDestination(
                 icon: Icon(Icons.inventory_2_outlined),
                 selectedIcon: Icon(Icons.inventory_2_rounded),
-                label: 'Stock',
+                label: 'Add & Remove',
               ),
               NavigationDestination(
-                icon: Icon(Icons.auto_awesome_outlined),
-                selectedIcon: Icon(Icons.auto_awesome),
-                label: 'AI',
+                icon: Icon(Icons.qr_code_scanner_outlined),
+                selectedIcon: Icon(Icons.qr_code_scanner_rounded),
+                label: 'Scan',
               ),
               NavigationDestination(
-                icon: Icon(Icons.calculate_outlined),
-                selectedIcon: Icon(Icons.calculate_rounded),
-                label: 'Calculator',
+                icon: Icon(Icons.insights_outlined),
+                selectedIcon: Icon(Icons.insights_rounded),
+                label: 'Activity',
               ),
               NavigationDestination(
                 icon: Icon(Icons.person_outline_rounded),
