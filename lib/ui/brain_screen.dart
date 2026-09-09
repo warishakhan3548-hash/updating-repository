@@ -30,8 +30,9 @@ class BrainScreen extends StatefulWidget {
 class _BrainScreenState extends State<BrainScreen> {
   final _command = TextEditingController();
   bool _busy = false, _voiceOpening = false;
+  String? _lastTargetId;
   String _reply =
-      'Instant App Brain is ready. It handles everyday pharmacy commands locally; complex medicine reasoning stays with the reviewed AI Controller below.';
+      'Ready. Search stock, open safe actions, remember an exact selection, or ask “aaj kya dekhna hai”.';
 
   @override
   void dispose() {
@@ -68,12 +69,16 @@ class _BrainScreenState extends State<BrainScreen> {
     switch (intent.action) {
       case AppBrainAction.navigate:
         final section = intent.section;
-        if (section == null) return _unknown(raw);
+        if (section == null) {
+          _unknown(raw);
+          return;
+        }
         widget.onOpenSection(section);
         if (mounted) setState(() => _reply = _sectionReply(section));
         return;
       case AppBrainAction.addMedicine:
         if (mounted) {
+          widget.onOpenSection(AppSection.stock);
           setState(() => _reply = 'Opening a fresh medicine entry.');
           await openEditor(context, widget.controller);
         }
@@ -92,6 +97,12 @@ class _BrainScreenState extends State<BrainScreen> {
         return;
       case AppBrainAction.inventorySummary:
         _summary();
+        return;
+      case AppBrainAction.attentionBrief:
+        _attentionBrief();
+        return;
+      case AppBrainAction.bulkRemoveBlocked:
+        _bulkRemoveBlocked();
         return;
       case AppBrainAction.unknown:
         _unknown(raw);
@@ -124,21 +135,45 @@ class _BrainScreenState extends State<BrainScreen> {
     }
     final hits = await widget.controller.search(query, intent.scope);
     if (!mounted) return;
+    final direct = _singleSafeTarget(
+      hits.where((hit) => hit.score >= .90).take(8).toList(),
+    );
+    if (direct != null) {
+      final record = widget.controller.snapshot.records[direct.id];
+      if (record != null && !record.archived) _remember(record);
+    }
     await _showMatches(
       hits,
       title: 'Matches for “$query”',
-      emptyReply: 'No confident local stock match for “$query”. I opened the Medicine Database so you can scan or search another spelling.',
+      emptyReply:
+          'No confident local stock match for “$query”. I opened the Medicine Database so you can scan or search another spelling.',
     );
   }
 
   Future<void> _medicineAction(AppBrainIntent intent) async {
     final query = intent.query.trim();
+    if (isAppBrainContextReference(query)) {
+      final remembered = _rememberedTarget();
+      if (remembered == null) {
+        widget.onOpenSection(AppSection.stock);
+        if (mounted) {
+          setState(
+            () => _reply =
+                'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact stock entry first.',
+          );
+        }
+        return;
+      }
+      await _openActionTarget(intent.action, remembered, fromContext: true);
+      return;
+    }
+
     if (query.isEmpty) {
       if (!mounted) return;
       widget.onOpenSection(AppSection.stock);
       setState(
         () => _reply =
-            'Medicine name or batch is missing. Medicine Database opened so you can choose the exact stock entry safely.',
+            'Medicine name, batch, barcode or location is missing. Medicine Database opened so you can choose the exact stock entry safely.',
       );
       return;
     }
@@ -159,8 +194,7 @@ class _BrainScreenState extends State<BrainScreen> {
     if (direct != null) {
       final record = widget.controller.snapshot.records[direct.id];
       if (record != null && !record.archived) {
-        setState(() => _reply = _editorInstruction(intent.action, record));
-        await openEditor(context, widget.controller, record: record);
+        await _openActionTarget(intent.action, record);
         return;
       }
     }
@@ -171,6 +205,39 @@ class _BrainScreenState extends State<BrainScreen> {
       emptyReply: 'No safe match found. I will not guess a medicine or batch.',
       action: intent.action,
     );
+  }
+
+  Future<void> _openActionTarget(
+    AppBrainAction action,
+    Medicine record, {
+    bool fromContext = false,
+  }) async {
+    _remember(record);
+    widget.onOpenSection(AppSection.stock);
+    if (!mounted) return;
+    setState(
+      () => _reply = fromContext
+          ? 'Using your last exact selection: ${record.title}. ${_editorInstruction(action, record)}'
+          : _editorInstruction(action, record),
+    );
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    await openEditor(context, widget.controller, record: record);
+  }
+
+  void _remember(Medicine record) {
+    if (!record.archived) _lastTargetId = record.id;
+  }
+
+  Medicine? _rememberedTarget() {
+    final id = _lastTargetId;
+    if (id == null) return null;
+    final record = widget.controller.snapshot.records[id];
+    if (record == null || record.archived) {
+      _lastTargetId = null;
+      return null;
+    }
+    return record;
   }
 
   SearchHit? _singleSafeTarget(List<SearchHit> hits) {
@@ -207,7 +274,7 @@ class _BrainScreenState extends State<BrainScreen> {
     }
     setState(
       () => _reply = records.length == 1
-          ? '1 stock entry found.'
+          ? '1 stock entry found. Open it to make that exact batch the context for follow-up commands.'
           : '${records.length} possible stock entries found. Choose the exact batch; Aaris will not guess.',
     );
     await showModalBottomSheet<void>(
@@ -247,7 +314,7 @@ class _BrainScreenState extends State<BrainScreen> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Choose the exact medicine/batch. The existing safety confirmation remains mandatory.',
+                      'Choose the exact medicine/batch. Aaris will remember this choice; existing safety confirmation remains mandatory.',
                       style: const TextStyle(color: muted, fontSize: 12),
                     ),
                   ),
@@ -265,8 +332,24 @@ class _BrainScreenState extends State<BrainScreen> {
                       onTap: () async {
                         Navigator.pop(sheetContext);
                         if (!mounted) return;
-                        setState(() => _reply = _editorInstruction(action, record));
-                        await openEditor(context, widget.controller, record: record);
+                        _remember(record);
+                        if (action == AppBrainAction.search) {
+                          widget.onOpenSection(AppSection.stock);
+                          setState(
+                            () => _reply =
+                                '${record.title} selected. I will remember this exact stock entry for your next command.',
+                          );
+                          await Future<void>.delayed(Duration.zero);
+                          if (mounted) {
+                            await openEditor(
+                              context,
+                              widget.controller,
+                              record: record,
+                            );
+                          }
+                          return;
+                        }
+                        await _openActionTarget(action, record);
                       },
                     );
                   },
@@ -309,7 +392,9 @@ class _BrainScreenState extends State<BrainScreen> {
       return;
     }
     await widget.controller.undo();
-    if (mounted) setState(() => _reply = 'Last reviewed inventory change was undone.');
+    if (mounted) {
+      setState(() => _reply = 'Last reviewed inventory change was undone.');
+    }
   }
 
   void _summary() {
@@ -323,22 +408,64 @@ class _BrainScreenState extends State<BrainScreen> {
     );
   }
 
+  void _attentionBrief() {
+    final active = widget.controller.records.where((m) => !m.archived).toList();
+    final expired = widget.controller.list(SearchScope.expired).length;
+    final shortExpiry = widget.controller.list(SearchScope.shortExpiry).length;
+    final monthExpiry = widget.controller.list(SearchScope.monthExpiry).length;
+    final sold = widget.controller.list(SearchScope.sold).length;
+    final unknownExpiry = active
+        .where((m) => !m.sold && m.expiry == null)
+        .length;
+    final unknownQuantity = active
+        .where((m) => !m.sold && m.quantity == null)
+        .length;
+    final missingSalt = active.where((m) => m.salt.trim().isEmpty).length;
+
+    if (expired == 0 &&
+        shortExpiry == 0 &&
+        sold == 0 &&
+        unknownExpiry == 0 &&
+        unknownQuantity == 0 &&
+        missingSalt == 0) {
+      setState(
+        () => _reply =
+            'Attention brief: no urgent expiry, reorder, quantity or missing-data issue is visible right now. $monthExpiry medicine${monthExpiry == 1 ? '' : 's'} are inside your month-expiry window.',
+      );
+      return;
+    }
+
+    setState(
+      () => _reply =
+          'Attention brief · $expired expired · $shortExpiry short-expiry · $monthExpiry month-expiry · $sold sold/reorder · $unknownExpiry expiry unknown · $unknownQuantity quantity unknown · $missingSalt salt missing. Start with expired/short-expiry stock, then reorder and missing facts.',
+    );
+  }
+
+  void _bulkRemoveBlocked() {
+    widget.onOpenSection(AppSection.profile);
+    setState(
+      () => _reply =
+          'Bulk removal is intentionally blocked from natural-language commands. Profile opened at the protected owner area; “Remove all inventory” still requires its dedicated multi-step confirmation so a voice/AI misunderstanding cannot wipe stock.',
+    );
+  }
+
   void _unknown(String raw) {
     setState(
       () => _reply =
-          '“$raw” looks like a deeper reasoning request. Use the AI Controller composer directly below; its Local AI → Aaris Default AI → configured provider safety pipeline remains authoritative for complex reasoning and proposed inventory changes.',
+          '“$raw” looks like a deeper reasoning request rather than a deterministic app command. Use the AI Controller composer directly below; its Local AI → Aaris Default AI → configured provider safety pipeline remains authoritative for complex reasoning and proposed inventory changes.',
     );
   }
 
   String _editorInstruction(AppBrainAction action, Medicine record) =>
       switch (action) {
         AppBrainAction.removeMedicine =>
-          '${record.title} opened. Use Remove; Aaris will ask the reason and confirmation before archiving it.',
+          '${record.title} opened in Medicine Database. Use Remove; Aaris keeps reason + confirmation + removed history mandatory.',
         AppBrainAction.markSold =>
-          '${record.title} opened. Use Mark sold only if this entire stock entry is finished; confirmation remains required.',
+          '${record.title} opened in Medicine Database. Use Mark sold only if this entire stock entry is finished; confirmation remains required.',
         AppBrainAction.recordSale =>
-          '${record.title} opened. Use Record sale; FEFO/expiry checks remain active.',
-        AppBrainAction.editMedicine => '${record.title} opened for review/edit.',
+          '${record.title} opened in Medicine Database. Use Record sale; FEFO and expiry validation remain active.',
+        AppBrainAction.editMedicine =>
+          '${record.title} opened in Medicine Database for review/edit.',
         _ => '${record.title} opened.',
       };
 
@@ -377,10 +504,10 @@ class _BrainScreenState extends State<BrainScreen> {
   }
 
   Widget _brainBar(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 3),
         child: Surface(
           color: primarySoft,
-          padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+          padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -390,13 +517,15 @@ class _BrainScreenState extends State<BrainScreen> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Aaris App Brain · instant offline commands',
+                      'Aaris App Brain · offline commands',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontWeight: FontWeight.w900, color: ink),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 9),
+              const SizedBox(height: 7),
               Row(
                 children: [
                   Expanded(
@@ -406,18 +535,18 @@ class _BrainScreenState extends State<BrainScreen> {
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => unawaited(_run()),
                       decoration: const InputDecoration(
-                        hintText: 'e.g. Dolo 650 delete karo · expired medicines dikhao',
+                        hintText: 'Dolo 650 delete karo · batch AB12',
                         prefixIcon: Icon(Icons.bolt_rounded),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   IconButton.filledTonal(
                     tooltip: 'Speak command',
                     onPressed: _voiceOpening || _busy ? null : _voice,
                     icon: const Icon(Icons.mic_rounded),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 2),
                   IconButton.filled(
                     tooltip: 'Run command',
                     onPressed: _busy ? null : _run,
@@ -431,16 +560,27 @@ class _BrainScreenState extends State<BrainScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 9),
-              Text(
-                _reply,
-                style: const TextStyle(color: muted, fontSize: 11.5, height: 1.35),
+              const SizedBox(height: 7),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 72),
+                child: SingleChildScrollView(
+                  primary: false,
+                  child: Text(
+                    _reply,
+                    style: const TextStyle(
+                      color: muted,
+                      fontSize: 11.5,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
+                    _QuickCommand('Needs attention', 'aaj kya dekhna hai'),
                     _QuickCommand('Expired', 'expired medicines dikhao'),
                     _QuickCommand('Sold', 'sold medicines dikhao'),
                     _QuickCommand('Stock summary', 'stock summary'),
