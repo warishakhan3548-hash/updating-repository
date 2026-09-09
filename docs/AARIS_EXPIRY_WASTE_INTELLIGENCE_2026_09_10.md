@@ -13,6 +13,8 @@ When the saved facts indicate that a meaningful portion of a batch may remain by
 - This is operational inventory forecasting, not medical advice.
 - It never invents demand, dose, indication or medicine facts.
 - It requires at least two recorded sale events for the product.
+- Historical movement is attributed to the immutable medicine identity saved inside each `SaleEvent`; a later edit to the live stock row cannot retroactively relabel old demand.
+- Conflicting known salt/composition evidence fails closed. Aaris will not aggregate a forecast across current or historical rows that disagree on a known salt fact.
 - A product with any unknown active quantity or expiry is excluded from the forecast; the existing missing-fact warnings remain authoritative instead.
 - Recent demand is allowed to increase the planning pace, reducing false waste alarms when movement is accelerating.
 - The expiry date is inclusive and FEFO cumulative stock is respected across batches.
