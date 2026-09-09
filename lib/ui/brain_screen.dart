@@ -32,7 +32,7 @@ class _BrainScreenState extends State<BrainScreen> {
   bool _busy = false, _voiceOpening = false;
   String? _lastTargetId;
   String _reply =
-      'Instant App Brain is ready. It handles everyday pharmacy commands locally, remembers the last exact medicine you selected, and sends deeper reasoning to the reviewed AI Controller below.';
+      'Ready. Search stock, open safe actions, remember an exact selection, or ask “aaj kya dekhna hai”.';
 
   @override
   void dispose() {
@@ -504,10 +504,10 @@ class _BrainScreenState extends State<BrainScreen> {
   }
 
   Widget _brainBar(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 3),
         child: Surface(
           color: primarySoft,
-          padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+          padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -517,13 +517,15 @@ class _BrainScreenState extends State<BrainScreen> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Aaris App Brain · instant offline commands',
+                      'Aaris App Brain · offline commands',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontWeight: FontWeight.w900, color: ink),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 9),
+              const SizedBox(height: 7),
               Row(
                 children: [
                   Expanded(
@@ -533,19 +535,18 @@ class _BrainScreenState extends State<BrainScreen> {
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => unawaited(_run()),
                       decoration: const InputDecoration(
-                        hintText:
-                            'Dolo 650 delete karo · batch AB12 · aaj kya dekhna hai',
+                        hintText: 'Dolo 650 delete karo · batch AB12',
                         prefixIcon: Icon(Icons.bolt_rounded),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   IconButton.filledTonal(
                     tooltip: 'Speak command',
                     onPressed: _voiceOpening || _busy ? null : _voice,
                     icon: const Icon(Icons.mic_rounded),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 2),
                   IconButton.filled(
                     tooltip: 'Run command',
                     onPressed: _busy ? null : _run,
@@ -559,12 +560,22 @@ class _BrainScreenState extends State<BrainScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 9),
-              Text(
-                _reply,
-                style: const TextStyle(color: muted, fontSize: 11.5, height: 1.35),
+              const SizedBox(height: 7),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 72),
+                child: SingleChildScrollView(
+                  primary: false,
+                  child: Text(
+                    _reply,
+                    style: const TextStyle(
+                      color: muted,
+                      fontSize: 11.5,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
