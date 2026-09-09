@@ -8,6 +8,7 @@ import 'ui/search_screen.dart';
 import 'ui/ai_screen.dart';
 import 'ui/stats_screen.dart';
 import 'ui/profile_screen.dart';
+import 'ui/work_queue_screen.dart';
 
 ThemeData _appTheme() {
   final base = pharmacyTheme();
@@ -116,6 +117,18 @@ class _ShellState extends State<_Shell> {
           ),
         ),
       ),
+      floatingActionButton: tab == 0
+          ? FloatingActionButton.extended(
+              heroTag: 'pharmacist-work-queue',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => WorkQueueScreen(controller: c),
+                ),
+              ),
+              icon: const Icon(Icons.fact_check_outlined),
+              label: const Text('Today’s work'),
+            )
+          : null,
       bottomNavigationBar: SafeArea(
         top: false,
         minimum: const EdgeInsets.fromLTRB(12, 0, 12, 10),
@@ -136,7 +149,7 @@ class _ShellState extends State<_Shell> {
               NavigationDestination(
                 icon: Icon(Icons.inventory_2_outlined),
                 selectedIcon: Icon(Icons.inventory_2_rounded),
-                label: 'Stock',
+                label: 'Database',
               ),
               NavigationDestination(
                 icon: Icon(Icons.auto_awesome_outlined),
