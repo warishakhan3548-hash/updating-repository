@@ -1,6 +1,5 @@
 import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/app_brain.dart';
-import 'package:aaris_pharmacy/domain/inventory.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
 import 'package:aaris_pharmacy/ui/brain_screen.dart';
 import 'package:aaris_pharmacy/ui/design.dart';
@@ -62,7 +61,7 @@ void main() {
       expect(find.text('Remove Dolo?'), findsOneWidget);
       expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
 
-      await tester.tap(find.text('Remove'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
       await tester.pumpAndSettle();
       expect(controller.snapshot.records[medicine.id]!.archived, isTrue);
       expect(controller.canUndo, isTrue);

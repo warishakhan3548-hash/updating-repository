@@ -1,5 +1,5 @@
 import 'package:aaris_pharmacy/domain/attention.dart';
-import 'package:aaris_pharmacy/domain/inventory.dart';
+import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:aaris_pharmacy/domain/tracking.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -44,7 +44,10 @@ void main() {
 
       expect(report.items.first.kind, AttentionKind.expiredStock);
       expect(report.critical, 1);
-      expect(report.items.map((item) => item.kind), contains(AttentionKind.shortExpiry));
+      expect(
+        report.items.map((item) => item.kind),
+        contains(AttentionKind.shortExpiry),
+      );
       expect(
         report.items.map((item) => item.kind),
         contains(AttentionKind.zeroQuantityMismatch),
