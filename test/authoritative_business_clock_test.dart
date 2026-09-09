@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
@@ -101,6 +103,38 @@ void main() {
         expect(controller.snapshot.events.first['businessDay'], '2027-01-01');
       },
     );
+
+    test('local business day survives UTC audit normalization', () async {
+      final storage = MemoryInventoryStorage();
+      final operationTime = DateTime(2027, 1, 1, 0, 30);
+      final result = await storage.commit(
+        InventoryMutation(
+          expectedRevision: 0,
+          label: 'Local-midnight stock intake',
+          upserts: [_futureDatedStock('local-midnight')],
+          operationTime: operationTime,
+        ),
+      );
+
+      expect(result.events.first['businessDay'], '2027-01-01');
+      expect(result.records['local-midnight']?.mfg, DateTime.utc(2027, 1, 1));
+      expect(
+        result.events.first['time'],
+        operationTime.toUtc().toIso8601String(),
+      );
+
+      if (Platform.environment['AARIS_REQUIRE_NON_UTC_CLOCK_TEST'] == '1') {
+        expect(
+          operationTime.timeZoneOffset,
+          const Duration(hours: 5, minutes: 30),
+        );
+        expect(
+          DateTime.parse(result.events.first['time'] as String).day,
+          31,
+          reason: 'The UTC audit instant must be allowed to fall on the previous UTC day while businessDay stays Jan 1.',
+        );
+      }
+    });
 
     test('operation time validation fails closed before persistence', () async {
       final storage = MemoryInventoryStorage();

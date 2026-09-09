@@ -215,7 +215,21 @@ InventorySnapshot nextSnapshot(
       operationTime.year > 2200) {
     throw const FormatException('Inventory event time is invalid.');
   }
-  final operationDay = civilDay(operationTime);
+  // The audit instant is normalized to UTC for durable ordering, but the
+  // pharmacist's business day must retain the controller/device local civil
+  // date. Re-deriving the day from the UTC instant would shift transactions
+  // around local midnight in positive/negative UTC offsets.
+  final operationDayRaw = event['businessDay'];
+  final parsedOperationDay = operationDayRaw is String
+      ? DateTime.tryParse(operationDayRaw)
+      : null;
+  if (parsedOperationDay == null ||
+      parsedOperationDay.year < 2000 ||
+      parsedOperationDay.year > 2200 ||
+      dateText(parsedOperationDay) != operationDayRaw) {
+    throw const FormatException('Inventory business day is invalid.');
+  }
+  final operationDay = civilDay(parsedOperationDay);
   for (final record in mutation.upserts) {
     records[record.id] = Medicine.fromJson(record.toJson());
   }
