@@ -51,6 +51,25 @@ class BulkArchiveReview {
   int get activeCount => activeIds.length;
 }
 
+/// Immutable recovery token captured before the owner confirms a removed-stock
+/// restore. The exact inventory revision and row revision are revalidated at
+/// commit time so a stale dialog can never restore a different record state.
+class ReviewedArchivedRestore {
+  const ReviewedArchivedRestore({
+    required this.baseRevision,
+    required this.stockId,
+    required this.recordRevision,
+    required this.archiveReason,
+    required this.archivedAt,
+  });
+
+  final int baseRevision;
+  final String stockId;
+  final int recordRevision;
+  final String archiveReason;
+  final DateTime? archivedAt;
+}
+
 class PharmacyController extends ChangeNotifier {
   PharmacyController(
     this.storage, {
@@ -68,8 +87,8 @@ class PharmacyController extends ChangeNotifier {
   Future<void>? _initializing;
   Future<void> _writes = Future.value();
   final _searchWorker = SearchWorker();
-  MedicineSearch? _webSearch;
-  int _webRevision = -1;
+  MedicineSearch? _webSearch, _webArchivedSearch;
+  int _webRevision = -1, _webArchivedRevision = -1;
   DateTime get today => civilDay(clock());
   WarningSettings get settings => snapshot.settings;
   Iterable<Medicine> get records => snapshot.records.values;
@@ -579,16 +598,53 @@ class PharmacyController extends ChangeNotifier {
     ),
   );
 
-  Future<void> restoreArchived(String id) async {
-    final m = snapshot.records[id];
-    if (m == null || !m.archived) return;
+  ReviewedArchivedRestore reviewArchivedRestore(String id) {
+    final medicine = snapshot.records[id];
+    if (medicine == null || !medicine.archived) {
+      throw StateError('Choose a removed stock entry before restoring it.');
+    }
+    return ReviewedArchivedRestore(
+      baseRevision: snapshot.revision,
+      stockId: medicine.id,
+      recordRevision: medicine.revision,
+      archiveReason: medicine.archiveReason,
+      archivedAt: medicine.archivedAt,
+    );
+  }
+
+  Future<void> applyArchivedRestore(ReviewedArchivedRestore review) async {
+    if (review.baseRevision != snapshot.revision) {
+      throw StateError(
+        'Inventory changed after this removed stock was reviewed. Review the restore again before saving.',
+      );
+    }
+    final live = snapshot.records[review.stockId];
+    if (live == null ||
+        !live.archived ||
+        live.revision != review.recordRevision ||
+        live.archiveReason != review.archiveReason ||
+        live.archivedAt != review.archivedAt) {
+      throw StateError(
+        'The reviewed removed-stock entry changed or is no longer removed. Review it again.',
+      );
+    }
     await _commit(
       InventoryMutation(
-        expectedRevision: snapshot.revision,
-        label: 'Restored ${m.name}',
-        upserts: [restoreArchivedMedicine(m)],
+        expectedRevision: review.baseRevision,
+        label: 'Restored ${live.name}',
+        upserts: [restoreArchivedMedicine(live)],
       ),
     );
+  }
+
+  /// Compatibility gateway for existing internal callers. It captures and
+  /// applies one review immediately, leaving no user-confirmation delay in
+  /// which the inventory can become stale. User-facing flows should call the
+  /// explicit review/apply pair so they can show the exact facts being restored.
+  Future<void> restoreArchived(String id) async {
+    final medicine = snapshot.records[id];
+    if (medicine == null || !medicine.archived) return;
+    await applyArchivedRestore(reviewArchivedRestore(id));
   }
 
   List<MedicineVersion> versionsFor(String id) {
@@ -640,6 +696,7 @@ class PharmacyController extends ChangeNotifier {
       snapshot.events.first['revision'] == snapshot.revision &&
       snapshot.events.first['undoable'] == true &&
       snapshot.events.first['undone'] != true;
+
   Future<void> undo() async {
     if (!canUndo) throw StateError('No current change is available to undo.');
     final event = snapshot.events.first;
@@ -697,6 +754,7 @@ class PharmacyController extends ChangeNotifier {
     sales: sales,
     today: today,
   );
+
   PharmacyBackup createBackup() => PharmacyBackup(
     createdAt: clock(),
     sourceRevision: snapshot.revision,
@@ -706,10 +764,12 @@ class PharmacyController extends ChangeNotifier {
     soldValue: snapshot.soldValue,
     unknownSold: snapshot.unknownSold,
   );
+
   Future<BackupReview> reviewBackup(String input) async => BackupReview(
     backup: await compute(_parseBackup, input),
     currentRevision: snapshot.revision,
   );
+
   Future<void> restoreBackup(BackupReview review) async {
     if (review.currentRevision != snapshot.revision) {
       throw StateError(
@@ -764,6 +824,7 @@ class PharmacyController extends ChangeNotifier {
     snapshot.receipts,
     clock(),
   );
+
   Future<AiPlan> reviewAsync(String input) => compute(_parseReview, {
     'input': input,
     'records': snapshot.records,
@@ -771,16 +832,18 @@ class PharmacyController extends ChangeNotifier {
     'receipts': snapshot.receipts,
     'now': clock(),
   });
+
   void cancelAi() {
     _cancelAi = true;
   }
 
   Future<void> applyAi(AiPlan plan, Set<int> selected) async {
     if (aiPreparing) throw StateError('Another AI plan is preparing.');
-    if (plan.baseRevision != snapshot.revision)
+    if (plan.baseRevision != snapshot.revision) {
       throw StateError(
         'Inventory changed after review. Review a fresh snapshot.',
       );
+    }
     final selection = Set<int>.unmodifiable(selected);
     if (selection.any((i) => i < 0 || i >= plan.changes.length)) {
       throw StateError('The AI selection is invalid. Review the result again.');
@@ -793,18 +856,21 @@ class PharmacyController extends ChangeNotifier {
     try {
       final changes = <Medicine>[];
       for (var start = 0; start < plan.changes.length; start += 25) {
-        if (_cancelAi || _disposed)
+        if (_cancelAi || _disposed) {
           throw StateError('Cancelled. No inventory changes were saved.');
+        }
         for (var i = start; i < plan.changes.length && i < start + 25; i++) {
-          if (selection.contains(i))
+          if (selection.contains(i)) {
             changes.add(Medicine.fromJson(plan.changes[i].after.toJson()));
+          }
         }
         preparedActions = (start + 25).clamp(0, plan.changes.length);
         _emit();
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
-      if (_cancelAi || _disposed)
+      if (_cancelAi || _disposed) {
         throw StateError('Cancelled. No inventory changes were saved.');
+      }
       await _commit(
         InventoryMutation(
           expectedRevision: plan.baseRevision,
@@ -843,6 +909,35 @@ class PharmacyController extends ChangeNotifier {
       raw,
       scope,
       selectedSettings,
+      date,
+    );
+  }
+
+  /// Read-only fuzzy lookup over Removed stock. This is a projection over the
+  /// same authoritative Medicine objects, not a second database. The native
+  /// path uses the existing background search isolate and builds the archive
+  /// index only when this feature is actually opened.
+  Future<List<SearchHit>> searchArchived(String raw) async {
+    final data = records.toList();
+    final date = today;
+    if (kIsWeb || !backgroundSearch) {
+      if (_webArchivedRevision != snapshot.revision) {
+        _webArchivedSearch = MedicineSearch(
+          data.where((medicine) => medicine.archived),
+          includeArchived: true,
+        );
+        _webArchivedRevision = snapshot.revision;
+      }
+      return _webArchivedSearch!.searchArchived(
+        raw,
+        date,
+        limit: raw.trim().isEmpty ? 100000 : 150,
+      );
+    }
+    return _searchWorker.searchArchived(
+      data,
+      snapshot.revision,
+      raw,
       date,
     );
   }

@@ -15,6 +15,8 @@ enum AppBrainAction {
   receiveStock,
   relocateMedicine,
   removeMedicine,
+  restoreMedicine,
+  removedStockReview,
   markSold,
   recordSale,
   reorderReview,
@@ -55,6 +57,7 @@ class AppBrainIntent {
         AppBrainAction.receiveStock ||
         AppBrainAction.relocateMedicine ||
         AppBrainAction.removeMedicine ||
+        AppBrainAction.restoreMedicine ||
         AppBrainAction.markSold ||
         AppBrainAction.recordSale => true,
         _ => false,
@@ -74,6 +77,7 @@ class AppBrainIntent {
     AppBrainAction.receiveStock ||
     AppBrainAction.relocateMedicine ||
     AppBrainAction.removeMedicine ||
+    AppBrainAction.restoreMedicine ||
     AppBrainAction.markSold ||
     AppBrainAction.recordSale ||
     AppBrainAction.undoLast => true,
@@ -124,6 +128,21 @@ AppBrainIntent parseAppBrainIntent(String raw) {
       confidence: .98,
     );
   }
+
+  // "Restore" is overloaded in a pharmacy app: it can mean a full data backup
+  // or one removed stock row. Backup wording is routed to the protected profile
+  // surface first, so a command can never reinterpret disaster recovery as a
+  // medicine mutation.
+  if (_containsAny(text, _backupRestoreTerms)) {
+    return const AppBrainIntent(
+      action: AppBrainAction.navigate,
+      section: AppSection.profile,
+      confidence: .99,
+    );
+  }
+
+  final removedStock = _removedStockIntent(raw, text);
+  if (removedStock != null) return removedStock;
 
   // Explicit stock correction / receiving commands are parsed before generic
   // "add stock" and "edit" vocabulary. The parser accepts an exact quantity
@@ -178,6 +197,13 @@ AppBrainIntent parseAppBrainIntent(String raw) {
       confidence: .98,
     );
   }
+
+  // Common pharmacist imperatives such as "Dolo 5 units sell" or
+  // "Crocin dispense" feed the existing reviewed sale/FEFO UI. Read-side FEFO
+  // questions are explicitly excluded so "which batch should I dispense first"
+  // can never become a sale mutation.
+  final imperativeSale = _imperativeSaleIntent(raw, text);
+  if (imperativeSale != null) return imperativeSale;
 
   if (_containsAny(text, _saleTerms)) {
     final saleInput = _extractExplicitSaleQuantity(raw);
@@ -322,6 +348,33 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   return const AppBrainIntent(action: AppBrainAction.unknown);
 }
 
+AppBrainIntent? _removedStockIntent(String raw, String text) {
+  if (_containsAny(text, _restoreTerms)) {
+    final query = _extractMedicineQuery(raw, [
+      ..._restoreTerms,
+      ..._removedListTerms,
+    ]);
+    if (query.isEmpty) {
+      return const AppBrainIntent(
+        action: AppBrainAction.removedStockReview,
+        confidence: .99,
+      );
+    }
+    return AppBrainIntent(
+      action: AppBrainAction.restoreMedicine,
+      query: query,
+      confidence: .99,
+    );
+  }
+  if (_containsAny(text, _removedListTerms)) {
+    return const AppBrainIntent(
+      action: AppBrainAction.removedStockReview,
+      confidence: .98,
+    );
+  }
+  return null;
+}
+
 AppBrainIntent? _stockAdjustmentIntent(String raw) {
   final exact = _extractStockAdjustment(
     raw,
@@ -351,6 +404,26 @@ AppBrainIntent? _stockAdjustmentIntent(String raw) {
     );
   }
   return null;
+}
+
+AppBrainIntent? _imperativeSaleIntent(String raw, String text) {
+  if (!_containsAny(text, _imperativeSaleTerms) ||
+      raw.contains('?') ||
+      _containsAny(text, _saleReadGuardTerms)) {
+    return null;
+  }
+  final saleInput = _extractExplicitSaleQuantity(raw);
+  final query = _extractMedicineQuery(
+    saleInput.remainingText,
+    _imperativeSaleTerms,
+  );
+  if (query.isEmpty) return null;
+  return AppBrainIntent(
+    action: AppBrainAction.recordSale,
+    query: query,
+    quantity: saleInput.quantity,
+    confidence: saleInput.quantity == null ? .93 : .98,
+  );
 }
 
 AppBrainIntent? _operationalReadIntent(String raw, String text) {
@@ -829,6 +902,46 @@ const _fillers = <String>[
   'हैं',
 ];
 
+const _backupRestoreTerms = <String>[
+  'restore backup',
+  'backup restore',
+  'backup and restore',
+  'open backup',
+  'backup kholo',
+  'बैकअप रिस्टोर',
+  'बैकअप खोलो',
+];
+
+const _restoreTerms = <String>[
+  'restore stock',
+  'restore medicine',
+  'restore',
+  'bring back',
+  'recover stock',
+  'recover medicine',
+  'wapas lao',
+  'wapas le aao',
+  'dobara lao',
+  'वापस लाओ',
+  'बहाल करो',
+  'रिस्टोर',
+];
+
+const _removedListTerms = <String>[
+  'removed stock',
+  'removed medicines',
+  'removed medicine',
+  'removed history',
+  'deleted medicines',
+  'deleted medicine',
+  'archived medicines',
+  'archived stock',
+  'hatai hui medicine',
+  'हटाई हुई मेडिसिन',
+  'रिमूव्ड स्टॉक',
+  'डिलीट मेडिसिन',
+];
+
 const _removeTerms = <String>[
   'delete',
   'remove',
@@ -851,6 +964,34 @@ const _soldTerms = <String>[
   'pura stock bik gaya',
   'पूरा स्टॉक बिक गया',
   'स्टॉक खत्म',
+];
+
+const _imperativeSaleTerms = <String>[
+  'sell medicine',
+  'dispense medicine',
+  'sell',
+  'dispense',
+  'bech do',
+  'becho',
+  'bechna',
+  'बेच दो',
+  'बेचो',
+  'डिस्पेंस',
+];
+
+const _saleReadGuardTerms = <String>[
+  'which',
+  'what',
+  'should',
+  'first',
+  'how much',
+  'pehle',
+  'kaunsi',
+  'konsi',
+  'kitna',
+  'कौनसी',
+  'पहले',
+  'कितना',
 ];
 
 const _saleTerms = <String>[

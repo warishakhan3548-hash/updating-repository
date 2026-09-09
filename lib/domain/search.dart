@@ -190,13 +190,22 @@ String _boundedSearchTerm(String value) =>
     ? value
     : value.substring(0, SearchDocument.maxTermLength);
 
+/// One ranking/index implementation serves both live inventory and the removed
+/// projection. Archived rows are excluded from the normal engine by default so
+/// long-term history cannot inflate the hot search index. A caller that needs
+/// removed-stock recovery builds a lazy archive-only engine with
+/// [includeArchived] and then calls [searchArchived].
 class MedicineSearch {
-  MedicineSearch(Iterable<Medicine> records) {
-    for (final m in records.where((m) => !m.archived)) {
+  MedicineSearch(
+    Iterable<Medicine> records, {
+    bool includeArchived = false,
+  }) {
+    for (final m in records.where((m) => includeArchived || !m.archived)) {
       final doc = SearchDocument(m);
       docs[m.id] = doc;
-      if (m.barcode.isNotEmpty)
+      if (m.barcode.isNotEmpty) {
         barcode.putIfAbsent(m.barcode, () => {}).add(m.id);
+      }
       for (final term in doc.terms) {
         exact.putIfAbsent(term, () => {}).add(m.id);
         for (final gram in grams(term)) {
@@ -205,6 +214,8 @@ class MedicineSearch {
       }
     }
   }
+
+  static const maxArchivedResults = 150;
   final Map<String, SearchDocument> docs = {};
   final Map<String, Set<String>> index = {}, exact = {}, barcode = {};
   static const noise = {
@@ -265,32 +276,71 @@ class MedicineSearch {
     WarningSettings settings,
     DateTime today, {
     int limit = 150,
+  }) => _searchMatching(
+    raw,
+    allowedRecord: (record) => inScope(record, scope, settings, today),
+    order: (a, b) => expiryOrder(a, b, today),
+    emptyReason: 'Inventory',
+    limit: limit,
+  );
+
+  /// Fuzzy search over already-removed rows only. It is read-only and uses the
+  /// same barcode, field weighting, OCR normalization, strength conflict
+  /// penalty and confidence scores as normal Medicine Database search. Browsing
+  /// is bounded so years of recovery history cannot inflate a single UI frame;
+  /// a query still searches the complete local archive index.
+  List<SearchHit> searchArchived(
+    String raw,
+    DateTime today, {
+    int limit = maxArchivedResults,
+  }) => _searchMatching(
+    raw,
+    allowedRecord: (record) => record.archived,
+    order: _archivedOrder,
+    emptyReason: 'Removed stock',
+    limit: min(limit, maxArchivedResults),
+  );
+
+  List<SearchHit> _searchMatching(
+    String raw, {
+    required bool Function(Medicine record) allowedRecord,
+    required int Function(Medicine a, Medicine b) order,
+    required String emptyReason,
+    required int limit,
   }) {
-    bool allowedId(String id) =>
-        inScope(docs[id]!.record, scope, settings, today);
+    bool allowedId(String id) {
+      final document = docs[id];
+      return document != null && allowedRecord(document.record);
+    }
+
     if (raw.trim().isEmpty) {
-      final records =
-          docs.values
-              .map((document) => document.record)
-              .where((record) => inScope(record, scope, settings, today))
-              .toList()
-            ..sort((a, b) => expiryOrder(a, b, today));
+      final records = docs.values
+          .map((document) => document.record)
+          .where(allowedRecord)
+          .toList()
+        ..sort(order);
       return records
           .take(limit)
-          .map((m) => SearchHit(m.id, 1, 'Inventory', ''))
+          .map((m) => SearchHit(m.id, 1, emptyReason, ''))
           .toList();
     }
-    // An exact product barcode can legitimately identify multiple stock entries.
+
+    // One product barcode can legitimately identify several physical batches,
+    // including several historical removed rows. Exact barcode remains a
+    // deterministic candidate shortcut, never an automatic mutation selector.
     final barcodeIds = barcode[raw.trim()];
     if (barcodeIds != null) {
       final ids = barcodeIds.where(allowedId).toList()
-        ..sort((a, b) => expiryOrder(docs[a]!.record, docs[b]!.record, today));
-      return ids.map((id) => SearchHit(id, 1, 'Exact barcode', raw)).toList();
+        ..sort((a, b) => order(docs[a]!.record, docs[b]!.record));
+      return ids
+          .take(limit)
+          .map((id) => SearchHit(id, 1, 'Exact barcode', raw))
+          .toList();
     }
+
     final allowed = {
       for (final document in docs.values)
-        if (inScope(document.record, scope, settings, today))
-          document.record.id,
+        if (allowedRecord(document.record)) document.record.id,
     };
     final found = <String, SearchHit>{};
     for (final chunk in chunks(raw)) {
@@ -311,6 +361,7 @@ class MedicineSearch {
         tokens = rawTokens.take(14).toList();
       }
       if (tokens.isEmpty) continue;
+
       final votes = <String, int>{};
       for (final token in tokens) {
         for (final id in exact[token] ?? <String>{}) {
@@ -327,13 +378,14 @@ class MedicineSearch {
           final voteOrder = votes[b]!.compareTo(votes[a]!);
           return voteOrder != 0
               ? voteOrder
-              : expiryOrder(docs[a]!.record, docs[b]!.record, today);
+              : order(docs[a]!.record, docs[b]!.record);
         });
       for (final id in candidates.take(300)) {
         final hit = rank(docs[id]!.record, query, tokens);
         if (hit.score >= .53 &&
-            (found[id] == null || found[id]!.score < hit.score))
+            (found[id] == null || found[id]!.score < hit.score)) {
           found[id] = hit;
+        }
       }
     }
     final results = found.values.toList()
@@ -341,7 +393,7 @@ class MedicineSearch {
         final scoreOrder = b.score.compareTo(a.score);
         return scoreOrder != 0
             ? scoreOrder
-            : expiryOrder(docs[a.id]!.record, docs[b.id]!.record, today);
+            : order(docs[a.id]!.record, docs[b.id]!.record);
       });
     return results.take(limit).toList();
   }
@@ -454,4 +506,19 @@ class MedicineSearch {
     }
     return SearchHit(m.id, best.clamp(0, 1), reason, query);
   }
+}
+
+int _archivedOrder(Medicine a, Medicine b) {
+  final aTime = a.archivedAt;
+  final bTime = b.archivedAt;
+  if (aTime == null && bTime != null) return 1;
+  if (bTime == null && aTime != null) return -1;
+  if (aTime != null && bTime != null) {
+    final recent = bTime.compareTo(aTime);
+    if (recent != 0) return recent;
+  }
+  var order = normalize(a.title).compareTo(normalize(b.title));
+  if (order != 0) return order;
+  order = normalize(a.batchNumber).compareTo(normalize(b.batchNumber));
+  return order != 0 ? order : a.id.compareTo(b.id);
 }
