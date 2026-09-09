@@ -56,13 +56,18 @@ String _stockLabel(Medicine medicine) {
 /// state, while an explicitly reviewed backup restore must reproduce its source
 /// snapshot even when that snapshot contains legacy data that Needs Attention
 /// may later surface for human review.
+///
+/// This persistence guard intentionally has no wall-clock dependency. Whether a
+/// user-entered sale is "in the future" belongs to the controller's injectable
+/// business clock. At this lower boundary we revalidate only immutable pack
+/// chronology (MFG/EXP) plus ledger-to-stock consistency, preventing a second
+/// time authority from disagreeing with tests, restored data, or app policy.
 SaleLedgerMutationBlock? saleLedgerMutationBlock({
   required Map<String, Medicine> beforeRecords,
   required Map<String, Medicine> afterRecords,
   required Map<String, SaleEvent> beforeSales,
   required Iterable<SaleEvent> upsertSales,
   required Iterable<String> removeSaleIds,
-  required DateTime now,
 }) {
   final removed = removeSaleIds.toList(growable: false);
   if (removed.isNotEmpty) {
@@ -91,18 +96,8 @@ SaleLedgerMutationBlock? saleLedgerMutationBlock({
   }
   if (additions.isEmpty) return null;
 
-  final today = civilDay(now);
   final byStock = <String, List<SaleEvent>>{};
   for (final sale in additions) {
-    if (civilDay(sale.occurredAt).isAfter(today)) {
-      return SaleLedgerMutationBlock(
-        message:
-            'Aaris blocked this sale because its date is in the future. Verify the sale date before saving; nothing was changed.',
-        saleIds: List.unmodifiable(<String>[sale.id]),
-        stockIds: List.unmodifiable(<String>[sale.stockId]),
-      );
-    }
-
     final before = beforeRecords[sale.stockId];
     if (before == null) {
       return SaleLedgerMutationBlock(
@@ -234,7 +229,6 @@ void ensureSafeSaleLedgerMutation({
   required Map<String, SaleEvent> beforeSales,
   required Iterable<SaleEvent> upsertSales,
   required Iterable<String> removeSaleIds,
-  required DateTime now,
 }) {
   final block = saleLedgerMutationBlock(
     beforeRecords: beforeRecords,
@@ -242,7 +236,6 @@ void ensureSafeSaleLedgerMutation({
     beforeSales: beforeSales,
     upsertSales: upsertSales,
     removeSaleIds: removeSaleIds,
-    now: now,
   );
   if (block != null) throw StateError(block.message);
 }
