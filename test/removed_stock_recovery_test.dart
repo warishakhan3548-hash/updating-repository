@@ -9,6 +9,7 @@ Medicine stock(
   String strength = '650 mg',
   String batch = 'D650-A',
   String barcode = '8901000000650',
+  String expiry = '2027-12',
   int quantity = 10,
 }) => Medicine.fromJson({
   'id': id,
@@ -18,7 +19,7 @@ Medicine stock(
   'batchNumber': batch,
   'barcode': barcode,
   'quantity': quantity,
-  'expiry': '2027-12',
+  'expiry': expiry,
   'revision': 1,
 });
 
@@ -142,9 +143,9 @@ void main() {
       expect(controller.snapshot.records['a']!.archived, isTrue);
     });
 
-    test('integrity guard blocks restore when it would duplicate a physical lot', () async {
+    test('integrity guard blocks restore that introduces contradictory lot facts', () async {
       final archived = removed('old');
-      final active = stock('live');
+      final active = stock('live', expiry: '2028-12');
       final controller = await controllerWith({
         archived.id: archived,
         active.id: active,
