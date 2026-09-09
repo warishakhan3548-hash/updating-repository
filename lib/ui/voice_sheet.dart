@@ -1,21 +1,44 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../state/voice_search_controller.dart';
 import 'design.dart';
 
 bool _voiceOpen = false;
 
-Future<String?> voiceSearch(BuildContext context) async {
+Future<String?> voiceSearch(
+  BuildContext context, {
+  bool offlineOnly = false,
+  String title = 'Voice search',
+  String actionLabel = 'Search medicines',
+}) async {
   if (_voiceOpen) return null;
   _voiceOpen = true;
+  if (offlineOnly) {
+    try {
+      return await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) =>
+            _OfflineVoiceSheet(title: title, actionLabel: actionLabel),
+      );
+    } finally {
+      _voiceOpen = false;
+    }
+  }
   final controller = VoiceSearchController();
   try {
     FocusManager.instance.primaryFocus?.unfocus();
     final navigator = Navigator.of(context);
     final route = ModalBottomSheetRoute<String>(
-      builder: (_) => _VoiceSheet(controller: controller),
+      builder: (_) => _VoiceSheet(
+        controller: controller,
+        title: title,
+        actionLabel: actionLabel,
+      ),
       capturedThemes: InheritedTheme.capture(
         from: context,
         to: navigator.context,
@@ -36,8 +59,13 @@ Future<String?> voiceSearch(BuildContext context) async {
 }
 
 class _VoiceSheet extends StatefulWidget {
-  const _VoiceSheet({required this.controller});
+  const _VoiceSheet({
+    required this.controller,
+    required this.title,
+    required this.actionLabel,
+  });
   final VoiceSearchController controller;
+  final String title, actionLabel;
   @override
   State<_VoiceSheet> createState() => _VoiceSheetState();
 }
@@ -104,7 +132,7 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
                 children: [
                   Expanded(
                     child: Text(
-                      'Voice search',
+                      widget.title,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -116,9 +144,11 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
                 ],
               ),
               const SizedBox(height: 4),
-              const Text(
-                'Say a medicine name and its strength.',
-                style: TextStyle(color: muted),
+              Text(
+                widget.actionLabel == 'Search medicines'
+                    ? 'Say a medicine name and its strength.'
+                    : 'Speak your message, then review the words.',
+                style: const TextStyle(color: muted),
               ),
               const SizedBox(height: 20),
               if (voice.locales.isNotEmpty)
@@ -218,7 +248,7 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
                         ? () => Navigator.pop(context, voice.words.trim())
                         : null,
                     icon: const Icon(Icons.search_rounded),
-                    label: const Text('Search medicines'),
+                    label: Text(widget.actionLabel),
                   ),
                 ],
               ),
@@ -232,5 +262,109 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
         ),
       );
     },
+  );
+}
+
+class _OfflineVoiceSheet extends StatefulWidget {
+  const _OfflineVoiceSheet({required this.title, required this.actionLabel});
+  final String title, actionLabel;
+  @override
+  State<_OfflineVoiceSheet> createState() => _OfflineVoiceSheetState();
+}
+
+class _OfflineVoiceSheetState extends State<_OfflineVoiceSheet> {
+  static const channel = MethodChannel('com.aaris.pharmacy/documents');
+  final words = TextEditingController();
+  String locale = 'hi-IN', error = '';
+  bool listening = false;
+  @override
+  void dispose() {
+    unawaited(
+      channel
+          .invokeMethod<void>('cancelOfflineSpeech')
+          .catchError((Object _) {}),
+    );
+    words.dispose();
+    super.dispose();
+  }
+
+  Future<void> listen() async {
+    if (listening) return;
+    setState(() {
+      listening = true;
+      error = '';
+    });
+    try {
+      final result = await channel.invokeMethod<String>('startOfflineSpeech', {
+        'locale': locale,
+      });
+      if (mounted && result != null) setState(() => words.text = result);
+    } catch (_) {
+      if (mounted)
+        setState(
+          () => error =
+              'On-device speech is unavailable. Android 12+ and an installed Hindi/English speech model are required. Use the keyboard; no online recognizer was used.',
+        );
+    } finally {
+      if (mounted) setState(() => listening = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.fromLTRB(
+      20,
+      20,
+      20,
+      20 + MediaQuery.viewInsetsOf(context).bottom,
+    ),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
+        const Text(
+          'On-device voice only. Review transcription before sending.',
+        ),
+        DropdownButton<String>(
+          value: locale,
+          isExpanded: true,
+          onChanged: listening ? null : (v) => setState(() => locale = v!),
+          items: const [
+            DropdownMenuItem(value: 'hi-IN', child: Text('हिंदी (India)')),
+            DropdownMenuItem(value: 'en-IN', child: Text('English (India)')),
+          ],
+        ),
+        TextField(
+          controller: words,
+          minLines: 2,
+          maxLines: 5,
+          decoration: const InputDecoration(labelText: 'Message'),
+        ),
+        if (listening) const LinearProgressIndicator(),
+        if (error.isNotEmpty)
+          Text(
+            error,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        Row(
+          children: [
+            TextButton(
+              onPressed: listening
+                  ? () => channel.invokeMethod<void>('cancelOfflineSpeech')
+                  : listen,
+              child: Text(listening ? 'Cancel microphone' : 'Listen'),
+            ),
+            const Spacer(),
+            FilledButton(
+              onPressed: listening
+                  ? null
+                  : () => Navigator.pop(context, words.text.trim()),
+              child: Text(widget.actionLabel),
+            ),
+          ],
+        ),
+      ],
+    ),
   );
 }

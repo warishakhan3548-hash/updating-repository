@@ -25,6 +25,10 @@ dependencies:
   share_plus: 13.3.0
   http: 1.6.0
   path_provider: 2.1.6
+  crypto: 3.0.7
+  file_selector: 1.1.0
+  # In-process CPU inference. No HTTP inference server is started or used.
+  lib_llama_cpp: 0.7.3
 
 dev_dependencies:
   flutter_test:

@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 
 import '../domain/ai_protocol.dart';
+import '../domain/local_ai_protocol.dart';
+import 'local_ai_service.dart';
 
 class AiConfiguration {
   const AiConfiguration({
@@ -57,6 +59,7 @@ class AiConfiguration {
 class AiService {
   static const _storage = FlutterSecureStorage();
   http.Client? _client;
+  bool _localRequest = false;
   Future<AiConfiguration> loadConfiguration() async {
     final raw = await _storage.read(key: 'pharmacy.ai.configuration');
     return raw == null
@@ -74,17 +77,37 @@ class AiService {
 
   Future<void> forgetKey() => _storage.delete(key: 'pharmacy.ai.configuration');
   void cancel() {
+    if (_localRequest) LocalAiService.instance.cancelRequest();
     _client?.close();
     _client = null;
   }
 
   Future<String> ask(
     AiConfiguration config,
-    PharmacyExport data,
-    String instruction,
-  ) async {
+    PharmacyExport Function() exportData,
+    String instruction, {
+    required LocalInventoryContext localContext,
+    String conversation = '',
+  }) async {
+    final local = LocalAiService.instance;
+    await local.initialize();
+    // Selection is authoritative even while unloaded/missing/busy. No local
+    // failure can fall through to config.uri or the HTTP client below.
+    if (local.hasSelection) {
+      _localRequest = true;
+      try {
+        return await local.ask(
+          localContext,
+          instruction,
+          conversation: conversation,
+        );
+      } finally {
+        _localRequest = false;
+      }
+    }
     if (_client != null) throw StateError('An AI request is already running.');
     final endpoint = config.uri;
+    final data = exportData();
     if (instruction.trim().isEmpty)
       throw const FormatException('Describe what you want the AI to do.');
     if (data.content.length > 700000)

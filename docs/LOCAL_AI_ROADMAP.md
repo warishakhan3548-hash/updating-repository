@@ -57,3 +57,17 @@ and exercise native CPU model load/unload, interrupted downloads, low storage,
 Hindi voice availability, process death and representative labelled medicine
 packaging on actual target devices. Do not advertise universal model support,
 clinical accuracy, 100% video recall or unattended authoritative auto-save.
+
+## Checkpoints
+
+- Safety contract: 20 initial checks passed; published to main as `e9edd09`.
+- Model manager uses pinned `lib_llama_cpp 0.7.3` CPU command-stream inference,
+  `file_selector 1.1.0` and streamed `crypto 3.0.7` verification. Public catalogue
+  downloads and the local inference client are separate. Existing provider calls
+  are unreachable while a local selection exists, including load failures.
+- Local mic uses Android's actual on-device recognizer (API 31+), not merely an
+  offline preference on a potentially network-backed speech service. Unsupported
+  devices/languages fall back to typing, never online voice automatically.
+- Available Flutter SDK executable crashed during dependency-tool startup;
+  native integration is not device-tested. Source-only dependency/static checks
+  are being attempted separately. No APK or CI was run.

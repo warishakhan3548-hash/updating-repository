@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../lib/domain/ai_protocol.dart';
 import '../lib/domain/local_ai_protocol.dart';
+import '../lib/domain/local_model.dart';
 import '../lib/domain/medicine.dart';
 import '../lib/domain/medicine_understanding.dart';
 
@@ -24,6 +25,20 @@ void main() {
   }
 
   final today = DateTime.utc(2026, 9, 9);
+  check(isSingleGguf('Qwen-Q4_K_M.gguf'), 'Single weights allowed');
+  check(!isSingleGguf('../weights.gguf'), 'Traversal blocked');
+  check(!isSingleGguf('model-00001-of-00002.gguf'), 'Split weights excluded');
+  check(!isSingleGguf('mmproj-Q8.gguf'), 'Projector is not a language model');
+  rejects(
+    () => const LocalModelFile(
+      repository: 'owner/repo',
+      revision: 'main',
+      filename: 'model.gguf',
+      bytes: 100000,
+      sha256: 'bad',
+    ).validate(),
+    'Unpinned model',
+  );
   final records = [
     for (var i = 0; i < 20; i++)
       Medicine(

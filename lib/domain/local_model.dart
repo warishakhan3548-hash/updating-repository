@@ -1,0 +1,98 @@
+/// Public catalogue facts, not execution authority. Native load is the final
+/// architecture/quantization compatibility check for the pinned runtime.
+class LocalModelFile {
+  const LocalModelFile({
+    required this.repository,
+    required this.revision,
+    required this.filename,
+    required this.bytes,
+    required this.sha256,
+    this.license = 'Check publisher model card',
+  });
+  final String repository, revision, filename, sha256, license;
+  final int bytes;
+  String get label => '$repository · ${filename.split('/').last}';
+
+  void validate() {
+    if (!RegExp(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$').hasMatch(repository) ||
+        !RegExp(r'^[a-f0-9]{40}$').hasMatch(revision) ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(sha256) ||
+        bytes < 1024 ||
+        bytes > 128 * 1024 * 1024 * 1024 ||
+        !isSingleGguf(filename)) {
+      throw const FormatException(
+        'Choose a single GGUF weight file with a pinned revision, size and SHA-256.',
+      );
+    }
+  }
+
+  Uri get downloadUri {
+    validate();
+    return Uri(
+      scheme: 'https',
+      host: 'huggingface.co',
+      pathSegments: [
+        ...repository.split('/'),
+        'resolve',
+        revision,
+        ...filename.split('/'),
+      ],
+    );
+  }
+}
+
+bool isSingleGguf(String name) {
+  final lower = name.toLowerCase();
+  return lower.endsWith('.gguf') &&
+      name.length <= 250 &&
+      !name.contains('\\') &&
+      !name.startsWith('/') &&
+      !name.split('/').any((p) => p.isEmpty || p == '.' || p == '..') &&
+      !RegExp(
+        r'(mmproj|projector|adapter|lora|tokenizer|vocab|\d{5}-of-\d{5})',
+      ).hasMatch(lower);
+}
+
+class InstalledLocalModel {
+  const InstalledLocalModel({
+    required this.id,
+    required this.label,
+    required this.bytes,
+    this.source = 'Local import',
+    this.smokeTestPassed = false,
+  });
+  final String id, label, source;
+  final int bytes;
+  final bool smokeTestPassed;
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'label': label,
+    'bytes': bytes,
+    'source': source,
+    'smokeTestPassed': smokeTestPassed,
+  };
+  factory InstalledLocalModel.fromJson(Map<String, dynamic> json) {
+    final id = json['id'], label = json['label'], bytes = json['bytes'];
+    if (id is! String ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(id) ||
+        label is! String ||
+        label.length > 600 ||
+        bytes is! int ||
+        bytes < 1024) {
+      throw const FormatException('Invalid installed model manifest.');
+    }
+    return InstalledLocalModel(
+      id: id,
+      label: label,
+      bytes: bytes,
+      source: json['source'] is String
+          ? json['source'] as String
+          : 'Local import',
+      smokeTestPassed: json['smokeTestPassed'] == true,
+    );
+  }
+}
+
+String modelSize(int bytes) => bytes >= 1024 * 1024 * 1024
+    ? '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB'
+    : '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';

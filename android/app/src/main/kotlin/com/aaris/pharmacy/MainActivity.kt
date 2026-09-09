@@ -27,6 +27,7 @@ import kotlin.math.ceil
 import kotlin.math.sqrt
 
 class MainActivity : FlutterActivity() {
+    private val localAiPlatform by lazy { LocalAiPlatform(this) }
     private val documentsChannel = "com.aaris.pharmacy/documents"
     private val pickTextRequest = 4071
     private val pickImageRequest = 4072
@@ -38,6 +39,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, documentsChannel)
             .setMethodCallHandler { call, result ->
+                if (localAiPlatform.handle(call, result)) return@setMethodCallHandler
                 when (call.method) {
                     "createPurchaseOrderPdf" -> {
                         @Suppress("UNCHECKED_CAST")
@@ -290,7 +292,20 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LocalAiPlatform.microphoneRequest) {
+            localAiPlatform.permissionResult(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED)
+        }
+    }
+
+    override fun onStop() {
+        localAiPlatform.cancel()
+        super.onStop()
+    }
+
     override fun onDestroy() {
+        localAiPlatform.cancel()
         pendingTextResult?.error("activity_closed", "File selection was cancelled.", null)
         pendingTextResult = null
         pendingMediaResult?.error("activity_closed", "File selection was cancelled.", null)

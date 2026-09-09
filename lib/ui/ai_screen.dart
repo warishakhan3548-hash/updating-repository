@@ -4,10 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/ai_protocol.dart';
+import '../domain/local_ai_protocol.dart';
 import '../domain/medicine.dart';
 import '../services/ai_service.dart';
+import '../services/local_ai_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
+import 'local_models_panel.dart';
+import 'voice_sheet.dart';
 
 const Color _aiPurple = Color(0xFF7857D8);
 const Color _aiBlue = Color(0xFF397BFF);
@@ -24,6 +28,7 @@ class AiScreen extends StatefulWidget {
 
 class _AiScreenState extends State<AiScreen> {
   final _service = AiService();
+  final _local = LocalAiService.instance;
   final _input = TextEditingController();
   final _request = TextEditingController();
   final _scroll = ScrollController();
@@ -53,9 +58,12 @@ class _AiScreenState extends State<AiScreen> {
 
   Future<void> _load() async {
     try {
+      await _local.initialize();
       final config = await _service.loadConfiguration();
       if (mounted) setState(() => _configuration = config);
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
   }
 
   @override
@@ -96,10 +104,8 @@ class _AiScreenState extends State<AiScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _AiConnectionsSheet(
-        initial: _configuration,
-        service: _service,
-      ),
+      builder: (context) =>
+          _AiConnectionsSheet(initial: _configuration, service: _service),
     );
     if (!mounted || result == null) return;
     if (result == _AiConnectionsSheet.externalAction) {
@@ -156,7 +162,9 @@ class _AiScreenState extends State<AiScreen> {
     });
     try {
       final plan = await widget.controller.reviewAsync(input);
-      if (!mounted || generation != _generation || _input.text.trim() != input) {
+      if (!mounted ||
+          generation != _generation ||
+          _input.text.trim() != input) {
         return null;
       }
       setState(() {
@@ -197,9 +205,11 @@ class _AiScreenState extends State<AiScreen> {
     if (_requesting || _reviewing || widget.controller.aiPreparing) return;
     final request = _request.text.trim();
     if (request.isEmpty) return;
-    if (_configuration.key.isEmpty) {
+    await _local.initialize();
+    if (!_local.hasSelection && _configuration.key.isEmpty) {
       await _openConnections();
-      if (!mounted || _configuration.key.isEmpty) return;
+      if (!mounted || (!_local.hasSelection && _configuration.key.isEmpty))
+        return;
     }
 
     final generation = ++_generation;
@@ -215,8 +225,18 @@ class _AiScreenState extends State<AiScreen> {
     try {
       final result = await _service.ask(
         _configuration,
-        widget.controller.export(),
+        widget.controller.export,
         request,
+        localContext: LocalInventoryContext(
+          records: widget.controller.records,
+          sales: widget.controller.sales,
+          revision: widget.controller.snapshot.revision,
+          today: widget.controller.today,
+        ),
+        conversation: _messages
+            .skip(_messages.length > 6 ? _messages.length - 6 : 0)
+            .map((m) => '${m.user ? 'Owner' : 'Assistant'}: ${m.text}')
+            .join('\n'),
       );
       if (!mounted || generation != _generation) return;
       _input.text = result;
@@ -278,7 +298,9 @@ class _AiScreenState extends State<AiScreen> {
     final raw = clipboard?.text?.trim() ?? '';
     if (!mounted) return;
     if (raw.isEmpty) {
-      setState(() => _error = 'Clipboard is empty. Copy the final AI JSON first.');
+      setState(
+        () => _error = 'Clipboard is empty. Copy the final AI JSON first.',
+      );
       return;
     }
     setState(() {
@@ -432,7 +454,9 @@ class _AiScreenState extends State<AiScreen> {
                   color: Colors.white.withAlpha(185),
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: _operationColor(plan.changes[i].operation).withAlpha(45),
+                    color: _operationColor(
+                      plan.changes[i].operation,
+                    ).withAlpha(45),
                   ),
                 ),
                 child: Column(
@@ -460,7 +484,9 @@ class _AiScreenState extends State<AiScreen> {
                         ),
                       ),
                       controlAffinity: ListTileControlAffinity.leading,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                      ),
                     ),
                     if (plan.changes[i].possibleDuplicates.isNotEmpty)
                       const Padding(
@@ -475,7 +501,10 @@ class _AiScreenState extends State<AiScreen> {
                       tilePadding: const EdgeInsets.symmetric(horizontal: 14),
                       title: const Text(
                         'See exact changes',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       children: [
                         for (final entry in plan.changes[i].differences.entries)
@@ -502,7 +531,8 @@ class _AiScreenState extends State<AiScreen> {
             if (widget.controller.aiPreparing) ...[
               const SizedBox(height: 14),
               LinearProgressIndicator(
-                value: widget.controller.preparedActions /
+                value:
+                    widget.controller.preparedActions /
                     (plan.changes.isEmpty ? 1 : plan.changes.length),
               ),
               const SizedBox(height: 8),
@@ -539,11 +569,11 @@ class _AiScreenState extends State<AiScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.controller,
+    animation: Listenable.merge([widget.controller, _local]),
     builder: (context, _) => Column(
       children: [
         _AiHubHeader(
-          configured: _configuration.key.isNotEmpty,
+          configured: _local.hasSelection || _configuration.key.isNotEmpty,
           onSettings: _openConnections,
         ),
         Expanded(
@@ -552,6 +582,14 @@ class _AiScreenState extends State<AiScreen> {
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
             children: [
+              if (_local.hasSelection)
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text(
+                    'On-device AI · ${_local.activeLabel}\n${_local.status}',
+                    style: const TextStyle(fontSize: 11, color: muted),
+                  ),
+                ),
               for (final message in _messages)
                 _AiMessageBubble(message: message),
               if (_error.isNotEmpty)
@@ -563,7 +601,11 @@ class _AiScreenState extends State<AiScreen> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.error_outline_rounded, color: red, size: 20),
+                        const Icon(
+                          Icons.error_outline_rounded,
+                          color: red,
+                          size: 20,
+                        ),
                         const SizedBox(width: 9),
                         Expanded(
                           child: SelectableText(
@@ -601,6 +643,15 @@ class _AiScreenState extends State<AiScreen> {
           controller: _request,
           busy: _requesting || _reviewing || widget.controller.aiPreparing,
           onSend: _sendComposer,
+          onMic: () async {
+            final words = await voiceSearch(
+              context,
+              offlineOnly: _local.hasSelection,
+              title: 'Speak to Aaris AI',
+              actionLabel: 'Use message',
+            );
+            if (mounted && words != null) setState(() => _request.text = words);
+          },
         ),
       ],
     ),
@@ -684,7 +735,11 @@ class _AiHubHeader extends StatelessWidget {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    const Icon(Icons.settings_rounded, color: _aiPurple, size: 23),
+                    const Icon(
+                      Icons.settings_rounded,
+                      color: _aiPurple,
+                      size: 23,
+                    ),
                     if (configured)
                       Positioned(
                         right: 8,
@@ -727,7 +782,9 @@ class _AiMessageBubble extends StatelessWidget {
     return Align(
       alignment: message.user ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * .82),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * .82,
+        ),
         margin: const EdgeInsets.only(bottom: 11),
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
         decoration: BoxDecoration(
@@ -836,11 +893,13 @@ class _AiComposer extends StatelessWidget {
     required this.controller,
     required this.busy,
     required this.onSend,
+    required this.onMic,
   });
 
   final TextEditingController controller;
   final bool busy;
   final VoidCallback onSend;
+  final VoidCallback onMic;
 
   @override
   Widget build(BuildContext context) => SafeArea(
@@ -878,11 +937,19 @@ class _AiComposer extends StatelessWidget {
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
                 filled: false,
-                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 11),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 11,
+                ),
               ),
             ),
           ),
           const SizedBox(width: 6),
+          IconButton(
+            tooltip: 'Dictate Hindi or English message',
+            onPressed: busy ? null : onMic,
+            icon: const Icon(Icons.mic_none_rounded),
+          ),
           Material(
             color: Colors.transparent,
             child: InkWell(
@@ -907,7 +974,10 @@ class _AiComposer extends StatelessWidget {
                           strokeWidth: 2,
                         ),
                       )
-                    : const Icon(Icons.arrow_upward_rounded, color: Colors.white),
+                    : const Icon(
+                        Icons.arrow_upward_rounded,
+                        color: Colors.white,
+                      ),
               ),
             ),
           ),
@@ -972,7 +1042,9 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
       if (mounted) Navigator.pop(context, config);
     } catch (e) {
       if (mounted) {
-        setState(() => error = e.toString().replaceFirst('FormatException: ', ''));
+        setState(
+          () => error = e.toString().replaceFirst('FormatException: ', ''),
+        );
       }
     } finally {
       if (mounted) setState(() => busy = false);
@@ -1036,19 +1108,24 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                 style: TextStyle(color: muted, fontSize: 12.5, height: 1.45),
               ),
               const SizedBox(height: 18),
+              const LocalModelsPanel(),
+              const SizedBox(height: 18),
               Material(
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: busy
                       ? null
                       : () => Navigator.pop(
-                            context,
-                            _AiConnectionsSheet.externalAction,
-                          ),
+                          context,
+                          _AiConnectionsSheet.externalAction,
+                        ),
                   borderRadius: BorderRadius.circular(22),
                   child: Container(
                     constraints: const BoxConstraints(minHeight: 96),
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 16,
+                    ),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
@@ -1101,7 +1178,11 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                           ),
                         ),
                         SizedBox(width: 8),
-                        Icon(Icons.chevron_right_rounded, color: _aiPurple, size: 28),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: _aiPurple,
+                          size: 28,
+                        ),
                       ],
                     ),
                   ),
@@ -1129,7 +1210,11 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
               const SizedBox(height: 18),
               const Text(
                 'Use AI inside the app',
-                style: TextStyle(color: ink, fontSize: 16, fontWeight: FontWeight.w800),
+                style: TextStyle(
+                  color: ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 5),
               const Text(
@@ -1141,7 +1226,10 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                 initialValue: provider,
                 decoration: const InputDecoration(labelText: 'API format'),
                 items: const [
-                  DropdownMenuItem(value: 'Gemini', child: Text('Google Gemini')),
+                  DropdownMenuItem(
+                    value: 'Gemini',
+                    child: Text('Google Gemini'),
+                  ),
                   DropdownMenuItem(
                     value: 'Compatible',
                     child: Text('OpenAI-compatible'),
@@ -1182,9 +1270,13 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                   labelText: 'API key',
                   suffixIcon: IconButton(
                     tooltip: obscure ? 'Show API key' : 'Hide API key',
-                    onPressed: busy ? null : () => setState(() => obscure = !obscure),
+                    onPressed: busy
+                        ? null
+                        : () => setState(() => obscure = !obscure),
                     icon: Icon(
-                      obscure ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+                      obscure
+                          ? Icons.visibility_rounded
+                          : Icons.visibility_off_rounded,
                     ),
                   ),
                 ),
@@ -1192,7 +1284,10 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
               if (error.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text(error, style: const TextStyle(color: red, fontSize: 12)),
+                  child: Text(
+                    error,
+                    style: const TextStyle(color: red, fontSize: 12),
+                  ),
                 ),
               const SizedBox(height: 18),
               SizedBox(
