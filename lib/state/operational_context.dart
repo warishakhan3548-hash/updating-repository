@@ -48,8 +48,17 @@ extension PharmacyOperationalContext on PharmacyController {
     if (target == null) return null;
     final record = snapshot.records[target.id];
     if (record == null ||
-        record.archived ||
         _targetFingerprint(record) != target.identityFingerprint) {
+      _operationalTargets[this] = null;
+      return null;
+    }
+    if (record.archived) {
+      // A reviewed remove preserves the same physical row. Move the exact
+      // conversational reference into the archived lifecycle instead of losing
+      // it, so a follow-up “restore it” can locate that exact row without a
+      // second fuzzy name search. Archive provenance becomes part of the new
+      // fingerprint, so a later remove lifecycle cannot reuse stale context.
+      _rememberArchivedReference(record);
       _operationalTargets[this] = null;
       return null;
     }
@@ -96,6 +105,10 @@ extension PharmacyOperationalContext on PharmacyController {
         'Aaris can remember archived context only for an exact removed stock entry.',
       );
     }
+    _rememberArchivedReference(record);
+  }
+
+  void _rememberArchivedReference(Medicine record) {
     _archivedOperationalTargets[this] = _OperationalTargetRef(
       id: record.id,
       identityFingerprint: _archivedTargetFingerprint(record),
@@ -104,7 +117,19 @@ extension PharmacyOperationalContext on PharmacyController {
 
   void clearOperationalTarget([String? id]) {
     final current = _operationalTargets[this];
-    if (id == null || current?.id == id) _operationalTargets[this] = null;
+    if (current == null || (id != null && current.id != id)) return;
+
+    // Brain removal flows clear the active target immediately after the commit.
+    // Preserve the exact row as archived context only when the authoritative
+    // snapshot proves that this very identity was just archived. No lifecycle
+    // transition is inferred from names or cached facts.
+    final record = snapshot.records[current.id];
+    if (record != null &&
+        record.archived &&
+        _targetFingerprint(record) == current.identityFingerprint) {
+      _rememberArchivedReference(record);
+    }
+    _operationalTargets[this] = null;
   }
 
   void clearArchivedOperationalTarget([String? id]) {
