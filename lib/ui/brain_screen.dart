@@ -21,6 +21,7 @@ import 'design.dart';
 import 'editor_screen.dart';
 import 'import_screen.dart';
 import 'order_screen.dart';
+import 'removed_stock_screen.dart';
 import 'scanner_screen.dart';
 import 'search_screen.dart';
 import 'voice_sheet.dart';
@@ -43,7 +44,7 @@ class _BrainScreenState extends State<BrainScreen> {
   final _command = TextEditingController();
   bool _busy = false, _voiceOpening = false;
   String _reply =
-      'Ready. Ask stock, expiry, location or FEFO from the local Medicine Database, open safe actions, or ask “aaj kya dekhna hai”.';
+      'Ready. Ask stock, expiry, location or FEFO from the local Medicine Database, open safe actions, recover removed stock, or ask “aaj kya dekhna hai”.';
 
   @override
   void dispose() {
@@ -102,6 +103,10 @@ class _BrainScreenState extends State<BrainScreen> {
       case AppBrainAction.search:
         await _searchIntent(intent);
         return;
+      case AppBrainAction.restoreMedicine:
+      case AppBrainAction.removedStockReview:
+        await _removedStock(intent);
+        return;
       case AppBrainAction.editMedicine:
       case AppBrainAction.setQuantity:
       case AppBrainAction.receiveStock:
@@ -130,6 +135,33 @@ class _BrainScreenState extends State<BrainScreen> {
         _unknown(raw);
         return;
     }
+  }
+
+  Future<void> _removedStock(AppBrainIntent intent) async {
+    if (!mounted) return;
+    final query = intent.query.trim();
+    widget.onOpenSection(AppSection.profile);
+    setState(
+      () => _reply = query.isEmpty
+          ? 'Opening Removed stock. Search and recovery stay local; every restore requires an exact archived-row review and explicit confirmation.'
+          : 'Opening Removed stock filtered for “$query”. Aaris will rank local archived rows but will not restore from a fuzzy match automatically.',
+    );
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RemovedStockScreen(
+          controller: widget.controller,
+          initialQuery: query,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    setState(
+      () => _reply =
+          'Removed-stock review closed. Nothing is restored unless you explicitly confirm the exact archived row; stale reviews fail closed if inventory changes.',
+    );
   }
 
   Future<void> _scanMedicine() async {
@@ -865,8 +897,9 @@ class _BrainScreenState extends State<BrainScreen> {
   }
 
   void _remember(Medicine record) {
-    if (!record.archived)
+    if (!record.archived) {
       widget.controller.rememberOperationalTarget(record.id);
+    }
   }
 
   Medicine? _rememberedTarget() => widget.controller.operationalTarget;
@@ -1266,7 +1299,8 @@ class _BrainScreenState extends State<BrainScreen> {
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => unawaited(_run()),
                   decoration: const InputDecoration(
-                    hintText: 'Dolo stock kitna · expiry kab · add 12 units · delete karo',
+                    hintText:
+                        'Dolo stock kitna · sell 5 units · restore Dolo · delete karo',
                     prefixIcon: Icon(Icons.bolt_rounded),
                   ),
                 ),
@@ -1317,6 +1351,7 @@ class _BrainScreenState extends State<BrainScreen> {
                         _QuickCommand('Order review', 'order now'),
                         _QuickCommand('Expired', 'expired medicines dikhao'),
                         _QuickCommand('Sold', 'sold medicines dikhao'),
+                        _QuickCommand('Removed', 'removed stock dikhao'),
                         _QuickCommand('Stock summary', 'stock summary'),
                         _QuickCommand('Add medicine', 'add medicine'),
                         _QuickCommand('Undo', 'undo last'),
