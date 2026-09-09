@@ -7,6 +7,7 @@ enum AppBrainAction {
   navigate,
   search,
   addMedicine,
+  scanMedicine,
   editMedicine,
   setQuantity,
   receiveStock,
@@ -161,11 +162,10 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   }
 
   if (_containsAny(text, _scanTerms)) {
-    // Scanner lives inside the authoritative Medicine Database flow. Opening
-    // Stock is safer than inventing a second scan/mutation path in the Brain.
+    // The Brain launches the existing scanner/import review path. This action
+    // only navigates into that authoritative flow; it never writes inventory.
     return const AppBrainIntent(
-      action: AppBrainAction.navigate,
-      section: AppSection.stock,
+      action: AppBrainAction.scanMedicine,
       confidence: .97,
     );
   }

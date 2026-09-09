@@ -7,6 +7,7 @@ import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/medicine_discovery.dart';
 import '../domain/medicine_understanding.dart';
+import '../state/operational_context.dart';
 import '../state/pharmacy_controller.dart';
 import 'date_field.dart';
 import 'design.dart';
@@ -20,18 +21,23 @@ Future<void> openEditor(
   MedicineScanDraft? scanDraft,
   String barcode = '',
   String ocrText = '',
-}) => Navigator.of(context).push<void>(
-  MaterialPageRoute(
-    builder: (_) => EditorScreen(
-      controller: controller,
-      record: record,
-      seed: seed,
-      scanDraft: scanDraft,
-      barcode: barcode,
-      ocrText: ocrText,
+}) {
+  if (record != null && !record.archived) {
+    controller.rememberOperationalTarget(record.id);
+  }
+  return Navigator.of(context).push<void>(
+    MaterialPageRoute(
+      builder: (_) => EditorScreen(
+        controller: controller,
+        record: record,
+        seed: seed,
+        scanDraft: scanDraft,
+        barcode: barcode,
+        ocrText: ocrText,
+      ),
     ),
-  ),
-);
+  );
+}
 
 class EditorScreen extends StatefulWidget {
   const EditorScreen({
@@ -395,6 +401,7 @@ class _EditorScreenState extends State<EditorScreen> {
 
       if (!mounted) return;
       await widget.controller.save(draft, expectedRevision: _baseRevision);
+      widget.controller.rememberOperationalTarget(draft.id);
       if (mounted) {
         setState(() => _allowPop = true);
         Navigator.pop(context);
@@ -463,6 +470,7 @@ class _EditorScreenState extends State<EditorScreen> {
         reason,
         expectedRevision: _baseRevision,
       );
+      widget.controller.clearOperationalTarget(record.id);
       if (mounted) {
         setState(() => _allowPop = true);
         Navigator.pop(context);

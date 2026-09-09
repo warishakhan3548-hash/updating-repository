@@ -62,6 +62,10 @@ class AiService {
   http.Client? _client;
   bool _localRequest = false;
   Future<AiConfiguration> loadConfiguration() async {
+    // AI Hub startup is also a route warm-up: restore an already-installed
+    // Aaris Default AI before the UI decides that a cloud connection is needed.
+    // No inventory is read or exported during this preflight.
+    await preparePreferredLocalRoute();
     final raw = await _storage.read(key: 'pharmacy.ai.configuration');
     return raw == null
         ? const AiConfiguration()
@@ -83,6 +87,20 @@ class AiService {
     _client = null;
   }
 
+  /// Resolves the privacy-first inference route without sending any inventory.
+  ///
+  /// A user-selected local model remains authoritative. If none is selected,
+  /// an installed Aaris Default AI is restored before the UI decides whether a
+  /// cloud connection is required. This closes the cold-start gap where an
+  /// installed default existed on disk but had not yet been activated in this
+  /// process.
+  Future<bool> preparePreferredLocalRoute() async {
+    final local = LocalAiService.instance;
+    await local.initialize();
+    await AarisDefaultAiService.instance.ensureActiveIfInstalled();
+    return local.hasSelection;
+  }
+
   Future<String> ask(
     AiConfiguration config,
     PharmacyExport Function() exportData,
@@ -90,18 +108,12 @@ class AiService {
     required LocalInventoryContext localContext,
     String conversation = '',
   }) async {
+    final hasLocalRoute = await preparePreferredLocalRoute();
     final local = LocalAiService.instance;
-    await local.initialize();
-
-    // A downloaded Aaris default is a persistent local fallback. A deliberately
-    // selected user model still wins because the coordinator never overrides an
-    // existing local selection. If restoring the installed default fails, do
-    // not silently leak the same request to a cloud provider.
-    await AarisDefaultAiService.instance.ensureActiveIfInstalled();
 
     // Selection is authoritative even while unloaded/missing/busy. No local
     // failure can fall through to config.uri or the HTTP client below.
-    if (local.hasSelection) {
+    if (hasLocalRoute) {
       _localRequest = true;
       try {
         return await local.ask(

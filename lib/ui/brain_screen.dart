@@ -9,12 +9,16 @@ import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/search.dart';
 import '../domain/tracking.dart';
+import '../services/scan_service.dart';
+import '../state/operational_context.dart';
 import '../state/pharmacy_controller.dart';
 import 'ai_screen.dart';
 import 'attention_screen.dart';
 import 'design.dart';
 import 'editor_screen.dart';
+import 'import_screen.dart';
 import 'order_screen.dart';
+import 'scanner_screen.dart';
 import 'search_screen.dart';
 import 'voice_sheet.dart';
 
@@ -35,7 +39,6 @@ class BrainScreen extends StatefulWidget {
 class _BrainScreenState extends State<BrainScreen> {
   final _command = TextEditingController();
   bool _busy = false, _voiceOpening = false;
-  String? _lastTargetId;
   String _reply =
       'Ready. Search stock, open safe actions, remember an exact selection, or ask “aaj kya dekhna hai”.';
 
@@ -90,6 +93,9 @@ class _BrainScreenState extends State<BrainScreen> {
           if (mounted) await openEditor(context, widget.controller);
         }
         return;
+      case AppBrainAction.scanMedicine:
+        await _scanMedicine();
+        return;
       case AppBrainAction.search:
         await _searchIntent(intent);
         return;
@@ -120,6 +126,84 @@ class _BrainScreenState extends State<BrainScreen> {
         _unknown(raw);
         return;
     }
+  }
+
+  Future<void> _scanMedicine() async {
+    if (!mounted) return;
+    widget.onOpenSection(AppSection.stock);
+    setState(
+      () => _reply =
+          'Opening the existing local scanner. Barcode + OCR evidence will be reviewed before any stock can change.',
+    );
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+
+    final result = await Navigator.push<ScanResult>(
+      context,
+      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+    );
+    if (!mounted) return;
+    if (result == null) {
+      setState(() => _reply = 'Scan cancelled. Nothing changed.');
+      return;
+    }
+    if (result.barcode.trim().isEmpty && result.text.trim().isEmpty) {
+      setState(
+        () => _reply =
+            'The scan contained no usable barcode or medicine text. Nothing changed.',
+      );
+      return;
+    }
+
+    // Remember an exact existing match only when the same confidence gate used
+    // by other Brain actions can isolate one stock row. The import inbox still
+    // remains authoritative for deciding existing batch vs new entry.
+    final rawQuery = result.barcode.trim().isNotEmpty
+        ? result.barcode.trim()
+        : result.text.trim();
+    final boundedQuery = rawQuery.length <= 30000
+        ? rawQuery
+        : rawQuery.substring(0, 30000);
+    final hits = await widget.controller.search(boundedQuery, SearchScope.all);
+    if (!mounted) return;
+    final direct = _singleSafeTarget(
+      hits.where((hit) => hit.score >= .90).take(8).toList(),
+    );
+    if (direct != null) {
+      final record = widget.controller.snapshot.records[direct.id];
+      if (record != null && !record.archived) _remember(record);
+    }
+
+    final evidence = result.evidence.isNotEmpty
+        ? result.evidence
+        : <ScanEvidence>[
+            ScanEvidence(
+              barcode: result.barcode,
+              text: result.text,
+              source: 'Aaris Brain scanner',
+            ),
+          ];
+    setState(
+      () => _reply = direct == null
+          ? 'Scan captured. Review the ranked local matches or create a new stock entry; Aaris will not guess an ambiguous batch.'
+          : 'Scan captured and one high-confidence local stock match was found. Review it before editing or creating another batch.',
+    );
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ImportInboxScreen(
+          controller: widget.controller,
+          evidence: evidence,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    final remembered = _rememberedTarget();
+    setState(
+      () => _reply = remembered == null
+          ? 'Scan review closed. No stock was changed automatically.'
+          : '${remembered.title} is now the exact session context. You can say “isko edit karo”, “isko remove karo”, or another reviewed stock command.',
+    );
   }
 
   Future<void> _searchIntent(AppBrainIntent intent) async {
@@ -461,7 +545,7 @@ class _BrainScreenState extends State<BrainScreen> {
       expectedRevision: expectedRevision,
     );
     if (!mounted) return;
-    _lastTargetId = null;
+    widget.controller.clearOperationalTarget(live.id);
     setState(
       () => _reply =
           '${live.title} removed with reason “$reason”. It is still recoverable from removed history, and Undo is available for this latest change.',
@@ -614,19 +698,10 @@ class _BrainScreenState extends State<BrainScreen> {
   }
 
   void _remember(Medicine record) {
-    if (!record.archived) _lastTargetId = record.id;
+    if (!record.archived) widget.controller.rememberOperationalTarget(record.id);
   }
 
-  Medicine? _rememberedTarget() {
-    final id = _lastTargetId;
-    if (id == null) return null;
-    final record = widget.controller.snapshot.records[id];
-    if (record == null || record.archived) {
-      _lastTargetId = null;
-      return null;
-    }
-    return record;
-  }
+  Medicine? _rememberedTarget() => widget.controller.operationalTarget;
 
   SearchHit? _singleSafeTarget(List<SearchHit> hits) {
     if (hits.isEmpty) return null;
@@ -1017,6 +1092,7 @@ class _BrainScreenState extends State<BrainScreen> {
             child: Row(
               children:
                   [
+                        _QuickCommand('Scan', 'scan medicine'),
                         _QuickCommand('Needs attention', 'aaj kya dekhna hai'),
                         _QuickCommand('Order review', 'order now'),
                         _QuickCommand('Expired', 'expired medicines dikhao'),
