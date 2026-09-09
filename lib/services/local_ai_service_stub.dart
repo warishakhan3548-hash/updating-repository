@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../domain/local_ai_protocol.dart';
 import '../domain/local_model.dart';
+import '../domain/model_catalogue.dart';
 import '../domain/medicine_understanding.dart';
 
 class LocalAiService extends ChangeNotifier {
@@ -17,6 +18,13 @@ class LocalAiService extends ChangeNotifier {
   String? get activeId => null;
   List<InstalledLocalModel> get installed => const [];
   Future<void> initialize() async {}
+  Future<ModelSearchPage> searchPage(
+    String query, {
+    ModelSort sort = ModelSort.popular,
+    Uri? cursor,
+  }) async => ModelSearchPage(const []);
+  Future<ModelRepositoryFiles> repositoryFiles(String input) async =>
+      throw UnsupportedError(status);
   Future<List<String>> search(String query) async => [];
   Future<List<LocalModelFile>> files(String repository) async => [];
   Future<void> download(LocalModelFile file) async =>

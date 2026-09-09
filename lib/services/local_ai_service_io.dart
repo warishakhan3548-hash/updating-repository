@@ -12,6 +12,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../domain/local_ai_protocol.dart';
 import '../domain/local_model.dart';
+import '../domain/model_catalogue.dart';
+import 'model_catalogue_service.dart';
 import '../domain/medicine_understanding.dart';
 import 'local_ai_runtime.dart';
 
@@ -113,96 +115,26 @@ class LocalAiService extends ChangeNotifier {
     await temporary.rename('${_directory!.path}/models.json');
   }
 
-  Future<Object?> _catalogue(Uri uri) async {
-    // This client handles public model metadata ONLY. It has no pharmacy context,
-    // no API key and no access to the active model prompt/session.
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 20);
-    try {
-      final request = await client.getUrl(uri);
-      request.followRedirects = false;
-      final response = await request.close().timeout(
-        const Duration(seconds: 25),
-      );
-      if (response.statusCode != 200) {
-        throw StateError(
-          'Model catalogue unavailable (${response.statusCode}). Public, ungated repositories only.',
-        );
-      }
-      final bytes = BytesBuilder(copy: false);
-      await for (final chunk in response.timeout(const Duration(seconds: 20))) {
-        bytes.add(chunk);
-        if (bytes.length > 4 * 1024 * 1024)
-          throw StateError('Catalogue response too large.');
-      }
-      return jsonDecode(utf8.decode(bytes.takeBytes()));
-    } finally {
-      client.close(force: true);
-    }
+  final ModelCatalogueProvider catalogue = HuggingFaceModelCatalogue();
+
+  Future<ModelSearchPage> searchPage(
+    String query, {
+    ModelSort sort = ModelSort.popular,
+    Uri? cursor,
+  }) => catalogue.search(query, sort: sort, cursor: cursor);
+
+  Future<List<String>> search(String query) async =>
+      (await searchPage(query)).repositories;
+
+  Future<ModelRepositoryFiles> repositoryFiles(String input) {
+    final location = ModelRepositoryLocation.parse(input);
+    if (location == null)
+      throw const FormatException('Use publisher/repository or a model link.');
+    return catalogue.files(location);
   }
 
-  Future<List<String>> search(String query) async {
-    final clean = query.trim();
-    if (clean.isEmpty || clean.length > 100) return [];
-    final json = await _catalogue(
-      Uri.https('huggingface.co', '/api/models', {
-        'search': clean,
-        'filter': 'gguf',
-        'limit': '30',
-        'sort': 'downloads',
-        'direction': '-1',
-      }),
-    );
-    if (json is! List) throw const FormatException('Invalid model catalogue.');
-    return json
-        .whereType<Map>()
-        .map((m) => m['id'])
-        .whereType<String>()
-        .where(
-          (id) => RegExp(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$').hasMatch(id),
-        )
-        .take(30)
-        .toList();
-  }
-
-  Future<List<LocalModelFile>> files(String repository) async {
-    if (!RegExp(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$').hasMatch(repository)) {
-      throw const FormatException('Use publisher/repository.');
-    }
-    final json = await _catalogue(
-      Uri.https('huggingface.co', '/api/models/$repository', {'blobs': 'true'}),
-    );
-    if (json is! Map || json['siblings'] is! List || json['sha'] is! String) {
-      throw const FormatException('Model file metadata is unavailable.');
-    }
-    final card = json['cardData'];
-    final license = card is Map && card['license'] is String
-        ? card['license'] as String
-        : 'Check publisher model card';
-    final result = <LocalModelFile>[];
-    for (final item in (json['siblings'] as List).whereType<Map>()) {
-      final name = item['rfilename'], lfs = item['lfs'];
-      if (name is! String || !isSingleGguf(name) || lfs is! Map) continue;
-      final size = lfs['size'] ?? item['size'], hash = lfs['sha256'];
-      if (size is! int || hash is! String) continue;
-      final file = LocalModelFile(
-        repository: repository,
-        revision: json['sha'] as String,
-        filename: name,
-        bytes: size,
-        sha256: hash,
-        license: license,
-      );
-      try {
-        file.validate();
-      } on FormatException {
-        continue;
-      }
-      result.add(file);
-    }
-    result.sort((a, b) => a.bytes.compareTo(b.bytes));
-    return result;
-  }
+  Future<List<LocalModelFile>> files(String repository) async =>
+      (await repositoryFiles(repository)).files;
 
   Future<HttpClientResponse> _downloadResponse(
     HttpClient client,

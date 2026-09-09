@@ -42,14 +42,15 @@ class LocalModelFile {
 }
 
 bool isSingleGguf(String name) {
-  final lower = name.toLowerCase();
+  final lower = name.split('/').last.toLowerCase();
   return lower.endsWith('.gguf') &&
       name.length <= 250 &&
       !name.contains('\\') &&
+      !name.contains(RegExp(r'[\x00-\x1f\x7f]')) &&
       !name.startsWith('/') &&
       !name.split('/').any((p) => p.isEmpty || p == '.' || p == '..') &&
       !RegExp(
-        r'(mmproj|projector|adapter|lora|tokenizer|vocab|\d{5}-of-\d{5})',
+        r'((^|[_.-])(mmproj|projector|adapter|lora|tokenizer|vocab)([_.-]|$)|\d{5}-of-\d{5})',
       ).hasMatch(lower);
 }
 

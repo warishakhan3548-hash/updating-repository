@@ -16,7 +16,12 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
   final query = TextEditingController();
   List<String> repositories = [];
   List<LocalModelFile> files = [];
-  String error = '';
+  String error = '', catalogueNote = '';
+  ModelSort sort = ModelSort.popular;
+  Uri? nextPage;
+  String _lastQuery = '';
+  int? maxFileBytes;
+  final _seenPages = <String>{};
   bool searching = false;
   int _generation = 0;
 
@@ -44,28 +49,84 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
 
   Future<void> _search([String? repository]) async {
     final generation = ++_generation;
-    final text = query.text.trim();
-    if (repository == null && text.isEmpty) return;
+    final text = repository ?? query.text.trim();
     setState(() {
       searching = true;
       error = '';
+      catalogueNote = '';
       files = [];
+      repositories = [];
+      nextPage = null;
+      _seenPages.clear();
     });
     try {
-      if (repository != null || text.contains('/')) {
-        final result = await local.files(repository ?? text);
+      final location = ModelRepositoryLocation.parse(text);
+      if (location != null) {
+        final result = await local.repositoryFiles(text);
         if (!mounted || generation != _generation) return;
         setState(() {
-          files = result;
-          if (files.isEmpty)
-            error =
-                'No supported single-file GGUF weights with checksums found. Split/projector/adapter files are excluded.';
+          files = result.files;
+          catalogueNote = [
+            if (result.cached)
+              'Cached public metadata; download stays revision-pinned.',
+            if (result.gated)
+              'Publisher access restrictions apply. Import an authorized local copy if needed.',
+            for (final entry in result.unavailable.entries)
+              '${entry.value} × ${entry.key}',
+            if (files.isEmpty)
+              'No downloadable complete GGUF weights found. Check the publisher files or import from device.',
+          ].join('\n');
         });
       } else {
-        final result = await local.search(text);
+        _lastQuery = text;
+        final result = await local.searchPage(text, sort: sort);
         if (!mounted || generation != _generation) return;
-        setState(() => repositories = result);
+        setState(() {
+          repositories = result.repositories;
+          nextPage = result.next;
+          catalogueNote = result.cached ? 'Cached public search results.' : '';
+          if (repositories.isEmpty)
+            catalogueNote =
+                'No matching models. Try a family name or an exact repository link.';
+        });
       }
+    } catch (e) {
+      if (mounted && generation == _generation)
+        setState(() => error = e.toString());
+    } finally {
+      if (mounted && generation == _generation)
+        setState(() => searching = false);
+    }
+  }
+
+  Future<void> _more() async {
+    final cursor = nextPage;
+    if (cursor == null || searching) return;
+    final generation = ++_generation;
+    setState(() {
+      searching = true;
+      error = '';
+    });
+    try {
+      final result = await local.searchPage(
+        _lastQuery,
+        sort: sort,
+        cursor: cursor,
+      );
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _seenPages.add(cursor.toString());
+        repositories = {...repositories, ...result.repositories}.toList();
+        // Keep the phone UI bounded; start a more specific search after 500.
+        nextPage =
+            repositories.length >= 500 ||
+                _seenPages.contains(result.next.toString())
+            ? null
+            : result.next;
+        if (repositories.length >= 500)
+          catalogueNote =
+              '500 results loaded. Narrow the search to explore further.';
+      });
     } catch (e) {
       if (mounted && generation == _generation)
         setState(() => error = e.toString());
@@ -140,7 +201,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                 enabled: !searching,
                 onSubmitted: (_) => _search(),
                 decoration: InputDecoration(
-                  labelText: 'Search GGUF models or publisher/repository',
+                  labelText: 'Model name, publisher/repository or Hub link',
                   suffixIcon: IconButton(
                     tooltip: 'Search public models',
                     onPressed: searching ? null : _search,
@@ -150,9 +211,30 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'First 30 search results. Enter an exact repository for new/unlisted models. Android local inference needs arm64 Android 9+. Choose an instruction-tuned single GGUF; not every architecture is compatible.',
+                'Browse current public GGUF models or paste an exact link, including new or untagged repositories. A downloadable file still needs a successful device activation test.',
                 style: TextStyle(fontSize: 11),
               ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final option in ModelSort.values)
+                    ChoiceChip(
+                      label: Text(option.label),
+                      selected: sort == option,
+                      onSelected: searching
+                          ? null
+                          : (_) {
+                              setState(() => sort = option);
+                              unawaited(_search());
+                            },
+                    ),
+                ],
+              ),
+              if (catalogueNote.isNotEmpty)
+                Text(
+                  catalogueNote,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               if (searching) const LinearProgressIndicator(),
               if (repositories.isNotEmpty && files.isEmpty) ...[
                 const SizedBox(height: 8),
@@ -169,13 +251,59 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                   ),
                 ),
               ],
-              if (files.isNotEmpty)
+              if (nextPage != null)
+                TextButton(
+                  onPressed: searching ? null : _more,
+                  child: const Text('Load more models'),
+                ),
+              if (files.isNotEmpty) ...[
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final limit in <int?>[
+                      null,
+                      1024 * 1024 * 1024,
+                      2 * 1024 * 1024 * 1024,
+                      4 * 1024 * 1024 * 1024,
+                    ])
+                      ChoiceChip(
+                        label: Text(
+                          limit == null
+                              ? 'All sizes'
+                              : 'Up to ${modelSize(limit)}',
+                        ),
+                        selected: maxFileBytes == limit,
+                        onSelected: (_) => setState(() => maxFileBytes = limit),
+                      ),
+                  ],
+                ),
+                const Text(
+                  'Weight-file size filter only; working RAM is checked separately.',
+                  style: TextStyle(fontSize: 11),
+                ),
+                if (!files.any(
+                  (f) => maxFileBytes == null || f.bytes <= maxFileBytes!,
+                ))
+                  const Text(
+                    'No files within this size. Choose All sizes or another repository.',
+                  ),
                 SizedBox(
                   height: 240,
                   child: ListView.builder(
-                    itemCount: files.length,
+                    itemCount: files
+                        .where(
+                          (f) =>
+                              maxFileBytes == null || f.bytes <= maxFileBytes!,
+                        )
+                        .length,
                     itemBuilder: (context, i) {
-                      final file = files[i];
+                      final file = files
+                          .where(
+                            (f) =>
+                                maxFileBytes == null ||
+                                f.bytes <= maxFileBytes!,
+                          )
+                          .elementAt(i);
                       return ListTile(
                         title: Text(
                           file.filename,
@@ -202,6 +330,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                     },
                   ),
                 ),
+              ],
               OutlinedButton.icon(
                 onPressed: local.busy || local.transferring
                     ? null
