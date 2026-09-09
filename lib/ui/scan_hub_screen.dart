@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../domain/medicine.dart';
@@ -25,7 +23,7 @@ class _ScanHubScreenState extends State<ScanHubScreen> {
   );
   ScanResult? _lastScan;
   PharmacyBrainOutcome? _outcome;
-  bool _busy = false;
+  bool _busy = false, _exactMatched = false;
   String _message = '', _error = '';
 
   Future<void> _scan() async {
@@ -39,6 +37,7 @@ class _ScanHubScreenState extends State<ScanHubScreen> {
         : result.text.trim();
     setState(() {
       _busy = true;
+      _exactMatched = false;
       _lastScan = result;
       _outcome = null;
       _message = '';
@@ -56,6 +55,7 @@ class _ScanHubScreenState extends State<ScanHubScreen> {
       if (!mounted) return;
       final exact = outcome.exact;
       if (exact != null) {
+        setState(() => _exactMatched = true);
         await Navigator.of(context).push<void>(
           MaterialPageRoute(
             builder: (_) => EditorScreen(
@@ -92,7 +92,7 @@ class _ScanHubScreenState extends State<ScanHubScreen> {
 
   Future<void> _addFromScan() async {
     final scan = _lastScan;
-    if (scan == null) return;
+    if (scan == null || _exactMatched) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => EditorScreen(
@@ -224,7 +224,7 @@ class _ScanHubScreenState extends State<ScanHubScreen> {
               ),
             ),
         ],
-        if (_lastScan != null && _outcome?.exact == null) ...[
+        if (_lastScan != null && !_exactMatched) ...[
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: _busy ? null : _addFromScan,
