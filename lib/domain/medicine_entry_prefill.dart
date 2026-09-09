@@ -154,7 +154,7 @@ MedicineEntryPrefill? parseMedicineAddPrefill(String raw) {
 
   String? taggedText(String labels, String label, {int max = 300}) {
     final expression = RegExp(
-      '(?:^|[^A-Za-z0-9\\u0900-\\u097f])(?:$labels)\\s*[:=]?\\s*(?:"([^"]{1,$max})"|([A-Za-z0-9\\u0900-\\u097f+._/-]{1,$max}))',
+      '(?:^|[^A-Za-z0-9\\u0900-\\u097f])(?:$labels)(?=\\s|[:=])\\s*[:=]?\\s*(?:"([^"]{1,$max})"|([A-Za-z0-9\\u0900-\\u097f+._/-]{1,$max}))',
       caseSensitive: false,
       unicode: true,
     );
