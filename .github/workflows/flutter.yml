@@ -2,6 +2,8 @@ name: Pharmacy checks
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -29,7 +31,7 @@ jobs:
       - name: Resolve pinned dependencies
         run: flutter pub get
       - name: Static checks
-        run: dart analyze lib test
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
       - name: Domain, persistence and UI checks
         run: flutter test --reporter expanded
       - name: Upload UI review images
