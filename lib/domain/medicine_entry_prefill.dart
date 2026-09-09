@@ -174,7 +174,7 @@ MedicineEntryPrefill? parseMedicineAddPrefill(String raw) {
   final expiryLabelPresent = hasLabel(r'exp|expiry|एक्सपायरी');
   final expiryRaw = take(
     RegExp(
-      r'(?:exp|expiry|एक्सपायरी)\s*[:=]?\s*([0-9०-९]{4}[-/][0-9०-९]{2}(?:[-/][0-9०-९]{2})?)',
+      r'(?:^|[^A-Za-z0-9\u0900-\u097f])(?:exp|expiry|एक्सपायरी)(?=\s|[:=])\s*[:=]?\s*([0-9०-९]{4}[-/][0-9०-९]{2}(?:[-/][0-9०-९]{2})?)',
       caseSensitive: false,
       unicode: true,
     ),
@@ -191,7 +191,7 @@ MedicineEntryPrefill? parseMedicineAddPrefill(String raw) {
   final mfgLabelPresent = hasLabel(r'mfg|manufacturing|manufactured|एमएफजी');
   final mfgRaw = take(
     RegExp(
-      r'(?:mfg|manufacturing|manufactured|एमएफजी)\s*[:=]?\s*([0-9०-९]{4}[-/][0-9०-९]{2}(?:[-/][0-9०-९]{2})?)',
+      r'(?:^|[^A-Za-z0-9\u0900-\u097f])(?:mfg|manufacturing|manufactured|एमएफजी)(?=\s|[:=])\s*[:=]?\s*([0-9०-९]{4}[-/][0-9०-९]{2}(?:[-/][0-9०-९]{2})?)',
       caseSensitive: false,
       unicode: true,
     ),
@@ -210,12 +210,12 @@ MedicineEntryPrefill? parseMedicineAddPrefill(String raw) {
   final quantityLabelPresent = hasLabel(r'qty|quantity|मात्रा');
   final quantityRaw = take(
     RegExp(
-      r'(?:(?:qty|quantity|मात्रा)\s*[:=]?\s*([0-9०-९]{1,9})(?:\s*(?:units?|pcs?|pieces?|यूनिट(?:्स)?))?|([0-9०-९]{1,9})\s*(?:units?|pcs?|pieces?|यूनिट(?:्स)?))',
+      r'(?:^|[^A-Za-z0-9\u0900-\u097f])(?:qty|quantity|मात्रा)(?=\s|[:=])\s*[:=]?\s*([0-9०-९]{1,9})(?:\s*(?:units?|pcs?|pieces?|यूनिट(?:्स)?))?',
       caseSensitive: false,
       unicode: true,
     ),
     'quantity',
-    value: (match) => match.group(1) ?? match.group(2) ?? '',
+    value: (match) => match.group(1) ?? '',
   );
   if (quantityLabelPresent && quantityRaw == null) {
     throw const FormatException(
@@ -234,7 +234,7 @@ MedicineEntryPrefill? parseMedicineAddPrefill(String raw) {
   final priceLabelPresent = hasLabel(r'unit\s+price|price|rate|कीमत|रेट');
   final priceRaw = take(
     RegExp(
-      r'(?:unit\s+price|price|rate|कीमत|रेट)\s*[:=]?\s*₹?\s*(\d{1,9}(?:\.\d{1,2})?)(?![0-9.])',
+      r'(?:^|[^A-Za-z0-9\u0900-\u097f])(?:unit\s+price|price|rate|कीमत|रेट)(?=\s|[:=])\s*[:=]?\s*₹?\s*([0-9०-९]{1,9}(?:\.[0-9०-९]{1,2})?)(?![0-9०-९.])',
       caseSensitive: false,
       unicode: true,
     ),
@@ -245,7 +245,7 @@ MedicineEntryPrefill? parseMedicineAddPrefill(String raw) {
       'Price must be a positive amount with at most two decimal places.',
     );
   }
-  final priceText = priceRaw == null ? '' : priceRaw;
+  final priceText = priceRaw == null ? '' : _asciiDigits(priceRaw);
   if (priceText.isNotEmpty) parseMoney(priceText);
 
   final batchNumber =
