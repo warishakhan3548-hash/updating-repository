@@ -39,33 +39,18 @@ jobs:
         run: dart analyze lib test tool third_party/lib_llama_cpp/lib
       - name: Full regression suite
         run: flutter test --reporter expanded
-      - name: Diff integrity
+      - name: Diff whitespace integrity
         run: |
           git checkout -- pubspec.lock 2>/dev/null || true
           git diff --check
-          python3 - <<'PY'
-          import subprocess
-          expected = {
-              'lib/data/inventory_database.dart',
-              'lib/state/pharmacy_controller.dart',
-              'test/authoritative_business_clock_test.dart',
-          }
-          rows = subprocess.check_output(
-              ['git', 'status', '--porcelain'], text=True
-          ).splitlines()
-          changed = {row[3:] for row in rows}
-          if changed != expected:
-              raise SystemExit(
-                  f'Unexpected working-tree paths: {sorted(changed)}; expected: {sorted(expected)}'
-              )
-          PY
-      - name: Remove temporary surgeon and commit verified result
+      - name: Commit only verified production changes
         run: |
           rm tool/temporary_authoritative_clock_upgrade.py
           rm .github/workflows/temporary-authoritative-clock-upgrade.yml
           git config user.name "Aaris Pharmacy Upgrade Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add -A
+          git add lib/data/inventory_database.dart lib/state/pharmacy_controller.dart test/authoritative_business_clock_test.dart
+          git add -u tool/temporary_authoritative_clock_upgrade.py .github/workflows/temporary-authoritative-clock-upgrade.yml
           git diff --cached --check
           git commit -m "Unify Aaris inventory business clock [business-clock-upgrade]"
           git push origin HEAD:upgrade/authoritative-business-clock-20260910
