@@ -94,7 +94,7 @@ void main() {
           ),
         ),
       );
-      expect((await storage.load()).records.keys, {'a'});
+      expect((await storage.load()).records.keys.toSet(), {'a'});
     });
 
     test('allows an edit that completely resolves the physical-lot conflict', () async {
