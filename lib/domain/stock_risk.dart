@@ -104,6 +104,8 @@ class PharmacyStockRiskReport {
       final item = evidence.putIfAbsent(sale.productKey, _VelocityEvidence.new);
       item.units30 += sale.quantity;
       item.events30++;
+      final salt = normalize(sale.salt);
+      if (salt.isNotEmpty) item.salts.add(salt);
       if (item.firstDay == null || saleDay.isBefore(item.firstDay!)) {
         item.firstDay = saleDay;
       }
@@ -115,6 +117,16 @@ class PharmacyStockRiskReport {
     final risks = <ExpiryWasteRisk>[];
     for (final entry in groups.entries) {
       final rows = entry.value;
+
+      // Medicine identity intentionally excludes optional salt so ordinary
+      // search can still find incomplete records. Forecasting is stricter: two
+      // different known salts under the same name/strength/form make product
+      // aggregation unsafe, so Needs Attention must resolve those facts first.
+      final currentSalts = rows
+          .map((medicine) => normalize(medicine.salt))
+          .where((salt) => salt.isNotEmpty)
+          .toSet();
+      if (currentSalts.length > 1) continue;
 
       // Quantity or expiry uncertainty makes a FEFO stock-consumption forecast
       // unsafe. Existing attention checks surface those missing facts instead of
@@ -133,6 +145,17 @@ class PharmacyStockRiskReport {
           movement.events30 < 2 ||
           movement.units30 <= 0 ||
           movement.firstDay == null) {
+        continue;
+      }
+
+      // Historical sale snapshots are equally authoritative evidence. If their
+      // known salt facts conflict with each other or with the current product,
+      // do not merge movement across potentially different medicines. Missing
+      // salt remains unknown rather than being treated as a contradiction.
+      if (movement.salts.length > 1) continue;
+      if (currentSalts.isNotEmpty &&
+          movement.salts.isNotEmpty &&
+          currentSalts.single != movement.salts.single) {
         continue;
       }
 
@@ -229,5 +252,6 @@ class _VelocityEvidence {
   int units30 = 0;
   int events30 = 0;
   int units7 = 0;
+  final Set<String> salts = <String>{};
   DateTime? firstDay;
 }
