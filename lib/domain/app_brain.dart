@@ -1,6 +1,7 @@
 import 'brain_operations.dart';
 import 'inventory.dart';
 import 'medicine_brief.dart';
+import 'medicine_entry_prefill.dart';
 
 enum AppSection { home, stock, ai, calculator, profile }
 
@@ -36,6 +37,7 @@ class AppBrainIntent {
     this.briefFocus,
     this.locationPatch,
     this.removalReason,
+    this.addPrefill,
     this.confidence = 0,
   });
 
@@ -47,6 +49,7 @@ class AppBrainIntent {
   final MedicineBriefFocus? briefFocus;
   final StockLocationPatch? locationPatch;
   final RemovalReasonHint? removalReason;
+  final MedicineEntryPrefill? addPrefill;
   final double confidence;
 
   bool get needsMedicineTarget =>
@@ -267,20 +270,12 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
-  if (_containsAny(text, const [
-    'add medicine',
-    'new medicine',
-    'medicine add',
-    'add stock',
-    'nayi medicine',
-    'nayi dawai',
-    'नई मेडिसिन',
-    'नई दवा',
-    'मेडिसिन जोड़',
-  ])) {
-    return const AppBrainIntent(
+  final addPrefill = parseMedicineAddPrefill(raw);
+  if (addPrefill != null) {
+    return AppBrainIntent(
       action: AppBrainAction.addMedicine,
-      confidence: .98,
+      addPrefill: addPrefill,
+      confidence: .99,
     );
   }
 

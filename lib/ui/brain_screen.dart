@@ -56,13 +56,13 @@ class _BrainScreenState extends State<BrainScreen> {
     if (_busy) return;
     final raw = (supplied ?? _command.text).trim();
     if (raw.isEmpty) return;
-    final intent = parseAppBrainIntent(raw);
     setState(() {
       _busy = true;
       _reply = 'Understanding command…';
       if (supplied != null) _command.text = supplied;
     });
     try {
+      final intent = parseAppBrainIntent(raw);
       await _execute(intent, raw);
     } catch (error) {
       if (mounted) {
@@ -91,10 +91,17 @@ class _BrainScreenState extends State<BrainScreen> {
         return;
       case AppBrainAction.addMedicine:
         if (mounted) {
+          final prefill = intent.addPrefill;
           widget.onOpenSection(AppSection.stock);
-          setState(() => _reply = 'Opening a fresh medicine entry.');
+          setState(
+            () => _reply = prefill == null || prefill.isEmpty
+                ? 'Opening a fresh medicine entry.'
+                : 'Prepared a review-only medicine draft from your explicit command facts: ${prefill.reviewSummary}. Nothing is saved until you review and press Save.',
+          );
           await Future<void>.delayed(Duration.zero);
-          if (mounted) await openEditor(context, widget.controller);
+          if (mounted) {
+            await openEditor(context, widget.controller, prefill: prefill);
+          }
         }
         return;
       case AppBrainAction.scanMedicine:
@@ -168,7 +175,8 @@ class _BrainScreenState extends State<BrainScreen> {
     if (!mounted) return;
     widget.onOpenSection(AppSection.stock);
     setState(
-      () => _reply = 'Opening the existing local scanner. Barcode + OCR evidence will be reviewed before any stock can change.',
+      () => _reply =
+          'Opening the existing local scanner. Barcode + OCR evidence will be reviewed before any stock can change.',
     );
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
@@ -184,7 +192,8 @@ class _BrainScreenState extends State<BrainScreen> {
     }
     if (result.barcode.trim().isEmpty && result.text.trim().isEmpty) {
       setState(
-        () => _reply = 'The scan contained no usable barcode or medicine text. Nothing changed.',
+        () => _reply =
+            'The scan contained no usable barcode or medicine text. Nothing changed.',
       );
       return;
     }
@@ -250,7 +259,8 @@ class _BrainScreenState extends State<BrainScreen> {
         widget.onOpenSection(AppSection.stock);
         if (mounted) {
           setState(
-            () => _reply = 'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact medicine first.',
+            () => _reply =
+                'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact medicine first.',
           );
         }
         return;
@@ -264,7 +274,8 @@ class _BrainScreenState extends State<BrainScreen> {
       if (briefFocus != null) {
         widget.onOpenSection(AppSection.stock);
         setState(
-          () => _reply = 'Medicine name, batch, barcode or an exact previous selection is missing. Medicine Database opened instead of guessing which medicine you meant.',
+          () => _reply =
+              'Medicine name, batch, barcode or an exact previous selection is missing. Medicine Database opened instead of guessing which medicine you meant.',
         );
         return;
       }
@@ -308,7 +319,8 @@ class _BrainScreenState extends State<BrainScreen> {
       await _showMatches(
         viable,
         title: 'Choose medicine for ${_briefLabel(briefFocus)} · $query',
-        emptyReply: 'No safe local match found. Aaris will not guess an operational answer.',
+        emptyReply:
+            'No safe local match found. Aaris will not guess an operational answer.',
         briefFocus: briefFocus,
       );
       return;
@@ -333,7 +345,8 @@ class _BrainScreenState extends State<BrainScreen> {
     if (live == null || live.archived) {
       widget.controller.clearOperationalTarget(anchor.id);
       setState(
-        () => _reply = 'That stock entry is no longer active. Choose the medicine again so Aaris can answer from the current inventory snapshot.',
+        () => _reply =
+            'That stock entry is no longer active. Choose the medicine again so Aaris can answer from the current inventory snapshot.',
       );
       return;
     }
@@ -354,7 +367,8 @@ class _BrainScreenState extends State<BrainScreen> {
         widget.onOpenSection(AppSection.stock);
         if (mounted) {
           setState(
-            () => _reply = 'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact stock entry first.',
+            () => _reply =
+                'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact stock entry first.',
           );
         }
         return;
@@ -374,7 +388,8 @@ class _BrainScreenState extends State<BrainScreen> {
       if (!mounted) return;
       widget.onOpenSection(AppSection.stock);
       setState(
-        () => _reply = 'Medicine name, batch, barcode or location is missing. Medicine Database opened so you can choose the exact stock entry safely.',
+        () => _reply =
+            'Medicine name, batch, barcode or location is missing. Medicine Database opened so you can choose the exact stock entry safely.',
       );
       return;
     }
@@ -1190,7 +1205,8 @@ class _BrainScreenState extends State<BrainScreen> {
   void _bulkRemoveBlocked() {
     widget.onOpenSection(AppSection.profile);
     setState(
-      () => _reply = 'Bulk removal is intentionally blocked from natural-language commands. Profile opened at the protected owner area; “Remove all inventory” still requires its dedicated multi-step confirmation and a revision-bound inventory review so a voice/AI misunderstanding cannot wipe stock.',
+      () => _reply =
+          'Bulk removal is intentionally blocked from natural-language commands. Profile opened at the protected owner area; “Remove all inventory” still requires its dedicated multi-step confirmation and a revision-bound inventory review so a voice/AI misunderstanding cannot wipe stock.',
     );
   }
 
