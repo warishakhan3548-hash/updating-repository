@@ -39,7 +39,12 @@ class _OrderScreenState extends State<OrderScreen> {
             ? ''
             : (suggestion.unitPricePaise! / 100).toStringAsFixed(2),
       );
-      _selected.add(suggestion.productKey);
+      // Confident deterministic suggestions are ready for the pharmacist's
+      // final order review. Weak-evidence suggestions remain visible but are
+      // never silently selected into a purchase order.
+      if (!suggestion.reviewRequired) {
+        _selected.add(suggestion.productKey);
+      }
     }
   }
 
@@ -105,27 +110,43 @@ class _OrderScreenState extends State<OrderScreen> {
       builder: (context, _) {
         final suggestions = _suggestions;
         _ensureControllers(suggestions);
+        final needsReview = suggestions
+            .where((suggestion) => suggestion.reviewRequired)
+            .length;
         return ListView(
           padding: const EdgeInsets.fromLTRB(22, 8, 22, 30),
           children: [
             const ScreenIntro(
               title: 'Prepare your order',
-              message: 'Select medicines, check quantities and costs, then share the PDF.',
+              message:
+                  'Aaris uses recorded stock, expiry and sales movement to prepare reorder suggestions. Uncertain suggestions stay unselected until you review them.',
               icon: Icons.shopping_bag_outlined,
             ),
-            const FlowSteps(['Select', 'Check quantity', 'Share PDF']),
+            const FlowSteps(['Review suggestions', 'Check quantity', 'Share PDF']),
             if (suggestions.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
-                child: StatusPill(
-                  '${_selected.length} medicines selected',
-                  color: amber,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    StatusPill(
+                      '${_selected.length} medicines selected',
+                      color: amber,
+                    ),
+                    if (needsReview > 0)
+                      StatusPill(
+                        '$needsReview need review',
+                        color: primary,
+                      ),
+                  ],
                 ),
               ),
             if (suggestions.isEmpty)
               const EmptyState(
                 title: 'No reorder suggestions',
-                message: 'Sold-out, low-stock or fast-moving medicines will appear here.',
+                message:
+                    'Sold-out, low-stock or expiring-before-lead-time medicines will appear here when recorded facts support a suggestion.',
               ),
             for (final suggestion in suggestions)
               Padding(
@@ -147,6 +168,9 @@ class _OrderScreenState extends State<OrderScreen> {
                           [
                             if (suggestion.salt.isNotEmpty) suggestion.salt,
                             suggestion.reason,
+                            suggestion.confidenceLabel,
+                            if (suggestion.reviewRequired)
+                              'Manual review required',
                           ].join(' · '),
                         ),
                         onChanged: _sharing
@@ -196,9 +220,15 @@ class _OrderScreenState extends State<OrderScreen> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        suggestion.currentQuantity == null
-                            ? 'Current stock unknown'
-                            : 'Current stock: ${suggestion.currentQuantity}',
+                        [
+                          suggestion.currentQuantity == null
+                              ? 'Current stock unknown'
+                              : 'Current stock: ${suggestion.currentQuantity}',
+                          if (suggestion.coverageDays != null)
+                            'Coverage ≈ ${suggestion.coverageDays!.toStringAsFixed(1)} days from recorded sales',
+                          if (suggestion.expiringWithinLeadUnits > 0)
+                            '${suggestion.expiringWithinLeadUnits} known units expire inside the lead window',
+                        ].join(' · '),
                         style: const TextStyle(fontSize: 11, color: muted),
                       ),
                     ],
@@ -221,7 +251,7 @@ class _OrderScreenState extends State<OrderScreen> {
               const Padding(
                 padding: EdgeInsets.only(top: 10),
                 child: Text(
-                  'Rows with no unit cost show “Amount unavailable”; they are never treated as ₹0.',
+                  'Suggested quantities are operational estimates from your recorded inventory and sales—not medical advice. Missing facts never become ₹0 or an assumed stock quantity.',
                   style: TextStyle(fontSize: 11, color: muted),
                   textAlign: TextAlign.center,
                 ),

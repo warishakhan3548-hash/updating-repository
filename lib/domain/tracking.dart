@@ -191,6 +191,10 @@ class ReorderSuggestion {
     required this.stockIds,
     this.currentQuantity,
     this.unitPricePaise,
+    this.confidence = .5,
+    this.reviewRequired = true,
+    this.coverageDays,
+    this.expiringWithinLeadUnits = 0,
   });
 
   final String productKey;
@@ -206,7 +210,29 @@ class ReorderSuggestion {
   final List<String> stockIds;
   final int? currentQuantity;
   final int? unitPricePaise;
+
+  /// Confidence is operational confidence in the suggested order quantity,
+  /// never confidence about a medicine's clinical use.
+  final double confidence;
+
+  /// Low-evidence suggestions stay visible but are not auto-selected for an
+  /// order. This prevents missing quantity/expiry facts from becoming silent
+  /// purchasing assumptions.
+  final bool reviewRequired;
+
+  /// Estimated stock coverage using only recorded sales velocity. Null means
+  /// the app does not have enough facts to calculate coverage honestly.
+  final double? coverageDays;
+
+  /// Known units whose recorded expiry is inside the reorder lead window.
+  final int expiringWithinLeadUnits;
+
   String get title => '$name${strength.isEmpty ? '' : ' · $strength'}';
+  String get confidenceLabel => confidence >= .9
+      ? 'High-confidence suggestion'
+      : confidence >= .75
+      ? 'Good-confidence suggestion'
+      : 'Review suggestion';
 }
 
 class TrackingStats {
@@ -277,8 +303,9 @@ class TrackingStats {
 
       final active = records.where(usable).toList();
       final known = active.where((m) => m.quantity != null).toList();
-      final hasUnknown = active.any((m) => m.quantity == null);
-      final currentQuantity = hasUnknown
+      final hasUnknownQuantity = active.any((m) => m.quantity == null);
+      final hasUnknownExpiry = active.any((m) => m.expiry == null);
+      final currentQuantity = hasUnknownQuantity
           ? null
           : known.fold<int>(0, (sum, m) => sum + m.quantity!);
       final hasAvailable = active.any(
@@ -286,24 +313,75 @@ class TrackingStats {
       );
       movement.currentQuantity = currentQuantity;
       if (hasAvailable) stockedProductKeys.add(key);
+
       final hasSoldEntry = records.any((m) => m.sold);
-      final soldOut = !hasAvailable && hasSoldEntry;
+      final knownOutOfStock = !hasUnknownQuantity && currentQuantity == 0;
+      final outOfStock = !hasAvailable || knownOutOfStock;
       final expiredOnly = active.isEmpty && records.any(
         (m) => !m.sold && (m.daysLeft(stockDate) ?? 0) < 0,
       );
-      final needsReplacement = soldOut || expiredOnly;
+
       final velocity = movement.unitsPerDay;
-      final reorderPoint = max(5, (velocity * 7).ceil());
-      final target = max(10, max(reorderPoint * 2, (velocity * 30).ceil()));
+      const leadDays = 7;
+      const targetDays = 30;
+      final reorderPoint = max(5, (velocity * leadDays).ceil());
+      final target = max(10, max(reorderPoint * 2, (velocity * targetDays).ceil()));
       final low = currentQuantity != null && currentQuantity <= reorderPoint;
-      if (!needsReplacement && !low) continue;
+
+      var expiringWithinLeadUnits = 0;
+      var everyKnownPositiveUnitExpiresWithinLead = active.isNotEmpty;
+      for (final medicine in active) {
+        final quantity = medicine.quantity;
+        if (quantity == null) {
+          everyKnownPositiveUnitExpiresWithinLead = false;
+          continue;
+        }
+        if (quantity == 0) continue;
+        final days = medicine.daysLeft(stockDate);
+        if (days != null && days >= 0 && days <= leadDays) {
+          expiringWithinLeadUnits += quantity;
+        } else {
+          everyKnownPositiveUnitExpiresWithinLead = false;
+        }
+      }
+      if (currentQuantity == null || currentQuantity == 0) {
+        everyKnownPositiveUnitExpiresWithinLead = false;
+      }
+      final expiryPressure =
+          velocity > 0 && everyKnownPositiveUnitExpiresWithinLead;
+      final needsReplacement = outOfStock || expiredOnly;
+
+      // Unknown quantity means we cannot safely infer a shortage. Keep the
+      // uncertainty visible elsewhere rather than fabricating an order amount.
+      if (!needsReplacement && !low && !expiryPressure) continue;
 
       final previousStock = records
           .map((m) => m.soldQuantity ?? 0)
           .fold<int>(0, max);
-      final suggested = needsReplacement
+      final effectiveQuantity = expiryPressure
+          ? max(0, (currentQuantity ?? 0) - expiringWithinLeadUnits)
+          : (currentQuantity ?? 0);
+      final rawSuggested = needsReplacement
           ? max(1, max(target, previousStock))
-          : max(1, target - (currentQuantity ?? 0));
+          : max(1, target - effectiveQuantity);
+      final suggested = rawSuggested.clamp(1, 100000000);
+
+      final confidence = hasUnknownQuantity
+          ? .35
+          : hasUnknownExpiry
+          ? movement.recordedSales >= 3
+                ? .76
+                : .58
+          : movement.recordedSales >= 3
+          ? .95
+          : movement.recordedSales > 0
+          ? .82
+          : .62;
+      final reviewRequired = confidence < .75 || movement.recordedSales == 0;
+      final coverageDays = velocity > 0 && currentQuantity != null
+          ? currentQuantity / velocity
+          : null;
+
       final price =
           active
               .where((m) => m.unitPricePaise != null)
@@ -320,11 +398,15 @@ class TrackingStats {
           salt: representative.salt,
           strength: representative.strength,
           form: representative.form,
-          priority: needsReplacement ? ReorderPriority.urgent : ReorderPriority.soon,
+          priority: needsReplacement
+              ? ReorderPriority.urgent
+              : ReorderPriority.soon,
           reason: expiredOnly
               ? 'Only expired stock remains'
-              : soldOut
+              : outOfStock || hasSoldEntry && !hasAvailable
               ? 'Out of stock'
+              : expiryPressure
+              ? 'Usable stock expires within $leadDays days'
               : velocity > 0
               ? 'Low stock · ${velocity.toStringAsFixed(1)} units/day'
               : 'Low stock',
@@ -334,12 +416,21 @@ class TrackingStats {
           stockIds: records.map((m) => m.id).toList(growable: false),
           currentQuantity: currentQuantity,
           unitPricePaise: price,
+          confidence: confidence,
+          reviewRequired: reviewRequired,
+          coverageDays: coverageDays,
+          expiringWithinLeadUnits: expiringWithinLeadUnits,
         ),
       );
     }
     reorder.sort((a, b) {
       final priority = a.priority.index.compareTo(b.priority.index);
       if (priority != 0) return priority;
+      if (a.reviewRequired != b.reviewRequired) {
+        return a.reviewRequired ? 1 : -1;
+      }
+      final confidence = b.confidence.compareTo(a.confidence);
+      if (confidence != 0) return confidence;
       final velocity = b.unitsPerDay.compareTo(a.unitsPerDay);
       return velocity != 0 ? velocity : a.name.compareTo(b.name);
     });
