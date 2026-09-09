@@ -14,6 +14,25 @@ void main() {
       expect(intent.destructive, isFalse);
     });
 
+    test('contextual restore preserves the pronoun for exact session resolution', () {
+      for (final command in [
+        'restore it',
+        'restore isko',
+        'isko restore karo',
+        'इसे रिस्टोर करो',
+      ]) {
+        final intent = parseAppBrainIntent(command);
+        expect(intent.action, AppBrainAction.restoreMedicine, reason: command);
+        expect(
+          isAppBrainContextReference(intent.query),
+          isTrue,
+          reason: command,
+        );
+        expect(intent.mutatesInventory, isTrue, reason: command);
+        expect(intent.destructive, isFalse, reason: command);
+      }
+    });
+
     test('targetless removed-stock language opens recovery history only', () {
       for (final command in [
         'removed stock dikhao',
