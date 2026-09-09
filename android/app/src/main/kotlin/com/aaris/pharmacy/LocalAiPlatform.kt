@@ -80,12 +80,12 @@ internal class LocalAiPlatform(private val activity: Activity) {
     private fun start() {
         if (pending == null || Build.VERSION.SDK_INT < 31) return
         val generation = ++speechGeneration
-        var speech: SpeechRecognizer? = null
+        var createdSpeech: SpeechRecognizer? = null
         try {
-            speech = SpeechRecognizer.createOnDeviceSpeechRecognizer(activity)
-            recognizer = speech
-            val sessionSpeech = speech
-            speech.setRecognitionListener(object : RecognitionListener {
+            val sessionSpeech = SpeechRecognizer.createOnDeviceSpeechRecognizer(activity)
+            createdSpeech = sessionSpeech
+            recognizer = sessionSpeech
+            sessionSpeech.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
@@ -118,7 +118,7 @@ internal class LocalAiPlatform(private val activity: Activity) {
             }
             speechTimeout = timeout
             handler.postDelayed(timeout, 30000)
-            speech.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            sessionSpeech.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
@@ -127,9 +127,10 @@ internal class LocalAiPlatform(private val activity: Activity) {
         } catch (_: Exception) {
             // If construction/start failed after creating a recognizer, destroy
             // exactly that recognizer and complete only the still-current request.
-            if (speech != null && recognizer === speech && generation == speechGeneration) {
+            val failedSpeech = createdSpeech
+            if (failedSpeech != null && recognizer === failedSpeech && generation == speechGeneration) {
                 recognizer = null
-                try { speech.cancel(); speech.destroy() } catch (_: Exception) {}
+                try { failedSpeech.cancel(); failedSpeech.destroy() } catch (_: Exception) {}
             }
             failPending("Could not start on-device speech. Use the keyboard.")
         }
@@ -153,7 +154,7 @@ internal class LocalAiPlatform(private val activity: Activity) {
         pending = null
         recognizer = null
         ++speechGeneration
-        speechTimeout?.let(handler::removeCallbacks)
+        speechTimeout?.let { handler.removeCallbacks(it) }
         speechTimeout = null
         try { speech.cancel(); speech.destroy() } catch (_: Exception) {}
         if (error == null) result?.success(text)
@@ -164,7 +165,7 @@ internal class LocalAiPlatform(private val activity: Activity) {
         val result = pending
         pending = null
         ++speechGeneration
-        speechTimeout?.let(handler::removeCallbacks)
+        speechTimeout?.let { handler.removeCallbacks(it) }
         speechTimeout = null
         val speech = recognizer
         recognizer = null
@@ -176,7 +177,7 @@ internal class LocalAiPlatform(private val activity: Activity) {
         val result = pending
         pending = null
         ++speechGeneration
-        speechTimeout?.let(handler::removeCallbacks)
+        speechTimeout?.let { handler.removeCallbacks(it) }
         speechTimeout = null
         val speech = recognizer
         recognizer = null
