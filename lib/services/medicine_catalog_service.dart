@@ -75,7 +75,13 @@ class MedicineCatalogService {
         _cache.remove(_cache.keys.first);
       }
       return values;
-    }).whenComplete(() => _inflight.remove(key));
+    }).whenComplete(() {
+      // Do not use `() => _inflight.remove(key)` here. Map.remove returns the
+      // removed Future; whenComplete would then await that Future. Because the
+      // removed value is this same in-flight completion Future, that creates a
+      // self-referential completion cycle and the catalog lookup never settles.
+      _inflight.remove(key);
+    });
     _inflight[key] = future;
     return future;
   }
