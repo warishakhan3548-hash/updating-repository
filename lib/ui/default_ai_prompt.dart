@@ -123,7 +123,7 @@ Future<void> offerAarisDefaultAi(
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text(
           '$aarisDefaultModelDisplayName is active. A stronger user-selected model can override it later.',
         ),
