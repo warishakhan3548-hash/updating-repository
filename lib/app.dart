@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
 import 'state/pharmacy_controller.dart';
+import 'domain/app_brain.dart';
 import 'domain/inventory.dart';
 import 'ui/design.dart';
 import 'ui/home_screen.dart';
 import 'ui/search_screen.dart';
-import 'ui/ai_screen.dart';
+import 'ui/brain_screen.dart';
 import 'ui/stats_screen.dart';
 import 'ui/profile_screen.dart';
 
@@ -67,6 +68,17 @@ class _ShellState extends State<_Shell> {
   int tab = 0;
   final _visited = <int, Widget>{};
 
+  void _openSection(AppSection section) {
+    final next = switch (section) {
+      AppSection.home => 0,
+      AppSection.stock => 1,
+      AppSection.ai => 2,
+      AppSection.calculator => 3,
+      AppSection.profile => 4,
+    };
+    if (next != tab) setState(() => tab = next);
+  }
+
   @override
   void didUpdateWidget(covariant _Shell oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -93,7 +105,7 @@ class _ShellState extends State<_Shell> {
           database: true,
           embedded: true,
         ),
-        2 => AiScreen(controller: c),
+        2 => BrainScreen(controller: c, onOpenSection: _openSection),
         3 => StatsScreen(controller: c),
         _ => ProfileScreen(controller: c),
       },
@@ -139,9 +151,9 @@ class _ShellState extends State<_Shell> {
                 label: 'Stock',
               ),
               NavigationDestination(
-                icon: Icon(Icons.auto_awesome_outlined),
-                selectedIcon: Icon(Icons.auto_awesome),
-                label: 'AI',
+                icon: Icon(Icons.psychology_alt_outlined),
+                selectedIcon: Icon(Icons.psychology_alt_rounded),
+                label: 'Aaris Brain',
               ),
               NavigationDestination(
                 icon: Icon(Icons.calculate_outlined),
