@@ -80,36 +80,10 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
-  final listIntent = _listIntent(text);
-  if (listIntent != null) return listIntent;
-
-  final section = _sectionIntent(text);
-  if (section != null) {
-    return AppBrainIntent(
-      action: AppBrainAction.navigate,
-      section: section,
-      confidence: .97,
-    );
-  }
-
+  // Explicit write intent always wins over category words such as "expired".
+  // Example: "expired Dolo delete karo" must prepare removal of Dolo rather
+  // than merely opening the expired list.
   if (_containsAny(text, const [
-    'add medicine',
-    'new medicine',
-    'medicine add',
-    'add stock',
-    'nayi medicine',
-    'nayi dawai',
-    'नई मेडिसिन',
-    'नई दवा',
-    'मेडिसिन जोड़',
-  ])) {
-    return const AppBrainIntent(
-      action: AppBrainAction.addMedicine,
-      confidence: .98,
-    );
-  }
-
-  final destructive = _containsAny(text, const [
     'delete',
     'remove',
     'archive',
@@ -120,8 +94,7 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     'हटा दो',
     'डिलीट',
     'रिमूव',
-  ]);
-  if (destructive) {
+  ])) {
     return AppBrainIntent(
       action: AppBrainAction.removeMedicine,
       query: _extractMedicineQuery(raw, _removeTerms),
@@ -136,7 +109,6 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     'stock khatam',
     'poora stock bik gaya',
     'pura stock bik gaya',
-    'पूड़ा स्टॉक बिक गया',
     'पूरा स्टॉक बिक गया',
     'स्टॉक खत्म',
   ])) {
@@ -181,6 +153,35 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   }
 
   if (_containsAny(text, const [
+    'add medicine',
+    'new medicine',
+    'medicine add',
+    'add stock',
+    'nayi medicine',
+    'nayi dawai',
+    'नई मेडिसिन',
+    'नई दवा',
+    'मेडिसिन जोड़',
+  ])) {
+    return const AppBrainIntent(
+      action: AppBrainAction.addMedicine,
+      confidence: .98,
+    );
+  }
+
+  final listIntent = _listIntent(text);
+  if (listIntent != null) return listIntent;
+
+  final section = _sectionIntent(text);
+  if (section != null) {
+    return AppBrainIntent(
+      action: AppBrainAction.navigate,
+      section: section,
+      confidence: .97,
+    );
+  }
+
+  if (_containsAny(text, const [
     'search',
     'find',
     'dhoondo',
@@ -214,15 +215,25 @@ AppBrainIntent? _listIntent(String text) {
     'खोलो',
   ]);
 
-  if (_containsAny(text, const ['expired', 'expiry ho gayi', 'expire ho gayi', 'एक्सपायर्ड'])) {
+  if (_containsAny(text, const [
+    'expired',
+    'expiry ho gayi',
+    'expire ho gayi',
+    'एक्सपायर्ड',
+  ])) {
     return AppBrainIntent(
       action: AppBrainAction.search,
       scope: SearchScope.expired,
       confidence: wantsList ? .99 : .96,
     );
   }
-  if (_containsAny(text, const ['sold medicines', 'sold medicine', 'sold list', 'बिकी मेडिसिन'])) {
-    return AppBrainIntent(
+  if (_containsAny(text, const [
+    'sold medicines',
+    'sold medicine',
+    'sold list',
+    'बिकी मेडिसिन',
+  ])) {
+    return const AppBrainIntent(
       action: AppBrainAction.search,
       scope: SearchScope.sold,
       confidence: .99,
@@ -235,7 +246,7 @@ AppBrainIntent? _listIntent(String text) {
     'jaldi expire',
     'जल्दी एक्सपायर',
   ])) {
-    return AppBrainIntent(
+    return const AppBrainIntent(
       action: AppBrainAction.search,
       scope: SearchScope.shortExpiry,
       confidence: .96,
@@ -247,7 +258,7 @@ AppBrainIntent? _listIntent(String text) {
     'month left',
     'महीने में एक्सपायर',
   ])) {
-    return AppBrainIntent(
+    return const AppBrainIntent(
       action: AppBrainAction.search,
       scope: SearchScope.monthExpiry,
       confidence: .96,
