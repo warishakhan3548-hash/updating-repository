@@ -137,7 +137,7 @@ class AttentionScreen extends StatelessWidget {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    'Aaris checks expiry, stock consistency, barcode conflicts, missing automation facts and deterministic reorder signals from local data.',
+                    'Aaris checks expiry, stock consistency, batch fact conflicts, barcode identity, audit quality, missing automation facts and deterministic reorder signals from local data.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: muted, height: 1.4),
                   ),
@@ -209,6 +209,9 @@ class _AttentionCard extends StatelessWidget {
     AttentionKind.shortExpiry => Icons.timer_outlined,
     AttentionKind.zeroQuantityMismatch => Icons.inventory_2_outlined,
     AttentionKind.barcodeConflict => Icons.qr_code_2_rounded,
+    AttentionKind.conflictingLotFacts => Icons.rule_folder_outlined,
+    AttentionKind.staleSoldMetadata => Icons.history_toggle_off_rounded,
+    AttentionKind.soldAuditGap => Icons.receipt_long_outlined,
     AttentionKind.urgentReorder => Icons.priority_high_rounded,
     AttentionKind.reorderReview => Icons.shopping_cart_checkout_rounded,
     AttentionKind.unknownExpiry => Icons.event_note_rounded,

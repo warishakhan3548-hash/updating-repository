@@ -1,4 +1,5 @@
 import 'inventory.dart';
+import 'inventory_integrity.dart';
 import 'medicine.dart';
 import 'tracking.dart';
 
@@ -9,6 +10,9 @@ enum AttentionKind {
   shortExpiry,
   zeroQuantityMismatch,
   barcodeConflict,
+  conflictingLotFacts,
+  staleSoldMetadata,
+  soldAuditGap,
   urgentReorder,
   reorderReview,
   unknownExpiry,
@@ -58,6 +62,28 @@ class PharmacyAttentionReport {
     final day = civilDay(today);
     final active = medicines.where((medicine) => !medicine.archived).toList();
     final items = <AttentionItem>[];
+
+    // Run cross-row integrity analysis before ordinary per-row warnings. These
+    // checks detect contradictions that a valid individual Medicine object
+    // cannot see by itself (for example one physical batch saved with two EXP
+    // dates). The result is read-only and local; no integrity finding mutates
+    // stock without an explicit pharmacist review.
+    final integrity = InventoryIntegrityReport.build(
+      medicines: active,
+      today: day,
+    );
+    for (final issue in integrity.issues) {
+      items.add(
+        AttentionItem(
+          key: issue.key,
+          kind: _integrityKind(issue.kind),
+          severity: _integritySeverity(issue.severity),
+          title: issue.title,
+          detail: issue.detail,
+          stockIds: issue.stockIds,
+        ),
+      );
+    }
 
     for (final medicine in active) {
       if (medicine.sold) continue;
@@ -254,6 +280,20 @@ class PharmacyAttentionReport {
 
   List<AttentionItem> get top => items.take(5).toList(growable: false);
 }
+
+AttentionKind _integrityKind(InventoryIntegrityKind kind) => switch (kind) {
+  InventoryIntegrityKind.conflictingLotFacts =>
+    AttentionKind.conflictingLotFacts,
+  InventoryIntegrityKind.soldAuditGap => AttentionKind.soldAuditGap,
+  InventoryIntegrityKind.staleSoldMetadata => AttentionKind.staleSoldMetadata,
+};
+
+AttentionSeverity _integritySeverity(InventoryIntegritySeverity severity) =>
+    switch (severity) {
+      InventoryIntegritySeverity.high => AttentionSeverity.high,
+      InventoryIntegritySeverity.medium => AttentionSeverity.medium,
+      InventoryIntegritySeverity.low => AttentionSeverity.low,
+    };
 
 String _stockCue(Medicine medicine) {
   final parts = <String>[
