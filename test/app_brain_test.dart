@@ -44,16 +44,38 @@ void main() {
       expect(intent.query, isEmpty);
     });
 
+    test('targetless stock-finished wording is informational', () {
+      final intent = parseAppBrainIntent('stock khatam');
+      expect(intent.action, AppBrainAction.search);
+      expect(intent.scope, SearchScope.sold);
+      expect(intent.destructive, isFalse);
+    });
+
     test('routes mark-sold target separately from sold list', () {
       final intent = parseAppBrainIntent('Dolo 650 stock khatam');
       expect(intent.action, AppBrainAction.markSold);
       expect(intent.query, 'Dolo 650');
+      expect(intent.destructive, isTrue);
     });
 
     test('routes expired list', () {
       final intent = parseAppBrainIntent('expired medicines dikhao');
       expect(intent.action, AppBrainAction.search);
       expect(intent.scope, SearchScope.expired);
+    });
+
+    test('routes reorder review locally without treating it as AI advice', () {
+      for (final command in [
+        'order now',
+        'reorder list',
+        'low stock review',
+        'kya order karna hai',
+      ]) {
+        final intent = parseAppBrainIntent(command);
+        expect(intent.action, AppBrainAction.reorderReview, reason: command);
+        expect(intent.confidence, greaterThanOrEqualTo(.98), reason: command);
+        expect(intent.destructive, isFalse, reason: command);
+      }
     });
 
     test('routes inventory summary locally', () {

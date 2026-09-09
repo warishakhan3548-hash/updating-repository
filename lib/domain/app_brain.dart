@@ -11,6 +11,7 @@ enum AppBrainAction {
   removeMedicine,
   markSold,
   recordSale,
+  reorderReview,
   undoLast,
   inventorySummary,
   attentionBrief,
@@ -120,9 +121,9 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
-  // Explicit write intent always wins over category words such as "expired".
-  // Example: "expired Dolo delete karo" must prepare removal of Dolo rather
-  // than merely opening the expired list.
+  // Explicit write intent wins over category words such as "expired".
+  // The target can still be empty; the UI then asks the pharmacist to choose an
+  // exact stock record instead of guessing.
   if (_containsAny(text, _removeTerms)) {
     return AppBrainIntent(
       action: AppBrainAction.removeMedicine,
@@ -132,9 +133,19 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   }
 
   if (_containsAny(text, _soldTerms)) {
+    final query = _extractMedicineQuery(raw, _soldTerms);
+    // "stock khatam" without a target is informational, never an implicit
+    // mutation. It opens the SOLD/reorder projection instead.
+    if (query.isEmpty) {
+      return const AppBrainIntent(
+        action: AppBrainAction.search,
+        scope: SearchScope.sold,
+        confidence: .94,
+      );
+    }
     return AppBrainIntent(
       action: AppBrainAction.markSold,
-      query: _extractMedicineQuery(raw, _soldTerms),
+      query: query,
       confidence: .98,
     );
   }
@@ -168,6 +179,28 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   ])) {
     return const AppBrainIntent(
       action: AppBrainAction.addMedicine,
+      confidence: .98,
+    );
+  }
+
+  if (_containsAny(text, const [
+    'order now',
+    'reorder list',
+    'reorder review',
+    'what to order',
+    'what should i order',
+    'low stock review',
+    'low stock order',
+    'purchase order',
+    'kya order karna hai',
+    'order kya karna hai',
+    'reorder dikhao',
+    'ऑर्डर क्या करना है',
+    'रीऑर्डर',
+    'परचेज ऑर्डर',
+  ])) {
+    return const AppBrainIntent(
+      action: AppBrainAction.reorderReview,
       confidence: .98,
     );
   }
@@ -245,6 +278,7 @@ AppBrainIntent? _listIntent(String text) {
     'sold medicines',
     'sold medicine',
     'sold list',
+    'biki medicine',
     'बिकी मेडिसिन',
   ])) {
     return const AppBrainIntent(

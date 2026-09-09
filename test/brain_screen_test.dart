@@ -1,0 +1,72 @@
+import 'package:aaris_pharmacy/data/inventory_database.dart';
+import 'package:aaris_pharmacy/domain/app_brain.dart';
+import 'package:aaris_pharmacy/domain/inventory.dart';
+import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
+import 'package:aaris_pharmacy/ui/brain_screen.dart';
+import 'package:aaris_pharmacy/ui/design.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'domain_contract.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'exact Brain remove command opens protected action and never mutates before confirmation',
+    (tester) async {
+      final medicine = stock(
+        'brain-remove-target',
+        name: 'Dolo',
+        strength: '650mg',
+        barcode: '9988776655',
+        expiry: '2027-12',
+      );
+      final controller = PharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(records: {medicine.id: medicine}),
+        ),
+        clock: () => contractToday,
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      AppSection? openedSection;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: pharmacyTheme(),
+          home: Scaffold(
+            body: BrainScreen(
+              controller: controller,
+              onOpenSection: (section) => openedSection = section,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byType(TextField).first,
+        '9988776655 delete karo',
+      );
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pumpAndSettle();
+
+      expect(openedSection, AppSection.stock);
+      expect(find.text('Why remove Dolo?'), findsOneWidget);
+      expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+
+      await tester.tap(find.text('Damaged'));
+      await tester.pumpAndSettle();
+      expect(find.text('Remove Dolo?'), findsOneWidget);
+      expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+
+      await tester.tap(find.text('Remove'));
+      await tester.pumpAndSettle();
+      expect(controller.snapshot.records[medicine.id]!.archived, isTrue);
+      expect(controller.canUndo, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+}

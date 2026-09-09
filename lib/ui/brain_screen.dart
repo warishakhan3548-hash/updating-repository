@@ -3,13 +3,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../domain/app_brain.dart';
+import '../domain/attention.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/search.dart';
+import '../domain/tracking.dart';
 import '../state/pharmacy_controller.dart';
 import 'ai_screen.dart';
+import 'attention_screen.dart';
 import 'design.dart';
 import 'editor_screen.dart';
+import 'order_screen.dart';
 import 'search_screen.dart';
 import 'voice_sheet.dart';
 
@@ -57,7 +61,10 @@ class _BrainScreenState extends State<BrainScreen> {
         setState(
           () => _reply = error
               .toString()
-              .replaceFirst(RegExp(r'^(FormatException|Bad state):\s*'), ''),
+              .replaceFirst(
+                RegExp(r'^(FormatException|Bad state|StateError):\s*'),
+                '',
+              ),
         );
       }
     } finally {
@@ -80,7 +87,8 @@ class _BrainScreenState extends State<BrainScreen> {
         if (mounted) {
           widget.onOpenSection(AppSection.stock);
           setState(() => _reply = 'Opening a fresh medicine entry.');
-          await openEditor(context, widget.controller);
+          await Future<void>.delayed(Duration.zero);
+          if (mounted) await openEditor(context, widget.controller);
         }
         return;
       case AppBrainAction.search:
@@ -92,6 +100,9 @@ class _BrainScreenState extends State<BrainScreen> {
       case AppBrainAction.recordSale:
         await _medicineAction(intent);
         return;
+      case AppBrainAction.reorderReview:
+        await _reorderReview();
+        return;
       case AppBrainAction.undoLast:
         await _undo();
         return;
@@ -99,7 +110,7 @@ class _BrainScreenState extends State<BrainScreen> {
         _summary();
         return;
       case AppBrainAction.attentionBrief:
-        _attentionBrief();
+        await _attentionBrief();
         return;
       case AppBrainAction.bulkRemoveBlocked:
         _bulkRemoveBlocked();
@@ -120,7 +131,8 @@ class _BrainScreenState extends State<BrainScreen> {
         return;
       }
       setState(
-        () => _reply = 'Opening ${scopeTitle(intent.scope, widget.controller.settings)}.',
+        () => _reply =
+            'Opening ${scopeTitle(intent.scope, widget.controller.settings)}.',
       );
       await Navigator.push<void>(
         context,
@@ -133,6 +145,7 @@ class _BrainScreenState extends State<BrainScreen> {
       );
       return;
     }
+
     final hits = await widget.controller.search(query, intent.scope);
     if (!mounted) return;
     final direct = _singleSafeTarget(
@@ -215,14 +228,203 @@ class _BrainScreenState extends State<BrainScreen> {
     _remember(record);
     widget.onOpenSection(AppSection.stock);
     if (!mounted) return;
-    setState(
-      () => _reply = fromContext
-          ? 'Using your last exact selection: ${record.title}. ${_editorInstruction(action, record)}'
-          : _editorInstruction(action, record),
-    );
+
+    final prefix = fromContext
+        ? 'Using your last exact selection: ${record.title}. '
+        : '';
+    setState(() => _reply = '$prefix${_editorInstruction(action, record)}');
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
+
+    // These two actions are short deterministic transactions. Aaris opens the
+    // protected confirmation directly after exact record resolution, but the
+    // controller remains the only mutation gateway and nothing changes silently.
+    if (action == AppBrainAction.removeMedicine) {
+      await _removeTarget(record);
+      return;
+    }
+    if (action == AppBrainAction.markSold) {
+      await _markSoldTarget(record);
+      return;
+    }
+
+    // Editing and sales keep the richer editor because it owns field validation,
+    // FEFO guidance, historical-sale validation and amount/quantity review.
     await openEditor(context, widget.controller, record: record);
+  }
+
+  Future<void> _removeTarget(Medicine original) async {
+    if (!mounted) return;
+    final live = widget.controller.snapshot.records[original.id];
+    if (live == null || live.archived) {
+      setState(
+        () => _reply = 'That stock entry is no longer active. Nothing changed.',
+      );
+      return;
+    }
+    final expectedRevision = widget.controller.snapshot.revision;
+    final expired = isExpiredOn(live, widget.controller.today);
+    final reasons = <String>[
+      if (expired) 'Expired',
+      if (!live.sold) 'Sold / stock finished',
+      if (!expired) 'Expired',
+      'Damaged',
+      'Returned',
+      'Correction',
+    ];
+
+    final reason = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => SimpleDialog(
+        title: Text('Why remove ${live.name}?'),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
+            child: Text(
+              _stockIdentityCue(live),
+              style: const TextStyle(color: muted, fontSize: 12),
+            ),
+          ),
+          for (final item in reasons)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, item),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
+              child: Text(item),
+            ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
+            child: const Text('Cancel', style: TextStyle(color: muted)),
+          ),
+        ],
+      ),
+    );
+    if (reason == null || !mounted) {
+      setState(() => _reply = 'Remove cancelled. Nothing changed.');
+      return;
+    }
+
+    if (reason.startsWith('Sold')) {
+      await _markSoldTarget(live);
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: Text('Remove ${live.name}?'),
+            content: Text(
+              '${_stockIdentityCue(live)}\n\nReason: $reason\n\nThis stock entry will leave active inventory, search and totals. It remains in removed history and can be restored or undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Remove'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) {
+      setState(() => _reply = 'Remove cancelled. Nothing changed.');
+      return;
+    }
+
+    if (widget.controller.snapshot.revision != expectedRevision) {
+      throw StateError(
+        'Inventory changed while you were confirming. Reopen the command so Aaris can verify the exact stock entry again.',
+      );
+    }
+    await widget.controller.archive(
+      live.id,
+      reason,
+      expectedRevision: expectedRevision,
+    );
+    if (!mounted) return;
+    _lastTargetId = null;
+    setState(
+      () => _reply =
+          '${live.title} removed with reason “$reason”. It is still recoverable from removed history, and Undo is available for this latest change.',
+    );
+  }
+
+  Future<void> _markSoldTarget(Medicine original) async {
+    if (!mounted) return;
+    final live = widget.controller.snapshot.records[original.id];
+    if (live == null || live.archived) {
+      setState(
+        () => _reply = 'That stock entry is no longer active. Nothing changed.',
+      );
+      return;
+    }
+    if (live.sold) {
+      setState(() => _reply = '${live.title} is already marked SOLD.');
+      return;
+    }
+    if (isExpiredOn(live, widget.controller.today)) {
+      setState(
+        () => _reply =
+            '${live.title} is expired, so Aaris blocked SOLD. Remove it with reason Expired to keep expiry and reorder history correct.',
+      );
+      return;
+    }
+    final expectedRevision = widget.controller.snapshot.revision;
+    final confirmed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: Text('Mark ${live.name} SOLD?'),
+            content: Text(
+              '${_stockIdentityCue(live)}\n\nThis means this entire physical stock entry is finished. Quantity becomes 0 and the medicine enters reorder intelligence. It does not create a customer sale event.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Mark SOLD'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) {
+      setState(() => _reply = 'SOLD action cancelled. Nothing changed.');
+      return;
+    }
+    if (widget.controller.snapshot.revision != expectedRevision) {
+      throw StateError(
+        'Inventory changed while you were confirming. Run the command again so Aaris can re-check this exact stock entry.',
+      );
+    }
+    await widget.controller.markSold(live.id);
+    if (mounted) {
+      setState(
+        () => _reply =
+            '${live.title} marked SOLD. Reorder intelligence is updated and the latest change remains undoable.',
+      );
+    }
+  }
+
+  String _stockIdentityCue(Medicine record) {
+    final parts = <String>[
+      record.title,
+      if (record.batchNumber.trim().isNotEmpty)
+        'Batch ${record.batchNumber.trim()}',
+      if (record.barcode.trim().isNotEmpty)
+        'Barcode ${record.barcode.trim()}',
+      if (record.address.trim().isNotEmpty) record.address.trim(),
+      if (record.quantity != null) '${record.quantity} units',
+    ];
+    return parts.join(' · ');
   }
 
   void _remember(Medicine record) {
@@ -362,6 +564,32 @@ class _BrainScreenState extends State<BrainScreen> {
     );
   }
 
+  Future<void> _reorderReview() async {
+    final range = TrackingRange.lastDays(widget.controller.today, 30);
+    final suggestions = widget.controller.tracking(range).reorder;
+    final urgent = suggestions
+        .where((item) => item.priority == ReorderPriority.urgent)
+        .length;
+    final review = suggestions.where((item) => item.reviewRequired).length;
+
+    if (mounted) {
+      setState(
+        () => _reply = suggestions.isEmpty
+            ? 'No deterministic reorder trigger is active from current stock and recorded sales. Opening Order Review so you can verify.'
+            : 'Order Review: ${suggestions.length} suggestion${suggestions.length == 1 ? '' : 's'} · $urgent urgent · $review need pharmacist evidence review. Weak-evidence rows are never preselected.',
+      );
+    }
+    widget.onOpenSection(AppSection.calculator);
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OrderScreen(controller: widget.controller, range: range),
+      ),
+    );
+  }
+
   Future<void> _undo() async {
     if (!widget.controller.canUndo) {
       setState(() => _reply = 'There is no current change available to undo.');
@@ -408,36 +636,28 @@ class _BrainScreenState extends State<BrainScreen> {
     );
   }
 
-  void _attentionBrief() {
-    final active = widget.controller.records.where((m) => !m.archived).toList();
-    final expired = widget.controller.list(SearchScope.expired).length;
-    final shortExpiry = widget.controller.list(SearchScope.shortExpiry).length;
-    final monthExpiry = widget.controller.list(SearchScope.monthExpiry).length;
-    final sold = widget.controller.list(SearchScope.sold).length;
-    final unknownExpiry = active
-        .where((m) => !m.sold && m.expiry == null)
-        .length;
-    final unknownQuantity = active
-        .where((m) => !m.sold && m.quantity == null)
-        .length;
-    final missingSalt = active.where((m) => m.salt.trim().isEmpty).length;
-
-    if (expired == 0 &&
-        shortExpiry == 0 &&
-        sold == 0 &&
-        unknownExpiry == 0 &&
-        unknownQuantity == 0 &&
-        missingSalt == 0) {
+  Future<void> _attentionBrief() async {
+    final range = TrackingRange.lastDays(widget.controller.today, 30);
+    final report = PharmacyAttentionReport.build(
+      medicines: widget.controller.records,
+      settings: widget.controller.settings,
+      today: widget.controller.today,
+      reorder: widget.controller.tracking(range).reorder,
+    );
+    if (mounted) {
       setState(
-        () => _reply =
-            'Attention brief: no urgent expiry, reorder, quantity or missing-data issue is visible right now. $monthExpiry medicine${monthExpiry == 1 ? '' : 's'} are inside your month-expiry window.',
+        () => _reply = report.isEmpty
+            ? 'Attention brief: no deterministic operational issue needs attention right now.'
+            : 'Attention queue: ${report.items.length} item${report.items.length == 1 ? '' : 's'} · ${report.critical} critical · ${report.high} high · ${report.medium} medium. Next: ${report.items.first.title}.',
       );
-      return;
     }
-
-    setState(
-      () => _reply =
-          'Attention brief · $expired expired · $shortExpiry short-expiry · $monthExpiry month-expiry · $sold sold/reorder · $unknownExpiry expiry unknown · $unknownQuantity quantity unknown · $missingSalt salt missing. Start with expired/short-expiry stock, then reorder and missing facts.',
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AttentionScreen(controller: widget.controller),
+      ),
     );
   }
 
@@ -459,11 +679,11 @@ class _BrainScreenState extends State<BrainScreen> {
   String _editorInstruction(AppBrainAction action, Medicine record) =>
       switch (action) {
         AppBrainAction.removeMedicine =>
-          '${record.title} opened in Medicine Database. Use Remove; Aaris keeps reason + confirmation + removed history mandatory.',
+          '${record.title} matched exactly. Medicine Database opened and the protected Remove flow is ready now.',
         AppBrainAction.markSold =>
-          '${record.title} opened in Medicine Database. Use Mark sold only if this entire stock entry is finished; confirmation remains required.',
+          '${record.title} matched exactly. Medicine Database opened and the whole-stock SOLD confirmation is ready now.',
         AppBrainAction.recordSale =>
-          '${record.title} opened in Medicine Database. Use Record sale; FEFO and expiry validation remain active.',
+          '${record.title} opened in Medicine Database. The sale dialog remains inside the editor so FEFO, expiry date, quantity and historical-sale validation stay authoritative.',
         AppBrainAction.editMedicine =>
           '${record.title} opened in Medicine Database for review/edit.',
         _ => '${record.title} opened.',
@@ -504,113 +724,114 @@ class _BrainScreenState extends State<BrainScreen> {
   }
 
   Widget _brainBar(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(14, 8, 14, 3),
-        child: Surface(
-          color: primarySoft,
-          padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    padding: const EdgeInsets.fromLTRB(14, 8, 14, 3),
+    child: Surface(
+      color: primarySoft,
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
             children: [
-              const Row(
-                children: [
-                  Icon(Icons.psychology_alt_rounded, color: primary),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Aaris App Brain · offline commands',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontWeight: FontWeight.w900, color: ink),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 7),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _command,
-                      enabled: !_busy,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => unawaited(_run()),
-                      decoration: const InputDecoration(
-                        hintText: 'Dolo 650 delete karo · batch AB12',
-                        prefixIcon: Icon(Icons.bolt_rounded),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  IconButton.filledTonal(
-                    tooltip: 'Speak command',
-                    onPressed: _voiceOpening || _busy ? null : _voice,
-                    icon: const Icon(Icons.mic_rounded),
-                  ),
-                  const SizedBox(width: 2),
-                  IconButton.filled(
-                    tooltip: 'Run command',
-                    onPressed: _busy ? null : _run,
-                    icon: _busy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.arrow_forward_rounded),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 7),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 72),
-                child: SingleChildScrollView(
-                  primary: false,
-                  child: Text(
-                    _reply,
-                    style: const TextStyle(
-                      color: muted,
-                      fontSize: 11.5,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _QuickCommand('Needs attention', 'aaj kya dekhna hai'),
-                    _QuickCommand('Expired', 'expired medicines dikhao'),
-                    _QuickCommand('Sold', 'sold medicines dikhao'),
-                    _QuickCommand('Stock summary', 'stock summary'),
-                    _QuickCommand('Add medicine', 'add medicine'),
-                    _QuickCommand('Undo', 'undo last'),
-                  ]
-                      .map(
-                        (item) => Padding(
-                          padding: const EdgeInsets.only(right: 7),
-                          child: ActionChip(
-                            label: Text(item.label),
-                            onPressed: _busy ? null : () => _run(item.command),
-                          ),
-                        ),
-                      )
-                      .toList(),
+              Icon(Icons.psychology_alt_rounded, color: primary),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Aaris App Brain · offline commands',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.w900, color: ink),
                 ),
               ),
             ],
           ),
-        ),
-      );
+          const SizedBox(height: 7),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _command,
+                  enabled: !_busy,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => unawaited(_run()),
+                  decoration: const InputDecoration(
+                    hintText: 'Dolo 650 delete karo · order now · batch AB12',
+                    prefixIcon: Icon(Icons.bolt_rounded),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              IconButton.filledTonal(
+                tooltip: 'Speak command',
+                onPressed: _voiceOpening || _busy ? null : _voice,
+                icon: const Icon(Icons.mic_rounded),
+              ),
+              const SizedBox(width: 2),
+              IconButton.filled(
+                tooltip: 'Run command',
+                onPressed: _busy ? null : _run,
+                icon: _busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.arrow_forward_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 72),
+            child: SingleChildScrollView(
+              primary: false,
+              child: Text(
+                _reply,
+                style: const TextStyle(
+                  color: muted,
+                  fontSize: 11.5,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _QuickCommand('Needs attention', 'aaj kya dekhna hai'),
+                _QuickCommand('Order review', 'order now'),
+                _QuickCommand('Expired', 'expired medicines dikhao'),
+                _QuickCommand('Sold', 'sold medicines dikhao'),
+                _QuickCommand('Stock summary', 'stock summary'),
+                _QuickCommand('Add medicine', 'add medicine'),
+                _QuickCommand('Undo', 'undo last'),
+              ]
+                  .map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.only(right: 7),
+                      child: ActionChip(
+                        label: Text(item.label),
+                        onPressed: _busy ? null : () => _run(item.command),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => Column(
-        children: [
-          _brainBar(context),
-          Expanded(child: AiScreen(controller: widget.controller)),
-        ],
-      );
+    children: [
+      _brainBar(context),
+      Expanded(child: AiScreen(controller: widget.controller)),
+    ],
+  );
 }
 
 class _QuickCommand {
