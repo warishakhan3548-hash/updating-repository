@@ -18,13 +18,16 @@ For every newly appended sale event the firewall verifies:
 - the row was active and not already SOLD before the sale;
 - the sale's medicine identity/salt snapshot comes from that authoritative row rather than invented caller data;
 - the sale date does not contradict recorded MFG/EXP facts;
-- the sale date is not in the future;
 - known stock decreases by exactly the combined recorded sale quantity;
 - an unknown stock baseline stays unknown instead of a sale inventing a remaining quantity;
 - a sale cannot be combined with hidden removal or medicine-identity rewriting;
 - SOLD cannot be asserted while known units would remain.
 
 A mismatch fails closed before SQLite or memory state changes.
+
+### One business-clock authority
+
+Whether a user-entered sale date is in the future remains a `PharmacyController` policy checked against the controller's injectable app clock. The persistence firewall deliberately does not compare sale timestamps with `DateTime.now()`: doing so would create a second time authority that could disagree with deterministic tests, restored historical data, or an app-level clock policy. The storage boundary still independently revalidates immutable MFG/EXP chronology and all ledger-to-stock invariants.
 
 ## Sale history is append-only during ordinary operations
 
@@ -58,7 +61,7 @@ There is no extra confirmation for a valid existing sale flow. The protection ac
 - blocked create-and-sell hidden transaction;
 - expiry-day historical sale acceptance and after-expiry rejection.
 
-The pre-existing persistence, FEFO, Undo and backup suites remain the integration gates and are expected to prove that recovery semantics and legitimate sale flows did not regress.
+The pre-existing persistence, FEFO, Undo, backup and injected-clock stock-operation suites remain the integration gates and prove that recovery semantics and legitimate sale flows do not regress.
 
 ## Product invariant preserved
 
