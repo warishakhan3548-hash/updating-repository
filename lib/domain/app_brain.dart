@@ -72,45 +72,6 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
-  if (_containsAny(text, const [
-    'what needs attention',
-    'needs attention',
-    'attention brief',
-    'attention summary',
-    'risk summary',
-    'problem stock',
-    'aaj kya dekhna hai',
-    'aaj kya karna hai',
-    'kya dikkat hai',
-    'क्या देखना है',
-    'आज क्या करना है',
-    'क्या दिक्कत है',
-  ])) {
-    return const AppBrainIntent(
-      action: AppBrainAction.attentionBrief,
-      confidence: .98,
-    );
-  }
-
-  if (_containsAny(text, const [
-    'stock summary',
-    'inventory summary',
-    'stock kitna',
-    'kitna stock',
-    'total medicines',
-    'total medicine',
-    'inventory batao',
-    'stock batao',
-    'कितना स्टॉक',
-    'कुल मेडिसिन',
-    'स्टॉक बताओ',
-  ])) {
-    return const AppBrainIntent(
-      action: AppBrainAction.inventorySummary,
-      confidence: .98,
-    );
-  }
-
   // Natural-language control must never become an unreviewed bulk destructive
   // path. Single-stock removal is supported; Delete All remains behind the
   // dedicated protected owner flow.
@@ -121,9 +82,19 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
+  // Read-only analytics questions are recognized before the write-side sale
+  // vocabulary. This prevents phrases such as "aaj ki bikri kitni" from ever
+  // being interpreted as a stock mutation. The Calculator/Tracking surface is
+  // the existing deterministic source of truth for these metrics.
+  if (_containsAny(text, _analyticsReadTerms)) {
+    return const AppBrainIntent(
+      action: AppBrainAction.navigate,
+      section: AppSection.calculator,
+      confidence: .98,
+    );
+  }
+
   // Explicit write intent wins over category words such as "expired".
-  // The target can still be empty; the UI then asks the pharmacist to choose an
-  // exact stock record instead of guessing.
   if (_containsAny(text, _removeTerms)) {
     return AppBrainIntent(
       action: AppBrainAction.removeMedicine,
@@ -167,6 +138,64 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   }
 
   if (_containsAny(text, const [
+    'what needs attention',
+    'needs attention',
+    'attention brief',
+    'attention summary',
+    'risk summary',
+    'problem stock',
+    'aaj kya dekhna hai',
+    'aaj kya karna hai',
+    'kya dikkat hai',
+    'क्या देखना है',
+    'आज क्या करना है',
+    'क्या दिक्कत है',
+  ])) {
+    return const AppBrainIntent(
+      action: AppBrainAction.attentionBrief,
+      confidence: .98,
+    );
+  }
+
+  if (_containsAny(text, _scanTerms)) {
+    // Scanner lives inside the authoritative Medicine Database flow. Opening
+    // Stock is safer than inventing a second scan/mutation path in the Brain.
+    return const AppBrainIntent(
+      action: AppBrainAction.navigate,
+      section: AppSection.stock,
+      confidence: .97,
+    );
+  }
+
+  // Category lists (short-expiry / month-expiry / expired / sold) win before
+  // targeted read questions so "short expiry" never becomes a medicine named
+  // "short". This preserves the dashboard projections as authoritative filters.
+  final listIntent = _listIntent(text);
+  if (listIntent != null) return listIntent;
+
+  final operational = _operationalReadIntent(raw, text);
+  if (operational != null) return operational;
+
+  if (_containsAny(text, const [
+    'stock summary',
+    'inventory summary',
+    'stock kitna',
+    'kitna stock',
+    'total medicines',
+    'total medicine',
+    'inventory batao',
+    'stock batao',
+    'कितना स्टॉक',
+    'कुल मेडिसिन',
+    'स्टॉक बताओ',
+  ])) {
+    return const AppBrainIntent(
+      action: AppBrainAction.inventorySummary,
+      confidence: .98,
+    );
+  }
+
+  if (_containsAny(text, const [
     'add medicine',
     'new medicine',
     'medicine add',
@@ -205,9 +234,6 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
-  final listIntent = _listIntent(text);
-  if (listIntent != null) return listIntent;
-
   final section = _sectionIntent(text);
   if (section != null) {
     return AppBrainIntent(
@@ -225,8 +251,9 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
-  // Batch/barcode/location lookups are common enough that a pharmacist should
-  // not need to say the word "search" first.
+  // Batch/barcode/location identifiers are common enough that a pharmacist
+  // should not need to say the word "search" first. Location questions were
+  // already consumed by the operational intent above.
   if (_containsAny(text, _identifierTerms)) {
     final query = _extractMedicineQuery(raw, _identifierTerms);
     return AppBrainIntent(
@@ -247,6 +274,55 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   }
 
   return const AppBrainIntent(action: AppBrainAction.unknown);
+}
+
+AppBrainIntent? _operationalReadIntent(String raw, String text) {
+  // These are intentionally read-only routings. The Brain resolves the phrase
+  // into the existing fuzzy Medicine Database rather than calculating or
+  // mutating hidden state itself.
+  if (_containsAny(text, _locationTerms)) {
+    final query = _extractMedicineQuery(raw, _locationTerms);
+    return AppBrainIntent(
+      action: AppBrainAction.search,
+      query: query,
+      confidence: query.isEmpty ? .76 : .98,
+    );
+  }
+
+  if (_containsAny(text, _stockLookupTerms)) {
+    final query = _extractMedicineQuery(raw, _stockLookupTerms);
+    if (query.isNotEmpty) {
+      return AppBrainIntent(
+        action: AppBrainAction.search,
+        query: query,
+        confidence: .98,
+      );
+    }
+    return const AppBrainIntent(
+      action: AppBrainAction.inventorySummary,
+      confidence: .98,
+    );
+  }
+
+  if (_containsAny(text, _expiryLookupTerms)) {
+    final query = _extractMedicineQuery(raw, _expiryLookupTerms);
+    return AppBrainIntent(
+      action: AppBrainAction.search,
+      query: query,
+      confidence: query.isEmpty ? .76 : .98,
+    );
+  }
+
+  if (_containsAny(text, _fefoTerms)) {
+    final query = _extractMedicineQuery(raw, _fefoTerms);
+    return AppBrainIntent(
+      action: AppBrainAction.search,
+      query: query,
+      confidence: query.isEmpty ? .76 : .99,
+    );
+  }
+
+  return null;
 }
 
 AppBrainIntent? _listIntent(String text) {
@@ -374,18 +450,27 @@ bool isAppBrainContextReference(String raw) {
     'this medicine',
     'same',
     'same one',
+    'same medicine',
     'last one',
     'last medicine',
     'isko',
     'ise',
+    'iska',
+    'iski',
     'usko',
     'usse',
+    'uska',
+    'uski',
     'ye',
     'yeh',
     'wahi',
     'इसको',
     'इसे',
+    'इसका',
+    'इसकी',
     'उसको',
+    'उसका',
+    'उसकी',
     'यही',
     'वही',
   }.contains(text);
@@ -527,6 +612,8 @@ const _fillers = <String>[
   'the',
   'this',
   'that',
+  'hai',
+  'hain',
   'stock',
   'मेडिसिन',
   'दवा',
@@ -535,6 +622,8 @@ const _fillers = <String>[
   'कर दो',
   'मुझे',
   'मेरी',
+  'है',
+  'हैं',
 ];
 
 const _removeTerms = <String>[
@@ -582,6 +671,120 @@ const _editTerms = <String>[
   'बदलो',
 ];
 
+const _analyticsReadTerms = <String>[
+  'sales summary',
+  'sale summary',
+  'sales today',
+  'today sales',
+  'today sale',
+  'aaj ki bikri',
+  'aaj bikri',
+  'bikri batao',
+  'aaj ki sale',
+  'bikri kitni',
+  'sale kitni',
+  'sales report',
+  'sale report',
+  'fast moving',
+  'fastest moving',
+  'top selling',
+  'best selling',
+  'slow moving',
+  'slowest moving',
+  'कम बिक',
+  'तेज बिक',
+  'आज की बिक्री',
+  'बिक्री रिपोर्ट',
+];
+
+const _scanTerms = <String>[
+  'scan medicine',
+  'scan pack',
+  'start scan',
+  'open scanner',
+  'scanner kholo',
+  'scan karo',
+  'barcode scan',
+  'स्कैन करो',
+  'स्कैनर खोलो',
+  'मेडिसिन स्कैन',
+];
+
+const _locationTerms = <String>[
+  'where is',
+  'where are',
+  'location of',
+  'location batao',
+  'location dikhao',
+  'kahan hai',
+  'kidhar hai',
+  'rack kaha',
+  'rack kahan',
+  'shelf kaha',
+  'shelf kahan',
+  'कहाँ है',
+  'किधर है',
+  'लोकेशन बताओ',
+  'रैक कहाँ',
+  'शेल्फ कहाँ',
+];
+
+const _stockLookupTerms = <String>[
+  'how much stock',
+  'stock of',
+  'stock kitna hai',
+  'stock kitna',
+  'kitna stock hai',
+  'kitna stock',
+  'quantity of',
+  'quantity kitni hai',
+  'quantity kitni',
+  'kitni quantity hai',
+  'kitni quantity',
+  'units left',
+  'kitne bache',
+  'kitni bachi',
+  'कितना स्टॉक है',
+  'कितना स्टॉक',
+  'कितनी क्वांटिटी',
+  'कितने बचे',
+];
+
+const _expiryLookupTerms = <String>[
+  'expiry date of',
+  'expiry of',
+  'expiry kab hai',
+  'expiry kab',
+  'expiry batao',
+  'exp date',
+  'exp kab',
+  'kab expire hogi',
+  'kab expire hoga',
+  'kab expire',
+  'एक्सपायरी कब है',
+  'एक्सपायरी कब',
+  'एक्सपायरी बताओ',
+  'कब एक्सपायर',
+];
+
+const _fefoTerms = <String>[
+  'which batch first',
+  'which stock first',
+  'sell which batch first',
+  'dispense which batch first',
+  'first expiry first out',
+  'fefo',
+  'pehle kaunsi batch',
+  'pehle konsi batch',
+  'pehle konsa batch',
+  'kaunsi batch pehle',
+  'konsi batch pehle',
+  'pehle kya nikalu',
+  'पहले कौनसी बैच',
+  'कौनसी बैच पहले',
+  'पहले क्या निकालूं',
+];
+
 const _searchTerms = <String>[
   'search',
   'find',
@@ -589,14 +792,9 @@ const _searchTerms = <String>[
   'dhundo',
   'dikhao',
   'show medicine',
-  'where is',
-  'kahan hai',
-  'kidhar hai',
   'खोजो',
   'ढूंढो',
   'दिखाओ',
-  'कहाँ है',
-  'किधर है',
 ];
 
 const _identifierTerms = <String>[

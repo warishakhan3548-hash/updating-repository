@@ -79,14 +79,20 @@ void main() {
         '9988776655 delete karo',
       );
       await tester.tap(find.byTooltip('Run command').first);
-      await tester.pumpAndSettle();
+      // The command deliberately remains busy while its protected dialog is
+      // open, so pumpAndSettle would wait on the progress indicator forever.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(openedSection, AppSection.stock);
       expect(find.text('Why remove Dolo?'), findsOneWidget);
       expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
 
       await tester.tap(find.text('Damaged'));
-      await tester.pumpAndSettle();
+      // A second protected confirmation is now open while the command is still
+      // busy. Use bounded pumps again and assert the no-mutation boundary.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('Remove Dolo?'), findsOneWidget);
       expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
 

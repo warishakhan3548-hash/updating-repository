@@ -64,6 +64,18 @@ void main() {
       expect(intent.scope, SearchScope.expired);
     });
 
+    test('category expiry commands keep dashboard scope semantics', () {
+      for (final entry in <String, SearchScope>{
+        'short expiry': SearchScope.shortExpiry,
+        'month expiry': SearchScope.monthExpiry,
+      }.entries) {
+        final intent = parseAppBrainIntent(entry.key);
+        expect(intent.action, AppBrainAction.search, reason: entry.key);
+        expect(intent.scope, entry.value, reason: entry.key);
+        expect(intent.query, isEmpty, reason: entry.key);
+      }
+    });
+
     test('routes reorder review locally without treating it as AI advice', () {
       for (final command in [
         'order now',
@@ -78,9 +90,67 @@ void main() {
       }
     });
 
-    test('routes inventory summary locally', () {
+    test('routes targetless inventory summary locally', () {
       final intent = parseAppBrainIntent('stock kitna hai');
       expect(intent.action, AppBrainAction.inventorySummary);
+    });
+
+    test('targeted stock quantity question searches that medicine, not global totals', () {
+      final intent = parseAppBrainIntent('Dolo 650 stock kitna hai');
+      expect(intent.action, AppBrainAction.search);
+      expect(intent.query, 'Dolo 650');
+      expect(intent.scope, SearchScope.all);
+      expect(intent.destructive, isFalse);
+    });
+
+    test('location question becomes an exact local stock lookup', () {
+      final intent = parseAppBrainIntent('Dolo 650 kahan hai');
+      expect(intent.action, AppBrainAction.search);
+      expect(intent.query, 'Dolo 650');
+      expect(intent.confidence, greaterThanOrEqualTo(.98));
+    });
+
+    test('expiry question becomes a local stock lookup without medical inference', () {
+      final intent = parseAppBrainIntent('Dolo 650 expiry kab hai');
+      expect(intent.action, AppBrainAction.search);
+      expect(intent.query, 'Dolo 650');
+      expect(intent.destructive, isFalse);
+    });
+
+    test('FEFO question stays read-only and resolves through inventory search', () {
+      final intent = parseAppBrainIntent('Dolo 650 pehle kaunsi batch');
+      expect(intent.action, AppBrainAction.search);
+      expect(intent.query, 'Dolo 650');
+      expect(intent.confidence, greaterThanOrEqualTo(.99));
+      expect(intent.destructive, isFalse);
+    });
+
+    test('read-only sales and movement language never becomes a sale mutation', () {
+      for (final command in [
+        'aaj ki bikri kitni',
+        'sales report',
+        'fast moving medicines',
+        'slow moving stock',
+      ]) {
+        final intent = parseAppBrainIntent(command);
+        expect(intent.action, AppBrainAction.navigate, reason: command);
+        expect(intent.section, AppSection.calculator, reason: command);
+        expect(intent.destructive, isFalse, reason: command);
+      }
+    });
+
+    test('explicit record-sale command still owns the write path', () {
+      final intent = parseAppBrainIntent('Dolo 650 record sale');
+      expect(intent.action, AppBrainAction.recordSale);
+      expect(intent.query, 'Dolo 650');
+      expect(intent.destructive, isTrue);
+    });
+
+    test('scanner language routes to the authoritative stock surface', () {
+      final intent = parseAppBrainIntent('scanner kholo');
+      expect(intent.action, AppBrainAction.navigate);
+      expect(intent.section, AppSection.stock);
+      expect(intent.destructive, isFalse);
     });
 
     test('routes proactive attention brief locally', () {
@@ -114,9 +184,17 @@ void main() {
     });
 
     test('recognizes safe conversational follow-up references', () {
-      expect(isAppBrainContextReference('isko'), isTrue);
-      expect(isAppBrainContextReference('same one'), isTrue);
-      expect(isAppBrainContextReference('इसको'), isTrue);
+      for (final phrase in [
+        'isko',
+        'same one',
+        'iska',
+        'uski',
+        'इसको',
+        'इसका',
+        'उसकी',
+      ]) {
+        expect(isAppBrainContextReference(phrase), isTrue, reason: phrase);
+      }
       expect(isAppBrainContextReference('Dolo 650'), isFalse);
     });
 
