@@ -254,7 +254,7 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
           if (_error.isNotEmpty) ...[
             const SizedBox(height: 12),
             Surface(
-              color: dangerSoft,
+              color: errorSoft,
               child: Text(_error, style: const TextStyle(color: red)),
             ),
           ],
