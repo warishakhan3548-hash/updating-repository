@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../domain/default_local_model.dart';
+import '../services/aaris_default_ai_service.dart';
 import '../services/local_ai_service.dart';
 
 /// Embedded in the existing AI connections sheet, never a second AI Hub.
@@ -13,6 +15,7 @@ class LocalModelsPanel extends StatefulWidget {
 
 class _LocalModelsPanelState extends State<LocalModelsPanel> {
   final local = LocalAiService.instance;
+  final defaults = AarisDefaultAiService.instance;
   final query = TextEditingController();
   List<String> repositories = [];
   List<LocalModelFile> files = [];
@@ -28,7 +31,12 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
   @override
   void initState() {
     super.initState();
-    unawaited(_run(local.initialize));
+    unawaited(
+      _run(() async {
+        await local.initialize();
+        await defaults.initialize();
+      }),
+    );
   }
 
   @override
@@ -156,9 +164,86 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
       ) ??
       false;
 
+  Widget _defaultAiCard(BuildContext context) => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(top: 12, bottom: 14),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.primaryContainer.withAlpha(70),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(
+        color: Theme.of(context).colorScheme.primary.withAlpha(45),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              defaults.active
+                  ? Icons.offline_bolt_rounded
+                  : Icons.memory_rounded,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(width: 9),
+            const Expanded(
+              child: Text(
+                'Aaris Default Local AI',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+              ),
+            ),
+            if (defaults.active)
+              const Chip(
+                visualDensity: VisualDensity.compact,
+                label: Text('Active'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        Text(
+          defaults.hasDefault
+              ? defaults.status
+              : 'Recommended one-time ~$aarisDefaultModelDownloadHint download. User-selected models can override it; without it Aaris keeps using the offline pharmacy scanner.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: local.busy || local.transferring || defaults.busy
+              ? null
+              : defaults.active
+              ? null
+              : () async {
+                  final proceed = await _confirm(
+                    defaults.hasDefault
+                        ? 'Use Aaris Default AI?'
+                        : 'Download Aaris Default AI?',
+                    defaults.hasDefault
+                        ? 'This switches from the current local model back to the remembered Aaris default. Existing inventory is unchanged.'
+                        : 'This is an explicit ~$aarisDefaultModelDownloadHint internet download. It is verified and activation-tested on this device. If setup fails, the existing offline scanner remains available.',
+                  );
+                  if (proceed) await _run(defaults.installAndActivate);
+                },
+          icon: Icon(
+            defaults.hasDefault
+                ? Icons.play_circle_outline_rounded
+                : Icons.download_rounded,
+          ),
+          label: Text(
+            defaults.active
+                ? 'Default AI active'
+                : defaults.hasDefault
+                ? 'Use default AI'
+                : 'Download & activate default',
+          ),
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: local,
+    animation: Listenable.merge([local, defaults]),
     builder: (context, _) => Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -173,7 +258,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
             const Text(
               'Search/download uses internet. Chat, scans and inventory stay on this device when a local model is selected. No silent external fallback.',
             ),
-            const SizedBox(height: 8),
+            _defaultAiCard(context),
             if (local.hasSelection)
               Text(
                 'Selected: ${local.activeLabel}',
@@ -401,7 +486,9 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(
-                    model.label,
+                    defaults.defaultId == model.id
+                        ? 'Aaris Default AI · ${model.label}'
+                        : model.label,
                     style: const TextStyle(fontSize: 12),
                   ),
                   subtitle: Text(
@@ -463,14 +550,23 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                   onPressed: local.busy || local.transferring
                       ? null
                       : () async {
+                          final hasPersistentDefault = defaults.hasDefault;
                           if (await _confirm(
-                            'Disable local AI routing?',
-                            'Future chat requests will use your existing connected-provider settings, if configured. Disabling does not send any data itself.',
+                            hasPersistentDefault
+                                ? 'Pause local AI routing?'
+                                : 'Disable local AI routing?',
+                            hasPersistentDefault
+                                ? 'The downloaded Aaris Default AI is a persistent fallback and will be restored on the next AI/capture request. To switch permanently to cloud-only behavior, disable here and then remove the default model before leaving settings.'
+                                : 'Future chat requests will use your existing connected-provider settings, if configured. Disabling does not send any data itself.',
                           )) {
                             await _run(local.deactivate);
                           }
                         },
-                  child: const Text('Disable local AI'),
+                  child: Text(
+                    defaults.hasDefault
+                        ? 'Pause local AI'
+                        : 'Disable local AI',
+                  ),
                 ),
             ],
             if (error.isNotEmpty)
