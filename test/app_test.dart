@@ -165,7 +165,7 @@ void main() {
     await tester.pumpWidget(PharmacyApp(controller: c));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    for (final tab in ['Database', 'AI', 'Calculator', 'Profile']) {
+    for (final tab in ['Add & Remove', 'Scan', 'Activity', 'Profile']) {
       await tester.tap(find.text(tab).last);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'Overflow in $tab');
@@ -173,7 +173,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();
   });
-  testWidgets('Tracking and AI hub have reviewable screenshots', (
+  testWidgets('Activity and Brain hub have reviewable screenshots', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -189,17 +189,18 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Calculator'));
+    await tester.tap(find.text('Activity'));
     await tester.pumpAndSettle();
-    await screenshot(tester, key, 'tracking');
-    await tester.tap(find.text('AI').last);
+    await screenshot(tester, key, 'activity');
+    await tester.tap(find.byTooltip('Aaris Brain'));
     await tester.pumpAndSettle();
-    await screenshot(tester, key, 'ai-controller');
+    expect(find.text('Aaris Brain'), findsOneWidget);
+    await screenshot(tester, key, 'brain-controller');
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();
   });
   testWidgets(
-    'Database, Profile, import and backup share the same visual system',
+    'Add & Remove, Profile, import and backup share the same visual system',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
@@ -214,11 +215,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      for (final tab in ['Database', 'Profile']) {
-        await tester.tap(find.text(tab).last);
+      for (final entry in const {
+        'add-remove': 'Add & Remove',
+        'profile': 'Profile',
+      }.entries) {
+        await tester.tap(find.text(entry.value).last);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        await screenshot(tester, key, tab.toLowerCase());
+        await screenshot(tester, key, entry.key);
       }
       for (final entry in <String, Widget>{
         'import': ImportCenterScreen(controller: c),
