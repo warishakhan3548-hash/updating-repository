@@ -100,6 +100,8 @@ void main() {
       expect(digest.issueCount, 0);
       expect(digest.hasUrgentWork, isFalse);
       expect(digest.hasNextTask, isFalse);
+      expect(digest.needsProminentSignal, isFalse);
+      expect(digest.navigationBadgeCount, 0);
       expect(digest.accessibilitySummary, contains('no current attention items'));
     });
 
@@ -130,6 +132,48 @@ void main() {
       );
 
       expect(first.sameOperationalState(second), isTrue);
+    });
+
+    test('worker result keeps exact next-task identity across isolate boundary', () {
+      final digest = AarisAutopilotDigest.fromWorker(
+        inventoryRevision: 45,
+        evaluatedAt: DateTime(2026, 9, 10, 10),
+        result: <String, dynamic>{
+          'health': 'attention',
+          'issueCount': 3,
+          'criticalCount': 0,
+          'highCount': 1,
+          'mediumCount': 2,
+          'lowCount': 0,
+          'blockedCount': 1,
+          'verificationCount': 1,
+          'nextTaskKey': 'barcode:890123',
+          'nextTaskTitle': 'Barcode 890123 needs identity review',
+          'nextAction': 'Verify the physical packs.',
+          'nextLane': 'Verify facts',
+          'nextKind': AttentionKind.barcodeConflict.name,
+          'nextStockIds': <String>['s1', 's2'],
+        },
+      );
+
+      expect(digest.inventoryRevision, 45);
+      expect(digest.nextKind, AttentionKind.barcodeConflict);
+      expect(digest.nextStockIds, <String>['s1', 's2']);
+      expect(digest.nextTaskIsExactStock, isFalse);
+      expect(digest.navigationBadgeCount, 3);
+    });
+
+    test('autopilot calculation failure is fail-visible, never a false clear', () {
+      final digest = AarisAutopilotDigest.degraded(
+        inventoryRevision: 46,
+        evaluatedAt: DateTime(2026, 9, 10, 10),
+      );
+
+      expect(digest.health, AarisAutopilotHealth.degraded);
+      expect(digest.issueCount, 0);
+      expect(digest.needsProminentSignal, isTrue);
+      expect(digest.navigationBadgeCount, 1);
+      expect(digest.accessibilitySummary, contains('retry'));
     });
   });
 }
