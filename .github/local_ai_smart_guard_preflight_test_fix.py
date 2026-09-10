@@ -33,9 +33,12 @@ new = '''  final healthy = planLocalExecution(
     metadata: model,
     phone: true,
     totalMemory: 4 * gib,
-    availableMemory: 512 * 1024 * 1024,
+    availableMemory: 400 * 1024 * 1024,
   );
-  check(tight.contextTokens == 512, 'Context can fall back to 512 under pressure');
+  check(
+    tight.contextTokens == 512 && tight.memoryWarning,
+    'Context can fall back to 512 and warn instead of hard-blocking under pressure',
+  );
   check(
     tight.outputTokens == 160 &&
         tight.inventoryRows == 1 &&
