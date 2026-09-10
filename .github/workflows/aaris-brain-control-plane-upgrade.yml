@@ -22,35 +22,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Apply surgical source patch
-        shell: bash
         run: |
-          set -euo pipefail
           python3 tool/one_shot_brain_control_plane_upgrade.py
-          python3 - <<'PY'
-          from pathlib import Path
-          brain = Path('lib/ui/brain_screen.dart')
-          text = brain.read_text().replace("import '../domain/warning_policy.dart';\n", '')
-          brain.write_text(text)
-
-          policy = Path('lib/domain/warning_policy.dart')
-          text = policy.read_text()
-          anchor = """  if (dayValues.length > 1) {
-"""
-          insertion = """  final numericTokens = RegExp(
-    r'(?:^|[^0-9])([0-9]{1,3})(?=$|[^0-9])',
-  ).allMatches(ascii).length;
-  if (numericTokens != dayValues.length + monthValues.length) {
-    throw const FormatException(
-      'Every expiry-warning number must have an explicit day or month unit.',
-    );
-  }
-
-  if (dayValues.length > 1) {
-"""
-          if text.count(anchor) != 1:
-              raise SystemExit('warning policy ambiguity anchor missing')
-          policy.write_text(text.replace(anchor, insertion, 1))
-          PY
+          python3 tool/brain_control_plane_v2_fix.py
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
