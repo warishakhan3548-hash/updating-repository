@@ -369,6 +369,10 @@ LocalExecutionPlan planLocalExecution({
       availableMemory != null &&
       totalMemory >= 8 * 1024 * _mib &&
       availableMemory >= (totalMemory * .30).floor();
+  final ultraHighEndPhone =
+      highEndPhone &&
+      totalMemory! >= 16 * 1024 * _mib &&
+      availableMemory! >= (totalMemory * .40).floor();
 
   final totalBudget = totalMemory == null ? null : (totalMemory * .65).floor();
   final availableBudget = availableMemory == null
@@ -392,10 +396,12 @@ LocalExecutionPlan planLocalExecution({
   final contexts = phone
       ? constrainedPhone
             ? const [2048]
+            : ultraHighEndPhone
+            ? const [16384, 12288, 8192, 6144, 4096, 3072, 2048]
             : highEndPhone
             ? const [8192, 6144, 4096, 3072, 2048]
             : const [4096, 3072, 2048]
-      : const [8192, 6144, 4096, 3072, 2048];
+      : const [16384, 12288, 8192, 6144, 4096, 3072, 2048];
 
   for (final context in contexts) {
     if (metadata.contextLength != null && context > metadata.contextLength!) {
