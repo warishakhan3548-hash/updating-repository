@@ -82,6 +82,7 @@ class AiConfiguration {
 
 class AiService {
   static const _storage = FlutterSecureStorage();
+  static const _maxResponseBytes = 1500000;
   http.Client? _client;
   bool _localRequest = false;
   int _cancelEpoch = 0;
@@ -133,6 +134,9 @@ class AiService {
     String instruction, {
     required LocalInventoryContext localContext,
     String conversation = '',
+    void Function(String delta)? onDelta,
+    void Function()? onStreamStarted,
+    void Function()? onStreamReset,
   }) async {
     final local = LocalAiService.instance;
 
@@ -151,6 +155,9 @@ class AiService {
         localContext,
         instruction,
         conversation: conversation,
+        onDelta: onDelta,
+        onStreamStarted: onStreamStarted,
+        onStreamReset: onStreamReset,
       );
     }
 
@@ -188,6 +195,8 @@ class AiService {
           data: data,
           instruction: instruction,
           cancelEpoch: cancelEpoch,
+          onDelta: onDelta,
+          onStreamStarted: onStreamStarted,
         );
       } on TimeoutException catch (error) {
         lastTransientError = error;
@@ -210,6 +219,7 @@ class AiService {
         if (identical(_client, client)) _client = null;
       }
 
+      _safeReset(onStreamReset);
       await Future<void>.delayed(const Duration(milliseconds: 350));
     }
 
@@ -223,6 +233,9 @@ class AiService {
     LocalInventoryContext context,
     String instruction, {
     required String conversation,
+    void Function(String delta)? onDelta,
+    void Function()? onStreamStarted,
+    void Function()? onStreamReset,
   }) async {
     if (instruction.trim().isEmpty) {
       throw const FormatException('Describe what you want the AI to do.');
@@ -233,11 +246,22 @@ class AiService {
     try {
       for (var attempt = 0; attempt < 2; attempt++) {
         _throwIfCancelled(cancelEpoch);
+        var streamStarted = false;
         try {
           return await local.ask(
             context,
             instruction,
             conversation: conversation,
+            onToken: onDelta == null && onStreamStarted == null
+                ? null
+                : (token) {
+                    _throwIfCancelled(cancelEpoch);
+                    if (!streamStarted) {
+                      streamStarted = true;
+                      _safeStart(onStreamStarted);
+                    }
+                    _safeDelta(onDelta, token);
+                  },
           );
         } catch (error, stack) {
           _throwIfCancelled(cancelEpoch);
@@ -261,6 +285,7 @@ class AiService {
             Error.throwWithStackTrace(error, stack);
           }
           _throwIfCancelled(cancelEpoch);
+          _safeReset(onStreamReset);
           await Future<void>.delayed(const Duration(milliseconds: 120));
         }
       }
@@ -311,9 +336,120 @@ class AiService {
     required PharmacyExport data,
     required String instruction,
     required int cancelEpoch,
+    void Function(String delta)? onDelta,
+    void Function()? onStreamStarted,
   }) async {
+    final streamed = await client
+        .send(
+          _cloudRequest(
+            config: config,
+            endpoint: endpoint,
+            data: data,
+            instruction: instruction,
+            stream: true,
+          ),
+        )
+        .timeout(const Duration(seconds: 60));
+    _throwIfCancelled(cancelEpoch);
+
+    // Some OpenAI-compatible servers implement chat/completions but not SSE.
+    // A read-only request can safely fall back once to the old buffered shape
+    // for explicit streaming-capability errors. Auth/quota/server failures are
+    // never hidden behind a second request.
+    if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+      final canFallback =
+          config.provider != 'Gemini' &&
+          const {400, 404, 405, 415, 422}.contains(streamed.statusCode);
+      await streamed.stream.drain<void>().timeout(const Duration(seconds: 20));
+      if (canFallback) {
+        _throwIfCancelled(cancelEpoch);
+        return _askCloudBufferedOnce(
+          client: client,
+          config: config,
+          endpoint: endpoint,
+          data: data,
+          instruction: instruction,
+          cancelEpoch: cancelEpoch,
+          onDelta: onDelta,
+          onStreamStarted: onStreamStarted,
+        );
+      }
+      throw StateError(
+        'AI provider returned HTTP ${streamed.statusCode}. Check the model, key, quota and endpoint.',
+      );
+    }
+
+    final contentType = streamed.headers['content-type']?.toLowerCase() ?? '';
+    if (contentType.contains('text/event-stream') ||
+        contentType.contains('ndjson') ||
+        contentType.contains('json-seq')) {
+      return _readCloudEventStream(
+        response: streamed,
+        config: config,
+        cancelEpoch: cancelEpoch,
+        onDelta: onDelta,
+        onStreamStarted: onStreamStarted,
+      );
+    }
+
+    // A compatible server may ignore `stream:true` and return its normal JSON
+    // envelope. Accept that response instead of turning capability variance into
+    // a false Connection Failed error.
+    final bytes = await _readBoundedBytes(streamed, cancelEpoch);
+    final text = _decodeBufferedCloud(config, bytes);
+    if (text.isNotEmpty) {
+      _safeStart(onStreamStarted);
+      _safeDelta(onDelta, text);
+    }
+    return text;
+  }
+
+  Future<String> _askCloudBufferedOnce({
+    required http.Client client,
+    required AiConfiguration config,
+    required Uri endpoint,
+    required PharmacyExport data,
+    required String instruction,
+    required int cancelEpoch,
+    void Function(String delta)? onDelta,
+    void Function()? onStreamStarted,
+  }) async {
+    final response = await client
+        .send(
+          _cloudRequest(
+            config: config,
+            endpoint: endpoint,
+            data: data,
+            instruction: instruction,
+            stream: false,
+          ),
+        )
+        .timeout(const Duration(seconds: 60));
+    _throwIfCancelled(cancelEpoch);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      await response.stream.drain<void>().timeout(const Duration(seconds: 20));
+      throw StateError(
+        'AI provider returned HTTP ${response.statusCode}. Check the model, key, quota and endpoint.',
+      );
+    }
+    final bytes = await _readBoundedBytes(response, cancelEpoch);
+    final text = _decodeBufferedCloud(config, bytes);
+    if (text.isNotEmpty) {
+      _safeStart(onStreamStarted);
+      _safeDelta(onDelta, text);
+    }
+    return text;
+  }
+
+  http.Request _cloudRequest({
+    required AiConfiguration config,
+    required Uri endpoint,
+    required PharmacyExport data,
+    required String instruction,
+    required bool stream,
+  }) {
     final payload = '${data.content}\n\nOWNER REQUEST:\n$instruction';
-    final body = config.provider == 'Gemini'
+    final Map<String, dynamic> body = config.provider == 'Gemini'
         ? {
             'system_instruction': {
               'parts': [
@@ -336,41 +472,143 @@ class AiService {
               {'role': 'system', 'content': data.prompt},
               {'role': 'user', 'content': payload},
             ],
+            if (stream) 'stream': true,
           };
 
-    final request = http.Request('POST', endpoint)
+    final target = config.provider == 'Gemini' && stream
+        ? endpoint.replace(
+            path: endpoint.path.replaceFirst(
+              ':generateContent',
+              ':streamGenerateContent',
+            ),
+            queryParameters: const {'alt': 'sse'},
+          )
+        : endpoint;
+    return http.Request('POST', target)
       ..followRedirects = false
       ..headers.addAll({
         'Content-Type': 'application/json',
+        if (stream) 'Accept': 'text/event-stream',
         if (config.provider == 'Gemini')
           'x-goog-api-key': config.key
         else
           'Authorization': 'Bearer ${config.key}',
       })
       ..body = jsonEncode(body);
+  }
 
-    final response = await client
-        .send(request)
-        .timeout(const Duration(seconds: 60));
+  Future<String> _readCloudEventStream({
+    required http.StreamedResponse response,
+    required AiConfiguration config,
+    required int cancelEpoch,
+    void Function(String delta)? onDelta,
+    void Function()? onStreamStarted,
+  }) async {
+    final output = StringBuffer();
+    var wireCharacters = 0;
+    var started = false;
+    await for (final line in utf8.decoder
+        .bind(response.stream)
+        .transform(const LineSplitter())
+        .timeout(const Duration(seconds: 60))) {
+      _throwIfCancelled(cancelEpoch);
+      wireCharacters += line.length;
+      if (wireCharacters > _maxResponseBytes) {
+        throw StateError('AI response is too large. Ask for fewer changes.');
+      }
+      var dataLine = line.trim();
+      if (dataLine.isEmpty || dataLine.startsWith(':')) continue;
+      if (dataLine.startsWith('data:')) {
+        dataLine = dataLine.substring(5).trimLeft();
+      }
+      if (dataLine.isEmpty || dataLine == '[DONE]') continue;
+
+      Map<String, dynamic> event;
+      try {
+        final decoded = jsonDecode(dataLine);
+        if (decoded is! Map) continue;
+        event = Map<String, dynamic>.from(decoded);
+      } on FormatException {
+        // Non-data SSE fields (event:, id:, retry:) and provider keepalive text
+        // are transport metadata, not assistant output.
+        continue;
+      }
+      final delta = _cloudDelta(config, event);
+      if (delta.isEmpty) continue;
+      if (!started) {
+        started = true;
+        _safeStart(onStreamStarted);
+      }
+      output.write(delta);
+      if (output.length > _maxResponseBytes) {
+        throw StateError('AI response is too large. Ask for fewer changes.');
+      }
+      _safeDelta(onDelta, delta);
+    }
     _throwIfCancelled(cancelEpoch);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
+    final text = output.toString();
+    if (text.trim().isEmpty) {
       throw StateError(
-        'AI provider returned HTTP ${response.statusCode}. Check the model, key, quota and endpoint.',
+        'The AI stream ended without a usable response. No inventory changes were made.',
       );
     }
+    return text;
+  }
 
+  String _cloudDelta(AiConfiguration config, Map<String, dynamic> event) {
+    final candidates = event['candidates'];
+    if (config.provider == 'Gemini') {
+      if (candidates is! List || candidates.isEmpty) return '';
+      final first = candidates.first;
+      if (first is! Map) return '';
+      final content = first['content'];
+      if (content is! Map) return '';
+      final parts = content['parts'];
+      if (parts is! List) return '';
+      return parts
+          .whereType<Map>()
+          .map((part) => part['text'])
+          .whereType<String>()
+          .join();
+    }
+
+    final choices = event['choices'];
+    if (choices is! List || choices.isEmpty) return '';
+    final first = choices.first;
+    if (first is! Map) return '';
+    final delta = first['delta'];
+    final message = first['message'];
+    final content = delta is Map ? delta['content'] : message is Map ? message['content'] : null;
+    if (content is String) return content;
+    if (content is List) {
+      return content
+          .whereType<Map>()
+          .map((part) => part['text'])
+          .whereType<String>()
+          .join();
+    }
+    return '';
+  }
+
+  Future<List<int>> _readBoundedBytes(
+    http.StreamedResponse response,
+    int cancelEpoch,
+  ) async {
     final bytes = <int>[];
     await for (final chunk in response.stream.timeout(
       const Duration(seconds: 60),
     )) {
       _throwIfCancelled(cancelEpoch);
       bytes.addAll(chunk);
-      if (bytes.length > 1500000) {
+      if (bytes.length > _maxResponseBytes) {
         throw StateError('AI response is too large. Ask for fewer changes.');
       }
     }
-
     _throwIfCancelled(cancelEpoch);
+    return bytes;
+  }
+
+  String _decodeBufferedCloud(AiConfiguration config, List<int> bytes) {
     final decoded = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
     if (config.provider == 'Gemini') {
       final candidates = decoded['candidates'] as List?;
@@ -396,21 +634,25 @@ class AiService {
     }
     return content;
   }
-}
 
-Future<void> sharePharmacy(PharmacyExport data) async {
-  await Clipboard.setData(ClipboardData(text: data.prompt));
-  await SharePlus.instance.share(
-    ShareParams(
-      title: 'Aaris Pharmacy inventory',
-      text: data.prompt,
-      files: [
-        XFile.fromData(
-          utf8.encode('${data.prompt}\n\n${data.content}'),
-          mimeType: 'text/plain',
-        ),
-      ],
-      fileNameOverrides: [data.fileName],
-    ),
-  );
+  void _safeStart(void Function()? callback) {
+    if (callback == null) return;
+    try {
+      callback();
+    } catch (_) {}
+  }
+
+  void _safeReset(void Function()? callback) {
+    if (callback == null) return;
+    try {
+      callback();
+    } catch (_) {}
+  }
+
+  void _safeDelta(void Function(String delta)? callback, String delta) {
+    if (callback == null || delta.isEmpty) return;
+    try {
+      callback(delta);
+    } catch (_) {}
+  }
 }
