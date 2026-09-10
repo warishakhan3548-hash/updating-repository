@@ -222,8 +222,9 @@ String _receiveBlock(Medicine record, MedicineScanDraft draft, DateTime today) {
   if (draft.overallConfidence < .78) {
     return 'The scan is low confidence; review the exact pack before changing stock.';
   }
-  if (draft.fields.values.any((field) =>
-      field.value.trim().isNotEmpty && field.conflicted)) {
+  if (draft.fields.values.any(
+    (field) => field.value.trim().isNotEmpty && field.conflicted,
+  )) {
     return 'The scan contains conflicting OCR evidence; review it before changing stock.';
   }
   return '';
@@ -292,6 +293,37 @@ IntakeResolution resolveIntakeDraft({
     if (!_identityCompatible(draft, record)) continue;
     if (barcodeMatches.isNotEmpty && !barcodeMatches.contains(record)) continue;
     productMatches.add(record);
+  }
+
+  // A batch number is a physical-lot anchor only inside a compatible product.
+  // If that exact trusted batch is already saved but another trusted pack fact
+  // disagrees, treating the scan as a harmless "new batch" would duplicate a
+  // contradictory lot and weaken FEFO. Fail closed and make the pharmacist
+  // resolve the conflict first.
+  final trustedBatch = _trustedText(
+    draft,
+    'batchNumber',
+    minimum: _trustedLotConfidence,
+  );
+  if (trustedBatch.isNotEmpty) {
+    final conflictingSameBatch = productMatches
+        .where(
+          (record) =>
+              record.batchNumber.trim().isNotEmpty &&
+              _sameText(trustedBatch, record.batchNumber) &&
+              _lotFactsContradict(draft, record),
+        )
+        .toList(growable: false);
+    if (conflictingSameBatch.isNotEmpty) {
+      final ids = conflictingSameBatch.map((record) => record.id).toList()
+        ..sort();
+      return IntakeResolution(
+        kind: IntakeResolutionKind.needsReview,
+        candidateStockIds: List.unmodifiable(ids),
+        reason:
+            'This trusted batch number already exists, but the scanned pack disagrees with saved lot facts such as MFG, EXP, barcode, brand or manufacturer. Verify the physical pack and correct the existing lot instead of creating or receiving stock automatically.',
+      );
+    }
   }
 
   final exact = productMatches
