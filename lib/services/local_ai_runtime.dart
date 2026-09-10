@@ -13,7 +13,8 @@ class LocalAiRuntime {
   LocalAiRuntime({LlamaEngine engine = const LibLlamaCpp()}) : _engine = engine;
 
   static const _terminalErrorDrainBudget = Duration(seconds: 15);
-  static const _maxResponseCharacters = 32000;
+  static const _maxVisibleResponseCharacters = 32000;
+  static const _maxRawResponseCharacters = 128000;
 
   final LlamaEngine _engine;
   StreamController<LlamaCommand>? _commands;
@@ -68,18 +69,23 @@ class LocalAiRuntime {
           // response buffer while waiting for Done to close the lease.
           if (_commandError != null) return;
           _rawResponseCharacters += response.text.length;
-          if (_rawResponseCharacters > _maxResponseCharacters) {
+          if (_rawResponseCharacters > _maxRawResponseCharacters) {
             _commandError ??= StateError(
-              'Local response exceeds the safety limit.',
+              'Local model emitted too much raw output before completing the answer.',
             );
             _armStallWatchdog(epoch, _terminalErrorDrainBudget);
           } else {
             // Reasoning-capable GGUF models can emit a private <think>,
             // <analysis> or <reasoning> envelope before their actual answer.
             // Strip that envelope incrementally, including tags split across
-            // native token boundaries. This keeps hidden chain-of-thought out of
-            // chat streaming and also gives JSON consumers a clean first byte.
+            // native token boundaries. Hidden reasoning has its own larger raw
+            // guard, while the user-visible answer keeps the strict 32K bound.
+            // This lets reasoning-heavy models finish without exposing or
+            // counting their private envelope as visible response text.
             _emitVisible(_reasoningFilter.add(response.text));
+            if (_commandError != null) {
+              _armStallWatchdog(epoch, _terminalErrorDrainBudget);
+            }
           }
         } else if (response is LlamaStateChangedResponse) {
           _touchStallWatchdog(epoch);
@@ -127,6 +133,12 @@ class LocalAiRuntime {
 
   void _emitVisible(String value) {
     if (value.isEmpty || _commandError != null) return;
+    if (_text.length + value.length > _maxVisibleResponseCharacters) {
+      _commandError ??= StateError(
+        'Local visible response exceeds the safety limit.',
+      );
+      return;
+    }
     _text.write(value);
     // Emit only tokens owned by this transport epoch. A consumer callback is
     // observational and can never be allowed to crash inference.
