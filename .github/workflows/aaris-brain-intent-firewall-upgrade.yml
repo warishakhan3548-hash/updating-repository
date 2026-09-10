@@ -1,0 +1,903 @@
+name: Aaris Brain intent firewall upgrade
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aaris-brain-intent-firewall-upgrade.yml
+permissions:
+  contents: write
+concurrency:
+  group: aaris-brain-intent-firewall-upgrade
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Start Aaris Brain intent firewall upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Apply intent firewall and work-orchestration upgrade
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          from textwrap import dedent, indent
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one patch anchor, found {count}')
+              file.write_text(text.replace(old, new), encoding='utf-8')
+
+          def replace_between(path: str, start: str, end: str, replacement: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              start_index = text.find(start)
+              if start_index < 0:
+                  raise SystemExit(f'{path}: start anchor not found: {start!r}')
+              end_index = text.find(end, start_index)
+              if end_index < 0:
+                  raise SystemExit(f'{path}: end anchor not found: {end!r}')
+              if text.find(start, start_index + len(start)) >= 0:
+                  raise SystemExit(f'{path}: start anchor is not unique')
+              file.write_text(
+                  text[:start_index] + replacement + text[end_index:],
+                  encoding='utf-8',
+              )
+
+          app = 'lib/domain/app_brain.dart'
+          replace_once(
+              app,
+              '''enum AppBrainAction {\n  unknown,\n  navigate,''',
+              '''enum AppBrainAction {\n  unknown,\n  safetyBlocked,\n  navigate,''',
+          )
+          replace_once(
+              app,
+              '''  inventorySummary,\n  attentionBrief,\n  bulkRemoveBlocked,\n}\n\nclass AppBrainIntent {''',
+              dedent('''\
+                inventorySummary,
+                attentionBrief,
+                nextAttentionTask,
+                bulkRemoveBlocked,
+              }
+
+              enum AppBrainSafetyReason {
+                negatedMutation,
+                deferredMutation,
+                compoundMutation,
+              }
+
+              extension AppBrainSafetyReasonMessage on AppBrainSafetyReason {
+                String get message => switch (this) {
+                  AppBrainSafetyReason.negatedMutation =>
+                    'Nothing changed. Aaris understood a negative instruction (“don’t / mat / nahi”), so no inventory action or navigation was started. Say the positive action only when you actually want a reviewed change.',
+                  AppBrainSafetyReason.deferredMutation =>
+                    'Nothing changed. That inventory instruction is conditional or scheduled for later. Aaris never executes “if / when / kal / later” as if it means now; open the action again when it is actually due.',
+                  AppBrainSafetyReason.compoundMutation =>
+                    'Nothing changed. That sentence contains more than one inventory-changing operation. Aaris will not execute only the first half of a compound command. Run one reviewed operation at a time so each exact stock target and before/after state is confirmed.',
+                };
+              }
+
+              class AppBrainIntent {'''),
+          )
+          replace_once(
+              app,
+              '''    this.locationPatch,\n    this.removalReason,\n    this.confidence = 0,''',
+              '''    this.locationPatch,\n    this.removalReason,\n    this.safetyReason,\n    this.confidence = 0,''',
+          )
+          replace_once(
+              app,
+              '''  final StockLocationPatch? locationPatch;\n  final RemovalReasonHint? removalReason;\n  final double confidence;''',
+              '''  final StockLocationPatch? locationPatch;\n  final RemovalReasonHint? removalReason;\n  final AppBrainSafetyReason? safetyReason;\n  final double confidence;''',
+          )
+          replace_once(
+              app,
+              '''  if (text.isEmpty) {\n    return const AppBrainIntent(action: AppBrainAction.unknown);\n  }\n\n  if (_containsAny(text, const [''',
+              '''  if (text.isEmpty) {\n    return const AppBrainIntent(action: AppBrainAction.unknown);\n  }\n\n  // Natural-language writes pass through an intent firewall before routing.\n  // Negated, conditional/future and multi-write commands must never be\n  // reinterpreted as an immediate mutation merely because they contain a\n  // familiar verb. This guard is deterministic and runs before target search.\n  final safetyReason = _brainSafetyBlock(raw, text);\n  if (safetyReason != null) {\n    return AppBrainIntent(\n      action: AppBrainAction.safetyBlocked,\n      safetyReason: safetyReason,\n      confidence: 1,\n    );\n  }\n\n  if (_containsAny(text, const [''',
+          )
+          replace_once(
+              app,
+              '''  if (_containsAny(text, _attentionTerms)) {\n    return const AppBrainIntent(\n      action: AppBrainAction.attentionBrief,\n      confidence: .98,\n    );\n  }''',
+              '''  if (_containsAny(text, _nextTaskTerms)) {\n    return const AppBrainIntent(\n      action: AppBrainAction.nextAttentionTask,\n      confidence: .99,\n    );\n  }\n\n  if (_containsAny(text, _attentionTerms)) {\n    return const AppBrainIntent(\n      action: AppBrainAction.attentionBrief,\n      confidence: .98,\n    );\n  }''',
+          )
+
+          context_and_firewall = dedent('''\
+          bool isAppBrainContextReference(String raw) {
+            final text = _normalized(raw);
+            if (text.isEmpty) return false;
+            if (_contextReferencePhrases.contains(text) ||
+                _contextReferenceCores.contains(text)) {
+              return true;
+            }
+
+            // Human commands often retain harmless grammar after the action words
+            // are removed: “us medicine me”, “woh wali”, “that stock entry”. Strip
+            // only a closed list of grammatical wrapper tokens, then require the
+            // remainder to be a known deictic reference. A medicine name such as
+            // “Usman” can therefore never become implicit context by prefix match.
+            final reduced = text
+                .split(' ')
+                .where(
+                  (token) =>
+                      token.isNotEmpty && !_contextReferenceGlue.contains(token),
+                )
+                .join(' ');
+            return _contextReferenceCores.contains(reduced) ||
+                _contextReferencePhrases.contains(reduced);
+          }
+
+          AppBrainSafetyReason? _brainSafetyBlock(String raw, String text) {
+            final families = <String>{};
+            final locationMutation = _looksLikeLocationMutation(text);
+
+            // “location hata do” is a location clear, not a medicine removal.
+            // Explicit delete/remove/archive wording still counts as a separate
+            // family, so “delete Dolo and set location…” is rejected as compound.
+            if (_containsAny(text, _removeTerms) &&
+                (!locationMutation ||
+                    _containsAny(text, _unambiguousRemoveSafetyTerms))) {
+              families.add('remove');
+            }
+            if (_containsAny(text, _soldTerms)) families.add('sold');
+            if (_containsAny(text, _imperativeSaleTerms) ||
+                _containsAny(text, _saleTerms)) {
+              families.add('sale');
+            }
+            if (_containsAny(text, _editTerms)) families.add('edit');
+            if (_containsAny(text, _restoreTerms)) families.add('restore');
+            if (_containsAny(text, _undoSafetyTerms)) families.add('undo');
+            if (_setQuantityPatterns.any((pattern) => pattern.hasMatch(raw))) {
+              families.add('set-quantity');
+            }
+            if (_receiveStockPatterns.any((pattern) => pattern.hasMatch(raw))) {
+              families.add('receive-stock');
+            }
+            if (locationMutation) families.add('relocate');
+
+            if (families.isEmpty) return null;
+
+            if (_containsAny(text, _negativeWriteSafetyTerms)) {
+              return AppBrainSafetyReason.negatedMutation;
+            }
+            if (_containsAny(text, _deferredWriteSafetyTerms) ||
+                _looksLikeScheduledMutation(raw)) {
+              return AppBrainSafetyReason.deferredMutation;
+            }
+
+            final sequencedOrChoice = _containsAny(
+              text,
+              _sequenceOrChoiceSafetyTerms,
+            );
+
+            // “undo last remove” describes the previous operation, not two new
+            // writes. Only collapse this shape when Undo leads the sentence and
+            // there is no explicit sequence/choice connector.
+            if (families.contains('undo') &&
+                families.length > 1 &&
+                !sequencedOrChoice &&
+                _startsWithAnyPhrase(text, _undoSafetyTerms)) {
+              families
+                ..clear()
+                ..add('undo');
+            }
+
+            // Existing “remove … sold out / stock finished” language intentionally
+            // routes to whole-stock SOLD. Preserve that single lifecycle intent,
+            // but never collapse an explicit “delete OR mark sold” choice.
+            if (families.contains('remove') &&
+                families.contains('sold') &&
+                !sequencedOrChoice &&
+                detectRemovalReason(raw) == RemovalReasonHint.soldOut) {
+              families.remove('remove');
+            }
+
+            if (families.length > 1) {
+              return AppBrainSafetyReason.compoundMutation;
+            }
+            return null;
+          }
+
+          bool _looksLikeLocationMutation(String text) =>
+              _containsAny(text, _locationSafetyNouns) &&
+              _containsAny(text, _locationSafetyVerbs);
+
+          bool _looksLikeScheduledMutation(String raw) => RegExp(
+            r'\\b(?:at\\s+)?(?:[01]?\\d|2[0-3])(?::[0-5]\\d)?\\s*(?:a\\.?m\\.?|p\\.?m\\.?)\\b',
+            caseSensitive: false,
+          ).hasMatch(raw);
+
+          bool _startsWithAnyPhrase(String text, List<String> phrases) =>
+              phrases.any((phrase) {
+                final needle = _normalized(phrase);
+                return text == needle || text.startsWith('$needle ');
+              });
+
+          const _contextReferenceCores = <String>{
+            'this',
+            'it',
+            'that',
+            'same',
+            'selected',
+            'last',
+            'previous',
+            'isko',
+            'ise',
+            'iska',
+            'iski',
+            'issi',
+            'us',
+            'usko',
+            'usse',
+            'uska',
+            'uski',
+            'usi',
+            'ye',
+            'yeh',
+            'yahi',
+            'woh',
+            'wo',
+            'vo',
+            'voh',
+            'wahi',
+            'wohi',
+            'इसको',
+            'इसे',
+            'इसका',
+            'इसकी',
+            'इसी',
+            'उस',
+            'उसको',
+            'उससे',
+            'उसका',
+            'उसकी',
+            'उसी',
+            'ये',
+            'यह',
+            'यही',
+            'वो',
+            'वह',
+            'वही',
+          };
+
+          const _contextReferencePhrases = <String>{
+            'this one',
+            'this medicine',
+            'that one',
+            'that medicine',
+            'same one',
+            'same medicine',
+            'the same',
+            'the same one',
+            'selected one',
+            'selected medicine',
+            'last one',
+            'last medicine',
+            'previous one',
+            'previous medicine',
+            'jo select kiya',
+            'jo select kiya tha',
+            'जिसे सिलेक्ट किया',
+            'जिसे सेलेक्ट किया',
+          };
+
+          const _contextReferenceGlue = <String>{
+            'the',
+            'one',
+            'medicine',
+            'medicines',
+            'stock',
+            'entry',
+            'batch',
+            'dawa',
+            'dawai',
+            'ko',
+            'me',
+            'mein',
+            'par',
+            'pe',
+            'wali',
+            'waali',
+            'wala',
+            'waala',
+            'hi',
+            'karna',
+            'karni',
+            'karne',
+            'karo',
+            'kar',
+            'do',
+            'hai',
+            'hain',
+            'tha',
+            'thi',
+            'दवा',
+            'मेडिसिन',
+            'स्टॉक',
+            'एंट्री',
+            'बैच',
+            'को',
+            'में',
+            'पर',
+            'पे',
+            'वाली',
+            'वाला',
+            'ही',
+            'करना',
+            'करनी',
+            'करने',
+            'करो',
+            'कर',
+            'दो',
+            'है',
+            'हैं',
+            'था',
+            'थी',
+          };
+
+          const _negativeWriteSafetyTerms = <String>[
+            'do not',
+            'don t',
+            'dont',
+            'never',
+            'not',
+            'mat',
+            'mat karo',
+            'mat karna',
+            'nahi',
+            'nahin',
+            'na karo',
+            'na karna',
+            'मत',
+            'मत करो',
+            'मत करना',
+            'नहीं',
+            'ना करो',
+            'ना करना',
+          ];
+
+          const _deferredWriteSafetyTerms = <String>[
+            'what if',
+            'if',
+            'only if',
+            'when',
+            'whenever',
+            'later',
+            'tomorrow',
+            'next week',
+            'next month',
+            'next year',
+            'after some time',
+            'schedule for',
+            'scheduled for',
+            'agar',
+            'jab',
+            'kal',
+            'baad me',
+            'baad mein',
+            'अगर',
+            'जब',
+            'कल',
+            'बाद में',
+            'बाद मे',
+          ];
+
+          const _sequenceOrChoiceSafetyTerms = <String>[
+            'or',
+            'either',
+            'versus',
+            'vs',
+            'ya',
+            'या',
+            'then',
+            'and then',
+            'phir',
+            'fir',
+            'uske baad',
+            'फिर',
+            'और फिर',
+            'उसके बाद',
+          ];
+
+          const _undoSafetyTerms = <String>[
+            'undo',
+            'undo last',
+            'last change undo',
+            'wapas karo',
+            'wapas kar do',
+            'pichla change wapas',
+            'पिछला बदलाव वापस',
+            'वापस करो',
+          ];
+
+          const _unambiguousRemoveSafetyTerms = <String>[
+            'delete',
+            'remove',
+            'archive',
+            'डिलीट',
+            'रिमूव',
+          ];
+
+          const _locationSafetyNouns = <String>[
+            'location',
+            'shelf',
+            'rack',
+            'लोकेशन',
+            'शेल्फ',
+            'रैक',
+            'जगह',
+          ];
+
+          const _locationSafetyVerbs = <String>[
+            'set',
+            'move',
+            'shift',
+            'rakh do',
+            'rakho',
+            'clear',
+            'hatao',
+            'hata do',
+            'सेट',
+            'मूव',
+            'शिफ्ट',
+            'रख दो',
+            'रखो',
+            'खाली',
+            'हटाओ',
+            'हटा दो',
+          ];
+          ''')
+          replace_between(
+              app,
+              'bool isAppBrainContextReference(String raw) {',
+              '\n\nString _normalized',
+              context_and_firewall.rstrip(),
+          )
+          replace_once(
+              app,
+              "const _attentionTerms = <String>[",
+              dedent('''\
+              const _nextTaskTerms = <String>[
+                'next task',
+                'next work',
+                'next issue',
+                'next problem',
+                'do next task',
+                'open next task',
+                'fix next issue',
+                'what next',
+                'ab kya karu',
+                'ab kya karna hai',
+                'agla kaam',
+                'agla task',
+                'agli problem',
+                'अगला काम',
+                'अगला टास्क',
+                'अगली समस्या',
+                'अब क्या करूं',
+                'अब क्या करना है',
+              ];
+
+              const _attentionTerms = <String>['''),
+          )
+          replace_once(
+              app,
+              "const _fillers = <String>[\n  'please',",
+              dedent('''\
+              const _fillers = <String>[
+                'please',
+                'can you',
+                'could you',
+                'would you',
+                'will you',
+                'i want to',
+                'i need to',
+                'want to',
+                'need to',
+                'aap',
+                'zara',
+                'kripya',
+                'आप',
+                'ज़रा',
+                'जरा',
+                'कृपया','''),
+          )
+
+          brain = 'lib/ui/brain_screen.dart'
+          replace_once(
+              brain,
+              "import '../domain/medicine_brief.dart';\nimport '../domain/search.dart';",
+              "import '../domain/medicine_brief.dart';\nimport '../domain/operations_plan.dart';\nimport '../domain/search.dart';",
+          )
+          replace_once(
+              brain,
+              '''    switch (intent.action) {\n      case AppBrainAction.navigate:''',
+              '''    switch (intent.action) {\n      case AppBrainAction.safetyBlocked:\n        if (mounted) {\n          setState(\n            () => _reply =\n                intent.safetyReason?.message ??\n                'Nothing changed. This command did not pass the deterministic inventory-action safety check.',\n          );\n        }\n        return;\n      case AppBrainAction.navigate:''',
+          )
+          replace_once(
+              brain,
+              '''      case AppBrainAction.attentionBrief:\n        await _attentionBrief();\n        return;\n      case AppBrainAction.bulkRemoveBlocked:''',
+              '''      case AppBrainAction.attentionBrief:\n        await _attentionBrief();\n        return;\n      case AppBrainAction.nextAttentionTask:\n        await _attentionBrief(focusNext: true);\n        return;\n      case AppBrainAction.bulkRemoveBlocked:''',
+          )
+
+          new_attention = indent(dedent('''\
+          Future<void> _attentionBrief({bool focusNext = false}) async {
+            final range = TrackingRange.lastDays(widget.controller.today, 30);
+            final report = PharmacyAttentionReport.build(
+              medicines: widget.controller.records,
+              settings: widget.controller.settings,
+              today: widget.controller.today,
+              reorder: widget.controller.tracking(range).reorder,
+              sales: widget.controller.sales,
+            );
+            final plan = PharmacyOperationsPlan.build(
+              items: report.items,
+              medicines: widget.controller.records,
+            );
+            final next = plan.nextStep;
+
+            if (mounted) {
+              setState(() {
+                if (report.isEmpty) {
+                  _reply = focusNext
+                      ? 'There is no deterministic pharmacist task waiting right now. Nothing changed.'
+                      : 'Attention brief: no deterministic operational issue needs attention right now.';
+                  return;
+                }
+                if (next == null) {
+                  _reply =
+                      'Attention queue: ${report.items.length} items, but no downstream task is safe to start until its recorded prerequisites are rechecked. Opening the operating plan; nothing will be changed automatically.';
+                  return;
+                }
+                _reply = focusNext
+                    ? 'Recommended next: ${next.item.title}. ${next.actionLabel} Opening the deterministic operating plan; dependent work stays blocked until prerequisite facts are verified.'
+                    : 'Attention queue: ${report.items.length} item${report.items.length == 1 ? '' : 's'} · ${report.critical} critical · ${report.high} high · ${report.medium} medium · ${plan.readyCount} ready now · ${plan.blockedCount} waiting on prerequisites. Next safe task: ${next.item.title}.';
+              });
+            }
+
+            if (focusNext && report.isEmpty) return;
+            await Future<void>.delayed(Duration.zero);
+            if (!mounted) return;
+            await Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => AttentionScreen(controller: widget.controller),
+              ),
+            );
+          }
+          '''), '  ')
+          replace_between(
+              brain,
+              '  Future<void> _attentionBrief() async {',
+              '\n  void _bulkRemoveBlocked() {',
+              new_attention.rstrip(),
+          )
+          replace_once(
+              brain,
+              "                        _QuickCommand('Needs attention', 'aaj kya dekhna hai'),\n                        _QuickCommand('Order review', 'order now'),",
+              "                        _QuickCommand('Needs attention', 'aaj kya dekhna hai'),\n                        _QuickCommand('Next task', 'next task'),\n                        _QuickCommand('Order review', 'order now'),",
+          )
+
+          Path('test/aaris_brain_command_safety_test.dart').write_text(dedent('''\
+          import 'package:aaris_pharmacy/domain/app_brain.dart';
+          import 'package:aaris_pharmacy/domain/medicine_brief.dart';
+          import 'package:flutter_test/flutter_test.dart';
+
+          void main() {
+            group('Aaris Brain intent firewall', () {
+              test('negated inventory writes never become actions', () {
+                for (final command in [
+                  'Dolo 650 delete mat karo',
+                  "don't sell Dolo 650",
+                  'Dolo 650 ko remove nahi karna',
+                  'डोलो को डिलीट मत करो',
+                  'undo mat karo',
+                ]) {
+                  final intent = parseAppBrainIntent(command);
+                  expect(intent.action, AppBrainAction.safetyBlocked, reason: command);
+                  expect(
+                    intent.safetyReason,
+                    AppBrainSafetyReason.negatedMutation,
+                    reason: command,
+                  );
+                  expect(intent.mutatesInventory, isFalse, reason: command);
+                  expect(intent.destructive, isFalse, reason: command);
+                }
+              });
+
+              test('conditional and future writes fail closed instead of running now', () {
+                for (final command in [
+                  'if stock is zero delete Dolo 650',
+                  'Dolo 650 kal sell karna',
+                  'jab stock low ho Dolo remove karo',
+                  'Dolo 650 restore later',
+                  'Dolo 650 sell at 5 pm',
+                  'what if I delete Dolo 650?',
+                ]) {
+                  final intent = parseAppBrainIntent(command);
+                  expect(intent.action, AppBrainAction.safetyBlocked, reason: command);
+                  expect(
+                    intent.safetyReason,
+                    AppBrainSafetyReason.deferredMutation,
+                    reason: command,
+                  );
+                  expect(intent.mutatesInventory, isFalse, reason: command);
+                }
+              });
+
+              test('compound inventory writes are never partially executed', () {
+                for (final command in [
+                  'Dolo 650 delete or mark sold',
+                  'Dolo 650 stock add 5 units then location Rack B set karo',
+                  'Dolo 650 quantity 10 set karo then sell 2 units',
+                  'Dolo 650 edit then remove',
+                ]) {
+                  final intent = parseAppBrainIntent(command);
+                  expect(intent.action, AppBrainAction.safetyBlocked, reason: command);
+                  expect(
+                    intent.safetyReason,
+                    AppBrainSafetyReason.compoundMutation,
+                    reason: command,
+                  );
+                  expect(intent.mutatesInventory, isFalse, reason: command);
+                }
+              });
+
+              test('safe operational reads keep their existing deterministic routes', () {
+                final fefo = parseAppBrainIntent(
+                  'Dolo 650 sell which batch first',
+                );
+                expect(fefo.action, AppBrainAction.search);
+                expect(fefo.briefFocus, MedicineBriefFocus.fefo);
+                expect(fefo.mutatesInventory, isFalse);
+
+                final stock = parseAppBrainIntent('Dolo 650 stock kitna hai');
+                expect(stock.action, AppBrainAction.search);
+                expect(stock.briefFocus, MedicineBriefFocus.stock);
+                expect(stock.mutatesInventory, isFalse);
+              });
+
+              test('polite positive requests still enter the reviewed action path', () {
+                final intent = parseAppBrainIntent('Can you please delete Dolo 650?');
+                expect(intent.action, AppBrainAction.removeMedicine);
+                expect(intent.query, 'Dolo 650');
+                expect(intent.safetyReason, isNull);
+                expect(intent.destructive, isTrue);
+              });
+
+              test('bulk delete stays protected while negated bulk delete does nothing', () {
+                final protected = parseAppBrainIntent('delete all medicines');
+                expect(protected.action, AppBrainAction.bulkRemoveBlocked);
+
+                final negated = parseAppBrainIntent('delete all medicines mat karo');
+                expect(negated.action, AppBrainAction.safetyBlocked);
+                expect(negated.safetyReason, AppBrainSafetyReason.negatedMutation);
+              });
+            });
+
+            group('Human-like exact context grammar', () {
+              test('natural English Hinglish and Hindi references remain exact-context only', () {
+                for (final phrase in [
+                  'that medicine',
+                  'that stock entry',
+                  'woh wali medicine',
+                  'us medicine me',
+                  'उस मेडिसिन को',
+                  'वही दवा',
+                  'previous one',
+                ]) {
+                  expect(isAppBrainContextReference(phrase), isTrue, reason: phrase);
+                }
+              });
+
+              test('context cleanup does not turn ordinary medicine names into pronouns', () {
+                for (final phrase in [
+                  'Dolo 650',
+                  'Usman 500',
+                  'Sameer Tablet',
+                  'Thatol 20',
+                ]) {
+                  expect(isAppBrainContextReference(phrase), isFalse, reason: phrase);
+                }
+              });
+
+              test('natural delete sentence preserves exact previous-context semantics', () {
+                final hinglish = parseAppBrainIntent(
+                  'mujhe us medicine ko delete karna hai',
+                );
+                expect(hinglish.action, AppBrainAction.removeMedicine);
+                expect(isAppBrainContextReference(hinglish.query), isTrue);
+
+                final hindi = parseAppBrainIntent(
+                  'मुझे उस मेडिसिन को डिलीट करना है',
+                );
+                expect(hindi.action, AppBrainAction.removeMedicine);
+                expect(isAppBrainContextReference(hindi.query), isTrue);
+              });
+
+              test('contextual stock receipt can use natural reference grammar', () {
+                final intent = parseAppBrainIntent(
+                  'that medicine stock add 5 units',
+                );
+                expect(intent.action, AppBrainAction.receiveStock);
+                expect(intent.quantity, 5);
+                expect(isAppBrainContextReference(intent.query), isTrue);
+              });
+            });
+
+            test('next-task wording routes to the dependency-aware operating plan', () {
+              for (final command in [
+                'next task',
+                'do next task',
+                'agla kaam',
+                'अब क्या करना है',
+              ]) {
+                final intent = parseAppBrainIntent(command);
+                expect(intent.action, AppBrainAction.nextAttentionTask, reason: command);
+                expect(intent.mutatesInventory, isFalse, reason: command);
+                expect(intent.destructive, isFalse, reason: command);
+              }
+            });
+          }
+          '''), encoding='utf-8')
+
+          Path('test/brain_command_safety_widget_test.dart').write_text(dedent('''\
+          import 'package:aaris_pharmacy/data/inventory_database.dart';
+          import 'package:aaris_pharmacy/domain/app_brain.dart';
+          import 'package:aaris_pharmacy/domain/medicine.dart';
+          import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
+          import 'package:aaris_pharmacy/ui/brain_screen.dart';
+          import 'package:aaris_pharmacy/ui/design.dart';
+          import 'package:flutter/material.dart';
+          import 'package:flutter_test/flutter_test.dart';
+
+          void main() {
+            TestWidgetsFlutterBinding.ensureInitialized();
+
+            testWidgets(
+              'negated Brain mutation is stopped before navigation, review or storage write',
+              (tester) async {
+                final medicine = Medicine.fromJson({
+                  'id': 'intent-firewall-dolo',
+                  'name': 'Dolo',
+                  'strength': '650mg',
+                  'expiry': '2027-12',
+                  'quantity': 10,
+                });
+                final controller = PharmacyController(
+                  MemoryInventoryStorage(
+                    InventorySnapshot(records: {medicine.id: medicine}),
+                  ),
+                  clock: () => DateTime(2026, 9, 10, 8, 30),
+                  backgroundSearch: false,
+                );
+                await controller.initialize();
+                addTearDown(controller.dispose);
+
+                AppSection? openedSection;
+                await tester.pumpWidget(
+                  MaterialApp(
+                    theme: pharmacyTheme(),
+                    home: Scaffold(
+                      body: BrainScreen(
+                        controller: controller,
+                        onOpenSection: (section) => openedSection = section,
+                      ),
+                    ),
+                  ),
+                );
+                await tester.pumpAndSettle();
+
+                final beforeRevision = controller.snapshot.revision;
+                await tester.enterText(
+                  find.byType(TextField).first,
+                  'Dolo 650 delete mat karo',
+                );
+                await tester.tap(find.byTooltip('Run command').first);
+                await tester.pump();
+                await tester.pump(const Duration(milliseconds: 250));
+
+                expect(
+                  find.textContaining('negative instruction'),
+                  findsOneWidget,
+                );
+                expect(openedSection, isNull);
+                expect(controller.snapshot.revision, beforeRevision);
+                expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+                expect(find.byType(AlertDialog), findsNothing);
+                expect(tester.takeException(), isNull);
+
+                await tester.pumpWidget(const SizedBox.shrink());
+                controller.dispose();
+                await tester.pump();
+              },
+            );
+          }
+          '''), encoding='utf-8')
+
+          architecture = 'docs/ARCHITECTURE.md'
+          replace_once(
+              architecture,
+              '''AI supplies stored facts; the app alone\ncalculates expiry, warning membership, borders, counts and totals.\n''',
+              '''AI supplies stored facts; the app alone\ncalculates expiry, warning membership, borders, counts and totals.\n\nAaris Brain also applies a deterministic intent firewall before any natural-language\nwrite is routed. Negated commands, future/conditional writes and sentences containing\nmultiple write families fail closed before target search, so the app cannot execute a\ncommand the pharmacist explicitly rejected, execute a scheduled instruction early, or\nsilently run only the first half of a compound request. Conversational references are\nnormalized through a closed deictic grammar and still resolve only to the session's\nexact ID/fingerprint; they never become fuzzy implicit mutation targets. The Brain's\n“next task” route uses the same dependency-aware local operations plan shown in Needs\nAttention, so its recommendation cannot jump ahead of known verification blockers.\n''',
+          )
+
+          Path('docs/AARIS_BRAIN_INTENT_FIREWALL_2026_09_10.md').write_text(dedent('''\
+          # Aaris Brain Intent Firewall & Work Orchestration — 2026-09-10
+
+          This upgrade extends the existing Aaris Brain and the one authoritative Medicine Database. It does not add a second inventory, a direct AI write path, a cloud dependency or an automatic destructive executor.
+
+          ## Human-like command safety before target search
+
+          Natural-language inventory writes now pass through a deterministic intent firewall before medicine resolution. Aaris explicitly distinguishes a positive immediate command from three unsafe semantic shapes:
+
+          - **Negated write** — `Dolo delete mat karo`, `don't sell Dolo`, `remove nahi karna` do nothing. A negative sentence can never be transformed into a positive action merely because it contains a write verb.
+          - **Conditional or future write** — `if stock is zero delete Dolo`, `kal sell karna`, `restore later`, or an explicit clock-time write do nothing now. The current app has no background write scheduler, so deferred language is never executed early.
+          - **Compound write** — `receive 5 then move rack B`, `set quantity then sell`, or `delete or mark sold` is rejected as one command. Aaris will not silently execute only the parser's first matching branch. Each inventory-changing operation must be reviewed independently against the exact live stock state.
+
+          Existing safe read questions such as FEFO guidance and stock/expiry/location lookup remain read-only and are not caught by the firewall. Natural-language bulk deletion remains separately blocked by the protected owner flow.
+
+          ## Better exact conversational context
+
+          Exact session context now understands a closed English/Hinglish/Hindi deictic grammar such as `that medicine`, `woh wali medicine`, `us medicine me`, `उस मेडिसिन को`, and `previous one`. Grammar words are removed only from this closed context check; arbitrary medicine names are never accepted by prefix similarity. The context still stores only an exact stock ID plus an identity fingerprint and re-reads quantity, dates, price, status and location from the authoritative live snapshot every time.
+
+          Polite positive wording such as `Can you please delete Dolo 650?` is cleaned before medicine search and still enters the same exact-target reviewed Remove path. No confirmation gate is bypassed.
+
+          ## One dependency-aware “next task” truth
+
+          Aaris Brain now understands `next task`, `agla kaam`, and equivalent phrases. The Brain's attention summary no longer calls the flat severity-sorted first finding “next”. It builds the same `PharmacyOperationsPlan` used by Needs Attention and reports the first unblocked task, including ready-vs-blocked counts. This prevents a downstream FEFO or reorder recommendation from being presented ahead of a known physical-fact prerequisite.
+
+          ## Preserved invariants
+
+          - SQLite remains the sole authoritative medicine database.
+          - No negated, future, conditional or compound natural-language write mutates stock.
+          - No fuzzy or guessed implicit target is introduced.
+          - Every positive inventory write still uses the existing review, confirmation, revision/CAS, audit and Undo boundaries.
+          - AI/OCR output still cannot bypass deterministic validation or pharmacist review.
+          - No medical facts, patient data, cloud sync or silent destructive automation were added.
+          '''), encoding='utf-8')
+          PY
+
+      - name: Resolve pinned dependencies
+        run: flutter pub get
+      - name: Format upgraded source
+        run: dart format lib/domain/app_brain.dart lib/ui/brain_screen.dart test/aaris_brain_command_safety_test.dart test/brain_command_safety_widget_test.dart
+      - name: Static analysis
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+      - name: Full regression suite
+        run: flutter test --reporter expanded
+      - name: Verify clean diff
+        run: git diff --check
+      - name: Commit verified upgrade and remove one-shot workflow
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || {
+            echo 'main advanced during verification; refusing to overwrite concurrent work.' >&2
+            exit 1
+          }
+          rm .github/workflows/aaris-brain-intent-firewall-upgrade.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/domain/app_brain.dart lib/ui/brain_screen.dart \
+            test/aaris_brain_command_safety_test.dart \
+            test/brain_command_safety_widget_test.dart \
+            docs/ARCHITECTURE.md \
+            docs/AARIS_BRAIN_INTENT_FIREWALL_2026_09_10.md \
+            .github/workflows/aaris-brain-intent-firewall-upgrade.yml
+          git commit -m 'Harden Aaris Brain intent semantics and work orchestration'
+          git push origin HEAD:main
