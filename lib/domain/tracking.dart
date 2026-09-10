@@ -428,15 +428,25 @@ class TrackingStats {
           ? currentQuantity / velocity
           : null;
 
-      final price =
-          active
-              .where((m) => m.unitPricePaise != null)
-              .firstOrNull
-              ?.unitPricePaise ??
-          records
-              .where((m) => m.sold && m.soldUnitPricePaise != null)
-              .firstOrNull
-              ?.soldUnitPricePaise;
+      // Purchase-order cost is an accounting input, not a value Aaris may
+      // guess from whichever batch happens to be first in an Iterable. Auto-fill
+      // only when all known active batch prices agree. If active stock has no
+      // saved price, one unambiguous historical SOLD price may be used. Conflicting
+      // evidence intentionally produces null so the pharmacist enters/reviews cost.
+      final activePrices = active
+          .map((medicine) => medicine.unitPricePaise)
+          .whereType<int>()
+          .toSet();
+      final historicalPrices = records
+          .where((medicine) => medicine.sold)
+          .map((medicine) => medicine.soldUnitPricePaise)
+          .whereType<int>()
+          .toSet();
+      final price = activePrices.length == 1
+          ? activePrices.single
+          : activePrices.isEmpty && historicalPrices.length == 1
+          ? historicalPrices.single
+          : null;
       reorder.add(
         ReorderSuggestion(
           productKey: key,

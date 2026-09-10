@@ -19,10 +19,19 @@ const Color _aiPurple = Color(0xFF7857D8);
 const Color _aiBlue = Color(0xFF397BFF);
 const Color _aiMagenta = Color(0xFFB64FD2);
 
+enum AiHubQuickAction { sold, removed, stockSummary, add, delete, modify }
+
 class AiScreen extends StatefulWidget {
-  const AiScreen({super.key, required this.controller});
+  const AiScreen({
+    super.key,
+    required this.controller,
+    this.onLocalCommand,
+    this.onQuickAction,
+  });
 
   final PharmacyController controller;
+  final Future<String?> Function(String command)? onLocalCommand;
+  final Future<String?> Function(AiHubQuickAction action)? onQuickAction;
 
   @override
   State<AiScreen> createState() => _AiScreenState();
@@ -35,12 +44,7 @@ class _AiScreenState extends State<AiScreen> {
   final _request = TextEditingController();
   final _scroll = ScrollController();
 
-  final List<_AiChatMessage> _messages = const [
-    _AiChatMessage(
-      'I can help manage Aaris Pharmacy inventory. Ask here with your connected AI, or open settings to share a pharmacy TXT with any external AI. Every proposed change is reviewed before it can be saved.',
-      false,
-    ),
-  ].toList();
+  final List<_AiChatMessage> _messages = [];
 
   AiConfiguration _configuration = const AiConfiguration();
   AiPlan? _plan;
@@ -48,6 +52,7 @@ class _AiScreenState extends State<AiScreen> {
   String _error = '';
   bool _requesting = false;
   bool _preparingRequest = false;
+  bool _localCommanding = false;
   bool _sharing = false;
   bool _reviewing = false;
   bool _externalReady = false;
@@ -81,15 +86,20 @@ class _AiScreenState extends State<AiScreen> {
   }
 
   void _scrollToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    void jumpAfterLayout() {
       if (!mounted || !_scroll.hasClients) return;
-      unawaited(
-        _scroll.animateTo(
-          _scroll.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-        ),
-      );
+      final target = _scroll.position.maxScrollExtent;
+      if ((_scroll.offset - target).abs() > .5) {
+        _scroll.jumpTo(target);
+      }
+    }
+
+    // Local Brain replies can trigger both parent and child rebuilds in the same
+    // frame. Re-align on two layout boundaries so the newest answer is never
+    // left just outside the small chat viewport under the quick-action grid.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      jumpAfterLayout();
+      WidgetsBinding.instance.addPostFrameCallback((_) => jumpAfterLayout());
     });
   }
 
@@ -287,25 +297,95 @@ class _AiScreenState extends State<AiScreen> {
   }
 
   Future<void> _sendComposer() async {
-    if (_requesting || _reviewing || widget.controller.aiPreparing) return;
+    if (_localCommanding ||
+        _requesting ||
+        _reviewing ||
+        widget.controller.aiPreparing) {
+      return;
+    }
     final text = _request.text.trim();
     if (text.isEmpty) return;
-    if (!_looksLikeAiResponse(text)) {
-      await _ask();
+
+    // JSON keeps the existing review/import path. Ordinary text is offered to
+    // the deterministic local App Brain first; only unrecognized text reaches
+    // the configured AI provider. No second composer or command state machine.
+    if (_looksLikeAiResponse(text)) {
+      setState(() {
+        _input.text = text;
+        _request.clear();
+        _externalReady = false;
+        _messages.add(
+          const _AiChatMessage('External AI response pasted for review.', true),
+        );
+        _error = '';
+      });
+      _scrollToEnd();
+      await _review();
       return;
     }
 
+    final localHandler = widget.onLocalCommand;
+    if (localHandler != null) {
+      String? localReply;
+      setState(() {
+        _localCommanding = true;
+        _error = '';
+      });
+      try {
+        localReply = await localHandler(text);
+      } catch (error) {
+        if (mounted) {
+          setState(
+            () => _error = error.toString().replaceFirst('Exception: ', ''),
+          );
+        }
+        return;
+      } finally {
+        if (mounted) setState(() => _localCommanding = false);
+      }
+      if (!mounted) return;
+      if (localReply != null) {
+        final reply = localReply.trim();
+        setState(() {
+          _request.clear();
+          _messages.add(_AiChatMessage(text, true));
+          if (reply.isNotEmpty) _messages.add(_AiChatMessage(reply, false));
+        });
+        _scrollToEnd();
+        return;
+      }
+    }
+
+    await _ask();
+  }
+
+  Future<void> _runQuickAction(AiHubQuickAction action) async {
+    final handler = widget.onQuickAction;
+    if (handler == null ||
+        _localCommanding ||
+        _preparingRequest ||
+        _requesting ||
+        _reviewing ||
+        widget.controller.aiPreparing) {
+      return;
+    }
     setState(() {
-      _input.text = text;
-      _request.clear();
-      _externalReady = false;
-      _messages.add(
-        const _AiChatMessage('External AI response pasted for review.', true),
-      );
+      _localCommanding = true;
       _error = '';
     });
-    _scrollToEnd();
-    await _review();
+    try {
+      final reply = await handler(action);
+      if (!mounted || reply == null || reply.trim().isEmpty) return;
+      _appendMessage(reply.trim(), false);
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _error = error.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _localCommanding = false);
+    }
   }
 
   Future<void> _pasteExternalResponse() async {
@@ -586,110 +666,123 @@ class _AiScreenState extends State<AiScreen> {
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: Listenable.merge([widget.controller, _local]),
-    builder: (context, _) => Column(
-      children: [
-        _AiHubHeader(
-          configured: _local.hasSelection || _configuration.key.isNotEmpty,
-          onSettings: _openConnections,
-        ),
-        Expanded(
-          child: ListView(
-            controller: _scroll,
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
-            children: [
-              if (_local.hasSelection)
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Text(
-                    'On-device AI · ${_local.activeLabel}\n${_local.status}',
-                    style: const TextStyle(fontSize: 11, color: muted),
-                  ),
-                ),
-              for (final message in _messages)
-                _AiMessageBubble(message: message),
-              if (_error.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
-                  child: Surface(
-                    color: errorSoft,
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(
-                          Icons.error_outline_rounded,
-                          color: red,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 9),
-                        Expanded(
-                          child: SelectableText(
-                            _error,
-                            style: const TextStyle(color: red, fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              if (_plan != null) _reviewPanel(context),
-              MedicineIntakePanel(
-                controller: widget.controller,
-                onAsk: (evidence) {
-                  _request.text =
-                      'Explain only the captured identity, salt and expiry and check existing stock; do not add stock or give treatment advice. OCR DATA: '
-                      '${evidence.length > 2200 ? evidence.substring(0, 2200) : evidence}';
-                  unawaited(_ask());
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
+    builder: (context, _) {
+      final busy =
+          _localCommanding ||
+          _preparingRequest ||
+          _requesting ||
+          _reviewing ||
+          widget.controller.aiPreparing;
+      return Column(
+        children: [
+          _AiHubHeader(
+            configured: _local.hasSelection || _configuration.key.isNotEmpty,
+            onSettings: _openConnections,
           ),
-        ),
-        if (_externalReady)
-          _ExternalAiReadyCard(
-            onPaste: _pasteExternalResponse,
-            onDismiss: () => setState(() => _externalReady = false),
+          _AiComposer(
+            controller: _request,
+            busy: busy,
+            onSend: _sendComposer,
+            onCamera: () async {
+              await openMedicineCapture(context, widget.controller);
+              if (mounted) _scrollToEnd();
+            },
+            onMic: () async {
+              final words = await voiceSearch(
+                context,
+                offlineOnly: true,
+                title: 'Speak to Aaris',
+                actionLabel: 'Use message',
+              );
+              if (mounted && words != null) {
+                setState(() => _request.text = words);
+              }
+            },
           ),
-        if (_requesting)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: _cancelRequest,
-                icon: const Icon(Icons.close_rounded, size: 17),
-                label: const Text('Cancel AI request'),
+          _AiQuickActions(
+            busy: busy || widget.onQuickAction == null,
+            onTap: _runQuickAction,
+          ),
+          if (_local.hasSelection)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'On-device · ${_local.activeLabel}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 10.5, color: muted),
+                ),
               ),
             ),
+          if (_externalReady)
+            _ExternalAiReadyCard(
+              onPaste: _pasteExternalResponse,
+              onDismiss: () => setState(() => _externalReady = false),
+            ),
+          if (_requesting)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: _cancelRequest,
+                  icon: const Icon(Icons.close_rounded, size: 17),
+                  label: const Text('Cancel AI request'),
+                ),
+              ),
+            ),
+          Expanded(
+            child: ListView(
+              controller: _scroll,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+              children: [
+                for (final message in _messages)
+                  _AiMessageBubble(message: message),
+                if (_error.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
+                    child: Surface(
+                      color: errorSoft,
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.error_outline_rounded,
+                            color: red,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: SelectableText(
+                              _error,
+                              style: const TextStyle(color: red, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (_plan != null) _reviewPanel(context),
+                MedicineIntakePanel(
+                  controller: widget.controller,
+                  onAsk: (evidence) {
+                    _request.text =
+                        'Explain only the captured identity, salt and expiry and check existing stock; do not add stock or give treatment advice. OCR DATA: '
+                        '${evidence.length > 2200 ? evidence.substring(0, 2200) : evidence}';
+                    unawaited(_ask());
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
-        _AiComposer(
-          controller: _request,
-          busy:
-              _preparingRequest ||
-              _requesting ||
-              _reviewing ||
-              widget.controller.aiPreparing,
-          onSend: _sendComposer,
-          onCamera: () async {
-            await openMedicineCapture(context, widget.controller);
-            if (mounted) _scrollToEnd();
-          },
-          onMic: () async {
-            final words = await voiceSearch(
-              context,
-              // This new Hub mic is on-device even before model settings have
-              // finished loading. Never let an initialization race use network STT.
-              offlineOnly: true,
-              title: 'Speak to Aaris AI',
-              actionLabel: 'Use message',
-            );
-            if (mounted && words != null) setState(() => _request.text = words);
-          },
-        ),
-      ],
-    ),
+        ],
+      );
+    },
   );
 }
 
@@ -939,9 +1032,8 @@ class _AiComposer extends StatelessWidget {
   final VoidCallback onCamera;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    minimum: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
     child: Container(
       padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
       decoration: BoxDecoration(
@@ -1016,9 +1108,12 @@ class _AiComposer extends StatelessWidget {
                           strokeWidth: 2,
                         ),
                       )
-                    : const Icon(
-                        Icons.arrow_upward_rounded,
-                        color: Colors.white,
+                    : const Tooltip(
+                        message: 'Run command',
+                        child: Icon(
+                          Icons.arrow_upward_rounded,
+                          color: Colors.white,
+                        ),
                       ),
               ),
             ),
@@ -1027,6 +1122,140 @@ class _AiComposer extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _AiQuickActions extends StatelessWidget {
+  const _AiQuickActions({required this.busy, required this.onTap});
+
+  final bool busy;
+  final ValueChanged<AiHubQuickAction> onTap;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+    child: GridView.count(
+      crossAxisCount: 3,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisSpacing: 8,
+      mainAxisSpacing: 8,
+      childAspectRatio: 1.55,
+      children: [
+        _AiQuickActionTile(
+          label: 'Sold',
+          icon: Icons.shopping_cart_checkout_rounded,
+          color: amber,
+          onTap: busy ? null : () => onTap(AiHubQuickAction.sold),
+        ),
+        _AiQuickActionTile(
+          label: 'Removed',
+          icon: Icons.inventory_2_outlined,
+          color: red,
+          onTap: busy ? null : () => onTap(AiHubQuickAction.removed),
+        ),
+        _AiQuickActionTile(
+          label: 'Stock summary',
+          icon: Icons.bar_chart_rounded,
+          color: primary,
+          onTap: busy ? null : () => onTap(AiHubQuickAction.stockSummary),
+        ),
+        _AiQuickActionTile(
+          label: 'Add',
+          icon: Icons.add_circle_rounded,
+          color: green,
+          onTap: busy ? null : () => onTap(AiHubQuickAction.add),
+        ),
+        _AiQuickActionTile(
+          label: 'Delete',
+          icon: Icons.delete_outline_rounded,
+          color: red,
+          onTap: busy ? null : () => onTap(AiHubQuickAction.delete),
+        ),
+        _AiQuickActionTile(
+          label: 'Modify',
+          icon: Icons.edit_rounded,
+          color: _aiPurple,
+          onTap: busy ? null : () => onTap(AiHubQuickAction.modify),
+        ),
+      ],
+    ),
+  );
+}
+
+class _AiQuickActionTile extends StatelessWidget {
+  const _AiQuickActionTile({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 140),
+          opacity: onTap == null ? .48 : 1,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  color.withAlpha(dark ? 38 : 20),
+                  dark
+                      ? const Color(0xFF1B2130).withAlpha(230)
+                      : Colors.white.withAlpha(238),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: color.withAlpha(dark ? 80 : 58)),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withAlpha(dark ? 20 : 18),
+                  blurRadius: 14,
+                  spreadRadius: -7,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: color, size: 21),
+                const SizedBox(width: 7),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: ink,
+                      fontSize: 12,
+                      height: 1.08,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _AiConnectionsSheet extends StatefulWidget {
@@ -1146,7 +1375,7 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
               ),
               const SizedBox(height: 5),
               const Text(
-                'Use another AI without an API key, or connect your own provider inside Aaris Pharmacy.',
+                'Models, external AI, or your own API.',
                 style: TextStyle(color: muted, fontSize: 12.5, height: 1.45),
               ),
               const SizedBox(height: 18),
@@ -1208,7 +1437,7 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                               ),
                               SizedBox(height: 4),
                               Text(
-                                'Send now, or save the TXT and attach it manually later',
+                                'Share pharmacy TXT · review returned JSON',
                                 style: TextStyle(
                                   color: muted,
                                   fontSize: 11.5,
@@ -1251,7 +1480,7 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
               ),
               const SizedBox(height: 18),
               const Text(
-                'Use AI inside the app',
+                'API connection',
                 style: TextStyle(
                   color: ink,
                   fontSize: 16,
@@ -1260,7 +1489,7 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
               ),
               const SizedBox(height: 5),
               const Text(
-                'Your API key stays in secure device storage and is never included in pharmacy exports.',
+                'Key stays in secure device storage.',
                 style: TextStyle(color: muted, fontSize: 11.5, height: 1.4),
               ),
               const SizedBox(height: 14),
@@ -1287,7 +1516,7 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                 enabled: !busy,
                 decoration: const InputDecoration(
                   labelText: 'Model name',
-                  hintText: 'Enter a model available with your provider',
+                  hintText: 'Provider model name',
                 ),
               ),
               if (provider == 'Compatible') ...[
@@ -1297,7 +1526,7 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                   enabled: !busy,
                   keyboardType: TextInputType.url,
                   decoration: const InputDecoration(
-                    labelText: 'Full HTTPS chat/completions endpoint',
+                    labelText: 'HTTPS endpoint',
                   ),
                 ),
               ],
