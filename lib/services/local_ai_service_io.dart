@@ -583,9 +583,12 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     final loaded = runtime?.loadedContextTokens;
     if (plan == null || loaded == null || loaded >= plan.contextTokens) return;
 
-    final promptContext = loaded >= 4096 ? 4096 : 2048;
+    // Native allocation is the final authority. Preserve the exact context that
+    // actually loaded instead of collapsing every successful fallback to 4K/2K;
+    // prompt/evidence budgets can then use the capability the device proved it
+    // has while the Smart Warning still records that memory adaptation occurred.
     _executionPlan = LocalExecutionPlan(
-      contextTokens: promptContext,
+      contextTokens: loaded,
       estimatedBytes: plan.estimatedBytes,
       estimatedKvBytes: plan.estimatedKvBytes,
       geometryKnown: plan.geometryKnown,
