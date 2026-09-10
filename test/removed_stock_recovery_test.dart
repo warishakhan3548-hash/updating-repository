@@ -32,20 +32,12 @@ Medicine removed(
   String reason = 'Damaged',
   DateTime? at,
 }) => archiveMedicine(
-  stock(
-    id,
-    name: name,
-    strength: strength,
-    batch: batch,
-    barcode: barcode,
-  ),
+  stock(id, name: name, strength: strength, batch: batch, barcode: barcode),
   reason: reason,
   at: at ?? DateTime.utc(2026, 9, 9, 10),
 );
 
-Future<PharmacyController> controllerWith(
-  Map<String, Medicine> records,
-) async {
+Future<PharmacyController> controllerWith(Map<String, Medicine> records) async {
   final controller = PharmacyController(
     MemoryInventoryStorage(InventorySnapshot(records: records)),
     clock: () => DateTime(2026, 9, 10, 12),
@@ -77,20 +69,23 @@ void main() {
       expect(hits.map((hit) => hit.id), isNot(contains(active.id)));
     });
 
-    test('exact product barcode returns every matching removed batch', () async {
-      final oldA = removed('a', batch: 'A1');
-      final oldB = removed(
-        'b',
-        batch: 'B1',
-        at: DateTime.utc(2026, 9, 10, 8),
-      );
-      final controller = await controllerWith({oldA.id: oldA, oldB.id: oldB});
-      addTearDown(controller.dispose);
+    test(
+      'exact product barcode returns every matching removed batch',
+      () async {
+        final oldA = removed('a', batch: 'A1');
+        final oldB = removed(
+          'b',
+          batch: 'B1',
+          at: DateTime.utc(2026, 9, 10, 8),
+        );
+        final controller = await controllerWith({oldA.id: oldA, oldB.id: oldB});
+        addTearDown(controller.dispose);
 
-      final hits = await controller.searchArchived('8901000000650');
-      expect(hits.map((hit) => hit.id).toSet(), {'a', 'b'});
-      expect(hits.every((hit) => hit.score == 1), isTrue);
-    });
+        final hits = await controller.searchArchived('8901000000650');
+        expect(hits.map((hit) => hit.id).toSet(), {'a', 'b'});
+        expect(hits.every((hit) => hit.score == 1), isTrue);
+      },
+    );
   });
 
   group('reviewed archived restore transaction', () {
@@ -110,7 +105,10 @@ void main() {
       expect(restored.batchNumber, archived.batchNumber);
       expect(restored.quantity, archived.quantity);
       expect(controller.canUndo, isTrue);
-      expect(controller.snapshot.events.first['label'], contains('Restored Dolo'));
+      expect(
+        controller.snapshot.events.first['label'],
+        contains('Restored Dolo'),
+      );
 
       await controller.undo();
       final undone = controller.snapshot.records['a']!;
@@ -119,7 +117,7 @@ void main() {
       expect(undone.archivedAt, archived.archivedAt);
     });
 
-    test('stale review fails closed after any inventory revision change', () async {
+    test('restore review survives unrelated inventory traffic', () async {
       final archived = removed('a');
       final controller = await controllerWith({'a': archived});
       addTearDown(controller.dispose);
@@ -136,29 +134,50 @@ void main() {
         expectedRevision: 0,
       );
 
-      await expectLater(
-        controller.applyArchivedRestore(review),
-        throwsStateError,
-      );
-      expect(controller.snapshot.records['a']!.archived, isTrue);
+      await controller.applyArchivedRestore(review);
+      expect(controller.snapshot.records['a']!.archived, isFalse);
+      expect(controller.snapshot.records['other']!.archived, isFalse);
     });
 
-    test('integrity guard blocks restore that introduces contradictory lot facts', () async {
-      final archived = removed('old');
-      final active = stock('live', expiry: '2028-12');
-      final controller = await controllerWith({
-        archived.id: archived,
-        active.id: active,
-      });
-      addTearDown(controller.dispose);
+    test(
+      'restore review still fails when the exact archived row changed',
+      () async {
+        final archived = removed('a');
+        final controller = await controllerWith({'a': archived});
+        addTearDown(controller.dispose);
 
-      final review = controller.reviewArchivedRestore('old');
-      await expectLater(
-        controller.applyArchivedRestore(review),
-        throwsStateError,
-      );
-      expect(controller.snapshot.records['old']!.archived, isTrue);
-      expect(controller.snapshot.records['live']!.archived, isFalse);
-    });
+        final stale = controller.reviewArchivedRestore('a');
+        await controller.applyArchivedRestore(
+          controller.reviewArchivedRestore('a'),
+        );
+
+        await expectLater(
+          controller.applyArchivedRestore(stale),
+          throwsStateError,
+        );
+        expect(controller.snapshot.records['a']!.archived, isFalse);
+      },
+    );
+
+    test(
+      'integrity guard blocks restore that introduces contradictory lot facts',
+      () async {
+        final archived = removed('old');
+        final active = stock('live', expiry: '2028-12');
+        final controller = await controllerWith({
+          archived.id: archived,
+          active.id: active,
+        });
+        addTearDown(controller.dispose);
+
+        final review = controller.reviewArchivedRestore('old');
+        await expectLater(
+          controller.applyArchivedRestore(review),
+          throwsStateError,
+        );
+        expect(controller.snapshot.records['old']!.archived, isTrue);
+        expect(controller.snapshot.records['live']!.archived, isFalse);
+      },
+    );
   });
 }

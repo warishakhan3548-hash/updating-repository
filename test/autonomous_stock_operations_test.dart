@@ -94,136 +94,174 @@ void main() {
 
       expect(controller.snapshot.records['a']!.quantity, 15);
       expect(controller.sales, isEmpty);
-      expect(controller.snapshot.events.first['label'], contains('Received stock'));
+      expect(
+        controller.snapshot.events.first['label'],
+        contains('Received stock'),
+      );
       await controller.undo();
       expect(controller.snapshot.records['a']!.quantity, 10);
     });
 
-    test('receiving stock reopens SOLD explicitly without deleting sale history', () async {
-      final controller = await controllerWithClock();
-      addTearDown(controller.dispose);
-      await controller.save(stock('a', quantity: 6), expectedRevision: 0);
-      await controller.recordSale(
-        'a',
-        quantity: 6,
-        markSoldOut: true,
-        totalAmountPaise: 6000,
-      );
-      expect(controller.snapshot.records['a']!.sold, isTrue);
-      expect(controller.sales, hasLength(1));
+    test(
+      'receiving stock reopens SOLD explicitly without deleting sale history',
+      () async {
+        final controller = await controllerWithClock();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a', quantity: 6), expectedRevision: 0);
+        await controller.recordSale(
+          'a',
+          quantity: 6,
+          markSoldOut: true,
+          totalAmountPaise: 6000,
+        );
+        expect(controller.snapshot.records['a']!.sold, isTrue);
+        expect(controller.sales, hasLength(1));
 
-      final review = controller.reviewStockAdjustment(
-        'a',
-        kind: StockAdjustmentKind.receive,
-        quantity: 8,
-      );
-      expect(review.wasSold, isTrue);
-      await controller.applyStockAdjustment(review);
+        final review = controller.reviewStockAdjustment(
+          'a',
+          kind: StockAdjustmentKind.receive,
+          quantity: 8,
+        );
+        expect(review.wasSold, isTrue);
+        await controller.applyStockAdjustment(review);
 
-      final restored = controller.snapshot.records['a']!;
-      expect(restored.sold, isFalse);
-      expect(restored.quantity, 8);
-      expect(controller.sales, hasLength(1));
-    });
+        final restored = controller.snapshot.records['a']!;
+        expect(restored.sold, isFalse);
+        expect(restored.quantity, 8);
+        expect(controller.sales, hasLength(1));
+      },
+    );
 
-    test('unknown baseline and expired physical entry block stock receiving', () async {
-      final controller = await controllerWithClock();
-      addTearDown(controller.dispose);
-      await controller.save(stock('unknown', quantity: null), expectedRevision: 0);
-      await controller.save(
-        stock('expired', quantity: 3, expiry: '2026-09-09'),
-        expectedRevision: 1,
-      );
+    test(
+      'unknown baseline and expired physical entry block stock receiving',
+      () async {
+        final controller = await controllerWithClock();
+        addTearDown(controller.dispose);
+        await controller.save(
+          stock('unknown', quantity: null),
+          expectedRevision: 0,
+        );
+        await controller.save(
+          stock('expired', quantity: 3, expiry: '2026-09-09'),
+          expectedRevision: 1,
+        );
 
-      expect(
-        () => controller.reviewStockAdjustment(
-          'unknown',
+        expect(
+          () => controller.reviewStockAdjustment(
+            'unknown',
+            kind: StockAdjustmentKind.receive,
+            quantity: 2,
+          ),
+          throwsFormatException,
+        );
+        expect(
+          () => controller.reviewStockAdjustment(
+            'expired',
+            kind: StockAdjustmentKind.receive,
+            quantity: 2,
+          ),
+          throwsFormatException,
+        );
+      },
+    );
+
+    test(
+      'exact quantity correction never invents a sale or silent SOLD state',
+      () async {
+        final controller = await controllerWithClock();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a', quantity: 10), expectedRevision: 0);
+
+        final review = controller.reviewStockAdjustment(
+          'a',
+          kind: StockAdjustmentKind.setExact,
+          quantity: 0,
+        );
+        await controller.applyStockAdjustment(review);
+
+        final corrected = controller.snapshot.records['a']!;
+        expect(corrected.quantity, 0);
+        expect(corrected.sold, isFalse);
+        expect(controller.sales, isEmpty);
+      },
+    );
+
+    test(
+      'review survives unrelated writes but rejects target changes',
+      () async {
+        final controller = await controllerWithClock();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a'), expectedRevision: 0);
+        final review = controller.reviewStockAdjustment(
+          'a',
           kind: StockAdjustmentKind.receive,
           quantity: 2,
-        ),
-        throwsFormatException,
-      );
-      expect(
-        () => controller.reviewStockAdjustment(
-          'expired',
+        );
+        await controller.save(stock('b'), expectedRevision: 1);
+
+        await controller.applyStockAdjustment(review);
+        expect(controller.snapshot.records['a']!.quantity, 12);
+        expect(controller.snapshot.records['b']!.quantity, 10);
+
+        final stale = controller.reviewStockAdjustment(
+          'a',
           kind: StockAdjustmentKind.receive,
           quantity: 2,
-        ),
-        throwsFormatException,
-      );
-    });
+        );
+        final live = controller.snapshot.records['a']!;
+        await controller.save(
+          live.patch({'notes': 'physical count rechecked'}),
+          expectedRevision: controller.snapshot.revision,
+        );
+        await expectLater(
+          controller.applyStockAdjustment(stale),
+          throwsStateError,
+        );
+        expect(controller.snapshot.records['a']!.quantity, 12);
+      },
+    );
 
-    test('exact quantity correction never invents a sale or silent SOLD state', () async {
-      final controller = await controllerWithClock();
-      addTearDown(controller.dispose);
-      await controller.save(stock('a', quantity: 10), expectedRevision: 0);
+    test(
+      'unknown stock cannot be marked fully sold by an arbitrary sale quantity',
+      () async {
+        final controller = await controllerWithClock();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a', quantity: null), expectedRevision: 0);
 
-      final review = controller.reviewStockAdjustment(
-        'a',
-        kind: StockAdjustmentKind.setExact,
-        quantity: 0,
-      );
-      await controller.applyStockAdjustment(review);
-
-      final corrected = controller.snapshot.records['a']!;
-      expect(corrected.quantity, 0);
-      expect(corrected.sold, isFalse);
-      expect(controller.sales, isEmpty);
-    });
-
-    test('review token rejects stale stock facts before mutation', () async {
-      final controller = await controllerWithClock();
-      addTearDown(controller.dispose);
-      await controller.save(stock('a'), expectedRevision: 0);
-      final review = controller.reviewStockAdjustment(
-        'a',
-        kind: StockAdjustmentKind.receive,
-        quantity: 2,
-      );
-      await controller.save(stock('b'), expectedRevision: 1);
-
-      await expectLater(
-        controller.applyStockAdjustment(review),
-        throwsStateError,
-      );
-      expect(controller.snapshot.records['a']!.quantity, 10);
-    });
-
-    test('unknown stock cannot be marked fully sold by an arbitrary sale quantity', () async {
-      final controller = await controllerWithClock();
-      addTearDown(controller.dispose);
-      await controller.save(stock('a', quantity: null), expectedRevision: 0);
-
-      await expectLater(
-        controller.recordSale('a', quantity: 2, markSoldOut: true),
-        throwsFormatException,
-      );
-      expect(controller.snapshot.revision, 1);
-      expect(controller.snapshot.records['a']!.quantity, isNull);
-      expect(controller.snapshot.records['a']!.sold, isFalse);
-      expect(controller.sales, isEmpty);
-    });
+        await expectLater(
+          controller.recordSale('a', quantity: 2, markSoldOut: true),
+          throwsFormatException,
+        );
+        expect(controller.snapshot.revision, 1);
+        expect(controller.snapshot.records['a']!.quantity, isNull);
+        expect(controller.snapshot.records['a']!.sold, isFalse);
+        expect(controller.sales, isEmpty);
+      },
+    );
   });
 
   group('bulk and persistence safety kernel', () {
-    test('bulk removal is tied to the exact reviewed active snapshot', () async {
-      final controller = await controllerWithClock();
-      addTearDown(controller.dispose);
-      await controller.save(stock('a'), expectedRevision: 0);
-      await controller.save(stock('b'), expectedRevision: 1);
-      final stale = controller.reviewArchiveAll();
-      expect(stale.activeCount, 2);
+    test(
+      'bulk removal is tied to the exact reviewed active snapshot',
+      () async {
+        final controller = await controllerWithClock();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a'), expectedRevision: 0);
+        await controller.save(stock('b'), expectedRevision: 1);
+        final stale = controller.reviewArchiveAll();
+        expect(stale.activeCount, 2);
 
-      await controller.save(stock('c'), expectedRevision: 2);
-      await expectLater(controller.applyArchiveAll(stale), throwsStateError);
-      expect(controller.records.where((m) => !m.archived), hasLength(3));
+        await controller.save(stock('c'), expectedRevision: 2);
+        await expectLater(controller.applyArchiveAll(stale), throwsStateError);
+        expect(controller.records.where((m) => !m.archived), hasLength(3));
 
-      final fresh = controller.reviewArchiveAll();
-      await controller.applyArchiveAll(fresh);
-      expect(controller.records.where((m) => !m.archived), isEmpty);
-      await controller.undo();
-      expect(controller.records.where((m) => !m.archived), hasLength(3));
-    });
+        final fresh = controller.reviewArchiveAll();
+        await controller.applyArchiveAll(fresh);
+        expect(controller.records.where((m) => !m.archived), isEmpty);
+        await controller.undo();
+        expect(controller.records.where((m) => !m.archived), hasLength(3));
+      },
+    );
 
     test('legacy direct bulk mutation gateway fails closed', () async {
       final controller = await controllerWithClock();

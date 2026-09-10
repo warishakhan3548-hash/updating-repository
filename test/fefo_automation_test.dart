@@ -11,12 +11,14 @@ Medicine stock({
   required int? quantity,
   DateTime? mfg,
   String batch = '',
+  String name = 'Dolo',
+  String strength = '650 mg',
   bool sold = false,
   bool archived = false,
 }) => Medicine(
   id: id,
-  name: 'Dolo',
-  strength: '650 mg',
+  name: name,
+  strength: strength,
   form: 'Tablet',
   mfg: mfg,
   expiry: expiry,
@@ -175,6 +177,78 @@ void main() {
     expect(controller.sales, isEmpty);
     controller.dispose();
   });
+
+  test('FEFO review rebases across unrelated inventory traffic', () async {
+    final item = stock(
+      id: 'one',
+      expiry: DateTime.utc(2026, 12, 1),
+      quantity: 10,
+    );
+    final storage = MemoryInventoryStorage(
+      InventorySnapshot(records: {'one': item}),
+    );
+    final controller = PharmacyController(
+      storage,
+      clock: () => today,
+      backgroundSearch: false,
+    );
+    await controller.initialize();
+
+    final review = controller.reviewFefoSale('one', quantity: 2);
+    await controller.save(
+      stock(
+        id: 'other',
+        name: 'Crocin',
+        strength: '500 mg',
+        expiry: DateTime.utc(2027, 1, 1),
+        quantity: 7,
+      ),
+      expectedRevision: controller.snapshot.revision,
+    );
+
+    await controller.applyFefoSale(review);
+    expect(controller.snapshot.records['one']!.quantity, 8);
+    expect(controller.snapshot.records['other']!.quantity, 7);
+    expect(controller.sales, hasLength(1));
+    controller.dispose();
+  });
+
+  test(
+    'FEFO review fails if a new earlier same-product batch appears',
+    () async {
+      final item = stock(
+        id: 'one',
+        expiry: DateTime.utc(2026, 12, 1),
+        quantity: 10,
+      );
+      final storage = MemoryInventoryStorage(
+        InventorySnapshot(records: {'one': item}),
+      );
+      final controller = PharmacyController(
+        storage,
+        clock: () => today,
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+
+      final review = controller.reviewFefoSale('one', quantity: 2);
+      await controller.save(
+        stock(
+          id: 'earlier',
+          expiry: DateTime.utc(2026, 10, 1),
+          quantity: 5,
+          batch: 'EARLY',
+        ),
+        expectedRevision: controller.snapshot.revision,
+      );
+
+      await expectLater(controller.applyFefoSale(review), throwsStateError);
+      expect(controller.snapshot.records['one']!.quantity, 10);
+      expect(controller.snapshot.records['earlier']!.quantity, 5);
+      expect(controller.sales, isEmpty);
+      controller.dispose();
+    },
+  );
 
   test('stale FEFO review cannot mutate a newer inventory revision', () async {
     final item = stock(

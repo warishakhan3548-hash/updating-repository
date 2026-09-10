@@ -56,11 +56,17 @@ class ReviewedFefoSale {
     required this.baseRevision,
     required this.occurredAt,
     required this.plan,
+    this.stockRevisions = const <String, int>{},
   });
 
   final int baseRevision;
   final DateTime occurredAt;
   final FefoDispensingPlan plan;
+
+  /// Exact revisions for physical rows shown in the reviewed allocation.
+  /// They let the controller distinguish harmless unrelated inventory traffic
+  /// from a change to stock the pharmacist actually reviewed.
+  final Map<String, int> stockRevisions;
 }
 
 FefoDispensingPlan planFefoDispensing({
