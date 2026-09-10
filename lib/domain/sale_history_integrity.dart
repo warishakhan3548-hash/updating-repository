@@ -29,10 +29,13 @@ class SaleHistoryIntegrityIssue {
 /// rewriting history: it surfaces suspicious persisted events so a pharmacist
 /// can verify the exact stock row and recovery source.
 ///
-/// Historical medicine identity snapshots are deliberately NOT compared with the
-/// current Medicine identity. A later pharmacist correction may validly rename or
-/// reclassify a stock row, while the immutable SaleEvent must keep the identity
-/// that was recorded at sale time for honest historical analytics.
+/// Historical medicine identity snapshots are deliberately NOT treated as an
+/// error when the current Medicine identity differs. A later pharmacist
+/// correction may validly rename or reclassify a stock row, while the immutable
+/// SaleEvent must keep the identity that was recorded at sale time for honest
+/// historical analytics. For the same reason current pack dates are used to
+/// audit historical chronology only while the sale and current row still share
+/// one medicine identity.
 class SaleHistoryIntegrityReport {
   SaleHistoryIntegrityReport._(List<SaleHistoryIntegrityIssue> source)
     : issues = List.unmodifiable(source);
@@ -68,6 +71,12 @@ class SaleHistoryIntegrityReport {
         )..add(sale);
         continue;
       }
+
+      // If the row identity was corrected later, today's MFG/EXP may belong to
+      // the corrected product facts and cannot safely be projected backward onto
+      // the immutable historical sale snapshot. Preserve the old event and avoid
+      // manufacturing a false chronology conflict.
+      if (sale.productKey != stock.identity) continue;
 
       final beforeMfg =
           stock.mfg != null && saleDay.isBefore(civilDay(stock.mfg!));
