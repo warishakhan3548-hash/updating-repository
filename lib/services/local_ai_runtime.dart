@@ -4,11 +4,11 @@ import 'package:lib_llama_cpp/lib_llama_cpp.dart';
 
 /// One long-lived local-AI lease with a restartable llama.cpp transport.
 ///
-/// Calls remain exclusive: a cancelled native command must finish before another
-/// command can borrow the lease. Transport failure is different: the failed
-/// inference stream is discarded, its callbacks are invalidated by an epoch, and
-/// the next load can create a fresh inference isolate without forcing the user to
-/// disable/re-enable the selected model.
+/// Calls remain exclusive. Explicit user cancellation retires the current
+/// inference actor immediately, fails only that borrower, and invalidates every
+/// late callback through the transport epoch. The next command waits for teardown
+/// and then starts a fresh actor, so Stop never has to wait for a long generation
+/// to naturally exhaust its token budget.
 class LocalAiRuntime {
   LocalAiRuntime({LlamaEngine engine = const LibLlamaCpp()}) : _engine = engine;
 
@@ -308,6 +308,32 @@ class LocalAiRuntime {
     } else {
       pending.completeError(error, stack);
     }
+  }
+
+  /// Cancels only the command currently holding this runtime lease.
+  ///
+  /// `LibLlamaCpp.transform` owns an inference isolate. Cancelling its stream
+  /// subscription closes that actor and kills the isolate, so a long local
+  /// generation is actually stopped instead of merely hiding its UI tokens.
+  /// The epoch is invalidated before teardown, making any late native callbacks
+  /// harmless. The selected model file is untouched and will be reloaded on the
+  /// next request.
+  bool cancelCurrentRequest() {
+    if (_closed || _closing || _pending == null) return false;
+    final commands = _commands;
+    final subscription = _subscription;
+    if (commands == null || subscription == null) {
+      _fail(StateError('Local AI request cancelled.'), StackTrace.current);
+      return true;
+    }
+    _invalidateTransport(
+      _transportEpoch,
+      commands,
+      subscription,
+      StateError('Local AI request cancelled.'),
+      StackTrace.current,
+    );
+    return true;
   }
 
   Future<String> _run(
