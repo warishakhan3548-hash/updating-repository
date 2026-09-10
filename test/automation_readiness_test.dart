@@ -1,6 +1,5 @@
 import 'package:aaris_pharmacy/domain/attention.dart';
 import 'package:aaris_pharmacy/domain/automation_readiness.dart';
-import 'package:aaris_pharmacy/domain/inventory.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:flutter_test/flutter_test.dart';
 
