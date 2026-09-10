@@ -1,0 +1,1077 @@
+from pathlib import Path
+from textwrap import dedent
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(
+            f"{path}: expected exactly one patch anchor, found {count}: {old[:120]!r}"
+        )
+    p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+clarification = dedent(r'''
+import 'app_brain.dart';
+import 'medicine.dart';
+
+enum BrainChoiceResolutionKind {
+  noMatch,
+  ambiguous,
+  cancelled,
+  stale,
+  resolved,
+}
+
+class BrainChoiceResolution {
+  const BrainChoiceResolution(this.kind, {this.stockId});
+
+  final BrainChoiceResolutionKind kind;
+  final String? stockId;
+}
+
+class BrainChoiceCandidate {
+  const BrainChoiceCandidate._({
+    required this.id,
+    required this.revision,
+    required this.title,
+    required this.batchNumber,
+    required this.barcode,
+    required this.block,
+    required this.row,
+    required this.vertical,
+    required this.location,
+    required this.address,
+  });
+
+  factory BrainChoiceCandidate.fromMedicine(Medicine medicine) =>
+      BrainChoiceCandidate._(
+        id: medicine.id,
+        revision: medicine.revision,
+        title: medicine.title,
+        batchNumber: medicine.batchNumber,
+        barcode: medicine.barcode,
+        block: medicine.block,
+        row: medicine.row,
+        vertical: medicine.vertical,
+        location: medicine.location,
+        address: medicine.address,
+      );
+
+  final String id;
+  final int revision;
+  final String title;
+  final String batchNumber;
+  final String barcode;
+  final String block;
+  final String row;
+  final String vertical;
+  final String location;
+  final String address;
+
+  String get displayCue {
+    final facts = <String>[
+      title,
+      if (batchNumber.trim().isNotEmpty) 'Batch ${batchNumber.trim()}',
+      if (barcode.trim().isNotEmpty) 'Barcode ${barcode.trim()}',
+      if (address.trim().isNotEmpty) address.trim(),
+    ];
+    return facts.join(' · ');
+  }
+}
+
+/// Ephemeral clarification state for rows already displayed to the pharmacist.
+/// It has no mutation authority. Every ordinal is revision-bound and the whole
+/// mapping fails closed if any displayed row changes before the follow-up.
+class PendingBrainChoice {
+  PendingBrainChoice({
+    required this.intent,
+    required Iterable<Medicine> candidates,
+    required this.createdAt,
+    this.ttl = const Duration(minutes: 5),
+  }) : candidates = List<BrainChoiceCandidate>.unmodifiable(
+         candidates.map(BrainChoiceCandidate.fromMedicine),
+       ) {
+    if (this.candidates.length < 2 || this.candidates.length > 12) {
+      throw const FormatException(
+        'Aaris clarification requires 2 to 12 displayed stock rows.',
+      );
+    }
+    if (ttl.inMilliseconds <= 0 ||
+        ttl.inMilliseconds > const Duration(minutes: 15).inMilliseconds) {
+      throw const FormatException('Invalid Aaris clarification lifetime.');
+    }
+    final ids = this.candidates.map((candidate) => candidate.id).toSet();
+    if (ids.length != this.candidates.length) {
+      throw const FormatException(
+        'Aaris clarification cannot contain duplicate stock IDs.',
+      );
+    }
+    if (this.candidates.any((candidate) => candidate.revision < 1)) {
+      throw const FormatException(
+        'Aaris clarification requires revisioned stock rows.',
+      );
+    }
+    if (intent.action != AppBrainAction.search && !intent.needsMedicineTarget) {
+      throw const FormatException(
+        'This Aaris action cannot be resumed from a medicine choice.',
+      );
+    }
+  }
+
+  final AppBrainIntent intent;
+  final List<BrainChoiceCandidate> candidates;
+  final DateTime createdAt;
+  final Duration ttl;
+
+  BrainChoiceResolution resolve(
+    String raw, {
+    required Map<String, Medicine> records,
+    required DateTime now,
+  }) {
+    final text = _choiceText(raw);
+    if (text.isEmpty || raw.length > 240) {
+      return const BrainChoiceResolution(BrainChoiceResolutionKind.noMatch);
+    }
+    if (_cancelChoices.contains(text)) {
+      return const BrainChoiceResolution(BrainChoiceResolutionKind.cancelled);
+    }
+
+    final age = now.difference(createdAt);
+    if (age.isNegative || age > ttl || !_isCurrent(records)) {
+      return const BrainChoiceResolution(BrainChoiceResolutionKind.stale);
+    }
+
+    final ordinal = _choiceOrdinal(text);
+    if (ordinal != null) {
+      if (ordinal < 1 || ordinal > candidates.length) {
+        return const BrainChoiceResolution(BrainChoiceResolutionKind.noMatch);
+      }
+      return BrainChoiceResolution(
+        BrainChoiceResolutionKind.resolved,
+        stockId: candidates[ordinal - 1].id,
+      );
+    }
+
+    final labelled = _labelledMatches(text);
+    if (labelled != null) return _resultFor(labelled);
+
+    // Never convert a loose/fuzzy medicine phrase into a destructive target.
+    return const BrainChoiceResolution(BrainChoiceResolutionKind.noMatch);
+  }
+
+  bool _isCurrent(Map<String, Medicine> records) {
+    for (final candidate in candidates) {
+      final live = records[candidate.id];
+      if (live == null || live.archived || live.revision != candidate.revision) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  List<BrainChoiceCandidate>? _labelledMatches(String text) {
+    final constraints = <String, String>{};
+    var repeatedLabel = false;
+
+    void capture(String key, RegExp expression) {
+      final matches = expression.allMatches(text).toList(growable: false);
+      if (matches.length > 1) {
+        repeatedLabel = true;
+        return;
+      }
+      if (matches.isEmpty) return;
+      final value = _trimChoiceGlue(matches.single.group(1) ?? '');
+      if (value.isNotEmpty) constraints[key] = value;
+    }
+
+    capture(
+      'batch',
+      RegExp(
+        r'(?:^| )(?:batch|बैच)(?: (?:no|number|नंबर))?[:# -]*([a-z0-9ऀ-ॿ._/-]{1,60})',
+        caseSensitive: false,
+        unicode: true,
+      ),
+    );
+    capture(
+      'barcode',
+      RegExp(
+        r'(?:^| )(?:barcode|bar code|बारकोड)[:# -]*([a-z0-9._/-]{1,80})',
+        caseSensitive: false,
+        unicode: true,
+      ),
+    );
+    capture(
+      'block',
+      RegExp(
+        r'(?:^| )(?:block|ब्लॉक)[:# -]*([a-z0-9ऀ-ॿ._/-]{1,40})',
+        caseSensitive: false,
+        unicode: true,
+      ),
+    );
+    capture(
+      'row',
+      RegExp(
+        r'(?:^| )(?:row|रो|पंक्ति)[:# -]*([a-z0-9ऀ-ॿ._/-]{1,40})',
+        caseSensitive: false,
+        unicode: true,
+      ),
+    );
+    capture(
+      'vertical',
+      RegExp(
+        r'(?:^| )(?:vertical|vert|वर्टिकल)[:# -]*([a-z0-9ऀ-ॿ._/-]{1,40})',
+        caseSensitive: false,
+        unicode: true,
+      ),
+    );
+    capture(
+      'location',
+      RegExp(
+        r'(?:^| )(?:location|rack|shelf|लोकेशन|रैक|शेल्फ|जगह)[:# -]*([a-z0-9ऀ-ॿ._/-][a-z0-9ऀ-ॿ._/ -]{0,79})$',
+        caseSensitive: false,
+        unicode: true,
+      ),
+    );
+
+    if (repeatedLabel) {
+      return List<BrainChoiceCandidate>.of(candidates, growable: false);
+    }
+    if (constraints.isEmpty) return null;
+
+    bool exact(String left, String right) => _choiceText(left) == _choiceText(right);
+    bool exactLocation(BrainChoiceCandidate candidate, String cue) =>
+        exact(candidate.location, cue) || exact(candidate.address, cue);
+
+    return candidates.where((candidate) {
+      final batch = constraints['batch'];
+      if (batch != null && !exact(candidate.batchNumber, batch)) return false;
+      final barcode = constraints['barcode'];
+      if (barcode != null && !exact(candidate.barcode, barcode)) return false;
+      final block = constraints['block'];
+      if (block != null && !exact(candidate.block, block)) return false;
+      final row = constraints['row'];
+      if (row != null && !exact(candidate.row, row)) return false;
+      final vertical = constraints['vertical'];
+      if (vertical != null && !exact(candidate.vertical, vertical)) return false;
+      final location = constraints['location'];
+      if (location != null && !exactLocation(candidate, location)) return false;
+      return true;
+    }).toList(growable: false);
+  }
+
+  BrainChoiceResolution _resultFor(List<BrainChoiceCandidate> matches) {
+    if (matches.length == 1) {
+      return BrainChoiceResolution(
+        BrainChoiceResolutionKind.resolved,
+        stockId: matches.single.id,
+      );
+    }
+    if (matches.length > 1) {
+      return const BrainChoiceResolution(BrainChoiceResolutionKind.ambiguous);
+    }
+    return const BrainChoiceResolution(BrainChoiceResolutionKind.noMatch);
+  }
+}
+
+String _choiceText(String raw) => _asciiDigits(raw.toLowerCase())
+    .replaceAll(RegExp(r'[^a-z0-9ऀ-ॿ._/-]+', unicode: true), ' ')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
+String _asciiDigits(String value) {
+  const devanagari = '०१२३४५६७८९';
+  final output = StringBuffer();
+  for (final rune in value.runes) {
+    final char = String.fromCharCode(rune);
+    final index = devanagari.indexOf(char);
+    output.write(index < 0 ? char : index.toString());
+  }
+  return output.toString();
+}
+
+int? _choiceOrdinal(String text) {
+  final direct = _ordinals[text];
+  if (direct != null) return direct;
+  final reduced = text
+      .split(' ')
+      .where((token) => !_ordinalGlue.contains(token))
+      .join(' ');
+  final reducedDirect = _ordinals[reduced];
+  if (reducedDirect != null) return reducedDirect;
+  if (reduced.endsWith(' one')) {
+    return _ordinals[reduced.substring(0, reduced.length - 4).trim()];
+  }
+  return null;
+}
+
+String _trimChoiceGlue(String value) {
+  final tokens = _choiceText(value).split(' ').toList();
+  while (tokens.isNotEmpty && _trailingChoiceGlue.contains(tokens.last)) {
+    tokens.removeLast();
+  }
+  return tokens.join(' ');
+}
+
+const _cancelChoices = <String>{
+  'cancel',
+  'cancel it',
+  'never mind',
+  'nevermind',
+  'leave it',
+  'rehne do',
+  'rehne dena',
+  'chhodo',
+  'chhod do',
+  'रहने दो',
+  'छोड़ो',
+  'छोड़ दो',
+  'कैंसल',
+};
+
+const _ordinals = <String, int>{
+  '1': 1,
+  '1st': 1,
+  'first': 1,
+  'one': 1,
+  'pehla': 1,
+  'pehli': 1,
+  'पहला': 1,
+  'पहली': 1,
+  '2': 2,
+  '2nd': 2,
+  'second': 2,
+  'two': 2,
+  'dusra': 2,
+  'dusri': 2,
+  'doosra': 2,
+  'doosri': 2,
+  'दूसरा': 2,
+  'दूसरी': 2,
+  '3': 3,
+  '3rd': 3,
+  'third': 3,
+  'three': 3,
+  'teesra': 3,
+  'teesri': 3,
+  'तीसरा': 3,
+  'तीसरी': 3,
+  '4': 4,
+  '4th': 4,
+  'fourth': 4,
+  'four': 4,
+  'chautha': 4,
+  'चौथा': 4,
+  '5': 5,
+  '5th': 5,
+  'fifth': 5,
+  'five': 5,
+  'paanchva': 5,
+  'पांचवां': 5,
+  '6': 6,
+  '6th': 6,
+  'sixth': 6,
+  'six': 6,
+  'chhatha': 6,
+  'छठा': 6,
+  '7': 7,
+  '7th': 7,
+  'seventh': 7,
+  'seven': 7,
+  'saatva': 7,
+  'सातवां': 7,
+  '8': 8,
+  '8th': 8,
+  'eighth': 8,
+  'eight': 8,
+  'aathva': 8,
+  'आठवां': 8,
+  '9': 9,
+  '9th': 9,
+  'ninth': 9,
+  'nine': 9,
+  'nauva': 9,
+  'नौवां': 9,
+  '10': 10,
+  '10th': 10,
+  'tenth': 10,
+  'ten': 10,
+  '11': 11,
+  '11th': 11,
+  'eleventh': 11,
+  '12': 12,
+  '12th': 12,
+  'twelfth': 12,
+};
+
+const _ordinalGlue = <String>{
+  'option',
+  'number',
+  'no',
+  'the',
+  'choose',
+  'select',
+  'pick',
+  'medicine',
+  'stock',
+  'entry',
+  'wali',
+  'waali',
+  'wala',
+  'waala',
+  'ko',
+  'please',
+  'karo',
+  'kar',
+  'do',
+  'ऑप्शन',
+  'नंबर',
+  'वाली',
+  'वाला',
+  'मेडिसिन',
+  'स्टॉक',
+  'एंट्री',
+  'को',
+  'चुनो',
+  'सेलेक्ट',
+  'सिलेक्ट',
+  'करो',
+  'कर',
+  'दो',
+};
+
+const _trailingChoiceGlue = <String>{
+  'wali',
+  'waali',
+  'wala',
+  'waala',
+  'medicine',
+  'stock',
+  'entry',
+  'choose',
+  'select',
+  'karo',
+  'kar',
+  'do',
+  'वाली',
+  'वाला',
+  'मेडिसिन',
+  'स्टॉक',
+  'एंट्री',
+  'चुनो',
+  'सेलेक्ट',
+  'सिलेक्ट',
+  'करो',
+  'कर',
+  'दो',
+};
+''').lstrip()
+Path("lib/domain/brain_clarification.dart").write_text(clarification, encoding="utf-8")
+
+brain = "lib/ui/brain_screen.dart"
+replace_once(
+    brain,
+    "import '../domain/brain_operations.dart';\n",
+    "import '../domain/brain_clarification.dart';\nimport '../domain/brain_operations.dart';\n",
+)
+replace_once(
+    brain,
+    "  bool _busy = false, _voiceOpening = false;\n  String _reply =\n",
+    "  bool _busy = false, _voiceOpening = false;\n  PendingBrainChoice? _pendingChoice;\n  String _reply =\n",
+)
+replace_once(
+    brain,
+    """    final intent = parseAppBrainIntent(raw);
+    setState(() {
+      _busy = true;
+      _reply = 'Understanding command…';
+      if (supplied != null) _command.text = supplied;
+    });
+    try {
+      await _execute(intent, raw);
+""",
+    """    setState(() {
+      _busy = true;
+      _reply = 'Understanding command…';
+      if (supplied != null) _command.text = supplied;
+    });
+    try {
+      if (await _continuePendingChoice(raw)) return;
+      final intent = parseAppBrainIntent(raw);
+      await _execute(intent, raw);
+""",
+)
+
+continuation = dedent('''
+  Future<bool> _continuePendingChoice(String raw) async {
+    final pending = _pendingChoice;
+    if (pending == null) return false;
+    final result = pending.resolve(
+      raw,
+      records: widget.controller.snapshot.records,
+      now: widget.controller.clock(),
+    );
+    switch (result.kind) {
+      case BrainChoiceResolutionKind.cancelled:
+        _pendingChoice = null;
+        if (mounted) {
+          setState(
+            () => _reply = 'Pending medicine choice cancelled. Nothing changed.',
+          );
+        }
+        return true;
+      case BrainChoiceResolutionKind.stale:
+        _pendingChoice = null;
+        final fresh = parseAppBrainIntent(raw);
+        if (fresh.action != AppBrainAction.unknown) return false;
+        if (mounted) {
+          setState(
+            () => _reply =
+                'That medicine-choice list expired or one of its stock rows changed. Nothing changed. Run the command again so Aaris can rank the live Medicine Database.',
+          );
+        }
+        return true;
+      case BrainChoiceResolutionKind.resolved:
+        final stockId = result.stockId;
+        final record = stockId == null
+            ? null
+            : widget.controller.snapshot.records[stockId];
+        _pendingChoice = null;
+        if (record == null || record.archived) {
+          if (mounted) {
+            setState(
+              () => _reply =
+                  'That exact stock row is no longer active. Nothing changed; choose again from the live Medicine Database.',
+            );
+          }
+          return true;
+        }
+        await _resumePendingChoice(pending.intent, record);
+        return true;
+      case BrainChoiceResolutionKind.ambiguous:
+        if (mounted) {
+          setState(
+            () => _reply =
+                '${_pendingChoicePrompt(pending)} That exact cue still belongs to more than one displayed row, so Aaris did not guess.',
+          );
+        }
+        return true;
+      case BrainChoiceResolutionKind.noMatch:
+        final fresh = parseAppBrainIntent(raw);
+        if (fresh.action != AppBrainAction.unknown) {
+          _pendingChoice = null;
+          return false;
+        }
+        if (mounted) setState(() => _reply = _pendingChoicePrompt(pending));
+        return true;
+    }
+  }
+
+  Future<void> _resumePendingChoice(
+    AppBrainIntent intent,
+    Medicine record,
+  ) async {
+    _remember(record);
+    final focus = intent.briefFocus;
+    if (focus != null) {
+      _answerOperationalBrief(record, focus);
+      return;
+    }
+    if (intent.action == AppBrainAction.search) {
+      widget.onOpenSection(AppSection.stock);
+      if (mounted) {
+        setState(
+          () => _reply =
+              '${record.title} selected from the exact displayed options. This stock row is now the session context.',
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+      if (mounted) await openEditor(context, widget.controller, record: record);
+      return;
+    }
+    await _openActionTarget(
+      intent.action,
+      record,
+      requestedQuantity: intent.quantity,
+      locationPatch: intent.locationPatch,
+      removalReason: intent.removalReason,
+    );
+  }
+
+  String _pendingChoicePrompt(PendingBrainChoice pending) {
+    final shown = <String>[];
+    for (var i = 0; i < pending.candidates.length && i < 4; i++) {
+      shown.add('${i + 1}: ${pending.candidates[i].displayCue}');
+    }
+    final more = pending.candidates.length > 4
+        ? ' · +${pending.candidates.length - 4} more'
+        : '';
+    return 'Aaris is waiting for an exact choice from the displayed local rows. Say “first one”, “second one”, an exact batch/barcode/block/row/vertical/location, or “cancel”. ${shown.join(' · ')}$more';
+  }
+
+''')
+replace_once(
+    brain,
+    "  Future<void> _execute(AppBrainIntent intent, String raw) async {\n",
+    continuation + "  Future<void> _execute(AppBrainIntent intent, String raw) async {\n",
+)
+
+replace_once(
+    brain,
+    """    if (records.isEmpty) {
+      widget.onOpenSection(AppSection.stock);
+      if (mounted) setState(() => _reply = emptyReply);
+      return;
+    }
+    setState(
+""",
+    """    if (records.isEmpty) {
+      widget.onOpenSection(AppSection.stock);
+      if (mounted) setState(() => _reply = emptyReply);
+      return;
+    }
+    if (records.length > 1) {
+      _pendingChoice = PendingBrainChoice(
+        intent: AppBrainIntent(
+          action: action,
+          quantity: requestedQuantity,
+          briefFocus: briefFocus,
+          locationPatch: locationPatch,
+          removalReason: removalReason,
+        ),
+        candidates: records,
+        createdAt: widget.controller.clock(),
+      );
+    } else {
+      _pendingChoice = null;
+    }
+    setState(
+""",
+)
+
+replace_once(
+    brain,
+    """              if (briefFocus != null)
+                const Padding(
+""",
+    """              if (records.length > 1)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Hands-free exact choice: close this list and say “first one”, “second one”, or an exact batch/barcode/block/row/vertical/location. The option map expires and any stock-row revision change invalidates it.',
+                      style: TextStyle(
+                        color: primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ),
+              if (briefFocus != null)
+                const Padding(
+""",
+)
+
+old_item = """                  itemBuilder: (_, index) {
+                    final record = records[index];
+                    return MedicineCard(
+                      record: record,
+                      settings: widget.controller.settings,
+                      today: widget.controller.today,
+                      onTap: () async {
+                        Navigator.pop(sheetContext);
+                        if (!mounted) return;
+                        _remember(record);
+                        if (briefFocus != null) {
+                          _answerOperationalBrief(record, briefFocus);
+                          return;
+                        }
+                        if (action == AppBrainAction.search) {
+                          widget.onOpenSection(AppSection.stock);
+                          setState(
+                            () => _reply =
+                                '${record.title} selected. I will remember this exact stock entry for your next command.',
+                          );
+                          await Future<void>.delayed(Duration.zero);
+                          if (mounted) {
+                            await openEditor(
+                              context,
+                              widget.controller,
+                              record: record,
+                            );
+                          }
+                          return;
+                        }
+                        await _openActionTarget(
+                          action,
+                          record,
+                          requestedQuantity: requestedQuantity,
+                          locationPatch: locationPatch,
+                          removalReason: removalReason,
+                        );
+                      },
+                    );
+                  },
+"""
+new_item = """                  itemBuilder: (_, index) {
+                    final record = records[index];
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (records.length > 1)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 7, 4, 2),
+                            child: Text(
+                              'OPTION ${index + 1}',
+                              style: const TextStyle(
+                                color: primary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: .8,
+                              ),
+                            ),
+                          ),
+                        MedicineCard(
+                          record: record,
+                          settings: widget.controller.settings,
+                          today: widget.controller.today,
+                          onTap: () async {
+                            Navigator.pop(sheetContext);
+                            if (!mounted) return;
+                            _pendingChoice = null;
+                            _remember(record);
+                            if (briefFocus != null) {
+                              _answerOperationalBrief(record, briefFocus);
+                              return;
+                            }
+                            if (action == AppBrainAction.search) {
+                              widget.onOpenSection(AppSection.stock);
+                              setState(
+                                () => _reply =
+                                    '${record.title} selected. I will remember this exact stock entry for your next command.',
+                              );
+                              await Future<void>.delayed(Duration.zero);
+                              if (mounted) {
+                                await openEditor(
+                                  context,
+                                  widget.controller,
+                                  record: record,
+                                );
+                              }
+                              return;
+                            }
+                            await _openActionTarget(
+                              action,
+                              record,
+                              requestedQuantity: requestedQuantity,
+                              locationPatch: locationPatch,
+                              removalReason: removalReason,
+                            );
+                          },
+                        ),
+                      ],
+                    );
+                  },
+"""
+replace_once(brain, old_item, new_item)
+
+app = "lib/domain/app_brain.dart"
+replace_once(
+    app,
+    r"""bool _looksLikeScheduledMutation(String raw) => RegExp(
+  r'\b(?:at\s+)?(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b',
+  caseSensitive: false,
+).hasMatch(raw);
+""",
+    r"""bool _looksLikeScheduledMutation(String raw) =>
+    RegExp(
+      r'\b(?:at\s+)?(?:[01]?\d|2[0-3]):[0-5]\d(?:\s*(?:a\.?m\.?|p\.?m\.?))?\b',
+      caseSensitive: false,
+    ).hasMatch(raw) ||
+    RegExp(
+      r'\b(?:[1-9]|1[0-2])\s*(?:a\.?m\.?|p\.?m\.?)\b',
+      caseSensitive: false,
+    ).hasMatch(raw) ||
+    RegExp(
+      r'\b(?:on\s+)?(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|\d{4}-\d{2}-\d{2})\b',
+      caseSensitive: false,
+    ).hasMatch(raw) ||
+    RegExp(
+      r'\b(?:in\s+)?\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\b',
+      caseSensitive: false,
+    ).hasMatch(raw) ||
+    RegExp(
+      r'(?:[0-9०-९]+\s*बजे|[0-9०-९]+\s*(?:ghante|din|hafte|mahine)\s*baad)',
+      caseSensitive: false,
+      unicode: true,
+    ).hasMatch(raw);
+""",
+)
+replace_once(
+    app,
+    "  'never',\n  'not',\n",
+    "  'never',\n  'avoid',\n  'refrain',\n  'refrain from',\n  'leave unchanged',\n  'leave it unchanged',\n  'not',\n",
+)
+replace_once(
+    app,
+    "  'after some time',\n  'schedule for',\n",
+    "  'after some time',\n  'after lunch',\n  'after dinner',\n  'after closing',\n  'before closing',\n  'this evening',\n  'tonight',\n  'monday',\n  'tuesday',\n  'wednesday',\n  'thursday',\n  'friday',\n  'saturday',\n  'sunday',\n  'shaam',\n  'raat',\n  'dopahar',\n  'subah',\n  'शाम',\n  'रात',\n  'दोपहर',\n  'सुबह',\n  'schedule for',\n",
+)
+replace_once(
+    app,
+    """const _removeTerms = <String>[
+  'delete',
+  'remove',
+  'archive',
+""",
+    """const _removeTerms = <String>[
+  'delete',
+  'deleting',
+  'remove',
+  'removing',
+  'archive',
+  'discard',
+  'discarding',
+  'nikal do',
+  'nikaal do',
+  'निकाल दो',
+""",
+)
+
+clarification_test = dedent(r'''
+import 'package:aaris_pharmacy/domain/app_brain.dart';
+import 'package:aaris_pharmacy/domain/brain_clarification.dart';
+import 'package:aaris_pharmacy/domain/medicine.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+Medicine stock(
+  String id, {
+  String batch = '',
+  String barcode = '',
+  String block = '',
+  String row = '',
+  String vertical = '',
+  String location = '',
+  int revision = 1,
+}) => Medicine(
+  id: id,
+  name: 'Dolo',
+  strength: '650 mg',
+  form: 'Tablet',
+  batchNumber: batch,
+  barcode: barcode,
+  block: block,
+  row: row,
+  vertical: vertical,
+  location: location,
+  quantity: 10,
+  revision: revision,
+);
+
+PendingBrainChoice pending(
+  List<Medicine> medicines, {
+  DateTime? createdAt,
+}) => PendingBrainChoice(
+  intent: const AppBrainIntent(action: AppBrainAction.removeMedicine),
+  candidates: medicines,
+  createdAt: createdAt ?? DateTime(2026, 9, 10, 9),
+);
+
+void main() {
+  group('Aaris Brain revision-bound clarification', () {
+    test('resolves visible ordinals in English Hinglish Hindi and Devanagari digits', () {
+      final a = stock('a', batch: 'A11');
+      final b = stock('b', batch: 'B22');
+      final choice = pending([a, b]);
+      final records = {'a': a, 'b': b};
+      final now = DateTime(2026, 9, 10, 9, 1);
+
+      for (final words in [
+        'second one',
+        'option 2',
+        'dusri wali',
+        'दूसरी वाली',
+        '२',
+      ]) {
+        final result = choice.resolve(words, records: records, now: now);
+        expect(result.kind, BrainChoiceResolutionKind.resolved, reason: words);
+        expect(result.stockId, 'b', reason: words);
+      }
+    });
+
+    test('exact batch barcode and physical location labels resolve without fuzzy guessing', () {
+      final a = stock(
+        'a',
+        batch: 'A11',
+        barcode: '111111',
+        block: 'B1',
+        row: 'R1',
+      );
+      final b = stock(
+        'b',
+        batch: 'B22',
+        barcode: '222222',
+        block: 'B2',
+        row: 'R2',
+        vertical: 'V2',
+        location: 'Fridge 2',
+      );
+      final choice = pending([a, b]);
+      final records = {'a': a, 'b': b};
+      final now = DateTime(2026, 9, 10, 9, 1);
+
+      for (final entry in <String, String>{
+        'batch B22 wali': 'b',
+        'barcode 111111': 'a',
+        'block B2': 'b',
+        'row R1': 'a',
+        'vertical V2': 'b',
+        'location Fridge 2': 'b',
+      }.entries) {
+        final result = choice.resolve(entry.key, records: records, now: now);
+        expect(result.kind, BrainChoiceResolutionKind.resolved, reason: entry.key);
+        expect(result.stockId, entry.value, reason: entry.key);
+      }
+    });
+
+    test('a shared exact discriminator remains ambiguous', () {
+      final a = stock('a', batch: 'A11', row: 'R1');
+      final b = stock('b', batch: 'B22', row: 'R1');
+      final result = pending([a, b]).resolve(
+        'row R1',
+        records: {'a': a, 'b': b},
+        now: DateTime(2026, 9, 10, 9, 1),
+      );
+      expect(result.kind, BrainChoiceResolutionKind.ambiguous);
+      expect(result.stockId, isNull);
+    });
+
+    test('loose medicine wording never becomes a destructive target', () {
+      final a = stock('a', batch: 'A11');
+      final b = stock('b', batch: 'B22');
+      final result = pending([a, b]).resolve(
+        'Dolo wali medicine',
+        records: {'a': a, 'b': b},
+        now: DateTime(2026, 9, 10, 9, 1),
+      );
+      expect(result.kind, BrainChoiceResolutionKind.noMatch);
+      expect(result.stockId, isNull);
+    });
+
+    test('any displayed row revision change invalidates the whole option map', () {
+      final a = stock('a', batch: 'A11');
+      final b = stock('b', batch: 'B22');
+      final result = pending([a, b]).resolve(
+        'second one',
+        records: {'a': a, 'b': stock('b', batch: 'B22', revision: 2)},
+        now: DateTime(2026, 9, 10, 9, 1),
+      );
+      expect(result.kind, BrainChoiceResolutionKind.stale);
+    });
+
+    test('clarification expires and cancellation never selects stock', () {
+      final a = stock('a');
+      final b = stock('b');
+      final records = {'a': a, 'b': b};
+      final stale = pending([a, b]).resolve(
+        'first one',
+        records: records,
+        now: DateTime(2026, 9, 10, 9, 6),
+      );
+      expect(stale.kind, BrainChoiceResolutionKind.stale);
+
+      for (final words in ['cancel', 'rehne do', 'छोड़ दो']) {
+        final result = pending([a, b]).resolve(
+          words,
+          records: records,
+          now: DateTime(2026, 9, 10, 9, 1),
+        );
+        expect(result.kind, BrainChoiceResolutionKind.cancelled, reason: words);
+        expect(result.stockId, isNull, reason: words);
+      }
+    });
+
+    test('backward clock movement invalidates the pending option map', () {
+      final a = stock('a');
+      final b = stock('b');
+      final result = pending([a, b]).resolve(
+        'first one',
+        records: {'a': a, 'b': b},
+        now: DateTime(2026, 9, 10, 8, 59),
+      );
+      expect(result.kind, BrainChoiceResolutionKind.stale);
+    });
+  });
+}
+''').lstrip()
+Path("test/brain_clarification_test.dart").write_text(
+    clarification_test,
+    encoding="utf-8",
+)
+
+safety = "test/aaris_brain_command_safety_test.dart"
+replace_once(
+    safety,
+    """        'Dolo 650 delete mat karo',
+        \"don't sell Dolo 650\",
+        'Dolo 650 ko remove nahi karna',
+""",
+    """        'Dolo 650 delete mat karo',
+        \"don't sell Dolo 650\",
+        'avoid deleting Dolo 650',
+        'refrain from removing Crocin 500',
+        'Dolo 650 ko remove nahi karna',
+""",
+)
+replace_once(
+    safety,
+    """          'Dolo 650 restore later',
+          'Dolo 650 sell at 5 pm',
+          'what if I delete Dolo 650?',
+""",
+    """          'Dolo 650 restore later',
+          'Dolo 650 sell at 5 pm',
+          'Dolo 650 sell at 17:30',
+          'Dolo 650 discard after lunch',
+          'Crocin 500 remove on 12/09/2026',
+          'Dolo 650 2 ghante baad sell',
+          'what if I delete Dolo 650?',
+""",
+)
+
+doc = dedent('''
+# Aaris Brain conversational autonomy — 10 September 2026
+
+This upgrade closes a key gap between fuzzy search and safe app control. When a
+natural-language command produces several plausible local stock rows, Aaris now
+keeps a short-lived clarification context containing only the rows already shown
+to the pharmacist. Each visible option is bound to the current medicine-row
+revision. A follow-up can choose a visible ordinal in English, Hinglish or Hindi,
+or an exact batch, barcode, block, row, vertical or location discriminator.
+
+The clarification state is session-only, expires after five minutes and is never
+written to inventory. If any candidate is edited, archived, disappears, or the
+clock moves backwards, the whole option mapping fails closed. Loose or fuzzy
+medicine wording can never resolve a destructive target. A new explicit app
+command supersedes the old clarification instead of being trapped by it.
+
+Resolving a choice performs no write. It only resumes the repository's existing
+exact-stock workflow, so Remove, SOLD, stock correction, receiving, relocation
+and FEFO sale continue to require their current deterministic review,
+confirmation, revision and transaction guards.
+
+The deterministic command firewall is also hardened for extra negative wording
+(avoid/refrain), 24-hour clock times, calendar dates, relative durations,
+weekdays and common dayparts. These future/conditional instructions are blocked
+before stock lookup or mutation navigation, preserving the rule that Aaris only
+opens an inventory write when the pharmacist is asking for a reviewed action now.
+''').lstrip()
+Path("docs/AARIS_CONVERSATIONAL_AUTONOMY_2026_09_10.md").write_text(
+    doc,
+    encoding="utf-8",
+)
