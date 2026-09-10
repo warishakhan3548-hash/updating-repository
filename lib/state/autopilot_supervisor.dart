@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../domain/attention.dart';
+import '../domain/medicine.dart';
 import '../domain/operations_plan.dart';
 import '../domain/tracking.dart';
 import 'pharmacy_controller.dart';
@@ -127,6 +128,60 @@ class AarisAutopilotDigest {
     );
   }
 
+  factory AarisAutopilotDigest.fromWorker({
+    required int inventoryRevision,
+    required Map<String, dynamic> result,
+    required DateTime evaluatedAt,
+  }) {
+    final health = switch (result['health']) {
+      'clear' => AarisAutopilotHealth.clear,
+      'critical' => AarisAutopilotHealth.critical,
+      'attention' => AarisAutopilotHealth.attention,
+      _ => throw const FormatException('Invalid autopilot worker health.'),
+    };
+    final nextKindName = result['nextKind'];
+    final nextKind = nextKindName == null || nextKindName == ''
+        ? null
+        : AttentionKind.values.byName(nextKindName as String);
+    final stockIds = (result['nextStockIds'] as List<dynamic>? ?? const [])
+        .cast<String>();
+
+    int number(String key) {
+      final value = result[key];
+      if (value is! int || value < 0) {
+        throw FormatException('Invalid autopilot worker $key.');
+      }
+      return value;
+    }
+
+    String text(String key) {
+      final value = result[key];
+      if (value is! String) {
+        throw FormatException('Invalid autopilot worker $key.');
+      }
+      return value;
+    }
+
+    return AarisAutopilotDigest._(
+      health: health,
+      inventoryRevision: inventoryRevision,
+      issueCount: number('issueCount'),
+      criticalCount: number('criticalCount'),
+      highCount: number('highCount'),
+      mediumCount: number('mediumCount'),
+      lowCount: number('lowCount'),
+      blockedCount: number('blockedCount'),
+      verificationCount: number('verificationCount'),
+      nextTaskKey: text('nextTaskKey'),
+      nextTaskTitle: text('nextTaskTitle'),
+      nextAction: text('nextAction'),
+      nextLane: text('nextLane'),
+      nextKind: nextKind,
+      nextStockIds: List<String>.unmodifiable(stockIds),
+      evaluatedAt: evaluatedAt,
+    );
+  }
+
   final AarisAutopilotHealth health;
   final int inventoryRevision;
   final int issueCount;
@@ -148,13 +203,17 @@ class AarisAutopilotDigest {
   bool get hasUrgentWork => criticalCount > 0 || highCount > 0;
   bool get hasNextTask => nextTaskKey.isNotEmpty;
   bool get nextTaskIsExactStock => nextStockIds.length == 1;
+  bool get needsProminentSignal =>
+      health == AarisAutopilotHealth.degraded || hasUrgentWork;
+  int get navigationBadgeCount =>
+      health == AarisAutopilotHealth.degraded ? 1 : issueCount;
 
   String get accessibilitySummary {
     if (health == AarisAutopilotHealth.waiting) {
       return 'Aaris Autopilot is waiting for the Medicine Database.';
     }
     if (health == AarisAutopilotHealth.degraded) {
-      return 'Aaris Autopilot could not complete its local safety check.';
+      return 'Aaris Autopilot could not complete its local safety check. Open the work queue to retry.';
     }
     if (issueCount == 0) {
       return 'Aaris Autopilot found no current attention items.';
@@ -188,13 +247,79 @@ class AarisAutopilotDigest {
       listEquals(nextStockIds, other.nextStockIds);
 }
 
+Map<String, dynamic> _operationalMedicineJson(Medicine medicine) {
+  final json = medicine.toJson();
+  // Notes/OCR can be large and are irrelevant to deterministic operational
+  // attention checks. Do not copy those private free-text blobs across isolates.
+  json['notes'] = '';
+  json['ocrText'] = '';
+  return json;
+}
+
+Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
+  final records = <Medicine>[
+    for (final raw in payload['records'] as List<dynamic>)
+      Medicine.fromJson(Map<String, dynamic>.from(raw as Map)),
+  ];
+  final sales = <SaleEvent>[
+    for (final raw in payload['sales'] as List<dynamic>)
+      SaleEvent.fromJson(Map<String, dynamic>.from(raw as Map)),
+  ];
+  final settings = WarningSettings.fromJson(
+    Map<String, dynamic>.from(payload['settings'] as Map),
+  );
+  final today = DateTime.parse(payload['today'] as String);
+  final tracking = TrackingStats(
+    medicines: records,
+    sales: sales,
+    range: TrackingRange.lastDays(today, 30),
+    today: today,
+  );
+  final report = PharmacyAttentionReport.build(
+    medicines: records,
+    settings: settings,
+    today: today,
+    reorder: tracking.reorder,
+    sales: sales,
+  );
+  final plan = PharmacyOperationsPlan.build(
+    items: report.items,
+    medicines: records,
+  );
+  final next = plan.nextStep;
+
+  return <String, dynamic>{
+    'health': report.isEmpty
+        ? 'clear'
+        : report.critical > 0
+        ? 'critical'
+        : 'attention',
+    'issueCount': report.items.length,
+    'criticalCount': report.critical,
+    'highCount': report.high,
+    'mediumCount': report.medium,
+    'lowCount': report.low,
+    'blockedCount': plan.blockedCount,
+    'verificationCount': plan.verificationCount,
+    'nextTaskKey': next?.item.key ?? '',
+    'nextTaskTitle': next?.item.title ?? '',
+    'nextAction': next?.actionLabel ?? '',
+    'nextLane': next?.laneLabel ?? '',
+    'nextKind': next?.item.kind.name ?? '',
+    'nextStockIds': List<String>.from(
+      next?.item.stockIds ?? const <String>[],
+    ),
+  };
+}
+
 /// Event-driven, read-only pharmacist-work supervisor.
 ///
 /// It continuously coalesces Medicine Database changes into the existing
-/// deterministic Needs Attention + dependency planner. It never calls a stock
-/// mutation API. Reorder evidence is derived from the same 30-day sales window
-/// used by the operational surfaces, and a revision change during calculation
-/// invalidates the result before publication.
+/// deterministic Needs Attention + dependency planner. Heavy operational
+/// analysis runs away from the UI isolate, never calls a stock mutation API, and
+/// publishes only if the exact inventory revision is still current. At most one
+/// worker runs at a time; newer writes invalidate old output and collapse into a
+/// single fresh pass.
 class AarisAutopilotSupervisor extends ChangeNotifier {
   AarisAutopilotSupervisor(
     this.controller, {
@@ -215,6 +340,8 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
   Timer? _timer;
   int _generation = 0;
   bool _disposed = false;
+  bool _computing = false;
+  bool _rerunRequested = false;
 
   void _onControllerChanged() => _schedule();
 
@@ -222,7 +349,7 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
     if (_disposed) return;
     final generation = ++_generation;
     _timer?.cancel();
-    _timer = Timer(debounce, () => _rebuild(generation));
+    _timer = Timer(debounce, () => _launch(generation));
   }
 
   /// Re-evaluates at the next safe microtask boundary. This is used after app
@@ -232,10 +359,27 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
     final generation = ++_generation;
     _timer?.cancel();
     _timer = null;
-    scheduleMicrotask(() => _rebuild(generation));
+    scheduleMicrotask(() => _launch(generation));
   }
 
-  void _rebuild(int generation) {
+  void _launch(int generation) {
+    if (_disposed || generation != _generation) return;
+    if (_computing) {
+      _rerunRequested = true;
+      return;
+    }
+    _computing = true;
+    unawaited(
+      _rebuild(generation).whenComplete(() {
+        _computing = false;
+        if (_disposed || !_rerunRequested) return;
+        _rerunRequested = false;
+        refreshNow();
+      }),
+    );
+  }
+
+  Future<void> _rebuild(int generation) async {
     if (_disposed || generation != _generation) return;
 
     final revision = controller.snapshot.revision;
@@ -245,42 +389,39 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
     }
 
     try {
-      // Materialize once so every engine in this pass sees one coherent local
-      // snapshot even if an unrelated write is queued while calculation runs.
-      final records = controller.records.toList(growable: false);
-      final sales = controller.sales.toList(growable: false);
       final today = controller.today;
-      final settings = controller.settings;
-      final tracking = TrackingStats(
-        medicines: records,
-        sales: sales,
-        range: TrackingRange.lastDays(today, 30),
-        today: today,
-      );
-      final report = PharmacyAttentionReport.build(
-        medicines: records,
-        settings: settings,
-        today: today,
-        reorder: tracking.reorder,
-        sales: sales,
-      );
-      final plan = PharmacyOperationsPlan.build(
-        items: report.items,
-        medicines: records,
-      );
+      final start = today.subtract(const Duration(days: 29));
 
+      // Capture only operational fields. Large OCR/notes text is intentionally
+      // excluded because it is irrelevant to integrity, FEFO, risk and reorder.
+      // Sales are bounded to the exact 30-day evidence window consumed by both
+      // TrackingStats and PharmacyStockRiskReport.
+      final payload = <String, dynamic>{
+        'records': <Map<String, dynamic>>[
+          for (final medicine in controller.records)
+            _operationalMedicineJson(medicine),
+        ],
+        'sales': <Map<String, dynamic>>[
+          for (final sale in controller.sales)
+            if (!civilDay(sale.occurredAt).isBefore(start) &&
+                !civilDay(sale.occurredAt).isAfter(today))
+              sale.toJson(),
+        ],
+        'settings': controller.settings.toJson(),
+        'today': today.toIso8601String(),
+      };
+
+      final result = await compute(_evaluateAutopilot, payload);
       if (_disposed || generation != _generation) return;
       if (controller.snapshot.revision != revision) {
-        // Never publish advice calculated from a stale inventory revision.
-        refreshNow();
+        _rerunRequested = true;
         return;
       }
 
       _publish(
-        AarisAutopilotDigest.fromPlan(
+        AarisAutopilotDigest.fromWorker(
           inventoryRevision: revision,
-          items: report.items,
-          plan: plan,
+          result: result,
           evaluatedAt: controller.clock(),
         ),
       );
