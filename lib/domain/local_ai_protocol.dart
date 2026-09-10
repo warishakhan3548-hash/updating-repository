@@ -431,7 +431,17 @@ MedicineScanDraft validateLocalScan(
     // chronology. AI cannot promote an unlabelled date into EXP or MFG.
     if (key == 'mfg' || key == 'expiry') continue;
     final cleanValue = searchText(value), cleanQuote = searchText(quote);
-    if (cleanValue.isEmpty || !(' $cleanQuote ').contains(' $cleanValue ')) {
+    final pairBackedIdentity =
+        hasPairs && (key == 'salt' || key == 'strength');
+    // For combination medicines the canonical field is intentionally a joined
+    // projection ("Salt A + Salt B" / "500 mg + 125 mg"). That joined string
+    // usually does not occur contiguously on the wrapper because each dose sits
+    // beside its own ingredient. Exact ingredient quotes below are therefore
+    // the authority for pair-backed salt/strength fields; all other fields must
+    // still appear literally inside their own source quote.
+    if (cleanValue.isEmpty ||
+        (!pairBackedIdentity &&
+            !(' $cleanQuote ').contains(' $cleanValue '))) {
       throw const FormatException(
         'AI value is not supported by its quoted text.',
       );
@@ -445,6 +455,7 @@ MedicineScanDraft validateLocalScan(
         );
       }
       if (key == 'strength' &&
+          !hasPairs &&
           !_printedStrengths(quote).contains(_compactDose(value))) {
         throw const FormatException(
           'Printed dose, decimal and denominator must match exactly.',
