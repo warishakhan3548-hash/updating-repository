@@ -38,13 +38,33 @@ internal class LocalAiPlatform(private val activity: Activity) {
                 val manager = activity.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
                 val memory = ActivityManager.MemoryInfo()
                 manager.getMemoryInfo(memory)
-                // These facts are advisory planning signals, never a model-size
+                // Device memory is an advisory planning signal, never a model-size
                 // admission veto. mmap-backed GGUF weights can remain usable even
-                // when Android reports pressure; the native loader is the final
-                // compatibility/allocation authority and Flutter surfaces warnings.
+                // when Android reports pressure; llama.cpp remains final authority.
                 val criticalFloor = maxOf(384L * 1024 * 1024, memory.totalMem / 12)
                 val criticalMemory = memory.availMem < criticalFloor
+                val availableRatio = if (memory.totalMem > 0L) {
+                    memory.availMem.toDouble() / memory.totalMem.toDouble()
+                } else {
+                    0.0
+                }
+                val advisoryPressure = when {
+                    memory.lowMemory || criticalMemory -> "critical"
+                    manager.isLowRamDevice || availableRatio < 0.25 -> "elevated"
+                    else -> "normal"
+                }
+                val suggestedContextTokens = when {
+                    advisoryPressure == "critical" -> 2048
+                    manager.isLowRamDevice || availableRatio < 0.35 -> 2048
+                    memory.totalMem >= 12L * 1024 * 1024 * 1024 -> 8192
+                    else -> 4096
+                }
                 result.success(mapOf(
+                    "deviceProfileVersion" to 2,
+                    "modelAdmissionPolicy" to "native_loader_authoritative",
+                    "memoryPressure" to advisoryPressure,
+                    "suggestedContextTokens" to suggestedContextTokens,
+                    "availableMemoryRatio" to availableRatio,
                     "totalMemory" to memory.totalMem,
                     "sdkInt" to Build.VERSION.SDK_INT,
                     "abis" to Build.SUPPORTED_ABIS.toList(),

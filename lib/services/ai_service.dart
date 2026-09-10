@@ -120,14 +120,14 @@ class AiService {
   ///
   /// A user-selected local model remains authoritative. If none is selected,
   /// an installed Aaris Default AI is restored before the UI decides whether a
-  /// cloud connection is required. This closes the cold-start gap where an
-  /// installed default existed on disk but had not yet been activated in this
-  /// process.
+  /// cloud connection is required. A selected-but-not-validated model is not
+  /// advertised as a live route: deterministic App Brain remains available
+  /// while Local AI setup explains what still needs attention.
   Future<bool> preparePreferredLocalRoute() async {
     final local = LocalAiService.instance;
     await local.initialize();
     await AarisDefaultAiService.instance.ensureActiveIfInstalled();
-    return local.hasSelection;
+    return local.ready;
   }
 
   Future<String> ask(
@@ -150,7 +150,7 @@ class AiService {
       final hasLocalRoute = await preparePreferredLocalRoute();
       if (!hasLocalRoute) {
         throw StateError(
-          'Aaris Brain is on, but no local model is selected. Choose a model or turn Aaris Brain off.',
+          'Aaris Brain is on, but no Local AI model is Ready. Finish Local AI setup, choose another model, or turn Aaris Brain off.',
         );
       }
       return _askLocalWithRecovery(
@@ -218,6 +218,12 @@ class AiService {
             'The AI connection was interrupted twice. Check your network and try again; no inventory changes were made.',
           );
         }
+      } catch (error, stack) {
+        _throwIfCancelled(cancelEpoch);
+        if (attempt == 1 || !_isRecoverableCloudTransportFailure(error)) {
+          Error.throwWithStackTrace(error, stack);
+        }
+        lastTransientError = error;
       } finally {
         client.close();
         if (identical(_client, client)) _client = null;
@@ -351,6 +357,26 @@ class AiService {
         lower.contains('native');
   }
 
+  bool _isRecoverableCloudTransportFailure(Object error) {
+    if (error is FormatException || error is ArgumentError) return false;
+    final lower = error.toString().toLowerCase();
+    if (lower.contains('ai provider returned http') ||
+        lower.contains('provider stream failed') ||
+        lower.contains('response is too large') ||
+        lower.contains('incompatible json') ||
+        lower.contains('cancel')) {
+      return false;
+    }
+    return lower.contains('socket') ||
+        lower.contains('connection reset') ||
+        lower.contains('connection closed') ||
+        lower.contains('connection aborted') ||
+        lower.contains('broken pipe') ||
+        lower.contains('unexpected end') ||
+        lower.contains('stream ended without a usable response') ||
+        lower.contains('network is unreachable');
+  }
+
   void _throwIfCancelled(int cancelEpoch) {
     if (cancelEpoch != _cancelEpoch) {
       throw StateError('AI request cancelled.');
@@ -410,14 +436,21 @@ class AiService {
     }
 
     final contentType = streamed.headers['content-type']?.toLowerCase() ?? '';
-    if (contentType.contains('text/event-stream') ||
+    final compatibleEventStream =
+        contentType.contains('text/event-stream') ||
         contentType.contains('ndjson') ||
-        contentType.contains('json-seq')) {
+        contentType.contains('json-seq') ||
+        (config.provider != 'Gemini' &&
+            (contentType.isEmpty || contentType.contains('text/plain')));
+    if (compatibleEventStream) {
       return _readCloudEventStream(
         response: streamed,
         config: config,
         cancelEpoch: cancelEpoch,
-        sse: contentType.contains('text/event-stream'),
+        sse:
+            contentType.contains('text/event-stream') ||
+            contentType.isEmpty ||
+            contentType.contains('text/plain'),
         onDelta: onDelta,
         onStreamStarted: onStreamStarted,
       );
@@ -706,8 +739,18 @@ class AiService {
         continue;
       }
       if (!line.startsWith('data:')) {
-        // event:, id: and retry: are metadata. They must not leak into model
-        // output or cause the JSON decoder to drop a valid data payload.
+        if (line.startsWith('event:') ||
+            line.startsWith('id:') ||
+            line.startsWith('retry:')) {
+          continue;
+        }
+        // Several OpenAI-compatible gateways stream valid JSON records with a
+        // missing or text/plain Content-Type and omit the SSE data: prefix.
+        // Buffer those bare JSON lines rather than dropping a valid response.
+        if (sseData.isNotEmpty && isCompletePayload(sseData.join('\n'))) {
+          flushSse();
+        }
+        sseData.add(line);
         continue;
       }
 
@@ -751,24 +794,32 @@ class AiService {
     }
 
     final choices = event['choices'];
-    if (choices is! List || choices.isEmpty) return '';
-    final first = choices.first;
-    if (first is! Map) return '';
-    final delta = first['delta'];
-    final message = first['message'];
-    final content = delta is Map
-        ? delta['content']
-        : message is Map
-        ? message['content']
-        : null;
-    if (content is String) return content;
-    if (content is List) {
-      return content
-          .whereType<Map>()
-          .map((part) => part['text'])
-          .whereType<String>()
-          .join();
+    if (choices is List && choices.isNotEmpty) {
+      final first = choices.first;
+      if (first is Map) {
+        final delta = first['delta'];
+        final message = first['message'];
+        final content = delta is Map
+            ? delta['content']
+            : message is Map
+            ? message['content']
+            : null;
+        if (content is String) return content;
+        if (content is List) {
+          return content
+              .whereType<Map>()
+              .map((part) => part['text'])
+              .whereType<String>()
+              .join();
+        }
+        final text = first['text'];
+        if (text is String) return text;
+      }
     }
+    final topDelta = event['delta'];
+    if (topDelta is String) return topDelta;
+    final outputText = event['output_text'];
+    if (outputText is String) return outputText;
     return '';
   }
 
