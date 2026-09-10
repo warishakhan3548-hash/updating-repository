@@ -53,13 +53,14 @@ internal class LocalAiPlatform(private val activity: Activity) {
                     manager.isLowRamDevice || availableRatio < 0.25 -> "elevated"
                     else -> "normal"
                 }
-                // Keep the native bridge capability-oriented rather than tied to
-                // one phone generation. Ultra-high-memory devices may attempt a
-                // 16K context; Dart/native loading still owns the downgrade ladder
-                // and can fall back to 12K/8K/6K/4K/3K/2K on real allocation pressure.
+                // Keep the bridge capability-oriented rather than tied to one
+                // phone generation. Flagship/future devices can advertise a 32K
+                // quality target, while Dart/native loading remains authoritative
+                // and can reduce context on a real allocator/KV-cache failure.
                 val suggestedContextTokens = when {
                     advisoryPressure == "critical" -> 2048
                     manager.isLowRamDevice || availableRatio < 0.35 -> 2048
+                    memory.totalMem >= 24L * 1024 * 1024 * 1024 && availableRatio >= 0.45 -> 32768
                     memory.totalMem >= 16L * 1024 * 1024 * 1024 && availableRatio >= 0.40 -> 16384
                     memory.totalMem >= 8L * 1024 * 1024 * 1024 && availableRatio >= 0.30 -> 8192
                     else -> 4096
@@ -67,11 +68,11 @@ internal class LocalAiPlatform(private val activity: Activity) {
                 val reservedHeadroom = maxOf(512L * 1024 * 1024, memory.totalMem / 10)
                 val nativeHeadroom = maxOf(0L, memory.availMem - reservedHeadroom)
                 result.success(mapOf(
-                    "deviceProfileVersion" to 3,
+                    "deviceProfileVersion" to 4,
                     "modelAdmissionPolicy" to "native_loader_authoritative",
                     "memoryPressure" to advisoryPressure,
                     "suggestedContextTokens" to suggestedContextTokens,
-                    "runtimeContextCeilingTokens" to 16384,
+                    "runtimeContextCeilingTokens" to 32768,
                     "availableMemoryRatio" to availableRatio,
                     "totalMemory" to memory.totalMem,
                     "sdkInt" to Build.VERSION.SDK_INT,
