@@ -1,3 +1,4 @@
+import 'gs1_healthcare.dart';
 import 'inventory.dart';
 import 'medicine.dart';
 import 'medicine_understanding.dart';
@@ -78,6 +79,33 @@ DateTime? _trustedDate(MedicineScanDraft draft, String key) {
 
 bool _sameText(String a, String b) => normalize(a) == normalize(b);
 
+/// Canonical identity for scanner/import barcode comparisons.
+///
+/// GS1 DataMatrix commonly carries AI (01) as a 14-digit GTIN while older
+/// inventory rows may contain the equivalent EAN-13/UPC-A/GTIN-8 representation.
+/// Those are the same GS1 identifier with left zero padding, not different
+/// products. Preserve non-GTIN barcodes byte-for-byte (apart from trim), but
+/// collapse verified GS1 element strings and standard numeric GTIN lengths to
+/// one 14-digit key. This prevents a package scanned through GS1 from being
+/// misclassified as new stock merely because it was originally saved as EAN.
+String _barcodeIdentity(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty) return '';
+  final gs1 = parseGs1HealthcareBarcode(raw);
+  final candidate = gs1 != null && gs1.gtin.isNotEmpty ? gs1.gtin : raw;
+  if (RegExp(r'^\d+$').hasMatch(candidate) &&
+      const {8, 12, 13, 14}.contains(candidate.length)) {
+    return candidate.padLeft(14, '0');
+  }
+  return candidate;
+}
+
+bool _sameBarcode(String a, String b) {
+  final left = _barcodeIdentity(a);
+  final right = _barcodeIdentity(b);
+  return left.isNotEmpty && right.isNotEmpty && left == right;
+}
+
 bool _identityCompatible(MedicineScanDraft draft, Medicine record) {
   final name = _trustedText(draft, 'name');
   if (name.isNotEmpty && !_sameText(name, record.name)) return false;
@@ -151,7 +179,7 @@ bool _lotFactsContradict(MedicineScanDraft draft, Medicine record) {
   );
   if (barcode.isNotEmpty &&
       record.barcode.trim().isNotEmpty &&
-      barcode != record.barcode.trim()) {
+      !_sameBarcode(barcode, record.barcode)) {
     return true;
   }
 
@@ -193,7 +221,7 @@ bool _hasExactLotAnchor(MedicineScanDraft draft, Medicine record) {
     'barcode',
     minimum: _trustedLotConfidence,
   );
-  if (barcode.isEmpty || record.barcode.trim() != barcode) return false;
+  if (barcode.isEmpty || !_sameBarcode(record.barcode, barcode)) return false;
 
   // A retail barcode is normally product-level, not batch-level. It becomes a
   // physical-lot anchor only when the pack also contributes a matching date.
@@ -264,7 +292,9 @@ IntakeResolution resolveIntakeDraft({
   );
   final barcodeMatches = barcode.isEmpty
       ? const <Medicine>[]
-      : active.where((record) => record.barcode.trim() == barcode).toList();
+      : active
+            .where((record) => _sameBarcode(record.barcode, barcode))
+            .toList();
 
   if (barcodeMatches.isNotEmpty) {
     final identities = barcodeMatches.map((record) => record.identity).toSet();
