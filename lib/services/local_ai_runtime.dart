@@ -13,12 +13,14 @@ class LocalAiRuntime {
   LocalAiRuntime({LlamaEngine engine = const LibLlamaCpp()}) : _engine = engine;
 
   static const _terminalErrorDrainBudget = Duration(seconds: 15);
+  static const _maxResponseCharacters = 32000;
 
   final LlamaEngine _engine;
   StreamController<LlamaCommand>? _commands;
   StreamSubscription<LlamaResponse>? _subscription;
   Completer<String>? _pending;
   final _text = StringBuffer();
+  final _reasoningFilter = _ReasoningEnvelopeFilter();
   Object? _commandError;
   void Function(String token)? _onToken;
   bool _loading = false;
@@ -30,6 +32,7 @@ class LocalAiRuntime {
   Duration? _activeStallBudget;
   int? _contextTokens;
   int _transportEpoch = 0;
+  int _rawResponseCharacters = 0;
   String? modelPath;
 
   bool get busy => _pending != null;
@@ -64,18 +67,19 @@ class LocalAiRuntime {
           // failed command. Never flash them in the UI or retain them in the
           // response buffer while waiting for Done to close the lease.
           if (_commandError != null) return;
-          if (_text.length + response.text.length > 32000) {
+          _rawResponseCharacters += response.text.length;
+          if (_rawResponseCharacters > _maxResponseCharacters) {
             _commandError ??= StateError(
               'Local response exceeds the safety limit.',
             );
             _armStallWatchdog(epoch, _terminalErrorDrainBudget);
           } else {
-            _text.write(response.text);
-            // Emit only tokens owned by this transport epoch. A consumer callback
-            // is observational and can never be allowed to crash inference.
-            try {
-              _onToken?.call(response.text);
-            } catch (_) {}
+            // Reasoning-capable GGUF models can emit a private <think>,
+            // <analysis> or <reasoning> envelope before their actual answer.
+            // Strip that envelope incrementally, including tags split across
+            // native token boundaries. This keeps hidden chain-of-thought out of
+            // chat streaming and also gives JSON consumers a clean first byte.
+            _emitVisible(_reasoningFilter.add(response.text));
           }
         } else if (response is LlamaStateChangedResponse) {
           _touchStallWatchdog(epoch);
@@ -119,6 +123,16 @@ class LocalAiRuntime {
       cancelOnError: false,
     );
     _subscription = subscription;
+  }
+
+  void _emitVisible(String value) {
+    if (value.isEmpty || _commandError != null) return;
+    _text.write(value);
+    // Emit only tokens owned by this transport epoch. A consumer callback is
+    // observational and can never be allowed to crash inference.
+    try {
+      _onToken?.call(value);
+    } catch (_) {}
   }
 
   Duration _stallBudgetFor(LlamaCommand command) {
@@ -239,8 +253,21 @@ class LocalAiRuntime {
   void _complete() {
     _clearStallWatchdog();
     final pending = _pending;
-    _pending = null;
     _loading = false;
+
+    // Flush only a harmless undecided prefix (for example a short literal '<').
+    // Ending while a private reasoning block is still open is treated as an
+    // incomplete generation, never as a successful empty/partial pharmacy reply.
+    final tail = _reasoningFilter.finish();
+    if (_reasoningFilter.unterminated) {
+      _commandError ??= StateError(
+        'Local model ended inside a private reasoning block. Retrying is safe.',
+      );
+    } else {
+      _emitVisible(tail);
+    }
+
+    _pending = null;
     _onToken = null;
     if (pending != null && !pending.isCompleted) {
       final error = _commandError;
@@ -260,6 +287,8 @@ class LocalAiRuntime {
     _loading = false;
     _commandError = null;
     _onToken = null;
+    _rawResponseCharacters = 0;
+    _reasoningFilter.reset();
     if (pending == null || pending.isCompleted) return;
     if (stack == null) {
       pending.completeError(error);
@@ -288,6 +317,8 @@ class LocalAiRuntime {
     final pending = Completer<String>();
     _pending = pending;
     _text.clear();
+    _reasoningFilter.reset();
+    _rawResponseCharacters = 0;
     _commandError = null;
     _onToken = onToken;
     _loading = command is LlamaLoadModelCommand;
@@ -307,6 +338,8 @@ class LocalAiRuntime {
       _loading = false;
       _commandError = null;
       _onToken = null;
+      _rawResponseCharacters = 0;
+      _reasoningFilter.reset();
       pending.completeError(error, stack);
     }
     return pending.future;
@@ -455,6 +488,8 @@ class LocalAiRuntime {
       modelPath = null;
       _contextTokens = null;
       _onToken = null;
+      _rawResponseCharacters = 0;
+      _reasoningFilter.reset();
       _closed = true;
       ++_transportEpoch;
       final commands = _commands;
@@ -464,5 +499,98 @@ class LocalAiRuntime {
       _queueTransportCleanup(commands, subscription);
       await _transportCleanup;
     }
+  }
+}
+
+enum _ReasoningEnvelopeState { undecided, hidden, visible }
+
+/// Streaming sanitizer for local models that expose a leading private reasoning
+/// envelope as ordinary text tokens. Only a leading known envelope is removed;
+/// later literal markup in the user's visible answer is left untouched.
+class _ReasoningEnvelopeFilter {
+  static const _envelopes = <String, String>{
+    '<think>': '</think>',
+    '<analysis>': '</analysis>',
+    '<reasoning>': '</reasoning>',
+  };
+
+  _ReasoningEnvelopeState _state = _ReasoningEnvelopeState.undecided;
+  String _pending = '';
+  String? _closingTag;
+  bool unterminated = false;
+
+  void reset() {
+    _state = _ReasoningEnvelopeState.undecided;
+    _pending = '';
+    _closingTag = null;
+    unterminated = false;
+  }
+
+  String add(String chunk) {
+    if (chunk.isEmpty) return '';
+    if (_state == _ReasoningEnvelopeState.visible) return chunk;
+    if (_state == _ReasoningEnvelopeState.hidden) {
+      return _consumeHidden(chunk);
+    }
+
+    _pending += chunk;
+    final candidate = _pending.trimLeft();
+    if (candidate.isEmpty) return '';
+    final lower = candidate.toLowerCase();
+
+    for (final entry in _envelopes.entries) {
+      if (!lower.startsWith(entry.key)) continue;
+      _state = _ReasoningEnvelopeState.hidden;
+      _closingTag = entry.value;
+      _pending = candidate.substring(entry.key.length);
+      return _consumeHidden('');
+    }
+
+    // Opening tags can be split across arbitrarily small native token chunks.
+    // Keep only the tiny undecided prefix until it can be proven ordinary text.
+    if (_envelopes.keys.any((tag) => tag.startsWith(lower))) return '';
+
+    _state = _ReasoningEnvelopeState.visible;
+    final visible = _pending;
+    _pending = '';
+    return visible;
+  }
+
+  String _consumeHidden(String chunk) {
+    _pending += chunk;
+    final closing = _closingTag!;
+    final index = _pending.toLowerCase().indexOf(closing);
+    if (index >= 0) {
+      final remainder = _pending.substring(index + closing.length);
+      _pending = '';
+      _closingTag = null;
+      _state = _ReasoningEnvelopeState.undecided;
+      // A few reasoning models emit more than one private envelope. Re-enter the
+      // undecided state so consecutive leading envelopes are removed as well.
+      return remainder.isEmpty ? '' : add(remainder);
+    }
+
+    // Hidden reasoning itself is intentionally discarded. Preserve only enough
+    // suffix to recognize a closing tag split across the next token boundary.
+    final keep = closing.length - 1;
+    if (_pending.length > keep) {
+      _pending = _pending.substring(_pending.length - keep);
+    }
+    return '';
+  }
+
+  String finish() {
+    if (_state == _ReasoningEnvelopeState.hidden) {
+      unterminated = true;
+      _pending = '';
+      return '';
+    }
+    if (_state == _ReasoningEnvelopeState.undecided) {
+      _state = _ReasoningEnvelopeState.visible;
+      final visible = _pending;
+      _pending = '';
+      return visible;
+    }
+    return '';
   }
 }
