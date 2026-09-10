@@ -19,11 +19,84 @@ Map<String, dynamic> localJsonObject(String input) {
     }
     text = text.substring(text.indexOf('\n') + 1, text.length - 3).trim();
   }
+
+  try {
+    return _decodeLocalJsonObject(text);
+  } on FormatException {
+    // Some modern local reasoning models emit a bounded <think>/explanation
+    // wrapper before their requested JSON even when instructed not to. Treat
+    // that transport decoration as recoverable only when there is exactly one
+    // complete balanced JSON object. Downstream schema/evidence validators stay
+    // authoritative; this never makes model prose executable or trusted.
+    final embedded = _singleEmbeddedJsonObject(text);
+    if (embedded == null || embedded == text) rethrow;
+    return _decodeLocalJsonObject(embedded);
+  }
+}
+
+Map<String, dynamic> _decodeLocalJsonObject(String text) {
   final value = jsonDecode(text);
   if (value is! Map<String, dynamic>) {
     throw const FormatException('Local AI must return one JSON object.');
   }
   return value;
+}
+
+String? _singleEmbeddedJsonObject(String text) {
+  int? start;
+  var depth = 0;
+  var inString = false;
+  var escaped = false;
+  int? end;
+
+  for (var i = 0; i < text.length; i++) {
+    final unit = text.codeUnitAt(i);
+    if (start == null) {
+      if (unit == 0x7b) {
+        start = i;
+        depth = 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (unit == 0x5c) {
+        escaped = true;
+      } else if (unit == 0x22) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (unit == 0x22) {
+      inString = true;
+    } else if (unit == 0x7b) {
+      depth++;
+    } else if (unit == 0x7d) {
+      depth--;
+      if (depth == 0) {
+        end = i + 1;
+        break;
+      }
+    }
+  }
+
+  if (start == null || end == null || inString || depth != 0) return null;
+  final before = text.substring(0, start).trim();
+  final after = text.substring(end).trim();
+
+  // Never guess between multiple/partial structured answers. Braces outside the
+  // first balanced object mean the model did not produce one unambiguous JSON
+  // envelope, so preserve the original fail-closed behavior.
+  if (before.contains('{') ||
+      before.contains('}') ||
+      after.contains('{') ||
+      after.contains('}')) {
+    return null;
+  }
+  return text.substring(start, end);
 }
 
 Map<String, dynamic> localChatObject(String input) {
