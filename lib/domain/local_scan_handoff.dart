@@ -17,7 +17,7 @@ class LocalScanHandoff {
     required this.sourceTruncated,
   });
 
-  static const schemaVersion = 8;
+  static const schemaVersion = 9;
 
   final String systemPrompt;
   final String userPayload;
@@ -34,11 +34,13 @@ COMPOSITION: prefer explicit COMPOSITION / ACTIVE INGREDIENT / EACH TABLET / EAC
 
 SALT + STRENGTH: whenever salt or strength is proposed, include ingredients. Each ingredient must contain salt, strength and a minimal contiguous quote where that dose is adjacent to that ingredient. For combinations, keep printed order and use distinct ingredient quotes; fields.salt and fields.strength must equal the ingredient values joined in order with " + ". Preserve decimals, %, IU and denominators such as 100 mg/5 ml exactly. Pack count, bottle volume, MRP, batch, schedule and dosage directions are never strength. Never pair a dose with another ingredient or invent a missing dose.
 
-FORM: use only an explicitly printed pharmaceutical form that maps to Tablet, Capsule, Syrup, Suspension, Solution, Injection, Cream, Ointment, Gel, Lotion, Drops, Spray, Inhaler, Powder or Sachet. Harmless qualifiers may be reduced only to an explicit core token contained in the quote (for example FILM COATED TABLETS -> TABLETS). Do not collapse route-changing forms: Suspension != Syrup, Solution != Syrup, Drops != Solution, Spray != Drops, and POWDER FOR INJECTION must not become oral Powder.
+EQUIVALENCE LINES: pharmacy packs often print a chemical salt/hydrate followed by "equivalent to" an active moiety and its dose. When SOURCE contains wording such as "Cefixime Trihydrate ... equivalent to Cefixime 200 mg", bind 200 mg only to the nearest explicitly printed "Cefixime 200 mg" evidence. Do not bridge "equivalent to", "eq. to", standard text or excipient text to attach a later dose to an earlier chemical name. Return the active salt/moiety that SOURCE itself explicitly pairs with the dose; never convert between chemical forms from medicine knowledge.
+
+FORM: use only an explicitly printed pharmaceutical form that maps to Tablet, Capsule, Syrup, Suspension, Solution, Injection, Cream, Ointment, Gel, Lotion, Drops, Spray, Inhaler, Powder or Sachet. Prefer the shortest literal form token present in the quote (for example FILM COATED TABLETS -> TABLETS, ORAL SUSPENSION -> SUSPENSION) rather than inventing a normalized word absent from SOURCE. Do not collapse route-changing forms: Suspension != Syrup, Solution != Syrup, Drops != Solution, Spray != Drops, and POWDER FOR INJECTION must not become oral Powder.
 
 IDENTITY SAFETY: repeated sides/translations are corroboration, not extra medicines. Do not copy manufacturer/marketer text into brand unless SOURCE presents it as the product brand. Do not silently repair OCR into a familiar medicine. If two supported identities conflict and SOURCE cannot resolve them, omit the uncertain field. Dates are suggestions only and must agree with printed deterministic evidence; never derive EXP from MFG, current date or medicine knowledge.
 
-FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form independently verify that (1) the quote is contiguous SOURCE text, (2) the value is contained in that evidence rather than recalled from knowledge, (3) it belongs to this product rather than a nearby pack/company/price/pack-size block, and (4) no stronger printed evidence contradicts it. Include every explicitly supported priority fact; omit unresolved uncertainty. Never return stock actions, treatment advice or prescriptions.''';
+FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form independently verify that (1) the quote is contiguous SOURCE text, (2) the value is contained in that evidence rather than recalled from knowledge, (3) it belongs to this product rather than a nearby pack/company/price/pack-size block, and (4) no stronger printed evidence contradicts it. For every ingredient, verify the selected dose is the nearest dose belonging to that exact printed ingredient inside its quote. Include every explicitly supported priority fact; omit unresolved uncertainty. Never return stock actions, treatment advice or prescriptions.''';
 
   factory LocalScanHandoff.fromDraft(
     MedicineScanDraft draft, {
@@ -80,6 +82,9 @@ FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form indepe
         'contract': const <String, Object?>{
           'exactSourceQuotePerField': true,
           'ingredientEvidenceForSaltStrength': true,
+          'nearestIngredientDoseBinding': true,
+          'chemicalEquivalenceMustStayEvidenceBound': true,
+          'literalPrintedFormTokenPreferred': true,
           'priorityFieldsIndependent': true,
           'deterministicCandidatesAreEvidence': false,
           'medicineKnowledgeCompletionAllowed': false,
@@ -89,7 +94,7 @@ FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form indepe
           'confirmationBoundary': 'user_confirm_add',
         },
         'task':
-            'Extract the evidence-grounded medicine identity for the preview. Prioritize exact printed Brand, Salt, Strength and Form so Confirm/Add needs no retyping when the pack clearly provides them. Use deterministic candidates only to find relevant SOURCE regions. Return only the required JSON object.',
+            'Extract the evidence-grounded medicine identity for the preview. Prioritize exact printed Brand, Salt, Strength and Form so Confirm/Add needs no retyping when the pack clearly provides them. Bind each strength only to its nearest explicitly printed ingredient evidence, including equivalent-to composition lines. Use deterministic candidates only to find relevant SOURCE regions. Return only the required JSON object.',
       }),
       sourceCharacters: source.length,
       sourceTruncated: truncated,
