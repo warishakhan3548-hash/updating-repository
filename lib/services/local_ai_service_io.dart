@@ -16,6 +16,7 @@ import '../domain/local_model.dart';
 import '../domain/local_model_checks.dart';
 import '../domain/model_catalogue.dart';
 import 'gguf_inspector.dart';
+import 'model_catalogue_service.dart';
 import '../domain/medicine_understanding.dart';
 import 'local_ai_runtime.dart';
 
@@ -275,8 +276,6 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
           throw StateError('Remove or finish a paused model download first.');
         _downloads.add(model);
       }
-      // Save the exact revision + checksum before transferring any bytes.
-      // Resume no longer depends on finding the same search result after restart.
       await _save();
       var offset = await part.exists() ? await part.length() : 0;
       if (offset > model.bytes) {
@@ -301,9 +300,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
             throw StateError('Server returned an inconsistent download range.');
           }
         } else if (response.statusCode == 200) {
-          offset =
-              0; // Server ignored Range: restart, never append a full file.
-          // The old partial will be truncated, so its space can be reused.
+          offset = 0;
           final occupied = await part.exists() ? await part.length() : 0;
           await _checkResources(storageBytes: model.bytes - occupied);
         } else {
@@ -349,8 +346,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       final hash = await _hash(part.path);
       if (hash != model.sha256) {
-        await part
-            .delete(); // Only this newly downloaded, corrupt partial file.
+        await part.delete();
         throw StateError(
           'Checksum mismatch. Corrupt download removed; download again.',
         );
@@ -393,9 +389,6 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         notifyListeners();
       }
     }
-    // One tap means one understandable outcome: downloaded weights are
-    // immediately load-tested and activated. A model is never labelled Ready
-    // until activate() completes all setup probes successfully.
     await activate(model.sha256);
   }
 
@@ -555,8 +548,6 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    // Timeout returns control to UI, but the exclusive lease stays held until
-    // the bounded native generation actually returns. Never start a second one.
     return run().timeout(
       const Duration(minutes: 4),
       onTimeout: () {
@@ -595,11 +586,6 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     final loaded = runtime?.loadedContextTokens;
     if (plan == null || loaded == null || loaded >= plan.contextTokens) return;
 
-    // LocalAiRuntime may rescue a heavy GGUF by retrying a smaller native
-    // context after allocator/KV pressure. Prompt/evidence budgets must follow
-    // that successful context as well, otherwise the next chat/OCR request can
-    // immediately overflow the model we just rescued. 3072 is intentionally
-    // budgeted like 2048 until the protocol has a dedicated 3K profile.
     final promptContext = loaded >= 4096 ? 4096 : 2048;
     _executionPlan = LocalExecutionPlan(
       contextTokens: promptContext,
@@ -829,8 +815,6 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         rowLimit: _executionPlan!.inventoryRows,
       );
       results.add({'call': answer, 'result': facts});
-      // Keep the last two pages, with explicit pagination metadata. The app
-      // retains retrieved-ID authority independently of this bounded prompt.
       if (results.length > 2) results.removeAt(0);
       input = jsonEncode({
         'ownerRequest': instruction,
@@ -884,8 +868,6 @@ Future<Map<String, dynamic>?> _checkResources({
   final free = info?['freeStorage'];
   if (weightBytes > 0) {
     final abis = info?['abis'], sdk = info?['sdkInt'];
-    // The pinned package ships an Android arm64 prebuilt. Keep unsupported
-    // devices on the deterministic engine; never try to load a missing ABI.
     if (sdk is! int ||
         sdk < 28 ||
         abis is! List ||
@@ -901,8 +883,6 @@ Future<Map<String, dynamic>?> _checkResources({
       'Not enough free storage for the model plus 512 MB safety reserve.',
     );
   }
-  // Memory data is advisory. The planner chooses context/warning; native
-  // llama.cpp remains the final authority on whether the weights can load.
   return info;
 }
 
