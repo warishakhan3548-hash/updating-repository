@@ -745,10 +745,28 @@ bool _looksLikeLocationMutation(String text) =>
     _containsAny(text, _locationSafetyNouns) &&
     _containsAny(text, _locationSafetyVerbs);
 
-bool _looksLikeScheduledMutation(String raw) => RegExp(
-  r'\b(?:at\s+)?(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b',
-  caseSensitive: false,
-).hasMatch(raw);
+bool _looksLikeScheduledMutation(String raw) =>
+    RegExp(
+      r'\b(?:at\s+)?(?:[01]?\d|2[0-3]):[0-5]\d(?:\s*(?:a\.?m\.?|p\.?m\.?))?\b',
+      caseSensitive: false,
+    ).hasMatch(raw) ||
+    RegExp(
+      r'\b(?:[1-9]|1[0-2])\s*(?:a\.?m\.?|p\.?m\.?)\b',
+      caseSensitive: false,
+    ).hasMatch(raw) ||
+    RegExp(
+      r'\b(?:on\s+)?(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|\d{4}-\d{2}-\d{2})\b',
+      caseSensitive: false,
+    ).hasMatch(raw) ||
+    RegExp(
+      r'\b(?:in\s+)?\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\b',
+      caseSensitive: false,
+    ).hasMatch(raw) ||
+    RegExp(
+      r'(?:[0-9०-९]+\s*बजे|[0-9०-९]+\s*(?:ghante|din|hafte|mahine)\s*baad)',
+      caseSensitive: false,
+      unicode: true,
+    ).hasMatch(raw);
 
 bool _startsWithAnyPhrase(String text, List<String> phrases) =>
     phrases.any((phrase) {
@@ -883,6 +901,11 @@ const _negativeWriteSafetyTerms = <String>[
   'don t',
   'dont',
   'never',
+  'avoid',
+  'refrain',
+  'refrain from',
+  'leave unchanged',
+  'leave it unchanged',
   'not',
   'mat',
   'mat karo',
@@ -911,6 +934,27 @@ const _deferredWriteSafetyTerms = <String>[
   'next month',
   'next year',
   'after some time',
+  'after lunch',
+  'after dinner',
+  'after closing',
+  'before closing',
+  'this evening',
+  'tonight',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+  'sunday',
+  'shaam',
+  'raat',
+  'dopahar',
+  'subah',
+  'शाम',
+  'रात',
+  'दोपहर',
+  'सुबह',
   'schedule for',
   'scheduled for',
   'agar',
@@ -1333,8 +1377,15 @@ const _removedListTerms = <String>[
 
 const _removeTerms = <String>[
   'delete',
+  'deleting',
   'remove',
+  'removing',
   'archive',
+  'discard',
+  'discarding',
+  'nikal do',
+  'nikaal do',
+  'निकाल दो',
   'hatao',
   'hata do',
   'hata dena',

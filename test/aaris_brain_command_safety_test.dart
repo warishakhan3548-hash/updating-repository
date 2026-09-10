@@ -8,6 +8,8 @@ void main() {
       for (final command in [
         'Dolo 650 delete mat karo',
         "don't sell Dolo 650",
+        'avoid deleting Dolo 650',
+        'refrain from removing Crocin 500',
         'Dolo 650 ko remove nahi karna',
         'डोलो को डिलीट मत करो',
         'undo mat karo',
@@ -33,6 +35,10 @@ void main() {
           'jab stock low ho Dolo remove karo',
           'Dolo 650 restore later',
           'Dolo 650 sell at 5 pm',
+          'Dolo 650 sell at 17:30',
+          'Dolo 650 discard after lunch',
+          'Crocin 500 remove on 12/09/2026',
+          'Dolo 650 2 ghante baad sell',
           'what if I delete Dolo 650?',
         ]) {
           final intent = parseAppBrainIntent(command);

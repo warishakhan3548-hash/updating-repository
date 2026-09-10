@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/app_brain.dart';
 import '../domain/attention.dart';
+import '../domain/brain_clarification.dart';
 import '../domain/brain_operations.dart';
 import '../domain/dispensing_plan.dart';
 import '../domain/inventory.dart';
@@ -44,6 +45,7 @@ class BrainScreen extends StatefulWidget {
 class _BrainScreenState extends State<BrainScreen> {
   final _command = TextEditingController();
   bool _busy = false, _voiceOpening = false;
+  PendingBrainChoice? _pendingChoice;
   String _reply =
       'Ready. Ask stock, expiry, location or FEFO from the local Medicine Database, open safe actions, recover removed stock, or ask “aaj kya dekhna hai”.';
 
@@ -57,13 +59,14 @@ class _BrainScreenState extends State<BrainScreen> {
     if (_busy) return;
     final raw = (supplied ?? _command.text).trim();
     if (raw.isEmpty) return;
-    final intent = parseAppBrainIntent(raw);
     setState(() {
       _busy = true;
       _reply = 'Understanding command…';
       if (supplied != null) _command.text = supplied;
     });
     try {
+      if (await _continuePendingChoice(raw)) return;
+      final intent = parseAppBrainIntent(raw);
       await _execute(intent, raw);
     } catch (error) {
       if (mounted) {
@@ -77,6 +80,111 @@ class _BrainScreenState extends State<BrainScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<bool> _continuePendingChoice(String raw) async {
+    final pending = _pendingChoice;
+    if (pending == null) return false;
+    final result = pending.resolve(
+      raw,
+      records: widget.controller.snapshot.records,
+      now: widget.controller.clock(),
+    );
+    switch (result.kind) {
+      case BrainChoiceResolutionKind.cancelled:
+        _pendingChoice = null;
+        if (mounted) {
+          setState(
+            () =>
+                _reply = 'Pending medicine choice cancelled. Nothing changed.',
+          );
+        }
+        return true;
+      case BrainChoiceResolutionKind.stale:
+        _pendingChoice = null;
+        final fresh = parseAppBrainIntent(raw);
+        if (fresh.action != AppBrainAction.unknown) return false;
+        if (mounted) {
+          setState(
+            () => _reply = 'That medicine-choice list expired or one of its stock rows changed. Nothing changed. Run the command again so Aaris can rank the live Medicine Database.',
+          );
+        }
+        return true;
+      case BrainChoiceResolutionKind.resolved:
+        final stockId = result.stockId;
+        final record = stockId == null
+            ? null
+            : widget.controller.snapshot.records[stockId];
+        _pendingChoice = null;
+        if (record == null || record.archived) {
+          if (mounted) {
+            setState(
+              () => _reply = 'That exact stock row is no longer active. Nothing changed; choose again from the live Medicine Database.',
+            );
+          }
+          return true;
+        }
+        await _resumePendingChoice(pending.intent, record);
+        return true;
+      case BrainChoiceResolutionKind.ambiguous:
+        if (mounted) {
+          setState(
+            () => _reply =
+                '${_pendingChoicePrompt(pending)} That exact cue still belongs to more than one displayed row, so Aaris did not guess.',
+          );
+        }
+        return true;
+      case BrainChoiceResolutionKind.noMatch:
+        final fresh = parseAppBrainIntent(raw);
+        if (fresh.action != AppBrainAction.unknown) {
+          _pendingChoice = null;
+          return false;
+        }
+        if (mounted) setState(() => _reply = _pendingChoicePrompt(pending));
+        return true;
+    }
+  }
+
+  Future<void> _resumePendingChoice(
+    AppBrainIntent intent,
+    Medicine record,
+  ) async {
+    _remember(record);
+    final focus = intent.briefFocus;
+    if (focus != null) {
+      _answerOperationalBrief(record, focus);
+      return;
+    }
+    if (intent.action == AppBrainAction.search) {
+      widget.onOpenSection(AppSection.stock);
+      if (mounted) {
+        setState(
+          () => _reply =
+              '${record.title} selected from the exact displayed options. This stock row is now the session context.',
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+      if (mounted) await openEditor(context, widget.controller, record: record);
+      return;
+    }
+    await _openActionTarget(
+      intent.action,
+      record,
+      requestedQuantity: intent.quantity,
+      locationPatch: intent.locationPatch,
+      removalReason: intent.removalReason,
+    );
+  }
+
+  String _pendingChoicePrompt(PendingBrainChoice pending) {
+    final shown = <String>[];
+    for (var i = 0; i < pending.candidates.length && i < 4; i++) {
+      shown.add('${i + 1}: ${pending.candidates[i].displayCue}');
+    }
+    final more = pending.candidates.length > 4
+        ? ' · +${pending.candidates.length - 4} more'
+        : '';
+    return 'Aaris is waiting for an exact choice from the displayed local rows. Say “first one”, “second one”, an exact batch/barcode/block/row/vertical/location, or “cancel”. ${shown.join(' · ')}$more';
   }
 
   Future<void> _execute(AppBrainIntent intent, String raw) async {
@@ -972,6 +1080,21 @@ class _BrainScreenState extends State<BrainScreen> {
       if (mounted) setState(() => _reply = emptyReply);
       return;
     }
+    if (records.length > 1) {
+      _pendingChoice = PendingBrainChoice(
+        intent: AppBrainIntent(
+          action: action,
+          quantity: requestedQuantity,
+          briefFocus: briefFocus,
+          locationPatch: locationPatch,
+          removalReason: removalReason,
+        ),
+        candidates: records,
+        createdAt: widget.controller.clock(),
+      );
+    } else {
+      _pendingChoice = null;
+    }
     setState(
       () => _reply = briefFocus != null
           ? records.length == 1
@@ -1012,6 +1135,22 @@ class _BrainScreenState extends State<BrainScreen> {
                   ],
                 ),
               ),
+              if (records.length > 1)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Hands-free exact choice: close this list and say “first one”, “second one”, or an exact batch/barcode/block/row/vertical/location. The option map expires and any stock-row revision change invalidates it.',
+                      style: TextStyle(
+                        color: primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ),
               if (briefFocus != null)
                 const Padding(
                   padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
@@ -1040,42 +1179,61 @@ class _BrainScreenState extends State<BrainScreen> {
                   itemCount: records.length,
                   itemBuilder: (_, index) {
                     final record = records[index];
-                    return MedicineCard(
-                      record: record,
-                      settings: widget.controller.settings,
-                      today: widget.controller.today,
-                      onTap: () async {
-                        Navigator.pop(sheetContext);
-                        if (!mounted) return;
-                        _remember(record);
-                        if (briefFocus != null) {
-                          _answerOperationalBrief(record, briefFocus);
-                          return;
-                        }
-                        if (action == AppBrainAction.search) {
-                          widget.onOpenSection(AppSection.stock);
-                          setState(
-                            () => _reply =
-                                '${record.title} selected. I will remember this exact stock entry for your next command.',
-                          );
-                          await Future<void>.delayed(Duration.zero);
-                          if (mounted) {
-                            await openEditor(
-                              context,
-                              widget.controller,
-                              record: record,
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (records.length > 1)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 7, 4, 2),
+                            child: Text(
+                              'OPTION ${index + 1}',
+                              style: const TextStyle(
+                                color: primary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: .8,
+                              ),
+                            ),
+                          ),
+                        MedicineCard(
+                          record: record,
+                          settings: widget.controller.settings,
+                          today: widget.controller.today,
+                          onTap: () async {
+                            Navigator.pop(sheetContext);
+                            if (!mounted) return;
+                            _pendingChoice = null;
+                            _remember(record);
+                            if (briefFocus != null) {
+                              _answerOperationalBrief(record, briefFocus);
+                              return;
+                            }
+                            if (action == AppBrainAction.search) {
+                              widget.onOpenSection(AppSection.stock);
+                              setState(
+                                () => _reply =
+                                    '${record.title} selected. I will remember this exact stock entry for your next command.',
+                              );
+                              await Future<void>.delayed(Duration.zero);
+                              if (mounted) {
+                                await openEditor(
+                                  context,
+                                  widget.controller,
+                                  record: record,
+                                );
+                              }
+                              return;
+                            }
+                            await _openActionTarget(
+                              action,
+                              record,
+                              requestedQuantity: requestedQuantity,
+                              locationPatch: locationPatch,
+                              removalReason: removalReason,
                             );
-                          }
-                          return;
-                        }
-                        await _openActionTarget(
-                          action,
-                          record,
-                          requestedQuantity: requestedQuantity,
-                          locationPatch: locationPatch,
-                          removalReason: removalReason,
-                        );
-                      },
+                          },
+                        ),
+                      ],
                     );
                   },
                 ),
