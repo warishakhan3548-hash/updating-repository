@@ -40,6 +40,58 @@ jobs:
               raise SystemExit('unexpected readiness test ending')
           p.write_text(s[:-4] + '}\n')
           PY
+      - name: Clean generated analyzer warnings
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('lib/services/local_ai_service_io.dart')
+          s = p.read_text()
+          s = s.replace('    String? activateAfterDownload;\n', '')
+          s = s.replace('      activateAfterDownload = hash;\n', '')
+          old = '''    if (activateAfterDownload != null) {
+              await activate(activateAfterDownload);
+            }
+          '''
+          if old not in s:
+              old = '''    if (activateAfterDownload != null) {
+            await activate(activateAfterDownload);
+          }
+          '''
+          if old not in s:
+              old = '''    if (activateAfterDownload != null) {
+              await activate(activateAfterDownload);
+            }
+          '''
+          # Handle formatted or unformatted form robustly.
+          import re
+          s, count = re.subn(
+              r'\s*if \(activateAfterDownload != null\) \{\s*await activate\(activateAfterDownload\);\s*\}',
+              '\n    await activate(model.sha256);',
+              s,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'expected one auto-activation block, found {count}')
+          p.write_text(s)
+
+          p = Path('lib/ui/local_models_panel.dart')
+          s = p.read_text()
+          for line in [
+              "import '../domain/default_local_model.dart';\n",
+              "import '../domain/local_model.dart';\n",
+              "import '../domain/model_catalogue.dart';\n",
+          ]:
+              s = s.replace(line, '')
+          p.write_text(s)
+
+          p = Path('test/simple_ai_connections_source_test.dart')
+          s = p.read_text().replace(
+              "expect(service, contains('await activate(activateAfterDownload);'));",
+              "expect(service, contains('await activate(model.sha256);'));",
+          )
+          p.write_text(s)
+          PY
       - name: Format
         run: dart format lib/domain/local_model.dart lib/services/local_ai_service_io.dart lib/services/local_ai_service_stub.dart lib/services/aaris_default_ai_service_io.dart lib/ui/local_models_panel.dart lib/ui/ai_screen.dart test/local_model_readiness_test.dart test/simple_ai_connections_source_test.dart
       - name: Resolve dependencies
