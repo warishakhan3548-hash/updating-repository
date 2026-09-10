@@ -146,9 +146,18 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didHaveMemoryPressure() {
+    // Android may emit memory-pressure callbacks while llama.cpp is actively
+    // generating. Cancelling that turn here used to surface as random
+    // "Connection Failed"/cancelled replies even when the model was healthy.
+    // Finish the leased native command first, then unload once the lease is
+    // released. Explicit user cancellation still goes through cancelRequest().
     _releaseForMemory = true;
-    cancelRequest();
-    if (!busy && !_transferring) {
+    if (busy) {
+      _status = 'Memory pressure noted · finishing current local answer safely';
+      notifyListeners();
+      return;
+    }
+    if (!_transferring) {
       unawaited(_exclusive((_) async {}).catchError((Object _) {}));
     }
   }
@@ -520,7 +529,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
             await _release();
           } catch (_) {}
           _status =
-              'Memory pressure · local model unloaded; selection retained';
+              'Memory pressure · local model unloaded after current turn; selection retained';
         }
         _working = false;
         notifyListeners();
@@ -761,6 +770,10 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     });
     final results = <Map<String, Object?>>[];
     for (var round = 0; round <= 4; round++) {
+      _status = round == 0
+          ? 'Local AI · thinking…'
+          : 'Local AI · reading verified local inventory…';
+      notifyListeners();
       final raw = await _runtime!.generate(
         context.instructions,
         input,
@@ -770,6 +783,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       final answer = localChatObject(raw);
       if (!answer.containsKey('tool')) {
         _status = 'Local answer ready · proposed changes require review';
+        notifyListeners();
         return context.finish(answer);
       }
       if (round == 4)
