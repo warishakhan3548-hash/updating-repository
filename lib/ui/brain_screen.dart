@@ -11,6 +11,7 @@ import '../domain/dispensing_plan.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/medicine_brief.dart';
+import '../domain/medicine_discovery.dart';
 import '../domain/operations_plan.dart';
 import '../domain/search.dart';
 import '../domain/tracking.dart';
@@ -193,6 +194,35 @@ class _BrainScreenState extends State<BrainScreen> {
     return 'Aaris is waiting for an exact choice from the displayed local rows. Say “first one”, “second one”, an exact batch/barcode/block/row/vertical/location, or “cancel”. ${shown.join(' · ')}$more';
   }
 
+  MedicineDraftSeed? _draftSeedFromCommand(String raw) {
+    var value = raw.trim();
+    if (value.isEmpty) return null;
+
+    final strengthPattern = RegExp(
+      r'\b\d+(?:\.\d+)?\s*(?:mcg|mg|gm|g|ml|iu|units?|%)(?:\s*/\s*\d+(?:\.\d+)?\s*(?:mcg|mg|gm|g|ml|iu|units?))?\b',
+      caseSensitive: false,
+    );
+    final formPattern = RegExp(
+      r'\b(?:tablet|tab|capsule|cap|syrup|suspension|injection|inj|cream|ointment|gel|drops?|solution|powder|inhaler)\b',
+      caseSensitive: false,
+    );
+    final strength = strengthPattern.firstMatch(value)?.group(0)?.trim() ?? '';
+    final form = formPattern.firstMatch(value)?.group(0)?.trim() ?? '';
+    final name = value
+        .replaceAll(strengthPattern, ' ')
+        .replaceAll(formPattern, ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (name.isEmpty) return null;
+
+    return MedicineDraftSeed(
+      name: name,
+      strength: strength,
+      form: form,
+      source: 'Aaris Brain typed command',
+    );
+  }
+
   Future<void> _execute(AppBrainIntent intent, String raw) async {
     switch (intent.action) {
       case AppBrainAction.safetyBlocked:
@@ -213,10 +243,17 @@ class _BrainScreenState extends State<BrainScreen> {
         return;
       case AppBrainAction.addMedicine:
         if (mounted) {
+          final seed = _draftSeedFromCommand(intent.query);
           widget.onOpenSection(AppSection.stock);
-          setState(() => _reply = 'Opening a fresh medicine entry.');
+          setState(
+            () => _reply = seed == null
+                ? 'Opening a fresh medicine entry.'
+                : 'Draft ready for ${seed.name}${seed.strength.isEmpty ? '' : ' ${seed.strength}'}. Review the fields and tap Save to add it.',
+          );
           await Future<void>.delayed(Duration.zero);
-          if (mounted) await openEditor(context, widget.controller);
+          if (mounted) {
+            await openEditor(context, widget.controller, seed: seed);
+          }
         }
         return;
       case AppBrainAction.scanMedicine:
@@ -450,11 +487,24 @@ class _BrainScreenState extends State<BrainScreen> {
     final direct = _singleSafeTarget(viable.take(8).toList());
     if (direct != null) {
       final record = widget.controller.snapshot.records[direct.id];
-      if (record != null && !record.archived) _remember(record);
+      if (record != null && !record.archived) {
+        _remember(record);
+        if (intent.openExact) {
+          widget.onOpenSection(AppSection.stock);
+          setState(
+            () => _reply = '${record.title} matched exactly. Opening that stock entry now.',
+          );
+          await Future<void>.delayed(Duration.zero);
+          if (mounted) {
+            await openEditor(context, widget.controller, record: record);
+          }
+          return;
+        }
+      }
     }
     await _showMatches(
       hits,
-      title: 'Matches for “$query”',
+      title: intent.openExact ? 'Open “$query”' : 'Matches for “$query”',
       emptyReply:
           'No confident local stock match for “$query”. I opened the Medicine Database so you can scan or search another spelling.',
     );
