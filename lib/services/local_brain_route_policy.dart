@@ -198,7 +198,8 @@ class LocalBrainRoutePolicy {
     final watch = Stopwatch()..start();
     while (readiness == LocalBrainRouteReadiness.retryWhenIdle) {
       final remaining = _instantLeaseWaitTimeout - watch.elapsed;
-      if (remaining <= Duration.zero ||
+      if (remaining.isNegative ||
+          remaining == Duration.zero ||
           !await _waitUntilLocalLeaseIsIdle(local, remaining)) {
         return false;
       }
@@ -212,7 +213,7 @@ class LocalBrainRoutePolicy {
     Duration timeout,
   ) async {
     if (!local.busy && !local.transferring) return true;
-    if (timeout <= Duration.zero) return false;
+    if (timeout.isNegative || timeout == Duration.zero) return false;
 
     final idle = Completer<void>();
     void onChanged() {
