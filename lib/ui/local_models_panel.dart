@@ -446,9 +446,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                       : () async {
                           if (await _confirm(
                             'Download and use this model?',
-                            file.bytes >= 1536 * 1024 * 1024
-                                ? '${modelSize(file.bytes)} download. This is a large local model and may be slower or heavy on some phones. Aaris will still try it instead of blocking it from a RAM estimate.'
-                                : '${modelSize(file.bytes)} download. Aaris will verify it and try the native model on this phone.',
+                            '${modelSize(file.bytes)} download. Aaris will verify it, inspect live device memory, adapt context automatically, and let the native runtime make the final compatibility decision. Memory estimates warn; they do not block.',
                           )) {
                             await _run(() => local.download(file));
                           }
@@ -675,7 +673,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
           if (local.ready && local.memoryWarning) ...[
             const SizedBox(height: 8),
             Text(
-              'Large-model mode · this model may use more memory or run slower. Aaris will still try native inference instead of blocking it by RAM estimate.',
+              'Smart memory warning · ${local.executionSummary}. Aaris adapted context using live device memory; model file size alone never blocks native inference.',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.tertiary,
                 fontSize: 11.5,
