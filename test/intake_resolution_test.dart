@@ -217,6 +217,77 @@ void main() {
       expect(result.candidateStockIds, isEmpty);
     });
 
+    test(
+      'unseen barcode without trusted text never matches unrelated inventory',
+      () {
+        final result = resolveIntakeDraft(
+          draft: _draft(
+            name: '',
+            strength: '',
+            form: '',
+            salt: '',
+            brand: '',
+            manufacturer: '',
+            batch: '',
+            barcode: '8999999999999',
+            expiry: '',
+            mfg: '',
+          ),
+          records: <Medicine>[
+            _medicine('dolo'),
+            _medicine(
+              'azithro',
+              name: 'Azithro',
+              strength: '500mg',
+              salt: 'Azithromycin',
+              barcode: '8901111111111',
+            ),
+            _medicine(
+              'cetirizine',
+              name: 'Cetirizine',
+              strength: '10mg',
+              salt: 'Cetirizine',
+              barcode: '',
+            ),
+          ],
+          today: today,
+        );
+
+        expect(result.kind, IntakeResolutionKind.newStock);
+        expect(result.safeToReceive, isFalse);
+        expect(result.candidateStockIds, isEmpty);
+        expect(result.reason, contains('will not match'));
+      },
+    );
+
+    test(
+      'new barcode on a known textual product stays review-only with conflict guidance',
+      () {
+        final stock = _medicine(
+          'dolo',
+          batch: 'OLD-1',
+          barcode: '8901111111111',
+          expiry: '2027-10',
+        );
+        final result = resolveIntakeDraft(
+          draft: _draft(
+            batch: 'NEW-2',
+            barcode: '8909999999999',
+            expiry: '2028-01',
+          ),
+          records: <Medicine>[stock],
+          today: today,
+        );
+
+        expect(result.kind, IntakeResolutionKind.sameProduct);
+        expect(result.exactStockId, isNull);
+        expect(result.safeToReceive, isFalse);
+        expect(result.candidateStockIds, <String>[stock.id]);
+        expect(result.reason, contains('barcode is new or different'));
+        expect(result.reason, contains('will not overwrite'));
+      },
+    );
+
     test('expired exact lot is identified but receiving is blocked', () {
       final stock = _medicine('a', expiry: '2026-08');
       final result = resolveIntakeDraft(
