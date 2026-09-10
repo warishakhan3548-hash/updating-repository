@@ -28,6 +28,7 @@ enum AppBrainAction {
 
 enum _MutationFamily {
   undo,
+  addMedicine,
   setQuantity,
   receiveStock,
   relocateMedicine,
@@ -98,6 +99,9 @@ class AppBrainIntent {
 }
 
 AppBrainIntent parseAppBrainIntent(String raw) {
+  if (raw.length > 1000) {
+    return const AppBrainIntent(action: AppBrainAction.unknown);
+  }
   final text = _normalized(raw);
   if (text.isEmpty) {
     return const AppBrainIntent(action: AppBrainAction.unknown);
@@ -105,8 +109,8 @@ AppBrainIntent parseAppBrainIntent(String raw) {
 
   // The deterministic command layer treats language semantics as part of the
   // safety boundary, not merely as UI wording. Negated, instructional,
-  // conditional or multi-mutation utterances must never fall through to the
-  // first destructive verb that happens to match.
+  // conditional/deferred or multi-operation utterances must never fall through
+  // to the first write-capable verb that happens to match.
   final guardedMutation = _guardedMutationIntent(raw, text);
   if (guardedMutation != null) return guardedMutation;
 
@@ -283,16 +287,7 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
-  if (_containsAny(text, const [
-    'add medicine',
-    'new medicine',
-    'medicine add',
-    'nayi medicine',
-    'nayi dawai',
-    'नई मेडिसिन',
-    'नई दवा',
-    'मेडिसिन जोड़',
-  ])) {
+  if (_containsAny(text, _addMedicineTerms)) {
     return const AppBrainIntent(
       action: AppBrainAction.addMedicine,
       confidence: .98,
@@ -373,9 +368,9 @@ AppBrainIntent? _guardedMutationIntent(String raw, String text) {
   final conflicting = families.length > 1;
   if (!negated && !discussing && !conditional && !conflicting) return null;
 
-  // Conditional or multi-write language is intentionally not decomposed. Aaris
-  // cannot prove which clause the user intended to execute first, so the entire
-  // mutation plan fails closed and can be handled by the reviewed AI composer.
+  // Deferred/conditional or multi-operation language is intentionally not
+  // decomposed. Aaris cannot prove which clause belongs to the current moment,
+  // so the entire plan fails closed and can be handled by reviewed reasoning.
   if (conditional || conflicting) {
     return const AppBrainIntent(
       action: AppBrainAction.unknown,
@@ -403,13 +398,18 @@ AppBrainIntent? _guardedMutationIntent(String raw, String text) {
 Set<_MutationFamily> _mutationFamilies(String raw, String text) {
   final families = <_MutationFamily>{};
   if (_containsAny(text, _undoTerms)) families.add(_MutationFamily.undo);
+  if (_containsAny(text, _addMedicineTerms)) {
+    families.add(_MutationFamily.addMedicine);
+  }
 
   if (_extractStockAdjustment(raw, _setQuantityPatterns, allowZero: true) !=
-      null) {
+          null ||
+      _containsAny(text, _setQuantityIntentTerms)) {
     families.add(_MutationFamily.setQuantity);
   }
   if (_extractStockAdjustment(raw, _receiveStockPatterns, allowZero: false) !=
-      null) {
+          null ||
+      _containsAny(text, _receiveIntentTerms)) {
     families.add(_MutationFamily.receiveStock);
   }
 
@@ -458,9 +458,16 @@ String _guardedMutationTarget(String raw, _MutationFamily family) {
     case _MutationFamily.undo:
       candidate = '';
       break;
+    case _MutationFamily.addMedicine:
+      candidate = _extractMedicineQuery(raw, _addMedicineTerms);
+      break;
     case _MutationFamily.setQuantity:
     case _MutationFamily.receiveStock:
-      candidate = _stockAdjustmentIntent(raw)?.query ?? '';
+      candidate = _stockAdjustmentIntent(raw)?.query ??
+          _extractMedicineQuery(raw, [
+            ..._setQuantityIntentTerms,
+            ..._receiveIntentTerms,
+          ]);
       break;
     case _MutationFamily.relocateMedicine:
       try {
@@ -1044,6 +1051,17 @@ const _undoTerms = <String>[
   'वापस करो',
 ];
 
+const _addMedicineTerms = <String>[
+  'add medicine',
+  'new medicine',
+  'medicine add',
+  'nayi medicine',
+  'nayi dawai',
+  'नई मेडिसिन',
+  'नई दवा',
+  'मेडिसिन जोड़',
+];
+
 const _mutationNegationTerms = <String>[
   'do not',
   'don t',
@@ -1067,17 +1085,31 @@ const _mutationDiscussionTerms = <String>[
   'show me how',
   'tell me how',
   'steps to',
+  'what does',
+  'what is the meaning',
+  'meaning',
+  'mean',
+  'explain',
+  'example',
+  'why',
+  'should i',
   'can i',
   'may i',
-  'should i',
   'what happens if',
   'kaise',
   'kaise kare',
   'kaise karu',
+  'kyun',
+  'kyu',
+  'kyun kare',
   'kya main',
+  'matlab',
   'क्या मैं',
+  'क्या मतलब',
   'कैसे',
   'कैसे करें',
+  'क्यों',
+  'क्यों करें',
 ];
 
 const _mutationConditionalTerms = <String>[
@@ -1085,13 +1117,43 @@ const _mutationConditionalTerms = <String>[
   'only if',
   'when',
   'unless',
+  'after',
+  'before',
+  'later',
+  'tomorrow',
+  'tonight',
+  'next week',
+  'first',
   'agar',
   'jab',
   'tab',
+  'baad me',
+  'baad mein',
+  'kal',
+  'pehle',
   'अगर',
   'जब',
   'तब',
   'यदि',
+  'बाद में',
+  'कल',
+  'पहले',
+];
+
+const _setQuantityIntentTerms = <String>[
+  'set quantity',
+  'quantity set',
+  'set qty',
+  'qty set',
+  'set stock quantity',
+  'stock quantity set',
+  'correct quantity',
+  'quantity correct',
+  'stock set',
+  'stock correct',
+  'क्वांटिटी सेट',
+  'मात्रा सेट',
+  'स्टॉक सेट',
 ];
 
 const _receiveIntentTerms = <String>[
