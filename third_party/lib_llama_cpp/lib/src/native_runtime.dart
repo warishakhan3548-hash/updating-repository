@@ -146,7 +146,10 @@ final class NativeLlamaRuntime {
     }
   }
 
-  Iterable<LlamaResponse> generate(LlamaGenerateCommand command) sync* {
+  Iterable<LlamaResponse> generate(
+    LlamaGenerateCommand command, {
+    bool Function()? shouldAbort,
+  }) sync* {
     final loaded = _loaded;
     if (loaded == null) {
       throw const NativeLlamaException(
@@ -157,6 +160,7 @@ final class NativeLlamaRuntime {
     if (command.maxTokens != null && command.maxTokens! <= 0) {
       return;
     }
+    if (shouldAbort?.call() ?? false) return;
 
     final promptTokens = _tokenize(loaded.vocab, command.prompt);
     if (promptTokens.isEmpty) {
@@ -177,16 +181,19 @@ final class NativeLlamaRuntime {
 
     _resetPromptContext(loaded);
     _decodeTokens(loaded.context, promptTokens);
+    if (shouldAbort?.call() ?? false) return;
     yield* _sampleFromEvaluatedPrompt(
       loaded: loaded,
       command: command,
       initialTokenCount: promptTokens.length,
+      shouldAbort: shouldAbort,
     );
   }
 
   Iterable<LlamaResponse> generateMessages(
-    LlamaGenerateMessagesCommand command,
-  ) sync* {
+    LlamaGenerateMessagesCommand command, {
+    bool Function()? shouldAbort,
+  }) sync* {
     final loaded = _loaded;
     if (loaded == null) {
       throw const NativeLlamaException(
@@ -198,6 +205,7 @@ final class NativeLlamaRuntime {
         'Image and audio inputs require a multimodal projector.',
       );
     }
+    if (shouldAbort?.call() ?? false) return;
 
     final mediaInputs = <_MediaInput>[];
     final templateResult = _wrapper.applyChatTemplate(
@@ -219,6 +227,7 @@ final class NativeLlamaRuntime {
       mediaInputs: mediaInputs,
       outputTokens: command.maxTokens,
     );
+    if (shouldAbort?.call() ?? false) return;
 
     final grammar = _samplingGrammarFor(templateResult);
     yield* streamToolAwareMessageResponses(
@@ -231,6 +240,7 @@ final class NativeLlamaRuntime {
         grammarTriggers: grammar == null
             ? const []
             : templateResult.grammarTriggers,
+        shouldAbort: shouldAbort,
       ),
       command: command,
       parseChatOutput: (text, {required isPartial}) => _wrapper.parseChatOutput(
@@ -273,10 +283,11 @@ final class NativeLlamaRuntime {
     String? grammar,
     bool grammarLazy = false,
     List<_GrammarTrigger> grammarTriggers = const [],
+    bool Function()? shouldAbort,
   }) sync* {
     final contextSize = _bindings.llama_n_ctx(loaded.context);
     final maxTokens = command.maxTokens ?? contextSize - initialTokenCount;
-    if (maxTokens <= 0) {
+    if (maxTokens <= 0 || (shouldAbort?.call() ?? false)) {
       return;
     }
 
@@ -293,6 +304,7 @@ final class NativeLlamaRuntime {
 
     try {
       while (generated < maxTokens) {
+        if (shouldAbort?.call() ?? false) return;
         final token = _bindings.llama_sampler_sample(
           sampler,
           loaded.context,
@@ -307,6 +319,10 @@ final class NativeLlamaRuntime {
         final delta = stopMatcher.add(piece);
         if (delta.isNotEmpty) {
           yield LlamaTokenResponse(text: delta, index: generated);
+          // Resuming after a yielded token is the worker's cooperative cancel
+          // boundary. Exit before another native decode so sampler/model cleanup
+          // runs through this generator's finally block.
+          if (shouldAbort?.call() ?? false) return;
         }
         generated += 1;
 
@@ -325,11 +341,13 @@ final class NativeLlamaRuntime {
         _decodeTokens(loaded.context, [token]);
       }
 
+      if (shouldAbort?.call() ?? false) return;
       if (!stopMatcher.isStopped) {
         final remaining = stopMatcher.add(textDecoder.finish());
         if (remaining.isNotEmpty)
           yield LlamaTokenResponse(text: remaining, index: generated);
       }
+      if (shouldAbort?.call() ?? false) return;
       final tail = stopMatcher.flush();
       if (tail.isNotEmpty) {
         yield LlamaTokenResponse(text: tail, index: generated);
@@ -1498,8 +1516,8 @@ typedef _MediaInitNative =
     );
 typedef _MediaInitDart =
     Pointer<Void> Function(
-      Pointer<Char>,
       Pointer<llama_model>,
+      Pointer<Char>,
       Pointer<Char>,
       Pointer<Pointer<Char>>,
     );
