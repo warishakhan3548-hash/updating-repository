@@ -701,14 +701,15 @@ class _EditorScreenState extends State<EditorScreen> {
 
     setState(() => _busy = true);
     try {
-      await widget.controller.recordSale(
+      final review = widget.controller.reviewSale(
         record.id,
         quantity: result.quantity,
         totalAmountPaise: result.amountPaise,
         markSoldOut: result.markSoldOut,
         occurredAt: result.occurredAt,
-        expectedRevision: _baseRevision,
+        reviewedRecord: record,
       );
+      await widget.controller.applySale(review);
       if (mounted) {
         setState(() => _allowPop = true);
         Navigator.pop(context);

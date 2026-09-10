@@ -277,6 +277,9 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
+  final fieldEdit = _fieldEditIntent(raw, text);
+  if (fieldEdit != null) return fieldEdit;
+
   if (_containsAny(text, _editTerms)) {
     return AppBrainIntent(
       action: AppBrainAction.editMedicine,
@@ -498,6 +501,23 @@ AppBrainIntent? _imperativeSaleIntent(String raw, String text) {
   );
 }
 
+AppBrainIntent? _fieldEditIntent(String raw, String text) {
+  if (!_looksLikeFieldEdit(text)) return null;
+  final query = _extractMedicineQuery(raw, [
+    ..._editorFieldEditVerbs,
+    ..._editorFieldTerms,
+  ]);
+  return AppBrainIntent(
+    action: AppBrainAction.editMedicine,
+    query: query,
+    confidence: query.isEmpty ? .90 : .99,
+  );
+}
+
+bool _looksLikeFieldEdit(String text) =>
+    _containsAny(text, _editorFieldEditVerbs) &&
+    _containsAny(text, _editorFieldTerms);
+
 AppBrainIntent? _operationalReadIntent(String raw, String text) {
   final matches = <MedicineBriefFocus, List<String>>{
     if (_containsAny(text, _stockLookupTerms))
@@ -690,7 +710,9 @@ AppBrainSafetyReason? _brainSafetyBlock(String raw, String text) {
       _containsAny(text, _saleTerms)) {
     families.add('sale');
   }
-  if (_containsAny(text, _editTerms)) families.add('edit');
+  if (_containsAny(text, _editTerms) || _looksLikeFieldEdit(text)) {
+    families.add('edit');
+  }
   if (_containsAny(text, _restoreTerms)) families.add('restore');
   if (_containsAny(text, _undoSafetyTerms)) families.add('undo');
   if (_setQuantityPatterns.any((pattern) => pattern.hasMatch(raw))) {
@@ -1442,6 +1464,71 @@ const _saleTerms = <String>[
   'bikri',
   'बिक्री',
   'सेल रिकॉर्ड',
+];
+
+const _editorFieldEditVerbs = <String>[
+  'change',
+  'update',
+  'edit',
+  'correct',
+  'fix',
+  'set',
+  'badlo',
+  'badal do',
+  'sahi karo',
+  'theek karo',
+  'बदलो',
+  'बदल दो',
+  'अपडेट',
+  'एडिट',
+  'सही करो',
+  'ठीक करो',
+  'सेट',
+];
+
+const _editorFieldTerms = <String>[
+  'expiry date',
+  'expiry',
+  'exp date',
+  'mfg date',
+  'manufacturing date',
+  'manufacturing',
+  'mfg',
+  'batch number',
+  'batch no',
+  'batch',
+  'barcode',
+  'bar code',
+  'unit price',
+  'price',
+  'amount',
+  'salt',
+  'strength',
+  'brand',
+  'manufacturer',
+  'medicine name',
+  'name',
+  'form',
+  'notes',
+  'note',
+  'एक्सपायरी डेट',
+  'एक्सपायरी',
+  'एमएफजी डेट',
+  'मैन्युफैक्चरिंग डेट',
+  'बैच नंबर',
+  'बैच',
+  'बारकोड',
+  'कीमत',
+  'अमाउंट',
+  'सॉल्ट',
+  'स्ट्रेंथ',
+  'ब्रांड',
+  'मैन्युफैक्चरर',
+  'मेडिसिन नाम',
+  'नाम',
+  'फॉर्म',
+  'नोट्स',
+  'नोट',
 ];
 
 const _editTerms = <String>[

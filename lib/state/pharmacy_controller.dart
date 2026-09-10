@@ -61,6 +61,31 @@ class ReviewedMarkSold {
   String get stockId => record.id;
 }
 
+/// Immutable single-stock sale review.
+///
+/// The token binds the pharmacist's confirmation to the exact physical stock
+/// row and exact sale facts they reviewed. Unrelated database traffic may advance
+/// the global inventory revision, but any change to this row fails closed.
+class ReviewedSale {
+  const ReviewedSale({
+    required this.baseRevision,
+    required this.record,
+    required this.quantity,
+    required this.totalAmountPaise,
+    required this.occurredAt,
+    required this.markSoldOut,
+  });
+
+  final int baseRevision;
+  final Medicine record;
+  final int quantity;
+  final int? totalAmountPaise;
+  final DateTime occurredAt;
+  final bool markSoldOut;
+
+  String get stockId => record.id;
+}
+
 bool _sameReviewedMedicine(Medicine live, Medicine reviewed) =>
     mapEquals(live.toJson(), reviewed.toJson());
 
@@ -585,22 +610,23 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
-  Future<void> recordSale(
+  ReviewedSale reviewSale(
     String id, {
     required int quantity,
     int? totalAmountPaise,
     DateTime? occurredAt,
     bool markSoldOut = false,
-    int? expectedRevision,
-  }) async {
-    if (expectedRevision != null && expectedRevision != snapshot.revision) {
-      throw StateError(
-        'Inventory changed. Reopen this entry before recording a sale.',
-      );
-    }
+    Medicine? reviewedRecord,
+  }) {
     final medicine = snapshot.records[id];
     if (medicine == null || medicine.archived) {
       throw StateError('This stock entry is unavailable.');
+    }
+    if (reviewedRecord != null &&
+        !_sameReviewedMedicine(medicine, reviewedRecord)) {
+      throw StateError(
+        'This stock entry changed while the sale dialog was open. Review the live medicine again before recording the sale.',
+      );
     }
     if (medicine.sold) {
       throw StateError('Restock this medicine before recording another sale.');
@@ -637,7 +663,43 @@ class PharmacyController extends ChangeNotifier {
         'To mark this entry out of stock, the sale quantity must equal all remaining units.',
       );
     }
-    final remaining = current == null ? null : current - quantity;
+
+    return ReviewedSale(
+      baseRevision: snapshot.revision,
+      record: Medicine.fromJson(medicine.toJson()),
+      quantity: quantity,
+      totalAmountPaise: totalAmountPaise,
+      occurredAt: time,
+      markSoldOut: markSoldOut,
+    );
+  }
+
+  Future<void> applySale(ReviewedSale review) async {
+    final live = snapshot.records[review.stockId];
+    if (live == null ||
+        live.archived ||
+        live.sold ||
+        !_sameReviewedMedicine(live, review.record)) {
+      throw StateError(
+        'The reviewed stock entry changed or is no longer active. Review the sale again; nothing was saved.',
+      );
+    }
+
+    // Re-run every deterministic sale invariant against the live database. This
+    // deliberately rebases over unrelated global writes while keeping the exact
+    // reviewed stock row immutable. The final persistence CAS still rejects a
+    // later race between this synchronous revalidation and the queued commit.
+    final fresh = reviewSale(
+      live.id,
+      quantity: review.quantity,
+      totalAmountPaise: review.totalAmountPaise,
+      occurredAt: review.occurredAt,
+      markSoldOut: review.markSoldOut,
+      reviewedRecord: review.record,
+    );
+    final medicine = fresh.record;
+    final current = medicine.quantity;
+    final remaining = current == null ? null : current - fresh.quantity;
     final sale = SaleEvent(
       id: newId(),
       stockId: medicine.id,
@@ -645,27 +707,54 @@ class PharmacyController extends ChangeNotifier {
       strength: medicine.strength,
       form: medicine.form,
       salt: medicine.salt,
-      quantity: quantity,
-      occurredAt: time,
-      totalAmountPaise: totalAmountPaise,
+      quantity: fresh.quantity,
+      occurredAt: fresh.occurredAt,
+      totalAmountPaise: fresh.totalAmountPaise,
       savedUnitPricePaise: medicine.unitPricePaise,
     );
     final updated = medicine.patch({
-      'quantity': markSoldOut ? 0 : remaining,
-      if (markSoldOut) ...{
+      'quantity': fresh.markSoldOut ? 0 : remaining,
+      if (fresh.markSoldOut) ...{
         'sold': true,
-        'soldAt': time.toIso8601String(),
+        'soldAt': fresh.occurredAt.toIso8601String(),
         'soldQuantity': current,
         'soldUnitPricePaise': medicine.unitPricePaise,
       },
     });
     await _commit(
       InventoryMutation(
-        expectedRevision: snapshot.revision,
+        expectedRevision: fresh.baseRevision,
         label:
-            'Recorded sale · ${medicine.name} · $quantity ${quantity == 1 ? 'unit' : 'units'}${markSoldOut ? ' · marked sold' : ''}',
+            'Recorded sale · ${medicine.name} · ${fresh.quantity} ${fresh.quantity == 1 ? 'unit' : 'units'}${fresh.markSoldOut ? ' · marked sold' : ''}',
         upserts: [updated],
         upsertSales: [sale],
+      ),
+    );
+  }
+
+  /// Immediate compatibility gateway. New user-facing confirmation flows should
+  /// use reviewSale/applySale so harmless unrelated inventory traffic does not
+  /// invalidate an otherwise exact pharmacist review.
+  Future<void> recordSale(
+    String id, {
+    required int quantity,
+    int? totalAmountPaise,
+    DateTime? occurredAt,
+    bool markSoldOut = false,
+    int? expectedRevision,
+  }) async {
+    if (expectedRevision != null && expectedRevision != snapshot.revision) {
+      throw StateError(
+        'Inventory changed. Reopen this entry before recording a sale.',
+      );
+    }
+    await applySale(
+      reviewSale(
+        id,
+        quantity: quantity,
+        totalAmountPaise: totalAmountPaise,
+        occurredAt: occurredAt,
+        markSoldOut: markSoldOut,
       ),
     );
   }
