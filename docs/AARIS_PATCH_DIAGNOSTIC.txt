@@ -1,1 +1,1 @@
-test/fefo_automation_test.dart: expected one patch anchor, found 3
+docs/ARCHITECTURE.md: expected one patch anchor, found 0
