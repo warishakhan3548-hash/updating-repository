@@ -53,22 +53,32 @@ internal class LocalAiPlatform(private val activity: Activity) {
                     manager.isLowRamDevice || availableRatio < 0.25 -> "elevated"
                     else -> "normal"
                 }
+                // Keep the native bridge capability-oriented rather than tied to
+                // one phone generation. Ultra-high-memory devices may attempt a
+                // 16K context; Dart/native loading still owns the downgrade ladder
+                // and can fall back to 12K/8K/6K/4K/3K/2K on real allocation pressure.
                 val suggestedContextTokens = when {
                     advisoryPressure == "critical" -> 2048
                     manager.isLowRamDevice || availableRatio < 0.35 -> 2048
-                    memory.totalMem >= 12L * 1024 * 1024 * 1024 -> 8192
+                    memory.totalMem >= 16L * 1024 * 1024 * 1024 && availableRatio >= 0.40 -> 16384
+                    memory.totalMem >= 8L * 1024 * 1024 * 1024 && availableRatio >= 0.30 -> 8192
                     else -> 4096
                 }
+                val reservedHeadroom = maxOf(512L * 1024 * 1024, memory.totalMem / 10)
+                val nativeHeadroom = maxOf(0L, memory.availMem - reservedHeadroom)
                 result.success(mapOf(
-                    "deviceProfileVersion" to 2,
+                    "deviceProfileVersion" to 3,
                     "modelAdmissionPolicy" to "native_loader_authoritative",
                     "memoryPressure" to advisoryPressure,
                     "suggestedContextTokens" to suggestedContextTokens,
+                    "runtimeContextCeilingTokens" to 16384,
                     "availableMemoryRatio" to availableRatio,
                     "totalMemory" to memory.totalMem,
                     "sdkInt" to Build.VERSION.SDK_INT,
                     "abis" to Build.SUPPORTED_ABIS.toList(),
+                    "has64BitAbi" to Build.SUPPORTED_64_BIT_ABIS.isNotEmpty(),
                     "availableMemory" to memory.availMem,
+                    "nativeHeadroomAfterReserve" to nativeHeadroom,
                     "lowMemory" to (criticalMemory || memory.lowMemory),
                     "systemLowMemory" to memory.lowMemory,
                     "memoryClassMb" to manager.memoryClass,
