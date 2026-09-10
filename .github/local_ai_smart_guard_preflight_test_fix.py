@@ -48,4 +48,58 @@ new = '''  final healthy = planLocalExecution(
 '''
 if text.count(old) != 1:
     raise SystemExit('tool/check_model_preflight.dart adaptive expectation anchor mismatch')
-p.write_text(text.replace(old, new, 1))
+text = text.replace(old, new, 1)
+
+old = '''  rejects(
+    () => planLocalExecution(
+      weightBytes: 2 * gib,
+      metadata: model,
+      totalMemory: 16 * gib,
+      availableMemory: gib,
+    ),
+  );
+  rejects(
+    () =>
+        planLocalExecution(weightBytes: gib, metadata: model, lowMemory: true),
+  );
+  rejects(
+    () => planLocalExecution(
+      weightBytes: gib,
+      metadata: inspectGgufPrefix(fixture(context: 1024), fileBytes: 4096),
+    ),
+  );
+'''
+new = '''  final constrainedDesktop = planLocalExecution(
+    weightBytes: 2 * gib,
+    metadata: model,
+    totalMemory: 16 * gib,
+    availableMemory: gib,
+  );
+  check(
+    constrainedDesktop.contextTokens == 512 && constrainedDesktop.memoryWarning,
+    'Tight RAM becomes a warning and minimum-context native attempt, not a blind block',
+  );
+  final lowMemoryPlan = planLocalExecution(
+    weightBytes: gib,
+    metadata: model,
+    lowMemory: true,
+    phone: true,
+  );
+  check(
+    lowMemoryPlan.contextTokens == 512 && lowMemoryPlan.memoryWarning,
+    'Android low-memory state keeps an explicit warned low-context attempt available',
+  );
+  final shortContextPlan = planLocalExecution(
+    weightBytes: gib,
+    metadata: inspectGgufPrefix(fixture(context: 1024), fileBytes: 4096),
+    phone: true,
+  );
+  check(
+    shortContextPlan.contextTokens == 1024,
+    'Valid 1024-token models are supported instead of being rejected by policy',
+  );
+'''
+if text.count(old) != 1:
+    raise SystemExit('tool/check_model_preflight.dart soft-admission block mismatch')
+text = text.replace(old, new, 1)
+p.write_text(text)
