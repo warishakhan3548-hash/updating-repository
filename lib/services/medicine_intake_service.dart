@@ -12,6 +12,7 @@ import '../domain/medicine.dart';
 import '../domain/medicine_intake.dart';
 import '../domain/medicine_understanding.dart';
 import 'local_ai_service.dart';
+import 'local_brain_route_policy.dart';
 import 'media_import_service.dart';
 import 'scan_service.dart';
 
@@ -161,13 +162,12 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     if (kind != 'photo' && kind != 'video')
       throw const FormatException('Invalid capture type.');
     final local = LocalAiService.instance;
+    final modelId = await LocalBrainRoutePolicy.captureModelId(local);
     final job = MedicineIntakeJob(
       id: intakeId(),
       kind: kind,
       title: title,
-      modelId: local.hasSelection && local.scannerEnabled
-          ? local.activeId
-          : null,
+      modelId: modelId,
     );
     job.path = _capturePath(job.id, kind);
     try {
@@ -210,14 +210,13 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       throw StateError('Empty capture or intake capacity exceeded.');
     }
     final local = LocalAiService.instance;
+    final modelId = await LocalBrainRoutePolicy.captureModelId(local);
     final job = MedicineIntakeJob(
       id: intakeId(),
       kind: 'evidence',
       title: title,
       evidence: List.of(evidence),
-      modelId: local.hasSelection && local.scannerEnabled
-          ? local.activeId
-          : null,
+      modelId: modelId,
     );
     await _persist(job, insert: true);
     _jobs.add(job);
@@ -437,8 +436,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _reason(MedicineIntakeJob job) async {
     final local = LocalAiService.instance;
-    if (local.activeId != job.modelId || !local.scannerEnabled) {
-      job.error = 'Local model selection changed. Deterministic drafts retained for review.';
+    if (!await LocalBrainRoutePolicy.mayReasonWith(local, job.modelId)) {
+      job.error =
+          'Aaris Brain is off, not scan-ready, or the selected Local AI changed. Deterministic OCR draft retained for review.';
       job.status = 'review';
       return;
     }
@@ -463,7 +463,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
         job.cursorMs < job.durationMs) {
       job.status = 'queued';
     } else if (job.drafts.isNotEmpty) {
-      job.modelId = LocalAiService.instance.activeId;
+      job.modelId = await LocalBrainRoutePolicy.captureModelId(
+        LocalAiService.instance,
+      );
       job.aiIndex = 0;
       job.status = job.modelId == null ? 'review' : 'reasoning';
     } else
