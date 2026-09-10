@@ -126,12 +126,7 @@ FefoDispensingPlan planFefoDispensing({
   if (hasUnknownComposition &&
       (candidates.length != 1 || candidates.first.id != requested.id)) {
     throw const FormatException(
-      'FEFO is blocked because another eligible stock row has no recorded salt/composition. Verify the composition before Aaris allocates across batches.',
-    );
-  }
-  if (hasUnknownComposition && candidates.length > 1) {
-    throw const FormatException(
-      'FEFO is blocked because same-product batch composition is incomplete. Record the salt/composition for every eligible batch first.',
+      'FEFO is blocked because an eligible same-product stock row has no recorded salt/composition. Verify every eligible batch composition before Aaris allocates across stock rows.',
     );
   }
 
