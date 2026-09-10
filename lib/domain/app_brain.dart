@@ -83,6 +83,23 @@ class AppBrainIntent {
     AppBrainAction.undoLast => true,
     _ => false,
   };
+
+  /// Whether a command with no medicine words may reuse the session's exact
+  /// active-stock context. This never authorizes fuzzy or guessed targeting.
+  /// The executor still requires an exact live ID/fingerprint and all existing
+  /// review/confirmation gates remain mandatory for mutations.
+  bool get canUseImplicitExactContext =>
+      briefFocus != null ||
+      switch (action) {
+        AppBrainAction.editMedicine ||
+        AppBrainAction.setQuantity ||
+        AppBrainAction.receiveStock ||
+        AppBrainAction.relocateMedicine ||
+        AppBrainAction.removeMedicine ||
+        AppBrainAction.markSold ||
+        AppBrainAction.recordSale => true,
+        _ => false,
+      };
 }
 
 AppBrainIntent parseAppBrainIntent(String raw) {
@@ -182,9 +199,23 @@ AppBrainIntent parseAppBrainIntent(String raw) {
 
   if (_containsAny(text, _soldTerms)) {
     final query = _extractMedicineQuery(raw, _soldTerms);
-    // "stock khatam" without a target is informational, never an implicit
-    // mutation. It opens the SOLD/reorder projection instead.
+    // Ambiguous status wording such as "stock khatam" remains informational
+    // when it has no target. Only an explicit whole-stock mutation phrase may
+    // reuse exact session context; the UI still requires confirmation.
     if (query.isEmpty) {
+      final explicitContextMutation = _containsAny(text, const [
+        'mark sold',
+        'sold mark',
+        'poora stock bik gaya',
+        'pura stock bik gaya',
+        'पूरा स्टॉक बिक गया',
+      ]);
+      if (explicitContextMutation) {
+        return const AppBrainIntent(
+          action: AppBrainAction.markSold,
+          confidence: .96,
+        );
+      }
       return const AppBrainIntent(
         action: AppBrainAction.search,
         scope: SearchScope.sold,
@@ -417,7 +448,10 @@ AppBrainIntent? _imperativeSaleIntent(String raw, String text) {
     saleInput.remainingText,
     _imperativeSaleTerms,
   );
-  if (query.isEmpty) return null;
+  // A quantity-qualified imperative such as "5 units sell" is
+  // sufficiently explicit to continue on exact session context. A bare
+  // targetless "sell" remains unknown instead of becoming a mutation.
+  if (query.isEmpty && saleInput.quantity == null) return null;
   return AppBrainIntent(
     action: AppBrainAction.recordSale,
     query: query,

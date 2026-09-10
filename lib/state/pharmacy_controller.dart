@@ -40,6 +40,30 @@ class ReviewedStockAdjustment {
   bool get changesQuantity => beforeQuantity != afterQuantity;
 }
 
+class ReviewedArchive {
+  const ReviewedArchive({
+    required this.baseRevision,
+    required this.record,
+    required this.reason,
+  });
+
+  final int baseRevision;
+  final Medicine record;
+  final String reason;
+  String get stockId => record.id;
+}
+
+class ReviewedMarkSold {
+  const ReviewedMarkSold({required this.baseRevision, required this.record});
+
+  final int baseRevision;
+  final Medicine record;
+  String get stockId => record.id;
+}
+
+bool _sameReviewedMedicine(Medicine live, Medicine reviewed) =>
+    mapEquals(live.toJson(), reviewed.toJson());
+
 class BulkArchiveReview {
   BulkArchiveReview({
     required this.baseRevision,
@@ -339,12 +363,14 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
-  Future<void> _commit(InventoryMutation mutation) {
-    // Stamp once at the authoritative controller boundary. Every downstream
-    // date-sensitive guard and the durable audit event uses this exact instant,
-    // so a transaction cannot observe two different business days around
-    // midnight or diverge from an injected/test business clock.
-    final committedMutation = mutation.withOperationTime(clock());
+  Future<void> _commit(InventoryMutation mutation, {DateTime? operationTime}) {
+    // Stamp once at the authoritative controller boundary. A lifecycle action
+    // may pass the same instant used to construct its stock transition, which
+    // keeps archivedAt/soldAt and the audit business day coherent even if the
+    // confirmation lands exactly across midnight.
+    final committedMutation = mutation.withOperationTime(
+      operationTime ?? clock(),
+    );
     final result = _writes.then((_) async {
       if (_disposed) throw StateError('App is closed.');
       snapshot = await storage.commit(committedMutation);
@@ -381,31 +407,69 @@ class PharmacyController extends ChangeNotifier {
     ),
   );
 
-  Future<void> markSold(String id) async {
-    final m = snapshot.records[id];
-    if (m == null || m.archived) throw StateError('This entry is unavailable.');
-    if (m.sold) return;
-    final now = clock();
-    if (isExpiredOn(m, now)) {
+  ReviewedMarkSold reviewMarkSold(String id) {
+    final medicine = snapshot.records[id];
+    if (medicine == null || medicine.archived) {
+      throw StateError('Choose an active stock entry before marking SOLD.');
+    }
+    if (medicine.sold) {
+      throw StateError('This stock entry is already marked SOLD.');
+    }
+    if (isExpiredOn(medicine, clock())) {
       throw const FormatException(
         'Expired stock cannot be marked SOLD. Remove it with reason Expired instead.',
+      );
+    }
+    return ReviewedMarkSold(
+      baseRevision: snapshot.revision,
+      record: Medicine.fromJson(medicine.toJson()),
+    );
+  }
+
+  Future<void> applyMarkSold(ReviewedMarkSold review) async {
+    final live = snapshot.records[review.stockId];
+    if (live == null ||
+        live.archived ||
+        live.sold ||
+        !_sameReviewedMedicine(live, review.record)) {
+      throw StateError(
+        'The reviewed stock entry changed or is no longer active. Review SOLD again.',
+      );
+    }
+    final now = clock();
+    if (isExpiredOn(live, now)) {
+      throw const FormatException(
+        'This stock expired after the SOLD review was opened. Remove it with reason Expired instead; nothing was changed.',
       );
     }
     await _commit(
       InventoryMutation(
         expectedRevision: snapshot.revision,
-        label: 'Marked ${m.name} sold',
+        label: 'Marked ${live.name} sold',
         upserts: [
-          m.patch({
+          live.patch({
             'sold': true,
             'quantity': 0,
             'soldAt': now.toIso8601String(),
-            'soldQuantity': m.quantity,
-            'soldUnitPricePaise': m.unitPricePaise,
+            'soldQuantity': live.quantity,
+            'soldUnitPricePaise': live.unitPricePaise,
           }),
         ],
       ),
+      operationTime: now,
     );
+  }
+
+  /// Immediate compatibility gateway for callers with no confirmation delay.
+  /// User-facing flows use reviewMarkSold/applyMarkSold so stale dialogs are
+  /// dependency-scoped rather than tied to unrelated global inventory traffic.
+  Future<void> markSold(String id) async {
+    final medicine = snapshot.records[id];
+    if (medicine == null || medicine.archived) {
+      throw StateError('This entry is unavailable.');
+    }
+    if (medicine.sold) return;
+    await applyMarkSold(reviewMarkSold(id));
   }
 
   ReviewedStockAdjustment reviewStockAdjustment(
@@ -606,6 +670,45 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
+  ReviewedArchive reviewArchive(String id, String reason) {
+    final medicine = snapshot.records[id];
+    if (medicine == null || medicine.archived) {
+      throw StateError('Choose an active stock entry before removing it.');
+    }
+    final cleanReason = reason.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (cleanReason.isEmpty || cleanReason.length > 300) {
+      throw const FormatException('Choose a valid removal reason.');
+    }
+    return ReviewedArchive(
+      baseRevision: snapshot.revision,
+      record: Medicine.fromJson(medicine.toJson()),
+      reason: cleanReason,
+    );
+  }
+
+  Future<void> applyArchive(ReviewedArchive review) async {
+    final live = snapshot.records[review.stockId];
+    if (live == null ||
+        live.archived ||
+        !_sameReviewedMedicine(live, review.record)) {
+      throw StateError(
+        'The reviewed stock entry changed or is no longer active. Review removal again.',
+      );
+    }
+    final fresh = reviewArchive(live.id, review.reason);
+    final removedAt = clock();
+    await _commit(
+      InventoryMutation(
+        expectedRevision: fresh.baseRevision,
+        label: 'Removed ${live.name} · ${fresh.reason}',
+        upserts: [archiveMedicine(live, reason: fresh.reason, at: removedAt)],
+      ),
+      operationTime: removedAt,
+    );
+  }
+
+  /// Immediate compatibility gateway. User-facing confirmation flows should
+  /// prepare an exact-row review and apply it only after the user confirms.
   Future<void> archive(
     String id,
     String reason, {
@@ -616,15 +719,9 @@ class PharmacyController extends ChangeNotifier {
         'Inventory changed. Reopen this entry before removing it.',
       );
     }
-    final m = snapshot.records[id];
-    if (m == null || m.archived) return;
-    await _commit(
-      InventoryMutation(
-        expectedRevision: snapshot.revision,
-        label: 'Removed ${m.name} · $reason',
-        upserts: [archiveMedicine(m, reason: reason, at: clock())],
-      ),
-    );
+    final medicine = snapshot.records[id];
+    if (medicine == null || medicine.archived) return;
+    await applyArchive(reviewArchive(id, reason));
   }
 
   BulkArchiveReview reviewArchiveAll() => BulkArchiveReview(

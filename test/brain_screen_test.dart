@@ -228,4 +228,55 @@ void main() {
       await tester.pump();
     },
   );
+
+  testWidgets(
+    'Brain reuses exact context for targetless explicit operation without skipping review',
+    (tester) async {
+      final medicine = _stock(
+        'context-receive',
+        name: 'Crocin',
+        strength: '500mg',
+        expiry: '2027-12',
+        quantity: 10,
+      );
+      final controller = PharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(records: {medicine.id: medicine}),
+        ),
+        clock: () => _today,
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      controller.rememberOperationalTarget(medicine.id);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: pharmacyTheme(),
+          home: Scaffold(
+            body: BrainScreen(controller: controller, onOpenSection: (_) {}),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'stock add 5 units');
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Receive 5 units?'), findsOneWidget);
+      expect(controller.snapshot.records[medicine.id]!.quantity, 10);
+      await tester.tap(find.widgetWithText(FilledButton, 'Receive stock'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.snapshot.records[medicine.id]!.quantity, 15);
+      expect(controller.sales, isEmpty);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await tester.pump();
+    },
+  );
 }

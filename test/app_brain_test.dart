@@ -60,6 +60,11 @@ void main() {
       expect(intent.action, AppBrainAction.markSold);
       expect(intent.query, 'Dolo 650');
       expect(intent.destructive, isTrue);
+
+      final contextual = parseAppBrainIntent('mark sold');
+      expect(contextual.action, AppBrainAction.markSold);
+      expect(contextual.query, isEmpty);
+      expect(contextual.canUseImplicitExactContext, isTrue);
     });
 
     test('routes expired list', () {
@@ -123,16 +128,13 @@ void main() {
       expect(intent.destructive, isFalse);
     });
 
-    test(
-      'expiry question requests saved inventory facts without medical inference',
-      () {
-        final intent = parseAppBrainIntent('Dolo 650 expiry kab hai');
-        expect(intent.action, AppBrainAction.search);
-        expect(intent.query, 'Dolo 650');
-        expect(intent.briefFocus, MedicineBriefFocus.expiry);
-        expect(intent.destructive, isFalse);
-      },
-    );
+    test('expiry question requests saved inventory facts without medical inference', () {
+      final intent = parseAppBrainIntent('Dolo 650 expiry kab hai');
+      expect(intent.action, AppBrainAction.search);
+      expect(intent.query, 'Dolo 650');
+      expect(intent.briefFocus, MedicineBriefFocus.expiry);
+      expect(intent.destructive, isFalse);
+    });
 
     test(
       'FEFO question stays read-only and requests a deterministic FEFO brief',
@@ -146,23 +148,29 @@ void main() {
       },
     );
 
-    test('context follow-up can ask read-only stock facts about exact selection', () {
-      final intent = parseAppBrainIntent('iska stock kitna hai');
-      expect(intent.action, AppBrainAction.search);
-      expect(intent.query, 'iska');
-      expect(intent.briefFocus, MedicineBriefFocus.stock);
-      expect(intent.destructive, isFalse);
-    });
+    test(
+      'context follow-up can ask read-only stock facts about exact selection',
+      () {
+        final intent = parseAppBrainIntent('iska stock kitna hai');
+        expect(intent.action, AppBrainAction.search);
+        expect(intent.query, 'iska');
+        expect(intent.briefFocus, MedicineBriefFocus.stock);
+        expect(intent.destructive, isFalse);
+      },
+    );
 
-    test('multiple operational questions collapse into one coherent summary', () {
-      final intent = parseAppBrainIntent(
-        'Dolo 650 stock kitna hai aur expiry kab hai aur kahan hai',
-      );
-      expect(intent.action, AppBrainAction.search);
-      expect(intent.query, 'Dolo 650');
-      expect(intent.briefFocus, MedicineBriefFocus.summary);
-      expect(intent.destructive, isFalse);
-    });
+    test(
+      'multiple operational questions collapse into one coherent summary',
+      () {
+        final intent = parseAppBrainIntent(
+          'Dolo 650 stock kitna hai aur expiry kab hai aur kahan hai',
+        );
+        expect(intent.action, AppBrainAction.search);
+        expect(intent.query, 'Dolo 650');
+        expect(intent.briefFocus, MedicineBriefFocus.summary);
+        expect(intent.destructive, isFalse);
+      },
+    );
 
     test(
       'read-only sales and movement language never becomes a sale mutation',
@@ -186,6 +194,15 @@ void main() {
       expect(intent.action, AppBrainAction.recordSale);
       expect(intent.query, 'Dolo 650');
       expect(intent.destructive, isTrue);
+
+      final contextual = parseAppBrainIntent('5 units sell');
+      expect(contextual.action, AppBrainAction.recordSale);
+      expect(contextual.query, isEmpty);
+      expect(contextual.quantity, 5);
+      expect(contextual.canUseImplicitExactContext, isTrue);
+
+      final unsafeBare = parseAppBrainIntent('sell');
+      expect(unsafeBare.action, isNot(AppBrainAction.recordSale));
     });
 
     test(

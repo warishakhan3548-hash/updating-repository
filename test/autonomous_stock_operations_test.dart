@@ -66,6 +66,22 @@ void main() {
       expect(isAppBrainContextReference(english.query), isTrue);
     });
 
+    test(
+      'complete targetless operations can bind only at execution context',
+      () {
+        final receive = parseAppBrainIntent('stock add 7 units');
+        expect(receive.action, AppBrainAction.receiveStock);
+        expect(receive.query, isEmpty);
+        expect(receive.canUseImplicitExactContext, isTrue);
+
+        final relocate = parseAppBrainIntent('location Rack C set karo');
+        expect(relocate.action, AppBrainAction.relocateMedicine);
+        expect(relocate.query, isEmpty);
+        expect(relocate.locationPatch?.location, 'Rack C');
+        expect(relocate.canUseImplicitExactContext, isTrue);
+      },
+    );
+
     test('medicine strength is never consumed as a stock command quantity', () {
       final lookup = parseAppBrainIntent('Dolo 650');
       expect(lookup.action, AppBrainAction.search);
@@ -218,6 +234,59 @@ void main() {
           throwsStateError,
         );
         expect(controller.snapshot.records['a']!.quantity, 12);
+      },
+    );
+
+    test(
+      'reviewed removal survives unrelated writes but rejects target edits',
+      () async {
+        final controller = await controllerWithClock();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a'), expectedRevision: 0);
+        final review = controller.reviewArchive('a', 'Damaged');
+        await controller.save(stock('b'), expectedRevision: 1);
+
+        await controller.applyArchive(review);
+        expect(controller.snapshot.records['a']!.archived, isTrue);
+        expect(controller.snapshot.records['a']!.archiveReason, 'Damaged');
+        expect(controller.snapshot.records['b']!.archived, isFalse);
+
+        await controller.undo();
+        final stale = controller.reviewArchive('a', 'Correction');
+        final live = controller.snapshot.records['a']!;
+        await controller.save(
+          live.patch({'notes': 'changed after confirmation opened'}),
+          expectedRevision: controller.snapshot.revision,
+        );
+        await expectLater(controller.applyArchive(stale), throwsStateError);
+        expect(controller.snapshot.records['a']!.archived, isFalse);
+      },
+    );
+
+    test(
+      'reviewed SOLD survives unrelated writes but rejects target edits',
+      () async {
+        final controller = await controllerWithClock();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a'), expectedRevision: 0);
+        final review = controller.reviewMarkSold('a');
+        await controller.save(stock('b'), expectedRevision: 1);
+
+        await controller.applyMarkSold(review);
+        final sold = controller.snapshot.records['a']!;
+        expect(sold.sold, isTrue);
+        expect(sold.quantity, 0);
+        expect(controller.sales, isEmpty);
+
+        await controller.undo();
+        final stale = controller.reviewMarkSold('a');
+        final live = controller.snapshot.records['a']!;
+        await controller.save(
+          live.patch({'notes': 'count verified'}),
+          expectedRevision: controller.snapshot.revision,
+        );
+        await expectLater(controller.applyMarkSold(stale), throwsStateError);
+        expect(controller.snapshot.records['a']!.sold, isFalse);
       },
     );
 

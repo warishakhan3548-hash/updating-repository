@@ -159,8 +159,7 @@ class _BrainScreenState extends State<BrainScreen> {
     );
     if (!mounted) return;
     setState(
-      () => _reply =
-          'Removed-stock review closed. Nothing is restored unless you explicitly confirm the exact archived row; stale reviews fail closed if inventory changes.',
+      () => _reply = 'Removed-stock review closed. Nothing is restored unless you explicitly confirm the exact archived row; stale reviews fail closed if inventory changes.',
     );
   }
 
@@ -244,7 +243,8 @@ class _BrainScreenState extends State<BrainScreen> {
     final query = intent.query.trim();
     final briefFocus = intent.briefFocus;
 
-    if (briefFocus != null && isAppBrainContextReference(query)) {
+    if (briefFocus != null &&
+        (query.isEmpty || isAppBrainContextReference(query))) {
       final remembered = _rememberedTarget();
       if (remembered == null) {
         widget.onOpenSection(AppSection.stock);
@@ -348,7 +348,8 @@ class _BrainScreenState extends State<BrainScreen> {
 
   Future<void> _medicineAction(AppBrainIntent intent) async {
     final query = intent.query.trim();
-    if (isAppBrainContextReference(query)) {
+    if ((query.isEmpty && intent.canUseImplicitExactContext) ||
+        isAppBrainContextReference(query)) {
       final remembered = _rememberedTarget();
       if (remembered == null) {
         widget.onOpenSection(AppSection.stock);
@@ -650,7 +651,6 @@ class _BrainScreenState extends State<BrainScreen> {
       );
       return;
     }
-    final expectedRevision = widget.controller.snapshot.revision;
     final expired = isExpiredOn(live, widget.controller.today);
     final reasons = <String>[
       if (expired) 'Expired',
@@ -706,14 +706,16 @@ class _BrainScreenState extends State<BrainScreen> {
       return;
     }
 
+    final review = widget.controller.reviewArchive(live.id, reason);
+    final reviewed = review.record;
     final confirmed =
         await showDialog<bool>(
           context: context,
           barrierDismissible: false,
           builder: (ctx) => AlertDialog(
-            title: Text('Remove ${live.name}?'),
+            title: Text('Remove ${reviewed.name}?'),
             content: Text(
-              '${_stockIdentityCue(live)}\n\nReason: $reason\n\nThis stock entry will leave active inventory, search and totals. It remains in removed history and can be restored or undone.',
+              '${_stockIdentityCue(reviewed)}\n\nReason: ${review.reason}\n\nThis stock entry will leave active inventory, search and totals. It remains in removed history and can be restored or undone.',
             ),
             actions: [
               TextButton(
@@ -733,21 +735,12 @@ class _BrainScreenState extends State<BrainScreen> {
       return;
     }
 
-    if (widget.controller.snapshot.revision != expectedRevision) {
-      throw StateError(
-        'Inventory changed while you were confirming. Reopen the command so Aaris can verify the exact stock entry again.',
-      );
-    }
-    await widget.controller.archive(
-      live.id,
-      reason,
-      expectedRevision: expectedRevision,
-    );
+    await widget.controller.applyArchive(review);
     if (!mounted) return;
-    widget.controller.clearOperationalTarget(live.id);
+    widget.controller.clearOperationalTarget(reviewed.id);
     setState(
       () => _reply =
-          '${live.title} removed with reason “$reason”. It is still recoverable from removed history, and Undo is available for this latest change.',
+          '${reviewed.title} removed with reason “${review.reason}”. It is still recoverable from removed history, and Undo is available for this latest change.',
     );
   }
 
@@ -771,15 +764,16 @@ class _BrainScreenState extends State<BrainScreen> {
       );
       return;
     }
-    final expectedRevision = widget.controller.snapshot.revision;
+    final review = widget.controller.reviewMarkSold(live.id);
+    final reviewed = review.record;
     final confirmed =
         await showDialog<bool>(
           context: context,
           barrierDismissible: false,
           builder: (ctx) => AlertDialog(
-            title: Text('Mark ${live.name} SOLD?'),
+            title: Text('Mark ${reviewed.name} SOLD?'),
             content: Text(
-              '${_stockIdentityCue(live)}\n\nThis means this entire physical stock entry is finished. Quantity becomes 0 and the medicine enters reorder intelligence. It does not create a customer sale event.',
+              '${_stockIdentityCue(reviewed)}\n\nThis means this entire physical stock entry is finished. Quantity becomes 0 and the medicine enters reorder intelligence. It does not create a customer sale event.',
             ),
             actions: [
               TextButton(
@@ -798,12 +792,7 @@ class _BrainScreenState extends State<BrainScreen> {
       setState(() => _reply = 'SOLD action cancelled. Nothing changed.');
       return;
     }
-    if (widget.controller.snapshot.revision != expectedRevision) {
-      throw StateError(
-        'Inventory changed while you were confirming. Run the command again so Aaris can re-check this exact stock entry.',
-      );
-    }
-    await widget.controller.markSold(live.id);
+    await widget.controller.applyMarkSold(review);
     if (mounted) {
       setState(
         () => _reply =
@@ -1299,8 +1288,7 @@ class _BrainScreenState extends State<BrainScreen> {
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => unawaited(_run()),
                   decoration: const InputDecoration(
-                    hintText:
-                        'Dolo stock kitna · sell 5 units · restore Dolo · delete karo',
+                    hintText: 'Dolo stock kitna · sell 5 units · restore Dolo · delete karo',
                     prefixIcon: Icon(Icons.bolt_rounded),
                   ),
                 ),
