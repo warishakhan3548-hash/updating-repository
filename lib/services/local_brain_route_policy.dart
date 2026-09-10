@@ -25,10 +25,10 @@ class LocalBrainRoutePolicy {
   static const _routeInitializationTimeout = Duration(seconds: 7);
 
   // Instant review is allowed to queue briefly behind a foreground Local-AI
-  // turn instead of silently dropping the OCR handoff. This is intentionally
-  // bounded: a long model download/setup must never trap the import preview.
-  // Durable intake jobs use retryWhenIdle and therefore keep their own longer-
-  // lived queue semantics.
+  // inference turn instead of silently dropping the OCR handoff. This is
+  // intentionally bounded. Model download/import is different: it can last
+  // minutes, so instant review fails open to deterministic OCR immediately while
+  // durable intake jobs keep their retryWhenIdle queue semantics.
   static const _instantLeaseWaitTimeout = Duration(seconds: 30);
 
   static Future<bool> enabled() async {
@@ -202,11 +202,11 @@ class LocalBrainRoutePolicy {
 
   /// Compatibility boolean for instant-review call sites.
   ///
-  /// If the only blocker is a currently leased local runtime, wait for the
-  /// service's own ChangeNotifier idle edge and re-run the full privacy/route
-  /// check. This closes the common Send-vs-Scan race without polling and without
-  /// ever allowing a stale model/Brain state to authorize inference. Long model
-  /// transfers remain bounded and fall back to deterministic OCR review.
+  /// If the only blocker is a currently leased local inference runtime, wait for
+  /// the service's own ChangeNotifier idle edge and re-run the full privacy/route
+  /// check. Model transfer/setup is deliberately not waited here because a
+  /// multi-GB download/import would freeze an otherwise usable OCR preview;
+  /// durable capture jobs call [reasoningReadiness] directly and remain queued.
   static Future<bool> mayReasonWith(
     LocalAiService local,
     String? capturedModelId,
@@ -214,9 +214,14 @@ class LocalBrainRoutePolicy {
     var readiness = await reasoningReadiness(local, capturedModelId);
     if (readiness == LocalBrainRouteReadiness.ready) return true;
     if (readiness != LocalBrainRouteReadiness.retryWhenIdle) return false;
+    if (local.transferring) return false;
 
     final watch = Stopwatch()..start();
     while (readiness == LocalBrainRouteReadiness.retryWhenIdle) {
+      // A transfer may begin while we were queued behind a short inference turn.
+      // Instant review must stop waiting at that boundary; the deterministic OCR
+      // preview remains available and no stale model lease is granted.
+      if (local.transferring) return false;
       final remaining = _instantLeaseWaitTimeout - watch.elapsed;
       if (remaining.isNegative ||
           remaining == Duration.zero ||
