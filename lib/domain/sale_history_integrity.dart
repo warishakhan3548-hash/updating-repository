@@ -75,13 +75,14 @@ class SaleHistoryIntegrityReport {
           stock.expiry != null && saleDay.isAfter(civilDay(stock.expiry!));
       if (!beforeMfg && !afterExpiry) continue;
 
-      lifecycle.putIfAbsent(
+      final group = lifecycle.putIfAbsent(
         key,
         () => _SaleIssueGroup(stock: stock, productKey: sale.productKey),
-      )
+      );
+      group
         ..add(sale)
-        ..beforeMfg = lifecycle[key]?.beforeMfg == true || beforeMfg
-        ..afterExpiry = lifecycle[key]?.afterExpiry == true || afterExpiry;
+        ..beforeMfg = group.beforeMfg || beforeMfg
+        ..afterExpiry = group.afterExpiry || afterExpiry;
     }
 
     final issues = <SaleHistoryIntegrityIssue>[];
@@ -115,7 +116,7 @@ class SaleHistoryIntegrityReport {
           kind: SaleHistoryIntegrityKind.lifecycleConflict,
           title: '${group.stock.title} · sale history conflicts with pack dates',
           detail:
-              '$count recorded sale event${count == 1 ? '' : 's'} for this exact stock row fall ${boundaries.join(' and ')}. This can happen after legacy restore or a later correction of physical pack dates. Verify the current MFG/EXP and the historical source; Aaris keeps the ledger append-only and will never invent or silently rewrite a sale to make the conflict disappear.',
+              '$count recorded sale event${count == 1 ? '' : 's'} for this exact stock row ${count == 1 ? 'falls' : 'fall'} ${boundaries.join(' and ')}. This can happen after legacy restore or a later correction of physical pack dates. Verify the current MFG/EXP and the historical source; Aaris keeps the ledger append-only and will never invent or silently rewrite a sale to make the conflict disappear.',
           stockIds: List.unmodifiable(<String>[group.stock.id]),
           productKey: group.productKey,
         ),
