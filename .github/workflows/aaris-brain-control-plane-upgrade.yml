@@ -28,10 +28,28 @@ jobs:
           python3 tool/one_shot_brain_control_plane_upgrade.py
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('lib/ui/brain_screen.dart')
-          text = p.read_text()
-          text = text.replace("import '../domain/warning_policy.dart';\n", '')
-          p.write_text(text)
+          brain = Path('lib/ui/brain_screen.dart')
+          text = brain.read_text().replace("import '../domain/warning_policy.dart';\n", '')
+          brain.write_text(text)
+
+          policy = Path('lib/domain/warning_policy.dart')
+          text = policy.read_text()
+          anchor = """  if (dayValues.length > 1) {
+"""
+          insertion = """  final numericTokens = RegExp(
+    r'(?:^|[^0-9])([0-9]{1,3})(?=$|[^0-9])',
+  ).allMatches(ascii).length;
+  if (numericTokens != dayValues.length + monthValues.length) {
+    throw const FormatException(
+      'Every expiry-warning number must have an explicit day or month unit.',
+    );
+  }
+
+  if (dayValues.length > 1) {
+"""
+          if text.count(anchor) != 1:
+              raise SystemExit('warning policy ambiguity anchor missing')
+          policy.write_text(text.replace(anchor, insertion, 1))
           PY
       - uses: actions/setup-java@v4
         with:
@@ -48,8 +66,12 @@ jobs:
         run: flutter pub get
       - name: Static analysis
         run: dart analyze lib test tool third_party/lib_llama_cpp/lib
-      - name: Targeted safety tests
-        run: flutter test test/brain_control_plane_upgrade_test.dart test/app_brain_test.dart test/aaris_brain_command_safety_test.dart test/operational_context_test.dart test/autopilot_supervisor_test.dart --reporter expanded
+      - name: Control-plane tests
+        run: flutter test test/brain_control_plane_upgrade_test.dart --reporter expanded
+      - name: Brain parser regressions
+        run: flutter test test/app_brain_test.dart test/aaris_brain_command_safety_test.dart --reporter expanded
+      - name: Context and autopilot regressions
+        run: flutter test test/operational_context_test.dart test/autopilot_supervisor_test.dart --reporter expanded
       - name: Full regression suite
         run: flutter test --reporter expanded
       - name: Android compile gate
