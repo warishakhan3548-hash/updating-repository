@@ -5,6 +5,9 @@ on:
       - fix/local-ai-smart-guard-20260910
 permissions:
   contents: write
+concurrency:
+  group: local-ai-smart-guard
+  cancel-in-progress: true
 jobs:
   upgrade:
     runs-on: ubuntu-latest
@@ -23,9 +26,11 @@ jobs:
           channel: stable
           cache: true
       - name: Patch core
-        run: python3 .github/local_ai_smart_guard_patch.py
+        run: |
+          python3 .github/local_ai_smart_guard_patch.py
+          python3 .github/local_ai_smart_guard_stub_fix.py
       - name: Format
-        run: dart format lib/domain/model_catalogue.dart lib/domain/local_model.dart lib/domain/local_model_checks.dart lib/domain/gguf_metadata.dart lib/services/local_ai_runtime.dart lib/services/local_ai_service_io.dart lib/ui/local_models_panel.dart test/local_ai_smart_guard_test.dart
+        run: dart format lib/domain/model_catalogue.dart lib/domain/local_model.dart lib/domain/local_model_checks.dart lib/domain/gguf_metadata.dart lib/services/local_ai_runtime.dart lib/services/local_ai_service_io.dart lib/services/local_ai_service_stub.dart lib/ui/local_models_panel.dart test/local_ai_smart_guard_test.dart
       - name: Resolve dependencies
         run: flutter pub get
       - name: Focused smart guard tests
@@ -36,7 +41,7 @@ jobs:
         run: flutter test --reporter compact
       - name: Commit verified core upgrade
         run: |
-          rm -f .github/workflows/local-ai-smart-guard-once.yml .github/local_ai_smart_guard_patch.py
+          rm -f .github/workflows/local-ai-smart-guard-once.yml .github/local_ai_smart_guard_patch.py .github/local_ai_smart_guard_stub_fix.py
           git config user.name "Aaris Upgrade Bot"
           git config user.email "actions@users.noreply.github.com"
           git add -A
