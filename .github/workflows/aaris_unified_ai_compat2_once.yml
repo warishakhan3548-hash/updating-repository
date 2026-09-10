@@ -1,0 +1,64 @@
+name: Harden unified composer response visibility
+on:
+  push:
+    branches:
+      - upgrade/aaris-ops-brain-analytics-20260910
+    paths:
+      - .github/workflows/aaris_unified_ai_compat2_once.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: upgrade/aaris-ops-brain-analytics-20260910
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Patch unified composer accessibility and latest-reply visibility
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('lib/ui/ai_screen.dart')
+          s = p.read_text()
+
+          old_icon = """                    : const Icon(\n                        Icons.arrow_upward_rounded,\n                        color: Colors.white,\n                      ),\n"""
+          new_icon = """                    : const Tooltip(\n                        message: 'Run command',\n                        child: Icon(\n                          Icons.arrow_upward_rounded,\n                          color: Colors.white,\n                        ),\n                      ),\n"""
+          if s.count(old_icon) != 1:
+              raise SystemExit(f'expected one unified composer send icon, found {s.count(old_icon)}')
+          s = s.replace(old_icon, new_icon, 1)
+
+          old_scroll = """  void _scrollToEnd() {\n    WidgetsBinding.instance.addPostFrameCallback((_) {\n      if (!mounted || !_scroll.hasClients) return;\n      unawaited(\n        _scroll.animateTo(\n          _scroll.position.maxScrollExtent,\n          duration: const Duration(milliseconds: 220),\n          curve: Curves.easeOutCubic,\n        ),\n      );\n    });\n  }\n"""
+          new_scroll = """  void _scrollToEnd() {\n    void jumpAfterLayout() {\n      if (!mounted || !_scroll.hasClients) return;\n      final target = _scroll.position.maxScrollExtent;\n      if ((_scroll.offset - target).abs() > .5) {\n        _scroll.jumpTo(target);\n      }\n    }\n\n    // Local Brain replies can trigger both parent and child rebuilds in the same\n    // frame. Re-align on two layout boundaries so the newest answer is never\n    // left just outside the small chat viewport under the quick-action grid.\n    WidgetsBinding.instance.addPostFrameCallback((_) {\n      jumpAfterLayout();\n      WidgetsBinding.instance.addPostFrameCallback((_) => jumpAfterLayout());\n    });\n  }\n"""
+          if s.count(old_scroll) != 1:
+              raise SystemExit(f'expected one scroll helper, found {s.count(old_scroll)}')
+          s = s.replace(old_scroll, new_scroll, 1)
+          p.write_text(s)
+          PY
+      - name: Format
+        run: dart format lib/ui/ai_screen.dart
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Static analysis
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+      - name: Brain widget regressions
+        run: flutter test test/brain_screen_test.dart test/brain_command_safety_widget_test.dart test/unified_ai_hub_ui_test.dart
+      - name: Commit validated compatibility fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/aaris_unified_ai_compat_once.yml
+          git rm .github/workflows/aaris_unified_ai_compat2_once.yml
+          git add lib/ui/ai_screen.dart
+          git commit -m "Harden unified Aaris Brain composer interactions"
+          git push origin HEAD:upgrade/aaris-ops-brain-analytics-20260910
