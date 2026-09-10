@@ -457,36 +457,44 @@ String _guardedMutationTarget(String raw, _MutationFamily family) {
   switch (family) {
     case _MutationFamily.undo:
       candidate = '';
+      break;
     case _MutationFamily.setQuantity:
     case _MutationFamily.receiveStock:
       candidate = _stockAdjustmentIntent(raw)?.query ?? '';
+      break;
     case _MutationFamily.relocateMedicine:
       try {
         candidate = parseStockLocationCommand(raw)?.query ?? '';
       } on FormatException {
         candidate = '';
       }
+      break;
     case _MutationFamily.removeMedicine:
       final reason = detectRemovalReason(raw);
       candidate = _extractMedicineQuery(raw, [
         ..._removeTerms,
         if (reason != null) ...reason.commandTerms,
       ]);
+      break;
     case _MutationFamily.restoreMedicine:
       candidate = _extractMedicineQuery(raw, [
         ..._restoreTerms,
         ..._removedListTerms,
       ]);
+      break;
     case _MutationFamily.markSold:
       candidate = _extractMedicineQuery(raw, _soldTerms);
+      break;
     case _MutationFamily.recordSale:
       final saleInput = _extractExplicitSaleQuantity(raw);
       candidate = _extractMedicineQuery(saleInput.remainingText, [
         ..._saleTerms,
         ..._imperativeSaleTerms,
       ]);
+      break;
     case _MutationFamily.editMedicine:
       candidate = _extractMedicineQuery(raw, _editTerms);
+      break;
   }
   return _extractMedicineQuery(candidate, [
     ..._mutationNegationTerms,
