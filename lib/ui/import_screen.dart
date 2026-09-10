@@ -11,18 +11,19 @@ import '../domain/medicine.dart';
 import '../domain/medicine_scan_commit.dart';
 import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
-import '../services/ai_service.dart';
 import '../services/backup_service.dart';
-import '../services/media_import_service.dart';
-import '../services/scan_service.dart';
 import '../services/local_ai_service.dart';
+import '../services/local_brain_route_policy.dart';
+import '../services/media_import_service.dart';
 import '../services/medicine_intake_service.dart';
+import '../services/scan_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'editor_screen.dart';
-import 'scanner_screen.dart';
+import 'import_screen.dart' show ImportInboxScreen;
 import 'medicine_capture.dart';
 import 'medicine_intake_panel.dart';
+import 'scanner_screen.dart';
 
 class ImportCenterScreen extends StatefulWidget {
   const ImportCenterScreen({super.key, required this.controller});
@@ -419,17 +420,15 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       final local = LocalAiService.instance;
       await local.initialize();
 
-      var useLocalBrainScan = false;
+      String? scanModelId;
       if (widget.preparedDrafts == null) {
         try {
-          final configuration = await AiService().loadConfiguration();
+          final brainEnabled = await LocalBrainRoutePolicy.enabled();
           if (!mounted || generation != _generation) return;
-          useLocalBrainScan =
-              configuration.localBrainEnabled &&
-              local.hasSelection &&
-              local.scannerEnabled &&
-              local.scanReady;
-          if (configuration.localBrainEnabled &&
+          scanModelId = await LocalBrainRoutePolicy.captureModelId(local);
+          if (!mounted || generation != _generation) return;
+          if (brainEnabled &&
+              scanModelId == null &&
               local.hasSelection &&
               local.scannerEnabled &&
               !local.scanReady) {
@@ -438,19 +437,48 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           }
         } catch (_) {
           if (!mounted || generation != _generation) return;
+          scanModelId = null;
           _semanticWarning =
               'Aaris Brain state could not be loaded for this scan. Deterministic OCR preview is being used; nothing was sent externally.';
         }
       }
 
+      var localBrainUsed = false;
       for (final original in understanding.drafts) {
         if (!mounted || generation != _generation) return;
         var draft = original;
-        if (useLocalBrainScan) {
-          final key = '${local.activeId}:${jsonEncode(original.toMessage())}';
+        final leasedModelId = scanModelId;
+        if (leasedModelId != null) {
           try {
-            draft = _semanticCache[key] ?? await local.understand(original);
-            _semanticCache[key] = draft;
+            final mayReason = await LocalBrainRoutePolicy.mayReasonWith(
+              local,
+              leasedModelId,
+            );
+            if (!mounted || generation != _generation) return;
+            if (!mayReason) {
+              scanModelId = null;
+              _semanticWarning =
+                  'Aaris Brain was turned off or the selected Local AI changed during this scan. Remaining OCR drafts stay deterministic for review.';
+            } else {
+              final key = '$leasedModelId:${jsonEncode(original.toMessage())}';
+              final candidate =
+                  _semanticCache[key] ?? await local.understand(original);
+              if (!mounted || generation != _generation) return;
+              final leaseStillValid = await LocalBrainRoutePolicy.mayReasonWith(
+                local,
+                leasedModelId,
+              );
+              if (!mounted || generation != _generation) return;
+              if (leaseStillValid) {
+                draft = candidate;
+                _semanticCache[key] = candidate;
+                localBrainUsed = true;
+              } else {
+                scanModelId = null;
+                _semanticWarning =
+                    'Aaris Brain was turned off or its Local AI changed while OCR was being reviewed. That AI result was discarded; deterministic OCR was retained.';
+              }
+            }
           } catch (_) {
             _semanticWarning =
                 'Local AI could not safely finish this OCR handoff. Original deterministic OCR drafts were retained; nothing was sent to an external AI.';
@@ -499,7 +527,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
         setState(() {
           _drafts = reviews;
           _ignoredFrames = understanding.ignoredFrames;
-          _localBrainScanActive = useLocalBrainScan;
+          _localBrainScanActive = localBrainUsed;
           _loading = false;
         });
       }
@@ -528,9 +556,6 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
 
     setState(() => _savingDraftIndex = index);
     try {
-      // Re-resolve against the live Medicine Database immediately before the
-      // write. A stock row added or edited while the preview was visible can
-      // therefore revoke this shortcut instead of creating a silent duplicate.
       resolution = _resolve(review.draft);
       decision = scanQuickAddDecision(review.draft, resolution);
       if (!decision.allowed) {
