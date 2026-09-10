@@ -77,13 +77,13 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
       '$label: ${value.trim().isEmpty ? 'Unknown' : value.trim()}';
 
   bool _hasCompleteQuickIdentity(MedicineScanDraft draft) {
-    if ([
-      draft.name,
-      draft.brand,
-      draft.salt,
-      draft.strength,
-      draft.form,
-    ].any((value) => value.trim().isEmpty)) {
+    // A medicine pack commonly prints one product identity string rather than
+    // separate "name" and "brand" labels. The domain commit gate uses the
+    // evidence-backed brand as display name when name is absent, so do not force
+    // the pharmacist to type the same printed brand twice just to unlock Add.
+    if (confirmedScanName(draft).isEmpty ||
+        [draft.brand, draft.salt, draft.strength, draft.form]
+            .any((value) => value.trim().isEmpty)) {
       return false;
     }
     final normalizedForm = normalizeForm(draft.form);
@@ -94,7 +94,7 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
   ScanQuickAddDecision _quickAddDecision(MedicineScanDraft draft) {
     if (!_hasCompleteQuickIdentity(draft)) {
       return const ScanQuickAddDecision.blocked(
-        'Brand, salt, strength, medicine name and a recognized form are required for one-tap add. Open detailed review for this scan.',
+        'Brand, salt, strength and a recognized form are required for one-tap add. Open detailed review for this scan.',
       );
     }
     return scanQuickAddDecision(
@@ -265,9 +265,9 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                draft.name.isEmpty
+                                confirmedScanName(draft).isEmpty
                                     ? 'Identity needs review'
-                                    : draft.name,
+                                    : confirmedScanName(draft),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w800,
                                 ),
