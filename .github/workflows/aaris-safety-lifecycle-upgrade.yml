@@ -1,0 +1,67 @@
+name: Aaris safety lifecycle surgical upgrade
+
+on:
+  push:
+    branches:
+      - aaris-safety-lifecycle-upgrade-20260910
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    if: github.event.head_commit.message != 'Apply Aaris safety lifecycle upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Apply surgical upgrade
+        run: python3 tool/aaris_safety_lifecycle_autofix.py
+
+      - name: Format touched Dart files
+        run: |
+          dart format \
+            lib/domain/app_brain.dart \
+            lib/services/medicine_intake_service.dart \
+            lib/state/autopilot_supervisor.dart \
+            lib/app.dart \
+            test/app_brain_test.dart \
+            test/autopilot_supervisor_test.dart
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+
+      - name: Full Flutter tests
+        run: flutter test --reporter expanded
+
+      - name: Android debug build
+        run: flutter build apk --debug --no-pub
+
+      - name: Diff safety check
+        run: git diff --check
+
+      - name: Commit verified upgrade
+        run: |
+          git config user.name "warishakhan3548-hash"
+          git config user.email "warishakhan3548@gmail.com"
+          git add lib test
+          if git diff --cached --quiet; then
+            echo "No verified code changes to commit."
+            exit 0
+          fi
+          git commit -m "Apply Aaris safety lifecycle upgrade"
+          git push origin HEAD:aaris-safety-lifecycle-upgrade-20260910
