@@ -1,0 +1,69 @@
+name: Aaris ultimate pharmacy automation upgrade
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aaris-ultimate-automation-upgrade.yml
+permissions:
+  contents: write
+concurrency:
+  group: aaris-ultimate-automation-upgrade-20260910
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Run Aaris ultimate automation upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply surgical automation upgrade
+        run: python3 tool/one_shot_ultimate_automation_upgrade.py
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Format upgraded sources
+        run: dart format lib/state/pharmacy_controller.dart lib/ui/editor_screen.dart lib/domain/app_brain.dart test/reviewed_sale_concurrency_test.dart test/brain_field_edit_intent_test.dart
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+
+      - name: Adversarial focused verification
+        run: flutter test test/reviewed_sale_concurrency_test.dart test/brain_field_edit_intent_test.dart test/autonomous_stock_operations_test.dart test/sale_ledger_firewall_test.dart test/app_brain_test.dart test/aaris_brain_command_safety_test.dart test/brain_screen_test.dart --reporter expanded
+
+      - name: Full regression suite
+        run: flutter test --reporter expanded
+
+      - name: Android integration build gate
+        run: flutter build apk --debug --no-pub
+
+      - name: Commit verified production upgrade
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -- pubspec.lock 2>/dev/null || true
+          rm -f tool/one_shot_ultimate_automation_upgrade.py .github/workflows/aaris-ultimate-automation-upgrade.yml
+          git config user.name 'Aaris Pharmacy Upgrade Bot'
+          git config user.email 'warishakhan3548@gmail.com'
+          git add lib/state/pharmacy_controller.dart lib/ui/editor_screen.dart lib/domain/app_brain.dart test/reviewed_sale_concurrency_test.dart test/brain_field_edit_intent_test.dart docs/ULTIMATE_AUTOMATION_UPGRADE_2026_09_10.md tool/one_shot_ultimate_automation_upgrade.py .github/workflows/aaris-ultimate-automation-upgrade.yml
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No verified source upgrade diff produced'; exit 1; }
+          git commit -m 'Upgrade Aaris sale safety and human Brain control [skip ci]'
+          git push origin HEAD:main
