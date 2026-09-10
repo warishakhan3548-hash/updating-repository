@@ -216,27 +216,43 @@ class LocalAiRuntime {
   }
 
   List<int> _contextLoadPlan(int requested) {
-    // Stay inside the service's prompt-budget tier. If a 4096-token phone load
-    // hits KV-cache pressure, 3072 substantially reduces cache allocation while
-    // preserving the same bounded prompt/output contract. Likewise an 8192
-    // high-end profile can retry at 6144 without silently switching contract
-    // limits. A constrained phone is already planned at 2048 upstream and is
-    // attempted directly rather than being rejected by a RAM heuristic.
-    if (requested > 4096) return <int>[requested, 6144];
-    if (requested == 4096) return const <int>[4096, 3072];
-    return <int>[requested];
+    // Context is an adaptive quality knob, never a model-admission gate. Start
+    // with the owner's/device planner choice and progressively reduce only the
+    // KV-cache footprint when native allocation reports pressure. This lets
+    // high-end phones actually use 6K/8K contexts while giving the same model a
+    // path down to 2K on tighter devices instead of surfacing a false generic
+    // connection failure after one retry.
+    final candidates = <int>[
+      requested,
+      if (requested > 6144) 6144,
+      if (requested > 4096) 4096,
+      if (requested > 3072) 3072,
+      if (requested > 2048) 2048,
+    ];
+    final seen = <int>{};
+    return [
+      for (final value in candidates)
+        if (value >= 2048 && value <= requested && seen.add(value)) value,
+    ];
   }
 
   bool _isResourceLoadFailure(Object error) {
     final value = error.toString().toLowerCase();
     // Retry only allocator/context/KV-cache pressure. Corrupt GGUF,
     // architecture, tokenizer and other compatibility failures remain fail-fast
-    // so a bad model is never disguised as a low-memory phone.
+    // so a bad model is never disguised as a low-memory phone. Native backends
+    // use several allocator spellings across releases, so recognize the bounded
+    // family rather than one library-version-specific message.
     return value.contains('out of memory') ||
+        value.contains('not enough memory') ||
         value.contains('memory allocation') ||
         value.contains('cannot allocate') ||
         value.contains('failed to allocate') ||
         value.contains('alloc failed') ||
+        value.contains('bad_alloc') ||
+        value.contains('failed to reserve') ||
+        value.contains('buffer allocation') ||
+        value.contains('backend buffer') ||
         value.contains('kv cache') ||
         value.contains('kv_cache') ||
         value.contains('context size') ||

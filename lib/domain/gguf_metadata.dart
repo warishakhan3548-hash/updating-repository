@@ -44,8 +44,9 @@ class GgufMetadata {
         blocks <= 0 ||
         count <= 0 ||
         width % count != 0 ||
-        kv <= 0)
+        kv <= 0) {
       return null;
+    }
     final key = keyLength ?? width ~/ count,
         value = valueLength ?? width ~/ count;
     // f16 K + V; conservative full attention even for sliding-window models.
@@ -64,6 +65,7 @@ class GgufMetadata {
     'valueLength': valueLength,
     'hasChatTemplate': hasChatTemplate,
   };
+
   factory GgufMetadata.fromJson(Map<String, dynamic> json) {
     int? number(String key) {
       final n = json[key];
@@ -110,8 +112,9 @@ GgufMetadata inspectGgufPrefix(Uint8List prefix, {required int fileBytes}) {
   final values = <String, Object?>{};
   for (var i = 0; i < count; i++) {
     final key = reader.string(maximum: 1024);
-    if (values.containsKey(key))
+    if (values.containsKey(key)) {
       throw const FormatException('Duplicate GGUF metadata key.');
+    }
     final type = reader.u32();
     // Only small scalar facts are retained; vocabulary and templates are skipped.
     final value = reader.value(type, retain: key != 'tokenizer.chat_template');
@@ -134,12 +137,14 @@ GgufMetadata inspectGgufPrefix(Uint8List prefix, {required int fileBytes}) {
   for (var i = 0; i < tensors; i++) {
     reader.string(maximum: 1024);
     final dimensions = reader.u32();
-    if (dimensions == 0 || dimensions > 4)
+    if (dimensions == 0 || dimensions > 4) {
       throw const FormatException('Invalid GGUF tensor dimensions.');
+    }
     for (var d = 0; d < dimensions; d++) {
       final size = reader.u64();
-      if (size <= 0 || size > 1000000000)
+      if (size <= 0 || size > 1000000000) {
         throw const FormatException('Invalid GGUF tensor shape.');
+      }
     }
     reader.u32(); // Quantization types evolve; the native loader verifies them.
     offsets.add(reader.u64());
@@ -148,13 +153,15 @@ GgufMetadata inspectGgufPrefix(Uint8List prefix, {required int fileBytes}) {
   if (alignment is! int ||
       alignment <= 0 ||
       alignment > 4096 ||
-      alignment & (alignment - 1) != 0)
+      alignment & (alignment - 1) != 0) {
     throw const FormatException('Invalid GGUF alignment.');
+  }
   final dataStart = ((reader.offset + alignment - 1) ~/ alignment) * alignment;
   if (dataStart >= fileBytes ||
       offsets.any((o) => o % alignment != 0 || o >= fileBytes - dataStart)) {
     throw const FormatException('GGUF tensor data is missing or truncated.');
   }
+
   int? dimension(String suffix) {
     final value = values['$architecture.$suffix'];
     // Some newer architectures use arrays for per-layer dimensions; report
@@ -182,6 +189,7 @@ class _GgufReader {
   final Uint8List bytes;
   final ByteData data;
   int offset = 0;
+
   void need(int length) {
     if (length < 0 ||
         offset + length > bytes.length ||
@@ -204,16 +212,18 @@ class _GgufReader {
     final low = data.getUint32(offset, Endian.little),
         high = data.getUint32(offset + 4, Endian.little);
     offset += 8;
-    if (high > 0x1fffff)
+    if (high > 0x1fffff) {
       throw const FormatException('GGUF integer exceeds supported range.');
+    }
     return high * 4294967296 + low;
   }
 
   String string({int maximum = 32768}) {
     final size = u64();
     need(size);
-    if (size > maximum)
+    if (size > maximum) {
       throw const FormatException('GGUF string exceeds its inspection limit.');
+    }
     final result = utf8.decode(
       Uint8List.sublistView(bytes, offset, offset + size),
     );
@@ -265,8 +275,9 @@ class _GgufReader {
       return null;
     }
     final width = widths[type];
-    if (width == null)
+    if (width == null) {
       throw const FormatException('Unknown GGUF metadata value type.');
+    }
     need(width);
     Object? result;
     if (retain) {
@@ -305,6 +316,7 @@ class LocalExecutionPlan {
   });
   final int contextTokens, estimatedBytes, estimatedKvBytes;
   final bool geometryKnown, memoryWarning;
+
   int get outputTokens => contextTokens <= 2048
       ? 512
       : contextTokens <= 4096
@@ -325,9 +337,9 @@ class LocalExecutionPlan {
 
 /// Conservative admission estimate, not a promise of successful allocation.
 /// On phones, large GGUF files are mmap-backed by llama.cpp, so file size must
-/// not be treated as if every byte were anonymous resident RAM. The constrained
-/// profile estimates the actively resident weight working set, reduces context
-/// to 2048, and leaves the native loader as the final allocation authority.
+/// not be treated as if every byte were anonymous resident RAM. Device memory
+/// facts only choose an initial context and surface a warning; the native loader
+/// remains the final allocation authority and can adapt the context downward.
 LocalExecutionPlan planLocalExecution({
   required int weightBytes,
   required GgufMetadata metadata,
@@ -340,12 +352,24 @@ LocalExecutionPlan planLocalExecution({
     throw StateError('Invalid local model weight size.');
   }
 
+  // Relative pressure is more future-proof than a fixed "1.5 GB model" rule:
+  // the same GGUF can be comfortable on one device and heavy on another. These
+  // signals never reject a phone model; they only pick a safer starting context.
+  final modelPressure =
+      totalMemory != null && weightBytes >= (totalMemory * .40).floor();
+  final availablePressure =
+      totalMemory != null &&
+      availableMemory != null &&
+      availableMemory < (totalMemory * .18).floor();
   final constrainedPhone =
+      phone && (lowMemory || modelPressure || availablePressure);
+  final roomyPhone =
       phone &&
-      (lowMemory ||
-          (totalMemory != null &&
-              weightBytes >= (totalMemory * .40).floor()) ||
-          (availableMemory != null && availableMemory < 1024 * _mib));
+      !constrainedPhone &&
+      totalMemory != null &&
+      availableMemory != null &&
+      availableMemory >= (totalMemory * .35).floor() &&
+      weightBytes <= (totalMemory * .30).floor();
 
   final totalBudget = totalMemory == null ? null : (totalMemory * .65).floor();
   final availableBudget = availableMemory == null
@@ -358,8 +382,8 @@ LocalExecutionPlan planLocalExecution({
       : math.min(totalBudget, availableBudget);
 
   // llama.cpp maps GGUF tensors from storage and Android can reclaim file-backed
-  // pages. Memory facts are advisory on phones: they select a smaller context
-  // and surface a warning instead of rejecting a model before native load.
+  // pages. Memory facts are advisory on phones: preserve a reclaim-aware floor
+  // instead of rejecting a model from a pessimistic resident-set estimate.
   if (phone && totalMemory != null) {
     final reclaimAwareFloor = (totalMemory * .52).floor();
     budget = budget == null
@@ -370,8 +394,10 @@ LocalExecutionPlan planLocalExecution({
   final contexts = phone
       ? constrainedPhone
             ? const [2048]
-            : const [4096, 2048]
-      : const [8192, 4096, 2048];
+            : roomyPhone
+            ? const [8192, 6144, 4096, 3072, 2048]
+            : const [4096, 3072, 2048]
+      : const [8192, 6144, 4096, 3072, 2048];
   LocalExecutionPlan? phoneFallback;
   for (final context in contexts) {
     if (metadata.contextLength != null && context > metadata.contextLength!) {
@@ -387,9 +413,8 @@ LocalExecutionPlan planLocalExecution({
     final warning =
         phone &&
         (lowMemory ||
-            weightBytes >= 1536 * _mib ||
-            (totalMemory != null &&
-                weightBytes >= (totalMemory * .40).floor()) ||
+            modelPressure ||
+            availablePressure ||
             (budget != null && bytes > budget));
     final plan = LocalExecutionPlan(
       contextTokens: context,

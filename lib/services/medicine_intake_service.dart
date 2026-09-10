@@ -25,6 +25,8 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   }
   static final instance = MedicineIntakeService._();
   static const capacity = 250;
+  static const _waitingForLocalAi =
+      'Local AI is finishing another request. OCR is saved and AI refinement will resume automatically.';
   final _jobs = <MedicineIntakeJob>[];
   final _media = MediaImportService();
   Database? _database;
@@ -65,6 +67,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
         _initializing = null;
         throw e;
       });
+
   Future<void> _initialize() async {
     if (!supported) return;
     final support = await getApplicationSupportDirectory();
@@ -84,12 +87,15 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       orderBy: 'created ASC',
       limit: capacity + 1,
     );
-    if (rows.length > capacity)
+    if (rows.length > capacity) {
       throw StateError('Intake queue exceeds capacity.');
+    }
     final restored = <MedicineIntakeJob>[];
     for (final row in rows) {
       final raw = row['data'] as String;
-      if (raw.length > 20000000) throw StateError('Saved intake is too large.');
+      if (raw.length > 20000000) {
+        throw StateError('Saved intake is too large.');
+      }
       final job = MedicineIntakeJob.fromJson(
         jsonDecode(raw) as Map<String, dynamic>,
       );
@@ -120,8 +126,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _persist(MedicineIntakeJob job, {bool insert = false}) async {
     final data = jsonEncode(job.toJson());
-    if (data.length > 20000000)
+    if (data.length > 20000000) {
       throw StateError('Capture draft limit reached. Split this video.');
+    }
     if (insert) {
       await _database!.insert('jobs', {
         'id': job.id,
@@ -135,8 +142,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
         where: 'id=?',
         whereArgs: [job.id],
       );
-      if (changed != 1)
+      if (changed != 1) {
         throw StateError('Capture checkpoint could not be saved.');
+      }
     }
     notifyListeners();
   }
@@ -153,14 +161,17 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     required String title,
   }) => _enqueue(() async {
     await initialize();
-    if (!supported)
+    if (!supported) {
       throw UnsupportedError('Capture queue requires the Android app.');
-    if (full)
+    }
+    if (full) {
       throw StateError(
         'Review/dismiss some captures before adding more (limit $capacity).',
       );
-    if (kind != 'photo' && kind != 'video')
+    }
+    if (kind != 'photo' && kind != 'video') {
       throw const FormatException('Invalid capture type.');
+    }
     final local = LocalAiService.instance;
     final modelId = await LocalBrainRoutePolicy.captureModelId(local);
     final job = MedicineIntakeJob(
@@ -202,8 +213,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     String title = 'Camera scan',
   }) => _enqueue(() async {
     await initialize();
-    if (!supported)
+    if (!supported) {
       throw UnsupportedError('Capture queue requires the Android app.');
+    }
     if (full ||
         evidence.isEmpty ||
         evidence.length > maxMedicineEvidenceFrames) {
@@ -272,8 +284,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
         !_ready ||
         _database == null ||
         _records == null ||
-        persistenceError.isNotEmpty)
+        persistenceError.isNotEmpty) {
       return;
+    }
     unawaited(
       _pump().catchError((Object e) {
         persistenceError = 'Capture queue paused: $e';
@@ -325,10 +338,11 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
             _preferReasoning = true;
             job.status = 'processing';
             await _persist(job);
-            if (job.kind == 'video')
+            if (job.kind == 'video') {
               await _videoStep(job);
-            else
+            } else {
               await _photoStep(job);
+            }
           }
           await _persist(job);
         } catch (e) {
@@ -340,6 +354,27 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       _running = false;
       notifyListeners();
+
+      // Close the classic lost-wakeup window: a foreground chat can release the
+      // Local AI after this pump observed it as busy but before its listener was
+      // able to restart us. Re-check only when the lease is now free, and only
+      // restart when a non-terminal job is actually eligible, so there is no
+      // idle spin when the queue contains review/failed cards only.
+      final local = LocalAiService.instance;
+      final shouldRestart =
+          !_paused &&
+          _appActive &&
+          _ready &&
+          persistenceError.isEmpty &&
+          !local.busy &&
+          !local.transferring &&
+          nextMedicineIntakeJob(
+                _jobs,
+                allowReasoning: true,
+                preferReasoning: _preferReasoning,
+              ) !=
+              null;
+      if (shouldRestart) _kick();
     }
   }
 
@@ -421,17 +456,28 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     job.evidence = grouped.carry;
     job.cursorMs = window.nextStartMs;
     job.durationMs = window.durationMs;
-    if (unreadable > 0) job.error = 'Some sampled frames were unreadable. Review completeness; video sampling cannot guarantee every pack.';
-    if (window.complete)
+    if (unreadable > 0) {
+      job.error =
+          'Some sampled frames were unreadable. Review completeness; video sampling cannot guarantee every pack.';
+    }
+    if (window.complete) {
       _ocrFinished(job);
-    else
+    } else {
       job.status = 'queued';
+    }
     // Cursor + completed drafts + unresolved carry commit together.
     await _persist(job);
     if (window.complete && job.status != 'failed') {
       await File(job.path).delete();
       job.path = '';
     }
+  }
+
+  bool _localLeaseContention(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('local ai is busy') ||
+        message.contains('runtime is unavailable or still processing') ||
+        message.contains('runtime is busy or closing');
   }
 
   Future<void> _reason(MedicineIntakeJob job) async {
@@ -446,12 +492,26 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       job.status = 'review';
       return;
     }
+
+    final index = job.aiIndex;
     try {
-      job.drafts[job.aiIndex] = await local.understand(job.drafts[job.aiIndex]);
+      job.drafts[index] = await local.understand(job.drafts[index]);
+      if (job.error == _waitingForLocalAi) job.error = '';
     } catch (e) {
+      // Foreground chat and scan refinement share one authoritative local-model
+      // lease. A narrow race can occur after the pump sees `busy == false` but
+      // before `understand()` acquires it. Contention is not an extraction
+      // failure: keep the same draft/index queued and resume when the lease is
+      // released instead of silently skipping AI refinement forever.
+      if (_localLeaseContention(e)) {
+        if (job.error.isEmpty) job.error = _waitingForLocalAi;
+        job.status = 'reasoning';
+        return;
+      }
       job.error =
           'Local AI could not validate all fields; original OCR draft retained. $e';
     }
+
     job.aiIndex++;
     if (job.aiIndex >= job.drafts.length) job.status = 'review';
   }
@@ -468,8 +528,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       );
       job.aiIndex = 0;
       job.status = job.modelId == null ? 'review' : 'reasoning';
-    } else
+    } else {
       job.status = 'queued';
+    }
     job.error = '';
     persistenceError = '';
     await _persist(job);
@@ -477,8 +538,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> dismiss(MedicineIntakeJob job) async {
-    if (!job.terminal)
+    if (!job.terminal) {
       throw StateError('Pause/finish processing before dismissing a capture.');
+    }
     await _database!.delete('jobs', where: 'id=?', whereArgs: [job.id]);
     _jobs.remove(job);
     if (job.path.isNotEmpty && job.path == _capturePath(job.id, job.kind)) {
