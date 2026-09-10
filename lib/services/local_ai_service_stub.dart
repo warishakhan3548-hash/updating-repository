@@ -13,6 +13,7 @@ class LocalAiService extends ChangeNotifier {
   bool get transferring => false;
   bool get scannerEnabled => false;
   bool get scanReady => false;
+  bool get scanVerified => false;
   bool get memoryWarning => false;
   double? get progress => null;
   String get status =>
@@ -25,6 +26,7 @@ class LocalAiService extends ChangeNotifier {
   bool get ready => false;
   bool isModelReady(String id) => false;
   bool isModelScanReady(String id) => false;
+  bool isModelScanVerified(String id) => false;
   List<InstalledLocalModel> get installed => const [];
   List<LocalModelFile> get pendingDownloads => const [];
   Future<void> discardDownload(String sha256) async {}
@@ -52,6 +54,7 @@ class LocalAiService extends ChangeNotifier {
     LocalInventoryContext context,
     String instruction, {
     String conversation = '',
+    void Function(String token)? onToken,
   }) async => throw UnsupportedError(status);
   Future<MedicineScanDraft> understand(MedicineScanDraft draft) async => draft;
 }
