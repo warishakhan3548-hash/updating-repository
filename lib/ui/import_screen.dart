@@ -411,37 +411,71 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
         message.contains('native');
   }
 
+  bool _localLeaseContention(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('local ai is busy') ||
+        message.contains('runtime is unavailable or still processing') ||
+        message.contains('runtime is busy or closing') ||
+        message.contains('runtime is still processing a failed model load');
+  }
+
+  Future<bool> _routeStillOwnsScan(
+    LocalAiService local,
+    String routedModelId,
+  ) async =>
+      await LocalBrainRoutePolicy.mayReasonWith(local, routedModelId) &&
+      local.activeId == routedModelId;
+
   Future<MedicineScanDraft> _understandWithRecovery(
     LocalAiService local,
     String routedModelId,
     MedicineScanDraft draft,
   ) async {
-    try {
-      return await local.understand(draft);
-    } catch (error, stack) {
-      if (local.busy || !_recoverableLocalTransportFailure(error)) {
-        Error.throwWithStackTrace(error, stack);
-      }
-
-      // Instant camera/photo review must have the same one-shot clean-runtime
-      // recovery semantics as the durable intake queue. Retire only the broken
-      // transport, then require the exact same Local AI route before re-sending
-      // this OCR draft. A model switch or Brain-off event invalidates the retry.
+    var transportRecovered = false;
+    while (true) {
       try {
-        await local.suspend();
-      } catch (_) {
-        Error.throwWithStackTrace(error, stack);
+        return await local.understand(draft);
+      } catch (error, stack) {
+        // mayReasonWith() closes the common busy window, but another foreground
+        // Send can still acquire the single native lease in the final event-loop
+        // gap before understand(). Treat that as queue contention, never as an
+        // extraction failure. Re-run the full owner-switch/model check and retry
+        // the exact same OCR draft without advancing or replacing evidence.
+        if (_localLeaseContention(error)) {
+          if (!await _routeStillOwnsScan(local, routedModelId)) {
+            throw StateError(
+              'Aaris Brain route changed while this scan was waiting for Local AI. Deterministic OCR draft retained for review.',
+            );
+          }
+          continue;
+        }
+
+        if (transportRecovered || !_recoverableLocalTransportFailure(error)) {
+          Error.throwWithStackTrace(error, stack);
+        }
+        transportRecovered = true;
+
+        // One genuine runtime/transport failure gets one clean-runtime repair.
+        // suspend() itself can lose a narrow lease race to a foreground Send, so
+        // wait/revalidate and retry the retirement rather than discarding this
+        // scan. Never retry malformed model output or validation failures.
+        while (true) {
+          try {
+            await local.suspend();
+            break;
+          } catch (suspendError) {
+            if (!_localLeaseContention(suspendError) ||
+                !await _routeStillOwnsScan(local, routedModelId)) {
+              Error.throwWithStackTrace(error, stack);
+            }
+          }
+        }
+        if (!await _routeStillOwnsScan(local, routedModelId)) {
+          throw StateError(
+            'Aaris Brain route changed while recovering this scan. Deterministic OCR draft retained for review.',
+          );
+        }
       }
-      final mayRetry = await LocalBrainRoutePolicy.mayReasonWith(
-        local,
-        routedModelId,
-      );
-      if (!mayRetry || local.activeId != routedModelId) {
-        throw StateError(
-          'Aaris Brain route changed while recovering this scan. Deterministic OCR draft retained for review.',
-        );
-      }
-      return local.understand(draft);
     }
   }
 
@@ -836,7 +870,40 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Review import')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? AnimatedBuilder(
+              animation: LocalAiService.instance,
+              builder: (context, _) {
+                final local = LocalAiService.instance;
+                final scanThinking = local.busy &&
+                    local.status.toLowerCase().contains('scan preview');
+                final message = scanThinking
+                    ? local.status
+                    : local.busy
+                    ? 'Aaris Brain is finishing the current Local AI request, then it will review this scan…'
+                    : 'Preparing deterministic OCR and the medicine preview…';
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 30),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 16),
+                        Text(
+                          message,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            )
           : ListView(
               padding: const EdgeInsets.fromLTRB(22, 8, 22, 30),
               children: [
