@@ -15,6 +15,7 @@ class LocalAiRuntime {
   static const _terminalErrorDrainBudget = Duration(seconds: 15);
   static const _maxVisibleResponseCharacters = 32000;
   static const _maxRawResponseCharacters = 128000;
+  static const _maxContextTokens = 16384;
 
   final LlamaEngine _engine;
   StreamController<LlamaCommand>? _commands;
@@ -360,12 +361,14 @@ class LocalAiRuntime {
   List<int> _contextLoadPlan(int requested) {
     // Context is an adaptive quality knob, never a model-admission gate. Start
     // with the owner's/device planner choice and progressively reduce only the
-    // KV-cache footprint when native allocation reports pressure. This lets
-    // high-end phones actually use 6K/8K contexts while giving the same model a
-    // path down to 2K on tighter devices instead of surfacing a false generic
-    // connection failure after one retry.
+    // KV-cache footprint when native allocation reports pressure. Ultra-high-end
+    // phones can now attempt 12K/16K, while every tier retains a deterministic
+    // fallback ladder all the way to 2K instead of surfacing a false connection
+    // failure after one oversized native allocation.
     final candidates = <int>[
       requested,
+      if (requested > 12288) 12288,
+      if (requested > 8192) 8192,
       if (requested > 6144) 6144,
       if (requested > 4096) 4096,
       if (requested > 3072) 3072,
@@ -405,7 +408,7 @@ class LocalAiRuntime {
     if (_closed || _closing || busy) {
       throw StateError('Local runtime is busy or closing.');
     }
-    if (contextTokens < 2048 || contextTokens > 8192) {
+    if (contextTokens < 2048 || contextTokens > _maxContextTokens) {
       throw ArgumentError('Unsupported context budget.');
     }
     if (modelPath == path && _contextTokens == contextTokens) return;
