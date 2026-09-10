@@ -60,7 +60,10 @@ final class LibLlamaCpp implements LlamaEngine {
         }
       }
     } finally {
-      actor.close();
+      // Cancellation and normal disposal both wait for the worker to unwind its
+      // active generator and free native model/context allocations. The actor has
+      // its own bounded hard-kill fallback for a genuinely wedged native worker.
+      await actor.close();
     }
   }
 }
