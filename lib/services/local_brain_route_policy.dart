@@ -18,10 +18,17 @@ class LocalBrainRoutePolicy {
   static const _storage = FlutterSecureStorage();
   static const configurationKey = 'pharmacy.ai.configuration';
   static const _maxConfigurationCharacters = 64 * 1024;
+  static const _configurationReadTimeout = Duration(seconds: 4);
+  static const _routeInitializationTimeout = Duration(seconds: 7);
 
   static Future<bool> enabled() async {
     try {
-      final raw = await _storage.read(key: configurationKey);
+      final raw = await _storage
+          .read(key: configurationKey)
+          .timeout(
+            _configurationReadTimeout,
+            onTimeout: () => null,
+          );
       if (raw == null ||
           raw.isEmpty ||
           raw.length > _maxConfigurationCharacters) {
@@ -44,13 +51,14 @@ class LocalBrainRoutePolicy {
   /// the current active route immediately before inference so a healthy model
   /// change never strands already-saved OCR in a dead-end review state.
   ///
-  /// Local model initialization is deliberately best-effort here. A damaged or
-  /// temporarily unreadable model manifest must degrade to deterministic OCR,
-  /// not reject a camera/photo/video capture that is otherwise perfectly valid.
+  /// Local model initialization is deliberately best-effort here. A damaged,
+  /// stalled or temporarily unreadable model manifest must degrade to
+  /// deterministic OCR, not reject a camera/photo/video capture that is
+  /// otherwise perfectly valid.
   static Future<String?> captureModelId(LocalAiService local) async {
     if (!await enabled()) return null;
     try {
-      await local.initialize();
+      await local.initialize().timeout(_routeInitializationTimeout);
 
       // Initialization can cross an app lifecycle/configuration boundary.
       // Re-read the persisted Brain switch after that await so a capture can
@@ -84,7 +92,7 @@ class LocalBrainRoutePolicy {
   ) async {
     if (capturedModelId == null) return false;
     try {
-      await local.initialize();
+      await local.initialize().timeout(_routeInitializationTimeout);
       if (!await enabled()) return false;
 
       // Both calls above are asynchronous. Re-evaluate the live route only

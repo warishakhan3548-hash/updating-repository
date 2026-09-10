@@ -4,7 +4,6 @@ import '../domain/medicine_understanding.dart';
 import '../services/media_import_service.dart';
 import '../services/medicine_intake_service.dart';
 import '../state/pharmacy_controller.dart';
-import 'default_ai_prompt.dart';
 import 'design.dart';
 import 'scanner_screen.dart';
 
@@ -24,12 +23,10 @@ Future<void> openMedicineCapture(
         'Photo/video intake is available in the Android app.',
       );
 
-    // The default local model is optional and explicitly consented to because
-    // it is a large network download. Skipping/failing it leaves the existing
-    // deterministic pharmacy extractor fully available.
-    await offerAarisDefaultAi(context);
-    if (!context.mounted) return;
-
+    // Capture must never wait behind an optional model-download/setup prompt.
+    // The durable intake queue resolves the live Aaris Brain route after OCR:
+    // active scan-ready Local AI receives the raw evidence automatically,
+    // otherwise the deterministic extractor remains the instant offline path.
     final choice = await showModalBottomSheet<String>(
       context: context,
       useSafeArea: true,
@@ -39,7 +36,7 @@ Future<void> openMedicineCapture(
           const ListTile(
             title: Text('Capture to local review queue'),
             subtitle: Text(
-              'OCR → selected/default local AI when available → Add / Ask / Edit. Stock changes require Save.',
+              'OCR → deterministic extractor → active Local AI when connected → preview → Confirm/Add.',
             ),
           ),
           for (final item in const [
@@ -95,6 +92,9 @@ Future<void> openMedicineCapture(
       try {
         await queue.addFile(source.path, kind: choice, title: source.name);
       } finally {
+        // Picker staging files are housekeeping only. MediaImportService makes
+        // cleanup best-effort so a cleanup failure can never turn a successfully
+        // queued capture into a false user-visible import failure.
         await media.cleanup([source.path]);
       }
     }
