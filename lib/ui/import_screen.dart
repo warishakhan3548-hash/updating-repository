@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../domain/intake_resolution.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
@@ -381,11 +382,18 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
     unawaited(_prepare());
   }
 
+  IntakeResolution _resolve(MedicineScanDraft draft) => resolveIntakeDraft(
+    draft: draft,
+    records: widget.controller.records,
+    today: widget.controller.today,
+  );
+
   Future<void> _prepare() async {
     final generation = ++_generation;
     setState(() {
       _loading = true;
       _error = '';
+      _semanticWarning = '';
     });
     try {
       // Identity-only snapshot of pharmacist-reviewed local records. It stays
@@ -452,12 +460,14 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
             }
           }
         }
+        if (!mounted || generation != _generation) return;
         final hits = found.values.toList()
           ..sort((a, b) => b.score.compareTo(a.score));
         reviews.add(
           _ImportDraftReview(
             draft: draft,
             hits: hits.take(6).toList(growable: false),
+            resolution: _resolve(draft),
           ),
         );
       }
@@ -475,6 +485,177 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           _error = 'The import inbox could not rank these scans. Try again.';
         });
       }
+    }
+  }
+
+  Future<void> _receiveExactLot(
+    BuildContext context,
+    _ImportDraftReview review,
+  ) async {
+    final expectedId = review.resolution.exactStockId;
+    if (expectedId == null) return;
+
+    IntakeResolution preflight = _resolve(review.draft);
+    if (!preflight.hasExactLot ||
+        preflight.exactStockId != expectedId ||
+        !preflight.safeToReceive) {
+      showError(
+        context,
+        preflight.receiveBlockReason.isNotEmpty
+            ? preflight.receiveBlockReason
+            : 'Inventory or scan evidence changed. Review the medicine again before receiving stock.',
+      );
+      return;
+    }
+
+    final current = widget.controller.snapshot.records[expectedId];
+    if (current == null || current.archived) {
+      showError(context, 'The exact stock entry is no longer active.');
+      return;
+    }
+
+    final formKey = GlobalKey<FormState>();
+    final quantityController = TextEditingController();
+    final units = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Receive ${current.title}'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                [
+                  if (current.batchNumber.isNotEmpty)
+                    'Batch ${current.batchNumber}',
+                  if (current.expiry != null)
+                    'EXP ${dateText(current.expiry!)}',
+                  if (current.address.isNotEmpty) current.address,
+                ].join(' · '),
+                style: const TextStyle(color: muted, fontSize: 12),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: quantityController,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Units received',
+                  helperText: 'Enter the physical units you are receiving now.',
+                ),
+                validator: (raw) {
+                  final value = int.tryParse(raw?.trim() ?? '');
+                  if (value == null || value < 1) {
+                    return 'Enter a positive whole-number quantity.';
+                  }
+                  if (value > 100000000) {
+                    return 'Quantity is above the supported limit.';
+                  }
+                  return null;
+                },
+                onFieldSubmitted: (_) {
+                  if (formKey.currentState?.validate() != true) return;
+                  Navigator.pop(
+                    dialogContext,
+                    int.parse(quantityController.text.trim()),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Aaris will change stock quantity only. Scanned name, batch, dates, price and location cannot silently overwrite this saved lot.',
+                style: TextStyle(color: muted, fontSize: 11, height: 1.35),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) return;
+              Navigator.pop(
+                dialogContext,
+                int.parse(quantityController.text.trim()),
+              );
+            },
+            child: const Text('Review receipt'),
+          ),
+        ],
+      ),
+    );
+    quantityController.dispose();
+    if (units == null || !mounted) return;
+
+    // The quantity dialog can remain open while inventory changes. Re-resolve
+    // the physical lot from the live authoritative database before creating the
+    // revision-bound controller review token.
+    preflight = _resolve(review.draft);
+    if (!preflight.hasExactLot ||
+        preflight.exactStockId != expectedId ||
+        !preflight.safeToReceive) {
+      showError(
+        context,
+        preflight.receiveBlockReason.isNotEmpty
+            ? preflight.receiveBlockReason
+            : 'Inventory or scan evidence changed. Review the exact lot again.',
+      );
+      return;
+    }
+
+    try {
+      final receiptReview = widget.controller.reviewStockAdjustment(
+        expectedId,
+        kind: StockAdjustmentKind.receive,
+        quantity: units,
+      );
+      final live = widget.controller.snapshot.records[expectedId];
+      if (live == null || live.archived) {
+        throw StateError('The exact stock entry is no longer active.');
+      }
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Confirm stock receipt'),
+          content: Text(
+            '${live.title}\n'
+            '${live.batchNumber.isEmpty ? 'Saved lot' : 'Batch ${live.batchNumber}'}'
+            '${live.address.isEmpty ? '' : ' · ${live.address}'}\n\n'
+            'Current: ${receiptReview.beforeQuantity} units\n'
+            'Receive: +${receiptReview.requestedQuantity} units\n'
+            'After: ${receiptReview.afterQuantity} units\n\n'
+            '${receiptReview.wasSold ? 'This SOLD row will be explicitly reopened. ' : ''}'
+            'Only the stock quantity/lifecycle will change. OCR facts remain review evidence.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Receive stock'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      await widget.controller.applyStockAdjustment(receiptReview);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Received $units units into ${live.title}. Inventory audit history was saved.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
     }
   }
 
@@ -514,7 +695,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Matches open existing records. New stock opens a draft; you confirm every field before saving.',
+                        'Aaris resolves trusted pack evidence against the live Medicine Database. Exact lots can use the reviewed stock-receipt flow; uncertainty never changes inventory.',
                         style: TextStyle(color: inverseMuted, fontSize: 12),
                       ),
                     ],
@@ -550,13 +731,138 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                 const Padding(
                   padding: EdgeInsets.only(top: 10),
                   child: Text(
-                    'OCR text stays separate from your personal note. Every auto-filled fact remains a review draft until you press Save.',
+                    'OCR text stays separate from your personal note. Every auto-filled fact remains review evidence until you explicitly save a reviewed action.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: muted, fontSize: 11),
                   ),
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _resolutionCard(
+    BuildContext context,
+    _ImportDraftReview review,
+  ) {
+    final resolution = review.resolution;
+    final (title, icon, tone) = switch (resolution.kind) {
+      IntakeResolutionKind.exactLot => (
+        'Exact saved lot identified',
+        Icons.verified_rounded,
+        green,
+      ),
+      IntakeResolutionKind.sameProduct => (
+        'Existing medicine · batch needs review',
+        Icons.inventory_2_outlined,
+        primary,
+      ),
+      IntakeResolutionKind.ambiguous => (
+        'Ambiguous stock identity',
+        Icons.warning_amber_rounded,
+        red,
+      ),
+      IntakeResolutionKind.needsReview => (
+        'Verification required',
+        Icons.fact_check_outlined,
+        amber,
+      ),
+      IntakeResolutionKind.newStock => (
+        'No exact local stock found',
+        Icons.add_box_outlined,
+        primary,
+      ),
+    };
+    final exactId = resolution.exactStockId;
+    final exact = exactId == null
+        ? null
+        : widget.controller.snapshot.records[exactId];
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Surface(
+        color: tone.withValues(alpha: .08),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: tone, size: 21),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: tone,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              resolution.reason,
+              style: const TextStyle(color: muted, fontSize: 12, height: 1.4),
+            ),
+            if (exact != null && !exact.archived) ...[
+              const SizedBox(height: 10),
+              Text(
+                [
+                  exact.title,
+                  if (exact.batchNumber.isNotEmpty) 'Batch ${exact.batchNumber}',
+                  if (exact.expiry != null) 'EXP ${dateText(exact.expiry!)}',
+                  if (exact.quantity != null) '${exact.quantity} units',
+                  if (exact.address.isNotEmpty) exact.address,
+                ].join(' · '),
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+              ),
+              if (resolution.receiveBlockReason.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  resolution.receiveBlockReason,
+                  style: const TextStyle(
+                    color: amber,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (resolution.safeToReceive)
+                    FilledButton.icon(
+                      onPressed: () => _receiveExactLot(context, review),
+                      icon: const Icon(Icons.add_shopping_cart_rounded),
+                      label: const Text('Receive into exact lot'),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed: () => openEditor(
+                      context,
+                      widget.controller,
+                      record: exact,
+                    ),
+                    icon: const Icon(Icons.open_in_new_rounded),
+                    label: const Text('Open exact stock'),
+                  ),
+                ],
+              ),
+            ],
+            if (resolution.kind == IntakeResolutionKind.ambiguous &&
+                resolution.candidateStockIds.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${resolution.candidateStockIds.length} saved rows need manual verification. No receive shortcut is enabled.',
+                style: const TextStyle(color: red, fontSize: 11),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -571,12 +877,14 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SectionHeading('$title · ${_confidence(draft.overallConfidence)}'),
-        if (review.hits.isNotEmpty) ...[
+        _resolutionCard(context, review),
+        if (review.hits.isNotEmpty &&
+            review.resolution.kind != IntakeResolutionKind.exactLot) ...[
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(
               review.hasStrongLocalMatch
-                  ? 'Existing stock match found'
+                  ? 'Existing stock candidates found'
                   : 'Possible existing stock — verify carefully',
               style: const TextStyle(color: muted, fontSize: 12),
             ),
@@ -642,12 +950,30 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        FilledButton.icon(
-          onPressed: () =>
-              openEditor(context, widget.controller, scanDraft: draft),
-          icon: const Icon(Icons.rate_review_outlined),
-          label: Text('Review & create medicine ${index + 1}'),
-        ),
+        if (review.resolution.kind != IntakeResolutionKind.exactLot)
+          (review.resolution.kind == IntakeResolutionKind.sameProduct
+              ? OutlinedButton.icon(
+                  onPressed: () => openEditor(
+                    context,
+                    widget.controller,
+                    scanDraft: draft,
+                  ),
+                  icon: const Icon(Icons.add_box_outlined),
+                  label: const Text('Review as a new batch'),
+                )
+              : FilledButton.icon(
+                  onPressed: () => openEditor(
+                    context,
+                    widget.controller,
+                    scanDraft: draft,
+                  ),
+                  icon: const Icon(Icons.rate_review_outlined),
+                  label: Text(
+                    review.resolution.kind == IntakeResolutionKind.newStock
+                        ? 'Review & create new medicine ${index + 1}'
+                        : 'Review scanned facts manually',
+                  ),
+                )),
       ],
     );
   }
@@ -674,10 +1000,18 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
 }
 
 class _ImportDraftReview {
-  const _ImportDraftReview({required this.draft, required this.hits});
+  const _ImportDraftReview({
+    required this.draft,
+    required this.hits,
+    required this.resolution,
+  });
 
   final MedicineScanDraft draft;
   final List<SearchHit> hits;
+  final IntakeResolution resolution;
 
-  bool get hasStrongLocalMatch => hits.any((hit) => !hit.uncertain);
+  bool get hasStrongLocalMatch =>
+      resolution.kind == IntakeResolutionKind.exactLot ||
+      resolution.kind == IntakeResolutionKind.sameProduct ||
+      hits.any((hit) => !hit.uncertain);
 }
