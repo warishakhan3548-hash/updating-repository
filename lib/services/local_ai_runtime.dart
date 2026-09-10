@@ -108,7 +108,7 @@ class LocalAiRuntime {
   Future<void> load(String path, {int contextTokens = 4096}) async {
     if (_closed || _closing || busy)
       throw StateError('Local runtime is busy or closing.');
-    if (contextTokens < 2048 || contextTokens > 8192)
+    if (contextTokens < 512 || contextTokens > 8192)
       throw ArgumentError('Unsupported context budget.');
     if (modelPath == path && _contextTokens == contextTokens) return;
     modelPath = null;

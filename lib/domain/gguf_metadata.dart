@@ -301,29 +301,52 @@ class LocalExecutionPlan {
     required this.estimatedBytes,
     required this.estimatedKvBytes,
     required this.geometryKnown,
+    this.memoryWarning = false,
+    this.budgetBytes,
   });
+
   final int contextTokens, estimatedBytes, estimatedKvBytes;
-  final bool geometryKnown;
-  int get outputTokens => contextTokens <= 2048
+  final bool geometryKnown, memoryWarning;
+  final int? budgetBytes;
+
+  int get outputTokens => contextTokens <= 512
+      ? 160
+      : contextTokens <= 1024
+      ? 256
+      : contextTokens <= 2048
       ? 512
       : contextTokens <= 4096
       ? 1000
       : 1200;
-  int get evidenceCharacters => contextTokens <= 2048
+
+  int get evidenceCharacters => contextTokens <= 512
+      ? 700
+      : contextTokens <= 1024
+      ? 1200
+      : contextTokens <= 2048
       ? 1800
       : contextTokens <= 4096
       ? 5000
       : 7000;
-  int get inventoryRows => contextTokens <= 2048
+
+  int get inventoryRows => contextTokens <= 1024
       ? 1
+      : contextTokens <= 2048
+      ? 2
       : contextTokens <= 4096
       ? 3
       : 8;
-  int get conversationCharacters => contextTokens <= 2048 ? 400 : 1500;
+
+  int get conversationCharacters => contextTokens <= 1024
+      ? 250
+      : contextTokens <= 2048
+      ? 400
+      : 1500;
 }
 
-/// Conservative admission estimate, not a promise of successful allocation.
-/// Phone weights, KV, workspace and scanner/OS headroom are separate budgets.
+/// Mmap-aware soft admission. Download size is not treated as fully committed
+/// heap RAM. The planner chooses a sensible context and warns when tight, while
+/// actual llama.cpp model loading remains the final compatibility authority.
 LocalExecutionPlan planLocalExecution({
   required int weightBytes,
   required GgufMetadata metadata,
@@ -331,36 +354,50 @@ LocalExecutionPlan planLocalExecution({
   int? availableMemory,
   bool lowMemory = false,
   bool phone = false,
+  int? contextCeiling,
 }) {
-  if (weightBytes < 1024 || lowMemory) {
-    throw StateError(
-      'Device memory is under pressure. Close other apps or choose a smaller model.',
-    );
+  if (weightBytes < 1024) {
+    throw StateError('Model weights are incomplete.');
   }
-  final totalBudget = totalMemory == null ? null : (totalMemory * .65).floor();
+
+  final totalBudget = totalMemory == null ? null : (totalMemory * .80).floor();
   final availableBudget = availableMemory == null
       ? null
-      : (availableMemory * .8).floor();
+      : availableMemory + (phone ? 512 * _mib : 256 * _mib);
   final budget = totalBudget == null
       ? availableBudget
       : availableBudget == null
       ? totalBudget
       : math.min(totalBudget, availableBudget);
-  for (final context in phone ? [4096, 2048] : [8192, 4096, 2048]) {
-    if (metadata.contextLength != null && context > metadata.contextLength!)
+
+  final contexts = phone
+      ? const [4096, 2048, 1024, 512]
+      : const [8192, 4096, 2048, 1024, 512];
+  LocalExecutionPlan? smallest;
+  for (final context in contexts) {
+    if (contextCeiling != null && context > contextCeiling) continue;
+    if (metadata.contextLength != null && context > metadata.contextLength!) {
       continue;
+    }
     final knownKv = metadata.kvBytes(context);
-    final kv = knownKv ?? context * 256 * 1024;
-    final bytes = (weightBytes * 1.1 + kv * 1.1).ceil() + 512 * _mib;
-    if (budget == null || bytes <= budget)
-      return LocalExecutionPlan(
-        contextTokens: context,
-        estimatedBytes: bytes,
-        estimatedKvBytes: kv,
-        geometryKnown: knownKv != null,
-      );
+    final kv = knownKv ?? context * 128 * 1024;
+    final residentWeights = (weightBytes * (phone ? .55 : .70)).ceil();
+    final workspace = phone ? 320 * _mib : 512 * _mib;
+    final bytes = residentWeights + (kv * 1.10).ceil() + workspace;
+    final plan = LocalExecutionPlan(
+      contextTokens: context,
+      estimatedBytes: bytes,
+      estimatedKvBytes: kv,
+      geometryKnown: knownKv != null,
+      memoryWarning: lowMemory || (budget != null && bytes > budget),
+      budgetBytes: budget,
+    );
+    smallest = plan;
+    if (!plan.memoryWarning) return plan;
   }
+
+  if (smallest != null) return smallest;
   throw StateError(
-    'Model weights + context cache + scanner reserve do not fit the current memory budget, or its context is below 2048. Choose smaller weights or free memory.',
+    'This model exposes less than a 512-token context and cannot be used safely.',
   );
 }

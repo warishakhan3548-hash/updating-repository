@@ -69,9 +69,8 @@ class ModelRepositoryLocation {
 
 bool isModelRepository(String value) =>
     value.length <= 250 &&
-    RegExp(
-      r'^[A-Za-z0-9_][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*$',
-    ).hasMatch(value) &&
+    RegExp(r'^[A-Za-z0-9_][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*$')
+        .hasMatch(value) &&
     !value.split('/').any((p) => p.contains('..'));
 
 bool isSafeModelPath(String name) =>
@@ -140,8 +139,8 @@ String? modelArtifactLimitation(String name) {
   if (RegExp(r'\d{5}-of-\d{5}').hasMatch(base))
     return 'Split GGUF not supported yet';
   if (RegExp(
-    r'(^|[_.-])(mmproj|projector|adapter|lora|tokenizer|vocab)([_.-]|$)',
+    r'(^|[_.-])(mmproj|projector|adapter|lora|tokenizer|vocab|imatrix|importance|calibration)([_.-]|$)',
   ).hasMatch(base))
-    return 'Companion weights; not a standalone chat model';
+    return 'Companion or calibration data; not a standalone chat model';
   return null;
 }

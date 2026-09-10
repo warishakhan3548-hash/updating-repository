@@ -35,6 +35,8 @@ class LocalAiService extends ChangeNotifier {
       throw UnsupportedError(status);
   Future<List<String>> search(String query) async => [];
   Future<List<LocalModelFile>> files(String repository) async => [];
+  Future<LocalModelPreflight> preflight(LocalModelFile model) async =>
+      throw UnsupportedError(status);
   Future<void> download(LocalModelFile file) async =>
       throw UnsupportedError(status);
   Future<void> importModel() async => throw UnsupportedError(status);

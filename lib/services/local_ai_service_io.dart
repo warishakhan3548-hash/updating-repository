@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:file_selector/file_selector.dart';
@@ -20,6 +21,8 @@ import 'model_catalogue_service.dart';
 import '../domain/medicine_understanding.dart';
 import 'local_ai_runtime.dart';
 
+int _minInt(int a, int b) => a < b ? a : b;
+
 class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   static final instance = LocalAiService();
   final List<InstalledLocalModel> _models = [];
@@ -34,8 +37,10 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   int _requestGeneration = 0, _transferGeneration = 0;
   double? _progress;
   String _status = 'No local model selected';
-  Timer? _idle;
+  Timer? _idle, _memoryPressureTimer;
+  int _memoryPressureSignals = 0;
   bool _observingMemory = false, _releaseForMemory = false;
+  final Map<String, GgufMetadata> _remotePreflight = {};
   LocalExecutionPlan? _executionPlan;
   String get executionSummary => _executionPlan == null
       ? ''
@@ -137,10 +142,39 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didHaveMemoryPressure() {
-    _releaseForMemory = true;
-    cancelRequest();
-    if (!busy && !_transferring) {
-      unawaited(_exclusive((_) async {}).catchError((Object _) {}));
+    _memoryPressureSignals++;
+    _memoryPressureTimer?.cancel();
+    _status = 'Memory pressure detected · checking…';
+    notifyListeners();
+    _memoryPressureTimer = Timer(const Duration(seconds: 12), () {
+      unawaited(_handleSustainedMemoryPressure());
+    });
+  }
+
+  Future<void> _handleSustainedMemoryPressure() async {
+    final signals = _memoryPressureSignals;
+    _memoryPressureSignals = 0;
+    if (_runtime == null) return;
+    try {
+      final facts = await _readDeviceInfo();
+      final available = facts?['availableMemory'];
+      final severe =
+          facts?['lowMemory'] == true ||
+          (available is int && available < 384 * 1024 * 1024) ||
+          signals >= 3;
+      if (!severe) {
+        if (ready) _status = 'Local AI Ready';
+        notifyListeners();
+        return;
+      }
+      _releaseForMemory = true;
+      cancelRequest();
+      if (!busy && !_transferring) {
+        await _exclusive((_) async {});
+      }
+    } catch (_) {
+      if (ready) _status = 'Local AI Ready';
+      notifyListeners();
     }
   }
 
@@ -185,6 +219,107 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<List<LocalModelFile>> files(String repository) async =>
       (await repositoryFiles(repository)).files;
+
+  Future<LocalModelPreflight> preflight(LocalModelFile model) async {
+    model.validate();
+    await initialize();
+    final metadata =
+        _remotePreflight[model.sha256] ?? await _inspectRemoteGguf(model);
+    _remotePreflight[model.sha256] = metadata;
+    final facts = await _checkResources(
+      storageBytes: model.bytes,
+      weightBytes: model.bytes,
+    );
+    final plan = planLocalExecution(
+      weightBytes: model.bytes,
+      metadata: metadata,
+      totalMemory: facts?['totalMemory'] as int?,
+      availableMemory: facts?['availableMemory'] as int?,
+      lowMemory: facts?['lowMemory'] == true,
+      phone: Platform.isAndroid || Platform.isIOS,
+    );
+    return LocalModelPreflight(
+      metadata: metadata,
+      plan: plan,
+      warning: plan.memoryWarning
+          ? 'This model is large for the phone right now. Aaris will start with '
+                '${plan.contextTokens} tokens and can step down to 512 if memory is tight. '
+                'You can still continue.'
+          : null,
+    );
+  }
+
+  Future<GgufMetadata> _inspectRemoteGguf(LocalModelFile model) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 20)
+      ..autoUncompress = false;
+    var uri = model.downloadUri;
+    final limit = _minInt(model.bytes, maxGgufMetadataBytes);
+    try {
+      for (var redirects = 0; redirects <= 6; redirects++) {
+        final host = uri.host.toLowerCase();
+        if (uri.scheme != 'https' ||
+            uri.port != 443 ||
+            uri.userInfo.isNotEmpty ||
+            !(host == 'huggingface.co' ||
+                host.endsWith('.huggingface.co') ||
+                host.endsWith('.hf.co') ||
+                host.endsWith('.amazonaws.com'))) {
+          throw StateError('Unsafe model download redirect was blocked.');
+        }
+        final request = await client.getUrl(uri);
+        request.followRedirects = false;
+        request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-${limit - 1}');
+        final response = await request.close().timeout(
+          const Duration(seconds: 40),
+        );
+        if ([301, 302, 303, 307, 308].contains(response.statusCode)) {
+          final next = response.headers.value(HttpHeaders.locationHeader);
+          if (next == null) throw StateError('Missing model redirect.');
+          await response.drain<void>().timeout(const Duration(seconds: 20));
+          uri = uri.resolve(next);
+          continue;
+        }
+        if (response.statusCode != 200 && response.statusCode != 206) {
+          throw StateError(
+            'Could not inspect this model before download (${response.statusCode}).',
+          );
+        }
+        if (response.statusCode == 206) {
+          final range = response.headers.value(HttpHeaders.contentRangeHeader);
+          final match = RegExp(r'^bytes 0-(\d+)/(\d+)$')
+              .firstMatch(range ?? '');
+          if (match == null || int.parse(match[2]!) != model.bytes) {
+            throw StateError(
+              'Model server returned inconsistent file metadata.',
+            );
+          }
+        }
+        final builder = BytesBuilder(copy: false);
+        await for (final chunk in response.timeout(
+          const Duration(seconds: 45),
+        )) {
+          final remaining = limit - builder.length;
+          if (remaining <= 0) break;
+          if (chunk.length <= remaining) {
+            builder.add(chunk);
+          } else {
+            builder.add(Uint8List.fromList(chunk.take(remaining).toList()));
+          }
+          if (builder.length >= limit) break;
+        }
+        final prefix = builder.takeBytes();
+        if (prefix.length < _minInt(model.bytes, 1024)) {
+          throw StateError('Model header download was incomplete.');
+        }
+        return inspectGgufPrefix(prefix, fileBytes: model.bytes);
+      }
+      throw StateError('Too many model download redirects.');
+    } finally {
+      client.close(force: true);
+    }
+  }
 
   Future<HttpClientResponse> _downloadResponse(
     HttpClient client,
@@ -232,6 +367,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       if (!isModelReady(existing.id)) await activate(existing.id);
       return;
     }
+    await preflight(model);
     final generation = ++_transferGeneration;
     _transferring = true;
     _progress = null;
@@ -579,21 +715,42 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     if (_runtime?.modelPath != file.path) {
       final metadata = await _checkGguf(file);
       final facts = await _checkResources(weightBytes: model.bytes);
-      _executionPlan = planLocalExecution(
-        weightBytes: model.bytes,
-        metadata: metadata,
-        totalMemory: facts?['totalMemory'] as int?,
-        availableMemory: facts?['availableMemory'] as int?,
-        lowMemory: facts?['lowMemory'] == true,
-        phone: Platform.isAndroid || Platform.isIOS,
-      );
-      _runtime ??= LocalAiRuntime();
-      _status = 'Local AI · loading · $executionSummary';
-      notifyListeners();
-      await _runtime!.load(
-        file.path,
-        contextTokens: _executionPlan!.contextTokens,
-      );
+      int? ceiling;
+      Object? lastError;
+      for (var attempt = 0; attempt < 4; attempt++) {
+        final plan = planLocalExecution(
+          weightBytes: model.bytes,
+          metadata: metadata,
+          totalMemory: facts?['totalMemory'] as int?,
+          availableMemory: facts?['availableMemory'] as int?,
+          lowMemory: facts?['lowMemory'] == true,
+          phone: Platform.isAndroid || Platform.isIOS,
+          contextCeiling: ceiling,
+        );
+        _executionPlan = plan;
+        _runtime ??= LocalAiRuntime();
+        _status = 'Local AI · loading · $executionSummary';
+        notifyListeners();
+        try {
+          await _runtime!.load(file.path, contextTokens: plan.contextTokens);
+          return;
+        } catch (error) {
+          lastError = error;
+          final lower = error.toString().toLowerCase();
+          final memoryLike =
+              plan.memoryWarning ||
+              lower.contains('memory') ||
+              lower.contains('alloc') ||
+              lower.contains('buffer') ||
+              lower.contains('kv');
+          if (!memoryLike || plan.contextTokens <= 512) rethrow;
+          await _release();
+          ceiling = plan.contextTokens ~/ 2;
+          _status = 'Retrying Local AI with a lighter context…';
+          notifyListeners();
+        }
+      }
+      throw StateError('Local model could not load: $lastError');
     }
   }
 
@@ -624,22 +781,18 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       await _loadSelected();
       _setupStage = LocalModelSetupStage.testing;
-      for (var i = 0; i < localSetupChecks.length; i++) {
-        final probe = localSetupChecks[i];
-        _status = 'Testing on this phone…';
-        notifyListeners();
-        final answer = localJsonObject(
-          await _runtime!.generate(
-            localSetupPrompt,
-            jsonEncode({'SOURCE': probe.source}),
-            maxTokens: 180,
-          ),
+      _status = 'Testing Local AI…';
+      notifyListeners();
+      final probe = await _runtime!.generate(
+        localRuntimeProbeSystem,
+        localRuntimeProbeInput,
+        maxTokens: 24,
+      );
+      _checkRequest(generation);
+      if (!passesLocalRuntimeProbe(probe)) {
+        throw StateError(
+          'The native model loaded but did not return a readiness reply.',
         );
-        _checkRequest(generation);
-        if (!passesLocalSetup(answer, probe))
-          throw StateError(
-            'Setup check ${i + 1} failed: printed fields/unknowns/decimal or denominator handling. Try another instruction-tuned model.',
-          );
       }
       _models[_models.indexOf(model)] = InstalledLocalModel(
         id: model.id,
@@ -791,10 +944,7 @@ Future<Map<String, dynamic>?> _checkResources({
   int weightBytes = 0,
 }) async {
   if (!Platform.isAndroid) return null;
-  const channel = MethodChannel('com.aaris.pharmacy/documents');
-  final info = await channel.invokeMapMethod<String, dynamic>(
-    'localAiDeviceInfo',
-  );
+  final info = await _readDeviceInfo();
   final free = info?['freeStorage'];
   if (weightBytes > 0) {
     final abis = info?['abis'], sdk = info?['sdkInt'];
@@ -815,12 +965,13 @@ Future<Map<String, dynamic>?> _checkResources({
       'Not enough free storage for the model plus 512 MB safety reserve.',
     );
   }
-  if (weightBytes > 0 && info?['lowMemory'] == true) {
-    throw StateError(
-      'Device memory is under pressure. Close other apps or choose smaller weights.',
-    );
-  }
   return info;
+}
+
+Future<Map<String, dynamic>?> _readDeviceInfo() async {
+  if (!Platform.isAndroid) return null;
+  return const MethodChannel('com.aaris.pharmacy/documents')
+      .invokeMapMethod<String, dynamic>('localAiDeviceInfo');
 }
 
 Future<String> _hash(String path) => Isolate.run(

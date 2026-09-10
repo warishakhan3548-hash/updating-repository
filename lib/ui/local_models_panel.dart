@@ -438,14 +438,20 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                 trailing: TextButton.icon(
                   onPressed: _locked
                       ? null
-                      : () async {
+                      : () => _run(() async {
+                          final check = await local.preflight(file);
+                          final message =
+                              check.warning ??
+                              '${modelSize(file.bytes)} download. Aaris will verify, load and ping it before showing Ready.';
                           if (await _confirm(
-                            'Download and use this model?',
-                            '${modelSize(file.bytes)} download. Aaris will verify and test it before showing Ready.',
+                            check.warning == null
+                                ? 'Download and use this model?'
+                                : 'Large model · continue?',
+                            message,
                           )) {
-                            await _run(() => local.download(file));
+                            await local.download(file);
                           }
-                        },
+                        }),
                   icon: const Icon(Icons.download_rounded, size: 18),
                   label: const Text('Use'),
                 ),
@@ -749,6 +755,15 @@ String _friendlyError(Object error) {
     return 'Not enough phone storage for this model. Choose a smaller one.';
   if (lower.contains('memory') || lower.contains('ram'))
     return 'This model is too large for the phone right now. Close other apps or choose a smaller model.';
+  if (lower.contains('architecture metadata') ||
+      lower.contains('companion') ||
+      lower.contains('calibration') ||
+      lower.contains('split weights')) {
+    return 'This GGUF is not a complete standalone chat model. Choose another model file.';
+  }
+  if (lower.contains('native model') || lower.contains('unsupported gguf')) {
+    return 'This model format is not supported by the current Local AI runtime. Choose another GGUF.';
+  }
   if (lower.contains('setup check') || lower.contains('activation'))
     return 'This model could not pass the on-device test. Try another model.';
   if (lower.contains('paused'))

@@ -88,7 +88,7 @@ bool isSingleGguf(String name) {
       !name.startsWith('/') &&
       !name.split('/').any((p) => p.isEmpty || p == '.' || p == '..') &&
       !RegExp(
-        r'((^|[_.-])(mmproj|projector|adapter|lora|tokenizer|vocab)([_.-]|$)|\d{5}-of-\d{5})',
+        r'((^|[_.-])(mmproj|projector|adapter|lora|tokenizer|vocab|imatrix|importance|calibration)([_.-]|$)|\d{5}-of-\d{5})',
       ).hasMatch(lower);
 }
 
@@ -144,6 +144,18 @@ class InstalledLocalModel {
           : null,
     );
   }
+}
+
+class LocalModelPreflight {
+  const LocalModelPreflight({
+    required this.metadata,
+    required this.plan,
+    this.warning,
+  });
+
+  final GgufMetadata metadata;
+  final LocalExecutionPlan plan;
+  final String? warning;
 }
 
 enum LocalModelSetupStage {
