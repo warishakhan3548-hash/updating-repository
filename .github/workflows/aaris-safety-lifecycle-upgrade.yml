@@ -27,12 +27,16 @@ jobs:
           cache: true
 
       - name: Apply surgical upgrade
-        run: python3 tool/aaris_safety_lifecycle_autofix.py
+        run: |
+          python3 tool/aaris_safety_lifecycle_autofix.py
+          python3 tool/aaris_autopilot_integrity_followup.py
 
       - name: Format touched Dart files
         run: |
           dart format \
             lib/domain/app_brain.dart \
+            lib/domain/attention.dart \
+            lib/domain/sale_history_integrity.dart \
             lib/services/medicine_intake_service.dart \
             lib/state/autopilot_supervisor.dart \
             lib/app.dart \
