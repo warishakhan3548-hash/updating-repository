@@ -1,0 +1,764 @@
+from pathlib import Path
+from textwrap import dedent
+
+
+def _with_indent(block: str, width: int) -> str:
+    prefix = ' ' * width
+    return ''.join(prefix + line if line.strip() else line for line in block.splitlines(True))
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    file = Path(path)
+    text = file.read_text()
+    old = dedent(old)
+    new = dedent(new)
+    matches = []
+    for width in range(0, 17):
+        candidate = _with_indent(old, width)
+        count = text.count(candidate)
+        if count == 1:
+            matches.append((width, candidate))
+        elif count > 1:
+            raise SystemExit(f'{path}: patch anchor is ambiguous at indent {width}: {count} matches')
+    if len(matches) != 1:
+        raise SystemExit(f'{path}: expected one patch anchor, found {len(matches)}')
+    width, candidate = matches[0]
+    replacement = _with_indent(new, width)
+    file.write_text(text.replace(candidate, replacement, 1))
+
+
+replace_once(
+    'lib/domain/dispensing_plan.dart',
+    '''
+class ReviewedFefoSale {
+  const ReviewedFefoSale({
+    required this.baseRevision,
+    required this.occurredAt,
+    required this.plan,
+  });
+
+  final int baseRevision;
+  final DateTime occurredAt;
+  final FefoDispensingPlan plan;
+}
+''',
+    '''
+class ReviewedFefoSale {
+  const ReviewedFefoSale({
+    required this.baseRevision,
+    required this.occurredAt,
+    required this.plan,
+    this.stockRevisions = const <String, int>{},
+  });
+
+  final int baseRevision;
+  final DateTime occurredAt;
+  final FefoDispensingPlan plan;
+
+  /// Exact revisions for physical rows shown in the reviewed allocation.
+  /// They let the controller distinguish harmless unrelated inventory traffic
+  /// from a change to stock the pharmacist actually reviewed.
+  final Map<String, int> stockRevisions;
+}
+''',
+)
+
+replace_once(
+    'lib/state/pharmacy_controller.dart',
+    'class PharmacyController extends ChangeNotifier {',
+    '''
+bool _equivalentReviewedFefoPlan(
+  FefoDispensingPlan reviewed,
+  FefoDispensingPlan fresh,
+) {
+  if (reviewed.productKey != fresh.productKey ||
+      reviewed.requestedQuantity != fresh.requestedQuantity ||
+      reviewed.plannedQuantity != fresh.plannedQuantity ||
+      !listEquals(
+        reviewed.unknownQuantityStockIds,
+        fresh.unknownQuantityStockIds,
+      ) ||
+      reviewed.allocations.length != fresh.allocations.length) {
+    return false;
+  }
+  for (var i = 0; i < reviewed.allocations.length; i++) {
+    final before = reviewed.allocations[i];
+    final after = fresh.allocations[i];
+    if (before.stockId != after.stockId ||
+        before.quantity != after.quantity ||
+        before.availableQuantity != after.availableQuantity ||
+        before.batchNumber != after.batchNumber ||
+        before.address != after.address ||
+        before.expiry != after.expiry ||
+        before.expiryMonthOnly != after.expiryMonthOnly) {
+      return false;
+    }
+  }
+  return true;
+}
+
+class PharmacyController extends ChangeNotifier {
+''',
+)
+
+replace_once(
+    'lib/state/pharmacy_controller.dart',
+    '''
+return ReviewedFefoSale(
+  baseRevision: snapshot.revision,
+  occurredAt: time,
+  plan: plan,
+);
+''',
+    '''
+return ReviewedFefoSale(
+  baseRevision: snapshot.revision,
+  occurredAt: time,
+  plan: plan,
+  stockRevisions: Map.unmodifiable(<String, int>{
+    for (final allocation in plan.allocations)
+      allocation.stockId: snapshot.records[allocation.stockId]!.revision,
+  }),
+);
+''',
+)
+
+replace_once(
+    'lib/state/pharmacy_controller.dart',
+    '''
+Future<void> applyFefoSale(ReviewedFefoSale review) async {
+  if (review.baseRevision != snapshot.revision) {
+    throw StateError(
+      'Inventory changed after the FEFO review. Review the sale again before saving.',
+    );
+  }
+  final plan = review.plan;
+  if (!plan.complete || plan.allocations.isEmpty) {
+    throw StateError(
+      'This FEFO sale is incomplete and cannot be saved automatically.',
+    );
+  }
+
+  final updates = <Medicine>[];
+  final saleEvents = <SaleEvent>[];
+  for (final allocation in plan.allocations) {
+    final live = snapshot.records[allocation.stockId];
+    if (live == null || live.archived || live.sold) {
+      throw StateError(
+        'A reviewed FEFO batch is no longer available. Review the sale again.',
+      );
+    }
+    if (live.identity != plan.productKey) {
+      throw StateError(
+        'A reviewed FEFO batch no longer matches the medicine identity.',
+      );
+    }
+    validateDispensingDate(live, review.occurredAt);
+    final available = live.quantity;
+    if (available == null || available != allocation.availableQuantity) {
+      throw StateError(
+        'A reviewed FEFO batch quantity changed or became unknown. Review again.',
+      );
+    }
+    if (allocation.quantity < 1 || allocation.quantity > available) {
+      throw StateError('The reviewed FEFO allocation is no longer valid.');
+    }
+
+    final remaining = available - allocation.quantity;
+    final soldOut = remaining == 0;
+    updates.add(
+      live.patch({
+        'quantity': remaining,
+        if (soldOut) ...{
+          'sold': true,
+          'soldAt': review.occurredAt.toIso8601String(),
+          'soldQuantity': available,
+          'soldUnitPricePaise': live.unitPricePaise,
+        },
+      }),
+    );
+    saleEvents.add(
+      SaleEvent(
+        id: newId(),
+        stockId: live.id,
+        medicineName: live.name,
+        strength: live.strength,
+        form: live.form,
+        salt: live.salt,
+        quantity: allocation.quantity,
+        occurredAt: review.occurredAt,
+        savedUnitPricePaise: live.unitPricePaise,
+      ),
+    );
+  }
+
+  await _commit(
+    InventoryMutation(
+      expectedRevision: review.baseRevision,
+      label:
+          'FEFO sale · ${plan.title} · ${plan.requestedQuantity} units · ${plan.allocations.length} ${plan.allocations.length == 1 ? 'batch' : 'batches'}',
+      upserts: updates,
+      upsertSales: saleEvents,
+    ),
+  );
+}
+''',
+    '''
+Future<void> applyFefoSale(ReviewedFefoSale review) async {
+  final reviewedPlan = review.plan;
+  if (!reviewedPlan.complete || reviewedPlan.allocations.isEmpty) {
+    throw StateError(
+      'This FEFO sale is incomplete and cannot be saved automatically.',
+    );
+  }
+
+  // A FEFO confirmation is bound to the physical rows and allocation the
+  // pharmacist actually reviewed, not unrelated inventory traffic. When the
+  // global revision moved, every reviewed allocation row must still have its
+  // exact revision, then FEFO is recomputed from the live Medicine Database.
+  // Any new/changed earlier-priority batch changes the plan and fails closed.
+  // The final commit still uses the current global revision, so a later race is
+  // rejected by the authoritative persistence compare-and-swap boundary.
+  var safeReview = review;
+  if (review.baseRevision != snapshot.revision) {
+    if (review.stockRevisions.length != reviewedPlan.allocations.length) {
+      throw StateError(
+        'This FEFO review cannot be safely rebased. Review the sale again before saving.',
+      );
+    }
+    for (final allocation in reviewedPlan.allocations) {
+      final live = snapshot.records[allocation.stockId];
+      if (live == null ||
+          live.revision != review.stockRevisions[allocation.stockId]) {
+        throw StateError(
+          'A reviewed FEFO batch changed after confirmation was prepared. Review the sale again before saving.',
+        );
+      }
+    }
+
+    final anchor = snapshot.records[reviewedPlan.allocations.first.stockId];
+    if (anchor == null ||
+        anchor.archived ||
+        anchor.sold ||
+        anchor.identity != reviewedPlan.productKey) {
+      throw StateError(
+        'A reviewed FEFO batch is no longer available. Review the sale again.',
+      );
+    }
+    final fresh = reviewFefoSale(
+      anchor.id,
+      quantity: reviewedPlan.requestedQuantity,
+      occurredAt: review.occurredAt,
+    );
+    if (!_equivalentReviewedFefoPlan(reviewedPlan, fresh.plan)) {
+      throw StateError(
+        'FEFO priority changed after this sale was reviewed. Review the live batch allocation again before saving.',
+      );
+    }
+    safeReview = fresh;
+  }
+
+  final plan = safeReview.plan;
+  final updates = <Medicine>[];
+  final saleEvents = <SaleEvent>[];
+  for (final allocation in plan.allocations) {
+    final live = snapshot.records[allocation.stockId];
+    if (live == null || live.archived || live.sold) {
+      throw StateError(
+        'A reviewed FEFO batch is no longer available. Review the sale again.',
+      );
+    }
+    if (live.identity != plan.productKey) {
+      throw StateError(
+        'A reviewed FEFO batch no longer matches the medicine identity.',
+      );
+    }
+    validateDispensingDate(live, safeReview.occurredAt);
+    final available = live.quantity;
+    if (available == null || available != allocation.availableQuantity) {
+      throw StateError(
+        'A reviewed FEFO batch quantity changed or became unknown. Review again.',
+      );
+    }
+    if (allocation.quantity < 1 || allocation.quantity > available) {
+      throw StateError('The reviewed FEFO allocation is no longer valid.');
+    }
+
+    final remaining = available - allocation.quantity;
+    final soldOut = remaining == 0;
+    updates.add(
+      live.patch({
+        'quantity': remaining,
+        if (soldOut) ...{
+          'sold': true,
+          'soldAt': safeReview.occurredAt.toIso8601String(),
+          'soldQuantity': available,
+          'soldUnitPricePaise': live.unitPricePaise,
+        },
+      }),
+    );
+    saleEvents.add(
+      SaleEvent(
+        id: newId(),
+        stockId: live.id,
+        medicineName: live.name,
+        strength: live.strength,
+        form: live.form,
+        salt: live.salt,
+        quantity: allocation.quantity,
+        occurredAt: safeReview.occurredAt,
+        savedUnitPricePaise: live.unitPricePaise,
+      ),
+    );
+  }
+
+  await _commit(
+    InventoryMutation(
+      expectedRevision: safeReview.baseRevision,
+      label:
+          'FEFO sale · ${plan.title} · ${plan.requestedQuantity} units · ${plan.allocations.length} ${plan.allocations.length == 1 ? 'batch' : 'batches'}',
+      upserts: updates,
+      upsertSales: saleEvents,
+    ),
+  );
+}
+''',
+)
+
+replace_once(
+    'lib/state/pharmacy_controller.dart',
+    '''
+Future<void> applyStockAdjustment(ReviewedStockAdjustment review) async {
+  if (review.baseRevision != snapshot.revision) {
+    throw StateError(
+      'Inventory changed after the stock review. Review this stock action again before saving.',
+    );
+  }
+  final live = snapshot.records[review.stockId];
+  if (live == null ||
+      live.archived ||
+      live.revision != review.recordRevision) {
+    throw StateError(
+      'The reviewed stock entry changed or is no longer active. Review it again.',
+    );
+  }
+
+  final fresh = reviewStockAdjustment(
+    live.id,
+    kind: review.kind,
+    quantity: review.requestedQuantity,
+  );
+  if (fresh.beforeQuantity != review.beforeQuantity ||
+      fresh.afterQuantity != review.afterQuantity ||
+      fresh.wasSold != review.wasSold) {
+    throw StateError(
+      'Stock facts changed after review. Nothing was saved; review the action again.',
+    );
+  }
+  if (!fresh.changesQuantity &&
+      !(fresh.kind == StockAdjustmentKind.receive && fresh.wasSold)) {
+    return;
+  }
+
+  final changes = <String, dynamic>{'quantity': fresh.afterQuantity};
+  if (fresh.kind == StockAdjustmentKind.receive && live.sold) {
+    changes.addAll({
+      'sold': false,
+      'soldAt': null,
+      'soldQuantity': null,
+      'soldUnitPricePaise': null,
+    });
+  }
+  final label = fresh.kind == StockAdjustmentKind.receive
+      ? 'Received stock · ${live.name} · +${fresh.requestedQuantity} units · ${fresh.beforeQuantity}→${fresh.afterQuantity}'
+      : 'Corrected stock · ${live.name} · ${fresh.beforeQuantity == null ? 'unknown' : fresh.beforeQuantity}→${fresh.afterQuantity} units';
+  await _commit(
+    InventoryMutation(
+      expectedRevision: review.baseRevision,
+      label: label,
+      upserts: [live.patch(changes)],
+    ),
+  );
+}
+''',
+    '''
+Future<void> applyStockAdjustment(ReviewedStockAdjustment review) async {
+  // This confirmation belongs to one exact physical stock row. An unrelated
+  // medicine being added, sold or edited must not force the pharmacist to
+  // repeat a still-valid review. The row revision and reviewed stock facts are
+  // revalidated below; the final commit rebases onto the live global revision.
+  final live = snapshot.records[review.stockId];
+  if (live == null ||
+      live.archived ||
+      live.revision != review.recordRevision) {
+    throw StateError(
+      'The reviewed stock entry changed or is no longer active. Review it again.',
+    );
+  }
+
+  final fresh = reviewStockAdjustment(
+    live.id,
+    kind: review.kind,
+    quantity: review.requestedQuantity,
+  );
+  if (fresh.beforeQuantity != review.beforeQuantity ||
+      fresh.afterQuantity != review.afterQuantity ||
+      fresh.wasSold != review.wasSold) {
+    throw StateError(
+      'Stock facts changed after review. Nothing was saved; review the action again.',
+    );
+  }
+  if (!fresh.changesQuantity &&
+      !(fresh.kind == StockAdjustmentKind.receive && fresh.wasSold)) {
+    return;
+  }
+
+  final changes = <String, dynamic>{'quantity': fresh.afterQuantity};
+  if (fresh.kind == StockAdjustmentKind.receive && live.sold) {
+    changes.addAll({
+      'sold': false,
+      'soldAt': null,
+      'soldQuantity': null,
+      'soldUnitPricePaise': null,
+    });
+  }
+  final label = fresh.kind == StockAdjustmentKind.receive
+      ? 'Received stock · ${live.name} · +${fresh.requestedQuantity} units · ${fresh.beforeQuantity}→${fresh.afterQuantity}'
+      : 'Corrected stock · ${live.name} · ${fresh.beforeQuantity == null ? 'unknown' : fresh.beforeQuantity}→${fresh.afterQuantity} units';
+  await _commit(
+    InventoryMutation(
+      expectedRevision: fresh.baseRevision,
+      label: label,
+      upserts: [live.patch(changes)],
+    ),
+  );
+}
+''',
+)
+
+replace_once(
+    'lib/state/pharmacy_controller.dart',
+    '''
+Future<void> applyArchivedRestore(ReviewedArchivedRestore review) async {
+  if (review.baseRevision != snapshot.revision) {
+    throw StateError(
+      'Inventory changed after this removed stock was reviewed. Review the restore again before saving.',
+    );
+  }
+  final live = snapshot.records[review.stockId];
+  if (live == null ||
+      !live.archived ||
+      live.revision != review.recordRevision ||
+      live.archiveReason != review.archiveReason ||
+      live.archivedAt != review.archivedAt) {
+    throw StateError(
+      'The reviewed removed-stock entry changed or is no longer removed. Review it again.',
+    );
+  }
+  await _commit(
+    InventoryMutation(
+      expectedRevision: review.baseRevision,
+      label: 'Restored ${live.name}',
+      upserts: [restoreArchivedMedicine(live)],
+    ),
+  );
+}
+''',
+    '''
+Future<void> applyArchivedRestore(ReviewedArchivedRestore review) async {
+  // Restore is exact-row recovery. Preserve a valid pharmacist confirmation
+  // across unrelated database traffic while binding it to the same archived
+  // row revision, removal reason and removal timestamp. Cross-row integrity is
+  // still enforced at the persistence boundary.
+  final live = snapshot.records[review.stockId];
+  if (live == null ||
+      !live.archived ||
+      live.revision != review.recordRevision ||
+      live.archiveReason != review.archiveReason ||
+      live.archivedAt != review.archivedAt) {
+    throw StateError(
+      'The reviewed removed-stock entry changed or is no longer removed. Review it again.',
+    );
+  }
+  final fresh = reviewArchivedRestore(live.id);
+  await _commit(
+    InventoryMutation(
+      expectedRevision: fresh.baseRevision,
+      label: 'Restored ${live.name}',
+      upserts: [restoreArchivedMedicine(live)],
+    ),
+  );
+}
+''',
+)
+
+replace_once(
+    'test/autonomous_stock_operations_test.dart',
+    '''
+test('review token rejects stale stock facts before mutation', () async {
+  final controller = await controllerWithClock();
+  addTearDown(controller.dispose);
+  await controller.save(stock('a'), expectedRevision: 0);
+  final review = controller.reviewStockAdjustment(
+    'a',
+    kind: StockAdjustmentKind.receive,
+    quantity: 2,
+  );
+  await controller.save(stock('b'), expectedRevision: 1);
+
+  await expectLater(
+    controller.applyStockAdjustment(review),
+    throwsStateError,
+  );
+  expect(controller.snapshot.records['a']!.quantity, 10);
+});
+''',
+    '''
+test('review survives unrelated writes but rejects target changes', () async {
+  final controller = await controllerWithClock();
+  addTearDown(controller.dispose);
+  await controller.save(stock('a'), expectedRevision: 0);
+  final review = controller.reviewStockAdjustment(
+    'a',
+    kind: StockAdjustmentKind.receive,
+    quantity: 2,
+  );
+  await controller.save(stock('b'), expectedRevision: 1);
+
+  await controller.applyStockAdjustment(review);
+  expect(controller.snapshot.records['a']!.quantity, 12);
+  expect(controller.snapshot.records['b']!.quantity, 10);
+
+  final stale = controller.reviewStockAdjustment(
+    'a',
+    kind: StockAdjustmentKind.receive,
+    quantity: 2,
+  );
+  final live = controller.snapshot.records['a']!;
+  await controller.save(
+    live.patch({'notes': 'physical count rechecked'}),
+    expectedRevision: controller.snapshot.revision,
+  );
+  await expectLater(
+    controller.applyStockAdjustment(stale),
+    throwsStateError,
+  );
+  expect(controller.snapshot.records['a']!.quantity, 12);
+});
+''',
+)
+
+replace_once(
+    'test/removed_stock_recovery_test.dart',
+    '''
+test('stale review fails closed after any inventory revision change', () async {
+  final archived = removed('a');
+  final controller = await controllerWith({'a': archived});
+  addTearDown(controller.dispose);
+
+  final review = controller.reviewArchivedRestore('a');
+  await controller.save(
+    stock(
+      'other',
+      name: 'Crocin',
+      strength: '500 mg',
+      batch: 'C1',
+      barcode: '8902222222222',
+    ),
+    expectedRevision: 0,
+  );
+
+  await expectLater(
+    controller.applyArchivedRestore(review),
+    throwsStateError,
+  );
+  expect(controller.snapshot.records['a']!.archived, isTrue);
+});
+''',
+    '''
+test('restore review survives unrelated inventory traffic', () async {
+  final archived = removed('a');
+  final controller = await controllerWith({'a': archived});
+  addTearDown(controller.dispose);
+
+  final review = controller.reviewArchivedRestore('a');
+  await controller.save(
+    stock(
+      'other',
+      name: 'Crocin',
+      strength: '500 mg',
+      batch: 'C1',
+      barcode: '8902222222222',
+    ),
+    expectedRevision: 0,
+  );
+
+  await controller.applyArchivedRestore(review);
+  expect(controller.snapshot.records['a']!.archived, isFalse);
+  expect(controller.snapshot.records['other']!.archived, isFalse);
+});
+
+test('restore review still fails when the exact archived row changed', () async {
+  final archived = removed('a');
+  final controller = await controllerWith({'a': archived});
+  addTearDown(controller.dispose);
+
+  final stale = controller.reviewArchivedRestore('a');
+  await controller.applyArchivedRestore(
+    controller.reviewArchivedRestore('a'),
+  );
+
+  await expectLater(
+    controller.applyArchivedRestore(stale),
+    throwsStateError,
+  );
+  expect(controller.snapshot.records['a']!.archived, isFalse);
+});
+''',
+)
+
+replace_once(
+    'test/fefo_automation_test.dart',
+    '''
+Medicine stock({
+  required String id,
+  required DateTime? expiry,
+  required int? quantity,
+  DateTime? mfg,
+  String batch = '',
+  bool sold = false,
+  bool archived = false,
+}) => Medicine(
+  id: id,
+  name: 'Dolo',
+  strength: '650 mg',
+''',
+    '''
+Medicine stock({
+  required String id,
+  required DateTime? expiry,
+  required int? quantity,
+  DateTime? mfg,
+  String batch = '',
+  String name = 'Dolo',
+  String strength = '650 mg',
+  bool sold = false,
+  bool archived = false,
+}) => Medicine(
+  id: id,
+  name: name,
+  strength: strength,
+''',
+)
+
+replace_once(
+    'test/fefo_automation_test.dart',
+    "test('stale FEFO review cannot mutate a newer inventory revision', () async {",
+    '''
+test('FEFO review rebases across unrelated inventory traffic', () async {
+  final item = stock(
+    id: 'one',
+    expiry: DateTime.utc(2026, 12, 1),
+    quantity: 10,
+  );
+  final storage = MemoryInventoryStorage(
+    InventorySnapshot(records: {'one': item}),
+  );
+  final controller = PharmacyController(
+    storage,
+    clock: () => today,
+    backgroundSearch: false,
+  );
+  await controller.initialize();
+
+  final review = controller.reviewFefoSale('one', quantity: 2);
+  await controller.save(
+    stock(
+      id: 'other',
+      name: 'Crocin',
+      strength: '500 mg',
+      expiry: DateTime.utc(2027, 1, 1),
+      quantity: 7,
+    ),
+    expectedRevision: controller.snapshot.revision,
+  );
+
+  await controller.applyFefoSale(review);
+  expect(controller.snapshot.records['one']!.quantity, 8);
+  expect(controller.snapshot.records['other']!.quantity, 7);
+  expect(controller.sales, hasLength(1));
+  controller.dispose();
+});
+
+test('FEFO review fails if a new earlier same-product batch appears', () async {
+  final item = stock(
+    id: 'one',
+    expiry: DateTime.utc(2026, 12, 1),
+    quantity: 10,
+  );
+  final storage = MemoryInventoryStorage(
+    InventorySnapshot(records: {'one': item}),
+  );
+  final controller = PharmacyController(
+    storage,
+    clock: () => today,
+    backgroundSearch: false,
+  );
+  await controller.initialize();
+
+  final review = controller.reviewFefoSale('one', quantity: 2);
+  await controller.save(
+    stock(
+      id: 'earlier',
+      expiry: DateTime.utc(2026, 10, 1),
+      quantity: 5,
+      batch: 'EARLY',
+    ),
+    expectedRevision: controller.snapshot.revision,
+  );
+
+  await expectLater(
+    controller.applyFefoSale(review),
+    throwsStateError,
+  );
+  expect(controller.snapshot.records['one']!.quantity, 10);
+  expect(controller.snapshot.records['earlier']!.quantity, 5);
+  expect(controller.sales, isEmpty);
+  controller.dispose();
+});
+
+test('stale FEFO review cannot mutate a newer inventory revision', () async {
+''',
+)
+
+replace_once(
+    'docs/ARCHITECTURE.md',
+    '- All writes validate the expected global revision and commit atomically.\n',
+    '- Every commit validates the current global revision and commits atomically. Reviewed exact-row actions may rebase across unrelated inventory traffic only after their target revision/facts are unchanged; reviewed FEFO sales may rebase only when every shown allocation row is unchanged and a fresh deterministic FEFO plan is equivalent.\n',
+)
+
+Path('docs/REVIEWED_ACTION_CONCURRENCY_2026_09_10.md').write_text(dedent('''
+# Aaris reviewed-action concurrency upgrade — 2026-09-10
+
+This pass removes false-stale confirmation failures from reviewed pharmacy work without weakening Aaris's single-database, local-first or fail-closed safety boundaries.
+
+## What changed
+
+- Exact stock quantity corrections and stock receipts are bound to the reviewed physical row revision and reviewed before/after facts instead of the entire inventory revision. Unrelated inventory traffic may occur while the pharmacist reads a dialog; the action is rebased only when the exact target is unchanged.
+- Removed-stock restore uses the same exact-row rule. The archived row revision, removal reason and removal timestamp must still match exactly. Cross-row lot/barcode/date integrity remains enforced by the persistence safety kernel.
+- FEFO sale review carries revisions for every physical row shown in the allocation. If unrelated inventory changes, Aaris verifies those rows and recomputes FEFO from the live Medicine Database. The action proceeds only when the ordered allocation is equivalent. A newly added or changed earlier-priority batch invalidates the review before any sale is written.
+- Every rebased action still commits against the current authoritative SQLite revision. A race after revalidation is rejected by the existing compare-and-swap persistence boundary.
+
+## Preserved safety invariants
+
+- SQLite remains the sole authoritative Medicine Database.
+- OCR/AI/local-model output never bypasses pharmacist review or deterministic validation.
+- Bulk removal, Undo, backup restore and multi-change AI plans remain snapshot-scoped because their correctness depends on the wider inventory state.
+- No medical facts, quantities, locations, expiry values or batch identities are guessed.
+- FEFO remains deterministic and fails closed for changed reviewed rows, newly relevant batches, unknown priority quantities, expired stock and future-MFG stock.
+- Existing atomic audit, sale-ledger, integrity and Undo behavior remains intact.
+
+## Regression coverage
+
+Focused tests cover unrelated-write survival for stock adjustments, stale exact-row rejection, unrelated-write survival for archived restore, exact-row restore invalidation, unrelated-write FEFO rebasing, newly earlier FEFO batch invalidation, and existing exact-row FEFO staleness. The one-shot verification job formats changed Dart sources, runs static analysis, the focused suites, the full Flutter test suite and an Android debug compile before committing the source upgrade to `main`.
+'''))
