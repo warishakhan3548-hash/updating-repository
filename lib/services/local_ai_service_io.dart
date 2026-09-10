@@ -14,6 +14,7 @@ import '../domain/local_ai_protocol.dart';
 import '../domain/gguf_metadata.dart';
 import '../domain/local_model.dart';
 import '../domain/local_model_checks.dart';
+import '../domain/local_scan_handoff.dart';
 import '../domain/model_catalogue.dart';
 import 'gguf_inspector.dart';
 import 'model_catalogue_service.dart';
@@ -548,15 +549,11 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    return run().timeout(
-      const Duration(minutes: 4),
-      onTimeout: () {
-        cancelRequest();
-        throw TimeoutException(
-          'Local AI took too long; native work is draining. No changes saved.',
-        );
-      },
-    );
+    // LocalAiRuntime owns a progress-aware stall watchdog. Do not impose a
+    // wall-clock deadline here: a healthy large model may legitimately run for
+    // several minutes while continuously streaming tokens/native state. A truly
+    // silent native transport is retired by the runtime and becomes recoverable.
+    return run();
   }
 
   void _checkRequest(int generation) {
@@ -836,11 +833,17 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       await _loadSelected();
       _checkRequest(generation);
       final sourceLimit = _executionPlan!.evidenceCharacters;
-      _status = 'Local AI · extracting brand, salt, strength and form from OCR…';
+      final handoff = LocalScanHandoff.fromDraft(
+        draft,
+        sourceLimit: sourceLimit,
+      );
+      _status = handoff.sourceTruncated
+          ? 'Local AI · reasoning over bounded raw OCR for scan preview…'
+          : 'Local AI · reasoning over raw OCR for scan preview…';
       notifyListeners();
       final raw = await _runtime!.generate(
-        localScanPrompt(draft, sourceLimit: sourceLimit),
-        'Return the evidence-grounded fields for this one medicine.',
+        handoff.systemPrompt,
+        handoff.userPayload,
         maxTokens: _executionPlan!.outputTokens.clamp(1, 1000),
       );
       _checkRequest(generation);
