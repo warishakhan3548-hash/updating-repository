@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'domain/app_brain.dart';
 import 'domain/inventory.dart';
 import 'state/autopilot_supervisor.dart';
 import 'state/pharmacy_controller.dart';
+import 'ui/attention_screen.dart';
 import 'ui/autopilot_beacon.dart';
 import 'ui/brain_screen.dart';
 import 'ui/design.dart';
@@ -98,6 +101,21 @@ class _ShellState extends State<_Shell> {
     if (next != tab) setState(() => tab = next);
   }
 
+  void _openAutopilotQueue() {
+    if (!mounted) return;
+    unawaited(
+      Navigator.of(context)
+          .push<void>(
+            MaterialPageRoute(
+              builder: (_) => AttentionScreen(controller: widget.controller),
+            ),
+          )
+          .whenComplete(() {
+            if (mounted) widget.autopilot.refreshNow();
+          }),
+    );
+  }
+
   @override
   void didUpdateWidget(covariant _Shell oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -158,7 +176,7 @@ class _ShellState extends State<_Shell> {
                 alignment: Alignment.bottomCenter,
                 child: AarisAutopilotBeacon(
                   supervisor: widget.autopilot,
-                  onOpenBrain: () => _openSection(AppSection.ai),
+                  onOpenWorkQueue: _openAutopilotQueue,
                 ),
               ),
             ),
