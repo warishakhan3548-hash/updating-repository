@@ -115,6 +115,21 @@ void main() {
       expect(result.candidateStockIds, contains(stock.id));
     });
 
+    test('same trusted batch with conflicting expiry fails closed', () {
+      final stock = _medicine('lot-a', batch: 'B-100', expiry: '2027-10');
+      final result = resolveIntakeDraft(
+        draft: _draft(batch: 'B-100', expiry: '2028-01'),
+        records: <Medicine>[stock],
+        today: today,
+      );
+
+      expect(result.kind, IntakeResolutionKind.needsReview);
+      expect(result.exactStockId, isNull);
+      expect(result.safeToReceive, isFalse);
+      expect(result.candidateStockIds, <String>[stock.id]);
+      expect(result.reason, contains('already exists'));
+    });
+
     test('one barcode saved for different identities fails closed', () {
       final first = _medicine('a');
       final second = _medicine(
