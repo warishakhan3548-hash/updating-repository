@@ -1349,7 +1349,6 @@ class _BrainScreenState extends State<BrainScreen> {
     );
   }
 
-
   void _analyticsBrief(BrainAnalyticsRequest request) {
     final range = request.resolveRange(widget.controller.today);
     final stats = widget.controller.tracking(range);

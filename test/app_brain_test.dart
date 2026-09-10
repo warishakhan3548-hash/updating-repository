@@ -210,9 +210,10 @@ void main() {
           'slow moving stock',
         ]) {
           final intent = parseAppBrainIntent(command);
-          expect(intent.action, AppBrainAction.navigate, reason: command);
-          expect(intent.section, AppSection.calculator, reason: command);
+          expect(intent.action, AppBrainAction.analyticsBrief, reason: command);
+          expect(intent.analyticsRequest, isNotNull, reason: command);
           expect(intent.destructive, isFalse, reason: command);
+          expect(intent.mutatesInventory, isFalse, reason: command);
         }
       },
     );

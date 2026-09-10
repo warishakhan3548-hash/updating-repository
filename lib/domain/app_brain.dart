@@ -171,8 +171,8 @@ AppBrainIntent parseAppBrainIntent(String raw) {
 
   // Read-only analytics questions are recognized before the write-side sale
   // vocabulary. This prevents phrases such as "aaj ki bikri kitni" from ever
-  // being interpreted as a stock mutation. The Calculator/Tracking surface is
-  // the existing deterministic source of truth for these metrics.
+  // being interpreted as a stock mutation. TrackingStats remains the
+  // deterministic source of truth; Brain now renders that projection directly.
   final analytics = parseBrainAnalyticsRequest(raw);
   if (analytics != null) {
     return AppBrainIntent(
