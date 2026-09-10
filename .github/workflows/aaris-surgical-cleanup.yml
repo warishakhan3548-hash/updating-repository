@@ -1,0 +1,101 @@
+name: Aaris surgical Brain cleanup
+
+on:
+  push:
+    branches:
+      - aaris/atomic-work-command-20260910
+    paths:
+      - '.github/workflows/aaris-surgical-cleanup.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aaris-surgical-brain-cleanup
+  cancel-in-progress: false
+
+jobs:
+  verify-cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Apply surgical cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/aaris_atomic_work_command_cleanup.py
+          git diff --check
+          git diff --stat origin/main
+          python3 - <<'PY'
+          import subprocess
+          limits = {
+              'lib/state/pharmacy_controller.dart': 350,
+              'lib/ui/brain_screen.dart': 350,
+          }
+          for path, limit in limits.items():
+              raw = subprocess.check_output(
+                  ['git', 'diff', '--numstat', 'origin/main', '--', path],
+                  text=True,
+              ).strip()
+              if not raw:
+                  raise SystemExit(f'{path}: expected intended source changes')
+              added, deleted, _ = raw.split('\t', 2)
+              churn = int(added) + int(deleted)
+              print(f'{path}: {added} additions, {deleted} deletions')
+              if churn > limit:
+                  raise SystemExit(
+                      f'{path}: formatter/churn guard failed ({churn} > {limit})'
+                  )
+          PY
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Zero-warning static and regression gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          dart analyze --fatal-infos lib test tool third_party/lib_llama_cpp/lib
+          flutter test test/brain_compound_stock_operation_test.dart test/brain_temporal_target_test.dart --reporter expanded
+          flutter test --reporter expanded
+          flutter build apk --debug --no-pub
+
+      - name: Commit verified surgical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -- pubspec.lock analysis_options.yaml 2>/dev/null || true
+          git config user.name 'Aaris Pharmacy Upgrade Bot'
+          git config user.email 'warishakhan3548@gmail.com'
+          git rm -f \
+            tool/aaris_atomic_work_command_cleanup.py \
+            .github/workflows/aaris-surgical-cleanup.yml
+          git add \
+            lib/state/pharmacy_controller.dart \
+            lib/ui/brain_screen.dart \
+            lib/ui/import_screen.dart \
+            .github/workflows/flutter.yml \
+            .github/workflows/release-apk.yml
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No verified cleanup diff produced'; exit 1; }
+          git commit -m 'Harden Aaris lifecycle and keep Brain upgrade surgical'
+          git push origin HEAD:aaris/atomic-work-command-20260910
