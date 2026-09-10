@@ -92,25 +92,24 @@ FefoDispensingPlan planFefoDispensing({
     );
   }
 
-  // `Medicine.identity` intentionally stays stable when OCR salt metadata is
-  // corrected later, which is useful for search/history but is too permissive
-  // to be the sole authority for a dispensing allocation. Before FEFO can move
-  // stock across physical rows, fail closed when those otherwise-same product
-  // rows contain two different *known* compositions. Missing salt remains an
-  // explicit unknown fact; a recorded contradiction is never silently ignored.
+  // Build the exact physical candidate set first. `Medicine.identity`
+  // intentionally excludes salt so later OCR corrections do not break history;
+  // that makes composition verification mandatory before FEFO is allowed to
+  // move a sale across more than one physical stock row.
+  final candidates = dispensingCandidates(records, requested, date);
   final knownCompositions = <String>{};
   final requestedComposition = identityPart(requested.salt);
   if (requestedComposition.isNotEmpty) {
     knownCompositions.add(requestedComposition);
   }
-  for (final record in records) {
-    if (record.identity != requested.identity ||
-        !isDispensableOn(record, date) ||
-        record.quantity == 0) {
-      continue;
-    }
+  var hasUnknownComposition = false;
+  for (final record in candidates) {
     final composition = identityPart(record.salt);
-    if (composition.isNotEmpty) knownCompositions.add(composition);
+    if (composition.isEmpty) {
+      hasUnknownComposition = true;
+    } else {
+      knownCompositions.add(composition);
+    }
     if (knownCompositions.length > 1) {
       throw const FormatException(
         'FEFO is blocked because same-name stock rows have conflicting recorded salts. Verify the exact medicine composition before recording this sale.',
@@ -118,7 +117,24 @@ FefoDispensingPlan planFefoDispensing({
     }
   }
 
-  final candidates = dispensingCandidates(records, requested, date);
+  // A missing salt is harmless only when the one and only dispensable row is
+  // the exact row the pharmacist selected. As soon as FEFO would choose another
+  // row, or choose between multiple rows, an unknown composition could silently
+  // substitute a different formulation that shares name/strength/form. Fail
+  // closed and ask for the pack composition instead of pretending the identity
+  // key proves pharmaceutical equivalence.
+  if (hasUnknownComposition &&
+      (candidates.length != 1 || candidates.first.id != requested.id)) {
+    throw const FormatException(
+      'FEFO is blocked because another eligible stock row has no recorded salt/composition. Verify the composition before Aaris allocates across batches.',
+    );
+  }
+  if (hasUnknownComposition && candidates.length > 1) {
+    throw const FormatException(
+      'FEFO is blocked because same-product batch composition is incomplete. Record the salt/composition for every eligible batch first.',
+    );
+  }
+
   final knownVisibleUnits = candidates
       .where((medicine) => medicine.quantity != null)
       .fold<int>(0, (sum, medicine) => sum + medicine.quantity!);
