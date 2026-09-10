@@ -27,6 +27,36 @@ policy.write_text(text.replace(anchor, insertion, 1))
 
 app_brain = Path('lib/domain/app_brain.dart')
 text = app_brain.read_text()
+old_families = """  if (_containsAny(text, _editTerms) || _looksLikeFieldEdit(text)) {
+    families.add('edit');
+  }
+"""
+new_families = """  final warningPolicyMutation = looksLikeWarningPolicyMutation(raw);
+  final explicitMedicineEdit = _containsAny(text, const [
+    'edit medicine',
+    'update medicine',
+    'medicine update',
+    'change medicine',
+  ]);
+  final fieldEditMutation = _looksLikeFieldEdit(text);
+  if (explicitMedicineEdit ||
+      (!warningPolicyMutation &&
+          (_containsAny(text, _editTerms) || fieldEditMutation))) {
+    families.add('edit');
+  }
+"""
+if text.count(old_families) != 1:
+    raise SystemExit('app_brain.dart: edit-family anchor missing')
+text = text.replace(old_families, new_families, 1)
+old_policy_family = """  if (locationMutation) families.add('relocate');
+  if (looksLikeWarningPolicyMutation(raw)) families.add('warning-policy');
+"""
+new_policy_family = """  if (locationMutation) families.add('relocate');
+  if (warningPolicyMutation) families.add('warning-policy');
+"""
+if text.count(old_policy_family) != 1:
+    raise SystemExit('app_brain.dart: policy-family anchor missing')
+text = text.replace(old_policy_family, new_policy_family, 1)
 old_deferred = """  if (_containsAny(text, _deferredWriteSafetyTerms) ||
       _looksLikeScheduledMutation(raw)) {
     return AppBrainSafetyReason.deferredMutation;
