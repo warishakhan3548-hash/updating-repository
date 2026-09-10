@@ -1,6 +1,7 @@
 import 'brain_operations.dart';
 import 'inventory.dart';
 import 'medicine_brief.dart';
+import 'warning_policy.dart';
 
 enum AppSection { home, stock, ai, calculator, profile }
 
@@ -25,6 +26,8 @@ enum AppBrainAction {
   inventorySummary,
   attentionBrief,
   nextAttentionTask,
+  activityBrief,
+  setWarningPolicy,
   bulkRemoveBlocked,
 }
 
@@ -52,6 +55,7 @@ class AppBrainIntent {
     this.briefFocus,
     this.locationPatch,
     this.removalReason,
+    this.warningPolicy,
     this.safetyReason,
     this.confidence = 0,
   });
@@ -64,6 +68,7 @@ class AppBrainIntent {
   final MedicineBriefFocus? briefFocus;
   final StockLocationPatch? locationPatch;
   final RemovalReasonHint? removalReason;
+  final WarningPolicyPatch? warningPolicy;
   final AppBrainSafetyReason? safetyReason;
   final double confidence;
 
@@ -98,7 +103,8 @@ class AppBrainIntent {
     AppBrainAction.restoreMedicine ||
     AppBrainAction.markSold ||
     AppBrainAction.recordSale ||
-    AppBrainAction.undoLast => true,
+    AppBrainAction.undoLast ||
+    AppBrainAction.setWarningPolicy => true,
     _ => false,
   };
 
@@ -139,6 +145,15 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
+  final warningPolicy = parseWarningPolicyCommand(raw);
+  if (warningPolicy != null) {
+    return AppBrainIntent(
+      action: AppBrainAction.setWarningPolicy,
+      warningPolicy: warningPolicy,
+      confidence: .99,
+    );
+  }
+
   if (_containsAny(text, const [
     'undo',
     'undo last',
@@ -151,6 +166,26 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   ])) {
     return const AppBrainIntent(
       action: AppBrainAction.undoLast,
+      confidence: .99,
+    );
+  }
+
+  if (_containsAny(text, const [
+    'what changed today',
+    'what changed',
+    'recent activity',
+    'activity history',
+    'last activity',
+    'show activity',
+    'aaj kya change hua',
+    'aaj kya badla',
+    'recent changes',
+    'आज क्या बदला',
+    'आज क्या बदलाव हुआ',
+    'हाल के बदलाव',
+  ])) {
+    return const AppBrainIntent(
+      action: AppBrainAction.activityBrief,
       confidence: .99,
     );
   }
@@ -710,7 +745,17 @@ AppBrainSafetyReason? _brainSafetyBlock(String raw, String text) {
       _containsAny(text, _saleTerms)) {
     families.add('sale');
   }
-  if (_containsAny(text, _editTerms) || _looksLikeFieldEdit(text)) {
+  final warningPolicyMutation = looksLikeWarningPolicyMutation(raw);
+  final explicitMedicineEdit = _containsAny(text, const [
+    'edit medicine',
+    'update medicine',
+    'medicine update',
+    'change medicine',
+  ]);
+  final fieldEditMutation = _looksLikeFieldEdit(text);
+  if (explicitMedicineEdit ||
+      (!warningPolicyMutation &&
+          (_containsAny(text, _editTerms) || fieldEditMutation))) {
     families.add('edit');
   }
   if (_containsAny(text, _restoreTerms)) families.add('restore');
@@ -722,14 +767,17 @@ AppBrainSafetyReason? _brainSafetyBlock(String raw, String text) {
     families.add('receive-stock');
   }
   if (locationMutation) families.add('relocate');
+  if (warningPolicyMutation) families.add('warning-policy');
 
   if (families.isEmpty) return null;
 
   if (_containsAny(text, _negativeWriteSafetyTerms)) {
     return AppBrainSafetyReason.negatedMutation;
   }
+  final warningPolicyOnly =
+      families.length == 1 && families.contains('warning-policy');
   if (_containsAny(text, _deferredWriteSafetyTerms) ||
-      _looksLikeScheduledMutation(raw)) {
+      _looksLikeScheduledMutation(raw, allowBareDuration: !warningPolicyOnly)) {
     return AppBrainSafetyReason.deferredMutation;
   }
 
@@ -767,7 +815,7 @@ bool _looksLikeLocationMutation(String text) =>
     _containsAny(text, _locationSafetyNouns) &&
     _containsAny(text, _locationSafetyVerbs);
 
-bool _looksLikeScheduledMutation(String raw) =>
+bool _looksLikeScheduledMutation(String raw, {bool allowBareDuration = true}) =>
     RegExp(
       r'\b(?:at\s+)?(?:[01]?\d|2[0-3]):[0-5]\d(?:\s*(?:a\.?m\.?|p\.?m\.?))?\b',
       caseSensitive: false,
@@ -781,7 +829,9 @@ bool _looksLikeScheduledMutation(String raw) =>
       caseSensitive: false,
     ).hasMatch(raw) ||
     RegExp(
-      r'\b(?:in\s+)?\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\b',
+      allowBareDuration
+          ? r'\b(?:in\s+)?\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\b'
+          : r'\b(?:in|after)\s+\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\b',
       caseSensitive: false,
     ).hasMatch(raw) ||
     RegExp(

@@ -61,6 +61,21 @@ class ReviewedMarkSold {
   String get stockId => record.id;
 }
 
+class ReviewedWarningSettings {
+  const ReviewedWarningSettings({
+    required this.baseRevision,
+    required this.before,
+    required this.after,
+  });
+
+  final int baseRevision;
+  final WarningSettings before;
+  final WarningSettings after;
+
+  bool get changesSettings =>
+      before.shortDays != after.shortDays || before.months != after.months;
+}
+
 /// Immutable single-stock sale review.
 ///
 /// The token binds the pharmacist's confirmation to the exact physical stock
@@ -423,14 +438,39 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
-  Future<void> setWarnings(WarningSettings value) => _commit(
-    InventoryMutation(
-      expectedRevision: snapshot.revision,
-      label: 'Updated expiry warning windows',
-      upserts: [],
-      settings: value,
-    ),
-  );
+  ReviewedWarningSettings reviewWarningSettings(WarningSettings value) {
+    final before = WarningSettings.fromJson(settings.toJson());
+    final after = WarningSettings.fromJson(value.toJson());
+    return ReviewedWarningSettings(
+      baseRevision: snapshot.revision,
+      before: before,
+      after: after,
+    );
+  }
+
+  Future<void> applyWarningSettings(ReviewedWarningSettings review) async {
+    final live = settings;
+    if (review.baseRevision != snapshot.revision ||
+        live.shortDays != review.before.shortDays ||
+        live.months != review.before.months) {
+      throw StateError(
+        'Expiry-warning settings changed after this review was prepared. Review the live policy again before saving.',
+      );
+    }
+    if (!review.changesSettings) return;
+    await _commit(
+      InventoryMutation(
+        expectedRevision: snapshot.revision,
+        label:
+            'Updated expiry warnings · ${review.after.shortDays} days · ${review.after.months} months',
+        upserts: const [],
+        settings: review.after,
+      ),
+    );
+  }
+
+  Future<void> setWarnings(WarningSettings value) =>
+      applyWarningSettings(reviewWarningSettings(value));
 
   ReviewedMarkSold reviewMarkSold(String id) {
     final medicine = snapshot.records[id];

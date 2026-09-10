@@ -247,6 +247,12 @@ class _BrainScreenState extends State<BrainScreen> {
       case AppBrainAction.nextAttentionTask:
         await _attentionBrief(focusNext: true);
         return;
+      case AppBrainAction.activityBrief:
+        _activityBrief();
+        return;
+      case AppBrainAction.setWarningPolicy:
+        await _warningPolicy(intent);
+        return;
       case AppBrainAction.bulkRemoveBlocked:
         _bulkRemoveBlocked();
         return;
@@ -254,6 +260,96 @@ class _BrainScreenState extends State<BrainScreen> {
         _unknown(raw);
         return;
     }
+  }
+
+  void _activityBrief() {
+    if (!mounted) return;
+    final events = widget.controller.snapshot.events;
+    if (events.isEmpty) {
+      setState(
+        () => _reply = 'No inventory activity has been recorded yet. Aaris did not invent any history.',
+      );
+      return;
+    }
+
+    final todayKey = dateText(widget.controller.today);
+    final todayEvents = events
+        .where((event) => event['businessDay'] == todayKey)
+        .toList(growable: false);
+    final source = todayEvents.isEmpty ? events : todayEvents;
+    final lines = source
+        .take(5)
+        .map((event) {
+          final rawLabel = event['label'];
+          final label = rawLabel is String && rawLabel.trim().isNotEmpty
+              ? rawLabel.trim()
+              : 'Inventory change';
+          return event['undone'] == true ? '$label (undone)' : label;
+        })
+        .toList(growable: false);
+
+    final intro = todayEvents.isEmpty
+        ? 'No inventory activity is recorded for today. Latest saved activity:'
+        : '${todayEvents.length} ${todayEvents.length == 1 ? 'change' : 'changes'} recorded today:';
+    setState(() => _reply = '$intro ${lines.join(' · ')}');
+  }
+
+  Future<void> _warningPolicy(AppBrainIntent intent) async {
+    if (!mounted) return;
+    final patch = intent.warningPolicy;
+    if (patch == null) {
+      throw StateError(
+        'The expiry-warning command is incomplete. Nothing changed.',
+      );
+    }
+
+    final next = patch.apply(widget.controller.settings);
+    final review = widget.controller.reviewWarningSettings(next);
+    if (!review.changesSettings) {
+      setState(
+        () => _reply =
+            'Expiry warnings already use ${review.before.shortDays} days and ${review.before.months} months. No setting changed.',
+      );
+      return;
+    }
+
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Update expiry warning policy?'),
+            content: Text(
+              'Current: ${review.before.shortDays} days · ${review.before.months} months\n'
+              'New: ${review.after.shortDays} days · ${review.after.months} months\n\n'
+              'This changes only the deterministic dashboard/attention windows. It does not edit any medicine, expiry date, stock quantity, sale or medical fact. The month window must remain longer than the short-expiry window.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Update policy'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) {
+      setState(
+        () => _reply = 'Expiry-warning update cancelled. Nothing changed.',
+      );
+      return;
+    }
+
+    await widget.controller.applyWarningSettings(review);
+    if (!mounted) return;
+    setState(
+      () => _reply =
+          'Expiry warnings updated to ${review.after.shortDays} days and ${review.after.months} months. Home cards, scoped search and Aaris Autopilot will recalculate from the same Medicine Database.',
+    );
   }
 
   Future<void> _removedStock(AppBrainIntent intent) async {

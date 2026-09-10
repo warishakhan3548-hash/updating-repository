@@ -55,6 +55,10 @@
   editor, import and backup, with responsive warning cards and shared typography.
 - Voice-search lifecycle repair: device locales, permission retry, serialized
   commands, final-word preservation, stale callback rejection and exit cleanup.
+- Aaris Brain control-plane upgrade: explicit unit-bound expiry-warning policy
+  commands now use deterministic parsing, firewall checks, revision-bound review,
+  confirmation, audit and Undo; local activity questions read the audit ledger
+  without invoking AI or inventing history.
 - Existing GitHub workflows run source checks and produce an Android release APK.
   The local bootstrap remains a separate check path.
 

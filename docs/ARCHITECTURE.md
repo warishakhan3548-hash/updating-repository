@@ -181,6 +181,11 @@ normalized through a closed deictic grammar and still resolve only to the sessio
 exact ID/fingerprint; they never become fuzzy implicit mutation targets. The Brain's
 “next task” route uses the same dependency-aware local operations plan shown in Needs
 Attention, so its recommendation cannot jump ahead of known verification blockers.
+Explicit expiry-warning policy commands are unit-bound and pass through the same
+firewall. They create a revision-bound before/after review and explicit confirmation;
+ordinary expiry questions or medicine strengths cannot mutate app policy. Brain
+activity questions read only the existing local audit ledger and never model-infer
+missing history.
 
 ## Deterministic operational autopilot
 
