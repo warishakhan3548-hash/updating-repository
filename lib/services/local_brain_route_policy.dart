@@ -36,9 +36,13 @@ class LocalBrainRoutePolicy {
     }
   }
 
-  /// Returns the exact capture-time model lease only when all routing gates are
-  /// true. This prevents a suspended-but-selected model from being silently
-  /// reloaded by the scanner after the owner turned Aaris Brain off.
+  /// Returns a capture-time proof that Aaris Brain was enabled and a scan-ready
+  /// Local AI route existed when this OCR work entered the durable queue.
+  ///
+  /// The ID is an audit/routing witness, not a permanent model lease. A queued
+  /// capture can outlive a model switch; [mayReasonWith] deliberately rechecks
+  /// the current active route immediately before inference so a healthy model
+  /// change never strands already-saved OCR in a dead-end review state.
   ///
   /// Local model initialization is deliberately best-effort here. A damaged or
   /// temporarily unreadable model manifest must degrade to deterministic OCR,
@@ -65,11 +69,15 @@ class LocalBrainRoutePolicy {
     }
   }
 
-  /// Re-check immediately before inference so a Brain-OFF toggle that happens
-  /// after OCR was queued cannot leak into a later Local AI reasoning step.
-  /// Any Local-AI readiness failure returns false so the already-produced,
-  /// evidence-grounded deterministic draft remains reviewable instead of being
-  /// mislabeled as a failed intake job.
+  /// Re-checks the privacy/user-control boundary immediately before inference.
+  ///
+  /// A non-null [capturedModelId] proves that Local AI was explicitly available
+  /// at capture time. If the owner keeps Aaris Brain ON but selects a different
+  /// scan-ready Local AI while OCR is queued, use that *current* active model.
+  /// This closes the capture-model-switch race without ever waking Local AI for
+  /// a scan captured while Brain was OFF. Turning Brain OFF, disabling scan AI,
+  /// leaving no ready model, or a setup failure still fails closed to the
+  /// evidence-grounded deterministic preview with no network fallback.
   static Future<bool> mayReasonWith(
     LocalAiService local,
     String? capturedModelId,
@@ -78,10 +86,14 @@ class LocalBrainRoutePolicy {
     try {
       await local.initialize();
       if (!await enabled()) return false;
-      final id = local.activeId;
-      return id == capturedModelId &&
+
+      // Both calls above are asynchronous. Re-evaluate the live route only
+      // after they complete; the model active *now* is the only model allowed
+      // to receive this already-saved OCR payload.
+      final activeId = local.activeId;
+      return activeId != null &&
           local.scannerEnabled &&
-          local.isModelScanReady(capturedModelId);
+          local.isModelScanReady(activeId);
     } catch (_) {
       return false;
     }
