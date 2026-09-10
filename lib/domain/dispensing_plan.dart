@@ -34,6 +34,7 @@ class FefoDispensingPlan {
     required this.knownVisibleUnits,
     required this.allocations,
     required this.unknownQuantityStockIds,
+    this.unknownExpiryStockIds = const <String>[],
   });
 
   final String productKey;
@@ -44,10 +45,20 @@ class FefoDispensingPlan {
   final List<FefoAllocation> allocations;
   final List<String> unknownQuantityStockIds;
 
+  /// Active same-product rows whose expiry is missing. Their relative FEFO
+  /// priority is unknowable, so an automated sale must fail closed until the
+  /// physical expiry is verified and saved instead of silently skipping them.
+  final List<String> unknownExpiryStockIds;
+
   int get remainingQuantity => requestedQuantity - plannedQuantity;
   bool get blockedByUnknownQuantity => unknownQuantityStockIds.isNotEmpty;
-  bool get complete => remainingQuantity == 0 && !blockedByUnknownQuantity;
+  bool get blockedByUnknownExpiry => unknownExpiryStockIds.isNotEmpty;
+  bool get complete =>
+      remainingQuantity == 0 &&
+      !blockedByUnknownQuantity &&
+      !blockedByUnknownExpiry;
   bool get requiresExpiryVerification =>
+      blockedByUnknownExpiry ||
       allocations.any((allocation) => allocation.expiry == null);
 }
 
@@ -85,6 +96,31 @@ FefoDispensingPlan planFefoDispensing({
   final knownVisibleUnits = candidates
       .where((medicine) => medicine.quantity != null)
       .fold<int>(0, (sum, medicine) => sum + medicine.quantity!);
+  final unknownExpiryStockIds = candidates
+      .where((medicine) => medicine.expiry == null)
+      .map((medicine) => medicine.id)
+      .toList(growable: false);
+
+  // FEFO is only deterministic when every eligible physical row has a recorded
+  // expiry. A row with unknown expiry could be the true earliest-expiring pack;
+  // allocating a later known-expiry row first would falsely claim FEFO. Keep the
+  // operation read-only until the pharmacist records the missing pack expiry.
+  if (unknownExpiryStockIds.isNotEmpty) {
+    return FefoDispensingPlan(
+      productKey: requested.identity,
+      title: requested.title,
+      requestedQuantity: quantity,
+      plannedQuantity: 0,
+      knownVisibleUnits: knownVisibleUnits,
+      allocations: const <FefoAllocation>[],
+      unknownQuantityStockIds: candidates
+          .where((medicine) => medicine.quantity == null)
+          .map((medicine) => medicine.id)
+          .toList(growable: false),
+      unknownExpiryStockIds: List<String>.unmodifiable(unknownExpiryStockIds),
+    );
+  }
+
   final allocations = <FefoAllocation>[];
   final blockers = <String>[];
   var remaining = quantity;
@@ -122,5 +158,6 @@ FefoDispensingPlan planFefoDispensing({
     knownVisibleUnits: knownVisibleUnits,
     allocations: List.unmodifiable(allocations),
     unknownQuantityStockIds: List.unmodifiable(blockers),
+    unknownExpiryStockIds: const <String>[],
   );
 }
