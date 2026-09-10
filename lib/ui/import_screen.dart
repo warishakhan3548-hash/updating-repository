@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../domain/intake_resolution.dart';
 import '../domain/inventory.dart';
+import '../domain/medicine.dart';
 import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
 import '../services/backup_service.dart';
@@ -126,8 +127,6 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
         revision: () => widget.controller.snapshot.revision,
       );
       if (!mounted || generation != _generation) return;
-      // The existing Upload button shares the durable windowed engine. Do not
-      // keep the legacy whole-video 60-frame path as a second implementation.
       await queue.addFile(source.path, kind: 'video', title: source.name);
     } catch (error) {
       if (mounted && generation == _generation) showError(context, error);
@@ -396,9 +395,6 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       _semanticWarning = '';
     });
     try {
-      // Identity-only snapshot of pharmacist-reviewed local records. It stays
-      // on device and lets the isolate canonicalize OCR without copying stock,
-      // prices, notes or locations into the recognition pipeline.
       final knowledge = medicineKnowledgeFromRecords(widget.controller.records);
       final payload = widget.preparedDrafts != null
           ? MedicineUnderstandingResult(
@@ -592,9 +588,6 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
     quantityController.dispose();
     if (units == null || !mounted) return;
 
-    // The quantity dialog can remain open while inventory changes. Re-resolve
-    // the physical lot from the live authoritative database before creating the
-    // revision-bound controller review token.
     preflight = _resolve(review.draft);
     if (!preflight.hasExactLot ||
         preflight.exactStockId != expectedId ||
