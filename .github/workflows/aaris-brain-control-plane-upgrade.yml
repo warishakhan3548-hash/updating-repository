@@ -62,4 +62,4 @@ jobs:
           git diff --cached --quiet && { echo 'No source upgrade diff produced'; exit 1; }
           git commit -m 'Upgrade Aaris Brain app control plane'
           git push origin HEAD:upgrade/aaris-brain-control-plane-20260910
-# v7: duration-valued warning policy commands use schedule-aware safety.
+# v8: warning-policy field vocabulary no longer masquerades as a medicine edit.
