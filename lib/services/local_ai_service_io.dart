@@ -30,6 +30,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   HttpClient? _transfer;
   String? _activeId;
   bool _working = false, _transferring = false, _scannerEnabled = true;
+  LocalModelSetupStage _setupStage = LocalModelSetupStage.chooseModel;
   int _requestGeneration = 0, _transferGeneration = 0;
   double? _progress;
   String _status = 'No local model selected';
@@ -53,6 +54,16 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   double? get progress => _progress;
   String get status => _status;
   String? get activeId => _activeId;
+  LocalModelSetupStage get setupStage => _setupStage;
+  InstalledLocalModel? get activeModel =>
+      _models.where((model) => model.id == _activeId).firstOrNull;
+  bool get ready => isLocalModelReady(model: activeModel, activeId: _activeId);
+  bool isModelReady(String id) =>
+      _activeId == id &&
+      isLocalModelReady(
+        model: _models.where((model) => model.id == id).firstOrNull,
+        activeId: _activeId,
+      );
   List<InstalledLocalModel> get installed => List.unmodifiable(_models);
   List<LocalModelFile> get pendingDownloads => List.unmodifiable(_downloads);
   String get activeLabel =>
@@ -68,9 +79,8 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _initialize() async {
     if (!supported) return;
     final support = await getApplicationSupportDirectory();
-    _directory = await Directory(
-      '${support.path}/local_ai',
-    ).create(recursive: true);
+    _directory = await Directory('${support.path}/local_ai')
+        .create(recursive: true);
     final file = File('${_directory!.path}/models.json');
     if (await file.exists()) {
       if (await file.length() > 1000000)
@@ -112,9 +122,12 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       _activeId = id as String?;
       _scannerEnabled = json['scannerEnabled'] != false;
       _status = hasSelection
-          ? 'Local selected · loads on demand'
+          ? 'Local model selected'
           : 'No local model selected';
     }
+    _setupStage = ready
+        ? LocalModelSetupStage.ready
+        : LocalModelSetupStage.chooseModel;
     if (!_observingMemory) {
       WidgetsBinding.instance.addObserver(this);
       _observingMemory = true;
@@ -212,14 +225,18 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     await initialize();
     if (_transferring || busy)
       throw StateError('Finish the current local AI operation first.');
-    if (_models.any((m) => m.id == model.sha256)) {
-      await _save();
+    final existing = _models
+        .where((installed) => installed.id == model.sha256)
+        .firstOrNull;
+    if (existing != null) {
+      if (!isModelReady(existing.id)) await activate(existing.id);
       return;
     }
     final generation = ++_transferGeneration;
     _transferring = true;
     _progress = null;
-    _status = 'Downloading model · inventory stays on device';
+    _setupStage = LocalModelSetupStage.downloading;
+    _status = 'Downloading local AI…';
     notifyListeners();
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 25)
@@ -250,9 +267,8 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         );
         if (response.statusCode == 206) {
           final range = response.headers.value(HttpHeaders.contentRangeHeader);
-          final match = RegExp(
-            r'^bytes (\d+)-(\d+)/(\d+)$',
-          ).firstMatch(range ?? '');
+          final match = RegExp(r'^bytes (\d+)-(\d+)/(\d+)$')
+              .firstMatch(range ?? '');
           if (match == null ||
               int.parse(match[1]!) != offset ||
               int.parse(match[3]!) != model.bytes ||
@@ -302,7 +318,8 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         throw StateError('Download paused.');
       if (await part.length() != model.bytes)
         throw StateError('Incomplete download; resume to finish.');
-      _status = 'Verifying SHA-256 on device…';
+      _setupStage = LocalModelSetupStage.verifying;
+      _status = 'Checking downloaded model…';
       _progress = null;
       notifyListeners();
       final hash = await _hash(part.path);
@@ -328,11 +345,15 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       );
       _downloads.removeWhere((m) => m.sha256 == model.sha256);
       await _save();
-      _status = 'Download verified. Activate to test this model.';
+      _setupStage = LocalModelSetupStage.connecting;
+      _status = 'Download complete · connecting…';
     } catch (error) {
+      _setupStage = ready
+          ? LocalModelSetupStage.ready
+          : LocalModelSetupStage.attention;
       _status = generation != _transferGeneration
-          ? 'Download paused; partial file retained'
-          : error.toString();
+          ? 'Download paused'
+          : 'Could not finish this model setup';
       rethrow;
     } finally {
       try {
@@ -347,6 +368,10 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         notifyListeners();
       }
     }
+    // One tap means one understandable outcome: downloaded weights are
+    // immediately load-tested and activated. A model is never labelled Ready
+    // until activate() completes all setup probes successfully.
+    await activate(model.sha256);
   }
 
   void cancelTransfer() {
@@ -354,9 +379,9 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     _transfer?.close(force: true);
     if (Platform.isAndroid) {
       unawaited(
-        const MethodChannel(
-          'com.aaris.pharmacy/documents',
-        ).invokeMethod<void>('cancelModelImport').catchError((Object _) {}),
+        const MethodChannel('com.aaris.pharmacy/documents')
+            .invokeMethod<void>('cancelModelImport')
+            .catchError((Object _) {}),
       );
     }
   }
@@ -389,16 +414,14 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       String name;
       String? verifiedHash;
       if (Platform.isAndroid) {
-        final raw = await const MethodChannel(
-          'com.aaris.pharmacy/documents',
-        ).invokeMapMethod<String, dynamic>('pickLocalModel');
+        final raw = await const MethodChannel('com.aaris.pharmacy/documents')
+            .invokeMapMethod<String, dynamic>('pickLocalModel');
         if (raw == null) return;
         final path = raw['path'];
         if (path is! String ||
             !path.startsWith('${_directory!.path}/import_') ||
-            !RegExp(
-              r'^import_[a-f0-9-]{36}\.part$',
-            ).hasMatch(path.split('/').last)) {
+            !RegExp(r'^import_[a-f0-9-]{36}\.part$')
+                .hasMatch(path.split('/').last)) {
           throw StateError('Unexpected native model staging path.');
         }
         part = File(path);
@@ -450,10 +473,13 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         ),
       );
       await _save();
-      _status =
-          'Import ready. Publisher authenticity is not verified; activate to test compatibility.';
+      _setupStage = LocalModelSetupStage.chooseModel;
+      _status = 'Model imported · choose Use to test it';
     } catch (error) {
-      _status = error.toString();
+      _setupStage = ready
+          ? LocalModelSetupStage.ready
+          : LocalModelSetupStage.attention;
+      _status = 'Could not import this model';
       rethrow;
     } finally {
       try {
@@ -574,24 +600,33 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> activate(String id) => _exclusive((generation) async {
     final model = _models.where((m) => m.id == id).firstOrNull;
     if (model == null) throw StateError('Download or import this model first.');
+    if (isModelReady(id)) {
+      _setupStage = LocalModelSetupStage.ready;
+      _status = 'Local AI Ready';
+      return;
+    }
     final previous = _activeId;
     await _release();
     _activeId = id;
     try {
       final file = _weights(id);
-      final metadata = await _checkGguf(file);
-      _status = 'Verifying model before activation…';
+      _setupStage = LocalModelSetupStage.verifying;
+      _status = 'Checking model…';
       notifyListeners();
+      final metadata = await _checkGguf(file);
       if (await _hash(file.path) != id)
         throw StateError(
           'Model changed since installation. Re-import a trusted file.',
         );
       _checkRequest(generation);
+      _setupStage = LocalModelSetupStage.connecting;
+      _status = 'Connecting on this device…';
+      notifyListeners();
       await _loadSelected();
+      _setupStage = LocalModelSetupStage.testing;
       for (var i = 0; i < localSetupChecks.length; i++) {
         final probe = localSetupChecks[i];
-        _status =
-            'Setup check ${i + 1}/${localSetupChecks.length} · structured extraction';
+        _status = 'Testing on this phone…';
         notifyListeners();
         final answer = localJsonObject(
           await _runtime!.generate(
@@ -616,14 +651,19 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         testedRuntime: '$localRuntimeBuild/setup-$localSetupCheckVersion',
       );
       await _save();
-      _status =
-          'Local active · ${localSetupChecks.length} setup checks passed · review required';
+      _setupStage = LocalModelSetupStage.ready;
+      _status = 'Local AI Ready';
     } catch (_) {
       _activeId = previous;
       final index = _models.indexWhere((m) => m.id == model.id);
       if (index >= 0) _models[index] = model;
       await _release();
-      _status = 'Activation failed; previous selection preserved';
+      _setupStage = ready
+          ? LocalModelSetupStage.ready
+          : LocalModelSetupStage.attention;
+      _status = ready
+          ? 'That model could not start · previous Local AI is still Ready'
+          : 'This model could not become Ready';
       rethrow;
     }
   });
@@ -638,10 +678,14 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       _activeId = previous;
       rethrow;
     }
-    _status = 'Local disabled · existing provider settings apply';
+    _setupStage = LocalModelSetupStage.chooseModel;
+    _status = 'Local AI turned off';
   });
 
   Future<void> setScannerEnabled(bool value) => _exclusive((_) async {
+    if (value && !ready) {
+      throw StateError('Choose a local model and wait for Ready first.');
+    }
     final previous = _scannerEnabled;
     _scannerEnabled = value;
     try {

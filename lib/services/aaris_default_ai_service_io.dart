@@ -29,7 +29,7 @@ class AarisDefaultAiService extends ChangeNotifier {
 
   bool get hasDefault =>
       _defaultId != null && _local.installed.any((m) => m.id == _defaultId);
-  bool get active => hasDefault && _local.activeId == _defaultId;
+  bool get active => hasDefault && _local.isModelReady(_defaultId!);
 
   Future<void> initialize() =>
       _initializing ??= _initialize().catchError((Object error) {
@@ -41,9 +41,8 @@ class AarisDefaultAiService extends ChangeNotifier {
     await _local.initialize();
     if (!supported) return;
     final support = await getApplicationSupportDirectory();
-    _directory = await Directory(
-      '${support.path}/local_ai',
-    ).create(recursive: true);
+    _directory = await Directory('${support.path}/local_ai')
+        .create(recursive: true);
     final file = File('${_directory!.path}/aaris_default_ai.json');
     if (await file.exists()) {
       try {
@@ -105,10 +104,12 @@ class AarisDefaultAiService extends ChangeNotifier {
       notifyListeners();
       return active;
     }
-    _status = 'Restoring Aaris Default AI…';
+    _status = 'Making Aaris Default AI ready…';
     notifyListeners();
-    await _local.activate(_defaultId!);
-    _status = 'Aaris Default AI active';
+    if (!_local.isModelReady(_defaultId!)) {
+      await _local.activate(_defaultId!);
+    }
+    _status = 'Aaris Default AI Ready';
     notifyListeners();
     return true;
   }
@@ -132,7 +133,8 @@ class AarisDefaultAiService extends ChangeNotifier {
         return;
       }
 
-      _status = 'Finding the recommended ~$aarisDefaultModelDownloadHint model…';
+      _status =
+          'Finding the recommended ~$aarisDefaultModelDownloadHint model…';
       notifyListeners();
       final repository = await _local.repositoryFiles(
         aarisDefaultModelRepository,
@@ -149,7 +151,9 @@ class AarisDefaultAiService extends ChangeNotifier {
         );
       }
 
-      final alreadyInstalled = _local.installed.any((m) => m.id == model.sha256);
+      final alreadyInstalled = _local.installed.any(
+        (m) => m.id == model.sha256,
+      );
       if (!alreadyInstalled) {
         _status =
             'Downloading ${modelSize(model.bytes)} Aaris Default AI · inventory stays on device';
@@ -157,11 +161,13 @@ class AarisDefaultAiService extends ChangeNotifier {
         await _local.download(model);
       }
 
-      _status = 'Verifying and activating Aaris Default AI…';
+      _status = 'Making Aaris Default AI ready…';
       notifyListeners();
-      await _local.activate(model.sha256);
+      if (!_local.isModelReady(model.sha256)) {
+        await _local.activate(model.sha256);
+      }
       await _persistDefault(model.sha256);
-      _status = 'Aaris Default AI active · permanent fallback ready';
+      _status = 'Aaris Default AI Ready';
     } catch (error) {
       _status =
           'Default AI not active · offline pharmacy scanner remains available';
