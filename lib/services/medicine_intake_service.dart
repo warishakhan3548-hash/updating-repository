@@ -505,9 +505,19 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
         message.contains('native');
   }
 
+  Future<bool> _routeStillOwnsResult(
+    LocalAiService local,
+    String routedModelId,
+  ) async =>
+      await LocalBrainRoutePolicy.enabled() &&
+      local.activeId == routedModelId &&
+      local.scannerEnabled &&
+      local.isModelScanReady(routedModelId);
+
   Future<MedicineScanDraft> _understandWithRecovery(
     LocalAiService local,
     MedicineIntakeJob job,
+    String routedModelId,
     MedicineScanDraft draft,
   ) async {
     try {
@@ -519,15 +529,18 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
 
       // Chat already gets one clean-runtime retry. Scan refinement must have the
       // same transport semantics or one dropped native stream can silently turn
-      // an active Aaris Brain capture into deterministic-only review. Keep the
-      // capture-time model lease authoritative, retire only the failed runtime,
-      // re-check the Brain switch/model identity, and retry this exact draft once.
+      // an active Aaris Brain capture into deterministic-only review. Retire only
+      // the failed runtime, then require the exact route that produced this draft
+      // to still be selected before retrying. A model/switch change can never
+      // resurrect a stale result under a different Local AI identity.
       try {
         await local.suspend();
       } catch (_) {
         Error.throwWithStackTrace(error, stack);
       }
-      if (!await LocalBrainRoutePolicy.mayReasonWith(local, job.modelId)) {
+      if (!await _routeStillOwnsResult(local, routedModelId) ||
+          !await LocalBrainRoutePolicy.mayReasonWith(local, job.modelId) ||
+          local.activeId != routedModelId) {
         throw StateError(
           'Aaris Brain route changed while recovering this scan. Deterministic OCR draft retained for review.',
         );
@@ -558,13 +571,36 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
+    // Bind one AI refinement to the exact Local AI route that owns this turn.
+    // The capture may legitimately wait through earlier model changes, but once
+    // inference starts its result is valid only for that concrete route. This is
+    // the same stale-callback principle used by the foreground import inbox.
+    final routedModelId = local.activeId;
+    if (routedModelId == null ||
+        !local.scannerEnabled ||
+        !local.isModelScanReady(routedModelId)) {
+      job.error =
+          'The active Local AI route disappeared before scan reasoning started. Deterministic OCR draft retained for review.';
+      job.status = 'review';
+      return;
+    }
+
     final index = job.aiIndex;
+    final original = job.drafts[index];
     try {
-      job.drafts[index] = await _understandWithRecovery(
+      final candidate = await _understandWithRecovery(
         local,
         job,
-        job.drafts[index],
+        routedModelId,
+        original,
       );
+      if (!await _routeStillOwnsResult(local, routedModelId)) {
+        job.error =
+            'Aaris Brain was turned off or its Local AI changed while this scan was being reviewed. The stale AI result was discarded; deterministic OCR was retained.';
+        job.status = 'review';
+        return;
+      }
+      job.drafts[index] = candidate;
       if (job.error == _waitingForLocalAi) job.error = '';
     } catch (e) {
       // Foreground chat and scan refinement share one authoritative local-model
