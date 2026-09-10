@@ -21,6 +21,8 @@ const Color _aiMagenta = Color(0xFFB64FD2);
 
 enum AiHubQuickAction { sold, removed, stockSummary, add, delete, modify }
 
+enum _AiJourneyState { idle, preparing, thinking, streaming }
+
 class AiScreen extends StatefulWidget {
   const AiScreen({
     super.key,
@@ -50,13 +52,18 @@ class _AiScreenState extends State<AiScreen> {
   AiPlan? _plan;
   Set<int> _selected = {};
   String _error = '';
-  bool _requesting = false;
-  bool _preparingRequest = false;
+  String _streamingText = '';
+  _AiJourneyState _journey = _AiJourneyState.idle;
   bool _localCommanding = false;
   bool _sharing = false;
   bool _reviewing = false;
   bool _externalReady = false;
   int _generation = 0;
+
+  bool get _requesting =>
+      _journey == _AiJourneyState.thinking ||
+      _journey == _AiJourneyState.streaming;
+  bool get _preparingRequest => _journey == _AiJourneyState.preparing;
 
   bool get _hasAiRoute => _configuration.localBrainEnabled
       ? _local.hasSelection
@@ -74,7 +81,7 @@ class _AiScreenState extends State<AiScreen> {
       final config = await _service.loadConfiguration();
       if (mounted) setState(() => _configuration = config);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = _friendlyAiError(e));
     }
   }
 
@@ -114,6 +121,63 @@ class _AiScreenState extends State<AiScreen> {
     _scrollToEnd();
   }
 
+  String _friendlyAiError(Object error) {
+    if (error is TimeoutException) {
+      return 'The AI took too long to answer. No inventory changes were made. You can safely try again.';
+    }
+    final raw = error
+        .toString()
+        .replaceFirst(RegExp(r'^(Exception|Bad state|StateError):\s*'), '')
+        .trim();
+    final lower = raw.toLowerCase();
+    if (lower.contains('clientexception') ||
+        lower.contains('socketexception') ||
+        lower.contains('connection failed') ||
+        lower.contains('connection closed') ||
+        lower.contains('network is unreachable') ||
+        lower.contains('connection reset')) {
+      return 'The AI connection was interrupted. No inventory changes were made. Check the network/model route and try again.';
+    }
+    return raw.isEmpty
+        ? 'The AI request could not finish. No inventory changes were made.'
+        : raw;
+  }
+
+  Future<void> _streamAssistantReply(String text, int generation) async {
+    final clean = text.trim();
+    if (!mounted || generation != _generation || clean.isEmpty) return;
+    final runes = clean.runes.toList(growable: false);
+    var chunkSize = (runes.length / 90).ceil();
+    if (chunkSize < 4) chunkSize = 4;
+    if (chunkSize > 24) chunkSize = 24;
+
+    setState(() {
+      _journey = _AiJourneyState.streaming;
+      _streamingText = '';
+    });
+    _scrollToEnd();
+
+    for (var end = 0; end < runes.length;) {
+      if (!mounted || generation != _generation) return;
+      end += chunkSize;
+      if (end > runes.length) end = runes.length;
+      final visible = String.fromCharCodes(runes.take(end));
+      setState(() => _streamingText = visible);
+      _scrollToEnd();
+      if (end < runes.length) {
+        await Future<void>.delayed(const Duration(milliseconds: 16));
+      }
+    }
+
+    if (!mounted || generation != _generation) return;
+    setState(() {
+      _messages.add(_AiChatMessage(clean, false));
+      _streamingText = '';
+      _journey = _AiJourneyState.idle;
+    });
+    _scrollToEnd();
+  }
+
   Future<void> _openConnections() async {
     if (_requesting || _reviewing || widget.controller.aiPreparing) return;
     final result = await showModalBottomSheet<Object?>(
@@ -129,7 +193,7 @@ class _AiScreenState extends State<AiScreen> {
       final latest = await _service.loadConfiguration();
       if (mounted) setState(() => _configuration = latest);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = _friendlyAiError(e));
     }
     if (!mounted || result == null) return;
     if (result == _AiConnectionsSheet.externalAction) {
@@ -225,28 +289,44 @@ class _AiScreenState extends State<AiScreen> {
     if (_preparingRequest ||
         _requesting ||
         _reviewing ||
-        widget.controller.aiPreparing)
+        widget.controller.aiPreparing) {
       return;
+    }
     final request = _request.text.trim();
     if (request.isEmpty) return;
-    setState(() => _preparingRequest = true);
+
+    setState(() {
+      _journey = _AiJourneyState.preparing;
+      _error = '';
+    });
     try {
       await _local.initialize();
       if (!mounted) return;
       if (!_hasAiRoute) {
         await _openConnections();
-        if (!mounted || !_hasAiRoute) return;
+        if (!mounted) return;
+        if (!_hasAiRoute) {
+          setState(
+            () => _error =
+                'Connect a Local AI model or API for reasoning requests. Add, Open, Delete, stock search and other deterministic Aaris Brain commands still work without AI.',
+          );
+          return;
+        }
       }
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = _friendlyAiError(e));
       return;
     } finally {
-      if (mounted) setState(() => _preparingRequest = false);
+      if (mounted && _journey == _AiJourneyState.preparing) {
+        setState(() => _journey = _AiJourneyState.idle);
+      }
     }
 
+    if (!mounted || !_hasAiRoute) return;
     final generation = ++_generation;
     setState(() {
-      _requesting = true;
+      _journey = _AiJourneyState.thinking;
+      _streamingText = '';
       _error = '';
       _plan = null;
       _messages.add(_AiChatMessage(request, true));
@@ -271,26 +351,46 @@ class _AiScreenState extends State<AiScreen> {
             .join('\n'),
       );
       if (!mounted || generation != _generation) return;
+
+      // Local/cloud providers normally return the strict pharmacy contract.
+      // Plain conversational text is also valid for answer-only chat, so never
+      // turn a harmless greeting into a FormatException/"Connection Failed".
+      if (!_looksLikeAiResponse(result)) {
+        await _streamAssistantReply(result, generation);
+        return;
+      }
+
       _input.text = result;
       final plan = await _review(announce: false);
-      if (!mounted || generation != _generation || plan == null) return;
+      if (!mounted || generation != _generation) return;
+      if (plan == null) {
+        if (_error.isEmpty) {
+          setState(
+            () => _error =
+                'The AI response arrived but could not be validated. Nothing was changed.',
+          );
+        }
+        return;
+      }
       final reply = plan.reply.trim().isNotEmpty
           ? plan.reply.trim()
           : plan.changes.isEmpty
           ? 'Done. No inventory change is needed.'
           : '${plan.changes.length} proposed change${plan.changes.length == 1 ? '' : 's'} are ready below. Review them before saving.';
-      _appendMessage(reply, false);
+      await _streamAssistantReply(reply, generation);
     } catch (e) {
       if (mounted && generation == _generation) {
-        setState(
-          () => _error = e is TimeoutException
-              ? 'The AI took too long. No inventory changes were made.'
-              : e.toString().replaceFirst('Bad state: ', ''),
-        );
+        setState(() {
+          _error = _friendlyAiError(e);
+          _streamingText = '';
+          _journey = _AiJourneyState.idle;
+        });
       }
     } finally {
-      if (mounted && generation == _generation) {
-        setState(() => _requesting = false);
+      if (mounted &&
+          generation == _generation &&
+          _journey == _AiJourneyState.thinking) {
+        setState(() => _journey = _AiJourneyState.idle);
       }
     }
   }
@@ -312,9 +412,10 @@ class _AiScreenState extends State<AiScreen> {
     final text = _request.text.trim();
     if (text.isEmpty) return;
 
-    // JSON keeps the existing review/import path. Ordinary text is offered to
-    // the deterministic local App Brain first; only unrecognized text reaches
-    // the configured AI provider. No second composer or command state machine.
+    // JSON keeps the existing review/import path. Ordinary text is always
+    // offered to the deterministic App Brain first, even when Local AI/API is
+    // configured. This is the single authoritative bridge for commands such as
+    // Add/Open/Delete; only unrecognized reasoning text reaches an LLM.
     if (_looksLikeAiResponse(text)) {
       setState(() {
         _input.text = text;
@@ -331,7 +432,7 @@ class _AiScreenState extends State<AiScreen> {
     }
 
     final localHandler = widget.onLocalCommand;
-    if (!_hasAiRoute && localHandler != null) {
+    if (localHandler != null) {
       String? localReply;
       setState(() {
         _localCommanding = true;
@@ -341,9 +442,7 @@ class _AiScreenState extends State<AiScreen> {
         localReply = await localHandler(text);
       } catch (error) {
         if (mounted) {
-          setState(
-            () => _error = error.toString().replaceFirst('Exception: ', ''),
-          );
+          setState(() => _error = _friendlyAiError(error));
         }
         return;
       } finally {
@@ -385,9 +484,7 @@ class _AiScreenState extends State<AiScreen> {
       _appendMessage(reply.trim(), false);
     } catch (error) {
       if (mounted) {
-        setState(
-          () => _error = error.toString().replaceFirst('Exception: ', ''),
-        );
+        setState(() => _error = _friendlyAiError(error));
       }
     } finally {
       if (mounted) setState(() => _localCommanding = false);
@@ -455,7 +552,8 @@ class _AiScreenState extends State<AiScreen> {
     ++_generation;
     _service.cancel();
     setState(() {
-      _requesting = false;
+      _journey = _AiJourneyState.idle;
+      _streamingText = '';
       _messages.add(
         const _AiChatMessage(
           'AI request cancelled. No inventory changes were made.',
@@ -758,6 +856,17 @@ class _AiScreenState extends State<AiScreen> {
               children: [
                 for (final message in _messages)
                   _AiMessageBubble(message: message),
+                if (_journey == _AiJourneyState.thinking)
+                  _AiThinkingBubble(
+                    detail: _configuration.localBrainEnabled && _local.hasSelection
+                        ? _local.status
+                        : 'AI route connected · preparing answer',
+                  ),
+                if (_journey == _AiJourneyState.streaming &&
+                    _streamingText.isNotEmpty)
+                  _AiMessageBubble(
+                    message: _AiChatMessage(_streamingText, false),
+                  ),
                 if (_error.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
@@ -914,6 +1023,67 @@ class _AiChatMessage {
 
   final String text;
   final bool user;
+}
+
+class _AiThinkingBubble extends StatelessWidget {
+  const _AiThinkingBubble({required this.detail});
+
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * .82,
+        ),
+        margin: const EdgeInsets.only(bottom: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+        decoration: BoxDecoration(
+          color: dark ? const Color(0xFF1C2230) : Colors.white.withAlpha(235),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(19),
+            topRight: Radius.circular(19),
+            bottomLeft: Radius.circular(5),
+            bottomRight: Radius.circular(19),
+          ),
+          border: Border.all(color: _aiPurple.withAlpha(dark ? 35 : 18)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 15,
+              height: 15,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Thinking…',
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    detail,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: muted, fontSize: 10.5),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _AiMessageBubble extends StatelessWidget {
