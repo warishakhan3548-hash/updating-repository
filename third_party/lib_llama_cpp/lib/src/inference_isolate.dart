@@ -17,6 +17,8 @@ final class InferenceIsolate {
        _commandPort = commandPort,
        _subscription = subscription;
 
+  static const _startupTimeout = Duration(seconds: 20);
+
   final Isolate _isolate;
   final SendPort _commandPort;
   final StreamSubscription<Object?> _subscription;
@@ -35,7 +37,7 @@ final class InferenceIsolate {
 
     subscription = receivePort.listen((message) {
       if (message is SendPort) {
-        ready.complete(message);
+        if (!ready.isCompleted) ready.complete(message);
         return;
       }
 
@@ -54,23 +56,37 @@ final class InferenceIsolate {
       }
     });
 
-    final isolate = await Isolate.spawn(
-      _runInferenceWorker,
-      _StartMessage(
-        replyPort: receivePort.sendPort,
-        library: library,
-        initialState: initialState,
-      ),
-      debugName: 'lib_llama_cpp_inference',
-    );
+    Isolate? isolate;
+    try {
+      isolate = await Isolate.spawn(
+        _runInferenceWorker,
+        _StartMessage(
+          replyPort: receivePort.sendPort,
+          library: library,
+          initialState: initialState,
+        ),
+        debugName: 'lib_llama_cpp_inference',
+      );
 
-    final commandPort = await ready.future;
-    actor = InferenceIsolate._(
-      isolate: isolate,
-      commandPort: commandPort,
-      subscription: subscription,
-    );
-    return actor;
+      final commandPort = await ready.future.timeout(
+        _startupTimeout,
+        onTimeout: () => throw TimeoutException(
+          'Local inference worker did not become ready.',
+          _startupTimeout,
+        ),
+      );
+      actor = InferenceIsolate._(
+        isolate: isolate,
+        commandPort: commandPort,
+        subscription: subscription,
+      );
+      return actor;
+    } catch (_) {
+      await subscription.cancel();
+      receivePort.close();
+      isolate?.kill(priority: Isolate.immediate);
+      rethrow;
+    }
   }
 
   Stream<LlamaResponse> dispatch(LlamaCommand command) {
