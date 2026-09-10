@@ -161,21 +161,30 @@ class AiService {
     // cloud mode never wakes the local model. The deterministic App Brain stays
     // available independently in the UI before this method is entered.
     if (config.localBrainEnabled) {
-      final hasLocalRoute = await _prepareLocalRouteForSend(local);
-      if (!hasLocalRoute) {
-        throw StateError(
-          'Aaris Brain is on, but no Local AI model is Ready. Finish Local AI setup, choose another model, or turn Aaris Brain off.',
+      final cancelEpoch = _cancelEpoch;
+      _localRequest = true;
+      try {
+        _throwIfCancelled(cancelEpoch);
+        final hasLocalRoute = await _prepareLocalRouteForSend(local);
+        _throwIfCancelled(cancelEpoch);
+        if (!hasLocalRoute) {
+          throw StateError(
+            'Aaris Brain is on, but no Local AI model is Ready. Finish Local AI setup, choose another model, or turn Aaris Brain off.',
+          );
+        }
+        return await _askLocalWithRecovery(
+          local,
+          localContext,
+          instruction,
+          cancelEpoch: cancelEpoch,
+          conversation: priorConversation,
+          onDelta: onDelta,
+          onStreamStarted: onStreamStarted,
+          onStreamReset: onStreamReset,
         );
+      } finally {
+        _localRequest = false;
       }
-      return _askLocalWithRecovery(
-        local,
-        localContext,
-        instruction,
-        conversation: priorConversation,
-        onDelta: onDelta,
-        onStreamStarted: onStreamStarted,
-        onStreamReset: onStreamReset,
-      );
     }
 
     if (_client != null) {
@@ -280,6 +289,7 @@ class AiService {
     LocalAiService local,
     LocalInventoryContext context,
     String instruction, {
+    required int cancelEpoch,
     required String conversation,
     void Function(String delta)? onDelta,
     void Function()? onStreamStarted,
@@ -289,60 +299,54 @@ class AiService {
       throw const FormatException('Describe what you want the AI to do.');
     }
 
-    final cancelEpoch = _cancelEpoch;
-    _localRequest = true;
-    try {
-      for (var attempt = 0; attempt < 2; attempt++) {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      _throwIfCancelled(cancelEpoch);
+      var streamStarted = false;
+      try {
+        return await local.ask(
+          context,
+          instruction,
+          conversation: conversation,
+          onToken: onDelta == null && onStreamStarted == null
+              ? null
+              : (token) {
+                  _throwIfCancelled(cancelEpoch);
+                  if (!streamStarted) {
+                    streamStarted = true;
+                    _safeStart(onStreamStarted);
+                  }
+                  _safeDelta(onDelta, token);
+                },
+        );
+      } catch (error, stack) {
         _throwIfCancelled(cancelEpoch);
-        var streamStarted = false;
+
+        // The runtime itself owns progress-aware stall detection. Protocol,
+        // model and configuration failures need user action and are not retried.
+        // A retired/failed transport is recoverable only after its local lease
+        // has actually been released.
+        final canRecover =
+            attempt == 0 &&
+            !local.busy &&
+            _isRecoverableLocalFailure(error);
+        if (!canRecover) Error.throwWithStackTrace(error, stack);
+
+        // The selected model remains selected. Releasing only the failed
+        // runtime gives the next attempt a clean inference isolate and closes
+        // the old random "Connection Failed until restart" dead end.
         try {
-          return await local.ask(
-            context,
-            instruction,
-            conversation: conversation,
-            onToken: onDelta == null && onStreamStarted == null
-                ? null
-                : (token) {
-                    _throwIfCancelled(cancelEpoch);
-                    if (!streamStarted) {
-                      streamStarted = true;
-                      _safeStart(onStreamStarted);
-                    }
-                    _safeDelta(onDelta, token);
-                  },
-          );
-        } catch (error, stack) {
-          _throwIfCancelled(cancelEpoch);
-
-          // A timeout deliberately leaves LocalAiService.busy=true until the
-          // native command drains. Never start a second generation in that
-          // window. Protocol/model/configuration failures also need user action
-          // and are not made noisier by retrying them.
-          final canRecover =
-              attempt == 0 &&
-              !local.busy &&
-              _isRecoverableLocalFailure(error);
-          if (!canRecover) Error.throwWithStackTrace(error, stack);
-
-          // The selected model remains selected. Releasing only the failed
-          // runtime gives the next attempt a clean inference isolate and closes
-          // the old random "Connection Failed until restart" dead end.
-          try {
-            await local.suspend();
-          } catch (_) {
-            Error.throwWithStackTrace(error, stack);
-          }
-          _throwIfCancelled(cancelEpoch);
-          _safeReset(onStreamReset);
-          await Future<void>.delayed(const Duration(milliseconds: 120));
+          await local.suspend();
+        } catch (_) {
+          Error.throwWithStackTrace(error, stack);
         }
+        _throwIfCancelled(cancelEpoch);
+        _safeReset(onStreamReset);
+        await Future<void>.delayed(const Duration(milliseconds: 120));
       }
-      throw StateError(
-        'Local AI could not finish after one safe runtime recovery. No inventory changes were made.',
-      );
-    } finally {
-      _localRequest = false;
     }
+    throw StateError(
+      'Local AI could not finish after one safe runtime recovery. No inventory changes were made.',
+    );
   }
 
   bool _isRecoverableLocalFailure(Object error) {
