@@ -170,6 +170,7 @@ class ProductMovement {
   int knownRevenuePaise = 0;
   int unknownRevenueSales = 0;
   int? currentQuantity;
+  final Set<String> _observedKnownSalts = <String>{};
   double get unitsPerDay => _periodDays == 0 ? 0 : unitsSold / _periodDays;
   int _periodDays = 1;
   String get title => '$name${strength.isEmpty ? '' : ' · $strength'}';
@@ -246,9 +247,7 @@ class TrackingStats {
     final stockDate = civilDay(today ?? range.end);
     bool usable(Medicine m) => isDispensableOn(m, stockDate);
     final current = <String, List<Medicine>>{};
-    final byId = <String, Medicine>{};
     for (final medicine in medicines.where((m) => !m.archived)) {
-      byId[medicine.id] = medicine;
       current.putIfAbsent(medicine.identity, () => []).add(medicine);
     }
 
@@ -260,18 +259,26 @@ class TrackingStats {
       } else {
         revenuePaise = checkedMoneySum(revenuePaise, sale.totalAmountPaise!);
       }
-      final record = byId[sale.stockId];
-      final key = record?.identity ?? sale.productKey;
+
+      // A SaleEvent is an immutable movement snapshot. Never re-key historical
+      // movement through the current Medicine row behind stockId: a later
+      // pharmacist identity correction must not retroactively manufacture demand
+      // for the newly edited medicine or contaminate its reorder velocity.
+      final key = sale.productKey;
       final movement = movements.putIfAbsent(
         key,
         () => ProductMovement(
           key: key,
-          name: record?.name ?? sale.medicineName,
-          salt: record?.salt ?? sale.salt,
-          strength: record?.strength ?? sale.strength,
-          form: record?.form ?? sale.form,
+          name: sale.medicineName,
+          salt: sale.salt,
+          strength: sale.strength,
+          form: sale.form,
         ).._periodDays = range.days,
       );
+      final normalizedSaleSalt = normalize(sale.salt);
+      if (normalizedSaleSalt.isNotEmpty) {
+        movement._observedKnownSalts.add(normalizedSaleSalt);
+      }
       movement.unitsSold += sale.quantity;
       movement.recordedSales++;
       if (sale.totalAmountPaise == null) {
@@ -308,6 +315,18 @@ class TrackingStats {
         ).._periodDays = range.days,
       );
 
+      final currentKnownSalts = records
+          .map((medicine) => normalize(medicine.salt))
+          .where((salt) => salt.isNotEmpty)
+          .toSet();
+      final historicalKnownSalts = movement._observedKnownSalts;
+      final movementIdentityConflict =
+          currentKnownSalts.length > 1 ||
+          historicalKnownSalts.length > 1 ||
+          (currentKnownSalts.isNotEmpty &&
+              historicalKnownSalts.isNotEmpty &&
+              currentKnownSalts.single != historicalKnownSalts.single);
+
       final active = records.where(usable).toList();
       final known = active.where((m) => m.quantity != null).toList();
       final hasUnknownQuantity = active.any((m) => m.quantity == null);
@@ -328,7 +347,11 @@ class TrackingStats {
           active.isEmpty &&
           records.any((m) => !m.sold && (m.daysLeft(stockDate) ?? 0) < 0);
 
-      final velocity = movement.unitsPerDay;
+      // Demand velocity can drive stock purchasing only when immutable sale
+      // snapshots remain compatible with current known identity evidence. Raw
+      // movement still stays visible in historical analytics, but an identity
+      // conflict turns purchasing automation into a review-only stock signal.
+      final velocity = movementIdentityConflict ? 0.0 : movement.unitsPerDay;
       const leadDays = 7;
       const targetDays = 30;
       final reorderPoint = max(5, (velocity * leadDays).ceil());
@@ -380,7 +403,9 @@ class TrackingStats {
           : max(1, target - effectiveQuantity);
       final suggested = rawSuggested.clamp(1, 100000000);
 
-      final confidence = hasFutureManufacture
+      final confidence = movementIdentityConflict
+          ? .35
+          : hasFutureManufacture
           ? .35
           : hasUnknownQuantity
           ? .35
@@ -394,10 +419,12 @@ class TrackingStats {
           ? .82
           : .62;
       final reviewRequired =
+          movementIdentityConflict ||
           hasFutureManufacture ||
           confidence < .75 ||
           movement.recordedSales == 0;
-      final coverageDays = velocity > 0 && currentQuantity != null
+      final coverageDays =
+          !movementIdentityConflict && velocity > 0 && currentQuantity != null
           ? currentQuantity / velocity
           : null;
 
@@ -420,7 +447,11 @@ class TrackingStats {
           priority: needsReplacement
               ? ReorderPriority.urgent
               : ReorderPriority.soon,
-          reason: hasFutureManufacture && active.isEmpty
+          reason: movementIdentityConflict
+              ? needsReplacement
+                    ? 'Out of stock · recorded sales identity needs review'
+                    : 'Recorded sales identity needs review before reorder'
+              : hasFutureManufacture && active.isEmpty
               ? 'Manufacturing date needs review before reorder'
               : expiredOnly
               ? 'Only expired stock remains'
@@ -432,7 +463,7 @@ class TrackingStats {
               ? 'Low stock · ${velocity.toStringAsFixed(1)} units/day'
               : 'Low stock',
           suggestedQuantity: suggested,
-          unitsSold: movement.unitsSold,
+          unitsSold: movementIdentityConflict ? 0 : movement.unitsSold,
           unitsPerDay: velocity,
           stockIds: records.map((m) => m.id).toList(growable: false),
           currentQuantity: currentQuantity,
