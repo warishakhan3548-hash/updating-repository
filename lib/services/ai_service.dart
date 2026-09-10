@@ -664,6 +664,7 @@ class AiService {
     final sseData = <String>[];
     var wireCharacters = 0;
     var started = false;
+    var terminal = false;
 
     String normalizePayload(String raw) {
       var payload = raw.trim();
@@ -686,9 +687,31 @@ class AiService {
       }
     }
 
+    bool declaresTerminalEvent(Map<String, dynamic> event) {
+      if (event['done'] == true) return true;
+      if (config.provider == 'Gemini') {
+        final candidates = event['candidates'];
+        if (candidates is List && candidates.isNotEmpty) {
+          final first = candidates.first;
+          if (first is Map && first['finishReason'] != null) return true;
+        }
+        return false;
+      }
+      final choices = event['choices'];
+      if (choices is List && choices.isNotEmpty) {
+        final first = choices.first;
+        if (first is Map && first['finish_reason'] != null) return true;
+      }
+      return false;
+    }
+
     void consume(String raw) {
       final payload = normalizePayload(raw);
-      if (payload.isEmpty || payload == '[DONE]') return;
+      if (payload.isEmpty) return;
+      if (payload == '[DONE]') {
+        terminal = true;
+        return;
+      }
 
       Map<String, dynamic> event;
       try {
@@ -708,16 +731,18 @@ class AiService {
         );
       }
       final delta = _cloudDelta(config, event);
-      if (delta.isEmpty) return;
-      if (!started) {
-        started = true;
-        _safeStart(onStreamStarted);
+      if (delta.isNotEmpty) {
+        if (!started) {
+          started = true;
+          _safeStart(onStreamStarted);
+        }
+        output.write(delta);
+        if (output.length > _maxResponseBytes) {
+          throw StateError('AI response is too large. Ask for fewer changes.');
+        }
+        _safeDelta(onDelta, delta);
       }
-      output.write(delta);
-      if (output.length > _maxResponseBytes) {
-        throw StateError('AI response is too large. Ask for fewer changes.');
-      }
-      _safeDelta(onDelta, delta);
+      if (declaresTerminalEvent(event)) terminal = true;
     }
 
     void flushSse() {
@@ -741,11 +766,13 @@ class AiService {
         // NDJSON is one JSON object per line. JSON Text Sequences prefix records
         // with ASCII RS (0x1E), which normalizePayload removes.
         consume(line);
+        if (terminal) break;
         continue;
       }
 
       if (line.isEmpty) {
         flushSse();
+        if (terminal) break;
         continue;
       }
       if (line.startsWith(':')) continue; // SSE keepalive/comment.
@@ -764,6 +791,7 @@ class AiService {
         // Buffer those bare JSON lines rather than dropping a valid response.
         if (sseData.isNotEmpty && isCompletePayload(sseData.join('\n'))) {
           flushSse();
+          if (terminal) break;
         }
         sseData.add(line);
         continue;
@@ -774,12 +802,40 @@ class AiService {
       // data field, while still supporting standards-compliant multi-line data.
       if (sseData.isNotEmpty && isCompletePayload(sseData.join('\n'))) {
         flushSse();
+        if (terminal) break;
       }
       var data = line.substring(5);
       if (data.startsWith(' ')) data = data.substring(1);
+
+      // [DONE] is a protocol terminal frame, not assistant text. Consume it
+      // immediately instead of waiting for a blank line or socket close: some
+      // proxies keep a completed SSE connection open and would otherwise turn
+      // a successful response into a false 60-second inactivity timeout.
+      if (data.trim() == '[DONE]') {
+        terminal = true;
+        break;
+      }
+
+      // Common providers emit their final finish_reason/finishReason event as a
+      // complete one-line JSON frame. If there is no prior multi-line payload,
+      // consume that final frame immediately so a proxy that keeps the socket
+      // alive cannot strand the UI in Thinking/streaming after completion.
+      if (sseData.isEmpty && isCompletePayload(data)) {
+        try {
+          final decoded = jsonDecode(normalizePayload(data));
+          if (decoded is Map &&
+              declaresTerminalEvent(Map<String, dynamic>.from(decoded))) {
+            consume(data);
+            break;
+          }
+        } on FormatException {
+          // isCompletePayload already guards this; retain normal buffering if a
+          // gateway mutates framing between the two reads.
+        }
+      }
       sseData.add(data);
     }
-    if (sse) flushSse();
+    if (sse && !terminal) flushSse();
 
     _throwIfCancelled(cancelEpoch);
     final text = output.toString();

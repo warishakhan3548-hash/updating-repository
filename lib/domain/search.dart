@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'gs1_healthcare.dart';
 import 'inventory.dart';
 import 'medicine.dart';
 
@@ -190,6 +191,24 @@ String _boundedSearchTerm(String value) =>
     ? value
     : value.substring(0, SearchDocument.maxTermLength);
 
+/// Canonical exact-search key for retail and GS1 healthcare barcodes.
+///
+/// Scanner hardware can expose the same product as EAN-8, UPC-A, EAN-13,
+/// GTIN-14, or as a GS1 element string carrying AI (01). Inventory must not
+/// downgrade that deterministic identifier to fuzzy text merely because the
+/// presentation changed. Non-GTIN identifiers stay byte-for-byte searchable.
+String _barcodeIdentity(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty) return '';
+  final gs1 = parseGs1HealthcareBarcode(raw);
+  final candidate = gs1 != null && gs1.gtin.isNotEmpty ? gs1.gtin : raw;
+  if (RegExp(r'^\d+$').hasMatch(candidate) &&
+      const {8, 12, 13, 14}.contains(candidate.length)) {
+    return candidate.padLeft(14, '0');
+  }
+  return candidate;
+}
+
 /// One ranking/index implementation serves both live inventory and the removed
 /// projection. Archived rows are excluded from the normal engine by default so
 /// long-term history cannot inflate the hot search index. A caller that needs
@@ -203,8 +222,9 @@ class MedicineSearch {
     for (final m in records.where((m) => includeArchived || !m.archived)) {
       final doc = SearchDocument(m);
       docs[m.id] = doc;
-      if (m.barcode.isNotEmpty) {
-        barcode.putIfAbsent(m.barcode, () => {}).add(m.id);
+      final barcodeKey = _barcodeIdentity(m.barcode);
+      if (barcodeKey.isNotEmpty) {
+        barcode.putIfAbsent(barcodeKey, () => {}).add(m.id);
       }
       for (final term in doc.terms) {
         exact.putIfAbsent(term, () => {}).add(m.id);
@@ -326,9 +346,11 @@ class MedicineSearch {
     }
 
     // One product barcode can legitimately identify several physical batches,
-    // including several historical removed rows. Exact barcode remains a
-    // deterministic candidate shortcut, never an automatic mutation selector.
-    final barcodeIds = barcode[raw.trim()];
+    // including several historical removed rows. Canonical GS1/GTIN identity is
+    // an exact deterministic candidate shortcut, never an automatic mutation
+    // selector.
+    final barcodeKey = _barcodeIdentity(raw);
+    final barcodeIds = barcodeKey.isEmpty ? null : barcode[barcodeKey];
     if (barcodeIds != null) {
       final ids = barcodeIds.where(allowedId).toList()
         ..sort((a, b) => order(docs[a]!.record, docs[b]!.record));
