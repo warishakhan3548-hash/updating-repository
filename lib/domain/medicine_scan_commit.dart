@@ -151,13 +151,16 @@ DateTime? _scanDate(
 }
 
 Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
-  final name = confirmedScanName(draft);
-  if (name.isEmpty) {
-    throw const FormatException(
-      'Medicine name or brand is required before adding stock.',
-    );
+  // Defense in depth: every present/future caller must cross the exact same
+  // Brand + Salt + Strength + Form identity boundary as the visible one-tap UI.
+  // Do not rely on a button having called scanQuickAddDecision first; background
+  // or refactored entry points must never persist a partial AI/OCR identity.
+  final identityIssue = scanQuickIdentityIssue(draft);
+  if (identityIssue.isNotEmpty) {
+    throw FormatException(identityIssue);
   }
 
+  final name = confirmedScanName(draft);
   final mfg = _scanDate(draft.mfg, monthOnly: draft.mfgMonthOnly);
   final expiry = _scanDate(
     draft.expiry,
