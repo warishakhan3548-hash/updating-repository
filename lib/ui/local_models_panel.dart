@@ -115,7 +115,8 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
           repositories = result.repositories;
           nextPage = result.next;
           if (repositories.isEmpty) {
-            catalogueNote = 'No models found. Try Qwen, Gemma, Llama, or paste a model link.';
+            catalogueNote =
+                'No models found. Try Qwen, Gemma, Llama, or paste a model link.';
           }
         });
       }
@@ -173,17 +174,18 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
     LocalModelSetupStage.verifying => 'Checking download…',
     LocalModelSetupStage.connecting => 'Connecting…',
     LocalModelSetupStage.testing => 'Testing on this phone…',
-    LocalModelSetupStage.ready =>
-      local.scanReady ? 'Local AI · Ready' : 'Local AI · Chat Ready',
+    LocalModelSetupStage.ready => local.scanVerified
+        ? 'Local AI · Ready'
+        : 'Local AI · Ready · verify scans',
     LocalModelSetupStage.attention => 'Setup needs attention',
   };
 
   String _stageSubtitle() {
     final active = local.activeModel;
     if (local.setupStage == LocalModelSetupStage.ready && active != null) {
-      return local.scanReady
-          ? '${_shortLabel(active.label)} · ${modelSize(active.bytes)} · Active'
-          : '${_shortLabel(active.label)} · ${modelSize(active.bytes)} · Active · scan review not verified';
+      return local.scanVerified
+          ? '${_shortLabel(active.label)} · ${modelSize(active.bytes)} · Active · extraction verified'
+          : '${_shortLabel(active.label)} · ${modelSize(active.bytes)} · Active · scan AI allowed with warning';
     }
     if (local.setupStage == LocalModelSetupStage.downloading &&
         local.progress != null) {
@@ -606,9 +608,9 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
               ),
               subtitle: Text(
                 local.isModelReady(model.id)
-                    ? local.isModelScanReady(model.id)
-                          ? '${modelSize(model.bytes)} · Ready'
-                          : '${modelSize(model.bytes)} · Chat Ready · scan review limited'
+                    ? local.isModelScanVerified(model.id)
+                          ? '${modelSize(model.bytes)} · Ready · extraction verified'
+                          : '${modelSize(model.bytes)} · Ready · scan AI with warning'
                     : '${modelSize(model.bytes)} · Installed',
               ),
               trailing: local.isModelReady(model.id)
@@ -710,11 +712,11 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
               style: TextStyle(fontWeight: FontWeight.w800),
             ),
             subtitle: Text(
-              local.scanReady
-                  ? 'Use the scan-verified model after OCR.'
-                  : local.ready
-                  ? 'Chat is Ready. This model did not pass the stricter scan-review check.'
-                  : 'Choose a model and wait for Chat Ready first.',
+              local.scanVerified
+                  ? 'Extraction probe passed. OCR is handed to this on-device model after deterministic parsing.'
+                  : local.scanReady
+                  ? 'Smart warning: this model loads, but the optional extraction probe did not pass. You can still use scan AI and verify its preview.'
+                  : 'Choose a model and wait for Ready first.',
             ),
             value: local.scanReady && local.scannerEnabled,
             onChanged: local.scanReady && !_locked
@@ -757,24 +759,4 @@ String _shortLabel(String raw) {
     value = value.substring(0, value.length - 5);
   }
   return value.replaceAll('_', ' ');
-}
-
-String _friendlyError(Object error) {
-  final text = error
-      .toString()
-      .replaceFirst('StateError: ', '')
-      .replaceFirst('FormatException: ', '');
-  final lower = text.toLowerCase();
-  if (lower.contains('storage'))
-    return 'Not enough phone storage for this model. Choose a smaller one.';
-  if (lower.contains('memory') || lower.contains('ram'))
-    return 'The native model load could not start right now. Aaris does not block models by a RAM estimate; close other apps and retry if needed.';
-  if (lower.contains('setup check') || lower.contains('activation'))
-    return 'The optional scan-review test was not verified. Chat can still be used when the model shows Chat Ready.';
-  if (lower.contains('paused'))
-    return 'Download paused. You can resume it below.';
-  if (lower.contains('publisher access') || lower.contains('gated'))
-    return 'This model needs publisher access. Choose another public model.';
-  if (text.length <= 120) return text;
-  return 'Could not complete Local AI setup. Try again or choose another model.';
 }
