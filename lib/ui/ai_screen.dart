@@ -21,7 +21,7 @@ const Color _aiMagenta = Color(0xFFB64FD2);
 
 enum AiHubQuickAction { sold, removed, stockSummary, add, delete, modify }
 
-enum _AiJourneyState { idle, preparing, thinking, streaming }
+enum _AiJourneyState { idle, preparing, thinking, streaming, stopping }
 
 class AiScreen extends StatefulWidget {
   const AiScreen({
@@ -60,9 +60,11 @@ class _AiScreenState extends State<AiScreen> {
   bool _externalReady = false;
   int _generation = 0;
 
-  bool get _requesting =>
+  bool get _cancellableRequest =>
       _journey == _AiJourneyState.thinking ||
       _journey == _AiJourneyState.streaming;
+  bool get _requesting =>
+      _cancellableRequest || _journey == _AiJourneyState.stopping;
   bool get _preparingRequest => _journey == _AiJourneyState.preparing;
 
   bool get _hasAiRoute => _configuration.localBrainEnabled
@@ -595,19 +597,40 @@ class _AiScreenState extends State<AiScreen> {
   }
 
   void _cancelRequest() {
-    if (!_requesting) return;
-    ++_generation;
+    if (!_cancellableRequest) return;
+    final cancellationGeneration = ++_generation;
     _service.cancel();
+    final drainingLocal = _configuration.localBrainEnabled && _local.busy;
     setState(() {
-      _journey = _AiJourneyState.idle;
+      _journey = drainingLocal
+          ? _AiJourneyState.stopping
+          : _AiJourneyState.idle;
       _streamingText = '';
       _messages.add(
-        const _AiChatMessage(
-          'AI request cancelled. No inventory changes were made.',
+        _AiChatMessage(
+          drainingLocal
+              ? 'AI request cancelled. Aaris is safely finishing the current native step before the next Send. No inventory changes were made.'
+              : 'AI request cancelled. No inventory changes were made.',
           false,
         ),
       );
     });
+    _scrollToEnd();
+    if (drainingLocal) {
+      unawaited(_finishLocalCancellation(cancellationGeneration));
+    }
+  }
+
+  Future<void> _finishLocalCancellation(int generation) async {
+    while (mounted && generation == _generation && _local.busy) {
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+    if (!mounted ||
+        generation != _generation ||
+        _journey != _AiJourneyState.stopping) {
+      return;
+    }
+    setState(() => _journey = _AiJourneyState.idle);
     _scrollToEnd();
   }
 
@@ -883,7 +906,7 @@ class _AiScreenState extends State<AiScreen> {
               onPaste: _pasteExternalResponse,
               onDismiss: () => setState(() => _externalReady = false),
             ),
-          if (_requesting)
+          if (_cancellableRequest)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
               child: Align(
@@ -918,6 +941,11 @@ class _AiScreenState extends State<AiScreen> {
                     _streamingText.isNotEmpty)
                   _AiMessageBubble(
                     message: _AiChatMessage(_streamingText, false),
+                  ),
+                if (_journey == _AiJourneyState.stopping)
+                  const _AiThinkingBubble(
+                    detail:
+                        'Stopping local inference safely · next Send unlocks when the native lease is free',
                   ),
                 if (_error.isNotEmpty)
                   Padding(

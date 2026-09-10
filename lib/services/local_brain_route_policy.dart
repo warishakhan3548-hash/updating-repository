@@ -4,6 +4,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'local_ai_service.dart';
 
+enum LocalBrainRouteReadiness { ready, retryWhenIdle, unavailable }
+
 /// Read-only routing authority for capture-time Local AI handoff.
 ///
 /// A selected model is not the same thing as an enabled Aaris Brain route:
@@ -62,14 +64,15 @@ class LocalBrainRoutePolicy {
   ///
   /// A selected model may have a stale/missing readiness proof after an app or
   /// runtime upgrade. Preserve that selection as the capture witness instead of
-  /// silently downgrading the scan forever. [mayReasonWith] can repair the live
-  /// route only after OCR has already been durably saved. A capture made while
-  /// Brain was OFF still receives no witness and can never wake Local AI later.
+  /// silently downgrading the scan forever. [reasoningReadiness] can repair the
+  /// live route only after OCR has already been durably saved. A capture made
+  /// while Brain was OFF still receives no witness and can never wake Local AI
+  /// later.
   ///
   /// The ID is an audit/routing witness, not a permanent model lease. A queued
-  /// capture can outlive a model switch; [mayReasonWith] deliberately rechecks
-  /// the current active route immediately before inference so a healthy model
-  /// change never strands already-saved OCR in a dead-end review state.
+  /// capture can outlive a model switch; [reasoningReadiness] deliberately
+  /// rechecks the current active route immediately before inference so a healthy
+  /// model change never strands already-saved OCR in a dead-end review state.
   ///
   /// Local model initialization is deliberately best-effort here. A damaged,
   /// stalled or temporarily unreadable model manifest must degrade to
@@ -102,56 +105,72 @@ class LocalBrainRoutePolicy {
 
   /// Re-checks the privacy/user-control boundary immediately before inference.
   ///
-  /// A non-null [capturedModelId] proves that Local AI was explicitly selected
-  /// while Brain was ON at capture time. If the owner keeps Aaris Brain ON but
-  /// selects a different Local AI while OCR is queued, the current model owns
-  /// the inference lease. A selected model whose readiness proof went stale is
-  /// validated/activated here, after durable OCR persistence, instead of making
-  /// the user rescan a package. Turning Brain OFF, disabling scan AI, removing
-  /// the selected model, or a failed native load still fails closed to the
-  /// evidence-grounded deterministic preview with no network fallback.
-  static Future<bool> mayReasonWith(
+  /// Unlike a boolean gate, this distinguishes a genuinely unavailable route
+  /// from temporary lease contention. Foreground chat and scanner refinement
+  /// share one native model runtime, so a capture must wait when chat wins a
+  /// narrow race instead of permanently losing its Local AI refinement.
+  static Future<LocalBrainRouteReadiness> reasoningReadiness(
     LocalAiService local,
     String? capturedModelId,
   ) async {
-    if (capturedModelId == null) return false;
+    if (capturedModelId == null) {
+      return LocalBrainRouteReadiness.unavailable;
+    }
 
     // Re-check consent first, then use an already-live route without inserting
-    // avoidable setup/storage awaits into every queued draft. This also narrows
-    // the lease-contention window between the intake pump's `busy == false`
-    // observation and LocalAiService.understand() acquiring the model.
-    if (!await enabled()) return false;
-    if (_activeScanReadyModelId(local) != null) return true;
+    // avoidable setup/storage awaits into every queued draft.
+    if (!await enabled()) return LocalBrainRouteReadiness.unavailable;
+    if (_activeScanReadyModelId(local) != null) {
+      return LocalBrainRouteReadiness.ready;
+    }
 
     try {
       await local.initialize().timeout(_routeInitializationTimeout);
-      if (!await enabled()) return false;
+      if (!await enabled()) return LocalBrainRouteReadiness.unavailable;
 
       final activeId = _selectedScanModelId(local);
-      if (activeId == null) return false;
-      if (local.isModelScanReady(activeId)) return true;
+      if (activeId == null) return LocalBrainRouteReadiness.unavailable;
+      if (local.isModelScanReady(activeId)) {
+        return LocalBrainRouteReadiness.ready;
+      }
 
-      // Explicit scan capture is allowed to repair the exact selected local
-      // route, but only after OCR is safely persisted and only while no other
-      // local operation owns the runtime. activate() performs the existing GGUF
-      // verification, adaptive-memory load and advisory extraction probe; it
-      // never falls through to cloud. Failure remains deterministic review.
-      if (local.busy || local.transferring) return false;
+      // A busy/transferring runtime is not proof that this route is invalid.
+      // Keep the durable OCR job in reasoning state and retry when the shared
+      // lease becomes idle; LocalAiService listeners close the lost-wakeup race.
+      if (local.busy || local.transferring) {
+        return LocalBrainRouteReadiness.retryWhenIdle;
+      }
+
+      // Explicit scan capture is allowed to repair the selected local route,
+      // but only after OCR is safely persisted. activate() performs the existing
+      // GGUF verification, adaptive-memory load and advisory extraction probe;
+      // it never falls through to cloud. A real activation failure remains a
+      // deterministic-review fallback.
       try {
         await local.activate(activeId);
       } catch (_) {
-        return false;
+        return LocalBrainRouteReadiness.unavailable;
       }
 
       // Activation can take long enough for the owner to change the Brain
       // switch. Re-check consent and the live route before exposing OCR to the
       // model; stale activation completion never grants inference authority.
-      if (!await enabled()) return false;
+      if (!await enabled()) return LocalBrainRouteReadiness.unavailable;
       return local.activeId == activeId &&
-          local.scannerEnabled &&
-          local.isModelScanReady(activeId);
+              local.scannerEnabled &&
+              local.isModelScanReady(activeId)
+          ? LocalBrainRouteReadiness.ready
+          : LocalBrainRouteReadiness.unavailable;
     } catch (_) {
-      return false;
+      return LocalBrainRouteReadiness.unavailable;
     }
   }
+
+  /// Compatibility boolean for call sites that cannot use retry semantics.
+  static Future<bool> mayReasonWith(
+    LocalAiService local,
+    String? capturedModelId,
+  ) async =>
+      await reasoningReadiness(local, capturedModelId) ==
+      LocalBrainRouteReadiness.ready;
 }

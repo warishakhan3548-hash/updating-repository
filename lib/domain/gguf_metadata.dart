@@ -335,11 +335,11 @@ class LocalExecutionPlan {
   int get conversationCharacters => contextTokens <= 2048 ? 400 : 1500;
 }
 
-/// Conservative admission estimate, not a promise of successful allocation.
+/// Conservative planning estimate, not a model-size admission gate.
 /// On phones, large GGUF files are mmap-backed by llama.cpp, so file size must
 /// not be treated as if every byte were anonymous resident RAM. Device memory
-/// facts only choose an initial context and surface a warning; the native loader
-/// remains the final allocation authority and can adapt the context downward.
+/// facts choose an initial context and surface a warning; the native loader is
+/// the final allocation authority and LocalAiRuntime can retry smaller contexts.
 LocalExecutionPlan planLocalExecution({
   required int weightBytes,
   required GgufMetadata metadata,
@@ -352,9 +352,8 @@ LocalExecutionPlan planLocalExecution({
     throw StateError('Invalid local model weight size.');
   }
 
-  // Relative pressure is more future-proof than a fixed "1.5 GB model" rule:
-  // the same GGUF can be comfortable on one device and heavy on another. These
-  // signals never reject a phone model; they only pick a safer starting context.
+  // Relative pressure replaces any fixed "1.5 GB model" admission rule. These
+  // signals are warnings/context hints only; they never reject a phone model.
   final modelPressure =
       totalMemory != null && weightBytes >= (totalMemory * .40).floor();
   final availablePressure =
@@ -363,13 +362,13 @@ LocalExecutionPlan planLocalExecution({
       availableMemory < (totalMemory * .18).floor();
   final constrainedPhone =
       phone && (lowMemory || modelPressure || availablePressure);
-  final roomyPhone =
+  final highEndPhone =
       phone &&
       !constrainedPhone &&
       totalMemory != null &&
       availableMemory != null &&
-      availableMemory >= (totalMemory * .35).floor() &&
-      weightBytes <= (totalMemory * .30).floor();
+      totalMemory >= 8 * 1024 * _mib &&
+      availableMemory >= (totalMemory * .30).floor();
 
   final totalBudget = totalMemory == null ? null : (totalMemory * .65).floor();
   final availableBudget = availableMemory == null
@@ -381,9 +380,8 @@ LocalExecutionPlan planLocalExecution({
       ? totalBudget
       : math.min(totalBudget, availableBudget);
 
-  // llama.cpp maps GGUF tensors from storage and Android can reclaim file-backed
-  // pages. Memory facts are advisory on phones: preserve a reclaim-aware floor
-  // instead of rejecting a model from a pessimistic resident-set estimate.
+  // Android can reclaim mmap-backed file pages. Keep a reclaim-aware planning
+  // floor so the warning estimate does not masquerade as physical allocation.
   if (phone && totalMemory != null) {
     final reclaimAwareFloor = (totalMemory * .52).floor();
     budget = budget == null
@@ -394,11 +392,11 @@ LocalExecutionPlan planLocalExecution({
   final contexts = phone
       ? constrainedPhone
             ? const [2048]
-            : roomyPhone
+            : highEndPhone
             ? const [8192, 6144, 4096, 3072, 2048]
             : const [4096, 3072, 2048]
       : const [8192, 6144, 4096, 3072, 2048];
-  LocalExecutionPlan? phoneFallback;
+
   for (final context in contexts) {
     if (metadata.contextLength != null && context > metadata.contextLength!) {
       continue;
@@ -410,12 +408,10 @@ LocalExecutionPlan planLocalExecution({
         : weightBytes;
     final reserve = constrainedPhone ? 320 * _mib : 512 * _mib;
     final bytes = (residentWeights * 1.1 + kv * 1.1).ceil() + reserve;
+    final overBudget = budget != null && bytes > budget;
     final warning =
         phone &&
-        (lowMemory ||
-            modelPressure ||
-            availablePressure ||
-            (budget != null && bytes > budget));
+        (lowMemory || modelPressure || availablePressure || overBudget);
     final plan = LocalExecutionPlan(
       contextTokens: context,
       estimatedBytes: bytes,
@@ -423,21 +419,15 @@ LocalExecutionPlan planLocalExecution({
       geometryKnown: knownKv != null,
       memoryWarning: warning,
     );
-    if (budget == null || bytes <= budget) return plan;
-    if (phone) phoneFallback = plan;
+
+    // Phones are native-loader authoritative: use the best context justified by
+    // the live device profile and expose pressure as a Smart Warning. If real
+    // allocation fails, LocalAiRuntime retries lower contexts. This prevents a
+    // pessimistic Dart estimate from hard-blocking capable present/future phones.
+    if (phone) return plan;
+    if (!overBudget) return plan;
   }
 
-  // A phone estimate is not proof that mmap-backed native inference will fail.
-  // Try the smallest supported context and let llama.cpp report the real error.
-  if (phoneFallback != null) {
-    return LocalExecutionPlan(
-      contextTokens: phoneFallback.contextTokens,
-      estimatedBytes: phoneFallback.estimatedBytes,
-      estimatedKvBytes: phoneFallback.estimatedKvBytes,
-      geometryKnown: phoneFallback.geometryKnown,
-      memoryWarning: true,
-    );
-  }
   throw StateError(
     'Model weights + context cache do not fit this non-phone memory budget, or its context is below 2048.',
   );

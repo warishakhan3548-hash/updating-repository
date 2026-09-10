@@ -534,7 +534,16 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _reason(MedicineIntakeJob job) async {
     final local = LocalAiService.instance;
-    if (!await LocalBrainRoutePolicy.mayReasonWith(local, job.modelId)) {
+    final readiness = await LocalBrainRoutePolicy.reasoningReadiness(
+      local,
+      job.modelId,
+    );
+    if (readiness == LocalBrainRouteReadiness.retryWhenIdle) {
+      job.error = _waitingForLocalAi;
+      job.status = 'reasoning';
+      return;
+    }
+    if (readiness != LocalBrainRouteReadiness.ready) {
       job.error =
           'Aaris Brain is off, not scan-ready, or the selected Local AI changed. Deterministic OCR draft retained for review.';
       job.status = 'review';
