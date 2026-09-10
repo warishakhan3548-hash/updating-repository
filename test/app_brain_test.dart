@@ -295,6 +295,87 @@ void main() {
       expect(isAppBrainContextReference('Dolo 650'), isFalse);
     });
 
+    test('negated mutation language can never arm a write intent', () {
+      final commands = <String, String?>{
+        'Dolo 650 delete mat karna': 'Dolo 650',
+        'do not remove Crocin 500': 'Crocin 500',
+        'Dolo 650 stock khatam nahi': 'Dolo 650',
+        'Dolo 650 5 units sell mat karo': 'Dolo 650',
+        'pichla change undo mat karo': null,
+      };
+
+      for (final entry in commands.entries) {
+        final intent = parseAppBrainIntent(entry.key);
+        expect(intent.mutatesInventory, isFalse, reason: entry.key);
+        expect(intent.destructive, isFalse, reason: entry.key);
+        if (entry.value == null) {
+          expect(intent.action, AppBrainAction.unknown, reason: entry.key);
+        } else {
+          expect(intent.action, AppBrainAction.search, reason: entry.key);
+          expect(intent.query, entry.value, reason: entry.key);
+        }
+      }
+    });
+
+    test('instructional mutation questions stay read-only', () {
+      for (final entry in <String, String>{
+        'how to delete Dolo 650': 'Dolo 650',
+        'can i edit Crocin 500': 'Crocin 500',
+        'Dolo 650 ko kaise remove kare': 'Dolo 650',
+      }.entries) {
+        final intent = parseAppBrainIntent(entry.key);
+        expect(intent.action, AppBrainAction.search, reason: entry.key);
+        expect(intent.query, entry.value, reason: entry.key);
+        expect(intent.mutatesInventory, isFalse, reason: entry.key);
+      }
+    });
+
+    test('conditional mutation language fails closed instead of executing', () {
+      for (final command in [
+        'if Dolo 650 is expired delete it',
+        'agar Dolo 650 expire ho to delete karo',
+        'when Crocin stock is zero mark sold',
+      ]) {
+        final intent = parseAppBrainIntent(command);
+        expect(intent.action, AppBrainAction.unknown, reason: command);
+        expect(intent.mutatesInventory, isFalse, reason: command);
+        expect(intent.confidence, 1, reason: command);
+      }
+    });
+
+    test('multiple write families in one utterance never execute partially', () {
+      for (final command in [
+        'Dolo 650 stock add 5 units aur quantity 20 set karo',
+        'Dolo 650 delete karo aur restore karo',
+        'Dolo 650 edit karo aur 3 units sell karo',
+      ]) {
+        final intent = parseAppBrainIntent(command);
+        expect(intent.action, AppBrainAction.unknown, reason: command);
+        expect(intent.mutatesInventory, isFalse, reason: command);
+        expect(intent.confidence, 1, reason: command);
+      }
+    });
+
+    test('incomplete restock wording cannot create a duplicate medicine row', () {
+      final targeted = parseAppBrainIntent('Dolo 650 add stock');
+      expect(targeted.action, AppBrainAction.search);
+      expect(targeted.query, 'Dolo 650');
+      expect(targeted.mutatesInventory, isFalse);
+
+      final targetless = parseAppBrainIntent('add stock');
+      expect(targetless.action, AppBrainAction.search);
+      expect(targetless.query, isEmpty);
+      expect(targetless.mutatesInventory, isFalse);
+    });
+
+    test('explicit receive with quantity still uses reviewed stock mutation', () {
+      final intent = parseAppBrainIntent('Dolo 650 stock add 7 units');
+      expect(intent.action, AppBrainAction.receiveStock);
+      expect(intent.query, 'Dolo 650');
+      expect(intent.quantity, 7);
+      expect(intent.mutatesInventory, isTrue);
+    });
+
     test('leaves complex reasoning to the existing AI pipeline', () {
       final intent = parseAppBrainIntent(
         'Which stock pattern should I review before next month?',

@@ -104,18 +104,20 @@ bool _identityCompatible(MedicineScanDraft draft, Medicine record) {
   return true;
 }
 
+bool _hasTextualIdentityEvidence(MedicineScanDraft draft) =>
+    _trusted(draft, 'name') &&
+    (_trusted(draft, 'strength') ||
+        _trusted(draft, 'form') ||
+        _trusted(draft, 'brand') ||
+        _trusted(draft, 'salt'));
+
 bool _hasIdentityEvidence(MedicineScanDraft draft) {
   final barcode = _trustedText(
     draft,
     'barcode',
     minimum: _trustedLotConfidence,
   );
-  if (barcode.isNotEmpty) return true;
-  return _trusted(draft, 'name') &&
-      (_trusted(draft, 'strength') ||
-          _trusted(draft, 'form') ||
-          _trusted(draft, 'brand') ||
-          _trusted(draft, 'salt'));
+  return barcode.isNotEmpty || _hasTextualIdentityEvidence(draft);
 }
 
 bool _strongIdentityConflict(MedicineScanDraft draft, Medicine record) =>
@@ -235,6 +237,8 @@ String _receiveBlock(Medicine record, MedicineScanDraft draft, DateTime today) {
 /// Matching policy:
 /// * a trusted barcode that maps to different saved medicine identities fails
 ///   closed as ambiguous;
+/// * a trusted barcode that is absent locally cannot make unrelated inventory
+///   rows look like product matches when no trusted textual identity exists;
 /// * an exact lot requires compatible identity plus a trusted batch match, or a
 ///   barcode together with a matching MFG/EXP date;
 /// * product-only matches never receive stock automatically and are presented as
@@ -286,6 +290,21 @@ IntakeResolution resolveIntakeDraft({
             'Trusted OCR identity conflicts with the medicine currently saved for this barcode. Nothing should be updated until the pack is verified.',
       );
     }
+  }
+
+  // A barcode is strong local lookup evidence, but an unseen barcode says
+  // nothing about *which* existing product row it belongs to. Before this guard,
+  // a barcode-only scan made _identityCompatible true for every active medicine
+  // (because no textual fields existed) and could flood the review with unrelated
+  // candidates. Fail closed to a reviewed new-stock draft instead of guessing.
+  final hasTextualIdentity = _hasTextualIdentityEvidence(draft);
+  if (barcode.isNotEmpty && barcodeMatches.isEmpty && !hasTextualIdentity) {
+    return const IntakeResolution(
+      kind: IntakeResolutionKind.newStock,
+      candidateStockIds: <String>[],
+      reason:
+          'This trusted barcode is not saved locally, and the scan has no trusted medicine name plus supporting identity field. Review the printed medicine identity before creating new stock; Aaris will not match an unknown barcode to unrelated inventory.',
+    );
   }
 
   final productMatches = <Medicine>[];
@@ -362,10 +381,16 @@ IntakeResolution resolveIntakeDraft({
         _trusted(draft, 'batchNumber', minimum: _trustedLotConfidence) ||
         _trusted(draft, 'expiry', minimum: _trustedLotConfidence) ||
         _trusted(draft, 'mfg', minimum: _trustedLotConfidence);
+    final newBarcodeForKnownProduct =
+        barcode.isNotEmpty &&
+        barcodeMatches.isEmpty &&
+        productMatches.any((record) => record.barcode.trim().isNotEmpty);
     return IntakeResolution(
       kind: IntakeResolutionKind.sameProduct,
       candidateStockIds: List.unmodifiable(ids),
-      reason: hasTrustedLot
+      reason: newBarcodeForKnownProduct
+          ? 'The printed medicine identity matches existing stock, but this trusted barcode is new or different. Review it as a possible different pack or new batch; Aaris will not overwrite a saved barcode or merge stock automatically.'
+          : hasTrustedLot
           ? 'The medicine matches existing stock, but the trusted lot facts do not identify one existing batch. Review it as a possible new batch.'
           : 'The medicine matches existing stock, but the scan does not contain enough trusted lot evidence to choose one batch.',
     );
