@@ -1516,8 +1516,8 @@ typedef _MediaInitNative =
     );
 typedef _MediaInitDart =
     Pointer<Void> Function(
-      Pointer<llama_model>,
       Pointer<Char>,
+      Pointer<llama_model>,
       Pointer<Char>,
       Pointer<Pointer<Char>>,
     );
