@@ -86,7 +86,7 @@ class GgufMetadata {
       tensorCount: number('tensorCount') ?? 0,
       contextLength: number('contextLength'),
       layers: number('layers'),
-      embedding: number('embedding'),
+      embedding: number('embedding_length'),
       heads: number('heads'),
       kvHeads: number('kvHeads'),
       keyLength: number('keyLength'),
@@ -393,9 +393,13 @@ LocalExecutionPlan planLocalExecution({
         : math.max(budget, reclaimAwareFloor);
   }
 
+  // Even a constrained phone starts from a useful 4K quality target. Memory
+  // pressure is advisory only: the native runtime remains the final authority
+  // and can step down through 3K/2K on a real allocation failure. This avoids a
+  // hidden capability block based only on a coarse Android RAM snapshot.
   final contexts = phone
       ? constrainedPhone
-            ? const [2048]
+            ? const [4096, 3072, 2048]
             : ultraHighEndPhone
             ? const [16384, 12288, 8192, 6144, 4096, 3072, 2048]
             : highEndPhone
