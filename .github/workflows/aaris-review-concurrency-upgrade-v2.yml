@@ -1,0 +1,61 @@
+name: Aaris reviewed-action concurrency upgrade v2
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aaris-review-concurrency-upgrade-v2.yml
+permissions:
+  contents: write
+concurrency:
+  group: aaris-reviewed-action-upgrade-v2
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Run Aaris reviewed-action concurrency upgrade v2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Apply surgical source patch
+        run: python3 tool/one_shot_review_concurrency_upgrade.py
+      - name: Format changed Dart sources
+        run: dart format lib/domain/dispensing_plan.dart lib/state/pharmacy_controller.dart test/autonomous_stock_operations_test.dart test/removed_stock_recovery_test.dart test/fefo_automation_test.dart
+      - name: Resolve pinned dependencies
+        run: flutter pub get
+      - name: Static analysis
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+      - name: Focused reviewed-action regressions
+        run: flutter test test/autonomous_stock_operations_test.dart test/removed_stock_recovery_test.dart test/fefo_automation_test.dart --reporter expanded
+      - name: Full Flutter test suite
+        run: flutter test --reporter expanded
+      - name: Compile Android integration
+        run: flutter build apk --debug --no-pub
+      - name: Commit verified upgrade to main
+        shell: bash
+        run: |
+          git checkout -- pubspec.lock 2>/dev/null || true
+          rm -f .github/workflows/aaris-review-concurrency-upgrade.yml
+          rm -f .github/workflows/aaris-review-concurrency-upgrade-v2.yml
+          rm -f tool/one_shot_review_concurrency_upgrade.py
+          git config user.name 'Aaris Pharmacy Upgrade Bot'
+          git config user.email 'warishakhan3548@gmail.com'
+          git add -A -- lib/domain/dispensing_plan.dart lib/state/pharmacy_controller.dart test/autonomous_stock_operations_test.dart test/removed_stock_recovery_test.dart test/fefo_automation_test.dart docs/ARCHITECTURE.md docs/REVIEWED_ACTION_CONCURRENCY_2026_09_10.md .github/workflows/aaris-review-concurrency-upgrade.yml .github/workflows/aaris-review-concurrency-upgrade-v2.yml tool/one_shot_review_concurrency_upgrade.py
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No upgrade diff produced'; exit 1; }
+          git commit -m 'Make reviewed pharmacy actions dependency-scoped [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
