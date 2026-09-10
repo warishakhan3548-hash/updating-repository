@@ -29,13 +29,25 @@ class ScanQuickAddDecision {
       isNewBatch ? 'Confirm & add new batch' : 'Confirm & add';
 }
 
+/// Inventory requires a human-readable medicine name, but medicine packs often
+/// print only one product identity string. When OCR/Local AI has a supported
+/// Brand but no separate Name label, use that same reviewed Brand as the stored
+/// display name. This removes pointless manual typing without inventing a fact:
+/// the Brand remains visible in the preview and the user still confirms the
+/// exact draft before any write.
+String confirmedScanName(MedicineScanDraft draft) {
+  final name = draft.name.trim();
+  if (name.isNotEmpty) return name;
+  return draft.brand.trim();
+}
+
 ScanQuickAddDecision scanQuickAddDecision(
   MedicineScanDraft draft,
   IntakeResolution resolution,
 ) {
-  if (draft.name.trim().isEmpty) {
+  if (confirmedScanName(draft).isEmpty) {
     return const ScanQuickAddDecision.blocked(
-      'Medicine name still needs review before this scan can be added.',
+      'Medicine name or brand still needs review before this scan can be added.',
     );
   }
 
@@ -105,9 +117,11 @@ DateTime? _scanDate(
 }
 
 Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
-  final name = draft.name.trim();
+  final name = confirmedScanName(draft);
   if (name.isEmpty) {
-    throw const FormatException('Medicine name is required before adding stock.');
+    throw const FormatException(
+      'Medicine name or brand is required before adding stock.',
+    );
   }
 
   final mfg = _scanDate(draft.mfg, monthOnly: draft.mfgMonthOnly);
