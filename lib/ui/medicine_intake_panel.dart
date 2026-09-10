@@ -68,12 +68,16 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
     }
   }
 
+  String _fact(String label, String value) =>
+      '$label: ${value.trim().isEmpty ? 'Unknown' : value.trim()}';
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: queue,
+    animation: Listenable.merge([queue, LocalAiService.instance]),
     builder: (context, _) {
       if (!queue.supported || (queue.jobs.isEmpty && error.isEmpty))
         return const SizedBox.shrink();
+      final local = LocalAiService.instance;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -82,7 +86,7 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
             children: [
               Expanded(
                 child: Text(
-                  'Capture inbox · ${queue.jobs.length}',
+                  'AI scan preview · ${queue.jobs.length}',
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -95,9 +99,17 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
             ],
           ),
           const Text(
-            'Drafts are saved locally. OCR/AI processes while the app is alive; interrupted jobs resume here. Nothing enters stock without review.',
+            'OCR stays local, deterministic extraction runs first, then the active Local AI can refine evidence-grounded Brand, Salt, Strength and Form. Nothing enters stock until you confirm.',
             style: TextStyle(fontSize: 11, color: muted),
           ),
+          if (local.hasSelection && local.scannerEnabled && !local.scanVerified)
+            const Padding(
+              padding: EdgeInsets.only(top: 5),
+              child: Text(
+                'Smart warning: this model loaded successfully but did not pass the optional extraction probe. Scan AI is still available; verify its preview before adding.',
+                style: TextStyle(fontSize: 11, color: amber),
+              ),
+            ),
           if (queue.pauseReason.isNotEmpty)
             Text(queue.pauseReason, style: const TextStyle(color: amber)),
           if (queue.persistenceError.isNotEmpty)
@@ -133,35 +145,61 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                       ),
                     for (final draft in job.drafts.take(3))
                       Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${draft.name.isEmpty ? 'Identity needs review' : draft.name} · ${draft.strength}',
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(11),
+                          decoration: BoxDecoration(
+                            color: primary.withValues(alpha: .045),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: primary.withValues(alpha: .12),
                             ),
-                            Text(
-                              'Salt: ${draft.salt.isEmpty ? 'Unknown' : draft.salt}\nEXP: ${draft.expiry.isEmpty ? 'Unknown' : draft.expiry}',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            if (_expired(draft.expiry))
-                              const Text(
-                                'Expired — do not dispense. Check the printed date.',
-                                style: TextStyle(
-                                  color: red,
-                                  fontWeight: FontWeight.w700,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                draft.name.isEmpty
+                                    ? 'Identity needs review'
+                                    : draft.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
-                            if (widget.onAsk != null && job.terminal)
-                              TextButton(
-                                onPressed:
-                                    !LocalAiService.instance.hasSelection ||
-                                        LocalAiService.instance.busy
-                                    ? null
-                                    : () => widget.onAsk!(draft.rawText),
-                                child: const Text('Ask about this scan'),
+                              const SizedBox(height: 5),
+                              Text(
+                                [
+                                  _fact('Brand', draft.brand),
+                                  _fact('Salt', draft.salt),
+                                  _fact('Strength', draft.strength),
+                                  _fact('Form', draft.form),
+                                  _fact('EXP', draft.expiry),
+                                ].join('\n'),
+                                style: const TextStyle(fontSize: 12, height: 1.35),
                               ),
-                          ],
+                              if (_expired(draft.expiry))
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 5),
+                                  child: Text(
+                                    'Expired — do not dispense. Check the printed date.',
+                                    style: TextStyle(
+                                      color: red,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              if (widget.onAsk != null && job.terminal)
+                                TextButton(
+                                  onPressed:
+                                      !LocalAiService.instance.hasSelection ||
+                                          LocalAiService.instance.busy
+                                      ? null
+                                      : () => widget.onAsk!(draft.rawText),
+                                  child: const Text('Ask about this scan'),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     if (job.drafts.length > 3)
@@ -170,9 +208,10 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                       spacing: 8,
                       children: [
                         if (job.terminal && job.drafts.isNotEmpty)
-                          FilledButton(
+                          FilledButton.icon(
                             onPressed: () => _review(job),
-                            child: const Text('Add / Edit details'),
+                            icon: const Icon(Icons.fact_check_outlined),
+                            label: const Text('Preview & Confirm / Add'),
                           ),
                         if (job.terminal)
                           TextButton(
