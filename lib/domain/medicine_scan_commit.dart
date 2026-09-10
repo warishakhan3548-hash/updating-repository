@@ -25,7 +25,8 @@ class ScanQuickAddDecision {
   final bool isNewBatch;
   final String reason;
 
-  String get actionLabel => isNewBatch ? 'Confirm & add new batch' : 'Confirm & add';
+  String get actionLabel =>
+      isNewBatch ? 'Confirm & add new batch' : 'Confirm & add';
 }
 
 ScanQuickAddDecision scanQuickAddDecision(
@@ -39,9 +40,13 @@ ScanQuickAddDecision scanQuickAddDecision(
   }
 
   final isNewStock = resolution.kind == IntakeResolutionKind.newStock;
+  // Same-product one-tap creation is intentionally narrower than ordinary new
+  // stock: EXP/MFG alone are product/lot evidence but are not unique physical
+  // lot identifiers. A trusted printed batch is required so two packs sharing
+  // an expiry month cannot silently become duplicate stock rows.
   final isPossibleNewBatch =
       resolution.kind == IntakeResolutionKind.sameProduct &&
-      _hasTrustedLotAnchor(draft);
+      _hasTrustedBatchAnchor(draft);
   if (!isNewStock && !isPossibleNewBatch) {
     return const ScanQuickAddDecision.blocked(
       'Choose or verify the existing stock row before creating another entry.',
@@ -78,16 +83,11 @@ ScanQuickAddDecision scanQuickAddDecision(
   return ScanQuickAddDecision.allowed(isNewBatch: isPossibleNewBatch);
 }
 
-bool _hasTrustedLotAnchor(MedicineScanDraft draft) {
-  for (final key in const ['batchNumber', 'expiry', 'mfg']) {
-    final field = draft.field(key);
-    if (field.value.trim().isNotEmpty &&
-        !field.conflicted &&
-        field.confidence >= .82) {
-      return true;
-    }
-  }
-  return false;
+bool _hasTrustedBatchAnchor(MedicineScanDraft draft) {
+  final field = draft.field('batchNumber');
+  return field.value.trim().isNotEmpty &&
+      !field.conflicted &&
+      field.confidence >= .82;
 }
 
 DateTime? _scanDate(
