@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../domain/intake_resolution.dart';
 import '../domain/medicine.dart';
 import '../domain/medicine_intake.dart';
+import '../domain/medicine_understanding.dart';
 import '../services/local_ai_service.dart';
 import '../services/medicine_intake_service.dart';
 import '../state/pharmacy_controller.dart';
@@ -22,6 +24,8 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
   final queue = MedicineIntakeService.instance;
   int visible = 5;
   String error = '';
+  bool _savingQuickAdd = false;
+
   @override
   void initState() {
     super.initState();
@@ -70,6 +74,105 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
 
   String _fact(String label, String value) =>
       '$label: ${value.trim().isEmpty ? 'Unknown' : value.trim()}';
+
+  bool _hasCompleteQuickIdentity(MedicineScanDraft draft) {
+    if ([
+      draft.name,
+      draft.brand,
+      draft.salt,
+      draft.strength,
+      draft.form,
+    ].any((value) => value.trim().isEmpty)) {
+      return false;
+    }
+    final normalizedForm = normalizeForm(draft.form);
+    return normalizedForm.isNotEmpty &&
+        (normalizedForm != 'Other' || normalize(draft.form) == 'other');
+  }
+
+  bool _canConfirmAdd(MedicineScanDraft draft) {
+    if (!_hasCompleteQuickIdentity(draft)) return false;
+    final resolution = resolveIntakeDraft(
+      draft: draft,
+      records: widget.controller.records,
+      today: widget.controller.today,
+    );
+    return resolution.kind == IntakeResolutionKind.newStock;
+  }
+
+  bool _identityNeedsReview(MedicineScanDraft draft) => [
+    'name',
+    'brand',
+    'salt',
+    'strength',
+    'form',
+  ].any((key) => draft.field(key).needsReview);
+
+  Future<void> _confirmAndAdd(MedicineScanDraft draft) async {
+    if (_savingQuickAdd) return;
+    setState(() {
+      _savingQuickAdd = true;
+      error = '';
+    });
+    try {
+      if (!_hasCompleteQuickIdentity(draft)) {
+        throw StateError(
+          'Brand, salt, strength, medicine name and a recognized form are required for one-tap add. Open detailed review for this scan.',
+        );
+      }
+      final resolution = resolveIntakeDraft(
+        draft: draft,
+        records: widget.controller.records,
+        today: widget.controller.today,
+      );
+      if (resolution.kind != IntakeResolutionKind.newStock) {
+        throw StateError(
+          'A matching or ambiguous stock entry now exists. Open Preview & Confirm / Add so Aaris can prevent a duplicate lot.',
+        );
+      }
+
+      // The visible preview is the confirmation surface. Build the persisted row
+      // only from that evidence snapshot; printed pack size/MRP never become stock
+      // quantity or inventory cost. Medicine.fromJson re-runs date/form invariants.
+      final record = Medicine.fromJson({
+        'id': newId(),
+        'name': draft.name,
+        'brand': draft.brand,
+        'manufacturer': draft.manufacturer,
+        'salt': draft.salt,
+        'strength': draft.strength,
+        'form': draft.form,
+        'mfg': draft.mfg.isEmpty ? null : draft.mfg,
+        'expiry': draft.expiry.isEmpty ? null : draft.expiry,
+        'barcode': draft.barcode,
+        'batchNumber': draft.batchNumber,
+        'ocrText': draft.searchableOcrText,
+      });
+      final expectedRevision = widget.controller.snapshot.revision;
+
+      // Resolve immediately before the revision-bound commit. A concurrent stock
+      // write then fails closed at the controller/database compare-and-swap layer.
+      final finalResolution = resolveIntakeDraft(
+        draft: draft,
+        records: widget.controller.records,
+        today: widget.controller.today,
+      );
+      if (finalResolution.kind != IntakeResolutionKind.newStock) {
+        throw StateError(
+          'Inventory changed before save. Review this scan again; nothing was added.',
+        );
+      }
+      await widget.controller.save(record, expectedRevision: expectedRevision);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${record.title} added from the confirmed AI preview.')),
+      );
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString().replaceFirst('Bad state: ', ''));
+    } finally {
+      if (mounted) setState(() => _savingQuickAdd = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -186,6 +289,35 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                                     style: TextStyle(
                                       color: red,
                                       fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              if (job.terminal &&
+                                  _canConfirmAdd(draft) &&
+                                  _identityNeedsReview(draft))
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    'AI-refined identity: compare these values with the pack before confirming.',
+                                    style: TextStyle(
+                                      color: amber,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              if (job.terminal && _canConfirmAdd(draft))
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: FilledButton.icon(
+                                    onPressed: _savingQuickAdd
+                                        ? null
+                                        : () => _confirmAndAdd(draft),
+                                    icon: const Icon(Icons.check_circle_outline_rounded),
+                                    label: Text(
+                                      _savingQuickAdd
+                                          ? 'Adding…'
+                                          : 'Confirm & Add',
                                     ),
                                   ),
                                 ),
