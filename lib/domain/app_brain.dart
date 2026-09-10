@@ -56,6 +56,7 @@ class AppBrainIntent {
     this.locationPatch,
     this.removalReason,
     this.safetyReason,
+    this.openExact = false,
     this.confidence = 0,
   });
 
@@ -69,6 +70,7 @@ class AppBrainIntent {
   final StockLocationPatch? locationPatch;
   final RemovalReasonHint? removalReason;
   final AppBrainSafetyReason? safetyReason;
+  final bool openExact;
   final double confidence;
 
   bool get needsMedicineTarget =>
@@ -219,16 +221,20 @@ AppBrainIntent parseAppBrainIntent(String raw) {
 
   // Explicit write intent wins over category words such as "expired". A
   // bounded reason hint improves target resolution but never skips the final
-  // destructive confirmation in the UI.
+  // destructive confirmation in the UI. A direct "delete X" command uses the
+  // neutral Correction audit reason so it can land on the one protected final
+  // preview instead of forcing a second reason-picker interaction.
   if (_containsAny(text, _removeTerms)) {
     final reason = detectRemovalReason(raw);
+    final directDelete = _startsWithAnyPhrase(text, const ['delete', 'डिलीट']);
     return AppBrainIntent(
       action: AppBrainAction.removeMedicine,
       query: _extractMedicineQuery(raw, [
         ..._removeTerms,
         if (reason != null) ...reason.commandTerms,
       ]),
-      removalReason: reason,
+      removalReason:
+          reason ?? (directDelete ? RemovalReasonHint.correction : null),
       confidence: .98,
     );
   }
@@ -344,19 +350,13 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     );
   }
 
-  if (_containsAny(text, const [
-    'add medicine',
-    'new medicine',
-    'medicine add',
-    'add stock',
-    'nayi medicine',
-    'nayi dawai',
-    'नई मेडिसिन',
-    'नई दवा',
-    'मेडिसिन जोड़',
-  ])) {
-    return const AppBrainIntent(
+  // Preserve the complete typed medicine payload for the Editor bridge. This
+  // turns "Add Cefixime 200mg" into a prefilled draft instead of throwing away
+  // Cefixime/200mg and opening a blank editor.
+  if (_containsAny(text, _addTerms)) {
+    return AppBrainIntent(
       action: AppBrainAction.addMedicine,
+      query: _extractMedicineQuery(raw, _addTerms),
       confidence: .98,
     );
   }
@@ -390,6 +390,21 @@ AppBrainIntent parseAppBrainIntent(String raw) {
       section: section,
       confidence: .97,
     );
+  }
+
+  // "Open Cefixime" is an explicit local deep-link request, not an AI chat
+  // prompt. Section/category opens were consumed above, so anything left here
+  // is a medicine target and may safely use the exact-match fast path.
+  if (_containsAny(text, _openMedicineTerms)) {
+    final query = _extractMedicineQuery(raw, _openMedicineTerms);
+    if (query.isNotEmpty) {
+      return AppBrainIntent(
+        action: AppBrainAction.search,
+        query: query,
+        openExact: true,
+        confidence: .99,
+      );
+    }
   }
 
   if (_containsAny(text, _searchTerms)) {
@@ -1735,6 +1750,32 @@ const _fefoTerms = <String>[
   'पहले कौनसी बैच',
   'कौनसी बैच पहले',
   'पहले क्या निकालूं',
+];
+
+const _addTerms = <String>[
+  'add medicine',
+  'medicine add',
+  'new medicine',
+  'create medicine',
+  'add stock',
+  'add',
+  'nayi medicine',
+  'nayi dawai',
+  'नई मेडिसिन',
+  'नई दवा',
+  'मेडिसिन जोड़',
+  'जोड़ो',
+];
+
+const _openMedicineTerms = <String>[
+  'open medicine',
+  'open',
+  'view medicine',
+  'view',
+  'medicine kholo',
+  'kholo',
+  'मेडिसिन खोलो',
+  'खोलो',
 ];
 
 const _searchTerms = <String>[
