@@ -41,6 +41,34 @@ void main() {
       expect(intent.destructive, isTrue);
     });
 
+    test(
+      'blocks same-family multi-target writes before fuzzy target resolution',
+      () {
+        for (final command in <String>[
+          'Dolo delete karo aur Crocin delete karo',
+          'Dolo delete karo and Crocin',
+          'Dolo 5 units sell and Crocin 3 units sell',
+          'Dolo remove; Crocin remove',
+        ]) {
+          final intent = parseAppBrainIntent(command);
+          expect(intent.action, AppBrainAction.safetyBlocked, reason: command);
+          expect(
+            intent.safetyReason,
+            AppBrainSafetyReason.compoundMutation,
+            reason: command,
+          );
+          expect(intent.mutatesInventory, isFalse, reason: command);
+        }
+      },
+    );
+
+    test('backup and restore remains data-recovery navigation', () {
+      final intent = parseAppBrainIntent('backup and restore kholo');
+      expect(intent.action, AppBrainAction.navigate);
+      expect(intent.section, AppSection.profile);
+      expect(intent.safetyReason, isNull);
+    });
+
     test('opens sold list without confusing it with mark sold', () {
       final intent = parseAppBrainIntent('sold medicines dikhao');
       expect(intent.action, AppBrainAction.search);

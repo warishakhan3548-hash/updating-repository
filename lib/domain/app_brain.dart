@@ -733,6 +733,16 @@ AppBrainSafetyReason? _brainSafetyBlock(String raw, String text) {
     return AppBrainSafetyReason.deferredMutation;
   }
 
+  // A single mutation family can still contain multiple targets/actions:
+  // “delete Dolo and Crocin”, “sell A and sell B”, or two commands separated
+  // by a semicolon/newline. Never let query cleanup collapse such a sentence
+  // into one fuzzy medicine target. Editor-only field/location wording is not
+  // included here because those paths open a human review surface rather than
+  // committing a stock-state transition.
+  if (_hasMultiTargetOrChainedStockMutation(raw, text, families)) {
+    return AppBrainSafetyReason.compoundMutation;
+  }
+
   final sequencedOrChoice = _containsAny(text, _sequenceOrChoiceSafetyTerms);
 
   // “undo last remove” describes the previous operation, not two new
@@ -761,6 +771,43 @@ AppBrainSafetyReason? _brainSafetyBlock(String raw, String text) {
     return AppBrainSafetyReason.compoundMutation;
   }
   return null;
+}
+
+const _multiTargetSensitiveMutationFamilies = <String>{
+  'remove',
+  'sold',
+  'sale',
+  'restore',
+  'undo',
+  'set-quantity',
+  'receive-stock',
+};
+
+bool _hasMultiTargetOrChainedStockMutation(
+  String raw,
+  String text,
+  Set<String> families,
+) {
+  if (!families.any(_multiTargetSensitiveMutationFamilies.contains)) {
+    return false;
+  }
+
+  // “backup and restore” belongs to the dedicated data-recovery surface and
+  // does not mean restore an archived medicine row. Preserve that navigation.
+  if (_containsAny(text, _backupRestoreTerms)) return false;
+
+  // Explicit hard separators are always treated as multiple instructions for a
+  // stock-changing sentence. Commas are intentionally excluded because they can
+  // legitimately occur inside medicine/composition names.
+  if (RegExp(r'[;\r\n]').hasMatch(raw)) return true;
+
+  if (_containsAny(text, _sequenceOrChoiceSafetyTerms)) return true;
+
+  // Plain conjunctions were historically harmless when different write families
+  // were present because the family-count guard caught them. They are dangerous
+  // for repeated/same-family writes, where target cleanup could otherwise turn
+  // “A and B” into one fuzzy lookup.
+  return _containsAny(text, const <String>['and', 'aur', 'और']);
 }
 
 bool _looksLikeLocationMutation(String text) =>

@@ -30,7 +30,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   Directory? _root;
   Future<void>? _initializing;
   Future<void> _intakeWrites = Future.value();
-  bool _running = false, _paused = false;
+  bool _running = false, _paused = false, _appActive = true;
   bool _ready = false, _preferReasoning = false, _observingMemory = false;
   String persistenceError = '';
   Iterable<Medicine> Function()? _records;
@@ -67,9 +67,8 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _initialize() async {
     if (!supported) return;
     final support = await getApplicationSupportDirectory();
-    _root = await Directory(
-      '${support.path}/medicine_intake',
-    ).create(recursive: true);
+    _root = await Directory('${support.path}/medicine_intake')
+        .create(recursive: true);
     _database = await openDatabase(
       '${_root!.path}/jobs.db',
       version: 1,
@@ -109,6 +108,8 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       WidgetsBinding.instance.addObserver(this);
       _observingMemory = true;
     }
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _appActive = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     _ready = true;
     notifyListeners();
   }
@@ -171,9 +172,8 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     job.path = _capturePath(job.id, kind);
     try {
       final length = await File(path).length();
-      final facts = await const MethodChannel(
-        'com.aaris.pharmacy/documents',
-      ).invokeMapMethod<String, dynamic>('localAiDeviceInfo');
+      final facts = await const MethodChannel('com.aaris.pharmacy/documents')
+          .invokeMapMethod<String, dynamic>('localAiDeviceInfo');
       final free = facts?['freeStorage'];
       if (length <= 0 || (free is int && free < length + 128 * 1024 * 1024)) {
         throw StateError(
@@ -235,6 +235,26 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final active = state == AppLifecycleState.resumed;
+    if (_appActive == active) return;
+    _appActive = active;
+
+    // Identity-only derived knowledge can be rebuilt cheaply after resume and
+    // need not occupy memory while the app is backgrounded. Do not rewrite the
+    // user's explicit/manual pause state here.
+    if (!active) {
+      _knowledge = null;
+      _knowledgeRevision = null;
+      notifyListeners();
+      return;
+    }
+
+    notifyListeners();
+    _kick();
+  }
+
   void setPaused(bool value) {
     _paused = value;
     if (!value) pauseReason = '';
@@ -249,6 +269,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   void _kick() {
     if (_running ||
         _paused ||
+        !_appActive ||
         !_ready ||
         _database == null ||
         _records == null ||
@@ -269,9 +290,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     if (_knowledge == null ||
         revision == null ||
         revision != _knowledgeRevision) {
-      _knowledge = medicineKnowledgeFromRecords(
-        _records!(),
-      ).map((k) => k.toMessage()).toList();
+      _knowledge = medicineKnowledgeFromRecords(_records!())
+          .map((k) => k.toMessage())
+          .toList();
       _knowledgeRevision = revision;
     }
     return MedicineUnderstandingResult.fromMessage(
@@ -287,7 +308,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     _running = true;
     notifyListeners();
     try {
-      while (!_paused) {
+      while (!_paused && _appActive) {
         // OCR/capture work has priority, so fast photos are turned into durable
         // text before slower semantic reasoning monopolizes the native model.
         final local = LocalAiService.instance;
@@ -401,9 +422,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     job.evidence = grouped.carry;
     job.cursorMs = window.nextStartMs;
     job.durationMs = window.durationMs;
-    if (unreadable > 0)
-      job.error =
-          'Some sampled frames were unreadable. Review completeness; video sampling cannot guarantee every pack.';
+    if (unreadable > 0) job.error = 'Some sampled frames were unreadable. Review completeness; video sampling cannot guarantee every pack.';
     if (window.complete)
       _ocrFinished(job);
     else
@@ -419,8 +438,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _reason(MedicineIntakeJob job) async {
     final local = LocalAiService.instance;
     if (local.activeId != job.modelId || !local.scannerEnabled) {
-      job.error =
-          'Local model selection changed. Deterministic drafts retained for review.';
+      job.error = 'Local model selection changed. Deterministic drafts retained for review.';
       job.status = 'review';
       return;
     }
