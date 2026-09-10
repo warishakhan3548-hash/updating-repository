@@ -92,6 +92,32 @@ FefoDispensingPlan planFefoDispensing({
     );
   }
 
+  // `Medicine.identity` intentionally stays stable when OCR salt metadata is
+  // corrected later, which is useful for search/history but is too permissive
+  // to be the sole authority for a dispensing allocation. Before FEFO can move
+  // stock across physical rows, fail closed when those otherwise-same product
+  // rows contain two different *known* compositions. Missing salt remains an
+  // explicit unknown fact; a recorded contradiction is never silently ignored.
+  final knownCompositions = <String>{};
+  final requestedComposition = identityPart(requested.salt);
+  if (requestedComposition.isNotEmpty) {
+    knownCompositions.add(requestedComposition);
+  }
+  for (final record in records) {
+    if (record.identity != requested.identity ||
+        !isDispensableOn(record, date) ||
+        record.quantity == 0) {
+      continue;
+    }
+    final composition = identityPart(record.salt);
+    if (composition.isNotEmpty) knownCompositions.add(composition);
+    if (knownCompositions.length > 1) {
+      throw const FormatException(
+        'FEFO is blocked because same-name stock rows have conflicting recorded salts. Verify the exact medicine composition before recording this sale.',
+      );
+    }
+  }
+
   final candidates = dispensingCandidates(records, requested, date);
   final knownVisibleUnits = candidates
       .where((medicine) => medicine.quantity != null)
