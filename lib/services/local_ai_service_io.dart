@@ -12,11 +12,10 @@ import 'package:path_provider/path_provider.dart';
 
 import '../domain/local_ai_protocol.dart';
 import '../domain/gguf_metadata.dart';
-import 'gguf_inspector.dart';
 import '../domain/local_model.dart';
 import '../domain/local_model_checks.dart';
 import '../domain/model_catalogue.dart';
-import 'model_catalogue_service.dart';
+import 'gguf_inspector.dart';
 import '../domain/medicine_understanding.dart';
 import 'local_ai_runtime.dart';
 
@@ -590,6 +589,30 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  void _adoptLoadedContextBudget() {
+    final runtime = _runtime;
+    final plan = _executionPlan;
+    final loaded = runtime?.loadedContextTokens;
+    if (plan == null || loaded == null || loaded >= plan.contextTokens) return;
+
+    // LocalAiRuntime may rescue a heavy GGUF by retrying a smaller native
+    // context after allocator/KV pressure. Prompt/evidence budgets must follow
+    // that successful context as well, otherwise the next chat/OCR request can
+    // immediately overflow the model we just rescued. 3072 is intentionally
+    // budgeted like 2048 until the protocol has a dedicated 3K profile.
+    final promptContext = loaded >= 4096 ? 4096 : 2048;
+    _executionPlan = LocalExecutionPlan(
+      contextTokens: promptContext,
+      estimatedBytes: plan.estimatedBytes,
+      estimatedKvBytes: plan.estimatedKvBytes,
+      geometryKnown: plan.geometryKnown,
+      memoryWarning: true,
+    );
+    _status =
+        'Local AI · adapted after native memory pressure · $executionSummary';
+    notifyListeners();
+  }
+
   Future<void> _loadSelected() async {
     final id = _activeId;
     if (id == null) throw StateError('Select a local model first.');
@@ -620,6 +643,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         file.path,
         contextTokens: _executionPlan!.contextTokens,
       );
+      _adoptLoadedContextBudget();
     }
   }
 
