@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../domain/intake_resolution.dart';
 import '../domain/medicine.dart';
 import '../domain/medicine_intake.dart';
+import '../domain/medicine_scan_commit.dart';
 import '../domain/medicine_understanding.dart';
 import '../services/local_ai_service.dart';
 import '../services/medicine_intake_service.dart';
@@ -90,15 +91,24 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
         (normalizedForm != 'Other' || normalize(draft.form) == 'other');
   }
 
-  bool _canConfirmAdd(MedicineScanDraft draft) {
-    if (!_hasCompleteQuickIdentity(draft)) return false;
-    final resolution = resolveIntakeDraft(
-      draft: draft,
-      records: widget.controller.records,
-      today: widget.controller.today,
+  ScanQuickAddDecision _quickAddDecision(MedicineScanDraft draft) {
+    if (!_hasCompleteQuickIdentity(draft)) {
+      return const ScanQuickAddDecision.blocked(
+        'Brand, salt, strength, medicine name and a recognized form are required for one-tap add. Open detailed review for this scan.',
+      );
+    }
+    return scanQuickAddDecision(
+      draft,
+      resolveIntakeDraft(
+        draft: draft,
+        records: widget.controller.records,
+        today: widget.controller.today,
+      ),
     );
-    return resolution.kind == IntakeResolutionKind.newStock;
   }
+
+  bool _canConfirmAdd(MedicineScanDraft draft) =>
+      _quickAddDecision(draft).allowed;
 
   bool _identityNeedsReview(MedicineScanDraft draft) => [
     'name',
@@ -110,65 +120,56 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
 
   Future<void> _confirmAndAdd(MedicineScanDraft draft) async {
     if (_savingQuickAdd) return;
+    final initialDecision = _quickAddDecision(draft);
+    if (!initialDecision.allowed) {
+      setState(() => error = initialDecision.reason);
+      return;
+    }
+
     setState(() {
       _savingQuickAdd = true;
       error = '';
     });
     try {
-      if (!_hasCompleteQuickIdentity(draft)) {
-        throw StateError(
-          'Brand, salt, strength, medicine name and a recognized form are required for one-tap add. Open detailed review for this scan.',
-        );
-      }
-      final resolution = resolveIntakeDraft(
-        draft: draft,
-        records: widget.controller.records,
-        today: widget.controller.today,
-      );
-      if (resolution.kind != IntakeResolutionKind.newStock) {
-        throw StateError(
-          'A matching or ambiguous stock entry now exists. Open Preview & Confirm / Add so Aaris can prevent a duplicate lot.',
-        );
-      }
+      // The same deterministic gate is shared with ImportInbox. It owns duplicate
+      // lot detection, trusted-batch admission and date-conflict/chronology rules
+      // so every Confirm/Add entry point has identical safety semantics.
+      final decision = _quickAddDecision(draft);
+      if (!decision.allowed) throw StateError(decision.reason);
 
-      // The visible preview is the confirmation surface. Build the persisted row
-      // only from that evidence snapshot; printed pack size/MRP never become stock
-      // quantity or inventory cost. Medicine.fromJson re-runs date/form invariants.
-      final record = Medicine.fromJson({
-        'id': newId(),
-        'name': draft.name,
-        'brand': draft.brand,
-        'manufacturer': draft.manufacturer,
-        'salt': draft.salt,
-        'strength': draft.strength,
-        'form': draft.form,
-        'mfg': draft.mfg.isEmpty ? null : draft.mfg,
-        'expiry': draft.expiry.isEmpty ? null : draft.expiry,
-        'barcode': draft.barcode,
-        'batchNumber': draft.batchNumber,
-        'ocrText': draft.searchableOcrText,
-      });
       final expectedRevision = widget.controller.snapshot.revision;
+      final record = medicineFromConfirmedScan(draft);
 
-      // Resolve immediately before the revision-bound commit. A concurrent stock
-      // write then fails closed at the controller/database compare-and-swap layer.
-      final finalResolution = resolveIntakeDraft(
-        draft: draft,
-        records: widget.controller.records,
-        today: widget.controller.today,
-      );
-      if (finalResolution.kind != IntakeResolutionKind.newStock) {
+      // Re-resolve immediately before the revision-bound commit. A concurrent
+      // stock write can revoke the shortcut instead of creating a duplicate lot.
+      final finalDecision = _quickAddDecision(draft);
+      if (!finalDecision.allowed ||
+          finalDecision.isNewBatch != decision.isNewBatch) {
         throw StateError(
-          'Inventory changed before save. Review this scan again; nothing was added.',
+          finalDecision.reason.isEmpty
+              ? 'Inventory changed before save. Review this scan again; nothing was added.'
+              : finalDecision.reason,
         );
       }
       await widget.controller.save(record, expectedRevision: expectedRevision);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${record.title} added from the confirmed AI preview.')),
+        SnackBar(
+          content: Text(
+            decision.isNewBatch
+                ? '${record.title} added as a reviewed new batch.'
+                : '${record.title} added from the confirmed AI preview.',
+          ),
+        ),
       );
     } catch (e) {
-      if (mounted) setState(() => error = e.toString().replaceFirst('Bad state: ', ''));
+      if (mounted) {
+        setState(
+          () => error = e
+              .toString()
+              .replaceFirst(RegExp(r'^(Bad state|StateError):\s*'), ''),
+        );
+      }
     } finally {
       if (mounted) setState(() => _savingQuickAdd = false);
     }
@@ -178,8 +179,9 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: Listenable.merge([queue, LocalAiService.instance]),
     builder: (context, _) {
-      if (!queue.supported || (queue.jobs.isEmpty && error.isEmpty))
+      if (!queue.supported || (queue.jobs.isEmpty && error.isEmpty)) {
         return const SizedBox.shrink();
+      }
       final local = LocalAiService.instance;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -313,11 +315,13 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                                     onPressed: _savingQuickAdd
                                         ? null
                                         : () => _confirmAndAdd(draft),
-                                    icon: const Icon(Icons.check_circle_outline_rounded),
+                                    icon: const Icon(
+                                      Icons.check_circle_outline_rounded,
+                                    ),
                                     label: Text(
                                       _savingQuickAdd
                                           ? 'Adding…'
-                                          : 'Confirm & Add',
+                                          : _quickAddDecision(draft).actionLabel,
                                     ),
                                   ),
                                 ),
@@ -375,8 +379,9 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                                   ],
                                 ),
                               );
-                              if (confirmed == true)
+                              if (confirmed == true) {
                                 await _run(() => queue.dismiss(job));
+                              }
                             },
                             icon: const Icon(Icons.close),
                           ),
