@@ -1,0 +1,1024 @@
+name: Aaris E2E Jarvis upgrade
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aaris-e2e-jarvis-upgrade.yml
+permissions:
+  contents: write
+concurrency:
+  group: aaris-e2e-jarvis-upgrade
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Start Aaris E2E Jarvis upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Apply E2E AI controller upgrade
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+          import re
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one patch anchor, found {count}')
+              file.write_text(text.replace(old, new))
+
+          def replace_regex_once(path: str, pattern: str, replacement: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one regex patch anchor, found {count}')
+              file.write_text(updated)
+
+          # ------------------------------------------------------------------
+          # 1) Deterministic App Brain: explicit Add/Open intents stay useful
+          #    with zero AI connectivity and carry medicine identity forward.
+          # ------------------------------------------------------------------
+          replace_once(
+              'lib/domain/app_brain.dart',
+              dedent('''\
+                if (_containsAny(text, const [
+                  'add medicine',
+                  'new medicine',
+                  'medicine add',
+                  'add stock',
+                  'nayi medicine',
+                  'nayi dawai',
+                  'नई मेडिसिन',
+                  'नई दवा',
+                  'मेडिसिन जोड़',
+                ])) {
+                  return const AppBrainIntent(
+                    action: AppBrainAction.addMedicine,
+                    confidence: .98,
+                  );
+                }
+              '''),
+              dedent('''\
+                final addMedicine = _addMedicineIntent(raw, text);
+                if (addMedicine != null) return addMedicine;
+              '''),
+          )
+
+          replace_once(
+              'lib/domain/app_brain.dart',
+              dedent('''\
+                final section = _sectionIntent(text);
+                if (section != null) {
+                  return AppBrainIntent(
+                    action: AppBrainAction.navigate,
+                    section: section,
+                    confidence: .97,
+                  );
+                }
+
+                if (_containsAny(text, _searchTerms)) {
+              '''),
+              dedent('''\
+                final section = _sectionIntent(text);
+                if (section != null) {
+                  return AppBrainIntent(
+                    action: AppBrainAction.navigate,
+                    section: section,
+                    confidence: .97,
+                  );
+                }
+
+                final openMedicine = _openMedicineLookupIntent(raw, text);
+                if (openMedicine != null) return openMedicine;
+
+                if (_containsAny(text, _searchTerms)) {
+              '''),
+          )
+
+          replace_once(
+              'lib/domain/app_brain.dart',
+              'AppSection? _sectionIntent(String text) {',
+              dedent('''\
+              AppBrainIntent? _addMedicineIntent(String raw, String text) {
+                const explicitTerms = <String>[
+                  'add medicine',
+                  'new medicine',
+                  'medicine add',
+                  'add stock',
+                  'nayi medicine',
+                  'nayi dawai',
+                  'नई मेडिसिन',
+                  'नई दवा',
+                  'मेडिसिन जोड़',
+                ];
+                const directVerbs = <String>[
+                  'add',
+                  'create',
+                  'new',
+                  'jodo',
+                  'jod do',
+                  'जोड़ो',
+                  'जोड़ दो',
+                ];
+                final explicit = _containsAny(text, explicitTerms);
+                final direct = _startsWithAnyPhrase(text, directVerbs);
+                if (!explicit && !direct) return null;
+
+                // Generic app/config requests must remain available to the AI or
+                // settings router instead of becoming a fake medicine draft.
+                if (direct &&
+                    _containsAny(text, const <String>[
+                      'api key',
+                      'ai model',
+                      'local model',
+                      'provider',
+                      'connection',
+                      'note',
+                      'sales report',
+                    ])) {
+                  return null;
+                }
+                final query = _extractMedicineQuery(raw, <String>[
+                  ...explicitTerms,
+                  ...directVerbs,
+                ]);
+                return AppBrainIntent(
+                  action: AppBrainAction.addMedicine,
+                  query: query,
+                  confidence: query.isEmpty ? .98 : .99,
+                );
+              }
+
+              AppBrainIntent? _openMedicineLookupIntent(String raw, String text) {
+                const verbs = <String>[
+                  'open',
+                  'open medicine',
+                  'kholo',
+                  'khol do',
+                  'खोलो',
+                  'खोल दो',
+                ];
+                if (!_containsAny(text, verbs)) return null;
+                if (_containsAny(text, const <String>[
+                  'settings',
+                  'setting',
+                  'local model',
+                  'ai model',
+                  'api key',
+                  'provider',
+                  'connection',
+                ])) {
+                  return null;
+                }
+                final query = _extractMedicineQuery(raw, verbs);
+                if (query.isEmpty) return null;
+                return AppBrainIntent(
+                  action: AppBrainAction.search,
+                  query: query,
+                  confidence: .98,
+                );
+              }
+
+              AppSection? _sectionIntent(String text) {
+              '''),
+          )
+
+          # ------------------------------------------------------------------
+          # 2) Brain-to-UI bridge: Add pre-fills EditorScreen; Delete opens one
+          #    exact reviewed confirmation instead of a clunky two-dialog flow.
+          # ------------------------------------------------------------------
+          replace_once(
+              'lib/ui/brain_screen.dart',
+              "import '../domain/medicine.dart';\nimport '../domain/medicine_brief.dart';",
+              "import '../domain/medicine.dart';\nimport '../domain/medicine_discovery.dart';\nimport '../domain/medicine_brief.dart';",
+          )
+
+          replace_once(
+              'lib/ui/brain_screen.dart',
+              dedent('''\
+                    case AppBrainAction.addMedicine:
+                      if (mounted) {
+                        widget.onOpenSection(AppSection.stock);
+                        setState(() => _reply = 'Opening a fresh medicine entry.');
+                        await Future<void>.delayed(Duration.zero);
+                        if (mounted) await openEditor(context, widget.controller);
+                      }
+                      return;
+              '''),
+              dedent('''\
+                    case AppBrainAction.addMedicine:
+                      if (mounted) {
+                        final seed = _draftSeedFromCommand(intent.query);
+                        widget.onOpenSection(AppSection.stock);
+                        setState(
+                          () => _reply = seed == null
+                              ? 'Opening a fresh medicine entry.'
+                              : 'Opening a prefilled medicine draft for ${seed.name}${seed.strength.isEmpty ? '' : ' ${seed.strength}'}. Review the fields and tap Save.',
+                        );
+                        await Future<void>.delayed(Duration.zero);
+                        if (mounted) {
+                          await openEditor(
+                            context,
+                            widget.controller,
+                            seed: seed,
+                          );
+                        }
+                      }
+                      return;
+              '''),
+          )
+
+          replace_once(
+              'lib/ui/brain_screen.dart',
+              '  Future<void> _removedStock(AppBrainIntent intent) async {',
+              dedent('''\
+                MedicineDraftSeed? _draftSeedFromCommand(String raw) {
+                  final clean = raw.replaceAll(RegExp(r'\\s+'), ' ').trim();
+                  if (clean.isEmpty) return null;
+                  final strengthMatch = RegExp(
+                    r'\\b[0-9]+(?:\\.[0-9]+)?\\s*(?:mcg|mg|g|ml|iu|units?|%)',
+                    caseSensitive: false,
+                  ).firstMatch(clean);
+                  var name = clean;
+                  var strength = '';
+                  if (strengthMatch != null) {
+                    strength = strengthMatch.group(0)!.replaceAll(RegExp(r'\\s+'), '');
+                    name = clean
+                        .replaceRange(strengthMatch.start, strengthMatch.end, ' ')
+                        .replaceAll(RegExp(r'\\s+'), ' ')
+                        .trim();
+                  }
+                  if (name.isEmpty) name = clean;
+                  return MedicineDraftSeed(
+                    name: name,
+                    strength: strength,
+                    source: 'Aaris Brain command',
+                  );
+                }
+
+                Future<void> _removedStock(AppBrainIntent intent) async {
+              '''),
+          )
+
+          replace_regex_once(
+              'lib/ui/brain_screen.dart',
+              r'''    final expired = isExpiredOn\(live, widget\.controller\.today\);\n    final reasons = <String>\[.*?    if \(reason == null \|\| !mounted\) \{\n      setState\(\(\) => _reply = 'Remove cancelled\. Nothing changed\.'\);\n      return;\n    \}\n\n    if \(reason\.startsWith\('Sold'\)\) \{\n      await _markSoldTarget\(live\);\n      return;\n    \}\n''',
+              dedent('''\
+                  // An explicit Brain delete already expresses the owner's desired
+                  // lifecycle action. Bind one preview to the exact stock row and
+                  // require one final confirmation; do not force a second reason
+                  // picker that can be mistaken for another target-selection step.
+                  final reason = reasonHint?.archiveReason ?? 'Manual removal';
+              '''),
+          )
+          replace_once(
+              'lib/ui/brain_screen.dart',
+              "child: const Text('Remove'),",
+              "child: const Text('Confirm'),",
+          )
+
+          # ------------------------------------------------------------------
+          # 3) AI Hub turn state machine. Deterministic App Brain ALWAYS gets
+          #    first refusal; unknown prompts alone reach local/cloud AI.
+          # ------------------------------------------------------------------
+          replace_once(
+              'lib/ui/ai_screen.dart',
+              'enum AiHubQuickAction { sold, removed, stockSummary, add, delete, modify }',
+              dedent('''\
+              enum AiHubQuickAction { sold, removed, stockSummary, add, delete, modify }
+
+              enum _AiTurnPhase { idle, routing, thinking, reviewing, streaming }
+              '''),
+          )
+          replace_once(
+              'lib/ui/ai_screen.dart',
+              '  int _generation = 0;\n',
+              '  int _generation = 0;\n  _AiTurnPhase _turnPhase = _AiTurnPhase.idle;\n',
+          )
+          replace_once(
+              'lib/ui/ai_screen.dart',
+              dedent('''\
+                void _appendMessage(String text, bool user) {
+                  final clean = text.trim();
+                  if (!mounted || clean.isEmpty) return;
+                  setState(() => _messages.add(_AiChatMessage(clean, user)));
+                  _scrollToEnd();
+                }
+              '''),
+              dedent('''\
+                void _appendMessage(String text, bool user) {
+                  final clean = text.trim();
+                  if (!mounted || clean.isEmpty) return;
+                  setState(() => _messages.add(_AiChatMessage(clean, user)));
+                  _scrollToEnd();
+                }
+
+                Future<void> _streamAssistantMessage(String text, int generation) async {
+                  final clean = text.trim();
+                  if (!mounted || clean.isEmpty || generation != _generation) return;
+                  var end = clean.length < 18 ? clean.length : 18;
+                  final index = _messages.length;
+                  setState(
+                    () => _messages.add(
+                      _AiChatMessage(clean.substring(0, end), false),
+                    ),
+                  );
+                  _scrollToEnd();
+                  while (end < clean.length) {
+                    await Future<void>.delayed(const Duration(milliseconds: 18));
+                    if (!mounted || generation != _generation) return;
+                    final next = end + 18;
+                    end = next < clean.length ? next : clean.length;
+                    setState(
+                      () => _messages[index] = _AiChatMessage(
+                        clean.substring(0, end),
+                        false,
+                      ),
+                    );
+                    if (end == clean.length || end % 90 < 18) _scrollToEnd();
+                  }
+                }
+              '''),
+          )
+
+          replace_regex_once(
+              'lib/ui/ai_screen.dart',
+              r'''  Future<void> _ask\(\) async \{.*?\n  \}\n\n  bool _looksLikeAiResponse''',
+              dedent('''\
+                Future<void> _ask() async {
+                  if (_preparingRequest ||
+                      _requesting ||
+                      _reviewing ||
+                      widget.controller.aiPreparing) {
+                    return;
+                  }
+                  final request = _request.text.trim();
+                  if (request.isEmpty) return;
+                  setState(() {
+                    _preparingRequest = true;
+                    _turnPhase = _AiTurnPhase.routing;
+                  });
+                  try {
+                    await _local.initialize();
+                    if (!mounted) return;
+                    if (!_hasAiRoute) {
+                      await _openConnections();
+                      if (!mounted) return;
+                      if (!_hasAiRoute) {
+                        setState(() {
+                          _turnPhase = _AiTurnPhase.idle;
+                          _error =
+                              'No AI model is connected. Offline Aaris Brain still works for commands such as “Open Cefixime”, “Delete Cefixime”, “Add Cefixime 200mg”, stock, expiry and location.';
+                        });
+                        return;
+                      }
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      setState(() {
+                        _turnPhase = _AiTurnPhase.idle;
+                        _error = e.toString();
+                      });
+                    }
+                    return;
+                  } finally {
+                    if (mounted) setState(() => _preparingRequest = false);
+                  }
+
+                  final generation = ++_generation;
+                  setState(() {
+                    _requesting = true;
+                    _turnPhase = _AiTurnPhase.thinking;
+                    _error = '';
+                    _plan = null;
+                    _messages.add(_AiChatMessage(request, true));
+                    _request.clear();
+                  });
+                  _scrollToEnd();
+
+                  try {
+                    final result = await _service.ask(
+                      _configuration,
+                      widget.controller.export,
+                      request,
+                      localContext: LocalInventoryContext(
+                        records: widget.controller.records,
+                        sales: widget.controller.sales,
+                        revision: widget.controller.snapshot.revision,
+                        today: widget.controller.today,
+                      ),
+                      conversation: _messages
+                          .skip(_messages.length > 6 ? _messages.length - 6 : 0)
+                          .map((m) => '${m.user ? 'Owner' : 'Assistant'}: ${m.text}')
+                          .join('\\n'),
+                    );
+                    if (!mounted || generation != _generation) return;
+                    setState(() {
+                      _turnPhase = _AiTurnPhase.reviewing;
+                      _input.text = result;
+                    });
+                    final plan = await _review(announce: false);
+                    if (!mounted || generation != _generation || plan == null) return;
+                    final reply = plan.reply.trim().isNotEmpty
+                        ? plan.reply.trim()
+                        : plan.changes.isEmpty
+                        ? 'Done. No inventory change is needed.'
+                        : '${plan.changes.length} proposed change${plan.changes.length == 1 ? '' : 's'} are ready below. Review them before saving.';
+                    setState(() => _turnPhase = _AiTurnPhase.streaming);
+                    await _streamAssistantMessage(reply, generation);
+                  } catch (e) {
+                    if (mounted && generation == _generation) {
+                      setState(
+                        () => _error = e is TimeoutException
+                            ? 'The AI took too long. No inventory changes were made.'
+                            : e.toString().replaceFirst('Bad state: ', ''),
+                      );
+                    }
+                  } finally {
+                    if (mounted && generation == _generation) {
+                      setState(() {
+                        _requesting = false;
+                        _turnPhase = _AiTurnPhase.idle;
+                      });
+                    }
+                  }
+                }
+
+                bool _looksLikeAiResponse
+              '''),
+          )
+
+          replace_regex_once(
+              'lib/ui/ai_screen.dart',
+              r'''  Future<void> _sendComposer\(\) async \{.*?\n  \}\n\n  Future<void> _runQuickAction''',
+              dedent('''\
+                Future<void> _sendComposer() async {
+                  if (_localCommanding ||
+                      _requesting ||
+                      _reviewing ||
+                      widget.controller.aiPreparing) {
+                    return;
+                  }
+                  final text = _request.text.trim();
+                  if (text.isEmpty) return;
+
+                  if (_looksLikeAiResponse(text)) {
+                    setState(() {
+                      _input.text = text;
+                      _request.clear();
+                      _externalReady = false;
+                      _messages.add(
+                        const _AiChatMessage(
+                          'External AI response pasted for review.',
+                          true,
+                        ),
+                      );
+                      _error = '';
+                    });
+                    _scrollToEnd();
+                    await _review();
+                    return;
+                  }
+
+                  // Deterministic commands are availability-independent. App Brain
+                  // gets first refusal even when Local AI/API is configured. It
+                  // returns null for uncertain/free-form text, which then falls
+                  // through to exactly one selected AI route.
+                  final localHandler = widget.onLocalCommand;
+                  if (localHandler != null) {
+                    String? localReply;
+                    setState(() {
+                      _localCommanding = true;
+                      _turnPhase = _AiTurnPhase.routing;
+                      _error = '';
+                    });
+                    try {
+                      localReply = await localHandler(text);
+                    } catch (error) {
+                      if (mounted) {
+                        setState(
+                          () => _error = error
+                              .toString()
+                              .replaceFirst('Exception: ', ''),
+                        );
+                      }
+                      return;
+                    } finally {
+                      if (mounted) {
+                        setState(() {
+                          _localCommanding = false;
+                          _turnPhase = _AiTurnPhase.idle;
+                        });
+                      }
+                    }
+                    if (!mounted) return;
+                    if (localReply != null) {
+                      final reply = localReply.trim();
+                      setState(() {
+                        _request.clear();
+                        _messages.add(_AiChatMessage(text, true));
+                        if (reply.isNotEmpty) {
+                          _messages.add(_AiChatMessage(reply, false));
+                        }
+                      });
+                      _scrollToEnd();
+                      return;
+                    }
+                  }
+
+                  await _ask();
+                }
+
+                Future<void> _runQuickAction
+              '''),
+          )
+
+          replace_once(
+              'lib/ui/ai_screen.dart',
+              dedent('''\
+                void _cancelRequest() {
+                  if (!_requesting) return;
+                  ++_generation;
+                  _service.cancel();
+                  setState(() {
+                    _requesting = false;
+                    _messages.add(
+              '''),
+              dedent('''\
+                void _cancelRequest() {
+                  if (!_requesting) return;
+                  ++_generation;
+                  _service.cancel();
+                  setState(() {
+                    _requesting = false;
+                    _turnPhase = _AiTurnPhase.idle;
+                    _messages.add(
+              '''),
+          )
+
+          replace_once(
+              'lib/ui/ai_screen.dart',
+              '          widget.controller.aiPreparing;\n',
+              '          widget.controller.aiPreparing ||\n          _turnPhase != _AiTurnPhase.idle;\n',
+          )
+          replace_once(
+              'lib/ui/ai_screen.dart',
+              '          if (_requesting)\n',
+              '          if (_requesting && _turnPhase != _AiTurnPhase.streaming)\n',
+          )
+          replace_once(
+              'lib/ui/ai_screen.dart',
+              dedent('''\
+                              children: [
+                                for (final message in _messages)
+                                  _AiMessageBubble(message: message),
+                                if (_error.isNotEmpty)
+              '''),
+              dedent('''\
+                              children: [
+                                for (final message in _messages)
+                                  _AiMessageBubble(message: message),
+                                if (_turnPhase != _AiTurnPhase.idle)
+                                  _AiTurnIndicator(phase: _turnPhase),
+                                if (_error.isNotEmpty)
+              '''),
+          )
+          replace_once(
+              'lib/ui/ai_screen.dart',
+              "label: Text('Apply ${_selected.length} selected changes'),",
+              "label: Text('Save ${_selected.length} reviewed changes'),",
+          )
+          replace_once(
+              'lib/ui/ai_screen.dart',
+              'class _AiChatMessage {',
+              dedent('''\
+              class _AiTurnIndicator extends StatelessWidget {
+                const _AiTurnIndicator({required this.phase});
+
+                final _AiTurnPhase phase;
+
+                @override
+                Widget build(BuildContext context) {
+                  final label = switch (phase) {
+                    _AiTurnPhase.routing => 'Understanding…',
+                    _AiTurnPhase.thinking => 'Thinking…',
+                    _AiTurnPhase.reviewing => 'Checking response…',
+                    _AiTurnPhase.streaming => 'Responding…',
+                    _AiTurnPhase.idle => '',
+                  };
+                  if (label.isEmpty) return const SizedBox.shrink();
+                  return Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 11),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 11,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _aiPurple.withAlpha(12),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: _aiPurple.withAlpha(35)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 1.8),
+                          ),
+                          const SizedBox(width: 9),
+                          Text(
+                            label,
+                            style: const TextStyle(
+                              color: muted,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+              }
+
+              class _AiChatMessage {
+              '''),
+          )
+
+          # ------------------------------------------------------------------
+          # 4) Local runtime lifecycle: memory pressure is deferred while a
+          #    response/download owns the lease; no surprise mid-turn cancel.
+          # ------------------------------------------------------------------
+          replace_once(
+              'lib/services/local_ai_service_io.dart',
+              'class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {\n  static final instance = LocalAiService();',
+              'class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {\n  static final instance = LocalAiService();\n  static const _runtimeIdleTimeout = Duration(minutes: 10);',
+          )
+          replace_once(
+              'lib/services/local_ai_service_io.dart',
+              dedent('''\
+                @override
+                void didHaveMemoryPressure() {
+                  _releaseForMemory = true;
+                  cancelRequest();
+                  if (!busy && !_transferring) {
+                    unawaited(_exclusive((_) async {}).catchError((Object _) {}));
+                  }
+                }
+              '''),
+              dedent('''\
+                @override
+                void didHaveMemoryPressure() {
+                  _releaseForMemory = true;
+                  if (busy || _transferring) {
+                    _status =
+                        'Memory pressure detected · finishing the current local operation safely';
+                    notifyListeners();
+                    return;
+                  }
+                  // Idle pressure can unload immediately. Active inference/downloads
+                  // keep their lease and release only from their existing finally
+                  // boundary, preventing random Connection Failed/cancelled turns.
+                  unawaited(_exclusive((_) async {}).catchError((Object _) {}));
+                }
+              '''),
+          )
+          replace_once(
+              'lib/services/local_ai_service_io.dart',
+              '_idle = Timer(const Duration(minutes: 3), () {',
+              '_idle = Timer(_runtimeIdleTimeout, () {',
+          )
+
+          # ------------------------------------------------------------------
+          # 5) Cloud transport: one request lease + bounded transient retries.
+          #    Retrying is safe because responses only create a review plan;
+          #    inventory writes still happen later behind explicit approval.
+          # ------------------------------------------------------------------
+          replace_once(
+              'lib/services/ai_service.dart',
+              '  bool _localRequest = false;\n',
+              '  bool _localRequest = false;\n  bool _cloudBusy = false;\n  int _requestGeneration = 0;\n',
+          )
+          replace_once(
+              'lib/services/ai_service.dart',
+              dedent('''\
+                void cancel() {
+                  if (_localRequest) LocalAiService.instance.cancelRequest();
+                  _client?.close();
+                  _client = null;
+                }
+              '''),
+              dedent('''\
+                void cancel() {
+                  ++_requestGeneration;
+                  if (_localRequest) LocalAiService.instance.cancelRequest();
+                  _client?.close();
+                  _client = null;
+                }
+              '''),
+          )
+
+          replace_regex_once(
+              'lib/services/ai_service.dart',
+              r'''    if \(_client != null\) throw StateError\('An AI request is already running\.'\);\n    final endpoint = config\.uri;.*?      if \(identical\(_client, client\)\) _client = null;\n    \}\n''',
+              dedent('''\
+                  if (_cloudBusy || _client != null) {
+                    throw StateError('An AI request is already running.');
+                  }
+                  final endpoint = config.uri;
+                  final data = exportData();
+                  if (instruction.trim().isEmpty) {
+                    throw const FormatException('Describe what you want the AI to do.');
+                  }
+                  if (data.content.length > 700000) {
+                    throw const FormatException(
+                      'This inventory is too large for an in-app request. Use the TXT export with your AI instead.',
+                    );
+                  }
+                  final payload = '${data.content}\\n\\nOWNER REQUEST:\\n$instruction';
+                  final body = config.provider == 'Gemini'
+                      ? <String, Object?>{
+                          'system_instruction': {
+                            'parts': [
+                              {'text': data.prompt},
+                            ],
+                          },
+                          'contents': [
+                            {
+                              'role': 'user',
+                              'parts': [
+                                {'text': payload},
+                              ],
+                            },
+                          ],
+                          'generationConfig': {
+                            'responseMimeType': 'application/json',
+                          },
+                        }
+                      : <String, Object?>{
+                          'model': config.model,
+                          'messages': [
+                            {'role': 'system', 'content': data.prompt},
+                            {'role': 'user', 'content': payload},
+                          ],
+                        };
+                  final headers = <String, String>{
+                    'Content-Type': 'application/json',
+                    if (config.provider == 'Gemini')
+                      'x-goog-api-key': config.key
+                    else
+                      'Authorization': 'Bearer ${config.key}',
+                  };
+                  final generation = _requestGeneration;
+                  final decoded = await _postJsonWithRetry(
+                    endpoint,
+                    headers,
+                    body,
+                    generation,
+                  );
+                  if (config.provider == 'Gemini') {
+                    final candidates = decoded['candidates'] as List?;
+                    if (candidates == null || candidates.isEmpty) {
+                      throw StateError(
+                        'The AI did not return a response. Try a smaller, clearer request.',
+                      );
+                    }
+                    return ((candidates.first as Map)['content']['parts'] as List)
+                        .map((p) => (p as Map)['text'] ?? '')
+                        .join('\\n');
+                  }
+                  final choices = decoded['choices'] as List?;
+                  if (choices == null || choices.isEmpty) {
+                    throw StateError(
+                      'The endpoint did not return a compatible chat response.',
+                    );
+                  }
+                  final content = (choices.first as Map)['message']['content'];
+                  if (content is! String) {
+                    throw StateError('The provider did not return a text response.');
+                  }
+                  return content;
+              '''),
+          )
+
+          replace_once(
+              'lib/services/ai_service.dart',
+              '\n}\n\nFuture<void> sharePharmacy(PharmacyExport data) async {',
+              dedent('''\
+
+                Future<Map<String, dynamic>> _postJsonWithRetry(
+                  Uri endpoint,
+                  Map<String, String> headers,
+                  Object body,
+                  int generation,
+                ) async {
+                  if (_cloudBusy) {
+                    throw StateError('An AI request is already running.');
+                  }
+                  _cloudBusy = true;
+                  Object? lastRetryableError;
+                  try {
+                    for (var attempt = 0; attempt < 3; attempt++) {
+                      if (generation != _requestGeneration) {
+                        throw StateError('AI request cancelled.');
+                      }
+                      final client = http.Client();
+                      _client = client;
+                      try {
+                        final request = http.Request('POST', endpoint)
+                          ..followRedirects = false
+                          ..headers.addAll(headers)
+                          ..body = jsonEncode(body);
+                        final response = await client
+                            .send(request)
+                            .timeout(const Duration(seconds: 60));
+                        if (_transientAiStatus(response.statusCode)) {
+                          throw _RetryableAiFailure(
+                            'AI provider temporarily returned HTTP ${response.statusCode}.',
+                          );
+                        }
+                        if (response.statusCode < 200 || response.statusCode >= 300) {
+                          throw StateError(
+                            'AI provider returned HTTP ${response.statusCode}. Check the model, key, quota and endpoint.',
+                          );
+                        }
+                        final bytes = <int>[];
+                        await for (final chunk in response.stream.timeout(
+                          const Duration(seconds: 75),
+                        )) {
+                          if (generation != _requestGeneration) {
+                            throw StateError('AI request cancelled.');
+                          }
+                          bytes.addAll(chunk);
+                          if (bytes.length > 1500000) {
+                            throw StateError(
+                              'AI response is too large. Ask for fewer changes.',
+                            );
+                          }
+                        }
+                        final value = jsonDecode(utf8.decode(bytes));
+                        if (value is! Map) {
+                          throw const FormatException(
+                            'AI provider returned an invalid response envelope.',
+                          );
+                        }
+                        return Map<String, dynamic>.from(value);
+                      } catch (error) {
+                        if (generation != _requestGeneration) {
+                          throw StateError('AI request cancelled.');
+                        }
+                        final retryable = error is TimeoutException ||
+                            error is http.ClientException ||
+                            error is _RetryableAiFailure;
+                        if (!retryable) rethrow;
+                        lastRetryableError = error;
+                        if (attempt == 2) break;
+                      } finally {
+                        client.close();
+                        if (identical(_client, client)) _client = null;
+                      }
+                      await Future<void>.delayed(
+                        Duration(milliseconds: 400 * (1 << attempt)),
+                      );
+                    }
+                  } finally {
+                    _cloudBusy = false;
+                    _client = null;
+                  }
+                  final detail = lastRetryableError?.toString() ?? 'unknown transport error';
+                  throw StateError(
+                    'AI connection stayed unavailable after safe retries. $detail',
+                  );
+                }
+
+                bool _transientAiStatus(int status) =>
+                    status == 408 ||
+                    status == 425 ||
+                    status == 429 ||
+                    status == 500 ||
+                    status == 502 ||
+                    status == 503 ||
+                    status == 504;
+              }
+
+              class _RetryableAiFailure implements Exception {
+                const _RetryableAiFailure(this.message);
+                final String message;
+
+                @override
+                String toString() => message;
+              }
+
+              Future<void> sharePharmacy(PharmacyExport data) async {
+              '''),
+          )
+
+          # ------------------------------------------------------------------
+          # Focused regression coverage for the new E2E contract.
+          # ------------------------------------------------------------------
+          Path('test/aaris_e2e_jarvis_upgrade_test.dart').write_text(dedent('''\
+          import 'dart:io';
+
+          import 'package:aaris_pharmacy/domain/app_brain.dart';
+          import 'package:flutter_test/flutter_test.dart';
+
+          void main() {
+            group('Aaris E2E Jarvis upgrade', () {
+              test('natural add command carries identity into a reviewed draft', () {
+                final intent = parseAppBrainIntent('Add Cefixime 200mg');
+                expect(intent.action, AppBrainAction.addMedicine);
+                expect(intent.query, 'Cefixime 200mg');
+                expect(intent.confidence, greaterThanOrEqualTo(.99));
+              });
+
+              test('Open medicine is an offline deterministic database lookup', () {
+                final intent = parseAppBrainIntent('Open Cefixime');
+                expect(intent.action, AppBrainAction.search);
+                expect(intent.query, 'Cefixime');
+                expect(intent.confidence, greaterThanOrEqualTo(.98));
+              });
+
+              test('Delete medicine stays reviewed destructive intent', () {
+                final intent = parseAppBrainIntent('Delete Cefixime');
+                expect(intent.action, AppBrainAction.removeMedicine);
+                expect(intent.query, 'Cefixime');
+                expect(intent.destructive, isTrue);
+              });
+
+              test('AI hub gives deterministic commands first refusal', () {
+                final ai = File('lib/ui/ai_screen.dart').readAsStringSync();
+                expect(ai, contains('if (localHandler != null)'));
+                expect(ai, contains('_AiTurnPhase.thinking'));
+                expect(ai, contains('_streamAssistantMessage'));
+                expect(ai, contains("'Thinking…'"));
+              });
+
+              test('memory pressure never cancels an active local turn', () {
+                final service = File(
+                  'lib/services/local_ai_service_io.dart',
+                ).readAsStringSync();
+                final match = RegExp(
+                  r'void didHaveMemoryPressure\\(\\) \\{([\\s\\S]*?)\\n  \\}',
+                ).firstMatch(service);
+                expect(match, isNotNull);
+                expect(match!.group(1), isNot(contains('cancelRequest()')));
+                expect(service, contains('_runtimeIdleTimeout'));
+              });
+
+              test('cloud transport has bounded safe retry lease', () {
+                final service = File('lib/services/ai_service.dart').readAsStringSync();
+                expect(service, contains('_postJsonWithRetry'));
+                expect(service, contains('attempt < 3'));
+                expect(service, contains('_requestGeneration'));
+              });
+            });
+          }
+          '''))
+          PY
+
+      - name: Format upgraded Dart sources
+        run: |
+          dart format \
+            lib/domain/app_brain.dart \
+            lib/ui/brain_screen.dart \
+            lib/ui/ai_screen.dart \
+            lib/services/local_ai_service_io.dart \
+            lib/services/ai_service.dart \
+            test/aaris_e2e_jarvis_upgrade_test.dart
+
+      - name: Run Flutter regression suite
+        run: flutter test
+
+      - name: Commit production upgrade to main
+        shell: bash
+        run: |
+          rm .github/workflows/aaris-e2e-jarvis-upgrade.yml
+          git config user.name 'Aaris Upgrade Bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Bulletproof Aaris Brain E2E AI controller'
+          git pull --rebase origin main
+          git push origin HEAD:main
