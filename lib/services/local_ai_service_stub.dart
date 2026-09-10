@@ -12,6 +12,8 @@ class LocalAiService extends ChangeNotifier {
   bool get busy => false;
   bool get transferring => false;
   bool get scannerEnabled => false;
+  bool get scanReady => false;
+  bool get memoryWarning => false;
   double? get progress => null;
   String get status =>
       'Local native models need the installed Android/desktop app.';
@@ -22,6 +24,7 @@ class LocalAiService extends ChangeNotifier {
   InstalledLocalModel? get activeModel => null;
   bool get ready => false;
   bool isModelReady(String id) => false;
+  bool isModelScanReady(String id) => false;
   List<InstalledLocalModel> get installed => const [];
   List<LocalModelFile> get pendingDownloads => const [];
   Future<void> discardDownload(String sha256) async {}
@@ -39,6 +42,7 @@ class LocalAiService extends ChangeNotifier {
       throw UnsupportedError(status);
   Future<void> importModel() async => throw UnsupportedError(status);
   Future<void> activate(String id) async => throw UnsupportedError(status);
+  Future<void> suspend() async {}
   Future<void> deactivate() async {}
   Future<void> remove(String id) async {}
   Future<void> setScannerEnabled(bool value) async {}
