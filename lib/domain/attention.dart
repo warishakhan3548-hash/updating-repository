@@ -12,6 +12,7 @@ enum AttentionKind {
   shortExpiry,
   expiryWastePressure,
   zeroQuantityMismatch,
+  missingStockLocation,
   barcodeConflict,
   conflictingLotFacts,
   staleSoldMetadata,
@@ -176,6 +177,27 @@ class PharmacyAttentionReport {
             detail:
                 '$cue · confirm whether this entry is truly out of stock, or correct its quantity. Aaris will not infer SOLD from zero alone.',
             stockIds: [medicine.id],
+          ),
+        );
+      }
+
+      // Physical findability is an operational fact, not a medical inference.
+      // Active stock with no saved Block/Row/Vertical/shelf forces the pharmacist
+      // to rely on memory and weakens the practical value of FEFO routing. Keep
+      // this read-only: Aaris surfaces the exact row but never invents a location.
+      if (medicine.quantity != 0 && medicine.address.trim().isEmpty) {
+        items.add(
+          AttentionItem(
+            key: 'location-missing:${medicine.id}',
+            kind: AttentionKind.missingStockLocation,
+            severity: status == StockStatus.shortExpiry
+                ? AttentionSeverity.high
+                : AttentionSeverity.medium,
+            title: '${medicine.title} · stock location not recorded',
+            detail:
+                '$cue · this active stock row has no Block, Row, Vertical or shelf location saved. Record where this exact stock is kept so FEFO picking and fast retrieval do not depend on memory.',
+            stockIds: [medicine.id],
+            productKey: medicine.identity,
           ),
         );
       }

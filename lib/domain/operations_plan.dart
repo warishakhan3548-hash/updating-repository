@@ -1,7 +1,7 @@
 import 'attention.dart';
 import 'medicine.dart';
 
-enum OperationsLane { safety, verification, stock, expiry, purchasing }
+enum OperationsLane { safety, verification, stock, location, expiry, purchasing }
 
 class OperationsPlanStep {
   const OperationsPlanStep({
@@ -22,6 +22,7 @@ class OperationsPlanStep {
     OperationsLane.safety => 'Safety first',
     OperationsLane.verification => 'Verify facts',
     OperationsLane.stock => 'Fix stock state',
+    OperationsLane.location => 'Make stock findable',
     OperationsLane.expiry => 'Protect expiry flow',
     OperationsLane.purchasing => 'Review purchasing',
   };
@@ -52,7 +53,7 @@ class PharmacyOperationsPlan {
     }
 
     final blockers = source
-        .where((item) => _isVerificationPrerequisite(item.kind))
+        .where((item) => _isDependencyPrerequisite(item.kind))
         .toList(growable: false);
     final steps = <OperationsPlanStep>[];
     for (final item in source) {
@@ -61,6 +62,7 @@ class PharmacyOperationsPlan {
                 .where(
                   (blocker) =>
                       blocker.key != item.key &&
+                      _blocksDependent(item.kind, blocker.kind) &&
                       _related(item, blocker, identityByStockId),
                 )
                 .toList(growable: false)
@@ -136,6 +138,24 @@ Set<String> _productKeys(
   return keys;
 }
 
+bool _isDependencyPrerequisite(AttentionKind kind) =>
+    kind == AttentionKind.missingStockLocation ||
+    _isVerificationPrerequisite(kind);
+
+bool _blocksDependent(
+  AttentionKind dependent,
+  AttentionKind prerequisite,
+) {
+  // A missing shelf/rack location is crucial for physical FEFO work but is not
+  // evidence for demand or stock quantity. It must never block a valid reorder
+  // merely because the pharmacist has not yet recorded where the pack is kept.
+  if (prerequisite == AttentionKind.missingStockLocation) {
+    return dependent == AttentionKind.shortExpiry ||
+        dependent == AttentionKind.expiryWastePressure;
+  }
+  return true;
+}
+
 bool _isVerificationPrerequisite(AttentionKind kind) => switch (kind) {
   AttentionKind.barcodeConflict ||
   AttentionKind.conflictingLotFacts ||
@@ -168,6 +188,7 @@ OperationsLane _laneFor(AttentionKind kind) => switch (kind) {
   AttentionKind.zeroQuantityMismatch ||
   AttentionKind.unknownQuantity ||
   AttentionKind.unknownExpiry => OperationsLane.stock,
+  AttentionKind.missingStockLocation => OperationsLane.location,
   AttentionKind.shortExpiry || AttentionKind.expiryWastePressure =>
     OperationsLane.expiry,
   AttentionKind.urgentReorder || AttentionKind.reorderReview =>
@@ -183,6 +204,8 @@ String _actionFor(AttentionKind kind) => switch (kind) {
     'Review FEFO placement and avoid adding stock until the recorded demand signal is checked.',
   AttentionKind.zeroQuantityMismatch =>
     'Confirm whether the row is truly SOLD or correct the physical quantity.',
+  AttentionKind.missingStockLocation =>
+    'Record the exact shelf/rack location so FEFO picking and retrieval can route to this stock without relying on memory.',
   AttentionKind.barcodeConflict =>
     'Verify the physical packs and correct the barcode-to-medicine identity conflict.',
   AttentionKind.conflictingLotFacts =>

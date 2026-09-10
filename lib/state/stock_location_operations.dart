@@ -78,11 +78,12 @@ extension PharmacyStockLocationOperations on PharmacyController {
   Future<void> applyStockLocationUpdate(
     ReviewedStockLocationUpdate review,
   ) async {
-    if (review.baseRevision != snapshot.revision) {
-      throw StateError(
-        'Inventory changed after the location review. Review this move again before saving.',
-      );
-    }
+    // A location review is bound to the exact stock row, not to unrelated
+    // inventory traffic. If another batch is added/sold while the pharmacist is
+    // reading this dialog, preserve the review as long as this exact row and its
+    // before/after location facts are unchanged. The final save still uses the
+    // current global revision, so the persistence CAS remains authoritative and
+    // any write racing after this revalidation fails closed.
     final live = snapshot.records[review.stockId];
     if (live == null ||
         live.archived ||
@@ -114,7 +115,7 @@ extension PharmacyStockLocationOperations on PharmacyController {
         'vertical': fresh.afterVertical,
         'location': fresh.afterLocation,
       }),
-      expectedRevision: review.baseRevision,
+      expectedRevision: fresh.baseRevision,
     );
   }
 }

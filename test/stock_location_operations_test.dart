@@ -106,7 +106,7 @@ void main() {
     );
 
     test(
-      'stale review cannot overwrite a concurrent inventory change',
+      'unrelated inventory change does not invalidate exact-row review',
       () async {
         final controller = await controllerWithClock();
         addTearDown(controller.dispose);
@@ -117,11 +117,32 @@ void main() {
         );
         await controller.save(stock('b'), expectedRevision: 1);
 
+        await controller.applyStockLocationUpdate(review);
+        expect(controller.snapshot.records['a']!.location, 'Back shelf');
+        expect(controller.snapshot.records['b'], isNotNull);
+      },
+    );
+
+    test(
+      'same-row change after review still fails closed',
+      () async {
+        final controller = await controllerWithClock();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a'), expectedRevision: 0);
+        final review = controller.reviewStockLocationUpdate(
+          'a',
+          const StockLocationPatch(location: 'Back shelf'),
+        );
+        final changed = controller.snapshot.records['a']!.patch({
+          'location': 'Cold cabinet',
+        });
+        await controller.save(changed, expectedRevision: 1);
+
         await expectLater(
           controller.applyStockLocationUpdate(review),
           throwsStateError,
         );
-        expect(controller.snapshot.records['a']!.location, 'Front shelf');
+        expect(controller.snapshot.records['a']!.location, 'Cold cabinet');
       },
     );
 

@@ -152,7 +152,7 @@ class AttentionScreen extends StatelessWidget {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    'Aaris checks expiry, FEFO waste pressure, stock consistency, batch fact conflicts, barcode identity, audit quality, missing automation facts and deterministic reorder signals from local data.',
+                    'Aaris checks expiry, FEFO waste pressure, stock consistency, batch fact conflicts, barcode identity, audit quality, missing automation facts, physical stock findability and deterministic reorder signals from local data.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: muted, height: 1.4),
                   ),
@@ -202,46 +202,75 @@ class AttentionScreen extends StatelessWidget {
                   ),
                   if (next != null) ...[
                     const SizedBox(height: 14),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(13),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'RECOMMENDED NEXT',
-                            style: TextStyle(
-                              color: primary,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: .8,
-                            ),
+                    Material(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () async => _openStep(context, next),
+                        child: Padding(
+                          padding: const EdgeInsets.all(13),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'RECOMMENDED NEXT',
+                                      style: TextStyle(
+                                        color: primary,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: .8,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 5),
+                                    Text(
+                                      next.item.title,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 5),
+                                    Text(
+                                      next.actionLabel,
+                                      style: const TextStyle(
+                                        color: muted,
+                                        fontSize: 12,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 7),
+                                    const Text(
+                                      'Tap to open this task',
+                                      style: TextStyle(
+                                        color: primary,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              const Padding(
+                                padding: EdgeInsets.only(top: 2),
+                                child: Icon(
+                                  Icons.arrow_forward_rounded,
+                                  color: primary,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 5),
-                          Text(
-                            next.item.title,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            next.actionLabel,
-                            style: const TextStyle(
-                              color: muted,
-                              fontSize: 12,
-                              height: 1.4,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ],
                   const SizedBox(height: 10),
                   const Text(
-                    'The plan is deterministic and local. It sequences prerequisite verification before dependent FEFO or purchasing work, but never diagnoses, invents medicine facts or changes inventory by itself.',
+                    'The plan is deterministic and local. It sequences prerequisite verification and physical findability before dependent FEFO work, but never diagnoses, invents medicine facts or changes inventory by itself.',
                     style: TextStyle(color: muted, fontSize: 12, height: 1.4),
                   ),
                 ],
@@ -283,6 +312,7 @@ class _AttentionCard extends StatelessWidget {
     AttentionKind.shortExpiry => Icons.timer_outlined,
     AttentionKind.expiryWastePressure => Icons.trending_down_rounded,
     AttentionKind.zeroQuantityMismatch => Icons.inventory_2_outlined,
+    AttentionKind.missingStockLocation => Icons.location_searching_rounded,
     AttentionKind.barcodeConflict => Icons.qr_code_2_rounded,
     AttentionKind.conflictingLotFacts => Icons.rule_folder_outlined,
     AttentionKind.staleSoldMetadata => Icons.history_toggle_off_rounded,
