@@ -232,8 +232,66 @@ List<String> _mergeLines(Iterable<String> raw) {
       }
     }
   }
-  return values;
+  return _evidenceFirstMedicineText(values);
 }
+
+/// Raw OCR is intentionally bounded before it reaches a local language model.
+/// Preserve the first package-heading lines in their original order, then move
+/// later composition/dose/form/date evidence ahead of low-signal legal or
+/// promotional text. This is a deterministic evidence-budgeting step only: no
+/// medicine fact is invented, removed, normalized or trusted because of rank.
+List<String> _evidenceFirstMedicineText(List<String> values) {
+  const headingContext = 12;
+  if (values.length <= headingContext) return values;
+
+  final result = <String>[...values.take(headingContext)];
+  final evidence = <String>[];
+  final remainder = <String>[];
+  for (final value in values.skip(headingContext)) {
+    if (_medicineEvidenceLineScore(value) >= 2) {
+      evidence.add(value);
+    } else {
+      remainder.add(value);
+    }
+  }
+  result
+    ..addAll(evidence)
+    ..addAll(remainder);
+  return result;
+}
+
+int _medicineEvidenceLineScore(String value) {
+  final normalized = searchText(value);
+  if (normalized.isEmpty) return 0;
+  var score = 0;
+  if (_compositionCue.hasMatch(normalized)) score += 4;
+  if (_printedDoseCue.hasMatch(value)) score += 3;
+  if (_dateCue.hasMatch(normalized)) score += 3;
+  if (_formCue.hasMatch(normalized)) score += 2;
+  if (_batchCue.hasMatch(normalized)) score += 1;
+  return score;
+}
+
+final _compositionCue = RegExp(
+  r'\b(?:composition|contains|active ingredient|active ingredients|generic name|salt)\b',
+  caseSensitive: false,
+);
+final _printedDoseCue = RegExp(
+  r'(?<![\d.,])\d+(?:\.\d+)?\s*(?:mcg|mg|gm|g|ml|iu|units?|%)(?:\s*/\s*(?:\d+(?:\.\d+)?\s*)?(?:ml|g))?(?![a-z\d/])',
+  caseSensitive: false,
+);
+final _dateCue = RegExp(
+  r'\b(?:exp|expiry|expires|mfg|mfd|manufactured|manufacturing)\b',
+  caseSensitive: false,
+);
+final _formCue = RegExp(
+  r'\b(?:tablet|tablets|capsule|capsules|syrup|suspension|solution|injection|cream|ointment|gel|lotion|drop|drops|spray|inhaler|powder|sachet|sachets)\b',
+  caseSensitive: false,
+);
+final _batchCue = RegExp(
+  r'\b(?:batch|batch no|batch number|b no|lot|lot no)\b',
+  caseSensitive: false,
+);
 
 double _lineQuality(String value) {
   if (value.isEmpty) return 0;
