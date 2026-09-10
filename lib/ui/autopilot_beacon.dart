@@ -4,18 +4,18 @@ import '../state/autopilot_supervisor.dart';
 
 /// A compact global signal for urgent pharmacist work.
 ///
-/// The beacon is intentionally read-only. Tapping it opens Aaris Brain, where
-/// the existing deterministic router, exact-target resolution and review gates
-/// remain authoritative for every action.
+/// The beacon is intentionally read-only. Tapping it opens the existing
+/// dependency-aware Needs Attention workflow, where exact-row editing, ordering,
+/// confirmation, CAS and Undo boundaries remain authoritative.
 class AarisAutopilotBeacon extends StatelessWidget {
   const AarisAutopilotBeacon({
     super.key,
     required this.supervisor,
-    required this.onOpenBrain,
+    required this.onOpenWorkQueue,
   });
 
   final AarisAutopilotSupervisor supervisor;
-  final VoidCallback onOpenBrain;
+  final VoidCallback onOpenWorkQueue;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -54,7 +54,7 @@ class AarisAutopilotBeacon extends StatelessWidget {
             borderRadius: BorderRadius.circular(18),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
-              onTap: onOpenBrain,
+              onTap: onOpenWorkQueue,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
                 child: Row(
