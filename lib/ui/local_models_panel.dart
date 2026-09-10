@@ -760,3 +760,23 @@ String _shortLabel(String raw) {
   }
   return value.replaceAll('_', ' ');
 }
+
+String _friendlyError(Object error) {
+  final raw = error
+      .toString()
+      .replaceFirst(
+        RegExp(r'^(Exception|Bad state|StateError|FormatException):\s*'),
+        '',
+      )
+      .trim();
+  final lower = raw.toLowerCase();
+  if (lower.contains('socketexception') ||
+      lower.contains('connection') ||
+      lower.contains('network')) {
+    return 'Model service connection was interrupted. Check connectivity and retry; installed models and pharmacy data are unchanged.';
+  }
+  if (lower.contains('memory') || lower.contains('allocation')) {
+    return 'This model could not start with the current device resources. It remains installed; try again after freeing memory or choose a smaller model.';
+  }
+  return raw.isEmpty ? 'Local AI setup could not finish.' : raw;
+}
