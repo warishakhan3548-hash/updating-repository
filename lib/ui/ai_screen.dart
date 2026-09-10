@@ -105,9 +105,6 @@ class _AiScreenState extends State<AiScreen> {
       }
     }
 
-    // Local Brain replies can trigger both parent and child rebuilds in the same
-    // frame. Re-align on two layout boundaries so the newest answer is never
-    // left just outside the small chat viewport under the quick-action grid.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       jumpAfterLayout();
       WidgetsBinding.instance.addPostFrameCallback((_) => jumpAfterLayout());
@@ -391,9 +388,6 @@ class _AiScreenState extends State<AiScreen> {
               (lead.contains('aaris.pharmacy.v1') && lead.contains('actions'));
           setState(() {
             _journey = _AiJourneyState.streaming;
-            // The model's strict pharmacy JSON can contain IDs and mutation
-            // envelopes. Never flash that internal transport contract in chat;
-            // validate it first, then render only the human reply/review cards.
             _streamingText = structuredStream ? '' : snapshot;
           });
           _scrollToEnd();
@@ -401,9 +395,6 @@ class _AiScreenState extends State<AiScreen> {
       );
       if (!mounted || generation != _generation) return;
 
-      // Local/cloud providers normally return the strict pharmacy contract.
-      // Plain conversational text is also valid for answer-only chat, so never
-      // turn a harmless greeting into a FormatException/"Connection Failed".
       if (!_looksLikeAiResponse(result)) {
         if (!structuredStream && rawStream.isNotEmpty) {
           _finishLiveAssistantReply(result, generation);
@@ -463,6 +454,7 @@ class _AiScreenState extends State<AiScreen> {
 
   Future<void> _sendComposer() async {
     if (_localCommanding ||
+        _preparingRequest ||
         _requesting ||
         _reviewing ||
         widget.controller.aiPreparing) {
@@ -471,10 +463,6 @@ class _AiScreenState extends State<AiScreen> {
     final text = _request.text.trim();
     if (text.isEmpty) return;
 
-    // JSON keeps the existing review/import path. Ordinary text is always
-    // offered to the deterministic App Brain first, even when Local AI/API is
-    // configured. This is the single authoritative bridge for commands such as
-    // Add/Open/Delete; only unrecognized reasoning text reaches an LLM.
     if (_looksLikeAiResponse(text)) {
       setState(() {
         _input.text = text;
