@@ -22,7 +22,17 @@ jobs:
         with:
           fetch-depth: 0
       - name: Apply surgical source patch
-        run: python3 tool/one_shot_brain_control_plane_upgrade.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/one_shot_brain_control_plane_upgrade.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lib/ui/brain_screen.dart')
+          text = p.read_text()
+          text = text.replace("import '../domain/warning_policy.dart';\n", '')
+          p.write_text(text)
+          PY
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
