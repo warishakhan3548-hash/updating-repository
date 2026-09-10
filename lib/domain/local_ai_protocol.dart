@@ -515,11 +515,10 @@ MedicineScanDraft validateLocalScan(
       final tail = normalizedQuote.substring(occurrence.end);
       final amount = strengthPattern.firstMatch(tail);
       // A quote may itself be an exact but dangerously shortened substring:
-      // "Drug 2 mg" must not certify a label reading "Drug 2 mg/5 ml".
-      final sourceTail = draft.rawText
-          .toLowerCase()
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .substring(sourceStart + occurrence.end);
+      // "Drug 2 mg" must not certify a label reading "Drug 2 mg/5 ml". Use
+      // the exact bounded OCR window that the model observed, never unseen raw
+      // text outside the prompt boundary.
+      final sourceTail = raw.substring(sourceStart + occurrence.end);
       final printedAmount = strengthPattern.firstMatch(sourceTail);
 
       if (amount == null ||
@@ -606,12 +605,37 @@ DETERMINISTIC CANDIDATES: ${jsonEncode({for (final e in draft.fields.entries) e.
 SOURCE_TRUNCATED: ${draft.rawText.length > sourceLimit}
 SOURCE: ${jsonEncode(localScanSource(draft, limit: sourceLimit))}''';
 
-// The same excerpt is used for both prompting and validation. A quote beyond
-// the prompt boundary is not evidence the model observed, even if in raw OCR.
+// The same exact contiguous OCR excerpt is used for both prompting and
+// validation. On small contexts a noisy wrapper can exceed the evidence budget;
+// prefer the region around composition/ingredient/dose labels instead of blindly
+// keeping only the beginning. Deterministic candidates still preserve the
+// already-extracted brand/name when the high-value composition region is later.
 String localScanSource(MedicineScanDraft draft, {int limit = 7000}) {
-  if (limit < 256 || limit > 7000)
+  if (limit < 256 || limit > 7000) {
     throw const FormatException('Invalid source budget.');
-  return _bounded(draft.rawText, limit);
+  }
+  final source = draft.rawText;
+  if (source.length <= limit) return source;
+
+  final composition = RegExp(
+    r'\b(?:composition|compositon|ingredients?|active\s+ingredient|generic|salt|each\s+(?:tablet|capsule|5\s*ml)|contains)\b',
+    caseSensitive: false,
+  ).firstMatch(source);
+  final dose = _printedDosePattern.firstMatch(source);
+  final expiry = RegExp(
+    r'\b(?:exp|expiry|expires?|mfg|manufactured)\b',
+    caseSensitive: false,
+  ).firstMatch(source);
+  final anchor = composition?.start ?? dose?.start ?? expiry?.start ?? 0;
+
+  // Keep useful context before the evidence anchor for nearby product/brand
+  // wording, while reserving most of the window for composition and following
+  // strengths. The result stays contiguous so adjacency checks cannot bridge a
+  // synthetic gap between unrelated OCR fragments.
+  var start = anchor - (limit ~/ 3);
+  if (start < 0) start = 0;
+  if (start + limit > source.length) start = source.length - limit;
+  return source.substring(start, start + limit);
 }
 
 String _compactDose(String value) =>
