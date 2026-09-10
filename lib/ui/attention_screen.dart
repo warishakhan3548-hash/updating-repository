@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/attention.dart';
 import '../domain/medicine.dart';
+import '../domain/operations_plan.dart';
 import '../domain/tracking.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
@@ -115,6 +116,19 @@ class AttentionScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _openStep(
+    BuildContext context,
+    OperationsPlanStep step,
+  ) async {
+    // Downstream FEFO/reorder work is never opened ahead of a known prerequisite.
+    // The user is taken to the first blocking fact instead, and the AnimatedBuilder
+    // recalculates the plan from the authoritative controller after every edit.
+    final target = step.prerequisites.isEmpty
+        ? step.item
+        : step.prerequisites.first;
+    await _openItem(context, target);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Needs attention')),
@@ -148,6 +162,11 @@ class AttentionScreen extends StatelessWidget {
           );
         }
 
+        final plan = PharmacyOperationsPlan.build(
+          items: report.items,
+          medicines: controller.records,
+        );
+        final next = plan.nextStep;
         return ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 30),
           children: [
@@ -156,33 +175,85 @@ class AttentionScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '${report.items.length} operational item${report.items.length == 1 ? '' : 's'}',
-                    style: Theme.of(context).textTheme.titleLarge,
+                  Row(
+                    children: [
+                      const Icon(Icons.route_rounded, color: primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Aaris operating plan',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${report.critical} critical · ${report.high} high · ${report.medium} medium',
+                    '${report.items.length} operational item${report.items.length == 1 ? '' : 's'} · ${plan.readyCount} ready now · ${plan.blockedCount} waiting on verified facts',
                     style: const TextStyle(
                       color: muted,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${report.critical} critical · ${report.high} high · ${report.medium} medium',
+                    style: const TextStyle(color: muted, fontSize: 12),
+                  ),
+                  if (next != null) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(13),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'RECOMMENDED NEXT',
+                            style: TextStyle(
+                              color: primary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: .8,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            next.item.title,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            next.actionLabel,
+                            style: const TextStyle(
+                              color: muted,
+                              fontSize: 12,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
                   const Text(
-                    'This queue is deterministic and local. It never diagnoses, invents medicine facts or changes inventory by itself.',
+                    'The plan is deterministic and local. It sequences prerequisite verification before dependent FEFO or purchasing work, but never diagnoses, invents medicine facts or changes inventory by itself.',
                     style: TextStyle(color: muted, fontSize: 12, height: 1.4),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 14),
-            for (final item in report.items)
+            for (final step in plan.steps)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _AttentionCard(
-                  item: item,
-                  onTap: () => _openItem(context, item),
+                  step: step,
+                  onTap: () => _openStep(context, step),
                 ),
               ),
           ],
@@ -193,10 +264,12 @@ class AttentionScreen extends StatelessWidget {
 }
 
 class _AttentionCard extends StatelessWidget {
-  const _AttentionCard({required this.item, required this.onTap});
+  const _AttentionCard({required this.step, required this.onTap});
 
-  final AttentionItem item;
+  final OperationsPlanStep step;
   final VoidCallback onTap;
+
+  AttentionItem get item => step.item;
 
   Color get _color => switch (item.severity) {
     AttentionSeverity.critical => red,
@@ -248,6 +321,16 @@ class _AttentionCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
+                    step.laneLabel.toUpperCase(),
+                    style: TextStyle(
+                      color: _color,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: .7,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
                     item.title,
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
@@ -260,11 +343,26 @@ class _AttentionCard extends StatelessWidget {
                       height: 1.4,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    step.blocked
+                        ? 'Fix ${step.prerequisites.length} prerequisite ${step.prerequisites.length == 1 ? 'item' : 'items'} first. Tap to open the first blocker.'
+                        : step.actionLabel,
+                    style: TextStyle(
+                      color: step.blocked ? amber : _color,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      height: 1.35,
+                    ),
+                  ),
                 ],
               ),
             ),
             const SizedBox(width: 6),
-            Icon(Icons.chevron_right_rounded, color: _color),
+            Icon(
+              step.blocked ? Icons.lock_clock_rounded : Icons.chevron_right_rounded,
+              color: _color,
+            ),
           ],
         ),
       ),
