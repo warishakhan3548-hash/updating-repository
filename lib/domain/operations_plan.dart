@@ -165,7 +165,9 @@ bool _isVerificationPrerequisite(AttentionKind kind) => switch (kind) {
   AttentionKind.futureManufactureDate ||
   AttentionKind.zeroQuantityMismatch ||
   AttentionKind.soldAuditGap ||
-  AttentionKind.staleSoldMetadata => true,
+  AttentionKind.staleSoldMetadata ||
+  AttentionKind.futureSaleHistory ||
+  AttentionKind.saleLifecycleConflict => true,
   _ => false,
 };
 
@@ -184,7 +186,9 @@ OperationsLane _laneFor(AttentionKind kind) => switch (kind) {
   AttentionKind.possibleDuplicateBatch ||
   AttentionKind.futureManufactureDate ||
   AttentionKind.soldAuditGap ||
-  AttentionKind.staleSoldMetadata => OperationsLane.verification,
+  AttentionKind.staleSoldMetadata ||
+  AttentionKind.futureSaleHistory ||
+  AttentionKind.saleLifecycleConflict => OperationsLane.verification,
   AttentionKind.zeroQuantityMismatch ||
   AttentionKind.unknownQuantity ||
   AttentionKind.unknownExpiry => OperationsLane.stock,
@@ -214,6 +218,10 @@ String _actionFor(AttentionKind kind) => switch (kind) {
     'Review the stock row and reconcile stale SOLD metadata before using its history.',
   AttentionKind.soldAuditGap =>
     'Review the stock row and repair the audit gap before relying on sales history.',
+  AttentionKind.futureSaleHistory =>
+    'Verify the business date and historical sale source before relying on this demand signal.',
+  AttentionKind.saleLifecycleConflict =>
+    'Verify the physical MFG/EXP and sale-history source; keep immutable history unchanged until provenance is clear.',
   AttentionKind.urgentReorder =>
     'Open Order Review and confirm the urgent quantity from verified stock facts.',
   AttentionKind.reorderReview =>
