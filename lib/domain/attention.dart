@@ -1,3 +1,4 @@
+import 'automation_readiness.dart';
 import 'inventory.dart';
 import 'inventory_integrity.dart';
 import 'medicine.dart';
@@ -88,6 +89,47 @@ class PharmacyAttentionReport {
       );
     }
 
+    // Preflight the exact FEFO candidate ordering used by the sale engine. This
+    // turns missing expiry/quantity from a surprise at checkout into an early,
+    // grouped work item. Single-row gaps still use the normal per-record warning;
+    // multi-lot gaps are consolidated so the attention queue stays actionable.
+    final readiness = PharmacyAutomationReadinessReport.build(
+      medicines: active,
+      today: day,
+    );
+    final groupedUnknownExpiryIds = <String>{};
+    final groupedUnknownQuantityIds = <String>{};
+    for (final issue in readiness.issues) {
+      switch (issue.kind) {
+        case AutomationReadinessKind.fefoExpiryUncertainty:
+          groupedUnknownExpiryIds.addAll(issue.stockIds);
+          items.add(
+            AttentionItem(
+              key: issue.key,
+              kind: AttentionKind.unknownExpiry,
+              severity: AttentionSeverity.medium,
+              title: issue.title,
+              detail: issue.detail,
+              stockIds: issue.stockIds,
+              productKey: issue.productKey,
+            ),
+          );
+        case AutomationReadinessKind.fefoQuantityBlocker:
+          groupedUnknownQuantityIds.addAll(issue.stockIds);
+          items.add(
+            AttentionItem(
+              key: issue.key,
+              kind: AttentionKind.unknownQuantity,
+              severity: AttentionSeverity.high,
+              title: issue.title,
+              detail: issue.detail,
+              stockIds: issue.stockIds,
+              productKey: issue.productKey,
+            ),
+          );
+      }
+    }
+
     for (final medicine in active) {
       if (medicine.sold) continue;
       if (medicine.mfg != null && civilDay(medicine.mfg!).isAfter(day)) {
@@ -152,7 +194,8 @@ class PharmacyAttentionReport {
         );
       }
 
-      if (medicine.expiry == null) {
+      if (medicine.expiry == null &&
+          !groupedUnknownExpiryIds.contains(medicine.id)) {
         items.add(
           AttentionItem(
             key: 'expiry-unknown:${medicine.id}',
@@ -165,7 +208,8 @@ class PharmacyAttentionReport {
           ),
         );
       }
-      if (medicine.quantity == null) {
+      if (medicine.quantity == null &&
+          !groupedUnknownQuantityIds.contains(medicine.id)) {
         items.add(
           AttentionItem(
             key: 'quantity-unknown:${medicine.id}',
@@ -213,13 +257,29 @@ class PharmacyAttentionReport {
     final duplicateGroups = <String, List<Medicine>>{};
     for (final medicine in active.where((medicine) => !medicine.sold)) {
       final batch = normalize(medicine.batchNumber);
-      if (batch.isEmpty) continue;
       final barcode = normalize(medicine.barcode);
       final address = normalize(medicine.address);
-      // Batch alone can legitimately repeat across locations. Require another
-      // physical locator before raising a probable-duplicate review item.
-      if (barcode.isEmpty && address.isEmpty) continue;
-      final key = '${medicine.identity}|$batch|$barcode|$address';
+
+      String? key;
+      if (batch.isNotEmpty) {
+        // Batch alone can legitimately repeat across locations. Require another
+        // physical locator before raising a probable-duplicate review item.
+        if (barcode.isNotEmpty || address.isNotEmpty) {
+          key = '${medicine.identity}|batch:$batch|barcode:$barcode|address:$address';
+        }
+      } else if (barcode.isNotEmpty && address.isNotEmpty) {
+        // A batch number is optional. Two rows at the same saved physical
+        // location can still be probable duplicates when product barcode plus a
+        // pack date also agree. This remains a review-only signal: retail
+        // barcodes and expiry months are not globally unique lot identifiers.
+        final expiry = medicine.expiry == null ? '' : dateText(medicine.expiry!);
+        final mfg = medicine.mfg == null ? '' : dateText(medicine.mfg!);
+        if (expiry.isNotEmpty || mfg.isNotEmpty) {
+          key =
+              '${medicine.identity}|no-batch|barcode:$barcode|expiry:$expiry|mfg:$mfg|address:$address';
+        }
+      }
+      if (key == null) continue;
       duplicateGroups.putIfAbsent(key, () => []).add(medicine);
     }
     for (final group in duplicateGroups.values.where(
@@ -232,9 +292,10 @@ class PharmacyAttentionReport {
               'duplicate-batch:${group.map((medicine) => medicine.id).join(':')}',
           kind: AttentionKind.possibleDuplicateBatch,
           severity: AttentionSeverity.medium,
-          title: '${first.title} · possible duplicate batch entries',
-          detail:
-              '${group.length} active rows share the same medicine identity, batch and barcode/location. Verify the physical stock before totals or reorder decisions; Aaris will never merge or delete them automatically.',
+          title: '${first.title} · possible duplicate stock entries',
+          detail: first.batchNumber.trim().isNotEmpty
+              ? '${group.length} active rows share the same medicine identity, batch and barcode/location. Verify the physical stock before totals or reorder decisions; Aaris will never merge or delete them automatically.'
+              : '${group.length} active rows have no batch number but share the same medicine identity, barcode, saved location and pack date. They may be legitimate separate stock, so Aaris only flags them for physical review and will never merge or delete them automatically.',
           stockIds: group
               .map((medicine) => medicine.id)
               .toList(growable: false),
