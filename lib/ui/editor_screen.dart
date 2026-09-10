@@ -6,6 +6,7 @@ import '../domain/date_input.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import '../domain/medicine_discovery.dart';
+import '../domain/medicine_entry_prefill.dart';
 import '../domain/medicine_understanding.dart';
 import '../state/operational_context.dart';
 import '../state/pharmacy_controller.dart';
@@ -19,6 +20,7 @@ Future<void> openEditor(
   Medicine? record,
   MedicineDraftSeed? seed,
   MedicineScanDraft? scanDraft,
+  MedicineEntryPrefill? prefill,
   String barcode = '',
   String ocrText = '',
 }) {
@@ -32,6 +34,7 @@ Future<void> openEditor(
         record: record,
         seed: seed,
         scanDraft: scanDraft,
+        prefill: prefill,
         barcode: barcode,
         ocrText: ocrText,
       ),
@@ -46,6 +49,7 @@ class EditorScreen extends StatefulWidget {
     this.record,
     this.seed,
     this.scanDraft,
+    this.prefill,
     this.barcode = '',
     this.ocrText = '',
   });
@@ -54,6 +58,7 @@ class EditorScreen extends StatefulWidget {
   final Medicine? record;
   final MedicineDraftSeed? seed;
   final MedicineScanDraft? scanDraft;
+  final MedicineEntryPrefill? prefill;
   final String barcode, ocrText;
 
   @override
@@ -76,6 +81,7 @@ class _EditorScreenState extends State<EditorScreen> {
     _baseRevision = widget.controller.snapshot.revision;
     final seed = widget.seed;
     final scan = widget.scanDraft;
+    final prefill = widget.prefill;
     String identityValue(String? catalog, String scanned) =>
         catalog?.trim().isNotEmpty == true ? catalog!.trim() : scanned;
     final data =
@@ -100,6 +106,7 @@ class _EditorScreenState extends State<EditorScreen> {
           'ocrText': widget.ocrText.trim().isNotEmpty
               ? widget.ocrText
               : scan?.searchableOcrText ?? '',
+          ...?prefill?.editorValues,
         };
 
     // Keep legacy/automatic metadata in the model so existing records and
@@ -129,7 +136,7 @@ class _EditorScreenState extends State<EditorScreen> {
     }
     fields['price'] = TextEditingController(
       text: widget.record?.unitPricePaise == null
-          ? ''
+          ? prefill?.priceText ?? ''
           : (widget.record!.unitPricePaise! / 100).toStringAsFixed(2),
     );
 
@@ -152,12 +159,35 @@ class _EditorScreenState extends State<EditorScreen> {
     }
 
     final record = widget.record;
-    _form = record?.form ?? identityValue(seed?.form, scan?.form ?? '');
-    _mfgMonthOnly = record?.mfg == null
-        ? scan?.mfgMonthOnly ?? false
-        : record!.mfgMonthOnly;
-    _expiryMonthOnly = record?.expiry == null || record!.expiryMonthOnly;
-    if (record?.expiry == null && scan?.expiry.isNotEmpty == true) {
+    _form =
+        record?.form ??
+        (prefill?.form.isNotEmpty == true
+            ? prefill!.form
+            : identityValue(seed?.form, scan?.form ?? ''));
+    _mfgMonthOnly = record?.mfg != null
+        ? record!.mfgMonthOnly
+        : prefill?.mfg.isNotEmpty == true
+        ? prefill!.mfgMonthOnly
+        : scan?.mfgMonthOnly ?? false;
+    _expiryMonthOnly = record?.expiry != null
+        ? record!.expiryMonthOnly
+        : prefill?.expiry.isNotEmpty == true
+        ? prefill!.expiryMonthOnly
+        : scan?.expiry.isNotEmpty == true
+        ? scan!.expiryMonthOnly
+        : true;
+    if (record?.expiry == null && prefill?.expiry.isNotEmpty == true) {
+      final value = parseDate(
+        prefill!.expiry,
+        monthEnd: prefill.expiryMonthOnly,
+      );
+      if (value != null) {
+        fields['expiry']!.text = inputDateText(
+          value,
+          monthOnly: prefill.expiryMonthOnly,
+        );
+      }
+    } else if (record?.expiry == null && scan?.expiry.isNotEmpty == true) {
       _expiryMonthOnly = scan!.expiryMonthOnly;
       final value = parseDate(scan.expiry, monthEnd: _expiryMonthOnly);
       if (value != null) {
@@ -178,6 +208,14 @@ class _EditorScreenState extends State<EditorScreen> {
         record!.mfg!,
         monthOnly: record.mfgMonthOnly,
       );
+    } else if (prefill?.mfg.isNotEmpty == true) {
+      final value = parseDate(prefill!.mfg, monthStart: prefill.mfgMonthOnly);
+      if (value != null) {
+        fields['mfg']!.text = inputDateText(
+          value,
+          monthOnly: prefill.mfgMonthOnly,
+        );
+      }
     } else if (scan?.mfg.isNotEmpty == true) {
       final value = parseDate(scan!.mfg, monthStart: _mfgMonthOnly);
       if (value != null) {

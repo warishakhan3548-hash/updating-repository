@@ -8,6 +8,13 @@ import '../domain/medicine.dart';
 import '../domain/inventory.dart';
 import '../domain/tracking.dart';
 
+// Idempotency receipts are intentionally bounded. Every reviewed operation also
+// carries the inventory revision it was reviewed against, so a callback older
+// than this recent window still fails closed at the revision gate rather than
+// being replayed. Keeping the window bounded prevents an always-on pharmacy
+// from turning every historical sale into permanent O(n) snapshot-copy cost.
+const int maxRecentOperationReceipts = 4096;
+
 class InventorySnapshot {
   InventorySnapshot({
     this.revision = 0,
@@ -132,7 +139,7 @@ void _validateMutationShape(InventoryMutation mutation) {
   }
 
   for (final entry in <String, String?>{
-    'AI request': mutation.requestId,
+    'reviewed request': mutation.requestId,
     'undo event': mutation.undoEventId,
   }.entries) {
     final value = entry.value;
@@ -307,10 +314,10 @@ InventorySnapshot nextSnapshot(
     ),
     records: records,
     sales: sales,
-    receipts: {
-      ...before.receipts,
+    receipts: <String>{
       if (mutation.requestId != null) mutation.requestId!,
-    },
+      ...before.receipts,
+    }.take(maxRecentOperationReceipts).toSet(),
     events: [
       event,
       ...before.events.map(
@@ -400,7 +407,11 @@ class SqliteInventoryStorage implements InventoryStorage {
       orderBy: 'revision DESC',
       limit: 200,
     );
-    final receipts = await db.query('receipts');
+    final receipts = await db.query(
+      'receipts',
+      orderBy: 'rowid DESC',
+      limit: maxRecentOperationReceipts,
+    );
     return InventorySnapshot(
       revision: meta['revision'] as int,
       settings: WarningSettings.fromJson(
@@ -449,14 +460,16 @@ class SqliteInventoryStorage implements InventoryStorage {
       final before = _cached?.revision == diskRevision
           ? _cached!
           : await _read(tx);
-      if (before.revision != mutation.expectedRevision)
+      _validateMutationShape(mutation);
+      if (mutation.requestId != null &&
+          before.receipts.contains(mutation.requestId)) {
+        return before;
+      }
+      if (before.revision != mutation.expectedRevision) {
         throw StateError(
           'Inventory changed. Reopen this review before saving.',
         );
-      _validateMutationShape(mutation);
-      if (mutation.requestId != null &&
-          before.receipts.contains(mutation.requestId))
-        throw StateError('This AI request has already been applied.');
+      }
       final event = makeEvent(before, mutation);
       final after = nextSnapshot(before, mutation, event);
       for (final m in mutation.upserts) {
@@ -496,8 +509,13 @@ class SqliteInventoryStorage implements InventoryStorage {
         'sold_value': after.soldValue,
         'unknown_sold': after.unknownSold,
       }, where: 'id=1');
-      if (mutation.requestId != null)
+      if (mutation.requestId != null) {
         await tx.insert('receipts', {'request_id': mutation.requestId});
+        await tx.rawDelete(
+          'DELETE FROM receipts WHERE rowid NOT IN '
+          '(SELECT rowid FROM receipts ORDER BY rowid DESC LIMIT $maxRecentOperationReceipts)',
+        );
+      }
       await tx.insert('events', {
         'id': event['id'],
         'revision': event['revision'],
@@ -533,12 +551,14 @@ class MemoryInventoryStorage implements InventoryStorage {
   Future<InventorySnapshot> load() async => _state;
   @override
   Future<InventorySnapshot> commit(InventoryMutation mutation) async {
-    if (_state.revision != mutation.expectedRevision)
-      throw StateError('Inventory changed. Reopen this review.');
     _validateMutationShape(mutation);
     if (mutation.requestId != null &&
-        _state.receipts.contains(mutation.requestId))
-      throw StateError('Request already applied.');
+        _state.receipts.contains(mutation.requestId)) {
+      return _state;
+    }
+    if (_state.revision != mutation.expectedRevision) {
+      throw StateError('Inventory changed. Reopen this review.');
+    }
     final event = makeEvent(_state, mutation);
     _state = nextSnapshot(_state, mutation, event);
     return _state;

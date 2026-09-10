@@ -53,11 +53,14 @@ class FefoDispensingPlan {
 
 class ReviewedFefoSale {
   const ReviewedFefoSale({
+    required this.requestId,
     required this.baseRevision,
     required this.occurredAt,
     required this.plan,
   });
 
+  /// Stable exactly-once token for this pharmacist-reviewed sale intent.
+  final String requestId;
   final int baseRevision;
   final DateTime occurredAt;
   final FefoDispensingPlan plan;

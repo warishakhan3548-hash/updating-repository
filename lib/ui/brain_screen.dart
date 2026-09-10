@@ -56,13 +56,13 @@ class _BrainScreenState extends State<BrainScreen> {
     if (_busy) return;
     final raw = (supplied ?? _command.text).trim();
     if (raw.isEmpty) return;
-    final intent = parseAppBrainIntent(raw);
     setState(() {
       _busy = true;
       _reply = 'Understanding command…';
       if (supplied != null) _command.text = supplied;
     });
     try {
+      final intent = parseAppBrainIntent(raw);
       await _execute(intent, raw);
     } catch (error) {
       if (mounted) {
@@ -91,10 +91,17 @@ class _BrainScreenState extends State<BrainScreen> {
         return;
       case AppBrainAction.addMedicine:
         if (mounted) {
+          final prefill = intent.addPrefill;
           widget.onOpenSection(AppSection.stock);
-          setState(() => _reply = 'Opening a fresh medicine entry.');
+          setState(
+            () => _reply = prefill == null || prefill.isEmpty
+                ? 'Opening a fresh medicine entry.'
+                : 'Prepared a review-only medicine draft from your explicit command facts: ${prefill.reviewSummary}. Nothing is saved until you review and press Save.',
+          );
           await Future<void>.delayed(Duration.zero);
-          if (mounted) await openEditor(context, widget.controller);
+          if (mounted) {
+            await openEditor(context, widget.controller, prefill: prefill);
+          }
         }
         return;
       case AppBrainAction.scanMedicine:
@@ -159,8 +166,7 @@ class _BrainScreenState extends State<BrainScreen> {
     );
     if (!mounted) return;
     setState(
-      () => _reply =
-          'Removed-stock review closed. Nothing is restored unless you explicitly confirm the exact archived row; stale reviews fail closed if inventory changes.',
+      () => _reply = 'Removed-stock review closed. Nothing is restored unless you explicitly confirm the exact archived row; stale reviews fail closed if inventory changes.',
     );
   }
 
@@ -1299,8 +1305,7 @@ class _BrainScreenState extends State<BrainScreen> {
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => unawaited(_run()),
                   decoration: const InputDecoration(
-                    hintText:
-                        'Dolo stock kitna · sell 5 units · restore Dolo · delete karo',
+                    hintText: 'Dolo stock kitna · sell 5 units · restore Dolo · delete karo',
                     prefixIcon: Icon(Icons.bolt_rounded),
                   ),
                 ),

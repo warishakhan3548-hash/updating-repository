@@ -18,6 +18,7 @@ enum StockAdjustmentKind { setExact, receive }
 
 class ReviewedStockAdjustment {
   const ReviewedStockAdjustment({
+    required this.requestId,
     required this.baseRevision,
     required this.stockId,
     required this.recordRevision,
@@ -28,6 +29,7 @@ class ReviewedStockAdjustment {
     required this.wasSold,
   });
 
+  final String requestId;
   final int baseRevision;
   final String stockId;
   final int recordRevision;
@@ -42,10 +44,12 @@ class ReviewedStockAdjustment {
 
 class BulkArchiveReview {
   BulkArchiveReview({
+    required this.requestId,
     required this.baseRevision,
     required Iterable<String> activeIds,
   }) : activeIds = Set.unmodifiable(activeIds);
 
+  final String requestId;
   final int baseRevision;
   final Set<String> activeIds;
   int get activeCount => activeIds.length;
@@ -56,6 +60,7 @@ class BulkArchiveReview {
 /// commit time so a stale dialog can never restore a different record state.
 class ReviewedArchivedRestore {
   const ReviewedArchivedRestore({
+    required this.requestId,
     required this.baseRevision,
     required this.stockId,
     required this.recordRevision,
@@ -63,6 +68,7 @@ class ReviewedArchivedRestore {
     required this.archivedAt,
   });
 
+  final String requestId;
   final int baseRevision;
   final String stockId;
   final int recordRevision;
@@ -180,6 +186,7 @@ class PharmacyController extends ChangeNotifier {
       date: time,
     );
     return ReviewedFefoSale(
+      requestId: newId(),
       baseRevision: snapshot.revision,
       occurredAt: time,
       plan: plan,
@@ -187,6 +194,7 @@ class PharmacyController extends ChangeNotifier {
   }
 
   Future<void> applyFefoSale(ReviewedFefoSale review) async {
+    if (snapshot.receipts.contains(review.requestId)) return;
     if (review.baseRevision != snapshot.revision) {
       throw StateError(
         'Inventory changed after the FEFO review. Review the sale again before saving.',
@@ -259,6 +267,7 @@ class PharmacyController extends ChangeNotifier {
             'FEFO sale · ${plan.title} · ${plan.requestedQuantity} units · ${plan.allocations.length} ${plan.allocations.length == 1 ? 'batch' : 'batches'}',
         upserts: updates,
         upsertSales: saleEvents,
+        requestId: review.requestId,
       ),
     );
   }
@@ -278,7 +287,11 @@ class PharmacyController extends ChangeNotifier {
     return result;
   }
 
-  Future<void> save(Medicine record, {required int expectedRevision}) async {
+  Future<void> save(
+    Medicine record, {
+    required int expectedRevision,
+    String? requestId,
+  }) async {
     final existing = snapshot.records[record.id];
     if (record.sold && existing?.sold != true && isExpiredOn(record, today)) {
       throw const FormatException(
@@ -292,6 +305,7 @@ class PharmacyController extends ChangeNotifier {
             ? 'Added ${record.name}'
             : 'Edited ${record.name}',
         upserts: [record],
+        requestId: requestId,
       ),
     );
   }
@@ -382,6 +396,7 @@ class PharmacyController extends ChangeNotifier {
     }
 
     return ReviewedStockAdjustment(
+      requestId: newId(),
       baseRevision: snapshot.revision,
       stockId: medicine.id,
       recordRevision: medicine.revision,
@@ -394,6 +409,7 @@ class PharmacyController extends ChangeNotifier {
   }
 
   Future<void> applyStockAdjustment(ReviewedStockAdjustment review) async {
+    if (snapshot.receipts.contains(review.requestId)) return;
     if (review.baseRevision != snapshot.revision) {
       throw StateError(
         'Inventory changed after the stock review. Review this stock action again before saving.',
@@ -442,6 +458,7 @@ class PharmacyController extends ChangeNotifier {
         expectedRevision: review.baseRevision,
         label: label,
         upserts: [live.patch(changes)],
+        requestId: review.requestId,
       ),
     );
   }
@@ -553,11 +570,13 @@ class PharmacyController extends ChangeNotifier {
   }
 
   BulkArchiveReview reviewArchiveAll() => BulkArchiveReview(
+    requestId: newId(),
     baseRevision: snapshot.revision,
     activeIds: records.where((m) => !m.archived).map((m) => m.id),
   );
 
   Future<void> applyArchiveAll(BulkArchiveReview review) async {
+    if (snapshot.receipts.contains(review.requestId)) return;
     if (review.baseRevision != snapshot.revision) {
       throw StateError(
         'Inventory changed after bulk removal was reviewed. Start the protected removal flow again.',
@@ -587,6 +606,7 @@ class PharmacyController extends ChangeNotifier {
               at: removedAt,
             ),
         ],
+        requestId: review.requestId,
       ),
     );
   }
@@ -604,6 +624,7 @@ class PharmacyController extends ChangeNotifier {
       throw StateError('Choose a removed stock entry before restoring it.');
     }
     return ReviewedArchivedRestore(
+      requestId: newId(),
       baseRevision: snapshot.revision,
       stockId: medicine.id,
       recordRevision: medicine.revision,
@@ -613,6 +634,7 @@ class PharmacyController extends ChangeNotifier {
   }
 
   Future<void> applyArchivedRestore(ReviewedArchivedRestore review) async {
+    if (snapshot.receipts.contains(review.requestId)) return;
     if (review.baseRevision != snapshot.revision) {
       throw StateError(
         'Inventory changed after this removed stock was reviewed. Review the restore again before saving.',
@@ -633,6 +655,7 @@ class PharmacyController extends ChangeNotifier {
         expectedRevision: review.baseRevision,
         label: 'Restored ${live.name}',
         upserts: [restoreArchivedMedicine(live)],
+        requestId: review.requestId,
       ),
     );
   }
@@ -934,12 +957,7 @@ class PharmacyController extends ChangeNotifier {
         limit: raw.trim().isEmpty ? 100000 : 150,
       );
     }
-    return _searchWorker.searchArchived(
-      data,
-      snapshot.revision,
-      raw,
-      date,
-    );
+    return _searchWorker.searchArchived(data, snapshot.revision, raw, date);
   }
 
   @override
