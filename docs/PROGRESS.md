@@ -55,6 +55,12 @@
   editor, import and backup, with responsive warning cards and shared typography.
 - Voice-search lifecycle repair: device locales, permission retry, serialized
   commands, final-word preservation, stale callback rejection and exit cleanup.
+- Aaris Brain now recognizes one narrow safe two-step work command: receive/correct
+  stock plus physical-location update for the same exact row. Both facts receive
+  one review and one atomic/undoable commit; mismatched targets, destructive
+  compounds, alternatives, uncertainty and deferred/negated clauses still fail
+  closed. Labelled EXP/MFG/MFD dates can identify a batch without being mistaken
+  for a future schedule, while unlabelled/scheduled dates remain blocked.
 - Existing GitHub workflows run source checks and produce an Android release APK.
   The local bootstrap remains a separate check path.
 

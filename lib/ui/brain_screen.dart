@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../domain/app_brain.dart';
 import '../domain/attention.dart';
 import '../domain/brain_clarification.dart';
+import '../domain/brain_compound_operations.dart';
 import '../domain/brain_operations.dart';
 import '../domain/dispensing_plan.dart';
 import '../domain/inventory.dart';
@@ -66,6 +67,11 @@ class _BrainScreenState extends State<BrainScreen> {
     });
     try {
       if (await _continuePendingChoice(raw)) return;
+      final compound = parseBrainStockAdjustmentAndLocationCommand(raw);
+      if (compound != null) {
+        await _medicineAction(compound.toIntent());
+        return;
+      }
       final intent = parseAppBrainIntent(raw);
       await _execute(intent, raw);
     } catch (error) {
@@ -569,6 +575,12 @@ class _BrainScreenState extends State<BrainScreen> {
     final instruction = switch (action) {
       AppBrainAction.recordSale when requestedQuantity != null =>
         '${record.title} matched. Preparing a deterministic $requestedQuantity-unit FEFO allocation across active batches.',
+      AppBrainAction.setQuantity
+          when requestedQuantity != null && locationPatch != null =>
+        '${record.title} matched. Preparing one atomic stock correction to $requestedQuantity units plus ${describeStockLocationPatch(locationPatch)}.',
+      AppBrainAction.receiveStock
+          when requestedQuantity != null && locationPatch != null =>
+        '${record.title} matched. Preparing one atomic +$requestedQuantity-unit receipt plus ${describeStockLocationPatch(locationPatch)}.',
       AppBrainAction.setQuantity when requestedQuantity != null =>
         '${record.title} matched. Preparing an exact stock correction to $requestedQuantity units.',
       AppBrainAction.receiveStock when requestedQuantity != null =>
@@ -580,6 +592,22 @@ class _BrainScreenState extends State<BrainScreen> {
     setState(() => _reply = '$prefix$instruction');
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
+
+    // A safe two-clause stock+location command becomes one reviewed
+    // transaction. The combined path prevents a partial quantity-only or
+    // location-only write if the second half becomes stale or invalid.
+    if ((action == AppBrainAction.setQuantity ||
+            action == AppBrainAction.receiveStock) &&
+        requestedQuantity != null &&
+        locationPatch != null) {
+      await _reviewStockAdjustmentAndLocation(
+        record,
+        action,
+        requestedQuantity,
+        locationPatch,
+      );
+      return;
+    }
 
     // Short deterministic mutations always resolve an exact stock row first,
     // prepare a review tied to the current inventory revision, and still require
@@ -619,6 +647,86 @@ class _BrainScreenState extends State<BrainScreen> {
     // Editing and sales without an explicit unit quantity keep the richer editor
     // because it owns amount entry, historical-sale validation and field review.
     await openEditor(context, widget.controller, record: record);
+  }
+
+  Future<void> _reviewStockAdjustmentAndLocation(
+    Medicine original,
+    AppBrainAction action,
+    int quantity,
+    StockLocationPatch patch,
+  ) async {
+    if (!mounted) return;
+    final kind = action == AppBrainAction.receiveStock
+        ? StockAdjustmentKind.receive
+        : StockAdjustmentKind.setExact;
+    final review = widget.controller.reviewStockAdjustmentAndLocation(
+      original.id,
+      kind: kind,
+      quantity: quantity,
+      locationPatch: patch,
+    );
+    final live = widget.controller.snapshot.records[review.stockId];
+    if (live == null || live.archived) {
+      throw StateError(
+        'That stock entry is no longer active. Nothing changed.',
+      );
+    }
+    if (!review.changesQuantity && !review.changesLocation) {
+      setState(
+        () => _reply =
+            '${live.title} already has the requested stock count and location. No inventory change was needed.',
+      );
+      return;
+    }
+
+    final beforeQuantity = review.beforeQuantity == null
+        ? 'unknown'
+        : '${review.beforeQuantity} units';
+    final receive = kind == StockAdjustmentKind.receive;
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: Text(
+              receive
+                  ? 'Receive $quantity units + update location?'
+                  : 'Correct stock + update location?',
+            ),
+            content: SingleChildScrollView(
+              child: Text(
+                '${_stockIdentityCue(live)}\n\nQuantity\nBefore: $beforeQuantity\nAfter: ${review.afterQuantity} units\n\nLocation\nBefore: ${review.beforeLocationDisplay}\nAfter: ${review.afterLocationDisplay}\n\n${review.wasSold ? 'This entry is currently SOLD. Receiving stock will explicitly reopen it while preserving historical sale events.\n\n' : ''}Both changes will save together as ONE revision-checked, audited and undoable inventory transaction. If this exact stock row changes before commit, neither half is saved.',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(receive ? 'Receive + move' : 'Correct + move'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) {
+      setState(
+        () => _reply = 'Combined stock action cancelled. Nothing changed.',
+      );
+      return;
+    }
+
+    await widget.controller.applyStockAdjustmentAndLocation(review);
+    if (!mounted) return;
+    final updated = widget.controller.snapshot.records[live.id];
+    if (updated != null && !updated.archived) _remember(updated);
+    setState(
+      () => _reply = receive
+          ? '${live.title}: +$quantity units received and location updated to ${review.afterLocationDisplay} in one atomic transaction. Undo is available.'
+          : '${live.title}: stock corrected to ${review.afterQuantity} units and location updated to ${review.afterLocationDisplay} in one atomic transaction. Sales history was not changed; Undo is available.',
+    );
   }
 
   Future<void> _reviewStockAdjustment(

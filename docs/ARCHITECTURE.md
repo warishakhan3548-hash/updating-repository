@@ -182,6 +182,22 @@ exact ID/fingerprint; they never become fuzzy implicit mutation targets. The Bra
 “next task” route uses the same dependency-aware local operations plan shown in Needs
 Attention, so its recommendation cannot jump ahead of known verification blockers.
 
+### Atomic pharmacist work commands
+
+Aaris Brain may combine exactly one reviewed quantity adjustment (receive or exact
+count correction) with exactly one physical-location update when the pharmacist
+uses an explicit sequential command. This is not a general workflow interpreter.
+Each clause must independently pass the deterministic intent firewall, both clauses
+must resolve to the same exact stock row, and alternatives/destructive/future or
+negated clauses fail closed. The controller presents one before/after review and
+commits both facts in one revision-checked SQLite mutation, so a race can never
+leave a quantity-only or location-only half-update. Undo restores both together.
+
+The temporal firewall also distinguishes a narrowly labelled stock fact such as
+`EXP 12/09/2026`, `MFG 01/09/2026` or `MFD 12 Sep 2026` from an instruction
+scheduled for that date. Unlabelled dates and schedule-shaped prefixes such as
+`on 12/09/2026` or `on expiry 12/09/2026` remain blocked before target lookup.
+
 ## Deterministic operational autopilot
 
 Aaris Brain's **Next task** command is an execution router over the existing local

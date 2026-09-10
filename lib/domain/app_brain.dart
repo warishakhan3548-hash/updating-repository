@@ -745,28 +745,77 @@ bool _looksLikeLocationMutation(String text) =>
     _containsAny(text, _locationSafetyNouns) &&
     _containsAny(text, _locationSafetyVerbs);
 
-bool _looksLikeScheduledMutation(String raw) =>
-    RegExp(
-      r'\b(?:at\s+)?(?:[01]?\d|2[0-3]):[0-5]\d(?:\s*(?:a\.?m\.?|p\.?m\.?))?\b',
-      caseSensitive: false,
-    ).hasMatch(raw) ||
-    RegExp(
-      r'\b(?:[1-9]|1[0-2])\s*(?:a\.?m\.?|p\.?m\.?)\b',
-      caseSensitive: false,
-    ).hasMatch(raw) ||
-    RegExp(
-      r'\b(?:on\s+)?(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|\d{4}-\d{2}-\d{2})\b',
-      caseSensitive: false,
-    ).hasMatch(raw) ||
-    RegExp(
-      r'\b(?:in\s+)?\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\b',
-      caseSensitive: false,
-    ).hasMatch(raw) ||
-    RegExp(
-      r'(?:[0-9०-९]+\s*बजे|[0-9०-९]+\s*(?:ghante|din|hafte|mahine)\s*baad)',
-      caseSensitive: false,
-      unicode: true,
-    ).hasMatch(raw);
+bool _looksLikeScheduledMutation(String raw) {
+  if (RegExp(
+        r'\b(?:at\s+)?(?:[01]?\d|2[0-3]):[0-5]\d(?:\s*(?:a\.?m\.?|p\.?m\.?))?\b',
+        caseSensitive: false,
+      ).hasMatch(raw) ||
+      RegExp(
+        r'\b(?:[1-9]|1[0-2])\s*(?:a\.?m\.?|p\.?m\.?)\b',
+        caseSensitive: false,
+      ).hasMatch(raw) ||
+      RegExp(
+        r'\b(?:in\s+)?\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\b',
+        caseSensitive: false,
+      ).hasMatch(raw) ||
+      RegExp(
+        r'(?:[0-9०-९]+\s*बजे|[0-9०-९]+\s*(?:ghante|din|hafte|mahine)\s*baad)',
+        caseSensitive: false,
+        unicode: true,
+      ).hasMatch(raw)) {
+    return true;
+  }
+
+  // Calendar-looking values are common stock identifiers when immediately
+  // labelled EXP/expiry/MFG/MFD. Treat only that narrow evidence shape as an
+  // inventory fact. Unlabelled dates and schedule-shaped prefixes remain
+  // deferred instructions and therefore fail closed.
+  final calendar = RegExp(
+    r'\b(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{2,4}|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:,\s*)?\d{4})\b',
+    caseSensitive: false,
+  );
+  for (final match in calendar.allMatches(raw)) {
+    if (!_isLabelledInventoryDate(raw, match.start)) return true;
+  }
+  return false;
+}
+
+bool _isLabelledInventoryDate(String raw, int dateStart) {
+  final start = dateStart > 96 ? dateStart - 96 : 0;
+  final prefix = raw.substring(start, dateStart);
+  final label = RegExp(
+    r'(?:exp\.?|expiry(?:\s+date)?|mfg\.?|mfd\.?|manufactur(?:e|ed|ing)(?:\s+date)?|एक्सपायरी|एक्सपाइरी|एमएफजी|एमएफडी)\s*[:#=-]?\s*$',
+    caseSensitive: false,
+    unicode: true,
+  ).firstMatch(prefix);
+  if (label == null) return false;
+
+  final beforeLabel = _normalized(prefix.substring(0, label.start));
+  if (beforeLabel.isEmpty) return true;
+  final previous = beforeLabel.split(' ').last;
+  return !_dateSchedulingPrefixes.contains(previous);
+}
+
+const _dateSchedulingPrefixes = <String>{
+  'on',
+  'at',
+  'after',
+  'before',
+  'by',
+  'until',
+  'till',
+  'when',
+  'jab',
+  'baad',
+  'pehle',
+  'par',
+  'ko',
+  'जब',
+  'बाद',
+  'पहले',
+  'पर',
+  'को',
+};
 
 bool _startsWithAnyPhrase(String text, List<String> phrases) =>
     phrases.any((phrase) {

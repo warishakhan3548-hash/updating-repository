@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../data/inventory_database.dart';
 import '../domain/ai_protocol.dart';
 import '../domain/backup.dart';
+import '../domain/brain_operations.dart';
 import '../domain/dispensing_plan.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
@@ -63,6 +64,77 @@ class ReviewedMarkSold {
 
 bool _sameReviewedMedicine(Medicine live, Medicine reviewed) =>
     mapEquals(live.toJson(), reviewed.toJson());
+
+class ReviewedStockAdjustmentAndLocation {
+  const ReviewedStockAdjustmentAndLocation({
+    required this.baseRevision,
+    required this.stockId,
+    required this.recordRevision,
+    required this.kind,
+    required this.requestedQuantity,
+    required this.beforeQuantity,
+    required this.afterQuantity,
+    required this.wasSold,
+    required this.locationPatch,
+    required this.beforeBlock,
+    required this.beforeRow,
+    required this.beforeVertical,
+    required this.beforeLocation,
+    required this.afterBlock,
+    required this.afterRow,
+    required this.afterVertical,
+    required this.afterLocation,
+  });
+
+  final int baseRevision;
+  final String stockId;
+  final int recordRevision;
+  final StockAdjustmentKind kind;
+  final int requestedQuantity;
+  final int? beforeQuantity;
+  final int afterQuantity;
+  final bool wasSold;
+  final StockLocationPatch locationPatch;
+  final String beforeBlock;
+  final String beforeRow;
+  final String beforeVertical;
+  final String beforeLocation;
+  final String afterBlock;
+  final String afterRow;
+  final String afterVertical;
+  final String afterLocation;
+
+  bool get changesQuantity => beforeQuantity != afterQuantity;
+  bool get changesLocation =>
+      beforeBlock != afterBlock ||
+      beforeRow != afterRow ||
+      beforeVertical != afterVertical ||
+      beforeLocation != afterLocation;
+
+  String get beforeLocationDisplay => _stockLocationDisplay(
+    beforeBlock,
+    beforeRow,
+    beforeVertical,
+    beforeLocation,
+  );
+  String get afterLocationDisplay =>
+      _stockLocationDisplay(afterBlock, afterRow, afterVertical, afterLocation);
+}
+
+String _stockLocationDisplay(
+  String block,
+  String row,
+  String vertical,
+  String location,
+) {
+  final parts = <String>[
+    if (block.isNotEmpty) 'Block $block',
+    if (row.isNotEmpty) 'Row $row',
+    if (vertical.isNotEmpty) 'Vertical $vertical',
+    if (location.isNotEmpty) location,
+  ];
+  return parts.isEmpty ? 'No location recorded' : parts.join(' · ');
+}
 
 class BulkArchiveReview {
   BulkArchiveReview({
@@ -580,6 +652,114 @@ class PharmacyController extends ChangeNotifier {
       InventoryMutation(
         expectedRevision: fresh.baseRevision,
         label: label,
+        upserts: [live.patch(changes)],
+      ),
+    );
+  }
+
+  ReviewedStockAdjustmentAndLocation reviewStockAdjustmentAndLocation(
+    String id, {
+    required StockAdjustmentKind kind,
+    required int quantity,
+    required StockLocationPatch locationPatch,
+  }) {
+    final medicine = snapshot.records[id];
+    if (medicine == null || medicine.archived) {
+      throw StateError(
+        'Choose an active stock entry before changing stock and location.',
+      );
+    }
+    if (medicine.sold && kind != StockAdjustmentKind.receive) {
+      throw StateError(
+        'This entry is SOLD. Receive stock before assigning an active physical-stock location.',
+      );
+    }
+
+    final adjustment = reviewStockAdjustment(
+      id,
+      kind: kind,
+      quantity: quantity,
+    );
+    final patch = sanitizeStockLocationPatch(locationPatch);
+    return ReviewedStockAdjustmentAndLocation(
+      baseRevision: snapshot.revision,
+      stockId: medicine.id,
+      recordRevision: medicine.revision,
+      kind: adjustment.kind,
+      requestedQuantity: adjustment.requestedQuantity,
+      beforeQuantity: adjustment.beforeQuantity,
+      afterQuantity: adjustment.afterQuantity,
+      wasSold: adjustment.wasSold,
+      locationPatch: patch,
+      beforeBlock: medicine.block,
+      beforeRow: medicine.row,
+      beforeVertical: medicine.vertical,
+      beforeLocation: medicine.location,
+      afterBlock: patch.block ?? medicine.block,
+      afterRow: patch.row ?? medicine.row,
+      afterVertical: patch.vertical ?? medicine.vertical,
+      afterLocation: patch.location ?? medicine.location,
+    );
+  }
+
+  Future<void> applyStockAdjustmentAndLocation(
+    ReviewedStockAdjustmentAndLocation review,
+  ) async {
+    final live = snapshot.records[review.stockId];
+    if (live == null ||
+        live.archived ||
+        live.revision != review.recordRevision) {
+      throw StateError(
+        'The reviewed stock entry changed or is no longer active. Review the combined action again.',
+      );
+    }
+
+    final fresh = reviewStockAdjustmentAndLocation(
+      live.id,
+      kind: review.kind,
+      quantity: review.requestedQuantity,
+      locationPatch: review.locationPatch,
+    );
+    if (fresh.beforeQuantity != review.beforeQuantity ||
+        fresh.afterQuantity != review.afterQuantity ||
+        fresh.wasSold != review.wasSold ||
+        fresh.beforeBlock != review.beforeBlock ||
+        fresh.beforeRow != review.beforeRow ||
+        fresh.beforeVertical != review.beforeVertical ||
+        fresh.beforeLocation != review.beforeLocation ||
+        fresh.afterBlock != review.afterBlock ||
+        fresh.afterRow != review.afterRow ||
+        fresh.afterVertical != review.afterVertical ||
+        fresh.afterLocation != review.afterLocation) {
+      throw StateError(
+        'Stock or location facts changed after review. Nothing was saved; review both changes again.',
+      );
+    }
+    if (!fresh.changesQuantity && !fresh.changesLocation) return;
+
+    final changes = <String, dynamic>{
+      'quantity': fresh.afterQuantity,
+      'block': fresh.afterBlock,
+      'row': fresh.afterRow,
+      'vertical': fresh.afterVertical,
+      'location': fresh.afterLocation,
+    };
+    if (fresh.kind == StockAdjustmentKind.receive && live.sold) {
+      changes.addAll({
+        'sold': false,
+        'soldAt': null,
+        'soldQuantity': null,
+        'soldUnitPricePaise': null,
+      });
+    }
+    final quantityLabel = fresh.kind == StockAdjustmentKind.receive
+        ? '+${fresh.requestedQuantity} units (${fresh.beforeQuantity}→${fresh.afterQuantity})'
+        : '${fresh.beforeQuantity == null ? 'unknown' : fresh.beforeQuantity}→${fresh.afterQuantity} units';
+    await _commit(
+      InventoryMutation(
+        expectedRevision: fresh.baseRevision,
+        label:
+            'Stock + location · ${live.name} · $quantityLabel · ${fresh.afterLocationDisplay}',
         upserts: [live.patch(changes)],
       ),
     );
