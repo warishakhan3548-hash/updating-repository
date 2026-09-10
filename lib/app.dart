@@ -103,6 +103,7 @@ class _ShellState extends State<_Shell> {
 
   void _openAutopilotQueue() {
     if (!mounted) return;
+    widget.autopilot.refreshNow();
     unawaited(
       Navigator.of(context)
           .push<void>(
@@ -195,7 +196,7 @@ class _ShellState extends State<_Shell> {
             animation: widget.autopilot,
             builder: (context, _) {
               final digest = widget.autopilot.digest;
-              final issues = digest.isReady ? digest.issueCount : 0;
+              final issues = digest.isReady ? digest.navigationBadgeCount : 0;
               final badgeCount = issues > 99 ? 99 : issues;
               return NavigationBar(
                 selectedIndex: tab,
