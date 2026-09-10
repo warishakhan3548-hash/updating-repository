@@ -178,6 +178,17 @@ class _AiScreenState extends State<AiScreen> {
     _scrollToEnd();
   }
 
+  void _finishLiveAssistantReply(String text, int generation) {
+    final clean = text.trim();
+    if (!mounted || generation != _generation || clean.isEmpty) return;
+    setState(() {
+      _messages.add(_AiChatMessage(clean, false));
+      _streamingText = '';
+      _journey = _AiJourneyState.idle;
+    });
+    _scrollToEnd();
+  }
+
   Future<void> _openConnections() async {
     if (_requesting || _reviewing || widget.controller.aiPreparing) return;
     final result = await showModalBottomSheet<Object?>(
@@ -324,6 +335,8 @@ class _AiScreenState extends State<AiScreen> {
 
     if (!mounted || !_hasAiRoute) return;
     final generation = ++_generation;
+    final rawStream = StringBuffer();
+    var structuredStream = false;
     setState(() {
       _journey = _AiJourneyState.thinking;
       _streamingText = '';
@@ -349,6 +362,42 @@ class _AiScreenState extends State<AiScreen> {
             .skip(_messages.length > 6 ? _messages.length - 6 : 0)
             .map((m) => '${m.user ? 'Owner' : 'Assistant'}: ${m.text}')
             .join('\n'),
+        onStreamStarted: () {
+          if (!mounted || generation != _generation) return;
+          if (_journey == _AiJourneyState.thinking) {
+            setState(() => _journey = _AiJourneyState.streaming);
+            _scrollToEnd();
+          }
+        },
+        onStreamReset: () {
+          if (!mounted || generation != _generation) return;
+          rawStream.clear();
+          structuredStream = false;
+          setState(() {
+            _journey = _AiJourneyState.thinking;
+            _streamingText = '';
+          });
+          _scrollToEnd();
+        },
+        onDelta: (delta) {
+          if (!mounted || generation != _generation || delta.isEmpty) return;
+          rawStream.write(delta);
+          final snapshot = rawStream.toString();
+          final lead = snapshot.trimLeft();
+          if (lead.isEmpty) return;
+          structuredStream = structuredStream ||
+              lead.startsWith('{') ||
+              lead.startsWith('```') ||
+              (lead.contains('aaris.pharmacy.v1') && lead.contains('actions'));
+          setState(() {
+            _journey = _AiJourneyState.streaming;
+            // The model's strict pharmacy JSON can contain IDs and mutation
+            // envelopes. Never flash that internal transport contract in chat;
+            // validate it first, then render only the human reply/review cards.
+            _streamingText = structuredStream ? '' : snapshot;
+          });
+          _scrollToEnd();
+        },
       );
       if (!mounted || generation != _generation) return;
 
@@ -356,10 +405,18 @@ class _AiScreenState extends State<AiScreen> {
       // Plain conversational text is also valid for answer-only chat, so never
       // turn a harmless greeting into a FormatException/"Connection Failed".
       if (!_looksLikeAiResponse(result)) {
-        await _streamAssistantReply(result, generation);
+        if (!structuredStream && rawStream.isNotEmpty) {
+          _finishLiveAssistantReply(result, generation);
+        } else {
+          await _streamAssistantReply(result, generation);
+        }
         return;
       }
 
+      setState(() {
+        _journey = _AiJourneyState.thinking;
+        _streamingText = '';
+      });
       _input.text = result;
       final plan = await _review(announce: false);
       if (!mounted || generation != _generation) return;
@@ -389,7 +446,9 @@ class _AiScreenState extends State<AiScreen> {
     } finally {
       if (mounted &&
           generation == _generation &&
-          _journey == _AiJourneyState.thinking) {
+          (_journey == _AiJourneyState.thinking ||
+              (_journey == _AiJourneyState.streaming &&
+                  _streamingText.isEmpty))) {
         setState(() => _journey = _AiJourneyState.idle);
       }
     }
@@ -861,6 +920,11 @@ class _AiScreenState extends State<AiScreen> {
                     detail: _configuration.localBrainEnabled && _local.hasSelection
                         ? _local.status
                         : 'AI route connected · preparing answer',
+                  ),
+                if (_journey == _AiJourneyState.streaming &&
+                    _streamingText.isEmpty)
+                  const _AiThinkingBubble(
+                    detail: 'Receiving and validating streamed response…',
                   ),
                 if (_journey == _AiJourneyState.streaming &&
                     _streamingText.isNotEmpty)
