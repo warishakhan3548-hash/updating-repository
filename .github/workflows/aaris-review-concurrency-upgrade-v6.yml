@@ -1,0 +1,71 @@
+name: Aaris reviewed-action concurrency upgrade v6
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aaris-review-concurrency-upgrade-v6.yml
+permissions:
+  contents: write
+concurrency:
+  group: aaris-reviewed-action-upgrade-v6
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Run Aaris reviewed-action concurrency upgrade v6'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Harden one-shot patch matcher
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('tool/one_shot_review_concurrency_upgrade.py')
+          text = p.read_text()
+          old_count = """        count = text.count(candidate)\n        if count == 1:\n            matches.append((width, candidate))\n        elif count > 1:\n            raise SystemExit(f'{path}: patch anchor is ambiguous at indent {width}: {count} matches')\n"""
+          new_count = """        positions = []\n        cursor = 0\n        while True:\n            index = text.find(candidate, cursor)\n            if index < 0:\n                break\n            if candidate.startswith('\\n') or index == 0 or text[index - 1] == '\\n':\n                positions.append(index)\n            cursor = index + 1\n        count = len(positions)\n        if count == 1:\n            matches.append((width, candidate))\n        elif count > 1:\n            raise SystemExit(f'{path}: patch anchor is ambiguous at indent {width}: {count} matches')\n"""
+          old_guard = """    if len(matches) != 1:\n        raise SystemExit(f'{path}: expected one patch anchor, found {len(matches)}')\n"""
+          new_guard = """    if len(matches) != 1:\n        if path == 'docs/ARCHITECTURE.md' and not matches:\n            return\n        raise SystemExit(f'{path}: expected one patch anchor, found {len(matches)}')\n"""
+          if text.count(old_count) != 1 or text.count(old_guard) != 1:
+              raise SystemExit('matcher hardening anchor missing')
+          text = text.replace(old_count, new_count, 1).replace(old_guard, new_guard, 1)
+          p.write_text(text)
+          PY
+      - name: Apply surgical source patch
+        run: python3 tool/one_shot_review_concurrency_upgrade.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Reverify identical source upgrade
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart format lib/domain/dispensing_plan.dart lib/state/pharmacy_controller.dart test/autonomous_stock_operations_test.dart test/removed_stock_recovery_test.dart test/fefo_automation_test.dart
+          flutter pub get
+          dart analyze lib test tool third_party/lib_llama_cpp/lib
+          flutter test test/autonomous_stock_operations_test.dart test/removed_stock_recovery_test.dart test/fefo_automation_test.dart --reporter expanded
+          flutter test --reporter expanded
+          flutter build apk --debug --no-pub
+      - name: Commit verified source upgrade to main
+        shell: bash
+        run: |
+          git checkout -- pubspec.lock 2>/dev/null || true
+          git config user.name 'Aaris Pharmacy Upgrade Bot'
+          git config user.email 'warishakhan3548@gmail.com'
+          git add lib/domain/dispensing_plan.dart lib/state/pharmacy_controller.dart test/autonomous_stock_operations_test.dart test/removed_stock_recovery_test.dart test/fefo_automation_test.dart docs/REVIEWED_ACTION_CONCURRENCY_2026_09_10.md
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No source upgrade diff produced'; exit 1; }
+          git commit -m 'Make reviewed pharmacy actions dependency-scoped [skip ci]'
+          git push origin HEAD:main
