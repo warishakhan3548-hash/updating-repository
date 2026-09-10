@@ -4,11 +4,11 @@ import 'package:lib_llama_cpp/lib_llama_cpp.dart';
 
 /// One long-lived local-AI lease with a restartable llama.cpp transport.
 ///
-/// Calls remain exclusive: a timed-out/cancelled native command must finish
-/// before another command can borrow the lease. Transport failure is different:
-/// the failed inference stream is discarded, its callbacks are invalidated by
-/// an epoch, and the next load can create a fresh inference isolate without
-/// forcing the user to disable/re-enable the selected model.
+/// Calls remain exclusive: a cancelled native command must finish before another
+/// command can borrow the lease. Transport failure is different: the failed
+/// inference stream is discarded, its callbacks are invalidated by an epoch, and
+/// the next load can create a fresh inference isolate without forcing the user to
+/// disable/re-enable the selected model.
 class LocalAiRuntime {
   LocalAiRuntime({LlamaEngine engine = const LibLlamaCpp()}) : _engine = engine;
 
@@ -24,6 +24,8 @@ class LocalAiRuntime {
   bool _closing = false;
   Future<void>? _closeFuture;
   Future<void> _transportCleanup = Future<void>.value();
+  Timer? _stallTimer;
+  Duration? _activeStallBudget;
   int? _contextTokens;
   int _transportEpoch = 0;
   String? modelPath;
@@ -45,6 +47,7 @@ class LocalAiRuntime {
     subscription = _engine.transform(commands.stream).listen(
       (response) {
         if (_closed || epoch != _transportEpoch) return;
+        _touchStallWatchdog(epoch);
         if (response is LlamaErrorResponse) {
           // Keep the command lease until Done/onDone. A trailing completion from
           // this transport can therefore never complete a later command.
@@ -106,6 +109,56 @@ class LocalAiRuntime {
     _subscription = subscription;
   }
 
+  Duration _stallBudgetFor(LlamaCommand command) {
+    if (command is LlamaLoadModelCommand) return const Duration(minutes: 8);
+    if (command is LlamaGenerateMessagesCommand) {
+      return const Duration(minutes: 4);
+    }
+    return const Duration(minutes: 2);
+  }
+
+  /// There is deliberately no total-generation deadline. Slow local models are
+  /// allowed to keep working for as long as they keep producing native progress.
+  /// Only a completely silent/stalled transport is retired. This avoids the old
+  /// false timeout where a healthy long answer crossed a wall-clock deadline.
+  void _armStallWatchdog(int epoch, Duration budget) {
+    _stallTimer?.cancel();
+    _activeStallBudget = budget;
+    _stallTimer = Timer(budget, () {
+      if (_closed || epoch != _transportEpoch || _pending == null) return;
+      final commands = _commands;
+      final subscription = _subscription;
+      if (commands == null || subscription == null) return;
+      _invalidateTransport(
+        epoch,
+        commands,
+        subscription,
+        TimeoutException(
+          'Local runtime stopped making progress. The stalled transport was retired safely.',
+          budget,
+        ),
+        StackTrace.current,
+      );
+    });
+  }
+
+  void _touchStallWatchdog(int epoch) {
+    final budget = _activeStallBudget;
+    if (budget == null ||
+        _pending == null ||
+        _closed ||
+        epoch != _transportEpoch) {
+      return;
+    }
+    _armStallWatchdog(epoch, budget);
+  }
+
+  void _clearStallWatchdog() {
+    _stallTimer?.cancel();
+    _stallTimer = null;
+    _activeStallBudget = null;
+  }
+
   void _invalidateTransport(
     int epoch,
     StreamController<LlamaCommand> commands,
@@ -160,6 +213,7 @@ class LocalAiRuntime {
     if (busy) {
       throw StateError('Local runtime is still processing a failed model load.');
     }
+    _clearStallWatchdog();
     ++_transportEpoch;
     final commands = _commands;
     final subscription = _subscription;
@@ -172,6 +226,7 @@ class LocalAiRuntime {
   }
 
   void _complete() {
+    _clearStallWatchdog();
     final pending = _pending;
     _pending = null;
     _loading = false;
@@ -188,6 +243,7 @@ class LocalAiRuntime {
   }
 
   void _fail(Object error, [StackTrace? stack]) {
+    _clearStallWatchdog();
     final pending = _pending;
     _pending = null;
     _loading = false;
@@ -228,11 +284,14 @@ class LocalAiRuntime {
     try {
       _start();
       final commands = _commands;
-      if (commands == null) {
+      final subscription = _subscription;
+      if (commands == null || subscription == null) {
         throw StateError('Local runtime transport could not start.');
       }
+      _armStallWatchdog(_transportEpoch, _stallBudgetFor(command));
       commands.add(command);
     } catch (error, stack) {
+      _clearStallWatchdog();
       _pending = null;
       _loading = false;
       _commandError = null;
@@ -381,6 +440,7 @@ class LocalAiRuntime {
         await _transportCleanup;
       }
     } finally {
+      _clearStallWatchdog();
       modelPath = null;
       _contextTokens = null;
       _onToken = null;
