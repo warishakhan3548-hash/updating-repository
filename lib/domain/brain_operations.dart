@@ -116,7 +116,6 @@ ParsedStockLocationCommand? parseStockLocationCommand(String raw) {
     final target = _targetAfterRemoving(raw, [
       _TextSpan(clearMatch.start, clearMatch.end),
     ]);
-    if (target.isEmpty) return null;
     return ParsedStockLocationCommand(
       query: target,
       patch: const StockLocationPatch.clear(),
@@ -190,7 +189,6 @@ ParsedStockLocationCommand? parseStockLocationCommand(String raw) {
   );
   if (patch.isEmpty) return null;
   final target = _targetAfterRemoving(raw, spans);
-  if (target.isEmpty) return null;
   return ParsedStockLocationCommand(query: target, patch: patch);
 }
 
