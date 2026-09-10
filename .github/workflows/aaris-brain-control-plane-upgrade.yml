@@ -32,16 +32,18 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
-      - name: Verify upgraded architecture
-        shell: bash
-        run: |
-          set -euo pipefail
-          dart format lib/domain/warning_policy.dart lib/domain/app_brain.dart lib/state/pharmacy_controller.dart lib/ui/brain_screen.dart test/brain_control_plane_upgrade_test.dart
-          flutter pub get
-          dart analyze lib test tool third_party/lib_llama_cpp/lib
-          flutter test test/brain_control_plane_upgrade_test.dart test/app_brain_test.dart test/aaris_brain_command_safety_test.dart test/operational_context_test.dart test/autopilot_supervisor_test.dart --reporter expanded
-          flutter test --reporter expanded
-          flutter build apk --debug --no-pub
+      - name: Format upgraded source
+        run: dart format lib/domain/warning_policy.dart lib/domain/app_brain.dart lib/state/pharmacy_controller.dart lib/ui/brain_screen.dart test/brain_control_plane_upgrade_test.dart
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Static analysis
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+      - name: Targeted safety tests
+        run: flutter test test/brain_control_plane_upgrade_test.dart test/app_brain_test.dart test/aaris_brain_command_safety_test.dart test/operational_context_test.dart test/autopilot_supervisor_test.dart --reporter expanded
+      - name: Full regression suite
+        run: flutter test --reporter expanded
+      - name: Android compile gate
+        run: flutter build apk --debug --no-pub
       - name: Commit verified source upgrade
         shell: bash
         run: |
