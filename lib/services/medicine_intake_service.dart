@@ -107,7 +107,11 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       }
       restored.add(job);
     }
-    await LocalAiService.instance.initialize();
+    // The capture queue is an offline deterministic capability and must never
+    // depend on optional Local-AI settings/model-manifest health. A reasoning
+    // route is initialized best-effort later by LocalBrainRoutePolicy only when
+    // a capture actually owns an AI witness. Corrupt/unavailable model state can
+    // therefore no longer prevent OCR jobs from being restored or accepted.
     _jobs
       ..clear()
       ..addAll(restored);
