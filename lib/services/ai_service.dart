@@ -130,6 +130,20 @@ class AiService {
     return local.ready;
   }
 
+  /// Send-time route repair is intentionally separate from lightweight startup
+  /// preparation. If Aaris Brain is already ON and the owner has a selected
+  /// installed model whose readiness proof is stale/incomplete, one explicit
+  /// Send may validate/activate that exact model instead of surfacing a generic
+  /// connection failure. This never chooses a different user model, never falls
+  /// through to cloud, and never runs merely because the settings screen opened.
+  Future<bool> _prepareLocalRouteForSend(LocalAiService local) async {
+    if (await preparePreferredLocalRoute()) return true;
+    final id = local.activeId;
+    if (id == null || local.busy || local.transferring) return false;
+    await local.activate(id);
+    return local.ready;
+  }
+
   Future<String> ask(
     AiConfiguration config,
     PharmacyExport Function() exportData,
@@ -147,7 +161,7 @@ class AiService {
     // cloud mode never wakes the local model. The deterministic App Brain stays
     // available independently in the UI before this method is entered.
     if (config.localBrainEnabled) {
-      final hasLocalRoute = await preparePreferredLocalRoute();
+      final hasLocalRoute = await _prepareLocalRouteForSend(local);
       if (!hasLocalRoute) {
         throw StateError(
           'Aaris Brain is on, but no Local AI model is Ready. Finish Local AI setup, choose another model, or turn Aaris Brain off.',
