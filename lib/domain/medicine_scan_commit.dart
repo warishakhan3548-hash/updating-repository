@@ -41,14 +41,48 @@ String confirmedScanName(MedicineScanDraft draft) {
   return draft.brand.trim();
 }
 
+/// One authoritative identity gate for every fast scan-to-stock entry point.
+///
+/// The UI may render richer warnings, but it must never be the only place that
+/// enforces the four pharmacy identity facts promised by the scan journey. This
+/// keeps future buttons/background entry points from accidentally allowing a
+/// partial AI draft simply because a display name happened to be present.
+String scanQuickIdentityIssue(MedicineScanDraft draft) {
+  if (confirmedScanName(draft).isEmpty) {
+    return 'Medicine name or brand still needs review before this scan can be added.';
+  }
+  if (draft.brand.trim().isEmpty) {
+    return 'Brand still needs review before one-tap add.';
+  }
+  if (draft.salt.trim().isEmpty) {
+    return 'Salt still needs review before one-tap add.';
+  }
+  if (draft.strength.trim().isEmpty) {
+    return 'Strength still needs review before one-tap add.';
+  }
+
+  final rawForm = draft.form.trim();
+  if (rawForm.isEmpty) {
+    return 'Dosage form still needs review before one-tap add.';
+  }
+  final normalizedForm = normalizeForm(rawForm);
+  if (normalizedForm.isEmpty ||
+      (normalizedForm == 'Other' && normalize(rawForm) != 'other')) {
+    return 'Dosage form is not recognized strongly enough for one-tap add.';
+  }
+  return '';
+}
+
+bool scanQuickIdentityReady(MedicineScanDraft draft) =>
+    scanQuickIdentityIssue(draft).isEmpty;
+
 ScanQuickAddDecision scanQuickAddDecision(
   MedicineScanDraft draft,
   IntakeResolution resolution,
 ) {
-  if (confirmedScanName(draft).isEmpty) {
-    return const ScanQuickAddDecision.blocked(
-      'Medicine name or brand still needs review before this scan can be added.',
-    );
+  final identityIssue = scanQuickIdentityIssue(draft);
+  if (identityIssue.isNotEmpty) {
+    return ScanQuickAddDecision.blocked(identityIssue);
   }
 
   final isNewStock = resolution.kind == IntakeResolutionKind.newStock;
