@@ -23,6 +23,7 @@ class LocalAiRuntime {
   bool _closed = false;
   bool _closing = false;
   Future<void>? _closeFuture;
+  Future<void> _transportCleanup = Future<void>.value();
   int? _contextTokens;
   int _transportEpoch = 0;
   String? modelPath;
@@ -49,6 +50,10 @@ class LocalAiRuntime {
           // this transport can therefore never complete a later command.
           _commandError ??= StateError(response.message);
         } else if (response is LlamaTokenResponse) {
+          // Once native inference has failed, trailing tokens belong to the
+          // failed command. Never flash them in the UI or retain them in the
+          // response buffer while waiting for Done to close the lease.
+          if (_commandError != null) return;
           if (_text.length + response.text.length > 32000) {
             _commandError ??= StateError(
               'Local response exceeds the safety limit.',
@@ -119,7 +124,20 @@ class LocalAiRuntime {
     modelPath = null;
     _contextTokens = null;
     _fail(error, stack);
-    unawaited(_disposeTransport(commands, subscription));
+    _queueTransportCleanup(commands, subscription);
+  }
+
+  void _queueTransportCleanup(
+    StreamController<LlamaCommand>? commands,
+    StreamSubscription<LlamaResponse>? subscription,
+  ) {
+    final previous = _transportCleanup;
+    _transportCleanup = () async {
+      try {
+        await previous;
+      } catch (_) {}
+      await _disposeTransport(commands, subscription);
+    }();
   }
 
   Future<void> _disposeTransport(
@@ -149,7 +167,8 @@ class LocalAiRuntime {
     _subscription = null;
     modelPath = null;
     _contextTokens = null;
-    await _disposeTransport(commands, subscription);
+    _queueTransportCleanup(commands, subscription);
+    await _transportCleanup;
   }
 
   void _complete() {
@@ -186,7 +205,15 @@ class LocalAiRuntime {
     LlamaCommand command, {
     bool disposing = false,
     void Function(String token)? onToken,
-  }) {
+  }) async {
+    if (_closed || busy || (_closing && !disposing)) {
+      throw StateError('Local runtime is unavailable or still processing.');
+    }
+
+    // Stream callbacks retire failed transforms asynchronously. Serialize that
+    // teardown with the next command so a fresh llama.cpp actor can never race
+    // a previous subscription/controller that is still closing.
+    await _transportCleanup;
     if (_closed || busy || (_closing && !disposing)) {
       throw StateError('Local runtime is unavailable or still processing.');
     }
@@ -350,6 +377,8 @@ class LocalAiRuntime {
         try {
           await _run(const LlamaDisposeCommand(), disposing: true);
         } catch (_) {}
+      } else {
+        await _transportCleanup;
       }
     } finally {
       modelPath = null;
@@ -361,7 +390,8 @@ class LocalAiRuntime {
       final subscription = _subscription;
       _commands = null;
       _subscription = null;
-      await _disposeTransport(commands, subscription);
+      _queueTransportCleanup(commands, subscription);
+      await _transportCleanup;
     }
   }
 }
