@@ -323,7 +323,10 @@ class LocalExecutionPlan {
 }
 
 /// Conservative admission estimate, not a promise of successful allocation.
-/// Phone weights, KV, workspace and scanner/OS headroom are separate budgets.
+/// On phones, large GGUF files are mmap-backed by llama.cpp, so file size must
+/// not be treated as if every byte were anonymous resident RAM. The constrained
+/// profile estimates the actively resident weight working set, reduces context
+/// to 2048, and leaves the native loader as the final allocation authority.
 LocalExecutionPlan planLocalExecution({
   required int weightBytes,
   required GgufMetadata metadata,
@@ -337,21 +340,54 @@ LocalExecutionPlan planLocalExecution({
       'Device memory is under pressure. Close other apps or choose a smaller model.',
     );
   }
+
+  final constrainedPhone =
+      phone &&
+      totalMemory != null &&
+      weightBytes >= (totalMemory * .40).floor();
+  if (phone &&
+      totalMemory != null &&
+      weightBytes > (totalMemory * .62).floor()) {
+    throw StateError(
+      'These model weights are too large for this phone. Choose a smaller quantized model.',
+    );
+  }
+
   final totalBudget = totalMemory == null ? null : (totalMemory * .65).floor();
   final availableBudget = availableMemory == null
       ? null
       : (availableMemory * .8).floor();
-  final budget = totalBudget == null
+  int? budget = totalBudget == null
       ? availableBudget
       : availableBudget == null
       ? totalBudget
       : math.min(totalBudget, availableBudget);
-  for (final context in phone ? [4096, 2048] : [8192, 4096, 2048]) {
+
+  // Android can reclaim file-backed mmap pages. A momentarily small availMem
+  // value should reduce the context profile, not automatically reject a 2 GB
+  // model on a 4 GB phone. Truly critical pressure is still vetoed by lowMemory.
+  if (phone && totalMemory != null) {
+    final reclaimAwareFloor = (totalMemory * .52).floor();
+    budget = budget == null
+        ? reclaimAwareFloor
+        : math.max(budget, reclaimAwareFloor);
+  }
+
+  final contexts = phone
+      ? constrainedPhone
+            ? const [2048]
+            : const [4096, 2048]
+      : const [8192, 4096, 2048];
+  for (final context in contexts) {
     if (metadata.contextLength != null && context > metadata.contextLength!)
       continue;
     final knownKv = metadata.kvBytes(context);
     final kv = knownKv ?? context * 256 * 1024;
-    final bytes = (weightBytes * 1.1 + kv * 1.1).ceil() + 512 * _mib;
+    final residentWeights = constrainedPhone
+        ? (weightBytes * .48).ceil()
+        : weightBytes;
+    final reserve = constrainedPhone ? 320 * _mib : 512 * _mib;
+    final bytes = (residentWeights * 1.1 + kv * 1.1).ceil() + reserve;
     if (budget == null || bytes <= budget)
       return LocalExecutionPlan(
         contextTokens: context,
@@ -361,6 +397,6 @@ LocalExecutionPlan planLocalExecution({
       );
   }
   throw StateError(
-    'Model weights + context cache + scanner reserve do not fit the current memory budget, or its context is below 2048. Choose smaller weights or free memory.',
+    'Model weights + context cache + app headroom do not fit the current memory budget, or its context is below 2048. Choose smaller weights or free memory.',
   );
 }

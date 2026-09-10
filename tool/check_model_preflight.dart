@@ -144,6 +144,30 @@ Future<void> main() async {
         tight.evidenceCharacters == 1800,
     'Small context also reduces output, read pages and OCR source',
   );
+  final fourGbTwoGb = planLocalExecution(
+    weightBytes: 2 * gib,
+    metadata: model,
+    phone: true,
+    totalMemory: 4 * gib,
+    availableMemory: 700 * 1024 * 1024,
+  );
+  check(
+    fourGbTwoGb.contextTokens == 2048,
+    '4 GB phone admits a 2 GB mmap-backed model with constrained context',
+  );
+  check(
+    fourGbTwoGb.estimatedBytes < 2 * gib,
+    'Constrained phone estimates active mmap working set, not the whole GGUF file',
+  );
+  rejects(
+    () => planLocalExecution(
+      weightBytes: 2700 * 1024 * 1024,
+      metadata: model,
+      phone: true,
+      totalMemory: 4 * gib,
+      availableMemory: 3 * gib,
+    ),
+  );
   final desktop = planLocalExecution(
     weightBytes: 2 * gib,
     metadata: model,
