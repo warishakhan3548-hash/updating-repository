@@ -172,6 +172,16 @@ before/after facts; duplicate additions and removes are not preselected. Only th
 owner’s chosen actions commit atomically. AI supplies stored facts; the app alone
 calculates expiry, warning membership, borders, counts and totals.
 
+Aaris Brain also applies a deterministic intent firewall before any natural-language
+write is routed. Negated commands, future/conditional writes and sentences containing
+multiple write families fail closed before target search, so the app cannot execute a
+command the pharmacist explicitly rejected, execute a scheduled instruction early, or
+silently run only the first half of a compound request. Conversational references are
+normalized through a closed deictic grammar and still resolve only to the session's
+exact ID/fingerprint; they never become fuzzy implicit mutation targets. The Brain's
+“next task” route uses the same dependency-aware local operations plan shown in Needs
+Attention, so its recommendation cannot jump ahead of known verification blockers.
+
 ## Backup and local-only boundary
 
 Full local backup contains medicines (including removed entries), warning

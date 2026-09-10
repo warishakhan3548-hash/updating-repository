@@ -6,6 +6,7 @@ enum AppSection { home, stock, ai, calculator, profile }
 
 enum AppBrainAction {
   unknown,
+  safetyBlocked,
   navigate,
   search,
   addMedicine,
@@ -23,7 +24,25 @@ enum AppBrainAction {
   undoLast,
   inventorySummary,
   attentionBrief,
+  nextAttentionTask,
   bulkRemoveBlocked,
+}
+
+enum AppBrainSafetyReason {
+  negatedMutation,
+  deferredMutation,
+  compoundMutation,
+}
+
+extension AppBrainSafetyReasonMessage on AppBrainSafetyReason {
+  String get message => switch (this) {
+    AppBrainSafetyReason.negatedMutation =>
+      'Nothing changed. Aaris understood a negative instruction (“don’t / mat / nahi”), so no inventory action or navigation was started. Say the positive action only when you actually want a reviewed change.',
+    AppBrainSafetyReason.deferredMutation =>
+      'Nothing changed. That inventory instruction is conditional or scheduled for later. Aaris never executes “if / when / kal / later” as if it means now; open the action again when it is actually due.',
+    AppBrainSafetyReason.compoundMutation =>
+      'Nothing changed. That sentence contains more than one inventory-changing operation. Aaris will not execute only the first half of a compound command. Run one reviewed operation at a time so each exact stock target and before/after state is confirmed.',
+  };
 }
 
 class AppBrainIntent {
@@ -36,6 +55,7 @@ class AppBrainIntent {
     this.briefFocus,
     this.locationPatch,
     this.removalReason,
+    this.safetyReason,
     this.confidence = 0,
   });
 
@@ -47,6 +67,7 @@ class AppBrainIntent {
   final MedicineBriefFocus? briefFocus;
   final StockLocationPatch? locationPatch;
   final RemovalReasonHint? removalReason;
+  final AppBrainSafetyReason? safetyReason;
   final double confidence;
 
   bool get needsMedicineTarget =>
@@ -106,6 +127,19 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   final text = _normalized(raw);
   if (text.isEmpty) {
     return const AppBrainIntent(action: AppBrainAction.unknown);
+  }
+
+  // Natural-language writes pass through an intent firewall before routing.
+  // Negated, conditional/future and multi-write commands must never be
+  // reinterpreted as an immediate mutation merely because they contain a
+  // familiar verb. This guard is deterministic and runs before target search.
+  final safetyReason = _brainSafetyBlock(raw, text);
+  if (safetyReason != null) {
+    return AppBrainIntent(
+      action: AppBrainAction.safetyBlocked,
+      safetyReason: safetyReason,
+      confidence: 1,
+    );
   }
 
   if (_containsAny(text, const [
@@ -251,6 +285,13 @@ AppBrainIntent parseAppBrainIntent(String raw) {
       action: AppBrainAction.editMedicine,
       query: _extractMedicineQuery(raw, _editTerms),
       confidence: .95,
+    );
+  }
+
+  if (_containsAny(text, _nextTaskTerms)) {
+    return const AppBrainIntent(
+      action: AppBrainAction.nextAttentionTask,
+      confidence: .99,
     );
   }
 
@@ -614,41 +655,343 @@ AppSection? _sectionIntent(String text) {
 
 bool isAppBrainContextReference(String raw) {
   final text = _normalized(raw);
-  return const {
-    'this',
-    'it',
-    'this one',
-    'this medicine',
-    'same',
-    'same one',
-    'same medicine',
-    'selected one',
-    'selected medicine',
-    'last one',
-    'last medicine',
-    'isko',
-    'ise',
-    'iska',
-    'iski',
-    'usko',
-    'usse',
-    'uska',
-    'uski',
-    'ye',
-    'yeh',
-    'wahi',
-    'jo select kiya',
-    'इसको',
-    'इसे',
-    'इसका',
-    'इसकी',
-    'उसको',
-    'उसका',
-    'उसकी',
-    'यही',
-    'वही',
-  }.contains(text);
+  if (text.isEmpty) return false;
+  if (_contextReferencePhrases.contains(text) ||
+      _contextReferenceCores.contains(text)) {
+    return true;
+  }
+
+  // Human commands often retain harmless grammar after the action words
+  // are removed: “us medicine me”, “woh wali”, “that stock entry”. Strip
+  // only a closed list of grammatical wrapper tokens, then require the
+  // remainder to be a known deictic reference. A medicine name such as
+  // “Usman” can therefore never become implicit context by prefix match.
+  final reduced = text
+      .split(' ')
+      .where(
+        (token) => token.isNotEmpty && !_contextReferenceGlue.contains(token),
+      )
+      .join(' ');
+  return _contextReferenceCores.contains(reduced) ||
+      _contextReferencePhrases.contains(reduced);
 }
+
+AppBrainSafetyReason? _brainSafetyBlock(String raw, String text) {
+  final families = <String>{};
+  final locationMutation = _looksLikeLocationMutation(text);
+
+  // “location hata do” is a location clear, not a medicine removal.
+  // Explicit delete/remove/archive wording still counts as a separate
+  // family, so “delete Dolo and set location…” is rejected as compound.
+  if (_containsAny(text, _removeTerms) &&
+      (!locationMutation ||
+          _containsAny(text, _unambiguousRemoveSafetyTerms))) {
+    families.add('remove');
+  }
+  if (_containsAny(text, _soldTerms)) families.add('sold');
+  if (_containsAny(text, _imperativeSaleTerms) ||
+      _containsAny(text, _saleTerms)) {
+    families.add('sale');
+  }
+  if (_containsAny(text, _editTerms)) families.add('edit');
+  if (_containsAny(text, _restoreTerms)) families.add('restore');
+  if (_containsAny(text, _undoSafetyTerms)) families.add('undo');
+  if (_setQuantityPatterns.any((pattern) => pattern.hasMatch(raw))) {
+    families.add('set-quantity');
+  }
+  if (_receiveStockPatterns.any((pattern) => pattern.hasMatch(raw))) {
+    families.add('receive-stock');
+  }
+  if (locationMutation) families.add('relocate');
+
+  if (families.isEmpty) return null;
+
+  if (_containsAny(text, _negativeWriteSafetyTerms)) {
+    return AppBrainSafetyReason.negatedMutation;
+  }
+  if (_containsAny(text, _deferredWriteSafetyTerms) ||
+      _looksLikeScheduledMutation(raw)) {
+    return AppBrainSafetyReason.deferredMutation;
+  }
+
+  final sequencedOrChoice = _containsAny(text, _sequenceOrChoiceSafetyTerms);
+
+  // “undo last remove” describes the previous operation, not two new
+  // writes. Only collapse this shape when Undo leads the sentence and
+  // there is no explicit sequence/choice connector.
+  if (families.contains('undo') &&
+      families.length > 1 &&
+      !sequencedOrChoice &&
+      _startsWithAnyPhrase(text, _undoSafetyTerms)) {
+    families
+      ..clear()
+      ..add('undo');
+  }
+
+  // Existing “remove … sold out / stock finished” language intentionally
+  // routes to whole-stock SOLD. Preserve that single lifecycle intent,
+  // but never collapse an explicit “delete OR mark sold” choice.
+  if (families.contains('remove') &&
+      families.contains('sold') &&
+      !sequencedOrChoice &&
+      detectRemovalReason(raw) == RemovalReasonHint.soldOut) {
+    families.remove('remove');
+  }
+
+  if (families.length > 1) {
+    return AppBrainSafetyReason.compoundMutation;
+  }
+  return null;
+}
+
+bool _looksLikeLocationMutation(String text) =>
+    _containsAny(text, _locationSafetyNouns) &&
+    _containsAny(text, _locationSafetyVerbs);
+
+bool _looksLikeScheduledMutation(String raw) => RegExp(
+  r'\b(?:at\s+)?(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b',
+  caseSensitive: false,
+).hasMatch(raw);
+
+bool _startsWithAnyPhrase(String text, List<String> phrases) =>
+    phrases.any((phrase) {
+      final needle = _normalized(phrase);
+      return text == needle || text.startsWith('$needle ');
+    });
+
+const _contextReferenceCores = <String>{
+  'this',
+  'it',
+  'that',
+  'same',
+  'selected',
+  'last',
+  'previous',
+  'isko',
+  'ise',
+  'iska',
+  'iski',
+  'issi',
+  'us',
+  'usko',
+  'usse',
+  'uska',
+  'uski',
+  'usi',
+  'ye',
+  'yeh',
+  'yahi',
+  'woh',
+  'wo',
+  'vo',
+  'voh',
+  'wahi',
+  'wohi',
+  'इसको',
+  'इसे',
+  'इसका',
+  'इसकी',
+  'इसी',
+  'उस',
+  'उसको',
+  'उससे',
+  'उसका',
+  'उसकी',
+  'उसी',
+  'ये',
+  'यह',
+  'यही',
+  'वो',
+  'वह',
+  'वही',
+};
+
+const _contextReferencePhrases = <String>{
+  'this one',
+  'this medicine',
+  'that one',
+  'that medicine',
+  'same one',
+  'same medicine',
+  'the same',
+  'the same one',
+  'selected one',
+  'selected medicine',
+  'last one',
+  'last medicine',
+  'previous one',
+  'previous medicine',
+  'jo select kiya',
+  'jo select kiya tha',
+  'जिसे सिलेक्ट किया',
+  'जिसे सेलेक्ट किया',
+};
+
+const _contextReferenceGlue = <String>{
+  'the',
+  'one',
+  'medicine',
+  'medicines',
+  'stock',
+  'entry',
+  'batch',
+  'dawa',
+  'dawai',
+  'ko',
+  'me',
+  'mein',
+  'par',
+  'pe',
+  'wali',
+  'waali',
+  'wala',
+  'waala',
+  'hi',
+  'karna',
+  'karni',
+  'karne',
+  'karo',
+  'kar',
+  'do',
+  'hai',
+  'hain',
+  'tha',
+  'thi',
+  'दवा',
+  'मेडिसिन',
+  'स्टॉक',
+  'एंट्री',
+  'बैच',
+  'को',
+  'में',
+  'पर',
+  'पे',
+  'वाली',
+  'वाला',
+  'ही',
+  'करना',
+  'करनी',
+  'करने',
+  'करो',
+  'कर',
+  'दो',
+  'है',
+  'हैं',
+  'था',
+  'थी',
+};
+
+const _negativeWriteSafetyTerms = <String>[
+  'do not',
+  'don t',
+  'dont',
+  'never',
+  'not',
+  'mat',
+  'mat karo',
+  'mat karna',
+  'nahi',
+  'nahin',
+  'na karo',
+  'na karna',
+  'मत',
+  'मत करो',
+  'मत करना',
+  'नहीं',
+  'ना करो',
+  'ना करना',
+];
+
+const _deferredWriteSafetyTerms = <String>[
+  'what if',
+  'if',
+  'only if',
+  'when',
+  'whenever',
+  'later',
+  'tomorrow',
+  'next week',
+  'next month',
+  'next year',
+  'after some time',
+  'schedule for',
+  'scheduled for',
+  'agar',
+  'jab',
+  'kal',
+  'baad me',
+  'baad mein',
+  'अगर',
+  'जब',
+  'कल',
+  'बाद में',
+  'बाद मे',
+];
+
+const _sequenceOrChoiceSafetyTerms = <String>[
+  'or',
+  'either',
+  'versus',
+  'vs',
+  'ya',
+  'या',
+  'then',
+  'and then',
+  'phir',
+  'fir',
+  'uske baad',
+  'फिर',
+  'और फिर',
+  'उसके बाद',
+];
+
+const _undoSafetyTerms = <String>[
+  'undo',
+  'undo last',
+  'last change undo',
+  'wapas karo',
+  'wapas kar do',
+  'pichla change wapas',
+  'पिछला बदलाव वापस',
+  'वापस करो',
+];
+
+const _unambiguousRemoveSafetyTerms = <String>[
+  'delete',
+  'remove',
+  'archive',
+  'डिलीट',
+  'रिमूव',
+];
+
+const _locationSafetyNouns = <String>[
+  'location',
+  'shelf',
+  'rack',
+  'लोकेशन',
+  'शेल्फ',
+  'रैक',
+  'जगह',
+];
+
+const _locationSafetyVerbs = <String>[
+  'set',
+  'move',
+  'shift',
+  'rakh do',
+  'rakho',
+  'clear',
+  'hatao',
+  'hata do',
+  'सेट',
+  'मूव',
+  'शिफ्ट',
+  'रख दो',
+  'रखो',
+  'खाली',
+  'हटाओ',
+  'हटा दो',
+];
 
 String _normalized(String value) => value
     .toLowerCase()
@@ -904,6 +1247,21 @@ final _receiveStockPatterns = <RegExp>[
 
 const _fillers = <String>[
   'please',
+  'can you',
+  'could you',
+  'would you',
+  'will you',
+  'i want to',
+  'i need to',
+  'want to',
+  'need to',
+  'aap',
+  'zara',
+  'kripya',
+  'आप',
+  'ज़रा',
+  'जरा',
+  'कृपया',
   'plz',
   'medicine',
   'medicines',
@@ -1073,6 +1431,27 @@ const _analyticsReadTerms = <String>[
   'तेज बिक',
   'आज की बिक्री',
   'बिक्री रिपोर्ट',
+];
+
+const _nextTaskTerms = <String>[
+  'next task',
+  'next work',
+  'next issue',
+  'next problem',
+  'do next task',
+  'open next task',
+  'fix next issue',
+  'what next',
+  'ab kya karu',
+  'ab kya karna hai',
+  'agla kaam',
+  'agla task',
+  'agli problem',
+  'अगला काम',
+  'अगला टास्क',
+  'अगली समस्या',
+  'अब क्या करूं',
+  'अब क्या करना है',
 ];
 
 const _attentionTerms = <String>[
