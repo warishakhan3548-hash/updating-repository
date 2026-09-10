@@ -15,7 +15,7 @@ class LocalAiRuntime {
   static const _terminalErrorDrainBudget = Duration(seconds: 15);
   static const _maxVisibleResponseCharacters = 32000;
   static const _maxRawResponseCharacters = 128000;
-  static const _maxContextTokens = 16384;
+  static const _maxContextTokens = 32768;
 
   final LlamaEngine _engine;
   StreamController<LlamaCommand>? _commands;
@@ -387,12 +387,14 @@ class LocalAiRuntime {
   List<int> _contextLoadPlan(int requested) {
     // Context is an adaptive quality knob, never a model-admission gate. Start
     // with the owner's/device planner choice and progressively reduce only the
-    // KV-cache footprint when native allocation reports pressure. Ultra-high-end
-    // phones can now attempt 12K/16K, while every tier retains a deterministic
-    // fallback ladder all the way to 2K instead of surfacing a false connection
-    // failure after one oversized native allocation.
+    // KV-cache footprint when native allocation reports pressure. Flagship and
+    // future high-memory devices can attempt 24K/32K, while every tier retains a
+    // deterministic fallback ladder all the way to 2K instead of surfacing a
+    // false connection failure after one oversized native allocation.
     final candidates = <int>[
       requested,
+      if (requested > 24576) 24576,
+      if (requested > 16384) 16384,
       if (requested > 12288) 12288,
       if (requested > 8192) 8192,
       if (requested > 6144) 6144,
