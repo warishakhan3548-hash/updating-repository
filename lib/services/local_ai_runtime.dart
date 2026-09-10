@@ -216,14 +216,15 @@ class LocalAiRuntime {
   }
 
   List<int> _contextLoadPlan(int requested) {
-    final candidates = <int>[
-      requested,
-      if (requested > 4096) 4096,
-      if (requested > 3072) 3072,
-      if (requested > 2048) 2048,
-    ];
-    final seen = <int>{};
-    return candidates.where(seen.add).toList(growable: false);
+    // Stay inside the service's prompt-budget tier. If a 4096-token phone load
+    // hits KV-cache pressure, 3072 substantially reduces cache allocation while
+    // preserving the same bounded prompt/output contract. Likewise an 8192
+    // high-end profile can retry at 6144 without silently switching contract
+    // limits. A constrained phone is already planned at 2048 upstream and is
+    // attempted directly rather than being rejected by a RAM heuristic.
+    if (requested > 4096) return <int>[requested, 6144];
+    if (requested == 4096) return const <int>[4096, 3072];
+    return <int>[requested];
   }
 
   bool _isResourceLoadFailure(Object error) {
