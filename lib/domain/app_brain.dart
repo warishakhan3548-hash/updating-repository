@@ -26,6 +26,18 @@ enum AppBrainAction {
   bulkRemoveBlocked,
 }
 
+enum _MutationFamily {
+  undo,
+  setQuantity,
+  receiveStock,
+  relocateMedicine,
+  removeMedicine,
+  restoreMedicine,
+  markSold,
+  recordSale,
+  editMedicine,
+}
+
 class AppBrainIntent {
   const AppBrainIntent({
     required this.action,
@@ -91,16 +103,14 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     return const AppBrainIntent(action: AppBrainAction.unknown);
   }
 
-  if (_containsAny(text, const [
-    'undo',
-    'undo last',
-    'last change undo',
-    'wapas karo',
-    'wapas kar do',
-    'pichla change wapas',
-    'पिछला बदलाव वापस',
-    'वापस करो',
-  ])) {
+  // The deterministic command layer treats language semantics as part of the
+  // safety boundary, not merely as UI wording. Negated, instructional,
+  // conditional or multi-mutation utterances must never fall through to the
+  // first destructive verb that happens to match.
+  final guardedMutation = _guardedMutationIntent(raw, text);
+  if (guardedMutation != null) return guardedMutation;
+
+  if (_containsAny(text, _undoTerms)) {
     return const AppBrainIntent(
       action: AppBrainAction.undoLast,
       confidence: .99,
@@ -145,11 +155,17 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   if (removedStock != null) return removedStock;
 
   // Explicit stock correction / receiving commands are parsed before generic
-  // "add stock" and "edit" vocabulary. The parser accepts an exact quantity
+  // "add medicine" and "edit" vocabulary. The parser accepts an exact quantity
   // only when one command-shaped quantity can be isolated; medicine strengths
   // therefore remain search evidence instead of becoming stock counts.
   final stockAdjustment = _stockAdjustmentIntent(raw);
   if (stockAdjustment != null) return stockAdjustment;
+
+  // A phrase such as "Dolo add stock" is an incomplete receive command, not a
+  // request to create a second medicine row. Route it back to safe local search
+  // so the pharmacist can choose the exact lot and provide a quantity.
+  final incompleteReceive = _incompleteReceiveIntent(raw, text);
+  if (incompleteReceive != null) return incompleteReceive;
 
   // Physical stock relocation is a narrow deterministic write command. It is
   // recognized before generic remove/edit language so "location hata do"
@@ -271,7 +287,6 @@ AppBrainIntent parseAppBrainIntent(String raw) {
     'add medicine',
     'new medicine',
     'medicine add',
-    'add stock',
     'nayi medicine',
     'nayi dawai',
     'नई मेडिसिन',
@@ -346,6 +361,148 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   }
 
   return const AppBrainIntent(action: AppBrainAction.unknown);
+}
+
+AppBrainIntent? _guardedMutationIntent(String raw, String text) {
+  final families = _mutationFamilies(raw, text);
+  if (families.isEmpty) return null;
+
+  final negated = _containsAny(text, _mutationNegationTerms);
+  final discussing = _containsAny(text, _mutationDiscussionTerms);
+  final conditional = _containsAny(text, _mutationConditionalTerms);
+  final conflicting = families.length > 1;
+  if (!negated && !discussing && !conditional && !conflicting) return null;
+
+  // Conditional or multi-write language is intentionally not decomposed. Aaris
+  // cannot prove which clause the user intended to execute first, so the entire
+  // mutation plan fails closed and can be handled by the reviewed AI composer.
+  if (conditional || conflicting) {
+    return const AppBrainIntent(
+      action: AppBrainAction.unknown,
+      confidence: 1,
+    );
+  }
+
+  // For a single negated/instructional operation we can still helpfully open the
+  // mentioned medicine as a read-only lookup. The exact operation itself is not
+  // armed, and no write-capable intent escapes this guard.
+  final target = _guardedMutationTarget(raw, families.single);
+  if (target.isEmpty) {
+    return const AppBrainIntent(
+      action: AppBrainAction.unknown,
+      confidence: 1,
+    );
+  }
+  return AppBrainIntent(
+    action: AppBrainAction.search,
+    query: target,
+    confidence: .99,
+  );
+}
+
+Set<_MutationFamily> _mutationFamilies(String raw, String text) {
+  final families = <_MutationFamily>{};
+  if (_containsAny(text, _undoTerms)) families.add(_MutationFamily.undo);
+
+  if (_extractStockAdjustment(raw, _setQuantityPatterns, allowZero: true) !=
+      null) {
+    families.add(_MutationFamily.setQuantity);
+  }
+  if (_extractStockAdjustment(raw, _receiveStockPatterns, allowZero: false) !=
+      null) {
+    families.add(_MutationFamily.receiveStock);
+  }
+
+  ParsedStockLocationCommand? locationCommand;
+  try {
+    locationCommand = parseStockLocationCommand(raw);
+  } on FormatException {
+    if (_containsAny(text, _locationMutationVerbsForGuard)) {
+      families.add(_MutationFamily.relocateMedicine);
+    }
+  }
+  if (locationCommand != null) {
+    families.add(_MutationFamily.relocateMedicine);
+  }
+
+  // "location hata do" is a relocation command, not a medicine removal.
+  final removal = _containsAny(text, _removeTerms) && locationCommand == null;
+  if (removal) families.add(_MutationFamily.removeMedicine);
+
+  if (!_containsAny(text, _backupRestoreTerms) &&
+      _containsAny(text, _restoreTerms)) {
+    families.add(_MutationFamily.restoreMedicine);
+  }
+
+  // Sold-out wording can be a reason attached to an explicit remove command.
+  // In that shape removal remains the single family rather than a false conflict.
+  if (!removal && _containsAny(text, _soldTerms)) {
+    families.add(_MutationFamily.markSold);
+  }
+
+  final imperativeSale =
+      _containsAny(text, _imperativeSaleTerms) &&
+      !_containsAny(text, _saleReadGuardTerms);
+  if (_containsAny(text, _saleTerms) || imperativeSale) {
+    families.add(_MutationFamily.recordSale);
+  }
+  if (_containsAny(text, _editTerms)) {
+    families.add(_MutationFamily.editMedicine);
+  }
+  return families;
+}
+
+String _guardedMutationTarget(String raw, _MutationFamily family) {
+  String candidate;
+  switch (family) {
+    case _MutationFamily.undo:
+      candidate = '';
+    case _MutationFamily.setQuantity:
+    case _MutationFamily.receiveStock:
+      candidate = _stockAdjustmentIntent(raw)?.query ?? '';
+    case _MutationFamily.relocateMedicine:
+      try {
+        candidate = parseStockLocationCommand(raw)?.query ?? '';
+      } on FormatException {
+        candidate = '';
+      }
+    case _MutationFamily.removeMedicine:
+      final reason = detectRemovalReason(raw);
+      candidate = _extractMedicineQuery(raw, [
+        ..._removeTerms,
+        if (reason != null) ...reason.commandTerms,
+      ]);
+    case _MutationFamily.restoreMedicine:
+      candidate = _extractMedicineQuery(raw, [
+        ..._restoreTerms,
+        ..._removedListTerms,
+      ]);
+    case _MutationFamily.markSold:
+      candidate = _extractMedicineQuery(raw, _soldTerms);
+    case _MutationFamily.recordSale:
+      final saleInput = _extractExplicitSaleQuantity(raw);
+      candidate = _extractMedicineQuery(saleInput.remainingText, [
+        ..._saleTerms,
+        ..._imperativeSaleTerms,
+      ]);
+    case _MutationFamily.editMedicine:
+      candidate = _extractMedicineQuery(raw, _editTerms);
+  }
+  return _extractMedicineQuery(candidate, [
+    ..._mutationNegationTerms,
+    ..._mutationDiscussionTerms,
+    ..._mutationConditionalTerms,
+  ]);
+}
+
+AppBrainIntent? _incompleteReceiveIntent(String raw, String text) {
+  if (!_containsAny(text, _receiveIntentTerms)) return null;
+  final query = _extractMedicineQuery(raw, _receiveIntentTerms);
+  return AppBrainIntent(
+    action: AppBrainAction.search,
+    query: query,
+    confidence: query.isEmpty ? .82 : .96,
+  );
 }
 
 AppBrainIntent? _removedStockIntent(String raw, String text) {
@@ -866,6 +1023,96 @@ final _receiveStockPatterns = <RegExp>[
     caseSensitive: false,
     unicode: true,
   ),
+];
+
+const _undoTerms = <String>[
+  'undo',
+  'undo last',
+  'last change undo',
+  'wapas karo',
+  'wapas kar do',
+  'pichla change wapas',
+  'पिछला बदलाव वापस',
+  'वापस करो',
+];
+
+const _mutationNegationTerms = <String>[
+  'do not',
+  'don t',
+  'dont',
+  'not now',
+  'never',
+  'mat',
+  'mat karo',
+  'mat karna',
+  'nahi',
+  'nahin',
+  'मत',
+  'मत करो',
+  'मत करना',
+  'नहीं',
+];
+
+const _mutationDiscussionTerms = <String>[
+  'how to',
+  'how do i',
+  'show me how',
+  'tell me how',
+  'steps to',
+  'can i',
+  'may i',
+  'should i',
+  'what happens if',
+  'kaise',
+  'kaise kare',
+  'kaise karu',
+  'kya main',
+  'क्या मैं',
+  'कैसे',
+  'कैसे करें',
+];
+
+const _mutationConditionalTerms = <String>[
+  'if',
+  'only if',
+  'when',
+  'unless',
+  'agar',
+  'jab',
+  'tab',
+  'अगर',
+  'जब',
+  'तब',
+  'यदि',
+];
+
+const _receiveIntentTerms = <String>[
+  'restock',
+  'stock add',
+  'add stock',
+  'receive stock',
+  'stock receive',
+  'stock badhao',
+  'stock badha do',
+  'stock badhado',
+  'स्टॉक जोड़ो',
+  'स्टॉक बढ़ाओ',
+  'स्टॉक बढ़ा दो',
+];
+
+const _locationMutationVerbsForGuard = <String>[
+  'set location',
+  'location set',
+  'move location',
+  'location move',
+  'shift location',
+  'location shift',
+  'location clear',
+  'rack set',
+  'shelf set',
+  'लोकेशन सेट',
+  'लोकेशन हटाओ',
+  'रैक सेट',
 ];
 
 const _fillers = <String>[
