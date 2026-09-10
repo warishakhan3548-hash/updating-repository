@@ -477,7 +477,59 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     final message = error.toString().toLowerCase();
     return message.contains('local ai is busy') ||
         message.contains('runtime is unavailable or still processing') ||
-        message.contains('runtime is busy or closing');
+        message.contains('runtime is busy or closing') ||
+        message.contains('runtime is still processing a failed model load');
+  }
+
+  bool _recoverableLocalTransportFailure(Object error) {
+    if (error is FormatException || error is ArgumentError) return false;
+    final message = error.toString().toLowerCase();
+    if (message.contains('cancel') ||
+        message.contains('busy') ||
+        message.contains('select a local model') ||
+        message.contains('selected model is missing') ||
+        message.contains('model file is incomplete') ||
+        message.contains('invalid model') ||
+        message.contains('unsupported context')) {
+      return false;
+    }
+    return message.contains('runtime') ||
+        message.contains('transport') ||
+        message.contains('connection') ||
+        message.contains('closed') ||
+        message.contains('isolate') ||
+        message.contains('native');
+  }
+
+  Future<MedicineScanDraft> _understandWithRecovery(
+    LocalAiService local,
+    MedicineIntakeJob job,
+    MedicineScanDraft draft,
+  ) async {
+    try {
+      return await local.understand(draft);
+    } catch (error, stack) {
+      if (local.busy || !_recoverableLocalTransportFailure(error)) {
+        Error.throwWithStackTrace(error, stack);
+      }
+
+      // Chat already gets one clean-runtime retry. Scan refinement must have the
+      // same transport semantics or one dropped native stream can silently turn
+      // an active Aaris Brain capture into deterministic-only review. Keep the
+      // capture-time model lease authoritative, retire only the failed runtime,
+      // re-check the Brain switch/model identity, and retry this exact draft once.
+      try {
+        await local.suspend();
+      } catch (_) {
+        Error.throwWithStackTrace(error, stack);
+      }
+      if (!await LocalBrainRoutePolicy.mayReasonWith(local, job.modelId)) {
+        throw StateError(
+          'Aaris Brain route changed while recovering this scan. Deterministic OCR draft retained for review.',
+        );
+      }
+      return local.understand(draft);
+    }
   }
 
   Future<void> _reason(MedicineIntakeJob job) async {
@@ -495,7 +547,11 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
 
     final index = job.aiIndex;
     try {
-      job.drafts[index] = await local.understand(job.drafts[index]);
+      job.drafts[index] = await _understandWithRecovery(
+        local,
+        job,
+        job.drafts[index],
+      );
       if (job.error == _waitingForLocalAi) job.error = '';
     } catch (e) {
       // Foreground chat and scan refinement share one authoritative local-model
