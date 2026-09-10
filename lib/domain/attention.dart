@@ -2,6 +2,7 @@ import 'automation_readiness.dart';
 import 'inventory.dart';
 import 'inventory_integrity.dart';
 import 'medicine.dart';
+import 'sale_history_integrity.dart';
 import 'stock_risk.dart';
 import 'tracking.dart';
 
@@ -17,6 +18,8 @@ enum AttentionKind {
   conflictingLotFacts,
   staleSoldMetadata,
   soldAuditGap,
+  futureSaleHistory,
+  saleLifecycleConflict,
   urgentReorder,
   reorderReview,
   unknownExpiry,
@@ -86,6 +89,35 @@ class PharmacyAttentionReport {
           title: issue.title,
           detail: issue.detail,
           stockIds: issue.stockIds,
+        ),
+      );
+    }
+
+    // The transaction firewall protects every new sale, but exact backup/Undo
+    // recovery intentionally preserves historical state. Audit persisted sales
+    // separately so a legacy/future/lifecycle contradiction becomes visible
+    // instead of silently influencing pharmacist trust. This engine is local and
+    // read-only; immutable history is never rewritten to make a warning vanish.
+    final saleHistoryIntegrity = SaleHistoryIntegrityReport.build(
+      medicines: active,
+      sales: sales,
+      today: day,
+    );
+    for (final issue in saleHistoryIntegrity.issues) {
+      items.add(
+        AttentionItem(
+          key: issue.key,
+          kind: switch (issue.kind) {
+            SaleHistoryIntegrityKind.futureSaleEvent =>
+              AttentionKind.futureSaleHistory,
+            SaleHistoryIntegrityKind.lifecycleConflict =>
+              AttentionKind.saleLifecycleConflict,
+          },
+          severity: AttentionSeverity.high,
+          title: issue.title,
+          detail: issue.detail,
+          stockIds: issue.stockIds,
+          productKey: issue.productKey,
         ),
       );
     }
