@@ -36,6 +36,26 @@ class SaleHistoryIntegrityIssue {
 /// historical analytics. For the same reason current pack dates are used to
 /// audit historical chronology only while the sale and current row still share
 /// one medicine identity.
+bool isSaleHistoryIntegrityCandidate({
+  required Medicine? stock,
+  required SaleEvent sale,
+  required DateTime today,
+}) {
+  if (stock == null || stock.archived) return false;
+
+  final day = civilDay(today);
+  final saleDay = civilDay(sale.occurredAt);
+  if (saleDay.isAfter(day)) return true;
+
+  // A later pharmacist identity correction deliberately severs chronology
+  // comparison with today's MFG/EXP facts. The immutable sale snapshot remains
+  // honest history and must not become a false alert for the corrected product.
+  if (sale.productKey != stock.identity) return false;
+
+  return (stock.mfg != null && saleDay.isBefore(civilDay(stock.mfg!))) ||
+      (stock.expiry != null && saleDay.isAfter(civilDay(stock.expiry!)));
+}
+
 class SaleHistoryIntegrityReport {
   SaleHistoryIntegrityReport._(List<SaleHistoryIntegrityIssue> source)
     : issues = List.unmodifiable(source);
@@ -123,7 +143,8 @@ class SaleHistoryIntegrityReport {
         SaleHistoryIntegrityIssue(
           key: 'sale-lifecycle:${group.stock.id}:${group.productKey}',
           kind: SaleHistoryIntegrityKind.lifecycleConflict,
-          title: '${group.stock.title} · sale history conflicts with pack dates',
+          title:
+              '${group.stock.title} · sale history conflicts with pack dates',
           detail:
               '$count recorded sale event${count == 1 ? '' : 's'} for this exact stock row ${count == 1 ? 'falls' : 'fall'} ${boundaries.join(' and ')}. This can happen after legacy restore or a later correction of physical pack dates. Verify the current MFG/EXP and the historical source; Aaris keeps the ledger append-only and will never invent or silently rewrite a sale to make the conflict disappear.',
           stockIds: List.unmodifiable(<String>[group.stock.id]),

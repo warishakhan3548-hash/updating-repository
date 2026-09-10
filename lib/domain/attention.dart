@@ -66,6 +66,7 @@ class PharmacyAttentionReport {
     required DateTime today,
     required Iterable<ReorderSuggestion> reorder,
     Iterable<SaleEvent> sales = const <SaleEvent>[],
+    Iterable<SaleEvent>? saleHistorySales,
   }) {
     final day = civilDay(today);
     final active = medicines.where((medicine) => !medicine.archived).toList();
@@ -100,7 +101,7 @@ class PharmacyAttentionReport {
     // read-only; immutable history is never rewritten to make a warning vanish.
     final saleHistoryIntegrity = SaleHistoryIntegrityReport.build(
       medicines: active,
-      sales: sales,
+      sales: saleHistorySales ?? sales,
       today: day,
     );
     for (final issue in saleHistoryIntegrity.issues) {
@@ -319,14 +320,17 @@ class PharmacyAttentionReport {
         // Batch alone can legitimately repeat across locations. Require another
         // physical locator before raising a probable-duplicate review item.
         if (barcode.isNotEmpty || address.isNotEmpty) {
-          key = '${medicine.identity}|batch:$batch|barcode:$barcode|address:$address';
+          key =
+              '${medicine.identity}|batch:$batch|barcode:$barcode|address:$address';
         }
       } else if (barcode.isNotEmpty && address.isNotEmpty) {
         // A batch number is optional. Two rows at the same saved physical
         // location can still be probable duplicates when product barcode plus a
         // pack date also agree. This remains a review-only signal: retail
         // barcodes and expiry months are not globally unique lot identifiers.
-        final expiry = medicine.expiry == null ? '' : dateText(medicine.expiry!);
+        final expiry = medicine.expiry == null
+            ? ''
+            : dateText(medicine.expiry!);
         final mfg = medicine.mfg == null ? '' : dateText(medicine.mfg!);
         if (expiry.isNotEmpty || mfg.isNotEmpty) {
           key =

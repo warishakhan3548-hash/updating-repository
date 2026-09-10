@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../domain/attention.dart';
 import '../domain/medicine.dart';
 import '../domain/operations_plan.dart';
+import '../domain/sale_history_integrity.dart';
 import '../domain/tracking.dart';
 import 'pharmacy_controller.dart';
 
@@ -265,6 +266,10 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
     for (final raw in payload['sales'] as List<dynamic>)
       SaleEvent.fromJson(Map<String, dynamic>.from(raw as Map)),
   ];
+  final saleHistorySales = <SaleEvent>[
+    for (final raw in payload['saleHistorySales'] as List<dynamic>)
+      SaleEvent.fromJson(Map<String, dynamic>.from(raw as Map)),
+  ];
   final settings = WarningSettings.fromJson(
     Map<String, dynamic>.from(payload['settings'] as Map),
   );
@@ -281,6 +286,7 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
     today: today,
     reorder: tracking.reorder,
     sales: sales,
+    saleHistorySales: saleHistorySales,
   );
   final plan = PharmacyOperationsPlan.build(
     items: report.items,
@@ -306,9 +312,7 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
     'nextAction': next?.actionLabel ?? '',
     'nextLane': next?.laneLabel ?? '',
     'nextKind': next?.item.kind.name ?? '',
-    'nextStockIds': List<String>.from(
-      next?.item.stockIds ?? const <String>[],
-    ),
+    'nextStockIds': List<String>.from(next?.item.stockIds ?? const <String>[]),
   };
 }
 
@@ -327,6 +331,8 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
   }) : _digest = AarisAutopilotDigest.waiting(
          inventoryRevision: controller.snapshot.revision,
        ) {
+    _observedRevision = controller.snapshot.revision;
+    _observedDay = dateText(controller.today);
     controller.addListener(_onControllerChanged);
     refreshNow();
   }
@@ -342,11 +348,42 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
   bool _disposed = false;
   bool _computing = false;
   bool _rerunRequested = false;
+  bool _lifecycleActive = true;
+  int _observedRevision = -1;
+  String _observedDay = '';
 
-  void _onControllerChanged() => _schedule();
+  bool get lifecycleActive => _lifecycleActive;
+
+  /// Pauses read-only background planning outside the foreground lifecycle. Any
+  /// in-flight result is generation-invalidated and therefore cannot publish a
+  /// stale badge/task after the app was backgrounded. Resume always requests one
+  /// fresh pass from the authoritative controller snapshot.
+  void setLifecycleActive(bool active) {
+    if (_disposed) return;
+    if (_lifecycleActive == active) {
+      if (active) refreshNow();
+      return;
+    }
+
+    _lifecycleActive = active;
+    _timer?.cancel();
+    _timer = null;
+    ++_generation;
+    _rerunRequested = false;
+    if (active) refreshNow();
+  }
+
+  void _onControllerChanged() {
+    final revision = controller.snapshot.revision;
+    final day = dateText(controller.today);
+    if (revision == _observedRevision && day == _observedDay) return;
+    _observedRevision = revision;
+    _observedDay = day;
+    _schedule();
+  }
 
   void _schedule() {
-    if (_disposed) return;
+    if (_disposed || !_lifecycleActive) return;
     final generation = ++_generation;
     _timer?.cancel();
     _timer = Timer(debounce, () => _launch(generation));
@@ -355,7 +392,7 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
   /// Re-evaluates at the next safe microtask boundary. This is used after app
   /// resume and initial database load, while normal write bursts are debounced.
   void refreshNow() {
-    if (_disposed) return;
+    if (_disposed || !_lifecycleActive) return;
     final generation = ++_generation;
     _timer?.cancel();
     _timer = null;
@@ -363,7 +400,7 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
   }
 
   void _launch(int generation) {
-    if (_disposed || generation != _generation) return;
+    if (_disposed || !_lifecycleActive || generation != _generation) return;
     if (_computing) {
       _rerunRequested = true;
       return;
@@ -380,7 +417,7 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
   }
 
   Future<void> _rebuild(int generation) async {
-    if (_disposed || generation != _generation) return;
+    if (_disposed || !_lifecycleActive || generation != _generation) return;
 
     final revision = controller.snapshot.revision;
     if (!controller.ready) {
@@ -391,28 +428,43 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
     try {
       final today = controller.today;
       final start = today.subtract(const Duration(days: 29));
+      final activeById = <String, Medicine>{
+        for (final medicine in controller.records)
+          if (!medicine.archived) medicine.id: medicine,
+      };
+      final recentSales = <Map<String, dynamic>>[];
+      final saleHistorySales = <Map<String, dynamic>>[];
+      for (final sale in controller.sales) {
+        final saleDay = civilDay(sale.occurredAt);
+        if (!saleDay.isBefore(start) && !saleDay.isAfter(today)) {
+          recentSales.add(sale.toJson());
+        }
+        if (isSaleHistoryIntegrityCandidate(
+          stock: activeById[sale.stockId],
+          sale: sale,
+          today: today,
+        )) {
+          saleHistorySales.add(sale.toJson());
+        }
+      }
 
       // Capture only operational fields. Large OCR/notes text is intentionally
       // excluded because it is irrelevant to integrity, FEFO, risk and reorder.
-      // Sales are bounded to the exact 30-day evidence window consumed by both
-      // TrackingStats and PharmacyStockRiskReport.
+      // Recent sales drive velocity/risk; the second list contains only exact
+      // full-history anomalies that can become immutable-ledger safety tasks.
       final payload = <String, dynamic>{
         'records': <Map<String, dynamic>>[
           for (final medicine in controller.records)
             _operationalMedicineJson(medicine),
         ],
-        'sales': <Map<String, dynamic>>[
-          for (final sale in controller.sales)
-            if (!civilDay(sale.occurredAt).isBefore(start) &&
-                !civilDay(sale.occurredAt).isAfter(today))
-              sale.toJson(),
-        ],
+        'sales': recentSales,
+        'saleHistorySales': saleHistorySales,
         'settings': controller.settings.toJson(),
         'today': today.toIso8601String(),
       };
 
       final result = await compute(_evaluateAutopilot, payload);
-      if (_disposed || generation != _generation) return;
+      if (_disposed || !_lifecycleActive || generation != _generation) return;
       if (controller.snapshot.revision != revision) {
         _rerunRequested = true;
         return;
@@ -426,7 +478,7 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
         ),
       );
     } catch (_) {
-      if (_disposed || generation != _generation) return;
+      if (_disposed || !_lifecycleActive || generation != _generation) return;
       _publish(
         AarisAutopilotDigest.degraded(
           inventoryRevision: controller.snapshot.revision,

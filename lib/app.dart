@@ -41,6 +41,12 @@ class _PharmacyAppState extends State<PharmacyApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _autopilot = AarisAutopilotSupervisor(widget.controller);
+    _autopilot.setLifecycleActive(_isForeground);
+  }
+
+  bool get _isForeground {
+    final state = WidgetsBinding.instance.lifecycleState;
+    return state == null || state == AppLifecycleState.resumed;
   }
 
   @override
@@ -49,15 +55,21 @@ class _PharmacyAppState extends State<PharmacyApp> with WidgetsBindingObserver {
     if (oldWidget.controller != widget.controller) {
       _autopilot.dispose();
       _autopilot = AarisAutopilotSupervisor(widget.controller);
+      _autopilot.setLifecycleActive(_isForeground);
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // Refresh the civil business day first; the resumed Autopilot pass then
+      // observes the final authoritative day/revision instead of doing two
+      // expensive isolate evaluations.
       widget.controller.refreshDay();
-      _autopilot.refreshNow();
+      _autopilot.setLifecycleActive(true);
+      return;
     }
+    _autopilot.setLifecycleActive(false);
   }
 
   @override
