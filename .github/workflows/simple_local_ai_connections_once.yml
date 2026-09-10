@@ -30,6 +30,16 @@ jobs:
           cache: true
       - name: Patch original core files
         run: python3 tool/one_shot_simple_local_ai_connections.py
+      - name: Fix generated readiness test terminator
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('test/local_model_readiness_test.dart')
+          s = p.read_text()
+          if not s.endswith('});\n'):
+              raise SystemExit('unexpected readiness test ending')
+          p.write_text(s[:-4] + '}\n')
+          PY
       - name: Format
         run: dart format lib/domain/local_model.dart lib/services/local_ai_service_io.dart lib/services/local_ai_service_stub.dart lib/services/aaris_default_ai_service_io.dart lib/ui/local_models_panel.dart lib/ui/ai_screen.dart test/local_model_readiness_test.dart test/simple_ai_connections_source_test.dart
       - name: Resolve dependencies
