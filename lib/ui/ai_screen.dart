@@ -86,15 +86,20 @@ class _AiScreenState extends State<AiScreen> {
   }
 
   void _scrollToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    void jumpAfterLayout() {
       if (!mounted || !_scroll.hasClients) return;
-      unawaited(
-        _scroll.animateTo(
-          _scroll.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-        ),
-      );
+      final target = _scroll.position.maxScrollExtent;
+      if ((_scroll.offset - target).abs() > .5) {
+        _scroll.jumpTo(target);
+      }
+    }
+
+    // Local Brain replies can trigger both parent and child rebuilds in the same
+    // frame. Re-align on two layout boundaries so the newest answer is never
+    // left just outside the small chat viewport under the quick-action grid.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      jumpAfterLayout();
+      WidgetsBinding.instance.addPostFrameCallback((_) => jumpAfterLayout());
     });
   }
 
@@ -1103,9 +1108,12 @@ class _AiComposer extends StatelessWidget {
                           strokeWidth: 2,
                         ),
                       )
-                    : const Icon(
-                        Icons.arrow_upward_rounded,
-                        color: Colors.white,
+                    : const Tooltip(
+                        message: 'Run command',
+                        child: Icon(
+                          Icons.arrow_upward_rounded,
+                          color: Colors.white,
+                        ),
                       ),
               ),
             ),
