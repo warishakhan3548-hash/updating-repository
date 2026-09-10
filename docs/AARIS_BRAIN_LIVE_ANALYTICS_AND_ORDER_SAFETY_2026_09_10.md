@@ -24,3 +24,5 @@ Second, purchase-order unit cost is no longer auto-filled from an arbitrary firs
 ## Verification added
 
 `test/brain_analytics_test.dart` covers read-only Brain routing, English/Hindi/Devanagari time windows, civil week/month ranges, write-vs-read separation, exact sale-ledger summaries, missing-revenue honesty, and purchase-order price consensus/conflict behavior.
+
+The pull-request validation contract remains the repository-wide `Pharmacy checks` workflow: static analysis, the complete Flutter test suite, and an Android debug APK compile must all pass before this branch is merged into `main`.
