@@ -12,6 +12,8 @@ import 'package:lib_llama_cpp/lib_llama_cpp.dart';
 class LocalAiRuntime {
   LocalAiRuntime({LlamaEngine engine = const LibLlamaCpp()}) : _engine = engine;
 
+  static const _terminalErrorDrainBudget = Duration(seconds: 15);
+
   final LlamaEngine _engine;
   StreamController<LlamaCommand>? _commands;
   StreamSubscription<LlamaResponse>? _subscription;
@@ -47,12 +49,17 @@ class LocalAiRuntime {
     subscription = _engine.transform(commands.stream).listen(
       (response) {
         if (_closed || epoch != _transportEpoch) return;
-        _touchStallWatchdog(epoch);
         if (response is LlamaErrorResponse) {
-          // Keep the command lease until Done/onDone. A trailing completion from
-          // this transport can therefore never complete a later command.
+          // Keep the command lease until Done/onDone so a trailing completion can
+          // never complete a later command. Once native has already declared an
+          // error, however, waiting the normal multi-minute generation stall
+          // budget for a missing Done only creates a false "connection stuck"
+          // state. Give the native actor a short bounded drain window, then retire
+          // the transport through the same epoch-safe recovery path.
           _commandError ??= StateError(response.message);
+          _armStallWatchdog(epoch, _terminalErrorDrainBudget);
         } else if (response is LlamaTokenResponse) {
+          _touchStallWatchdog(epoch);
           // Once native inference has failed, trailing tokens belong to the
           // failed command. Never flash them in the UI or retain them in the
           // response buffer while waiting for Done to close the lease.
@@ -61,6 +68,7 @@ class LocalAiRuntime {
             _commandError ??= StateError(
               'Local response exceeds the safety limit.',
             );
+            _armStallWatchdog(epoch, _terminalErrorDrainBudget);
           } else {
             _text.write(response.text);
             // Emit only tokens owned by this transport epoch. A consumer callback
@@ -69,15 +77,19 @@ class LocalAiRuntime {
               _onToken?.call(response.text);
             } catch (_) {}
           }
-        } else if (response is LlamaStateChangedResponse && _loading) {
-          _loading = false;
-          modelPath = response.state.isModelLoaded
-              ? response.state.modelPath
-              : null;
+        } else if (response is LlamaStateChangedResponse) {
+          _touchStallWatchdog(epoch);
+          if (_loading) {
+            _loading = false;
+            modelPath = response.state.isModelLoaded
+                ? response.state.modelPath
+                : null;
+          }
         } else if (response is LlamaToolCallResponse) {
           _commandError ??= StateError(
             'Return the app JSON contract, not native function calls.',
           );
+          _armStallWatchdog(epoch, _terminalErrorDrainBudget);
         } else if (response is LlamaDoneResponse) {
           _complete();
         }
