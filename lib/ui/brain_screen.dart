@@ -27,7 +27,6 @@ import 'order_screen.dart';
 import 'removed_stock_screen.dart';
 import 'scanner_screen.dart';
 import 'search_screen.dart';
-import 'voice_sheet.dart';
 
 class BrainScreen extends StatefulWidget {
   const BrainScreen({
@@ -44,40 +43,41 @@ class BrainScreen extends StatefulWidget {
 }
 
 class _BrainScreenState extends State<BrainScreen> {
-  final _command = TextEditingController();
-  bool _busy = false, _voiceOpening = false;
+  bool _busy = false;
   PendingBrainChoice? _pendingChoice;
   String _reply =
       'Ready. Ask stock, expiry, location or FEFO from the local Medicine Database, open safe actions, recover removed stock, or ask “aaj kya dekhna hai”.';
 
-  @override
-  void dispose() {
-    _command.dispose();
-    super.dispose();
-  }
+  Future<String?> _handleUnifiedCommand(String raw) async {
+    if (_busy) return 'Aaris is finishing the previous local command.';
+    final text = raw.trim();
+    if (text.isEmpty) return null;
 
-  Future<void> _run([String? supplied]) async {
-    if (_busy) return;
-    final raw = (supplied ?? _command.text).trim();
-    if (raw.isEmpty) return;
-    setState(() {
-      _busy = true;
-      _reply = 'Understanding command…';
-      if (supplied != null) _command.text = supplied;
-    });
+    // With no pending exact-row clarification, only deterministic App Brain
+    // intents are intercepted here. Unknown text falls straight through to the
+    // existing AI/JSON composer, so one field safely serves both engines.
+    final preParsed = _pendingChoice == null ? parseAppBrainIntent(text) : null;
+    if (preParsed?.action == AppBrainAction.unknown) return null;
+
+    if (mounted) {
+      setState(() {
+        _busy = true;
+        _reply = 'Understanding local command…';
+      });
+    }
     try {
-      if (await _continuePendingChoice(raw)) return;
-      final intent = parseAppBrainIntent(raw);
-      await _execute(intent, raw);
+      if (await _continuePendingChoice(text)) return _reply;
+      final intent = preParsed ?? parseAppBrainIntent(text);
+      if (intent.action == AppBrainAction.unknown) return null;
+      await _execute(intent, text);
+      return _reply;
     } catch (error) {
-      if (mounted) {
-        setState(
-          () => _reply = error.toString().replaceFirst(
-            RegExp(r'^(FormatException|Bad state|StateError):\s*'),
-            '',
-          ),
-        );
-      }
+      final message = error.toString().replaceFirst(
+        RegExp(r'^(FormatException|Bad state|StateError):\s*'),
+        '',
+      );
+      if (mounted) setState(() => _reply = message);
+      return message;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1575,6 +1575,65 @@ class _BrainScreenState extends State<BrainScreen> {
     );
   }
 
+  Future<String?> _handleQuickAction(AiHubQuickAction action) async {
+    return switch (action) {
+      AiHubQuickAction.sold => _handleUnifiedCommand('sold medicines dikhao'),
+      AiHubQuickAction.removed => _handleUnifiedCommand('removed stock dikhao'),
+      AiHubQuickAction.stockSummary => _handleUnifiedCommand('stock summary'),
+      AiHubQuickAction.add => _handleUnifiedCommand('add medicine'),
+      AiHubQuickAction.delete => _openQuickTargetPicker(
+        AppBrainAction.removeMedicine,
+      ),
+      AiHubQuickAction.modify => _openQuickTargetPicker(
+        AppBrainAction.editMedicine,
+      ),
+    };
+  }
+
+  Future<String?> _openQuickTargetPicker(AppBrainAction action) async {
+    if (_busy) return 'Aaris is finishing the previous local command.';
+    if (action != AppBrainAction.removeMedicine &&
+        action != AppBrainAction.editMedicine) {
+      return null;
+    }
+    if (mounted) {
+      setState(() {
+        _busy = true;
+        _reply = action == AppBrainAction.removeMedicine
+            ? 'Choose the exact medicine to delete. The protected Remove review remains mandatory.'
+            : 'Choose the exact medicine to modify.';
+      });
+    }
+    try {
+      final hits = await widget.controller.search('', SearchScope.all);
+      if (!mounted) return null;
+      if (hits.isEmpty) {
+        setState(
+          () => _reply = 'No active medicine is available for this action.',
+        );
+        return _reply;
+      }
+      await _showMatches(
+        hits,
+        title: action == AppBrainAction.removeMedicine
+            ? 'Choose medicine to delete'
+            : 'Choose medicine to modify',
+        emptyReply: 'No active medicine is available for this action.',
+        action: action,
+      );
+      return _reply;
+    } catch (error) {
+      final message = error.toString().replaceFirst(
+        RegExp(r'^(FormatException|Bad state|StateError):\s*'),
+        '',
+      );
+      if (mounted) setState(() => _reply = message);
+      return message;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   String _editorInstruction(
     AppBrainAction action,
     Medicine record,
@@ -1623,143 +1682,10 @@ class _BrainScreenState extends State<BrainScreen> {
     AppSection.profile => 'Profile opened.',
   };
 
-  Future<void> _voice() async {
-    if (_voiceOpening || _busy) return;
-    setState(() => _voiceOpening = true);
-    try {
-      final words = await voiceSearch(
-        context,
-        offlineOnly: true,
-        title: 'Speak an app command',
-        actionLabel: 'Run command',
-      );
-      if (mounted && words != null && words.trim().isNotEmpty) {
-        await _run(words.trim());
-      }
-    } finally {
-      if (mounted) setState(() => _voiceOpening = false);
-    }
-  }
-
-  Widget _brainBar(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(14, 8, 14, 3),
-    child: Surface(
-      color: primarySoft,
-      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.psychology_alt_rounded, color: primary),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Aaris App Brain · offline commands',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontWeight: FontWeight.w900, color: ink),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _command,
-                  enabled: !_busy,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => unawaited(_run()),
-                  decoration: const InputDecoration(
-                    hintText: 'Dolo stock kitna · sell 5 units · restore Dolo · delete karo',
-                    prefixIcon: Icon(Icons.bolt_rounded),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              IconButton.filledTonal(
-                tooltip: 'Speak command',
-                onPressed: _voiceOpening || _busy ? null : _voice,
-                icon: const Icon(Icons.mic_rounded),
-              ),
-              const SizedBox(width: 2),
-              IconButton.filled(
-                tooltip: 'Run command',
-                onPressed: _busy ? null : _run,
-                icon: _busy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.arrow_forward_rounded),
-              ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 72),
-            child: SingleChildScrollView(
-              primary: false,
-              child: Text(
-                _reply,
-                style: const TextStyle(
-                  color: muted,
-                  fontSize: 11.5,
-                  height: 1.35,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children:
-                  [
-                        _QuickCommand('Scan', 'scan medicine'),
-                        _QuickCommand('Needs attention', 'aaj kya dekhna hai'),
-                        _QuickCommand('Next task', 'next task'),
-                        _QuickCommand('Order review', 'order now'),
-                        _QuickCommand('Expired', 'expired medicines dikhao'),
-                        _QuickCommand('Sold', 'sold medicines dikhao'),
-                        _QuickCommand('Removed', 'removed stock dikhao'),
-                        _QuickCommand('Stock summary', 'stock summary'),
-                        _QuickCommand('Sales today', 'aaj ki bikri kitni'),
-                        _QuickCommand('Fast movers', 'fast moving this month'),
-                        _QuickCommand('Slow movers', 'slow moving last 30 days'),
-                        _QuickCommand('Add medicine', 'add medicine'),
-                        _QuickCommand('Undo', 'undo last'),
-                      ]
-                      .map(
-                        (item) => Padding(
-                          padding: const EdgeInsets.only(right: 7),
-                          child: ActionChip(
-                            label: Text(item.label),
-                            onPressed: _busy ? null : () => _run(item.command),
-                          ),
-                        ),
-                      )
-                      .toList(),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      _brainBar(context),
-      Expanded(child: AiScreen(controller: widget.controller)),
-    ],
+  Widget build(BuildContext context) => AiScreen(
+    controller: widget.controller,
+    onLocalCommand: _handleUnifiedCommand,
+    onQuickAction: _handleQuickAction,
   );
-}
-
-class _QuickCommand {
-  const _QuickCommand(this.label, this.command);
-  final String label, command;
 }

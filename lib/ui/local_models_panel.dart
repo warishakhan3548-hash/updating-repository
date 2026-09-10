@@ -77,12 +77,10 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
           catalogueNote = [
             if (result.cached)
               'Cached public metadata; download stays revision-pinned.',
-            if (result.gated)
-              'Publisher access restrictions apply. Import an authorized local copy if needed.',
+            if (result.gated) 'Publisher access restrictions apply. Import an authorized local copy if needed.',
             for (final entry in result.unavailable.entries)
               '${entry.value} × ${entry.key}',
-            if (files.isEmpty)
-              'No downloadable complete GGUF weights found. Check the publisher files or import from device.',
+            if (files.isEmpty) 'No downloadable complete GGUF weights found. Check the publisher files or import from device.',
           ].join('\n');
         });
       } else {
@@ -93,9 +91,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
           repositories = result.repositories;
           nextPage = result.next;
           catalogueNote = result.cached ? 'Cached public search results.' : '';
-          if (repositories.isEmpty)
-            catalogueNote =
-                'No matching models. Try a family name or an exact repository link.';
+          if (repositories.isEmpty) catalogueNote = 'No matching models. Try a family name or an exact repository link.';
         });
       }
     } catch (e) {
@@ -204,7 +200,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
         Text(
           defaults.hasDefault
               ? defaults.status
-              : 'Recommended one-time ~$aarisDefaultModelDownloadHint download. User-selected models can override it; without it Aaris keeps using the offline pharmacy scanner.',
+              : 'Recommended ~$aarisDefaultModelDownloadHint download. User-selected local models can override it.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 10),
@@ -256,7 +252,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Search/download uses internet. Chat, scans and inventory stay on this device when a local model is selected. No silent external fallback.',
+              'Download uses internet. Local AI and inventory stay on-device.',
             ),
             _defaultAiCard(context),
             if (local.hasSelection)
@@ -278,9 +274,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                     ? local.cancelTransfer
                     : local.cancelRequest,
                 child: Text(
-                  local.transferring
-                      ? 'Pause download / cancel import'
-                      : 'Cancel result (native step drains safely)',
+                  local.transferring ? 'Pause download' : 'Cancel response',
                 ),
               ),
             ],
@@ -291,7 +285,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                 enabled: !searching,
                 onSubmitted: (_) => _search(),
                 decoration: InputDecoration(
-                  labelText: 'Model name, publisher/repository or Hub link',
+                  labelText: 'Model, repository or Hub link',
                   suffixIcon: IconButton(
                     tooltip: 'Search public models',
                     onPressed: searching ? null : _search,
@@ -301,7 +295,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'Browse current public GGUF models or paste an exact link, including new or untagged repositories. A downloadable file still needs a successful device activation test.',
+                'Public GGUF models only. Activation is tested before use.',
                 style: TextStyle(fontSize: 11),
               ),
               Wrap(
@@ -563,9 +557,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                           }
                         },
                   child: Text(
-                    defaults.hasDefault
-                        ? 'Pause local AI'
-                        : 'Disable local AI',
+                    defaults.hasDefault ? 'Pause local AI' : 'Disable local AI',
                   ),
                 ),
             ],
