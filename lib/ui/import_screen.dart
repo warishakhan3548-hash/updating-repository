@@ -8,8 +8,10 @@ import 'package:flutter/services.dart';
 import '../domain/intake_resolution.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
+import '../domain/medicine_scan_commit.dart';
 import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
+import '../services/ai_service.dart';
 import '../services/backup_service.dart';
 import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
@@ -355,6 +357,8 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
   int _inventoryRevision = -1;
   final _semanticCache = <String, MedicineScanDraft>{};
   String _semanticWarning = '';
+  bool _localBrainScanActive = false;
+  int? _savingDraftIndex;
 
   @override
   void initState() {
@@ -393,6 +397,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       _loading = true;
       _error = '';
       _semanticWarning = '';
+      _localBrainScanActive = false;
     });
     try {
       final knowledge = medicineKnowledgeFromRecords(widget.controller.records);
@@ -413,19 +418,42 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       final reviews = <_ImportDraftReview>[];
       final local = LocalAiService.instance;
       await local.initialize();
+
+      var useLocalBrainScan = false;
+      if (widget.preparedDrafts == null) {
+        try {
+          final configuration = await AiService().loadConfiguration();
+          if (!mounted || generation != _generation) return;
+          useLocalBrainScan =
+              configuration.localBrainEnabled &&
+              local.hasSelection &&
+              local.scannerEnabled &&
+              local.scanReady;
+          if (configuration.localBrainEnabled &&
+              local.hasSelection &&
+              local.scannerEnabled &&
+              !local.scanReady) {
+            _semanticWarning =
+                'Aaris Brain is enabled, but the selected Local AI is not Ready for scan review yet. Deterministic OCR preview is being used.';
+          }
+        } catch (_) {
+          if (!mounted || generation != _generation) return;
+          _semanticWarning =
+              'Aaris Brain state could not be loaded for this scan. Deterministic OCR preview is being used; nothing was sent externally.';
+        }
+      }
+
       for (final original in understanding.drafts) {
         if (!mounted || generation != _generation) return;
         var draft = original;
-        if (widget.preparedDrafts == null &&
-            local.hasSelection &&
-            local.scannerEnabled) {
+        if (useLocalBrainScan) {
           final key = '${local.activeId}:${jsonEncode(original.toMessage())}';
           try {
             draft = _semanticCache[key] ?? await local.understand(original);
             _semanticCache[key] = draft;
           } catch (_) {
             _semanticWarning =
-                'Local AI unavailable or unsupported suggestion. Original OCR drafts retained; nothing was sent to an external AI.';
+                'Local AI could not safely finish this OCR handoff. Original deterministic OCR drafts were retained; nothing was sent to an external AI.';
           }
         }
         if (!mounted || generation != _generation) return;
@@ -471,6 +499,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
         setState(() {
           _drafts = reviews;
           _ignoredFrames = understanding.ignoredFrames;
+          _localBrainScanActive = useLocalBrainScan;
           _loading = false;
         });
       }
@@ -480,6 +509,59 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           _loading = false;
           _error = 'The import inbox could not rank these scans. Try again.';
         });
+      }
+    }
+  }
+
+  Future<void> _confirmAndAdd(
+    int index,
+    _ImportDraftReview review,
+  ) async {
+    if (_savingDraftIndex != null) return;
+
+    var resolution = _resolve(review.draft);
+    var decision = scanQuickAddDecision(review.draft, resolution);
+    if (!decision.allowed) {
+      showError(context, decision.reason);
+      return;
+    }
+
+    setState(() => _savingDraftIndex = index);
+    try {
+      // Re-resolve against the live Medicine Database immediately before the
+      // write. A stock row added or edited while the preview was visible can
+      // therefore revoke this shortcut instead of creating a silent duplicate.
+      resolution = _resolve(review.draft);
+      decision = scanQuickAddDecision(review.draft, resolution);
+      if (!decision.allowed) {
+        throw StateError(
+          decision.reason.isEmpty
+              ? 'Inventory changed. Review this scan again before adding it.'
+              : decision.reason,
+        );
+      }
+
+      final expectedRevision = widget.controller.snapshot.revision;
+      final medicine = medicineFromConfirmedScan(review.draft);
+      await widget.controller.save(
+        medicine,
+        expectedRevision: expectedRevision,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            decision.isNewBatch
+                ? '${medicine.title} added as a reviewed new batch.'
+                : '${medicine.title} added from the confirmed scan preview.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted && _savingDraftIndex == index) {
+        setState(() => _savingDraftIndex = null);
       }
     }
   }
@@ -694,6 +776,18 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                     ],
                   ),
                 ),
+                if (_localBrainScanActive)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 10),
+                    child: Text(
+                      'Aaris Brain · raw OCR was handed to the active Local AI on-device before this preview. Confirmed fields still require your tap before inventory changes.',
+                      style: TextStyle(
+                        color: primary,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                 if (_error.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 14),
@@ -866,6 +960,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
   ) {
     final draft = review.draft;
     final title = draft.name.isEmpty ? 'Medicine ${index + 1}' : draft.name;
+    final quickAdd = scanQuickAddDecision(draft, review.resolution);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -944,29 +1039,58 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
         ),
         const SizedBox(height: 12),
         if (review.resolution.kind != IntakeResolutionKind.exactLot)
-          (review.resolution.kind == IntakeResolutionKind.sameProduct
-              ? OutlinedButton.icon(
-                  onPressed: () => openEditor(
-                    context,
-                    widget.controller,
-                    scanDraft: draft,
-                  ),
-                  icon: const Icon(Icons.add_box_outlined),
-                  label: const Text('Review as a new batch'),
-                )
-              : FilledButton.icon(
-                  onPressed: () => openEditor(
-                    context,
-                    widget.controller,
-                    scanDraft: draft,
-                  ),
-                  icon: const Icon(Icons.rate_review_outlined),
-                  label: Text(
-                    review.resolution.kind == IntakeResolutionKind.newStock
-                        ? 'Review & create new medicine ${index + 1}'
-                        : 'Review scanned facts manually',
-                  ),
-                )),
+          if (quickAdd.allowed) ...[
+            FilledButton.icon(
+              onPressed: _savingDraftIndex == null
+                  ? () => _confirmAndAdd(index, review)
+                  : null,
+              icon: _savingDraftIndex == index
+                  ? const SizedBox(
+                      width: 17,
+                      height: 17,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check_circle_outline_rounded),
+              label: Text(
+                _savingDraftIndex == index ? 'Adding…' : quickAdd.actionLabel,
+              ),
+            ),
+            const SizedBox(height: 7),
+            OutlinedButton.icon(
+              onPressed: _savingDraftIndex == null
+                  ? () => openEditor(
+                      context,
+                      widget.controller,
+                      scanDraft: draft,
+                    )
+                  : null,
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Edit preview first'),
+            ),
+          ] else
+            (review.resolution.kind == IntakeResolutionKind.sameProduct
+                ? OutlinedButton.icon(
+                    onPressed: () => openEditor(
+                      context,
+                      widget.controller,
+                      scanDraft: draft,
+                    ),
+                    icon: const Icon(Icons.add_box_outlined),
+                    label: const Text('Review as a new batch'),
+                  )
+                : FilledButton.icon(
+                    onPressed: () => openEditor(
+                      context,
+                      widget.controller,
+                      scanDraft: draft,
+                    ),
+                    icon: const Icon(Icons.rate_review_outlined),
+                    label: Text(
+                      review.resolution.kind == IntakeResolutionKind.newStock
+                          ? 'Review & create new medicine ${index + 1}'
+                          : 'Review scanned facts manually',
+                    ),
+                  )),
       ],
     );
   }
