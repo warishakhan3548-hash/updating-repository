@@ -29,6 +29,7 @@ class LocalAiRuntime {
 
   bool get busy => _pending != null;
   bool get available => !_closed && !_closing;
+  int? get loadedContextTokens => _contextTokens;
 
   void _start() {
     if (_subscription != null) return;
@@ -133,6 +134,24 @@ class LocalAiRuntime {
     } catch (_) {}
   }
 
+  /// A failed native load can leave allocator/KV-cache state attached to the
+  /// current transform even though its command completed. Before retrying a
+  /// smaller context, retire that transport completely and invalidate every
+  /// late callback. The model file itself is untouched.
+  Future<void> _restartTransportAfterLoadFailure() async {
+    if (busy) {
+      throw StateError('Local runtime is still processing a failed model load.');
+    }
+    ++_transportEpoch;
+    final commands = _commands;
+    final subscription = _subscription;
+    _commands = null;
+    _subscription = null;
+    modelPath = null;
+    _contextTokens = null;
+    await _disposeTransport(commands, subscription);
+  }
+
   void _complete() {
     final pending = _pending;
     _pending = null;
@@ -196,6 +215,33 @@ class LocalAiRuntime {
     return pending.future;
   }
 
+  List<int> _contextLoadPlan(int requested) {
+    final candidates = <int>[
+      requested,
+      if (requested > 4096) 4096,
+      if (requested > 3072) 3072,
+      if (requested > 2048) 2048,
+    ];
+    final seen = <int>{};
+    return candidates.where(seen.add).toList(growable: false);
+  }
+
+  bool _isResourceLoadFailure(Object error) {
+    final value = error.toString().toLowerCase();
+    // Retry only allocator/context/KV-cache pressure. Corrupt GGUF,
+    // architecture, tokenizer and other compatibility failures remain fail-fast
+    // so a bad model is never disguised as a low-memory phone.
+    return value.contains('out of memory') ||
+        value.contains('memory allocation') ||
+        value.contains('cannot allocate') ||
+        value.contains('failed to allocate') ||
+        value.contains('alloc failed') ||
+        value.contains('kv cache') ||
+        value.contains('kv_cache') ||
+        value.contains('context size') ||
+        value.contains('context buffer');
+  }
+
   Future<void> load(String path, {int contextTokens = 4096}) async {
     if (_closed || _closing || busy) {
       throw StateError('Local runtime is busy or closing.');
@@ -207,23 +253,39 @@ class LocalAiRuntime {
 
     modelPath = null;
     _contextTokens = null;
-    try {
-      await _run(
-        LlamaLoadModelCommand(
-          modelPath: path,
-          contextSize: contextTokens,
-          gpuLayerCount: 0,
-        ),
-      );
-      if (modelPath != path) {
-        throw StateError('Native model did not become ready.');
+    final plan = _contextLoadPlan(contextTokens);
+    Object? lastError;
+    StackTrace? lastStack;
+
+    for (var index = 0; index < plan.length; index++) {
+      final budget = plan[index];
+      try {
+        await _run(
+          LlamaLoadModelCommand(
+            modelPath: path,
+            contextSize: budget,
+            gpuLayerCount: 0,
+          ),
+        );
+        if (modelPath != path) {
+          throw StateError('Native model did not become ready.');
+        }
+        _contextTokens = budget;
+        return;
+      } catch (error, stack) {
+        modelPath = null;
+        _contextTokens = null;
+        lastError = error;
+        lastStack = stack;
+        final retryWithSmallerContext =
+            index + 1 < plan.length && _isResourceLoadFailure(error);
+        if (!retryWithSmallerContext) rethrow;
+        await _restartTransportAfterLoadFailure();
       }
-      _contextTokens = contextTokens;
-    } catch (_) {
-      modelPath = null;
-      _contextTokens = null;
-      rethrow;
     }
+
+    final error = lastError ?? StateError('Native model did not become ready.');
+    Error.throwWithStackTrace(error, lastStack ?? StackTrace.current);
   }
 
   Future<String> generate(
