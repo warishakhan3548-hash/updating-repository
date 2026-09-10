@@ -43,6 +43,16 @@ class LocalBrainRoutePolicy {
     }
   }
 
+  static String? _activeScanReadyModelId(LocalAiService local) {
+    final id = local.activeId;
+    if (id == null ||
+        !local.scannerEnabled ||
+        !local.isModelScanReady(id)) {
+      return null;
+    }
+    return id;
+  }
+
   /// Returns a capture-time proof that Aaris Brain was enabled and a scan-ready
   /// Local AI route existed when this OCR work entered the durable queue.
   ///
@@ -56,7 +66,16 @@ class LocalBrainRoutePolicy {
   /// deterministic OCR, not reject a camera/photo/video capture that is
   /// otherwise perfectly valid.
   static Future<String?> captureModelId(LocalAiService local) async {
+    // The persisted owner switch is the privacy boundary and is always checked
+    // first. Once that asynchronous read returns, Dart cannot interleave another
+    // event before the following synchronous live-route snapshot. If the model
+    // is already connected, return immediately instead of redundantly awaiting
+    // initialize() and reading secure storage a second time. This keeps the
+    // common scan -> OCR -> active Local AI handoff fast without caching consent.
     if (!await enabled()) return null;
+    final readyNow = _activeScanReadyModelId(local);
+    if (readyNow != null) return readyNow;
+
     try {
       await local.initialize().timeout(_routeInitializationTimeout);
 
@@ -65,13 +84,7 @@ class LocalBrainRoutePolicy {
       // never retain stale permission to wake a selected model the owner just
       // disabled.
       if (!await enabled()) return null;
-      final id = local.activeId;
-      if (id == null ||
-          !local.scannerEnabled ||
-          !local.isModelScanReady(id)) {
-        return null;
-      }
-      return id;
+      return _activeScanReadyModelId(local);
     } catch (_) {
       return null;
     }
@@ -91,6 +104,14 @@ class LocalBrainRoutePolicy {
     String? capturedModelId,
   ) async {
     if (capturedModelId == null) return false;
+
+    // Re-check consent first, then use an already-live route without inserting
+    // avoidable setup/storage awaits into every queued draft. This also narrows
+    // the lease-contention window between the intake pump's `busy == false`
+    // observation and LocalAiService.understand() acquiring the model.
+    if (!await enabled()) return false;
+    if (_activeScanReadyModelId(local) != null) return true;
+
     try {
       await local.initialize().timeout(_routeInitializationTimeout);
       if (!await enabled()) return false;
@@ -98,10 +119,7 @@ class LocalBrainRoutePolicy {
       // Both calls above are asynchronous. Re-evaluate the live route only
       // after they complete; the model active *now* is the only model allowed
       // to receive this already-saved OCR payload.
-      final activeId = local.activeId;
-      return activeId != null &&
-          local.scannerEnabled &&
-          local.isModelScanReady(activeId);
+      return _activeScanReadyModelId(local) != null;
     } catch (_) {
       return false;
     }
