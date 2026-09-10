@@ -448,10 +448,23 @@ class _AiScreenState extends State<AiScreen> {
   }
 
   bool _looksLikeAiResponse(String text) {
-    final clean = text.trimLeft();
-    return clean.startsWith('{') ||
-        clean.startsWith('```') ||
-        (clean.contains('aaris.pharmacy.v1') && clean.contains('actions'));
+    var clean = text.trim();
+    if (clean.startsWith('```')) {
+      final firstLine = clean.indexOf('\n');
+      final end = clean.lastIndexOf('```');
+      if (firstLine < 0 || end <= firstLine) return false;
+      final language = clean.substring(3, firstLine).trim().toLowerCase();
+      if (language.isNotEmpty &&
+          language != 'json' &&
+          !language.endsWith('+json')) {
+        return false;
+      }
+      clean = clean.substring(firstLine + 1, end).trim();
+    }
+    return clean.startsWith('{') &&
+        clean.contains('"schema"') &&
+        clean.contains(pharmacySchema) &&
+        (clean.contains('"actions"') || clean.contains('"operations"'));
   }
 
   Future<void> _sendComposer() async {
