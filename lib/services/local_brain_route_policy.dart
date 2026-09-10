@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -22,6 +23,13 @@ class LocalBrainRoutePolicy {
   static const _maxConfigurationCharacters = 64 * 1024;
   static const _configurationReadTimeout = Duration(seconds: 4);
   static const _routeInitializationTimeout = Duration(seconds: 7);
+
+  // Instant review is allowed to queue briefly behind a foreground Local-AI
+  // turn instead of silently dropping the OCR handoff. This is intentionally
+  // bounded: a long model download/setup must never trap the import preview.
+  // Durable intake jobs use retryWhenIdle and therefore keep their own longer-
+  // lived queue semantics.
+  static const _instantLeaseWaitTimeout = Duration(seconds: 30);
 
   static Future<bool> enabled() async {
     try {
@@ -117,9 +125,15 @@ class LocalBrainRoutePolicy {
       return LocalBrainRouteReadiness.unavailable;
     }
 
-    // Re-check consent first, then use an already-live route without inserting
-    // avoidable setup/storage awaits into every queued draft.
+    // Re-check consent first. A load-tested model can still be actively leased
+    // by chat or another scan, so lease state must be checked BEFORE returning
+    // Ready. The old ordering could advertise Ready and then immediately throw
+    // "Local AI is busy" from understand(), dropping an otherwise valid OCR
+    // handoff into deterministic-only review.
     if (!await enabled()) return LocalBrainRouteReadiness.unavailable;
+    if (local.busy || local.transferring) {
+      return LocalBrainRouteReadiness.retryWhenIdle;
+    }
     if (_activeScanReadyModelId(local) != null) {
       return LocalBrainRouteReadiness.ready;
     }
@@ -128,17 +142,17 @@ class LocalBrainRoutePolicy {
       await local.initialize().timeout(_routeInitializationTimeout);
       if (!await enabled()) return LocalBrainRouteReadiness.unavailable;
 
+      // initialize()/secure-storage awaits can cross a foreground Send or model
+      // operation. Re-snapshot lease state before trusting readiness or trying
+      // activation so two callers never race into the exclusive native runtime.
+      if (local.busy || local.transferring) {
+        return LocalBrainRouteReadiness.retryWhenIdle;
+      }
+
       final activeId = _selectedScanModelId(local);
       if (activeId == null) return LocalBrainRouteReadiness.unavailable;
       if (local.isModelScanReady(activeId)) {
         return LocalBrainRouteReadiness.ready;
-      }
-
-      // A busy/transferring runtime is not proof that this route is invalid.
-      // Keep the durable OCR job in reasoning state and retry when the shared
-      // lease becomes idle; LocalAiService listeners close the lost-wakeup race.
-      if (local.busy || local.transferring) {
-        return LocalBrainRouteReadiness.retryWhenIdle;
       }
 
       // Explicit scan capture is allowed to repair the selected local route,
@@ -166,11 +180,59 @@ class LocalBrainRoutePolicy {
     }
   }
 
-  /// Compatibility boolean for call sites that cannot use retry semantics.
+  /// Compatibility boolean for instant-review call sites.
+  ///
+  /// If the only blocker is a currently leased local runtime, wait for the
+  /// service's own ChangeNotifier idle edge and re-run the full privacy/route
+  /// check. This closes the common Send-vs-Scan race without polling and without
+  /// ever allowing a stale model/Brain state to authorize inference. Long model
+  /// transfers remain bounded and fall back to deterministic OCR review.
   static Future<bool> mayReasonWith(
     LocalAiService local,
     String? capturedModelId,
-  ) async =>
-      await reasoningReadiness(local, capturedModelId) ==
-      LocalBrainRouteReadiness.ready;
+  ) async {
+    var readiness = await reasoningReadiness(local, capturedModelId);
+    if (readiness == LocalBrainRouteReadiness.ready) return true;
+    if (readiness != LocalBrainRouteReadiness.retryWhenIdle) return false;
+
+    final watch = Stopwatch()..start();
+    while (readiness == LocalBrainRouteReadiness.retryWhenIdle) {
+      final remaining = _instantLeaseWaitTimeout - watch.elapsed;
+      if (remaining <= Duration.zero ||
+          !await _waitUntilLocalLeaseIsIdle(local, remaining)) {
+        return false;
+      }
+      readiness = await reasoningReadiness(local, capturedModelId);
+    }
+    return readiness == LocalBrainRouteReadiness.ready;
+  }
+
+  static Future<bool> _waitUntilLocalLeaseIsIdle(
+    LocalAiService local,
+    Duration timeout,
+  ) async {
+    if (!local.busy && !local.transferring) return true;
+    if (timeout <= Duration.zero) return false;
+
+    final idle = Completer<void>();
+    void onChanged() {
+      if (!local.busy && !local.transferring && !idle.isCompleted) {
+        idle.complete();
+      }
+    }
+
+    local.addListener(onChanged);
+    try {
+      // Close the lost-wakeup window between the synchronous check above and
+      // listener registration. notifyListeners() also fires when _exclusive or
+      // a transfer releases its lease.
+      onChanged();
+      await idle.future.timeout(timeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    } finally {
+      local.removeListener(onChanged);
+    }
+  }
 }
