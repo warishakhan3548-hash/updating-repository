@@ -2,73 +2,129 @@ import 'dart:async';
 
 import 'package:lib_llama_cpp/lib_llama_cpp.dart';
 
-/// One long-lived inference isolate. Calls are exclusive; a timed-out/cancelled
-/// caller does not create a second native runtime while the first is draining.
-/// Dispose is sent through the command stream so native weights are freed before
-/// the worker is closed (killing an isolate alone can leak FFI allocations).
+/// One long-lived local-AI lease with a restartable llama.cpp transport.
+///
+/// Calls remain exclusive: a timed-out/cancelled native command must finish
+/// before another command can borrow the lease. Transport failure is different:
+/// the failed inference stream is discarded, its callbacks are invalidated by
+/// an epoch, and the next load can create a fresh inference isolate without
+/// forcing the user to disable/re-enable the selected model.
 class LocalAiRuntime {
   LocalAiRuntime({LlamaEngine engine = const LibLlamaCpp()}) : _engine = engine;
+
   final LlamaEngine _engine;
-  final _commands = StreamController<LlamaCommand>();
+  StreamController<LlamaCommand>? _commands;
   StreamSubscription<LlamaResponse>? _subscription;
   Completer<String>? _pending;
   final _text = StringBuffer();
   Object? _commandError;
-  bool _loading = false, _closed = false;
+  bool _loading = false;
+  bool _closed = false;
   bool _closing = false;
   Future<void>? _closeFuture;
   int? _contextTokens;
+  int _transportEpoch = 0;
   String? modelPath;
 
   bool get busy => _pending != null;
+  bool get available => !_closed && !_closing;
 
   void _start() {
-    _subscription ??= _engine
-        .transform(_commands.stream)
-        .listen(
-          (response) {
-            if (_closed) return;
-            if (response is LlamaErrorResponse) {
-              // Do not release the lease before this command's Done event;
-              // otherwise its trailing completion could finish the next call.
-              _commandError ??= StateError(response.message);
-            } else if (response is LlamaTokenResponse) {
-              if (_text.length + response.text.length > 32000) {
-                _commandError ??= StateError(
-                  'Local response exceeds the safety limit.',
-                );
-              } else {
-                _text.write(response.text);
-              }
-            } else if (response is LlamaStateChangedResponse && _loading) {
-              _loading = false;
-              modelPath = response.state.isModelLoaded
-                  ? response.state.modelPath
-                  : null;
-            } else if (response is LlamaToolCallResponse) {
-              _commandError ??= StateError(
-                'Return the app JSON contract, not native function calls.',
-              );
-            } else if (response is LlamaDoneResponse) {
-              _complete();
-            }
-          },
-          onError: (Object error) {
-            // A transport error has no command ID or trustworthy trailing Done.
-            // Poison this runtime; never lend the lease to a later request.
-            _closed = true;
-            modelPath = null;
-            _fail(error);
-          },
-          onDone: () {
-            _closed = true;
-            modelPath = null;
-            _fail(
-              _commandError ??
-                  StateError('Local runtime closed. Reactivate the model.'),
+    if (_subscription != null) return;
+    if (_closed || _closing) {
+      throw StateError('Local runtime is unavailable or closing.');
+    }
+
+    final epoch = ++_transportEpoch;
+    final commands = StreamController<LlamaCommand>();
+    _commands = commands;
+    late final StreamSubscription<LlamaResponse> subscription;
+    subscription = _engine.transform(commands.stream).listen(
+      (response) {
+        if (_closed || epoch != _transportEpoch) return;
+        if (response is LlamaErrorResponse) {
+          // Keep the command lease until Done/onDone. A trailing completion from
+          // this transport can therefore never complete a later command.
+          _commandError ??= StateError(response.message);
+        } else if (response is LlamaTokenResponse) {
+          if (_text.length + response.text.length > 32000) {
+            _commandError ??= StateError(
+              'Local response exceeds the safety limit.',
             );
-          },
+          } else {
+            _text.write(response.text);
+          }
+        } else if (response is LlamaStateChangedResponse && _loading) {
+          _loading = false;
+          modelPath = response.state.isModelLoaded
+              ? response.state.modelPath
+              : null;
+        } else if (response is LlamaToolCallResponse) {
+          _commandError ??= StateError(
+            'Return the app JSON contract, not native function calls.',
+          );
+        } else if (response is LlamaDoneResponse) {
+          _complete();
+        }
+      },
+      onError: (Object error, StackTrace stack) {
+        _invalidateTransport(
+          epoch,
+          commands,
+          subscription,
+          error,
+          stack,
         );
+      },
+      onDone: () {
+        if (_closed || epoch != _transportEpoch) return;
+        _invalidateTransport(
+          epoch,
+          commands,
+          subscription,
+          _commandError ??
+              StateError(
+                'Local runtime transport closed unexpectedly. Retrying is safe.',
+              ),
+          StackTrace.current,
+        );
+      },
+      cancelOnError: false,
+    );
+    _subscription = subscription;
+  }
+
+  void _invalidateTransport(
+    int epoch,
+    StreamController<LlamaCommand> commands,
+    StreamSubscription<LlamaResponse> subscription,
+    Object error,
+    StackTrace stack,
+  ) {
+    if (_closed || epoch != _transportEpoch) return;
+
+    // Invalidate callbacks from this stream before failing its borrower. The
+    // same LocalAiRuntime object can then safely start a brand-new transport on
+    // the next load, while stale Done/onDone events become harmless.
+    ++_transportEpoch;
+    if (identical(_commands, commands)) _commands = null;
+    if (identical(_subscription, subscription)) _subscription = null;
+    modelPath = null;
+    _contextTokens = null;
+    _fail(error, stack);
+    unawaited(_disposeTransport(commands, subscription));
+  }
+
+  Future<void> _disposeTransport(
+    StreamController<LlamaCommand>? commands,
+    StreamSubscription<LlamaResponse>? subscription,
+  ) async {
+    try {
+      await subscription?.cancel();
+    } catch (_) {}
+    try {
+      await commands?.close();
+    } catch (_) {}
   }
 
   void _complete() {
@@ -77,40 +133,64 @@ class LocalAiRuntime {
     _loading = false;
     if (pending != null && !pending.isCompleted) {
       final error = _commandError;
-      if (error != null)
+      if (error != null) {
         pending.completeError(error);
-      else
+      } else {
         pending.complete(_text.toString());
+      }
     }
     _commandError = null;
   }
 
-  void _fail(Object error) {
+  void _fail(Object error, [StackTrace? stack]) {
     final pending = _pending;
     _pending = null;
     _loading = false;
-    if (pending != null && !pending.isCompleted) pending.completeError(error);
+    _commandError = null;
+    if (pending == null || pending.isCompleted) return;
+    if (stack == null) {
+      pending.completeError(error);
+    } else {
+      pending.completeError(error, stack);
+    }
   }
 
   Future<String> _run(LlamaCommand command, {bool disposing = false}) {
-    if (_closed || busy || (_closing && !disposing))
+    if (_closed || busy || (_closing && !disposing)) {
       throw StateError('Local runtime is unavailable or still processing.');
+    }
+
     final pending = Completer<String>();
     _pending = pending;
     _text.clear();
     _commandError = null;
     _loading = command is LlamaLoadModelCommand;
-    _start();
-    _commands.add(command);
+
+    try {
+      _start();
+      final commands = _commands;
+      if (commands == null) {
+        throw StateError('Local runtime transport could not start.');
+      }
+      commands.add(command);
+    } catch (error, stack) {
+      _pending = null;
+      _loading = false;
+      _commandError = null;
+      pending.completeError(error, stack);
+    }
     return pending.future;
   }
 
   Future<void> load(String path, {int contextTokens = 4096}) async {
-    if (_closed || _closing || busy)
+    if (_closed || _closing || busy) {
       throw StateError('Local runtime is busy or closing.');
-    if (contextTokens < 2048 || contextTokens > 8192)
+    }
+    if (contextTokens < 2048 || contextTokens > 8192) {
       throw ArgumentError('Unsupported context budget.');
+    }
     if (modelPath == path && _contextTokens == contextTokens) return;
+
     modelPath = null;
     _contextTokens = null;
     try {
@@ -121,20 +201,24 @@ class LocalAiRuntime {
           gpuLayerCount: 0,
         ),
       );
-      if (modelPath != path)
+      if (modelPath != path) {
         throw StateError('Native model did not become ready.');
+      }
       _contextTokens = contextTokens;
     } catch (_) {
       modelPath = null;
+      _contextTokens = null;
       rethrow;
     }
   }
 
   Future<String> generate(String system, String input, {int maxTokens = 1200}) {
-    if (maxTokens <= 0 || maxTokens > 2048)
+    if (maxTokens <= 0 || maxTokens > 2048) {
       throw ArgumentError('Invalid output token budget.');
-    if (modelPath == null)
+    }
+    if (modelPath == null) {
       throw StateError('Load a local model before generating.');
+    }
     return _run(
       LlamaGenerateMessagesCommand(
         messages: [
@@ -158,21 +242,26 @@ class LocalAiRuntime {
         await pending.future;
       } catch (_) {}
     }
+
     try {
-      if (!_closed && _subscription != null)
-        await _run(const LlamaDisposeCommand(), disposing: true);
+      // Dispose through the healthy command stream so native weights are freed
+      // before its inference isolate exits. A previously failed transport has
+      // already closed its actor, so there is nothing left to dispose there.
+      if (!_closed && _subscription != null) {
+        try {
+          await _run(const LlamaDisposeCommand(), disposing: true);
+        } catch (_) {}
+      }
     } finally {
       modelPath = null;
       _contextTokens = null;
       _closed = true;
-      // Closing a never-listened single-subscription controller does not finish
-      // until a listener appears. It owns no engine in that case.
-      if (_subscription == null) {
-        unawaited(_commands.close());
-      } else {
-        unawaited(_commands.close());
-        await _subscription?.cancel();
-      }
+      ++_transportEpoch;
+      final commands = _commands;
+      final subscription = _subscription;
+      _commands = null;
+      _subscription = null;
+      await _disposeTransport(commands, subscription);
     }
   }
 }
