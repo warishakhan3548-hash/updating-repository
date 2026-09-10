@@ -132,7 +132,7 @@ void _validateMutationShape(InventoryMutation mutation) {
   }
 
   for (final entry in <String, String?>{
-    'AI request': mutation.requestId,
+    'reviewed request': mutation.requestId,
     'undo event': mutation.undoEventId,
   }.entries) {
     final value = entry.value;
@@ -449,14 +449,16 @@ class SqliteInventoryStorage implements InventoryStorage {
       final before = _cached?.revision == diskRevision
           ? _cached!
           : await _read(tx);
-      if (before.revision != mutation.expectedRevision)
+      _validateMutationShape(mutation);
+      if (mutation.requestId != null &&
+          before.receipts.contains(mutation.requestId)) {
+        return before;
+      }
+      if (before.revision != mutation.expectedRevision) {
         throw StateError(
           'Inventory changed. Reopen this review before saving.',
         );
-      _validateMutationShape(mutation);
-      if (mutation.requestId != null &&
-          before.receipts.contains(mutation.requestId))
-        throw StateError('This AI request has already been applied.');
+      }
       final event = makeEvent(before, mutation);
       final after = nextSnapshot(before, mutation, event);
       for (final m in mutation.upserts) {
@@ -533,12 +535,14 @@ class MemoryInventoryStorage implements InventoryStorage {
   Future<InventorySnapshot> load() async => _state;
   @override
   Future<InventorySnapshot> commit(InventoryMutation mutation) async {
-    if (_state.revision != mutation.expectedRevision)
-      throw StateError('Inventory changed. Reopen this review.');
     _validateMutationShape(mutation);
     if (mutation.requestId != null &&
-        _state.receipts.contains(mutation.requestId))
-      throw StateError('Request already applied.');
+        _state.receipts.contains(mutation.requestId)) {
+      return _state;
+    }
+    if (_state.revision != mutation.expectedRevision) {
+      throw StateError('Inventory changed. Reopen this review.');
+    }
     final event = makeEvent(_state, mutation);
     _state = nextSnapshot(_state, mutation, event);
     return _state;

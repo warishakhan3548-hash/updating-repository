@@ -1,8 +1,10 @@
 import '../domain/brain_operations.dart';
+import '../domain/medicine.dart';
 import 'pharmacy_controller.dart';
 
 class ReviewedStockLocationUpdate {
   const ReviewedStockLocationUpdate({
+    required this.requestId,
     required this.baseRevision,
     required this.stockId,
     required this.recordRevision,
@@ -17,6 +19,7 @@ class ReviewedStockLocationUpdate {
     required this.afterLocation,
   });
 
+  final String requestId;
   final int baseRevision;
   final String stockId;
   final int recordRevision;
@@ -60,6 +63,7 @@ extension PharmacyStockLocationOperations on PharmacyController {
     }
     final patch = sanitizeStockLocationPatch(requested);
     return ReviewedStockLocationUpdate(
+      requestId: newId(),
       baseRevision: snapshot.revision,
       stockId: medicine.id,
       recordRevision: medicine.revision,
@@ -78,6 +82,7 @@ extension PharmacyStockLocationOperations on PharmacyController {
   Future<void> applyStockLocationUpdate(
     ReviewedStockLocationUpdate review,
   ) async {
+    if (snapshot.receipts.contains(review.requestId)) return;
     if (review.baseRevision != snapshot.revision) {
       throw StateError(
         'Inventory changed after the location review. Review this move again before saving.',
@@ -115,6 +120,7 @@ extension PharmacyStockLocationOperations on PharmacyController {
         'location': fresh.afterLocation,
       }),
       expectedRevision: review.baseRevision,
+      requestId: review.requestId,
     );
   }
 }
