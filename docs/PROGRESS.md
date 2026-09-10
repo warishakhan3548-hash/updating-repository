@@ -29,8 +29,9 @@
 
 - Aaris Brain can convert explicit add-medicine commands into a review-only editor draft containing only pharmacist-typed facts (quantity, dates, batch/barcode, price and location included). Ambiguous numbers remain text evidence rather than guessed stock or dosage facts.
 - Pharmacist-reviewed FEFO sales, stock corrections/receipts, stock relocation, protected bulk removal and removed-stock restore now carry durable exactly-once request receipts. Duplicate callbacks/retries cannot repeat the physical stock or sale effect; a fresh review intentionally mints a fresh request.
-- Exactly-once receipt memory is capped to the newest 4096 operation intents and SQLite prunes the same recent window. Older callbacks still fail closed through their stale reviewed revision, preventing long-running pharmacies from accumulating permanent O(n) receipt-copy overhead.
+- Exactly-once receipt memory and SQLite persistence are capped to the newest 4096 operation intents. Older callbacks still fail closed through their stale reviewed revision, preventing long-running pharmacies from accumulating permanent O(n) receipt-copy overhead while retaining deterministic replay protection.
 - Exactly-once receipts are enforced again at the authoritative persistence boundary while malformed requests and genuinely stale new requests still fail closed. Undo reverses the stock effect without resurrecting the old request token.
+- Adversarial receipt-retention, concurrent-replay and full Flutter regression checks pass on the upgrade branch; Android compilation remains covered by the repository's standard pharmacy verification workflow.
 - The single SQLite medicine database, explicit confirmations, audit/Undo, sale-ledger firewall, integrity firewall and local-first AI/OCR review boundaries remain authoritative.
 
 ## Completed in source
