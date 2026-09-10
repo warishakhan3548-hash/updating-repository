@@ -374,6 +374,7 @@ class AiService {
         lower.contains('broken pipe') ||
         lower.contains('unexpected end') ||
         lower.contains('stream ended without a usable response') ||
+        lower.contains('stream ended before completing structured output') ||
         lower.contains('network is unreachable');
   }
 
@@ -773,7 +774,43 @@ class AiService {
         'The AI stream ended without a usable response. No inventory changes were made.',
       );
     }
+    // A TCP/proxy stream can close cleanly at the HTTP layer after delivering
+    // only the beginning of the JSON contract. Non-empty output alone is not a
+    // successful pharmacy turn: retry the read-only generation once instead of
+    // rendering a truncated proposal as a final answer. Plain-text compatible
+    // endpoints remain accepted because only obviously structured output is
+    // completeness-checked here.
+    if (_looksIncompleteStructuredResponse(text)) {
+      throw StateError(
+        'The AI stream ended before completing structured output. No inventory changes were made.',
+      );
+    }
     return text;
+  }
+
+  bool _looksIncompleteStructuredResponse(String text) {
+    final clean = text.trim();
+    if (clean.isEmpty) return false;
+
+    if (clean.startsWith('```')) {
+      if (!clean.endsWith('```') || clean.length <= 6) return true;
+      final newline = clean.indexOf('\n');
+      if (newline < 0 || newline >= clean.length - 3) return true;
+      final body = clean.substring(newline + 1, clean.length - 3).trim();
+      if (!body.startsWith('{')) return false;
+      try {
+        return jsonDecode(body) is! Map;
+      } on FormatException {
+        return true;
+      }
+    }
+
+    if (!clean.startsWith('{')) return false;
+    try {
+      return jsonDecode(clean) is! Map;
+    } on FormatException {
+      return true;
+    }
   }
 
   String _cloudDelta(AiConfiguration config, Map<String, dynamic> event) {
