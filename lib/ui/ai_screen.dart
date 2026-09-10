@@ -1277,6 +1277,7 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
   late final TextEditingController key;
   bool obscure = true;
   bool busy = false;
+  bool apiExpanded = false;
   String error = '';
 
   @override
@@ -1335,21 +1336,106 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
     }
   }
 
+  String get _providerLabel =>
+      provider == 'Gemini' ? 'Google Gemini' : 'OpenAI-compatible';
+
+  Widget _apiFields(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+    child: Column(
+      children: [
+        DropdownButtonFormField<String>(
+          initialValue: provider,
+          decoration: const InputDecoration(labelText: 'Provider'),
+          items: const [
+            DropdownMenuItem(value: 'Gemini', child: Text('Google Gemini')),
+            DropdownMenuItem(
+              value: 'Compatible',
+              child: Text('OpenAI-compatible'),
+            ),
+          ],
+          onChanged: busy
+              ? null
+              : (value) => setState(() => provider = value ?? 'Gemini'),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: model,
+          enabled: !busy,
+          decoration: const InputDecoration(labelText: 'Model name'),
+        ),
+        if (provider == 'Compatible') ...[
+          const SizedBox(height: 10),
+          TextField(
+            controller: endpoint,
+            enabled: !busy,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(labelText: 'HTTPS endpoint'),
+          ),
+        ],
+        const SizedBox(height: 10),
+        TextField(
+          controller: key,
+          enabled: !busy,
+          obscureText: obscure,
+          enableSuggestions: false,
+          autocorrect: false,
+          decoration: InputDecoration(
+            labelText: 'API key',
+            helperText: 'Saved securely on this device.',
+            suffixIcon: IconButton(
+              tooltip: obscure ? 'Show API key' : 'Hide API key',
+              onPressed: busy ? null : () => setState(() => obscure = !obscure),
+              icon: Icon(
+                obscure
+                    ? Icons.visibility_rounded
+                    : Icons.visibility_off_rounded,
+              ),
+            ),
+          ),
+        ),
+        if (error.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Text(
+              error,
+              style: const TextStyle(color: red, fontSize: 12),
+            ),
+          ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: busy ? null : _save,
+            icon: const Icon(Icons.lock_rounded),
+            label: Text(busy ? 'Saving…' : 'Save connection'),
+          ),
+        ),
+        if (widget.initial.key.isNotEmpty)
+          TextButton(
+            onPressed: busy ? null : _remove,
+            child: const Text('Remove saved key'),
+          ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    final scheme = Theme.of(context).colorScheme;
+    final configured = widget.initial.key.isNotEmpty;
     return Padding(
       padding: EdgeInsets.only(bottom: bottom),
       child: Container(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * .90,
+          maxHeight: MediaQuery.sizeOf(context).height * .92,
         ),
-        decoration: const BoxDecoration(
-          color: Color(0xFFF8FAFF),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
         ),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1357,7 +1443,7 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                 child: Container(
                   width: 42,
                   height: 4,
-                  margin: const EdgeInsets.only(bottom: 18),
+                  margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
                     color: muted.withAlpha(70),
                     borderRadius: BorderRadius.circular(99),
@@ -1373,14 +1459,14 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                   letterSpacing: -.4,
                 ),
               ),
-              const SizedBox(height: 5),
+              const SizedBox(height: 4),
               const Text(
-                'Models, external AI, or your own API.',
-                style: TextStyle(color: muted, fontSize: 12.5, height: 1.45),
+                'Choose how Aaris uses AI.',
+                style: TextStyle(color: muted, fontSize: 12.5),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 16),
               const LocalModelsPanel(),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
               Material(
                 color: Colors.transparent,
                 child: InkWell(
@@ -1390,192 +1476,131 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                           context,
                           _AiConnectionsSheet.externalAction,
                         ),
-                  borderRadius: BorderRadius.circular(22),
+                  borderRadius: BorderRadius.circular(20),
                   child: Container(
-                    constraints: const BoxConstraints(minHeight: 96),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 16,
+                      horizontal: 15,
+                      vertical: 14,
                     ),
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          _aiPurple.withAlpha(22),
-                          const Color(0xFF4285F4).withAlpha(12),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: _aiPurple.withAlpha(75)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _aiPurple.withAlpha(24),
-                          blurRadius: 20,
-                          spreadRadius: -7,
-                          offset: const Offset(2, 7),
-                        ),
-                      ],
+                      color: _aiPurple.withAlpha(14),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: _aiPurple.withAlpha(60)),
                     ),
                     child: const Row(
                       children: [
                         _ExternalAiIcon(),
-                        SizedBox(width: 15),
+                        SizedBox(width: 13),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
                                 'Connect with Other AI',
                                 style: TextStyle(
                                   color: _aiPurple,
-                                  fontSize: 17,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.w900,
-                                  letterSpacing: -.2,
                                 ),
                               ),
-                              SizedBox(height: 4),
+                              SizedBox(height: 2),
                               Text(
-                                'Share pharmacy TXT · review returned JSON',
-                                style: TextStyle(
-                                  color: muted,
-                                  fontSize: 11.5,
-                                  height: 1.35,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                'Share TXT · bring JSON back for review',
+                                style: TextStyle(color: muted, fontSize: 11.5),
                               ),
                             ],
                           ),
                         ),
-                        SizedBox(width: 8),
                         Icon(
                           Icons.chevron_right_rounded,
                           color: _aiPurple,
-                          size: 28,
+                          size: 26,
                         ),
                       ],
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(child: Divider(color: muted.withAlpha(50))),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 14),
-                    child: Text(
-                      'OR',
-                      style: TextStyle(
-                        color: muted,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: .8,
+              const SizedBox(height: 10),
+              Container(
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withAlpha(90),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    InkWell(
+                      onTap: busy
+                          ? null
+                          : () => setState(() => apiExpanded = !apiExpanded),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 15,
+                          vertical: 14,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: primary.withAlpha(16),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.key_rounded,
+                                color: primary,
+                              ),
+                            ),
+                            const SizedBox(width: 13),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Use AI inside the app',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    configured
+                                        ? '$_providerLabel · Connected'
+                                        : 'API key · Not configured',
+                                    style: const TextStyle(
+                                      color: muted,
+                                      fontSize: 11.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (configured)
+                              const Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                                size: 22,
+                              ),
+                            const SizedBox(width: 6),
+                            Icon(
+                              apiExpanded
+                                  ? Icons.expand_less_rounded
+                                  : Icons.chevron_right_rounded,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  Expanded(child: Divider(color: muted.withAlpha(50))),
-                ],
-              ),
-              const SizedBox(height: 18),
-              const Text(
-                'API connection',
-                style: TextStyle(
-                  color: ink,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
+                    if (apiExpanded) _apiFields(context),
+                  ],
                 ),
               ),
-              const SizedBox(height: 5),
-              const Text(
-                'Key stays in secure device storage.',
-                style: TextStyle(color: muted, fontSize: 11.5, height: 1.4),
-              ),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                initialValue: provider,
-                decoration: const InputDecoration(labelText: 'API format'),
-                items: const [
-                  DropdownMenuItem(
-                    value: 'Gemini',
-                    child: Text('Google Gemini'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'Compatible',
-                    child: Text('OpenAI-compatible'),
-                  ),
-                ],
-                onChanged: busy
-                    ? null
-                    : (value) => setState(() => provider = value ?? 'Gemini'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: model,
-                enabled: !busy,
-                decoration: const InputDecoration(
-                  labelText: 'Model name',
-                  hintText: 'Provider model name',
-                ),
-              ),
-              if (provider == 'Compatible') ...[
-                const SizedBox(height: 12),
-                TextField(
-                  controller: endpoint,
-                  enabled: !busy,
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                    labelText: 'HTTPS endpoint',
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              TextField(
-                controller: key,
-                enabled: !busy,
-                obscureText: obscure,
-                enableSuggestions: false,
-                autocorrect: false,
-                decoration: InputDecoration(
-                  labelText: 'API key',
-                  suffixIcon: IconButton(
-                    tooltip: obscure ? 'Show API key' : 'Hide API key',
-                    onPressed: busy
-                        ? null
-                        : () => setState(() => obscure = !obscure),
-                    icon: Icon(
-                      obscure
-                          ? Icons.visibility_rounded
-                          : Icons.visibility_off_rounded,
-                    ),
-                  ),
-                ),
-              ),
-              if (error.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    error,
-                    style: const TextStyle(color: red, fontSize: 12),
-                  ),
-                ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: busy ? null : _save,
-                  icon: const Icon(Icons.lock_rounded),
-                  label: Text(busy ? 'Saving…' : 'Save AI setup'),
-                ),
-              ),
-              if (widget.initial.key.isNotEmpty)
-                Center(
-                  child: TextButton(
-                    onPressed: busy ? null : _remove,
-                    child: const Text('Remove saved key'),
-                  ),
-                ),
             ],
           ),
         ),

@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+
 import '../domain/local_ai_protocol.dart';
 import '../domain/local_model.dart';
 import '../domain/model_catalogue.dart';
@@ -17,6 +18,10 @@ class LocalAiService extends ChangeNotifier {
   String get activeLabel => '';
   String get executionSummary => '';
   String? get activeId => null;
+  LocalModelSetupStage get setupStage => LocalModelSetupStage.unavailable;
+  InstalledLocalModel? get activeModel => null;
+  bool get ready => false;
+  bool isModelReady(String id) => false;
   List<InstalledLocalModel> get installed => const [];
   List<LocalModelFile> get pendingDownloads => const [];
   Future<void> discardDownload(String sha256) async {}

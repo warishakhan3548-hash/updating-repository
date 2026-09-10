@@ -16,9 +16,8 @@ class LocalModelFile {
   String get label => '$repository · ${filename.split('/').last}';
 
   void validate() {
-    if (!RegExp(
-          r'^[A-Za-z0-9_][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*$',
-        ).hasMatch(repository) ||
+    if (!RegExp(r'^[A-Za-z0-9_][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*$')
+            .hasMatch(repository) ||
         repository.contains('..') ||
         repository.length > 250 ||
         !RegExp(r'^[a-f0-9]{40}$').hasMatch(revision) ||
@@ -146,6 +145,22 @@ class InstalledLocalModel {
     );
   }
 }
+
+enum LocalModelSetupStage {
+  unavailable,
+  chooseModel,
+  downloading,
+  verifying,
+  connecting,
+  testing,
+  ready,
+  attention,
+}
+
+bool isLocalModelReady({
+  required InstalledLocalModel? model,
+  required String? activeId,
+}) => model != null && model.id == activeId && model.smokeTestPassed;
 
 String modelSize(int bytes) => bytes >= 1024 * 1024 * 1024
     ? '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB'
