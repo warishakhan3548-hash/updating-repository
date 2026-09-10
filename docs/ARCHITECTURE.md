@@ -182,6 +182,20 @@ exact ID/fingerprint; they never become fuzzy implicit mutation targets. The Bra
 “next task” route uses the same dependency-aware local operations plan shown in Needs
 Attention, so its recommendation cannot jump ahead of known verification blockers.
 
+## Deterministic operational autopilot
+
+Aaris Brain's **Next task** command is an execution router over the existing local
+Needs Attention plan, not a second automation engine. The router rebuilds the
+attention report from the current Medicine Database, revalidates the exact task
+key immediately before navigation, and stops if that task disappeared or became
+blocked. Exact single-row work opens the authoritative editor; an expired row may
+open the existing protected Expired-removal review directly; grouped/conflicting
+rows require explicit pharmacist selection; purchasing opens Order Review. After
+the workflow closes, Aaris recalculates the queue and reports whether the task is
+resolved, still pending, or replaced by a new next-safe task. The router never
+prefills uncertain medical facts and never commits inventory by itself. Existing
+review, confirmation, revision/CAS, audit and Undo boundaries remain authoritative.
+
 ## Backup and local-only boundary
 
 Full local backup contains medicines (including removed entries), warning

@@ -84,9 +84,7 @@ class _BrainScreenState extends State<BrainScreen> {
       case AppBrainAction.safetyBlocked:
         if (mounted) {
           setState(
-            () => _reply =
-                intent.safetyReason?.message ??
-                'Nothing changed. This command did not pass the deterministic inventory-action safety check.',
+            () => _reply = intent.safetyReason?.message ?? 'Nothing changed. This command did not pass the deterministic inventory-action safety check.',
           );
         }
         return;
@@ -172,8 +170,7 @@ class _BrainScreenState extends State<BrainScreen> {
     );
     if (!mounted) return;
     setState(
-      () => _reply =
-          'Removed-stock review closed. Nothing is restored unless you explicitly confirm the exact archived row; stale reviews fail closed if inventory changes.',
+      () => _reply = 'Removed-stock review closed. Nothing is restored unless you explicitly confirm the exact archived row; stale reviews fail closed if inventory changes.',
     );
   }
 
@@ -181,8 +178,7 @@ class _BrainScreenState extends State<BrainScreen> {
     if (!mounted) return;
     widget.onOpenSection(AppSection.stock);
     setState(
-      () => _reply =
-          'Opening the existing local scanner. Barcode + OCR evidence will be reviewed before any stock can change.',
+      () => _reply = 'Opening the existing local scanner. Barcode + OCR evidence will be reviewed before any stock can change.',
     );
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
@@ -198,8 +194,7 @@ class _BrainScreenState extends State<BrainScreen> {
     }
     if (result.barcode.trim().isEmpty && result.text.trim().isEmpty) {
       setState(
-        () => _reply =
-            'The scan contained no usable barcode or medicine text. Nothing changed.',
+        () => _reply = 'The scan contained no usable barcode or medicine text. Nothing changed.',
       );
       return;
     }
@@ -266,8 +261,7 @@ class _BrainScreenState extends State<BrainScreen> {
         widget.onOpenSection(AppSection.stock);
         if (mounted) {
           setState(
-            () => _reply =
-                'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact medicine first.',
+            () => _reply = 'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact medicine first.',
           );
         }
         return;
@@ -281,8 +275,7 @@ class _BrainScreenState extends State<BrainScreen> {
       if (briefFocus != null) {
         widget.onOpenSection(AppSection.stock);
         setState(
-          () => _reply =
-              'Medicine name, batch, barcode or an exact previous selection is missing. Medicine Database opened instead of guessing which medicine you meant.',
+          () => _reply = 'Medicine name, batch, barcode or an exact previous selection is missing. Medicine Database opened instead of guessing which medicine you meant.',
         );
         return;
       }
@@ -326,8 +319,7 @@ class _BrainScreenState extends State<BrainScreen> {
       await _showMatches(
         viable,
         title: 'Choose medicine for ${_briefLabel(briefFocus)} · $query',
-        emptyReply:
-            'No safe local match found. Aaris will not guess an operational answer.',
+        emptyReply: 'No safe local match found. Aaris will not guess an operational answer.',
         briefFocus: briefFocus,
       );
       return;
@@ -352,8 +344,7 @@ class _BrainScreenState extends State<BrainScreen> {
     if (live == null || live.archived) {
       widget.controller.clearOperationalTarget(anchor.id);
       setState(
-        () => _reply =
-            'That stock entry is no longer active. Choose the medicine again so Aaris can answer from the current inventory snapshot.',
+        () => _reply = 'That stock entry is no longer active. Choose the medicine again so Aaris can answer from the current inventory snapshot.',
       );
       return;
     }
@@ -375,8 +366,7 @@ class _BrainScreenState extends State<BrainScreen> {
         widget.onOpenSection(AppSection.stock);
         if (mounted) {
           setState(
-            () => _reply =
-                'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact stock entry first.',
+            () => _reply = 'I do not have a safe previous medicine target yet. Medicine Database opened so you can choose the exact stock entry first.',
           );
         }
         return;
@@ -396,8 +386,7 @@ class _BrainScreenState extends State<BrainScreen> {
       if (!mounted) return;
       widget.onOpenSection(AppSection.stock);
       setState(
-        () => _reply =
-            'Medicine name, batch, barcode or location is missing. Medicine Database opened so you can choose the exact stock entry safely.',
+        () => _reply = 'Medicine name, batch, barcode or location is missing. Medicine Database opened so you can choose the exact stock entry safely.',
       );
       return;
     }
@@ -1172,56 +1161,211 @@ class _BrainScreenState extends State<BrainScreen> {
     );
   }
 
-  Future<void> _attentionBrief({bool focusNext = false}) async {
+  PharmacyAttentionReport _currentAttentionReport() {
     final range = TrackingRange.lastDays(widget.controller.today, 30);
-    final report = PharmacyAttentionReport.build(
+    return PharmacyAttentionReport.build(
       medicines: widget.controller.records,
       settings: widget.controller.settings,
       today: widget.controller.today,
       reorder: widget.controller.tracking(range).reorder,
       sales: widget.controller.sales,
     );
-    final plan = PharmacyOperationsPlan.build(
-      items: report.items,
-      medicines: widget.controller.records,
-    );
-    final next = plan.nextStep;
+  }
 
-    if (mounted) {
-      setState(() {
-        if (report.isEmpty) {
-          _reply = focusNext
-              ? 'There is no deterministic pharmacist task waiting right now. Nothing changed.'
-              : 'Attention brief: no deterministic operational issue needs attention right now.';
-          return;
-        }
-        if (next == null) {
-          _reply =
-              'Attention queue: ${report.items.length} items, but no downstream task is safe to start until its recorded prerequisites are rechecked. Opening the operating plan; nothing will be changed automatically.';
-          return;
-        }
-        _reply = focusNext
-            ? 'Recommended next: ${next.item.title}. ${next.actionLabel} Opening the deterministic operating plan; dependent work stays blocked until prerequisite facts are verified.'
-            : 'Attention queue: ${report.items.length} item${report.items.length == 1 ? '' : 's'} · ${report.critical} critical · ${report.high} high · ${report.medium} medium · ${plan.readyCount} ready now · ${plan.blockedCount} waiting on prerequisites. Next safe task: ${next.item.title}.';
-      });
+  PharmacyOperationsPlan _currentOperationsPlan(
+    PharmacyAttentionReport report,
+  ) => PharmacyOperationsPlan.build(
+    items: report.items,
+    medicines: widget.controller.records,
+  );
+
+  OperationsPlanStep? _findPlanStep(PharmacyOperationsPlan plan, String key) {
+    for (final step in plan.steps) {
+      if (step.item.key == key) return step;
+    }
+    return null;
+  }
+
+  Future<void> _openRecommendedAttentionStep(
+    OperationsPlanStep proposed,
+  ) async {
+    if (!mounted) return;
+
+    // Never route from a cached operational recommendation. Rebuild the
+    // deterministic report and require the exact attention key to still exist
+    // and still be unblocked immediately before navigation. A concurrent stock
+    // change therefore invalidates the recommendation instead of acting on a
+    // stale task.
+    final liveReport = _currentAttentionReport();
+    final livePlan = _currentOperationsPlan(liveReport);
+    final step = _findPlanStep(livePlan, proposed.item.key);
+    if (step == null || step.blocked) {
+      final replacement = livePlan.nextStep;
+      setState(
+        () => _reply = replacement == null
+            ? 'The operating queue changed before this task opened. Aaris stopped instead of using a stale recommendation. Open Needs attention to review the current verified blockers.'
+            : 'The operating queue changed before this task opened. Nothing was changed. The new next safe task is ${replacement.item.title}.',
+      );
+      if (replacement == null) {
+        await Navigator.push<void>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AttentionScreen(controller: widget.controller),
+          ),
+        );
+      }
+      return;
     }
 
-    if (focusNext && report.isEmpty) return;
+    final item = step.item;
+    if (item.isReorder) {
+      await _reorderReview();
+      return;
+    }
+
+    final records = item.stockIds
+        .map((id) => widget.controller.snapshot.records[id])
+        .whereType<Medicine>()
+        .where((medicine) => !medicine.archived)
+        .toList(growable: false);
+
+    // Cross-row conflicts and grouped FEFO-readiness findings deliberately
+    // require an explicit row choice. Aaris may prioritize the work, but it may
+    // not guess which physical pack the pharmacist intends to correct.
+    if (records.length != 1) {
+      setState(
+        () => _reply = records.isEmpty
+            ? 'That recommended task changed while Aaris was opening it. Nothing was changed; the live operating plan is opening for re-evaluation.'
+            : '${item.title} involves ${records.length} exact stock rows. Aaris opened the operating plan so you can choose the physical row instead of guessing.',
+      );
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AttentionScreen(controller: widget.controller),
+        ),
+      );
+      return;
+    }
+
+    final record = records.single;
+    _remember(record);
+    widget.onOpenSection(AppSection.stock);
+    setState(
+      () => _reply =
+          'Starting the next safe task: ${item.title}. ${step.actionLabel} Aaris has selected only this exact stock ID; no inventory change happens without the existing review/confirmation boundary.',
+    );
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AttentionScreen(controller: widget.controller),
-      ),
-    );
+
+    if (item.kind == AttentionKind.expiredStock) {
+      // Expiry itself is a deterministic stored-date fact. Route straight into
+      // the existing protected Expired removal review, which still shows the
+      // exact stock identity and requires explicit confirmation before archive.
+      await _removeTarget(record, reasonHint: RemovalReasonHint.expired);
+      return;
+    }
+
+    // Verification, quantity, location, FEFO-placement and integrity work all
+    // reuse the authoritative editor. The task router does not prefill uncertain
+    // values and cannot bypass editor/controller validation.
+    await openEditor(context, widget.controller, record: record);
+  }
+
+  void _refreshAttentionReply(String attemptedKey) {
+    if (!mounted) return;
+    final report = _currentAttentionReport();
+    if (report.isEmpty) {
+      setState(
+        () => _reply = 'Task review closed. The deterministic operating queue is clear right now.',
+      );
+      return;
+    }
+
+    final plan = _currentOperationsPlan(report);
+    final attempted = _findPlanStep(plan, attemptedKey);
+    final next = plan.nextStep;
+    setState(() {
+      if (attempted != null) {
+        _reply =
+            'Task review closed. “${attempted.item.title}” still needs attention, so Aaris kept it in the live queue instead of pretending it was completed.${next == null ? '' : ' Next safe task: ${next.item.title}.'}';
+      } else if (next != null) {
+        _reply =
+            'The reviewed task is no longer in the live attention queue. Aaris recalculated from current inventory; next safe task: ${next.item.title}.';
+      } else {
+        _reply = 'The reviewed task changed the queue. Remaining work is waiting on verified prerequisites, so Aaris will not advance automatically.';
+      }
+    });
+  }
+
+  Future<void> _attentionBrief({bool focusNext = false}) async {
+    final report = _currentAttentionReport();
+    final plan = _currentOperationsPlan(report);
+    final next = plan.nextStep;
+
+    if (report.isEmpty) {
+      if (mounted) {
+        setState(
+          () => _reply = focusNext
+              ? 'There is no deterministic pharmacist task waiting right now. Nothing changed.'
+              : 'Attention brief: no deterministic operational issue needs attention right now.',
+        );
+      }
+      return;
+    }
+
+    if (!focusNext) {
+      if (mounted) {
+        setState(
+          () => _reply = next == null
+              ? 'Attention queue: ${report.items.length} items, but no downstream task is safe to start until its recorded prerequisites are rechecked. Opening the operating plan; nothing will be changed automatically.'
+              : 'Attention queue: ${report.items.length} item${report.items.length == 1 ? '' : 's'} · ${report.critical} critical · ${report.high} high · ${report.medium} medium · ${plan.readyCount} ready now · ${plan.blockedCount} waiting on prerequisites. Next safe task: ${next.item.title}.',
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+      if (!mounted) return;
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AttentionScreen(controller: widget.controller),
+        ),
+      );
+      return;
+    }
+
+    if (next == null) {
+      if (mounted) {
+        setState(
+          () => _reply = 'No task can be started safely from the current queue because the remaining work is waiting on verified prerequisites. Opening the operating plan instead; nothing will be changed automatically.',
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+      if (!mounted) return;
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AttentionScreen(controller: widget.controller),
+        ),
+      );
+      return;
+    }
+
+    if (mounted) {
+      setState(
+        () => _reply =
+            'Recommended next: ${next.item.title}. Revalidating the live queue before opening the exact safe workflow…',
+      );
+    }
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    await _openRecommendedAttentionStep(next);
+    if (!mounted) return;
+    _refreshAttentionReply(next.item.key);
   }
 
   void _bulkRemoveBlocked() {
     widget.onOpenSection(AppSection.profile);
     setState(
-      () => _reply =
-          'Bulk removal is intentionally blocked from natural-language commands. Profile opened at the protected owner area; “Remove all inventory” still requires its dedicated multi-step confirmation and a revision-bound inventory review so a voice/AI misunderstanding cannot wipe stock.',
+      () => _reply = 'Bulk removal is intentionally blocked from natural-language commands. Profile opened at the protected owner area; “Remove all inventory” still requires its dedicated multi-step confirmation and a revision-bound inventory review so a voice/AI misunderstanding cannot wipe stock.',
     );
   }
 
@@ -1330,8 +1474,7 @@ class _BrainScreenState extends State<BrainScreen> {
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => unawaited(_run()),
                   decoration: const InputDecoration(
-                    hintText:
-                        'Dolo stock kitna · sell 5 units · restore Dolo · delete karo',
+                    hintText: 'Dolo stock kitna · sell 5 units · restore Dolo · delete karo',
                     prefixIcon: Icon(Icons.bolt_rounded),
                   ),
                 ),

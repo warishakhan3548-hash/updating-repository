@@ -279,4 +279,67 @@ void main() {
       await tester.pump();
     },
   );
+
+  testWidgets(
+    'next task routes expired stock directly to protected review without silent mutation',
+    (tester) async {
+      final medicine = _stock(
+        'autopilot-expired',
+        name: 'ExpiryTask',
+        strength: '500mg',
+        expiry: '2026-09-01',
+        batchNumber: 'EXP-1',
+        location: 'Rack E1',
+        quantity: 4,
+      );
+      final controller = PharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(records: {medicine.id: medicine}),
+        ),
+        clock: () => _today,
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      AppSection? openedSection;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: pharmacyTheme(),
+          home: Scaffold(
+            body: BrainScreen(
+              controller: controller,
+              onOpenSection: (section) => openedSection = section,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final beforeRevision = controller.snapshot.revision;
+      await tester.enterText(find.byType(TextField).first, 'next task');
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(openedSection, AppSection.stock);
+      expect(find.text('Remove ExpiryTask?'), findsOneWidget);
+      expect(find.textContaining('Reason: Expired'), findsOneWidget);
+      expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+      expect(controller.snapshot.revision, beforeRevision);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+      expect(controller.snapshot.revision, beforeRevision);
+      expect(find.textContaining('still needs attention'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await tester.pump();
+    },
+  );
 }

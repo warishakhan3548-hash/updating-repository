@@ -36,12 +36,9 @@ enum AppBrainSafetyReason {
 
 extension AppBrainSafetyReasonMessage on AppBrainSafetyReason {
   String get message => switch (this) {
-    AppBrainSafetyReason.negatedMutation =>
-      'Nothing changed. Aaris understood a negative instruction (“don’t / mat / nahi”), so no inventory action or navigation was started. Say the positive action only when you actually want a reviewed change.',
-    AppBrainSafetyReason.deferredMutation =>
-      'Nothing changed. That inventory instruction is conditional or scheduled for later. Aaris never executes “if / when / kal / later” as if it means now; open the action again when it is actually due.',
-    AppBrainSafetyReason.compoundMutation =>
-      'Nothing changed. That sentence contains more than one inventory-changing operation. Aaris will not execute only the first half of a compound command. Run one reviewed operation at a time so each exact stock target and before/after state is confirmed.',
+    AppBrainSafetyReason.negatedMutation => 'Nothing changed. Aaris understood a negative instruction (“don’t / mat / nahi”), so no inventory action or navigation was started. Say the positive action only when you actually want a reviewed change.',
+    AppBrainSafetyReason.deferredMutation => 'Nothing changed. That inventory instruction is conditional or scheduled for later. Aaris never executes “if / when / kal / later” as if it means now; open the action again when it is actually due.',
+    AppBrainSafetyReason.compoundMutation => 'Nothing changed. That sentence contains more than one inventory-changing operation. Aaris will not execute only the first half of a compound command. Run one reviewed operation at a time so each exact stock target and before/after state is confirmed.',
   };
 }
 
@@ -1435,19 +1432,25 @@ const _analyticsReadTerms = <String>[
 
 const _nextTaskTerms = <String>[
   'next task',
+  'next safe task',
   'next work',
   'next issue',
   'next problem',
   'do next task',
+  'start next task',
+  'start work',
   'open next task',
+  'handle next task',
   'fix next issue',
   'what next',
   'ab kya karu',
   'ab kya karna hai',
   'agla kaam',
+  'agla kaam kholo',
   'agla task',
   'agli problem',
   'अगला काम',
+  'अगला काम खोलो',
   'अगला टास्क',
   'अगली समस्या',
   'अब क्या करूं',

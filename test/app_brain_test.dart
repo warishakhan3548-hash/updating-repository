@@ -271,6 +271,25 @@ void main() {
       expect(intent.confidence, greaterThanOrEqualTo(.98));
     });
 
+    test('routes operational autopilot phrases to the next safe task', () {
+      for (final command in [
+        'next safe task',
+        'start next task',
+        'start work',
+        'agla kaam kholo',
+        'अगला काम खोलो',
+      ]) {
+        final intent = parseAppBrainIntent(command);
+        expect(
+          intent.action,
+          AppBrainAction.nextAttentionTask,
+          reason: command,
+        );
+        expect(intent.destructive, isFalse, reason: command);
+        expect(intent.mutatesInventory, isFalse, reason: command);
+      }
+    });
+
     test('routes stock navigation', () {
       final intent = parseAppBrainIntent('medicine database kholo');
       expect(intent.action, AppBrainAction.navigate);
