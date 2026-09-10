@@ -69,7 +69,7 @@ internal class LocalAiPlatform(private val activity: Activity) {
                     "sdkInt" to Build.VERSION.SDK_INT,
                     "abis" to Build.SUPPORTED_ABIS.toList(),
                     "availableMemory" to memory.availMem,
-                    "lowMemory" to criticalMemory,
+                    "lowMemory" to (criticalMemory || memory.lowMemory),
                     "systemLowMemory" to memory.lowMemory,
                     "memoryClassMb" to manager.memoryClass,
                     "largeMemoryClassMb" to manager.largeMemoryClass,
