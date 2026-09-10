@@ -1,14 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-import 'state/pharmacy_controller.dart';
 import 'domain/app_brain.dart';
 import 'domain/inventory.dart';
+import 'state/autopilot_supervisor.dart';
+import 'state/pharmacy_controller.dart';
+import 'ui/attention_screen.dart';
+import 'ui/autopilot_beacon.dart';
+import 'ui/brain_screen.dart';
 import 'ui/design.dart';
 import 'ui/home_screen.dart';
-import 'ui/search_screen.dart';
-import 'ui/brain_screen.dart';
-import 'ui/stats_screen.dart';
 import 'ui/profile_screen.dart';
+import 'ui/search_screen.dart';
+import 'ui/stats_screen.dart';
 
 ThemeData _appTheme() {
   final base = pharmacyTheme();
@@ -29,20 +34,36 @@ class PharmacyApp extends StatefulWidget {
 }
 
 class _PharmacyAppState extends State<PharmacyApp> with WidgetsBindingObserver {
+  late AarisAutopilotSupervisor _autopilot;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _autopilot = AarisAutopilotSupervisor(widget.controller);
+  }
+
+  @override
+  void didUpdateWidget(covariant PharmacyApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _autopilot.dispose();
+      _autopilot = AarisAutopilotSupervisor(widget.controller);
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) widget.controller.refreshDay();
+    if (state == AppLifecycleState.resumed) {
+      widget.controller.refreshDay();
+      _autopilot.refreshNow();
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _autopilot.dispose();
     super.dispose();
   }
 
@@ -53,13 +74,14 @@ class _PharmacyAppState extends State<PharmacyApp> with WidgetsBindingObserver {
     theme: _appTheme(),
     builder: (context, child) =>
         PharmacyBackdrop(child: child ?? const SizedBox.shrink()),
-    home: _Shell(controller: widget.controller),
+    home: _Shell(controller: widget.controller, autopilot: _autopilot),
   );
 }
 
 class _Shell extends StatefulWidget {
-  const _Shell({required this.controller});
+  const _Shell({required this.controller, required this.autopilot});
   final PharmacyController controller;
+  final AarisAutopilotSupervisor autopilot;
   @override
   State<_Shell> createState() => _ShellState();
 }
@@ -77,6 +99,22 @@ class _ShellState extends State<_Shell> {
       AppSection.profile => 4,
     };
     if (next != tab) setState(() => tab = next);
+  }
+
+  void _openAutopilotQueue() {
+    if (!mounted) return;
+    widget.autopilot.refreshNow();
+    unawaited(
+      Navigator.of(context)
+          .push<void>(
+            MaterialPageRoute(
+              builder: (_) => AttentionScreen(controller: widget.controller),
+            ),
+          )
+          .whenComplete(() {
+            if (mounted) widget.autopilot.refreshNow();
+          }),
+    );
   }
 
   @override
@@ -110,22 +148,40 @@ class _ShellState extends State<_Shell> {
         _ => ProfileScreen(controller: c),
       },
     );
+
     return Scaffold(
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: IndexedStack(
-              index: tab,
-              children: [
-                for (var index = 0; index < 5; index++)
-                  TickerMode(
-                    enabled: index == tab,
-                    child: _visited[index] ?? const SizedBox.shrink(),
-                  ),
-              ],
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: IndexedStack(
+                  index: tab,
+                  children: [
+                    for (var index = 0; index < 5; index++)
+                      TickerMode(
+                        enabled: index == tab,
+                        child: _visited[index] ?? const SizedBox.shrink(),
+                      ),
+                  ],
+                ),
+              ),
             ),
-          ),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 12,
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: AarisAutopilotBeacon(
+                  supervisor: widget.autopilot,
+                  onOpenWorkQueue: _openAutopilotQueue,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
       bottomNavigationBar: SafeArea(
@@ -136,36 +192,52 @@ class _ShellState extends State<_Shell> {
           radius: 24,
           blurSigma: 10,
           elevation: .65,
-          child: NavigationBar(
-            selectedIndex: tab,
-            onDestinationSelected: (index) => setState(() => tab = index),
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home_rounded),
-                label: 'Home',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.inventory_2_outlined),
-                selectedIcon: Icon(Icons.inventory_2_rounded),
-                label: 'Stock',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.psychology_alt_outlined),
-                selectedIcon: Icon(Icons.psychology_alt_rounded),
-                label: 'Aaris Brain',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.calculate_outlined),
-                selectedIcon: Icon(Icons.calculate_rounded),
-                label: 'Calculator',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.person_outline_rounded),
-                selectedIcon: Icon(Icons.person_rounded),
-                label: 'Profile',
-              ),
-            ],
+          child: AnimatedBuilder(
+            animation: widget.autopilot,
+            builder: (context, _) {
+              final digest = widget.autopilot.digest;
+              final issues = digest.isReady ? digest.navigationBadgeCount : 0;
+              final badgeCount = issues > 99 ? 99 : issues;
+              return NavigationBar(
+                selectedIndex: tab,
+                onDestinationSelected: (index) => setState(() => tab = index),
+                destinations: [
+                  const NavigationDestination(
+                    icon: Icon(Icons.home_outlined),
+                    selectedIcon: Icon(Icons.home_rounded),
+                    label: 'Home',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.inventory_2_outlined),
+                    selectedIcon: Icon(Icons.inventory_2_rounded),
+                    label: 'Stock',
+                  ),
+                  NavigationDestination(
+                    icon: Badge.count(
+                      count: badgeCount,
+                      isLabelVisible: issues > 0,
+                      child: const Icon(Icons.psychology_alt_outlined),
+                    ),
+                    selectedIcon: Badge.count(
+                      count: badgeCount,
+                      isLabelVisible: issues > 0,
+                      child: const Icon(Icons.psychology_alt_rounded),
+                    ),
+                    label: 'Aaris Brain',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.calculate_outlined),
+                    selectedIcon: Icon(Icons.calculate_rounded),
+                    label: 'Calculator',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.person_outline_rounded),
+                    selectedIcon: Icon(Icons.person_rounded),
+                    label: 'Profile',
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
