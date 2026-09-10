@@ -86,7 +86,7 @@ class GgufMetadata {
       tensorCount: number('tensorCount') ?? 0,
       contextLength: number('contextLength'),
       layers: number('layers'),
-      embedding: number('embedding_length'),
+      embedding: number('embedding'),
       heads: number('heads'),
       kvHeads: number('kvHeads'),
       keyLength: number('keyLength'),
