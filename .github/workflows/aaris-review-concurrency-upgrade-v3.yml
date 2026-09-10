@@ -1,0 +1,88 @@
+name: Aaris reviewed-action concurrency upgrade v3
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aaris-review-concurrency-upgrade-v3.yml
+permissions:
+  contents: write
+concurrency:
+  group: aaris-reviewed-action-upgrade-v3
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Run Aaris reviewed-action concurrency upgrade v3'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply surgical source patch
+        id: patch
+        continue-on-error: true
+        shell: bash
+        run: python3 tool/one_shot_review_concurrency_upgrade.py > /tmp/aaris-patch.log 2>&1
+      - name: Publish patch diagnostic on failure
+        if: steps.patch.outcome == 'failure'
+        shell: bash
+        run: |
+          cp /tmp/aaris-patch.log docs/AARIS_PATCH_DIAGNOSTIC.txt
+          git config user.name 'Aaris Pharmacy Upgrade Bot'
+          git config user.email 'warishakhan3548@gmail.com'
+          git add docs/AARIS_PATCH_DIAGNOSTIC.txt
+          git commit -m 'Capture Aaris upgrade patch diagnostic [skip ci]'
+          git push origin HEAD:main
+      - name: Stop after patch failure
+        if: steps.patch.outcome == 'failure'
+        run: exit 1
+      - uses: actions/setup-java@v4
+        if: steps.patch.outcome == 'success'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        if: steps.patch.outcome == 'success'
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Format changed Dart sources
+        if: steps.patch.outcome == 'success'
+        run: dart format lib/domain/dispensing_plan.dart lib/state/pharmacy_controller.dart test/autonomous_stock_operations_test.dart test/removed_stock_recovery_test.dart test/fefo_automation_test.dart
+      - name: Resolve pinned dependencies
+        if: steps.patch.outcome == 'success'
+        run: flutter pub get
+      - name: Static analysis
+        if: steps.patch.outcome == 'success'
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+      - name: Focused reviewed-action regressions
+        if: steps.patch.outcome == 'success'
+        run: flutter test test/autonomous_stock_operations_test.dart test/removed_stock_recovery_test.dart test/fefo_automation_test.dart --reporter expanded
+      - name: Full Flutter test suite
+        if: steps.patch.outcome == 'success'
+        run: flutter test --reporter expanded
+      - name: Compile Android integration
+        if: steps.patch.outcome == 'success'
+        run: flutter build apk --debug --no-pub
+      - name: Commit verified upgrade to main
+        if: steps.patch.outcome == 'success'
+        shell: bash
+        run: |
+          git checkout -- pubspec.lock 2>/dev/null || true
+          rm -f .github/workflows/aaris-review-concurrency-upgrade.yml
+          rm -f .github/workflows/aaris-review-concurrency-upgrade-v2.yml
+          rm -f .github/workflows/aaris-review-concurrency-upgrade-v3.yml
+          rm -f tool/one_shot_review_concurrency_upgrade.py
+          rm -f docs/AARIS_PATCH_DIAGNOSTIC.txt
+          git config user.name 'Aaris Pharmacy Upgrade Bot'
+          git config user.email 'warishakhan3548@gmail.com'
+          git add -A -- lib/domain/dispensing_plan.dart lib/state/pharmacy_controller.dart test/autonomous_stock_operations_test.dart test/removed_stock_recovery_test.dart test/fefo_automation_test.dart docs/ARCHITECTURE.md docs/REVIEWED_ACTION_CONCURRENCY_2026_09_10.md docs/AARIS_PATCH_DIAGNOSTIC.txt .github/workflows/aaris-review-concurrency-upgrade.yml .github/workflows/aaris-review-concurrency-upgrade-v2.yml .github/workflows/aaris-review-concurrency-upgrade-v3.yml tool/one_shot_review_concurrency_upgrade.py
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No upgrade diff produced'; exit 1; }
+          git commit -m 'Make reviewed pharmacy actions dependency-scoped [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
