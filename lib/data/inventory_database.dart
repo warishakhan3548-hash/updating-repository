@@ -8,6 +8,13 @@ import '../domain/medicine.dart';
 import '../domain/inventory.dart';
 import '../domain/tracking.dart';
 
+// Idempotency receipts are intentionally bounded. Every reviewed operation also
+// carries the inventory revision it was reviewed against, so a callback older
+// than this recent window still fails closed at the revision gate rather than
+// being replayed. Keeping the window bounded prevents an always-on pharmacy
+// from turning every historical sale into permanent O(n) snapshot-copy cost.
+const int maxRecentOperationReceipts = 4096;
+
 class InventorySnapshot {
   InventorySnapshot({
     this.revision = 0,
@@ -307,10 +314,10 @@ InventorySnapshot nextSnapshot(
     ),
     records: records,
     sales: sales,
-    receipts: {
-      ...before.receipts,
+    receipts: <String>{
       if (mutation.requestId != null) mutation.requestId!,
-    },
+      ...before.receipts,
+    }.take(maxRecentOperationReceipts).toSet(),
     events: [
       event,
       ...before.events.map(
@@ -400,7 +407,11 @@ class SqliteInventoryStorage implements InventoryStorage {
       orderBy: 'revision DESC',
       limit: 200,
     );
-    final receipts = await db.query('receipts');
+    final receipts = await db.query(
+      'receipts',
+      orderBy: 'rowid DESC',
+      limit: maxRecentOperationReceipts,
+    );
     return InventorySnapshot(
       revision: meta['revision'] as int,
       settings: WarningSettings.fromJson(
@@ -498,8 +509,13 @@ class SqliteInventoryStorage implements InventoryStorage {
         'sold_value': after.soldValue,
         'unknown_sold': after.unknownSold,
       }, where: 'id=1');
-      if (mutation.requestId != null)
+      if (mutation.requestId != null) {
         await tx.insert('receipts', {'request_id': mutation.requestId});
+        await tx.rawDelete(
+          'DELETE FROM receipts WHERE rowid NOT IN '
+          '(SELECT rowid FROM receipts ORDER BY rowid DESC LIMIT $maxRecentOperationReceipts)',
+        );
+      }
       await tx.insert('events', {
         'id': event['id'],
         'revision': event['revision'],
