@@ -98,13 +98,14 @@ class InstalledLocalModel {
     required this.label,
     required this.bytes,
     this.source = 'Local import',
+    this.loadTestPassed = false,
     this.smokeTestPassed = false,
     this.metadata,
     this.testedRuntime,
   });
   final String id, label, source;
   final int bytes;
-  final bool smokeTestPassed;
+  final bool loadTestPassed, smokeTestPassed;
   final GgufMetadata? metadata;
   final String? testedRuntime;
   Map<String, Object?> toJson() => {
@@ -112,6 +113,7 @@ class InstalledLocalModel {
     'label': label,
     'bytes': bytes,
     'source': source,
+    'loadTestPassed': loadTestPassed,
     'smokeTestPassed': smokeTestPassed,
     if (metadata != null) 'metadata': metadata!.toJson(),
     if (testedRuntime != null) 'testedRuntime': testedRuntime,
@@ -133,6 +135,10 @@ class InstalledLocalModel {
       source: json['source'] is String
           ? json['source'] as String
           : 'Local import',
+      // Backward compatibility: every old model that passed the stricter scan
+      // smoke test necessarily also passed native load/generation.
+      loadTestPassed:
+          json['loadTestPassed'] == true || json['smokeTestPassed'] == true,
       smokeTestPassed: json['smokeTestPassed'] == true,
       metadata: json['metadata'] is Map
           ? GgufMetadata.fromJson(
@@ -160,7 +166,14 @@ enum LocalModelSetupStage {
 bool isLocalModelReady({
   required InstalledLocalModel? model,
   required String? activeId,
-}) => model != null && model.id == activeId && model.smokeTestPassed;
+}) => model != null && model.id == activeId && model.loadTestPassed;
+
+bool isLocalModelScanReady({
+  required InstalledLocalModel? model,
+  required String? activeId,
+}) =>
+    isLocalModelReady(model: model, activeId: activeId) &&
+    model!.smokeTestPassed;
 
 String modelSize(int bytes) => bytes >= 1024 * 1024 * 1024
     ? '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB'

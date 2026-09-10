@@ -301,9 +301,10 @@ class LocalExecutionPlan {
     required this.estimatedBytes,
     required this.estimatedKvBytes,
     required this.geometryKnown,
+    required this.memoryWarning,
   });
   final int contextTokens, estimatedBytes, estimatedKvBytes;
-  final bool geometryKnown;
+  final bool geometryKnown, memoryWarning;
   int get outputTokens => contextTokens <= 2048
       ? 512
       : contextTokens <= 4096
@@ -335,23 +336,16 @@ LocalExecutionPlan planLocalExecution({
   bool lowMemory = false,
   bool phone = false,
 }) {
-  if (weightBytes < 1024 || lowMemory) {
-    throw StateError(
-      'Device memory is under pressure. Close other apps or choose a smaller model.',
-    );
+  if (weightBytes < 1024) {
+    throw StateError('Invalid local model weight size.');
   }
 
   final constrainedPhone =
       phone &&
-      totalMemory != null &&
-      weightBytes >= (totalMemory * .40).floor();
-  if (phone &&
-      totalMemory != null &&
-      weightBytes > (totalMemory * .62).floor()) {
-    throw StateError(
-      'These model weights are too large for this phone. Choose a smaller quantized model.',
-    );
-  }
+      (lowMemory ||
+          (totalMemory != null &&
+              weightBytes >= (totalMemory * .40).floor()) ||
+          (availableMemory != null && availableMemory < 1024 * _mib));
 
   final totalBudget = totalMemory == null ? null : (totalMemory * .65).floor();
   final availableBudget = availableMemory == null
@@ -363,9 +357,9 @@ LocalExecutionPlan planLocalExecution({
       ? totalBudget
       : math.min(totalBudget, availableBudget);
 
-  // Android can reclaim file-backed mmap pages. A momentarily small availMem
-  // value should reduce the context profile, not automatically reject a 2 GB
-  // model on a 4 GB phone. Truly critical pressure is still vetoed by lowMemory.
+  // llama.cpp maps GGUF tensors from storage and Android can reclaim file-backed
+  // pages. Memory facts are advisory on phones: they select a smaller context
+  // and surface a warning instead of rejecting a model before native load.
   if (phone && totalMemory != null) {
     final reclaimAwareFloor = (totalMemory * .52).floor();
     budget = budget == null
@@ -378,9 +372,11 @@ LocalExecutionPlan planLocalExecution({
             ? const [2048]
             : const [4096, 2048]
       : const [8192, 4096, 2048];
+  LocalExecutionPlan? phoneFallback;
   for (final context in contexts) {
-    if (metadata.contextLength != null && context > metadata.contextLength!)
+    if (metadata.contextLength != null && context > metadata.contextLength!) {
       continue;
+    }
     final knownKv = metadata.kvBytes(context);
     final kv = knownKv ?? context * 256 * 1024;
     final residentWeights = constrainedPhone
@@ -388,15 +384,36 @@ LocalExecutionPlan planLocalExecution({
         : weightBytes;
     final reserve = constrainedPhone ? 320 * _mib : 512 * _mib;
     final bytes = (residentWeights * 1.1 + kv * 1.1).ceil() + reserve;
-    if (budget == null || bytes <= budget)
-      return LocalExecutionPlan(
-        contextTokens: context,
-        estimatedBytes: bytes,
-        estimatedKvBytes: kv,
-        geometryKnown: knownKv != null,
-      );
+    final warning =
+        phone &&
+        (lowMemory ||
+            weightBytes >= 1536 * _mib ||
+            (totalMemory != null &&
+                weightBytes >= (totalMemory * .40).floor()) ||
+            (budget != null && bytes > budget));
+    final plan = LocalExecutionPlan(
+      contextTokens: context,
+      estimatedBytes: bytes,
+      estimatedKvBytes: kv,
+      geometryKnown: knownKv != null,
+      memoryWarning: warning,
+    );
+    if (budget == null || bytes <= budget) return plan;
+    if (phone) phoneFallback = plan;
+  }
+
+  // A phone estimate is not proof that mmap-backed native inference will fail.
+  // Try the smallest supported context and let llama.cpp report the real error.
+  if (phoneFallback != null) {
+    return LocalExecutionPlan(
+      contextTokens: phoneFallback.contextTokens,
+      estimatedBytes: phoneFallback.estimatedBytes,
+      estimatedKvBytes: phoneFallback.estimatedKvBytes,
+      geometryKnown: phoneFallback.geometryKnown,
+      memoryWarning: true,
+    );
   }
   throw StateError(
-    'Model weights + context cache + app headroom do not fit the current memory budget, or its context is below 2048. Choose smaller weights or free memory.',
+    'Model weights + context cache do not fit this non-phone memory budget, or its context is below 2048.',
   );
 }

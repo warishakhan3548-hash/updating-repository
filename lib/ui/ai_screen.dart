@@ -58,6 +58,10 @@ class _AiScreenState extends State<AiScreen> {
   bool _externalReady = false;
   int _generation = 0;
 
+  bool get _hasAiRoute => _configuration.localBrainEnabled
+      ? _local.hasSelection
+      : _configuration.key.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
@@ -120,13 +124,16 @@ class _AiScreenState extends State<AiScreen> {
       builder: (context) =>
           _AiConnectionsSheet(initial: _configuration, service: _service),
     );
+    if (!mounted) return;
+    try {
+      final latest = await _service.loadConfiguration();
+      if (mounted) setState(() => _configuration = latest);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
     if (!mounted || result == null) return;
     if (result == _AiConnectionsSheet.externalAction) {
       await _share();
-      return;
-    }
-    if (result is AiConfiguration) {
-      setState(() => _configuration = result);
     }
   }
 
@@ -226,10 +233,9 @@ class _AiScreenState extends State<AiScreen> {
     try {
       await _local.initialize();
       if (!mounted) return;
-      if (!_local.hasSelection && _configuration.key.isEmpty) {
+      if (!_hasAiRoute) {
         await _openConnections();
-        if (!mounted || (!_local.hasSelection && _configuration.key.isEmpty))
-          return;
+        if (!mounted || !_hasAiRoute) return;
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -325,7 +331,7 @@ class _AiScreenState extends State<AiScreen> {
     }
 
     final localHandler = widget.onLocalCommand;
-    if (localHandler != null) {
+    if (!_hasAiRoute && localHandler != null) {
       String? localReply;
       setState(() {
         _localCommanding = true;
@@ -676,7 +682,7 @@ class _AiScreenState extends State<AiScreen> {
       return Column(
         children: [
           _AiHubHeader(
-            configured: _local.hasSelection || _configuration.key.isNotEmpty,
+            configured: _hasAiRoute,
             onSettings: _openConnections,
           ),
           _AiComposer(
@@ -703,15 +709,26 @@ class _AiScreenState extends State<AiScreen> {
             busy: busy || widget.onQuickAction == null,
             onTap: _runQuickAction,
           ),
-          if (_local.hasSelection)
+          if (_configuration.localBrainEnabled && _local.hasSelection)
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'On-device · ${_local.activeLabel}',
+                  'Aaris Brain · On-device · ${_local.activeLabel}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 10.5, color: muted),
+                ),
+              ),
+            )
+          else if (_configuration.key.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'AI route · ${_configuration.provider} API',
                   style: const TextStyle(fontSize: 10.5, color: muted),
                 ),
               ),
@@ -1275,6 +1292,8 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
   late final TextEditingController model;
   late final TextEditingController endpoint;
   late final TextEditingController key;
+  final local = LocalAiService.instance;
+  late bool localBrainEnabled;
   bool obscure = true;
   bool busy = false;
   bool apiExpanded = false;
@@ -1287,6 +1306,7 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
     model = TextEditingController(text: widget.initial.model);
     endpoint = TextEditingController(text: widget.initial.endpoint);
     key = TextEditingController(text: widget.initial.key);
+    localBrainEnabled = widget.initial.localBrainEnabled;
   }
 
   @override
@@ -1309,8 +1329,11 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
         model: model.text.trim(),
         endpoint: endpoint.text.trim(),
         key: key.text.trim(),
+        localBrainEnabled: false,
       );
+      config.uri;
       await widget.service.saveConfiguration(config);
+      await local.suspend();
       if (mounted) Navigator.pop(context, config);
     } catch (e) {
       if (mounted) {
@@ -1322,6 +1345,84 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
       if (mounted) setState(() => busy = false);
     }
   }
+
+  Future<void> _setLocalBrain(bool value) async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      error = '';
+    });
+    try {
+      if (value) {
+        await local.initialize();
+        final id = local.activeId;
+        if (id == null) {
+          throw StateError('Download or choose a Local AI model first.');
+        }
+        if (!local.isModelReady(id)) await local.activate(id);
+      } else {
+        await local.suspend();
+      }
+      await widget.service.saveConfiguration(
+        widget.initial.copyWith(localBrainEnabled: value),
+      );
+      if (mounted) setState(() => localBrainEnabled = value);
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString().replaceFirst('Bad state: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Widget _brainRouteCard(BuildContext context) => AnimatedBuilder(
+    animation: local,
+    builder: (context, _) => Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: _aiPurple.withAlpha(localBrainEnabled ? 20 : 10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _aiPurple.withAlpha(55)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.psychology_alt_rounded, color: _aiPurple, size: 28),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Activate Aaris Brain',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  localBrainEnabled
+                      ? 'ON · typed messages use ${local.activeLabel.isEmpty ? 'the selected local model' : local.activeLabel}.'
+                      : widget.initial.key.isNotEmpty
+                      ? 'OFF · typed messages use the saved API.'
+                      : local.hasSelection
+                      ? 'OFF · turn on to chat with the selected local model.'
+                      : 'Download a local model below, or add an API key.',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: muted, fontSize: 11.5),
+                ),
+              ],
+            ),
+          ),
+          Switch.adaptive(
+            value: localBrainEnabled,
+            onChanged: busy || (!localBrainEnabled && !local.hasSelection)
+                ? null
+                : _setLocalBrain,
+          ),
+        ],
+      ),
+    ),
+  );
 
   Future<void> _remove() async {
     if (busy) return;
@@ -1466,6 +1567,8 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
               ),
               const SizedBox(height: 16),
               const LocalModelsPanel(),
+              const SizedBox(height: 10),
+              _brainRouteCard(context),
               const SizedBox(height: 14),
               Material(
                 color: Colors.transparent,

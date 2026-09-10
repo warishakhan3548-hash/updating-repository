@@ -1,27 +1,46 @@
 import 'package:aaris_pharmacy/domain/local_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-InstalledLocalModel model({required bool tested}) => InstalledLocalModel(
-  id: 'a' * 64,
-  label: 'Qwen2.5-0.5B.gguf',
-  bytes: 339 * 1024 * 1024,
-  smokeTestPassed: tested,
-);
+InstalledLocalModel model({required bool loaded, required bool scanTested}) =>
+    InstalledLocalModel(
+      id: 'a' * 64,
+      label: 'Qwen2.5-0.5B.gguf',
+      bytes: 339 * 1024 * 1024,
+      loadTestPassed: loaded,
+      smokeTestPassed: scanTested,
+    );
 
 void main() {
-  test(
-    'Ready requires both active selection and passed on-device setup test',
-    () {
-      final downloadedOnly = model(tested: false);
-      expect(
-        isLocalModelReady(model: downloadedOnly, activeId: downloadedOnly.id),
-        isFalse,
-      );
+  test('Chat readiness is independent from strict scan-review readiness', () {
+    final installedOnly = model(loaded: false, scanTested: false);
+    expect(
+      isLocalModelReady(model: installedOnly, activeId: installedOnly.id),
+      isFalse,
+    );
+    final chatReady = model(loaded: true, scanTested: false);
+    expect(isLocalModelReady(model: chatReady, activeId: chatReady.id), isTrue);
+    expect(
+      isLocalModelScanReady(model: chatReady, activeId: chatReady.id),
+      isFalse,
+    );
+    final scanReady = model(loaded: true, scanTested: true);
+    expect(isLocalModelReady(model: scanReady, activeId: null), isFalse);
+    expect(isLocalModelReady(model: scanReady, activeId: 'b' * 64), isFalse);
+    expect(isLocalModelReady(model: scanReady, activeId: scanReady.id), isTrue);
+    expect(
+      isLocalModelScanReady(model: scanReady, activeId: scanReady.id),
+      isTrue,
+    );
+  });
 
-      final tested = model(tested: true);
-      expect(isLocalModelReady(model: tested, activeId: null), isFalse);
-      expect(isLocalModelReady(model: tested, activeId: 'b' * 64), isFalse);
-      expect(isLocalModelReady(model: tested, activeId: tested.id), isTrue);
-    },
-  );
+  test('Old smoke-tested manifests migrate as chat-ready', () {
+    final legacy = InstalledLocalModel.fromJson({
+      'id': 'b' * 64,
+      'label': 'Legacy.gguf',
+      'bytes': 4096,
+      'smokeTestPassed': true,
+    });
+    expect(legacy.loadTestPassed, isTrue);
+    expect(legacy.smokeTestPassed, isTrue);
+  });
 }

@@ -17,13 +17,31 @@ class AiConfiguration {
     this.model = '',
     this.endpoint = '',
     this.key = '',
+    this.localBrainEnabled = false,
   });
   final String provider, model, endpoint, key;
+  final bool localBrainEnabled;
+
+  AiConfiguration copyWith({
+    String? provider,
+    String? model,
+    String? endpoint,
+    String? key,
+    bool? localBrainEnabled,
+  }) => AiConfiguration(
+    provider: provider ?? this.provider,
+    model: model ?? this.model,
+    endpoint: endpoint ?? this.endpoint,
+    key: key ?? this.key,
+    localBrainEnabled: localBrainEnabled ?? this.localBrainEnabled,
+  );
+
   Map<String, dynamic> toJson() => {
     'provider': provider,
     'model': model,
     'endpoint': endpoint,
     'key': key,
+    'localBrainEnabled': localBrainEnabled,
   };
   factory AiConfiguration.fromJson(Map<String, dynamic> data) =>
       AiConfiguration(
@@ -31,6 +49,7 @@ class AiConfiguration {
         model: data['model'] as String? ?? '',
         endpoint: data['endpoint'] as String? ?? '',
         key: data['key'] as String? ?? '',
+        localBrainEnabled: data['localBrainEnabled'] == true,
       );
   Uri get uri {
     if (model.trim().isEmpty || key.trim().isEmpty)
@@ -62,18 +81,17 @@ class AiService {
   http.Client? _client;
   bool _localRequest = false;
   Future<AiConfiguration> loadConfiguration() async {
-    // AI Hub startup is also a route warm-up: restore an already-installed
-    // Aaris Default AI before the UI decides that a cloud connection is needed.
-    // No inventory is read or exported during this preflight.
-    await preparePreferredLocalRoute();
+    final local = LocalAiService.instance;
+    await local.initialize();
     final raw = await _storage.read(key: 'pharmacy.ai.configuration');
-    return raw == null
+    final config = raw == null
         ? const AiConfiguration()
         : AiConfiguration.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    if (config.localBrainEnabled) await preparePreferredLocalRoute();
+    return config;
   }
 
   Future<void> saveConfiguration(AiConfiguration config) async {
-    config.uri;
     await _storage.write(
       key: 'pharmacy.ai.configuration',
       value: jsonEncode(config.toJson()),
@@ -108,12 +126,17 @@ class AiService {
     required LocalInventoryContext localContext,
     String conversation = '',
   }) async {
-    final hasLocalRoute = await preparePreferredLocalRoute();
     final local = LocalAiService.instance;
 
-    // Selection is authoritative even while unloaded/missing/busy. No local
-    // failure can fall through to config.uri or the HTTP client below.
-    if (hasLocalRoute) {
+    // One explicit route owns typed chat. Local failures never fall through to
+    // the API; API mode never wakes or consults the local model.
+    if (config.localBrainEnabled) {
+      final hasLocalRoute = await preparePreferredLocalRoute();
+      if (!hasLocalRoute) {
+        throw StateError(
+          'Aaris Brain is on, but no local model is selected. Choose a model or turn Aaris Brain off.',
+        );
+      }
       _localRequest = true;
       try {
         return await local.ask(

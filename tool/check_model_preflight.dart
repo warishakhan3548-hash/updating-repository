@@ -152,21 +152,23 @@ Future<void> main() async {
     availableMemory: 700 * 1024 * 1024,
   );
   check(
-    fourGbTwoGb.contextTokens == 2048,
-    '4 GB phone admits a 2 GB mmap-backed model with constrained context',
+    fourGbTwoGb.contextTokens == 2048 && fourGbTwoGb.memoryWarning,
+    '4 GB phone admits a 2 GB mmap-backed model with a heavy-model warning',
   );
   check(
     fourGbTwoGb.estimatedBytes < 2 * gib,
     'Constrained phone estimates active mmap working set, not the whole GGUF file',
   );
-  rejects(
-    () => planLocalExecution(
-      weightBytes: 2700 * 1024 * 1024,
-      metadata: model,
-      phone: true,
-      totalMemory: 4 * gib,
-      availableMemory: 3 * gib,
-    ),
+  final veryLargePhone = planLocalExecution(
+    weightBytes: 2700 * 1024 * 1024,
+    metadata: model,
+    phone: true,
+    totalMemory: 4 * gib,
+    availableMemory: 3 * gib,
+  );
+  check(
+    veryLargePhone.contextTokens == 2048 && veryLargePhone.memoryWarning,
+    'Phone RAM estimate warns but does not pre-block a large mmap-backed model',
   );
   final desktop = planLocalExecution(
     weightBytes: 2 * gib,
@@ -183,9 +185,17 @@ Future<void> main() async {
       availableMemory: gib,
     ),
   );
-  rejects(
-    () =>
-        planLocalExecution(weightBytes: gib, metadata: model, lowMemory: true),
+  final pressuredPhone = planLocalExecution(
+    weightBytes: gib,
+    metadata: model,
+    phone: true,
+    totalMemory: 4 * gib,
+    availableMemory: 600 * 1024 * 1024,
+    lowMemory: true,
+  );
+  check(
+    pressuredPhone.contextTokens == 2048 && pressuredPhone.memoryWarning,
+    'Phone memory pressure becomes a warning and conservative context',
   );
   rejects(
     () => planLocalExecution(
@@ -200,8 +210,8 @@ Future<void> main() async {
     'smokeTestPassed': true,
   });
   check(
-    legacy.metadata == null && legacy.smokeTestPassed,
-    'Old installed manifests still load',
+    legacy.metadata == null && legacy.smokeTestPassed && legacy.loadTestPassed,
+    'Old installed manifests migrate to chat-ready',
   );
   validateContextBudget(
     promptTokens: 3072,

@@ -39,7 +39,8 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   LocalExecutionPlan? _executionPlan;
   String get executionSummary => _executionPlan == null
       ? ''
-      : '${_executionPlan!.contextTokens} token context · estimated ${modelSize(_executionPlan!.estimatedBytes)} working memory';
+      : '${_executionPlan!.contextTokens} token context · estimated ${modelSize(_executionPlan!.estimatedBytes)} working memory${_executionPlan!.memoryWarning ? ' · heavy model' : ''}';
+  bool get memoryWarning => _executionPlan?.memoryWarning ?? false;
 
   bool get supported =>
       Platform.isAndroid ||
@@ -58,9 +59,17 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   InstalledLocalModel? get activeModel =>
       _models.where((model) => model.id == _activeId).firstOrNull;
   bool get ready => isLocalModelReady(model: activeModel, activeId: _activeId);
+  bool get scanReady =>
+      isLocalModelScanReady(model: activeModel, activeId: _activeId);
   bool isModelReady(String id) =>
       _activeId == id &&
       isLocalModelReady(
+        model: _models.where((model) => model.id == id).firstOrNull,
+        activeId: _activeId,
+      );
+  bool isModelScanReady(String id) =>
+      _activeId == id &&
+      isLocalModelScanReady(
         model: _models.where((model) => model.id == id).firstOrNull,
         activeId: _activeId,
       );
@@ -602,7 +611,9 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     if (model == null) throw StateError('Download or import this model first.');
     if (isModelReady(id)) {
       _setupStage = LocalModelSetupStage.ready;
-      _status = 'Local AI Ready';
+      _status = isModelScanReady(id)
+          ? 'Local AI Ready'
+          : 'Local AI Ready · chat works; scan review not verified';
       return;
     }
     final previous = _activeId;
@@ -614,45 +625,58 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       _status = 'Checking model…';
       notifyListeners();
       final metadata = await _checkGguf(file);
-      if (await _hash(file.path) != id)
+      if (await _hash(file.path) != id) {
         throw StateError(
           'Model changed since installation. Re-import a trusted file.',
         );
+      }
       _checkRequest(generation);
       _setupStage = LocalModelSetupStage.connecting;
       _status = 'Connecting on this device…';
       notifyListeners();
       await _loadSelected();
+
+      var scanTestPassed = true;
       _setupStage = LocalModelSetupStage.testing;
       for (var i = 0; i < localSetupChecks.length; i++) {
         final probe = localSetupChecks[i];
-        _status = 'Testing on this phone…';
+        _status = 'Testing optional scan review…';
         notifyListeners();
-        final answer = localJsonObject(
-          await _runtime!.generate(
-            localSetupPrompt,
-            jsonEncode({'SOURCE': probe.source}),
-            maxTokens: 180,
-          ),
+        final raw = await _runtime!.generate(
+          localSetupPrompt,
+          jsonEncode({'SOURCE': probe.source}),
+          maxTokens: 180,
         );
         _checkRequest(generation);
-        if (!passesLocalSetup(answer, probe))
-          throw StateError(
-            'Setup check ${i + 1} failed: printed fields/unknowns/decimal or denominator handling. Try another instruction-tuned model.',
-          );
+        Map<String, dynamic> answer;
+        try {
+          answer = localJsonObject(raw);
+        } on FormatException {
+          scanTestPassed = false;
+          break;
+        }
+        if (!passesLocalSetup(answer, probe)) {
+          scanTestPassed = false;
+          break;
+        }
       }
       _models[_models.indexOf(model)] = InstalledLocalModel(
         id: model.id,
         label: model.label,
         bytes: model.bytes,
         source: model.source,
-        smokeTestPassed: true,
+        loadTestPassed: true,
+        smokeTestPassed: scanTestPassed,
         metadata: metadata,
-        testedRuntime: '$localRuntimeBuild/setup-$localSetupCheckVersion',
+        testedRuntime: scanTestPassed
+            ? '$localRuntimeBuild/setup-$localSetupCheckVersion'
+            : '$localRuntimeBuild/chat-load',
       );
       await _save();
       _setupStage = LocalModelSetupStage.ready;
-      _status = 'Local AI Ready';
+      _status = scanTestPassed
+          ? 'Local AI Ready'
+          : 'Local AI Ready · chat works; scan review not verified';
     } catch (_) {
       _activeId = previous;
       final index = _models.indexWhere((m) => m.id == model.id);
@@ -666,6 +690,13 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
           : 'This model could not become Ready';
       rethrow;
     }
+  });
+
+  Future<void> suspend() => _exclusive((_) async {
+    await _release();
+    _status = hasSelection
+        ? 'Local model selected · Aaris Brain off'
+        : 'Local AI stopped';
   });
 
   Future<void> deactivate() => _exclusive((_) async {
@@ -683,8 +714,10 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   });
 
   Future<void> setScannerEnabled(bool value) => _exclusive((_) async {
-    if (value && !ready) {
-      throw StateError('Choose a local model and wait for Ready first.');
+    if (value && !scanReady) {
+      throw StateError(
+        'This model is Chat Ready but has not passed the stricter scan-review test.',
+      );
     }
     final previous = _scannerEnabled;
     _scannerEnabled = value;
@@ -734,7 +767,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         maxTokens: _executionPlan!.outputTokens,
       );
       _checkRequest(generation);
-      final answer = localJsonObject(raw);
+      final answer = localChatObject(raw);
       if (!answer.containsKey('tool')) {
         _status = 'Local answer ready · proposed changes require review';
         return context.finish(answer);
@@ -766,7 +799,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<MedicineScanDraft> understand(MedicineScanDraft draft) async {
     await initialize();
-    if (!hasSelection || !scannerEnabled) return draft;
+    if (!hasSelection || !scannerEnabled || !scanReady) return draft;
     return _exclusive((generation) async {
       await _loadSelected();
       _checkRequest(generation);
@@ -815,11 +848,8 @@ Future<Map<String, dynamic>?> _checkResources({
       'Not enough free storage for the model plus 512 MB safety reserve.',
     );
   }
-  if (weightBytes > 0 && info?['lowMemory'] == true) {
-    throw StateError(
-      'Device memory is under pressure. Close other apps or choose smaller weights.',
-    );
-  }
+  // Memory data is advisory. The planner chooses context/warning; native
+  // llama.cpp remains the final authority on whether the weights can load.
   return info;
 }
 

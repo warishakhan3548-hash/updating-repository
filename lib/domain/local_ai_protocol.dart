@@ -26,6 +26,23 @@ Map<String, dynamic> localJsonObject(String input) {
   return value;
 }
 
+Map<String, dynamic> localChatObject(String input) {
+  try {
+    return localJsonObject(input);
+  } on FormatException {
+    final text = input.trim();
+    final lower = text.toLowerCase();
+    final looksStructured =
+        text.contains('{') ||
+        text.contains('}') ||
+        lower.contains('\"tool\"') ||
+        lower.contains('\"actions\"') ||
+        lower.contains('\"op\"');
+    if (text.isEmpty || text.length > 4000 || looksStructured) rethrow;
+    return {'reply': _bounded(text, 2000), 'actions': <Object?>[]};
+  }
+}
+
 String _bounded(String value, int length) =>
     value.length <= length ? value : value.substring(0, length);
 

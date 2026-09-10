@@ -173,14 +173,17 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
     LocalModelSetupStage.verifying => 'Checking download…',
     LocalModelSetupStage.connecting => 'Connecting…',
     LocalModelSetupStage.testing => 'Testing on this phone…',
-    LocalModelSetupStage.ready => 'Local AI · Ready',
+    LocalModelSetupStage.ready =>
+      local.scanReady ? 'Local AI · Ready' : 'Local AI · Chat Ready',
     LocalModelSetupStage.attention => 'Setup needs attention',
   };
 
   String _stageSubtitle() {
     final active = local.activeModel;
     if (local.setupStage == LocalModelSetupStage.ready && active != null) {
-      return '${_shortLabel(active.label)} · ${modelSize(active.bytes)} · Active';
+      return local.scanReady
+          ? '${_shortLabel(active.label)} · ${modelSize(active.bytes)} · Active'
+          : '${_shortLabel(active.label)} · ${modelSize(active.bytes)} · Active · scan review not verified';
     }
     if (local.setupStage == LocalModelSetupStage.downloading &&
         local.progress != null) {
@@ -310,7 +313,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                 : () async {
                     if (await _confirm(
                       'Set up Aaris recommended AI?',
-                      'Aaris will download it, check it, test it on this phone, and show Ready only if it works.',
+                      'Aaris will download, verify and load it. Chat can work even if this model does not pass the optional stricter scan-review check.',
                     )) {
                       await _run(defaults.installAndActivate);
                     }
@@ -441,7 +444,9 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
                       : () async {
                           if (await _confirm(
                             'Download and use this model?',
-                            '${modelSize(file.bytes)} download. Aaris will verify and test it before showing Ready.',
+                            file.bytes >= 1536 * 1024 * 1024
+                                ? '${modelSize(file.bytes)} download. This is a large local model and may be slower or heavy on some phones. Aaris will still try it instead of blocking it from a RAM estimate.'
+                                : '${modelSize(file.bytes)} download. Aaris will verify it and try the native model on this phone.',
                           )) {
                             await _run(() => local.download(file));
                           }
@@ -601,7 +606,9 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
               ),
               subtitle: Text(
                 local.isModelReady(model.id)
-                    ? '${modelSize(model.bytes)} · Ready'
+                    ? local.isModelScanReady(model.id)
+                          ? '${modelSize(model.bytes)} · Ready'
+                          : '${modelSize(model.bytes)} · Chat Ready · scan review limited'
                     : '${modelSize(model.bytes)} · Installed',
               ),
               trailing: local.isModelReady(model.id)
@@ -663,6 +670,17 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
           ),
           const SizedBox(height: 10),
           _statusCard(context),
+          if (local.ready && local.memoryWarning) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Large-model mode · this model may use more memory or run slower. Aaris will still try native inference instead of blocking it by RAM estimate.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.tertiary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
           if (local.transferring) ...[
             const SizedBox(height: 8),
             LinearProgressIndicator(value: local.progress),
@@ -692,12 +710,14 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
               style: TextStyle(fontWeight: FontWeight.w800),
             ),
             subtitle: Text(
-              local.ready
-                  ? 'Use the Ready model after OCR.'
-                  : 'Choose a model and wait for Ready first.',
+              local.scanReady
+                  ? 'Use the scan-verified model after OCR.'
+                  : local.ready
+                  ? 'Chat is Ready. This model did not pass the stricter scan-review check.'
+                  : 'Choose a model and wait for Chat Ready first.',
             ),
-            value: local.ready && local.scannerEnabled,
-            onChanged: local.ready && !_locked
+            value: local.scanReady && local.scannerEnabled,
+            onChanged: local.scanReady && !_locked
                 ? (value) => _run(() => local.setScannerEnabled(value))
                 : null,
           ),
@@ -748,9 +768,9 @@ String _friendlyError(Object error) {
   if (lower.contains('storage'))
     return 'Not enough phone storage for this model. Choose a smaller one.';
   if (lower.contains('memory') || lower.contains('ram'))
-    return 'This model is too large for the phone right now. Close other apps or choose a smaller model.';
+    return 'The native model load could not start right now. Aaris does not block models by a RAM estimate; close other apps and retry if needed.';
   if (lower.contains('setup check') || lower.contains('activation'))
-    return 'This model could not pass the on-device test. Try another model.';
+    return 'The optional scan-review test was not verified. Chat can still be used when the model shows Chat Ready.';
   if (lower.contains('paused'))
     return 'Download paused. You can resume it below.';
   if (lower.contains('publisher access') || lower.contains('gated'))

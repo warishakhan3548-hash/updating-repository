@@ -57,7 +57,12 @@ class _BrainScreenState extends State<BrainScreen> {
     // intents are intercepted here. Unknown text falls straight through to the
     // existing AI/JSON composer, so one field safely serves both engines.
     final preParsed = _pendingChoice == null ? parseAppBrainIntent(text) : null;
-    if (preParsed?.action == AppBrainAction.unknown) return null;
+    if (_pendingChoice == null &&
+        (preParsed == null ||
+            preParsed.action == AppBrainAction.unknown ||
+            preParsed.confidence < .90)) {
+      return null;
+    }
 
     if (mounted) {
       setState(() {
