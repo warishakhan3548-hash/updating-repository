@@ -38,19 +38,26 @@ internal class LocalAiPlatform(private val activity: Activity) {
                 val manager = activity.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
                 val memory = ActivityManager.MemoryInfo()
                 manager.getMemoryInfo(memory)
-                // LocalAiService treats lowMemory as a hard admission veto. Android's
-                // MemoryInfo.lowMemory is a much earlier system pressure signal and
-                // can stay true on 4 GB phones that can still run mmap-backed GGUF
-                // weights. Surface only genuinely critical headroom as the veto and
-                // preserve Android's raw signal separately for diagnostics.
+                // These facts are advisory planning signals, never a model-size
+                // admission veto. mmap-backed GGUF weights can remain usable even
+                // when Android reports pressure; the native loader is the final
+                // compatibility/allocation authority and Flutter surfaces warnings.
                 val criticalFloor = maxOf(384L * 1024 * 1024, memory.totalMem / 12)
                 val criticalMemory = memory.availMem < criticalFloor
-                result.success(mapOf("totalMemory" to memory.totalMem,
-                    "sdkInt" to Build.VERSION.SDK_INT, "abis" to Build.SUPPORTED_ABIS.toList(),
-                    "availableMemory" to memory.availMem, "lowMemory" to criticalMemory,
+                result.success(mapOf(
+                    "totalMemory" to memory.totalMem,
+                    "sdkInt" to Build.VERSION.SDK_INT,
+                    "abis" to Build.SUPPORTED_ABIS.toList(),
+                    "availableMemory" to memory.availMem,
+                    "lowMemory" to criticalMemory,
                     "systemLowMemory" to memory.lowMemory,
+                    "memoryClassMb" to manager.memoryClass,
+                    "largeMemoryClassMb" to manager.largeMemoryClass,
+                    "isLowRamDevice" to manager.isLowRamDevice,
+                    "appHeapLimit" to Runtime.getRuntime().maxMemory(),
                     "freeStorage" to StatFs(activity.filesDir.absolutePath).availableBytes,
-                    "cores" to Runtime.getRuntime().availableProcessors()))
+                    "cores" to Runtime.getRuntime().availableProcessors(),
+                ))
             }
             "startOfflineSpeech" -> {
                 if (pending != null) {

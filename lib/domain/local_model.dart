@@ -168,7 +168,18 @@ bool isLocalModelReady({
   required String? activeId,
 }) => model != null && model.id == activeId && model.loadTestPassed;
 
+/// Admission for OCR handoff follows the active model's successful native load
+/// test. The stricter extraction probe remains a useful quality signal, but it
+/// is deliberately not a hard gate: new/large GGUF families can still receive
+/// OCR and every proposed field is evidence-checked before the review UI can
+/// save anything.
 bool isLocalModelScanReady({
+  required InstalledLocalModel? model,
+  required String? activeId,
+}) => isLocalModelReady(model: model, activeId: activeId);
+
+/// Diagnostic quality signal retained separately from scan admission.
+bool isLocalModelScanVerified({
   required InstalledLocalModel? model,
   required String? activeId,
 }) =>

@@ -18,6 +18,7 @@ class LocalAiRuntime {
   Completer<String>? _pending;
   final _text = StringBuffer();
   Object? _commandError;
+  void Function(String token)? _onToken;
   bool _loading = false;
   bool _closed = false;
   bool _closing = false;
@@ -53,6 +54,11 @@ class LocalAiRuntime {
             );
           } else {
             _text.write(response.text);
+            // Emit only tokens owned by this transport epoch. A consumer callback
+            // is observational and can never be allowed to crash inference.
+            try {
+              _onToken?.call(response.text);
+            } catch (_) {}
           }
         } else if (response is LlamaStateChangedResponse && _loading) {
           _loading = false;
@@ -131,6 +137,7 @@ class LocalAiRuntime {
     final pending = _pending;
     _pending = null;
     _loading = false;
+    _onToken = null;
     if (pending != null && !pending.isCompleted) {
       final error = _commandError;
       if (error != null) {
@@ -147,6 +154,7 @@ class LocalAiRuntime {
     _pending = null;
     _loading = false;
     _commandError = null;
+    _onToken = null;
     if (pending == null || pending.isCompleted) return;
     if (stack == null) {
       pending.completeError(error);
@@ -155,7 +163,11 @@ class LocalAiRuntime {
     }
   }
 
-  Future<String> _run(LlamaCommand command, {bool disposing = false}) {
+  Future<String> _run(
+    LlamaCommand command, {
+    bool disposing = false,
+    void Function(String token)? onToken,
+  }) {
     if (_closed || busy || (_closing && !disposing)) {
       throw StateError('Local runtime is unavailable or still processing.');
     }
@@ -164,6 +176,7 @@ class LocalAiRuntime {
     _pending = pending;
     _text.clear();
     _commandError = null;
+    _onToken = onToken;
     _loading = command is LlamaLoadModelCommand;
 
     try {
@@ -177,6 +190,7 @@ class LocalAiRuntime {
       _pending = null;
       _loading = false;
       _commandError = null;
+      _onToken = null;
       pending.completeError(error, stack);
     }
     return pending.future;
@@ -212,7 +226,12 @@ class LocalAiRuntime {
     }
   }
 
-  Future<String> generate(String system, String input, {int maxTokens = 1200}) {
+  Future<String> generate(
+    String system,
+    String input, {
+    int maxTokens = 1200,
+    void Function(String token)? onToken,
+  }) {
     if (maxTokens <= 0 || maxTokens > 2048) {
       throw ArgumentError('Invalid output token budget.');
     }
@@ -229,6 +248,7 @@ class LocalAiRuntime {
         temperature: 0,
         topP: 1,
       ),
+      onToken: onToken,
     );
   }
 
@@ -255,6 +275,7 @@ class LocalAiRuntime {
     } finally {
       modelPath = null;
       _contextTokens = null;
+      _onToken = null;
       _closed = true;
       ++_transportEpoch;
       final commands = _commands;
