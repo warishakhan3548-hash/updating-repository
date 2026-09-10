@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
+import '../domain/gs1_healthcare.dart';
 import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
 
@@ -311,12 +312,25 @@ double _lineQuality(String value) {
 }
 
 List<String> _rankBarcodes(Iterable<String> input) {
-  final values = input.map((value) => value.trim()).toSet().toList();
-  values.sort((a, b) {
+  final values = <String>{};
+  for (final candidate in input.take(24)) {
+    final raw = candidate.trim();
+    if (raw.isEmpty) continue;
+    values.add(raw);
+
+    // GS1 healthcare DataMatrix commonly carries a GTIN plus batch/expiry in one
+    // element string. Preserve the complete raw payload for future traceability,
+    // but also expose its verified GTIN as a canonical barcode candidate. That
+    // lets the existing private inventory knowledge index hit the exact product
+    // instead of treating a structured GS1 payload as an unrelated long string.
+    final gs1 = parseGs1HealthcareBarcode(raw);
+    if (gs1 != null && gs1.gtin.isNotEmpty) values.add(gs1.gtin);
+  }
+  final ranked = values.toList(growable: false)..sort((a, b) {
     final score = _barcodeScore(b).compareTo(_barcodeScore(a));
     return score != 0 ? score : a.compareTo(b);
   });
-  return values.take(8).toList(growable: false);
+  return ranked.take(8).toList(growable: false);
 }
 
 int _barcodeScore(String value) {

@@ -67,6 +67,14 @@ class LocalBrainRoutePolicy {
     return id;
   }
 
+  static bool _leaseContention(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('local ai is busy') ||
+        message.contains('runtime is unavailable or still processing') ||
+        message.contains('runtime is busy or closing') ||
+        message.contains('runtime is still processing a failed model load');
+  }
+
   /// Returns a capture-time proof that Aaris Brain was enabled and a selected
   /// Local AI route existed when this OCR work entered the durable queue.
   ///
@@ -162,7 +170,13 @@ class LocalBrainRoutePolicy {
       // deterministic-review fallback.
       try {
         await local.activate(activeId);
-      } catch (_) {
+      } catch (error) {
+        // A foreground Send/model operation can acquire the exclusive lease in
+        // the final event-loop gap after the busy snapshot above. That is queue
+        // contention, not evidence that the selected model became invalid.
+        if (local.busy || local.transferring || _leaseContention(error)) {
+          return LocalBrainRouteReadiness.retryWhenIdle;
+        }
         return LocalBrainRouteReadiness.unavailable;
       }
 
@@ -175,7 +189,13 @@ class LocalBrainRoutePolicy {
               local.isModelScanReady(activeId)
           ? LocalBrainRouteReadiness.ready
           : LocalBrainRouteReadiness.unavailable;
-    } catch (_) {
+    } catch (error) {
+      // Initialization can also overlap a native lease transition. Preserve the
+      // queued handoff only when current state/error identifies contention;
+      // malformed configuration or a real model-load failure still fails closed.
+      if (local.busy || local.transferring || _leaseContention(error)) {
+        return LocalBrainRouteReadiness.retryWhenIdle;
+      }
       return LocalBrainRouteReadiness.unavailable;
     }
   }
