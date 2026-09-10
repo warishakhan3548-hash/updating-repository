@@ -41,6 +41,11 @@ class LocalBrainRoutePolicy {
   static Future<String?> captureModelId(LocalAiService local) async {
     if (!await enabled()) return null;
     await local.initialize();
+
+    // Initialization can cross an app lifecycle/configuration boundary. Re-read
+    // the persisted Brain switch after that await so a capture can never retain
+    // a stale permission to wake a selected model that the owner just disabled.
+    if (!await enabled()) return null;
     final id = local.activeId;
     if (id == null ||
         !local.scannerEnabled ||
@@ -56,7 +61,9 @@ class LocalBrainRoutePolicy {
     LocalAiService local,
     String? capturedModelId,
   ) async {
-    if (capturedModelId == null || !await enabled()) return false;
+    if (capturedModelId == null) return false;
+    await local.initialize();
+    if (!await enabled()) return false;
     final id = local.activeId;
     return id == capturedModelId &&
         local.scannerEnabled &&
