@@ -133,9 +133,8 @@ class LocalAiRuntime {
         epoch,
         commands,
         subscription,
-        TimeoutException(
-          'Local runtime stopped making progress. The stalled transport was retired safely.',
-          budget,
+        StateError(
+          'Local runtime transport stopped making progress. The stalled transport was retired safely and can be retried.',
         ),
         StackTrace.current,
       );
