@@ -61,6 +61,8 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   bool get ready => isLocalModelReady(model: activeModel, activeId: _activeId);
   bool get scanReady =>
       isLocalModelScanReady(model: activeModel, activeId: _activeId);
+  bool get scanVerified =>
+      isLocalModelScanVerified(model: activeModel, activeId: _activeId);
   bool isModelReady(String id) =>
       _activeId == id &&
       isLocalModelReady(
@@ -70,6 +72,12 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   bool isModelScanReady(String id) =>
       _activeId == id &&
       isLocalModelScanReady(
+        model: _models.where((model) => model.id == id).firstOrNull,
+        activeId: _activeId,
+      );
+  bool isModelScanVerified(String id) =>
+      _activeId == id &&
+      isLocalModelScanVerified(
         model: _models.where((model) => model.id == id).firstOrNull,
         activeId: _activeId,
       );
@@ -620,9 +628,9 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     if (model == null) throw StateError('Download or import this model first.');
     if (isModelReady(id)) {
       _setupStage = LocalModelSetupStage.ready;
-      _status = isModelScanReady(id)
+      _status = isModelScanVerified(id)
           ? 'Local AI Ready'
-          : 'Local AI Ready · chat works; scan review not verified';
+          : 'Local AI Ready · scan extraction is available with review warning';
       return;
     }
     final previous = _activeId;
@@ -685,7 +693,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       _setupStage = LocalModelSetupStage.ready;
       _status = scanTestPassed
           ? 'Local AI Ready'
-          : 'Local AI Ready · chat works; scan review not verified';
+          : 'Local AI Ready · scan extraction is available with review warning';
     } catch (_) {
       _activeId = previous;
       final index = _models.indexWhere((m) => m.id == model.id);
@@ -725,7 +733,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> setScannerEnabled(bool value) => _exclusive((_) async {
     if (value && !scanReady) {
       throw StateError(
-        'This model is Chat Ready but has not passed the stricter scan-review test.',
+        'Load-test and activate this local model before enabling scan AI.',
       );
     }
     final previous = _scannerEnabled;
@@ -754,6 +762,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     LocalInventoryContext context,
     String instruction, {
     String conversation = '',
+    void Function(String token)? onToken,
   }) => _exclusive((generation) async {
     if (instruction.trim().isEmpty || instruction.length > 3000) {
       throw const FormatException('Keep the request under 3000 characters.');
@@ -778,6 +787,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         context.instructions,
         input,
         maxTokens: _executionPlan!.outputTokens,
+        onToken: onToken,
       );
       _checkRequest(generation);
       final answer = localChatObject(raw);
@@ -818,17 +828,22 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       await _loadSelected();
       _checkRequest(generation);
       final sourceLimit = _executionPlan!.evidenceCharacters;
+      _status = 'Local AI · extracting brand, salt, strength and form from OCR…';
+      notifyListeners();
       final raw = await _runtime!.generate(
         localScanPrompt(draft, sourceLimit: sourceLimit),
         'Return the evidence-grounded fields for this one medicine.',
         maxTokens: _executionPlan!.outputTokens.clamp(1, 1000),
       );
       _checkRequest(generation);
-      return validateLocalScan(
+      final result = validateLocalScan(
         draft,
         localJsonObject(raw),
         sourceLimit: sourceLimit,
       );
+      _status = 'AI scan preview ready · confirm before adding';
+      notifyListeners();
+      return result;
     });
   }
 }
