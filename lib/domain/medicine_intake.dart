@@ -122,22 +122,29 @@ class MedicineIntakeJob {
   }
 }
 
-/// Photos become durable text first. Between video windows, allow a ready
-/// photo's model pass; a long video must not monopolize every other capture.
-/// When chat owns the model, OCR may continue but no second inference starts.
+/// Alternate durable OCR/capture work with Local AI reasoning when both are
+/// available. A stream of freshly queued photos must not starve already-read OCR
+/// from its capture-bound Local AI handoff; chat still wins because callers set
+/// [allowReasoning] false while the shared model lease is occupied.
 MedicineIntakeJob? nextMedicineIntakeJob(
   Iterable<MedicineIntakeJob> jobs, {
   required bool allowReasoning,
   required bool preferReasoning,
 }) {
+  final reasoning = allowReasoning
+      ? jobs.where((j) => j.status == 'reasoning').firstOrNull
+      : null;
+  if (preferReasoning && reasoning != null) return reasoning;
+
+  // Fresh photos get OCR ahead of video windows so their durable text exists as
+  // soon as possible. After one capture step the pump flips preferReasoning,
+  // giving an awaiting Local AI draft its fair turn before the next photo.
   final photo = jobs
       .where((j) => j.status == 'queued' && j.kind != 'video')
       .firstOrNull;
   if (photo != null) return photo;
+
   final video = jobs.where((j) => j.status == 'queued').firstOrNull;
-  final reasoning = allowReasoning
-      ? jobs.where((j) => j.status == 'reasoning').firstOrNull
-      : null;
   return preferReasoning ? reasoning ?? video : video ?? reasoning;
 }
 
