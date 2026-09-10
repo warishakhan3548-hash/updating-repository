@@ -417,6 +417,7 @@ class AiService {
         response: streamed,
         config: config,
         cancelEpoch: cancelEpoch,
+        sse: contentType.contains('text/event-stream'),
         onDelta: onDelta,
         onStreamStarted: onStreamStarted,
       );
@@ -607,37 +608,50 @@ class AiService {
     required http.StreamedResponse response,
     required AiConfiguration config,
     required int cancelEpoch,
+    required bool sse,
     void Function(String delta)? onDelta,
     void Function()? onStreamStarted,
   }) async {
     final output = StringBuffer();
+    final sseData = <String>[];
     var wireCharacters = 0;
     var started = false;
-    await for (final line in utf8.decoder
-        .bind(response.stream)
-        .transform(const LineSplitter())
-        .timeout(const Duration(seconds: 60))) {
-      _throwIfCancelled(cancelEpoch);
-      wireCharacters += line.length;
-      if (wireCharacters > _maxResponseBytes) {
-        throw StateError('AI response is too large. Ask for fewer changes.');
+
+    String normalizePayload(String raw) {
+      var payload = raw.trim();
+      if (payload.startsWith('\u001e')) {
+        payload = payload.substring(1).trimLeft();
       }
-      var dataLine = line.trim();
-      if (dataLine.isEmpty || dataLine.startsWith(':')) continue;
-      if (dataLine.startsWith('data:')) {
-        dataLine = dataLine.substring(5).trimLeft();
+      if (payload.startsWith('data:')) {
+        payload = payload.substring(5).trimLeft();
       }
-      if (dataLine.isEmpty || dataLine == '[DONE]') continue;
+      return payload;
+    }
+
+    bool isCompletePayload(String raw) {
+      final payload = normalizePayload(raw);
+      if (payload.isEmpty || payload == '[DONE]') return true;
+      try {
+        return jsonDecode(payload) is Map;
+      } on FormatException {
+        return false;
+      }
+    }
+
+    void consume(String raw) {
+      final payload = normalizePayload(raw);
+      if (payload.isEmpty || payload == '[DONE]') return;
 
       Map<String, dynamic> event;
       try {
-        final decoded = jsonDecode(dataLine);
-        if (decoded is! Map) continue;
+        final decoded = jsonDecode(payload);
+        if (decoded is! Map) return;
         event = Map<String, dynamic>.from(decoded);
       } on FormatException {
-        // Non-data SSE fields (event:, id:, retry:) and provider keepalive text
-        // are transport metadata, not assistant output.
-        continue;
+        // A malformed/non-data transport record is not assistant output. SSE
+        // framing is assembled before this point, so a valid multi-line event
+        // is never discarded merely because one individual data line is partial.
+        return;
       }
       final streamError = _streamEventError(event);
       if (streamError.isNotEmpty) {
@@ -646,7 +660,7 @@ class AiService {
         );
       }
       final delta = _cloudDelta(config, event);
-      if (delta.isEmpty) continue;
+      if (delta.isEmpty) return;
       if (!started) {
         started = true;
         _safeStart(onStreamStarted);
@@ -657,6 +671,58 @@ class AiService {
       }
       _safeDelta(onDelta, delta);
     }
+
+    void flushSse() {
+      if (sseData.isEmpty) return;
+      final payload = sseData.join('\n');
+      sseData.clear();
+      consume(payload);
+    }
+
+    await for (final line in utf8.decoder
+        .bind(response.stream)
+        .transform(const LineSplitter())
+        .timeout(const Duration(seconds: 60))) {
+      _throwIfCancelled(cancelEpoch);
+      wireCharacters += line.length + 1;
+      if (wireCharacters > _maxResponseBytes) {
+        throw StateError('AI response is too large. Ask for fewer changes.');
+      }
+
+      if (!sse) {
+        // NDJSON is one JSON object per line. JSON Text Sequences prefix records
+        // with ASCII RS (0x1E), which normalizePayload removes.
+        consume(line);
+        continue;
+      }
+
+      if (line.isEmpty) {
+        flushSse();
+        continue;
+      }
+      if (line.startsWith(':')) continue; // SSE keepalive/comment.
+      if (line == 'data') {
+        sseData.add('');
+        continue;
+      }
+      if (!line.startsWith('data:')) {
+        // event:, id: and retry: are metadata. They must not leak into model
+        // output or cause the JSON decoder to drop a valid data payload.
+        continue;
+      }
+
+      // Some compatible servers omit the blank line between otherwise complete
+      // SSE records. Flush a complete previous record before accepting the next
+      // data field, while still supporting standards-compliant multi-line data.
+      if (sseData.isNotEmpty && isCompletePayload(sseData.join('\n'))) {
+        flushSse();
+      }
+      var data = line.substring(5);
+      if (data.startsWith(' ')) data = data.substring(1);
+      sseData.add(data);
+    }
+    if (sse) flushSse();
+
     _throwIfCancelled(cancelEpoch);
     final text = output.toString();
     if (text.trim().isEmpty) {
