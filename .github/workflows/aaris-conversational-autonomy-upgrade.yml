@@ -1,0 +1,1428 @@
+name: Aaris conversational autonomy upgrade
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aaris-conversational-autonomy-upgrade.yml
+permissions:
+  contents: write
+concurrency:
+  group: aaris-conversational-autonomy-upgrade
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Start Aaris conversational autonomy upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply conversational autonomy and safety upgrade
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one patch anchor, found {count}: {old[:100]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          clarification = dedent(r'''
+          import 'app_brain.dart';
+          import 'medicine.dart';
+
+          enum BrainChoiceResolutionKind {
+            noMatch,
+            ambiguous,
+            cancelled,
+            stale,
+            resolved,
+          }
+
+          class BrainChoiceResolution {
+            const BrainChoiceResolution(this.kind, {this.stockId});
+
+            final BrainChoiceResolutionKind kind;
+            final String? stockId;
+          }
+
+          class BrainChoiceCandidate {
+            BrainChoiceCandidate._({
+              required this.id,
+              required this.revision,
+              required this.title,
+              required this.brand,
+              required this.batchNumber,
+              required this.barcode,
+              required this.block,
+              required this.row,
+              required this.vertical,
+              required this.location,
+              required this.address,
+            }) : selectorTokens = Set.unmodifiable(
+                   _selectorTokens(<String>[
+                     title,
+                     brand,
+                     batchNumber,
+                     barcode,
+                     block,
+                     row,
+                     vertical,
+                     location,
+                     address,
+                   ]),
+                 );
+
+            factory BrainChoiceCandidate.fromMedicine(Medicine medicine) =>
+                BrainChoiceCandidate._(
+                  id: medicine.id,
+                  revision: medicine.revision,
+                  title: medicine.title,
+                  brand: medicine.brand,
+                  batchNumber: medicine.batchNumber,
+                  barcode: medicine.barcode,
+                  block: medicine.block,
+                  row: medicine.row,
+                  vertical: medicine.vertical,
+                  location: medicine.location,
+                  address: medicine.address,
+                );
+
+            final String id;
+            final int revision;
+            final String title;
+            final String brand;
+            final String batchNumber;
+            final String barcode;
+            final String block;
+            final String row;
+            final String vertical;
+            final String location;
+            final String address;
+            final Set<String> selectorTokens;
+
+            String get displayCue {
+              final facts = <String>[
+                title,
+                if (batchNumber.trim().isNotEmpty) 'Batch ${batchNumber.trim()}',
+                if (barcode.trim().isNotEmpty) 'Barcode ${barcode.trim()}',
+                if (address.trim().isNotEmpty) address.trim(),
+              ];
+              return facts.join(' · ');
+            }
+          }
+
+          /// Session-only clarification for an already-ranked local candidate set.
+          ///
+          /// Aaris never fuzzy-selects from this object. The user must choose an
+          /// exact displayed ordinal or an exact discriminator such as batch,
+          /// barcode, block/row/vertical or a unique visible cue. Every candidate
+          /// is revision-bound; any candidate-row change invalidates the whole
+          /// pending choice so a stale ordinal can never target a different state.
+          class PendingBrainChoice {
+            PendingBrainChoice({
+              required this.intent,
+              required Iterable<Medicine> candidates,
+              required this.createdAt,
+              this.ttl = const Duration(minutes: 5),
+            }) : candidates = List.unmodifiable(
+                   candidates.map(BrainChoiceCandidate.fromMedicine),
+                 ) {
+              if (this.candidates.length < 2 || this.candidates.length > 12) {
+                throw const FormatException(
+                  'Aaris clarification needs between 2 and 12 exact candidates.',
+                );
+              }
+              if (ttl <= Duration.zero || ttl > const Duration(minutes: 15)) {
+                throw const FormatException('Invalid Aaris clarification lifetime.');
+              }
+              final ids = this.candidates.map((candidate) => candidate.id).toSet();
+              if (ids.length != this.candidates.length) {
+                throw const FormatException(
+                  'Aaris clarification cannot contain duplicate stock IDs.',
+                );
+              }
+              if (this.candidates.any((candidate) => candidate.revision < 1)) {
+                throw const FormatException(
+                  'Aaris clarification requires revisioned stock rows.',
+                );
+              }
+              if (intent.action != AppBrainAction.search &&
+                  !intent.needsMedicineTarget) {
+                throw const FormatException(
+                  'This Aaris action cannot be resumed from a medicine choice.',
+                );
+              }
+            }
+
+            final AppBrainIntent intent;
+            final List<BrainChoiceCandidate> candidates;
+            final DateTime createdAt;
+            final Duration ttl;
+
+            BrainChoiceResolution resolve(
+              String raw, {
+              required Map<String, Medicine> records,
+              required DateTime now,
+            }) {
+              final text = _choiceText(raw);
+              if (text.isEmpty || raw.length > 240) {
+                return const BrainChoiceResolution(
+                  BrainChoiceResolutionKind.noMatch,
+                );
+              }
+              if (_isCancelChoice(text)) {
+                return const BrainChoiceResolution(
+                  BrainChoiceResolutionKind.cancelled,
+                );
+              }
+
+              final age = now.difference(createdAt);
+              if (age.isNegative || age > ttl || !_isCurrent(records)) {
+                return const BrainChoiceResolution(
+                  BrainChoiceResolutionKind.stale,
+                );
+              }
+
+              final ordinal = _choiceOrdinal(text);
+              if (ordinal != null) {
+                if (ordinal < 1 || ordinal > candidates.length) {
+                  return const BrainChoiceResolution(
+                    BrainChoiceResolutionKind.noMatch,
+                  );
+                }
+                return BrainChoiceResolution(
+                  BrainChoiceResolutionKind.resolved,
+                  stockId: candidates[ordinal - 1].id,
+                );
+              }
+
+              final constrained = _labelledMatches(text);
+              if (constrained != null) return _resultFor(constrained);
+
+              final cueTokens = _genericCueTokens(text);
+              if (cueTokens.isEmpty || cueTokens.join().length < 3) {
+                return const BrainChoiceResolution(
+                  BrainChoiceResolutionKind.noMatch,
+                );
+              }
+              final matches = candidates
+                  .where(
+                    (candidate) =>
+                        cueTokens.every(candidate.selectorTokens.contains),
+                  )
+                  .toList(growable: false);
+              return _resultFor(matches);
+            }
+
+            bool _isCurrent(Map<String, Medicine> records) {
+              for (final candidate in candidates) {
+                final live = records[candidate.id];
+                if (live == null ||
+                    live.archived ||
+                    live.revision != candidate.revision) {
+                  return false;
+                }
+              }
+              return true;
+            }
+
+            List<BrainChoiceCandidate>? _labelledMatches(String text) {
+              final constraints = <String, String>{};
+
+              void capture(String key, RegExp expression) {
+                final matches = expression.allMatches(text).toList(growable: false);
+                if (matches.length > 1) {
+                  constraints['__ambiguous__'] = '1';
+                  return;
+                }
+                if (matches.isEmpty) return;
+                final value = _trimChoiceGlue(matches.single.group(1) ?? '');
+                if (value.isNotEmpty) constraints[key] = value;
+              }
+
+              capture(
+                'batch',
+                RegExp(
+                  r'(?:^| )(?:batch|बैच)(?: (?:no|number|नंबर))?[:# -]*([a-z0-9ऀ-ॿ._/-]{1,60})',
+                  caseSensitive: false,
+                  unicode: true,
+                ),
+              );
+              capture(
+                'barcode',
+                RegExp(
+                  r'(?:^| )(?:barcode|bar code|बारकोड)[:# -]*([a-z0-9._/-]{1,80})',
+                  caseSensitive: false,
+                  unicode: true,
+                ),
+              );
+              capture(
+                'block',
+                RegExp(
+                  r'(?:^| )(?:block|ब्लॉक)[:# -]*([a-z0-9ऀ-ॿ._/-]{1,40})',
+                  caseSensitive: false,
+                  unicode: true,
+                ),
+              );
+              capture(
+                'row',
+                RegExp(
+                  r'(?:^| )(?:row|रो|पंक्ति)[:# -]*([a-z0-9ऀ-ॿ._/-]{1,40})',
+                  caseSensitive: false,
+                  unicode: true,
+                ),
+              );
+              capture(
+                'vertical',
+                RegExp(
+                  r'(?:^| )(?:vertical|vert|वर्टिकल)[:# -]*([a-z0-9ऀ-ॿ._/-]{1,40})',
+                  caseSensitive: false,
+                  unicode: true,
+                ),
+              );
+              capture(
+                'location',
+                RegExp(
+                  r'(?:^| )(?:location|rack|shelf|लोकेशन|रैक|शेल्फ|जगह)[:# -]*([a-z0-9ऀ-ॿ._/-]{1,80})',
+                  caseSensitive: false,
+                  unicode: true,
+                ),
+              );
+
+              if (constraints.containsKey('__ambiguous__')) {
+                return const <BrainChoiceCandidate>[];
+              }
+              if (constraints.isEmpty) return null;
+
+              bool exact(String left, String right) =>
+                  _choiceText(left) == _choiceText(right);
+              bool locationMatches(BrainChoiceCandidate candidate, String cue) {
+                final normalized = _choiceText(cue);
+                if (normalized.isEmpty) return false;
+                final values = <String>[
+                  candidate.location,
+                  candidate.address,
+                  candidate.block,
+                  candidate.row,
+                  candidate.vertical,
+                ];
+                for (final value in values) {
+                  final clean = _choiceText(value);
+                  if (clean == normalized || clean.split(' ').contains(normalized)) {
+                    return true;
+                  }
+                }
+                return false;
+              }
+
+              return candidates.where((candidate) {
+                final batch = constraints['batch'];
+                if (batch != null && !exact(candidate.batchNumber, batch)) return false;
+                final barcode = constraints['barcode'];
+                if (barcode != null && !exact(candidate.barcode, barcode)) return false;
+                final block = constraints['block'];
+                if (block != null && !exact(candidate.block, block)) return false;
+                final row = constraints['row'];
+                if (row != null && !exact(candidate.row, row)) return false;
+                final vertical = constraints['vertical'];
+                if (vertical != null && !exact(candidate.vertical, vertical)) {
+                  return false;
+                }
+                final location = constraints['location'];
+                if (location != null && !locationMatches(candidate, location)) {
+                  return false;
+                }
+                return true;
+              }).toList(growable: false);
+            }
+
+            BrainChoiceResolution _resultFor(
+              List<BrainChoiceCandidate> matches,
+            ) {
+              if (matches.length == 1) {
+                return BrainChoiceResolution(
+                  BrainChoiceResolutionKind.resolved,
+                  stockId: matches.single.id,
+                );
+              }
+              if (matches.length > 1) {
+                return const BrainChoiceResolution(
+                  BrainChoiceResolutionKind.ambiguous,
+                );
+              }
+              return const BrainChoiceResolution(
+                BrainChoiceResolutionKind.noMatch,
+              );
+            }
+          }
+
+          String _choiceText(String raw) => _asciiDigits(
+                raw.toLowerCase(),
+              )
+              .replaceAll(
+                RegExp(r'[^a-z0-9ऀ-ॿ._/-]+', unicode: true),
+                ' ',
+              )
+              .replaceAll(RegExp(r'\s+'), ' ')
+              .trim();
+
+          String _asciiDigits(String value) {
+            const devanagari = '०१२३४५६७८९';
+            final out = StringBuffer();
+            for (final rune in value.runes) {
+              final char = String.fromCharCode(rune);
+              final index = devanagari.indexOf(char);
+              out.write(index < 0 ? char : index.toString());
+            }
+            return out.toString();
+          }
+
+          bool _isCancelChoice(String text) {
+            final reduced = text
+                .split(' ')
+                .where((token) => !_cancelGlue.contains(token))
+                .join(' ');
+            return _cancelChoices.contains(text) || _cancelChoices.contains(reduced);
+          }
+
+          int? _choiceOrdinal(String text) {
+            final reduced = text
+                .split(' ')
+                .where((token) => !_ordinalGlue.contains(token))
+                .join(' ');
+            return _ordinals[reduced];
+          }
+
+          String _trimChoiceGlue(String value) {
+            final tokens = _choiceText(value).split(' ').toList();
+            while (tokens.isNotEmpty && _trailingChoiceGlue.contains(tokens.last)) {
+              tokens.removeLast();
+            }
+            return tokens.join(' ');
+          }
+
+          Set<String> _genericCueTokens(String text) => text
+              .split(' ')
+              .where(
+                (token) =>
+                    token.isNotEmpty &&
+                    !_genericChoiceGlue.contains(token) &&
+                    !_ordinals.containsKey(token),
+              )
+              .toSet();
+
+          Set<String> _selectorTokens(Iterable<String> values) {
+            final output = <String>{};
+            for (final value in values) {
+              final clean = _choiceText(value);
+              if (clean.isEmpty) continue;
+              output.add(clean);
+              output.addAll(
+                clean.split(' ').where(
+                  (token) => token.isNotEmpty && !_selectorNoise.contains(token),
+                ),
+              );
+            }
+            return output;
+          }
+
+          const _cancelChoices = <String>{
+            'cancel',
+            'cancel it',
+            'never mind',
+            'nevermind',
+            'leave it',
+            'rehne do',
+            'rehne dena',
+            'chhodo',
+            'chhod do',
+            'रहने दो',
+            'छोड़ो',
+            'छोड़ दो',
+            'कैंसल',
+          };
+
+          const _cancelGlue = <String>{
+            'please',
+            'plz',
+            'bas',
+            'ab',
+            'karo',
+            'kar',
+            'do',
+            'कृपया',
+            'बस',
+            'अब',
+            'करो',
+            'कर',
+            'दो',
+          };
+
+          const _ordinals = <String, int>{
+            '1': 1,
+            '1st': 1,
+            'first': 1,
+            'pehla': 1,
+            'pehli': 1,
+            'पहला': 1,
+            'पहली': 1,
+            '2': 2,
+            '2nd': 2,
+            'second': 2,
+            'dusra': 2,
+            'dusri': 2,
+            'doosra': 2,
+            'doosri': 2,
+            'दूसरा': 2,
+            'दूसरी': 2,
+            '3': 3,
+            '3rd': 3,
+            'third': 3,
+            'teesra': 3,
+            'teesri': 3,
+            'तीसरा': 3,
+            'तीसरी': 3,
+            '4': 4,
+            '4th': 4,
+            'fourth': 4,
+            'chautha': 4,
+            'चौथा': 4,
+            '5': 5,
+            '5th': 5,
+            'fifth': 5,
+            'paanchva': 5,
+            'पांचवां': 5,
+            '6': 6,
+            '6th': 6,
+            'sixth': 6,
+            'chhatha': 6,
+            'छठा': 6,
+            '7': 7,
+            '7th': 7,
+            'seventh': 7,
+            'saatva': 7,
+            'सातवां': 7,
+            '8': 8,
+            '8th': 8,
+            'eighth': 8,
+            'aathva': 8,
+            'आठवां': 8,
+            '9': 9,
+            '9th': 9,
+            'ninth': 9,
+            'nauva': 9,
+            'नौवां': 9,
+            '10': 10,
+            '10th': 10,
+            'tenth': 10,
+            '11': 11,
+            '11th': 11,
+            'eleventh': 11,
+            '12': 12,
+            '12th': 12,
+            'twelfth': 12,
+          };
+
+          const _ordinalGlue = <String>{
+            'option',
+            'number',
+            'no',
+            'one',
+            'the',
+            'choose',
+            'select',
+            'pick',
+            'medicine',
+            'stock',
+            'entry',
+            'wali',
+            'waali',
+            'wala',
+            'waala',
+            'ko',
+            'please',
+            'karo',
+            'kar',
+            'do',
+            'ऑप्शन',
+            'नंबर',
+            'वाली',
+            'वाला',
+            'मेडिसिन',
+            'स्टॉक',
+            'एंट्री',
+            'को',
+            'चुनो',
+            'सेलेक्ट',
+            'सिलेक्ट',
+            'करो',
+            'कर',
+            'दो',
+          };
+
+          const _genericChoiceGlue = <String>{
+            ..._ordinalGlue,
+            'batch',
+            'barcode',
+            'bar',
+            'code',
+            'block',
+            'row',
+            'vertical',
+            'vert',
+            'location',
+            'rack',
+            'shelf',
+            'with',
+            'has',
+            'jo',
+            'jisme',
+            'jis',
+            'ka',
+            'ki',
+            'mein',
+            'me',
+            'par',
+            'pe',
+            'बैच',
+            'बारकोड',
+            'ब्लॉक',
+            'रो',
+            'पंक्ति',
+            'वर्टिकल',
+            'लोकेशन',
+            'रैक',
+            'शेल्फ',
+            'जगह',
+            'जिसमें',
+            'जिस',
+            'का',
+            'की',
+            'में',
+            'पर',
+            'पे',
+          };
+
+          const _trailingChoiceGlue = <String>{
+            'wali',
+            'waali',
+            'wala',
+            'waala',
+            'one',
+            'medicine',
+            'stock',
+            'entry',
+            'choose',
+            'select',
+            'karo',
+            'kar',
+            'do',
+            'वाली',
+            'वाला',
+            'मेडिसिन',
+            'स्टॉक',
+            'एंट्री',
+            'चुनो',
+            'सेलेक्ट',
+            'सिलेक्ट',
+            'करो',
+            'कर',
+            'दो',
+          };
+
+          const _selectorNoise = <String>{
+            'batch',
+            'barcode',
+            'block',
+            'row',
+            'vertical',
+            'location',
+            'rack',
+            'shelf',
+            'batch',
+            'बैच',
+            'बारकोड',
+            'ब्लॉक',
+            'रो',
+            'वर्टिकल',
+            'लोकेशन',
+            'रैक',
+            'शेल्फ',
+          };
+          ''').lstrip()
+          Path('lib/domain/brain_clarification.dart').write_text(
+              clarification,
+              encoding='utf-8',
+          )
+
+          brain = 'lib/ui/brain_screen.dart'
+          replace_once(
+              brain,
+              "import '../domain/brain_operations.dart';\n",
+              "import '../domain/brain_clarification.dart';\nimport '../domain/brain_operations.dart';\n",
+          )
+          replace_once(
+              brain,
+              "  bool _busy = false, _voiceOpening = false;\n  String _reply =\n",
+              "  bool _busy = false, _voiceOpening = false;\n  PendingBrainChoice? _pendingChoice;\n  String _reply =\n",
+          )
+          replace_once(
+              brain,
+              dedent('''\
+                final intent = parseAppBrainIntent(raw);
+                setState(() {
+                  _busy = true;
+                  _reply = 'Understanding command…';
+                  if (supplied != null) _command.text = supplied;
+                });
+                try {
+                  await _execute(intent, raw);
+              '''),
+              dedent('''\
+                setState(() {
+                  _busy = true;
+                  _reply = 'Understanding command…';
+                  if (supplied != null) _command.text = supplied;
+                });
+                try {
+                  if (await _continuePendingChoice(raw)) return;
+                  final intent = parseAppBrainIntent(raw);
+                  await _execute(intent, raw);
+              '''),
+          )
+
+          continuation_methods = dedent('''\
+            Future<bool> _continuePendingChoice(String raw) async {
+              final pending = _pendingChoice;
+              if (pending == null) return false;
+              final result = pending.resolve(
+                raw,
+                records: widget.controller.snapshot.records,
+                now: widget.controller.clock(),
+              );
+              switch (result.kind) {
+                case BrainChoiceResolutionKind.cancelled:
+                  _pendingChoice = null;
+                  if (mounted) {
+                    setState(
+                      () => _reply =
+                          'Pending medicine choice cancelled. Nothing changed.',
+                    );
+                  }
+                  return true;
+                case BrainChoiceResolutionKind.stale:
+                  _pendingChoice = null;
+                  if (mounted) {
+                    setState(
+                      () => _reply =
+                          'That candidate list is no longer current because one of its stock rows changed or the choice expired. Run the medicine command again; Aaris will rank the live database instead of reusing a stale option number.',
+                    );
+                  }
+                  return true;
+                case BrainChoiceResolutionKind.resolved:
+                  final stockId = result.stockId;
+                  final record = stockId == null
+                      ? null
+                      : widget.controller.snapshot.records[stockId];
+                  _pendingChoice = null;
+                  if (record == null || record.archived) {
+                    if (mounted) {
+                      setState(
+                        () => _reply =
+                            'That exact stock row is no longer active. Nothing changed; run the command again against the live Medicine Database.',
+                      );
+                    }
+                    return true;
+                  }
+                  await _resumePendingChoice(pending.intent, record);
+                  return true;
+                case BrainChoiceResolutionKind.ambiguous:
+                  if (mounted) {
+                    setState(
+                      () => _reply =
+                          '${_pendingChoicePrompt(pending)} That cue still matches more than one displayed row, so Aaris did not guess.',
+                    );
+                  }
+                  return true;
+                case BrainChoiceResolutionKind.noMatch:
+                  final newIntent = parseAppBrainIntent(raw);
+                  if (newIntent.action != AppBrainAction.unknown) {
+                    // A fresh explicit app command replaces the old clarification.
+                    // A bare ordinal/cue is consumed above before this branch.
+                    _pendingChoice = null;
+                    return false;
+                  }
+                  if (mounted) {
+                    setState(() => _reply = _pendingChoicePrompt(pending));
+                  }
+                  return true;
+              }
+            }
+
+            Future<void> _resumePendingChoice(
+              AppBrainIntent intent,
+              Medicine record,
+            ) async {
+              _remember(record);
+              final focus = intent.briefFocus;
+              if (focus != null) {
+                _answerOperationalBrief(record, focus);
+                return;
+              }
+              if (intent.action == AppBrainAction.search) {
+                widget.onOpenSection(AppSection.stock);
+                if (mounted) {
+                  setState(
+                    () => _reply =
+                        '${record.title} selected from the exact pending options. This row is now the session context.',
+                  );
+                }
+                await Future<void>.delayed(Duration.zero);
+                if (mounted) {
+                  await openEditor(context, widget.controller, record: record);
+                }
+                return;
+              }
+              await _openActionTarget(
+                intent.action,
+                record,
+                requestedQuantity: intent.quantity,
+                locationPatch: intent.locationPatch,
+                removalReason: intent.removalReason,
+              );
+            }
+
+            String _pendingChoicePrompt(PendingBrainChoice pending) {
+              final cues = <String>[];
+              for (var i = 0; i < pending.candidates.length && i < 4; i++) {
+                cues.add('${i + 1}: ${pending.candidates[i].displayCue}');
+              }
+              final more = pending.candidates.length > 4
+                  ? ' · +${pending.candidates.length - 4} more'
+                  : '';
+              return 'Aaris still has ${pending.candidates.length} exact local candidates waiting. Say “first one”, “second one”, an exact batch/barcode/block/row/location, or “cancel”. ${cues.join(' · ')}$more';
+            }
+
+          ''')
+          replace_once(
+              brain,
+              '  Future<void> _execute(AppBrainIntent intent, String raw) async {\n',
+              continuation_methods +
+                  '  Future<void> _execute(AppBrainIntent intent, String raw) async {\n',
+          )
+
+          replace_once(
+              brain,
+              dedent('''\
+                if (records.isEmpty) {
+                  widget.onOpenSection(AppSection.stock);
+                  if (mounted) setState(() => _reply = emptyReply);
+                  return;
+                }
+                setState(
+              '''),
+              dedent('''\
+                if (records.isEmpty) {
+                  widget.onOpenSection(AppSection.stock);
+                  if (mounted) setState(() => _reply = emptyReply);
+                  return;
+                }
+                if (records.length > 1) {
+                  _pendingChoice = PendingBrainChoice(
+                    intent: AppBrainIntent(
+                      action: action,
+                      quantity: requestedQuantity,
+                      briefFocus: briefFocus,
+                      locationPatch: locationPatch,
+                      removalReason: removalReason,
+                    ),
+                    candidates: records,
+                    createdAt: widget.controller.clock(),
+                  );
+                } else {
+                  _pendingChoice = null;
+                }
+                setState(
+              '''),
+          )
+
+          replace_once(
+              brain,
+              dedent('''\
+                          child: Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(20, 16, 12, 10),
+              '''),
+              dedent('''\
+                          child: Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(20, 16, 12, 10),
+              '''),
+          )
+          # Insert a hands-free clarification hint after the sheet header row.
+          sheet_anchor = dedent('''\
+                            ),
+                          ),
+                          if (briefFocus != null)
+              ''')
+          sheet_replacement = dedent('''\
+                            ),
+                          ),
+                          if (records.length > 1)
+                            const Padding(
+                              padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Hands-free clarification: close this list and say “first one”, “second one”, or an exact batch/barcode/block/row/location. The option is revision-bound and expires; Aaris never fuzzy-picks a destructive target.',
+                                  style: TextStyle(
+                                    color: primary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          if (briefFocus != null)
+              ''')
+          # Scope the anchor to the match sheet by replacing the last unique form.
+          text = Path(brain).read_text(encoding='utf-8')
+          count = text.count(sheet_anchor)
+          if count != 1:
+              raise SystemExit(f'{brain}: match-sheet header anchor count={count}')
+          Path(brain).write_text(text.replace(sheet_anchor, sheet_replacement, 1), encoding='utf-8')
+
+          replace_once(
+              brain,
+              dedent('''\
+                            final record = records[index];
+                            return MedicineCard(
+                              record: record,
+                              settings: widget.controller.settings,
+                              today: widget.controller.today,
+                              onTap: () async {
+                                Navigator.pop(sheetContext);
+                                if (!mounted) return;
+                                _remember(record);
+              '''),
+              dedent('''\
+                            final record = records[index];
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (records.length > 1)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(4, 7, 4, 2),
+                                    child: Text(
+                                      'OPTION ${index + 1}',
+                                      style: const TextStyle(
+                                        color: primary,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: .8,
+                                      ),
+                                    ),
+                                  ),
+                                MedicineCard(
+                                  record: record,
+                                  settings: widget.controller.settings,
+                                  today: widget.controller.today,
+                                  onTap: () async {
+                                    Navigator.pop(sheetContext);
+                                    if (!mounted) return;
+                                    _pendingChoice = null;
+                                    _remember(record);
+              '''),
+          )
+          replace_once(
+              brain,
+              dedent('''\
+                                  );
+                                },
+                              );
+                            },
+                          ),
+              '''),
+              dedent('''\
+                                      );
+                                    },
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+              '''),
+          )
+
+          replace_once(
+              brain,
+              dedent('''\
+                if (focusNext && report.isEmpty) return;
+                await Future<void>.delayed(Duration.zero);
+                if (!mounted) return;
+                await Navigator.push<void>(
+              '''),
+              dedent('''\
+                if (focusNext && report.isEmpty) return;
+                await Future<void>.delayed(Duration.zero);
+                if (!mounted) return;
+                if (focusNext && next != null && await _openNextAttentionTask(next)) {
+                  return;
+                }
+                if (!mounted) return;
+                await Navigator.push<void>(
+              '''),
+          )
+
+          next_task_method = dedent('''\
+            Future<bool> _openNextAttentionTask(OperationsPlanStep step) async {
+              final item = step.item;
+              if (item.isReorder) {
+                await _reorderReview();
+                return true;
+              }
+              final records = item.stockIds
+                  .map((id) => widget.controller.snapshot.records[id])
+                  .whereType<Medicine>()
+                  .where((medicine) => !medicine.archived)
+                  .toList(growable: false);
+              if (records.length != 1) return false;
+
+              final record = records.single;
+              _remember(record);
+              if (item.kind == AttentionKind.expiredStock) {
+                // Expired status is deterministic. Aaris may open the exact
+                // protected removal review, but the pharmacist still owns the
+                // final confirmation and no stock is changed automatically.
+                await _openActionTarget(
+                  AppBrainAction.removeMedicine,
+                  record,
+                  removalReason: RemovalReasonHint.expired,
+                );
+                return true;
+              }
+
+              widget.onOpenSection(AppSection.stock);
+              if (mounted) {
+                setState(
+                  () => _reply =
+                      'Next safe task: ${item.title}. ${step.actionLabel} Opening this exact stock row now; no inventory fact is changed until you review and save it.',
+                );
+              }
+              await Future<void>.delayed(Duration.zero);
+              if (mounted) {
+                await openEditor(context, widget.controller, record: record);
+              }
+              return true;
+            }
+
+          ''')
+          replace_once(
+              brain,
+              '  void _bulkRemoveBlocked() {\n',
+              next_task_method + '  void _bulkRemoveBlocked() {\n',
+          )
+
+          app = 'lib/domain/app_brain.dart'
+          replace_once(
+              app,
+              dedent('''\
+                bool _looksLikeScheduledMutation(String raw) => RegExp(
+                  r'\\b(?:at\\s+)?(?:[01]?\\d|2[0-3])(?::[0-5]\\d)?\\s*(?:a\\.?m\\.?|p\\.?m\\.?)\\b',
+                  caseSensitive: false,
+                ).hasMatch(raw);
+              '''),
+              dedent(r'''\
+                bool _looksLikeScheduledMutation(String raw) =>
+                    RegExp(
+                      r'\b(?:at\s+)?(?:[01]?\d|2[0-3]):[0-5]\d(?:\s*(?:a\.?m\.?|p\.?m\.?))?\b',
+                      caseSensitive: false,
+                    ).hasMatch(raw) ||
+                    RegExp(
+                      r'\b(?:[1-9]|1[0-2])\s*(?:a\.?m\.?|p\.?m\.?)\b',
+                      caseSensitive: false,
+                    ).hasMatch(raw) ||
+                    RegExp(
+                      r'\b(?:on\s+)?(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|\d{4}-\d{2}-\d{2})\b',
+                      caseSensitive: false,
+                    ).hasMatch(raw) ||
+                    RegExp(
+                      r'\b(?:in\s+)?\d+\s*(?:minutes?|hours?|days?|weeks?|months?)\b',
+                      caseSensitive: false,
+                    ).hasMatch(raw) ||
+                    RegExp(
+                      r'(?:\d+\s*बजे|\d+\s*(?:ghante|din|hafte|mahine)\s*baad)',
+                      caseSensitive: false,
+                      unicode: true,
+                    ).hasMatch(raw);
+              '''),
+          )
+          replace_once(
+              app,
+              "  'never',\n  'not',\n",
+              "  'never',\n  'avoid',\n  'refrain',\n  'refrain from',\n  'leave unchanged',\n  'leave it unchanged',\n  'not',\n",
+          )
+          replace_once(
+              app,
+              "  'after some time',\n  'schedule for',\n",
+              "  'after some time',\n  'after lunch',\n  'after dinner',\n  'after closing',\n  'before closing',\n  'this evening',\n  'tonight',\n  'monday',\n  'tuesday',\n  'wednesday',\n  'thursday',\n  'friday',\n  'saturday',\n  'sunday',\n  'shaam',\n  'raat',\n  'dopahar',\n  'subah',\n  'शाम',\n  'रात',\n  'दोपहर',\n  'सुबह',\n  'schedule for',\n",
+          )
+          replace_once(
+              app,
+              dedent('''\
+                const _removeTerms = <String>[
+                  'delete',
+                  'remove',
+                  'archive',
+              '''),
+              dedent('''\
+                const _removeTerms = <String>[
+                  'delete',
+                  'deleting',
+                  'remove',
+                  'removing',
+                  'archive',
+                  'discard',
+                  'discarding',
+                  'nikal do',
+                  'nikaal do',
+                  'निकाल दो',
+              '''),
+          )
+
+          clarification_test = dedent(r'''
+          import 'package:aaris_pharmacy/domain/app_brain.dart';
+          import 'package:aaris_pharmacy/domain/brain_clarification.dart';
+          import 'package:aaris_pharmacy/domain/medicine.dart';
+          import 'package:flutter_test/flutter_test.dart';
+
+          Medicine stock(
+            String id, {
+            String batch = '',
+            String barcode = '',
+            String block = '',
+            String row = '',
+            String location = '',
+            int revision = 1,
+          }) =>
+              Medicine(
+                id: id,
+                name: 'Dolo',
+                strength: '650 mg',
+                form: 'Tablet',
+                batchNumber: batch,
+                barcode: barcode,
+                block: block,
+                row: row,
+                location: location,
+                quantity: 10,
+                revision: revision,
+              );
+
+          PendingBrainChoice pending(
+            List<Medicine> medicines, {
+            DateTime? createdAt,
+          }) =>
+              PendingBrainChoice(
+                intent: const AppBrainIntent(
+                  action: AppBrainAction.removeMedicine,
+                ),
+                candidates: medicines,
+                createdAt: createdAt ?? DateTime(2026, 9, 10, 9),
+              );
+
+          void main() {
+            group('Aaris Brain exact clarification memory', () {
+              test('resolves displayed ordinals across English Hinglish and Hindi', () {
+                final a = stock('a', batch: 'A11');
+                final b = stock('b', batch: 'B22');
+                final choice = pending([a, b]);
+                final records = {'a': a, 'b': b};
+                final now = DateTime(2026, 9, 10, 9, 1);
+
+                for (final words in ['second one', 'option 2', 'dusri wali', 'दूसरी वाली', '२']) {
+                  final result = choice.resolve(words, records: records, now: now);
+                  expect(result.kind, BrainChoiceResolutionKind.resolved, reason: words);
+                  expect(result.stockId, 'b', reason: words);
+                }
+              });
+
+              test('exact batch barcode and physical location cues resolve without fuzzy guessing', () {
+                final a = stock(
+                  'a',
+                  batch: 'A11',
+                  barcode: '111111',
+                  block: 'B1',
+                  row: 'R1',
+                );
+                final b = stock(
+                  'b',
+                  batch: 'B22',
+                  barcode: '222222',
+                  block: 'B2',
+                  row: 'R2',
+                  location: 'Fridge-2',
+                );
+                final choice = pending([a, b]);
+                final records = {'a': a, 'b': b};
+                final now = DateTime(2026, 9, 10, 9, 1);
+
+                for (final entry in <String, String>{
+                  'batch B22 wali': 'b',
+                  'barcode 111111': 'a',
+                  'block B2': 'b',
+                  'row R1': 'a',
+                  'location Fridge-2': 'b',
+                }.entries) {
+                  final result = choice.resolve(
+                    entry.key,
+                    records: records,
+                    now: now,
+                  );
+                  expect(result.kind, BrainChoiceResolutionKind.resolved, reason: entry.key);
+                  expect(result.stockId, entry.value, reason: entry.key);
+                }
+              });
+
+              test('shared cue stays ambiguous instead of choosing the first row', () {
+                final a = stock('a', batch: 'A11', row: 'R1');
+                final b = stock('b', batch: 'B22', row: 'R1');
+                final result = pending([a, b]).resolve(
+                  'row R1',
+                  records: {'a': a, 'b': b},
+                  now: DateTime(2026, 9, 10, 9, 1),
+                );
+                expect(result.kind, BrainChoiceResolutionKind.ambiguous);
+                expect(result.stockId, isNull);
+              });
+
+              test('any candidate revision change invalidates ordinal meaning', () {
+                final a = stock('a', batch: 'A11');
+                final b = stock('b', batch: 'B22');
+                final choice = pending([a, b]);
+                final changed = b.patch({'quantity': 9});
+                final result = choice.resolve(
+                  'second one',
+                  records: {'a': a, 'b': changed},
+                  now: DateTime(2026, 9, 10, 9, 1),
+                );
+                expect(result.kind, BrainChoiceResolutionKind.stale);
+              });
+
+              test('clarification expires and never becomes durable inventory state', () {
+                final a = stock('a');
+                final b = stock('b');
+                final result = pending([a, b]).resolve(
+                  'first one',
+                  records: {'a': a, 'b': b},
+                  now: DateTime(2026, 9, 10, 9, 6),
+                );
+                expect(result.kind, BrainChoiceResolutionKind.stale);
+              });
+
+              test('cancel wording closes pending choice without selecting stock', () {
+                final a = stock('a');
+                final b = stock('b');
+                final records = {'a': a, 'b': b};
+                for (final words in ['cancel', 'rehne do', 'छोड़ दो']) {
+                  final result = pending([a, b]).resolve(
+                    words,
+                    records: records,
+                    now: DateTime(2026, 9, 10, 9, 1),
+                  );
+                  expect(result.kind, BrainChoiceResolutionKind.cancelled, reason: words);
+                  expect(result.stockId, isNull, reason: words);
+                }
+              });
+
+              test('weak or unrelated words never select a candidate', () {
+                final a = stock('a', batch: 'ABC100');
+                final b = stock('b', batch: 'ABC101');
+                final result = pending([a, b]).resolve(
+                  'something similar please',
+                  records: {'a': a, 'b': b},
+                  now: DateTime(2026, 9, 10, 9, 1),
+                );
+                expect(result.kind, BrainChoiceResolutionKind.noMatch);
+                expect(result.stockId, isNull);
+              });
+            });
+          }
+          ''').lstrip()
+          Path('test/brain_clarification_test.dart').write_text(
+              clarification_test,
+              encoding='utf-8',
+          )
+
+          safety_test = 'test/aaris_brain_command_safety_test.dart'
+          replace_once(
+              safety_test,
+              dedent('''\
+                      "don't sell Dolo 650",
+                      'Dolo 650 ko remove nahi karna',
+              '''),
+              dedent('''\
+                      "don't sell Dolo 650",
+                      'avoid deleting Dolo 650',
+                      'refrain from removing Crocin 500',
+                      'Dolo 650 ko remove nahi karna',
+              '''),
+          )
+          replace_once(
+              safety_test,
+              dedent('''\
+                      'Dolo 650 sell at 5 pm',
+                      'what if I delete Dolo 650?',
+              '''),
+              dedent('''\
+                      'Dolo 650 sell at 5 pm',
+                      'Dolo 650 sell at 17:30',
+                      'Dolo 650 discard after lunch',
+                      'Crocin 500 remove on 12/09/2026',
+                      'Dolo 650 2 ghante baad sell',
+                      'what if I delete Dolo 650?',
+              '''),
+          )
+
+          architecture = 'docs/ARCHITECTURE.md'
+          replace_once(
+              architecture,
+              dedent('''\
+                “next task” route uses the same dependency-aware local operations plan shown in Needs
+                Attention, so its recommendation cannot jump ahead of known verification blockers.
+              '''),
+              dedent('''\
+                “next task” route uses the same dependency-aware local operations plan shown in Needs
+                Attention, so its recommendation cannot jump ahead of known verification blockers.
+                When a command has several plausible local stock rows, Aaris now holds a bounded,
+                session-only clarification set tied to every candidate row revision. The pharmacist may
+                choose a displayed ordinal or an exact batch/barcode/location cue in a follow-up command;
+                any row change or timeout invalidates the set, and no fuzzy follow-up can become a
+                destructive target. A ready single-row “next task” opens that exact reviewed workflow
+                directly (including the protected Expired-removal review), while multi-row/integrity work
+                stays in the operating plan.
+              '''),
+          )
+
+          progress = 'docs/PROGRESS.md'
+          replace_once(
+              progress,
+              dedent('''\
+                - Voice-search lifecycle repair: device locales, permission retry, serialized
+                  commands, final-word preservation, stale callback rejection and exit cleanup.
+              '''),
+              dedent('''\
+                - Voice-search lifecycle repair: device locales, permission retry, serialized
+                  commands, final-word preservation, stale callback rejection and exit cleanup.
+                - Conversational Aaris Brain clarification: ambiguous local matches are retained only as
+                  revision-bound session candidates, visible option numbers and exact batch/barcode/location
+                  follow-ups can resume the original reviewed action, stale/expired choices fail closed, and
+                  “next task” now opens a ready exact-row workflow directly when deterministic prerequisites
+                  are satisfied. Deferred-write detection also covers 24-hour times, dates and common
+                  after-lunch/evening/duration wording before any mutation route is opened.
+              '''),
+          )
+
+          tree = 'docs/CODEBASE_TREE.md'
+          replace_once(
+              tree,
+              "| `lib/domain/` | `ai_protocol.dart`, `local_ai_protocol.dart` | Reviewed mutations, paged read tools, exact IDs and evidence quotes |\n",
+              "| `lib/domain/` | `ai_protocol.dart`, `local_ai_protocol.dart` | Reviewed mutations, paged read tools, exact IDs and evidence quotes |\n| `lib/domain/` | `app_brain.dart`, `brain_clarification.dart`, `attention.dart`, `operations_plan.dart` | Deterministic natural-language routing, exact multi-turn clarification and dependency-aware pharmacist work planning |\n",
+          )
+
+          doc = dedent('''\
+          # Aaris conversational autonomy upgrade — 10 September 2026
+
+          ## Goal
+
+          Make Aaris Brain behave more like a careful pharmacist assistant when language is
+          natural or a medicine name resolves to several physical stock rows, without allowing
+          AI/OCR/fuzzy search to gain mutation authority.
+
+          ## Exact multi-turn clarification
+
+          A ranked result list can now become a short-lived clarification context containing
+          only the exact local stock IDs that were visibly offered. Each candidate carries its
+          medicine-row revision. The user can close the list and answer with an option number
+          (English/Hinglish/Hindi), or an exact batch, barcode, block, row, vertical or location
+          cue. Resolution is deterministic exact matching only. A shared cue remains ambiguous.
+          If any candidate row changes, disappears, is archived, the clock moves backwards, or
+          the five-minute window expires, the whole clarification fails closed and must be
+          rebuilt from the live Medicine Database.
+
+          The pending context stores no inventory copy, quantity, price or hidden AI state and
+          is never persisted. Resolving it only resumes the original existing Brain route; all
+          Remove, SOLD, stock-adjustment, relocation and sale confirmations remain unchanged.
+
+          ## Autonomous next-safe-task handoff
+
+          The dependency-aware operating plan still decides what is ready. When the next ready
+          task refers to one exact active stock row, Aaris Brain opens that row immediately
+          instead of stopping at the queue. Deterministically expired stock may open its existing
+          protected Expired-removal review with the reason preselected, but no write occurs until
+          the pharmacist confirms. Reorder tasks open Order Review; multi-row integrity work stays
+          in Needs Attention.
+
+          ## Intent-firewall hardening
+
+          Negative wording now includes avoid/refrain/leave-unchanged forms, and the removal
+          grammar understands common gerunds/discard wording so those negatives cannot slip past
+          the mutation-family detector. Deferred writes also fail closed for 24-hour clock times,
+          calendar dates, relative durations, weekdays and common lunch/evening/daypart wording.
+          These checks run before target search or navigation.
+
+          ## Verification gate
+
+          The upgrade workflow formats the touched Dart source, runs static analysis over app,
+          tests, tools and vendored local-AI Dart code, runs the targeted Brain safety and
+          clarification tests, runs the complete Flutter test suite, and builds a debug Android
+          APK as a compile/integration gate before committing the source upgrade.
+          ''').lstrip()
+          Path('docs/AARIS_CONVERSATIONAL_AUTONOMY_2026_09_10.md').write_text(
+              doc,
+              encoding='utf-8',
+          )
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Format, analyze, test and Android-compile gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart format lib/domain/brain_clarification.dart lib/domain/app_brain.dart lib/ui/brain_screen.dart test/brain_clarification_test.dart test/aaris_brain_command_safety_test.dart
+          flutter pub get
+          dart analyze lib test tool third_party/lib_llama_cpp/lib
+          flutter test test/brain_clarification_test.dart test/aaris_brain_command_safety_test.dart test/brain_screen_test.dart --reporter expanded
+          flutter test --reporter expanded
+          flutter build apk --debug --no-pub
+      - name: Commit verified autonomy upgrade to main
+        shell: bash
+        run: |
+          git checkout -- pubspec.lock 2>/dev/null || true
+          git config user.name 'Aaris Pharmacy Upgrade Bot'
+          git config user.email 'warishakhan3548@gmail.com'
+          git add lib/domain/brain_clarification.dart lib/domain/app_brain.dart lib/ui/brain_screen.dart test/brain_clarification_test.dart test/aaris_brain_command_safety_test.dart docs/ARCHITECTURE.md docs/PROGRESS.md docs/CODEBASE_TREE.md docs/AARIS_CONVERSATIONAL_AUTONOMY_2026_09_10.md
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No autonomy upgrade diff produced'; exit 1; }
+          git commit -m 'Upgrade Aaris Brain conversational autonomy and safe task routing [skip ci]'
+          git push origin HEAD:main
