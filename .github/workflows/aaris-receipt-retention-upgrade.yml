@@ -68,7 +68,7 @@ jobs:
 
       - name: Verify surgical product diff
         run: |
-          unexpected="$(git status --porcelain | awk '{print $2}' | grep -Ev '^(lib/data/inventory_database\.dart|test/operation_receipt_retention_test\.dart|docs/PROGRESS\.md|tool/aaris_receipt_retention_upgrade_20260910\.sentinel)$' || true)"
+          unexpected="$(git status --porcelain | awk '{print $2}' | grep -Ev '^(lib/data/inventory_database\.dart|test/operation_receipt_retention_test\.dart|docs/PROGRESS\.md|tool/aaris_receipt_retention_upgrade\.py|\.github/workflows/aaris-receipt-retention-upgrade\.yml)$' || true)"
           if [ -n "$unexpected" ]; then
             echo "Unexpected generated changes:"
             echo "$unexpected"
