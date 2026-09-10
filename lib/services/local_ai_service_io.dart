@@ -562,8 +562,12 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void cancelRequest() {
+    if (!busy) return;
     ++_requestGeneration;
-    if (busy) _status = 'Cancelled · finishing native step before release';
+    final retired = _runtime?.cancelCurrentRequest() ?? false;
+    _status = retired
+        ? 'Cancelling Local AI · retiring native inference safely'
+        : 'Cancelled · releasing the local AI lease';
     notifyListeners();
   }
 
@@ -662,6 +666,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       _status = 'Connecting on this device…';
       notifyListeners();
       await _loadSelected();
+      _checkRequest(generation);
 
       var scanTestPassed = true;
       _setupStage = LocalModelSetupStage.testing;
