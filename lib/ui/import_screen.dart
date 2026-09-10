@@ -20,7 +20,6 @@ import '../services/scan_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'editor_screen.dart';
-import 'import_screen.dart' show ImportInboxScreen;
 import 'medicine_capture.dart';
 import 'medicine_intake_panel.dart';
 import 'scanner_screen.dart';
