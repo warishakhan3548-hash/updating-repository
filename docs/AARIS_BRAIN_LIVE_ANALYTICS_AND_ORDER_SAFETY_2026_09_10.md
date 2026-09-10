@@ -39,4 +39,4 @@ Third, Aaris Brain and AI Controller now present one unified control center. The
 
 `test/unified_ai_hub_ui_test.dart` verifies that the duplicate offline Brain block is gone, only one AI composer remains, all six quick actions are present, and Delete/Modify are wired to the exact-row protected workflows.
 
-The pull-request validation contract remains the repository-wide `Pharmacy checks` workflow: static analysis, the complete Flutter test suite, and an Android debug APK compile must all pass before this branch is merged into `main`.
+The final merge gate is the repository-wide `Pharmacy checks` workflow on the latest pull-request head: static analysis, the complete Flutter test suite, and an Android debug APK compile must all pass before this branch is merged into `main`.
