@@ -1,3 +1,4 @@
+import 'brain_analytics.dart';
 import 'brain_operations.dart';
 import 'inventory.dart';
 import 'medicine_brief.dart';
@@ -23,6 +24,7 @@ enum AppBrainAction {
   reorderReview,
   undoLast,
   inventorySummary,
+  analyticsBrief,
   attentionBrief,
   nextAttentionTask,
   bulkRemoveBlocked,
@@ -49,6 +51,7 @@ class AppBrainIntent {
     this.scope = SearchScope.all,
     this.query = '',
     this.quantity,
+    this.analyticsRequest,
     this.briefFocus,
     this.locationPatch,
     this.removalReason,
@@ -61,6 +64,7 @@ class AppBrainIntent {
   final SearchScope scope;
   final String query;
   final int? quantity;
+  final BrainAnalyticsRequest? analyticsRequest;
   final MedicineBriefFocus? briefFocus;
   final StockLocationPatch? locationPatch;
   final RemovalReasonHint? removalReason;
@@ -169,11 +173,12 @@ AppBrainIntent parseAppBrainIntent(String raw) {
   // vocabulary. This prevents phrases such as "aaj ki bikri kitni" from ever
   // being interpreted as a stock mutation. The Calculator/Tracking surface is
   // the existing deterministic source of truth for these metrics.
-  if (_containsAny(text, _analyticsReadTerms)) {
-    return const AppBrainIntent(
-      action: AppBrainAction.navigate,
-      section: AppSection.calculator,
-      confidence: .98,
+  final analytics = parseBrainAnalyticsRequest(raw);
+  if (analytics != null) {
+    return AppBrainIntent(
+      action: AppBrainAction.analyticsBrief,
+      analyticsRequest: analytics,
+      confidence: .99,
     );
   }
 
@@ -1587,32 +1592,6 @@ const _editTerms = <String>[
   'एडिट',
   'अपडेट',
   'बदलो',
-];
-
-const _analyticsReadTerms = <String>[
-  'sales summary',
-  'sale summary',
-  'sales today',
-  'today sales',
-  'today sale',
-  'aaj ki bikri',
-  'aaj bikri',
-  'bikri batao',
-  'aaj ki sale',
-  'bikri kitni',
-  'sale kitni',
-  'sales report',
-  'sale report',
-  'fast moving',
-  'fastest moving',
-  'top selling',
-  'best selling',
-  'slow moving',
-  'slowest moving',
-  'कम बिक',
-  'तेज बिक',
-  'आज की बिक्री',
-  'बिक्री रिपोर्ट',
 ];
 
 const _nextTaskTerms = <String>[

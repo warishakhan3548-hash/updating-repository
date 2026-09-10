@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/app_brain.dart';
 import '../domain/attention.dart';
+import '../domain/brain_analytics.dart';
 import '../domain/brain_clarification.dart';
 import '../domain/brain_operations.dart';
 import '../domain/dispensing_plan.dart';
@@ -240,6 +241,14 @@ class _BrainScreenState extends State<BrainScreen> {
         return;
       case AppBrainAction.inventorySummary:
         _summary();
+        return;
+      case AppBrainAction.analyticsBrief:
+        final request = intent.analyticsRequest;
+        if (request == null) {
+          _unknown(raw);
+          return;
+        }
+        _analyticsBrief(request);
         return;
       case AppBrainAction.attentionBrief:
         await _attentionBrief();
@@ -1277,13 +1286,34 @@ class _BrainScreenState extends State<BrainScreen> {
       setState(() => _reply = 'There is no current change available to undo.');
       return;
     }
+
+    // Bind the confirmation copy to the exact newest audited event. The
+    // controller still rechecks canUndo/revision when committing, so this is an
+    // explainability improvement rather than a second authority over recovery.
+    final event = widget.controller.snapshot.events.first;
+    final label = event['label'] is String
+        ? event['label'] as String
+        : 'Latest inventory change';
+    final revision = event['revision'] is int
+        ? event['revision'] as int
+        : widget.controller.snapshot.revision;
+    final businessDay = event['businessDay'] is String
+        ? event['businessDay'] as String
+        : '';
+    final rawTime = event['time'] is String ? event['time'] as String : '';
+    final parsedTime = DateTime.tryParse(rawTime);
+    final localTime = parsedTime?.toLocal();
+    final timeLabel = localTime == null
+        ? 'Time unavailable'
+        : localTime.toString().split('.').first;
+
     final confirmed =
         await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Undo last inventory change?'),
-            content: const Text(
-              'Aaris will restore the immediately previous inventory state through the existing audited undo transaction.',
+            title: const Text('Undo this exact inventory change?'),
+            content: Text(
+              '$label\n\nRevision $revision${businessDay.isEmpty ? '' : ' · business day $businessDay'}\n$timeLabel\n\nAaris will restore the immediately previous audited inventory state. If anything changes before this confirmation commits, the revision-protected undo will fail closed.',
             ),
             actions: [
               TextButton(
@@ -1292,7 +1322,7 @@ class _BrainScreenState extends State<BrainScreen> {
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Undo'),
+                child: const Text('Undo this change'),
               ),
             ],
           ),
@@ -1317,6 +1347,18 @@ class _BrainScreenState extends State<BrainScreen> {
       () => _reply =
           'Inventory now: $active active stock entries · ${stats.uniqueMedicines} unique medicines · ${stats.knownUnits} known units · $expired expired · $sold sold/reorder entries · ${stats.unknownQuantity} entries with unknown quantity.',
     );
+  }
+
+
+  void _analyticsBrief(BrainAnalyticsRequest request) {
+    final range = request.resolveRange(widget.controller.today);
+    final stats = widget.controller.tracking(range);
+    final brief = buildBrainAnalyticsBrief(
+      request: request,
+      stats: stats,
+      today: widget.controller.today,
+    );
+    setState(() => _reply = brief);
   }
 
   PharmacyAttentionReport _currentAttentionReport() {
@@ -1686,6 +1728,9 @@ class _BrainScreenState extends State<BrainScreen> {
                         _QuickCommand('Sold', 'sold medicines dikhao'),
                         _QuickCommand('Removed', 'removed stock dikhao'),
                         _QuickCommand('Stock summary', 'stock summary'),
+                        _QuickCommand('Sales today', 'aaj ki bikri kitni'),
+                        _QuickCommand('Fast movers', 'fast moving this month'),
+                        _QuickCommand('Slow movers', 'slow moving last 30 days'),
                         _QuickCommand('Add medicine', 'add medicine'),
                         _QuickCommand('Undo', 'undo last'),
                       ]

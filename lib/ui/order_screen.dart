@@ -239,6 +239,8 @@ class _OrderScreenState extends State<OrderScreen> {
                                 if (suggestion.salt.isNotEmpty) suggestion.salt,
                                 suggestion.reason,
                                 suggestion.confidenceLabel,
+                                if (suggestion.unitPricePaise == null)
+                                  'Unit cost needs review',
                                 if (suggestion.reviewRequired)
                                   'Manual review required',
                                 if (blocked != null)
