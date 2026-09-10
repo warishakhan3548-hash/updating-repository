@@ -26,17 +26,24 @@ Iterable<LlamaResponse> streamToolAwareMessageResponses({
 
     generated.write(response.text);
     if (!canStreamText) {
+      // Preserve a scheduler yield for every sampled token even when tool-mode
+      // parsing intentionally withholds user-visible text. The inference worker
+      // uses these empty deltas as cooperative cancellation checkpoints; higher
+      // layers already ignore empty text.
+      yield LlamaTokenResponse(text: '', index: response.index);
       continue;
     }
 
     final parsed = parseChatOutput(generated.toString(), isPartial: true);
     if (toolCallsFromParsedMessage(parsed).isNotEmpty) {
+      yield LlamaTokenResponse(text: '', index: response.index);
       continue;
     }
 
     final text = contentFromParsedMessage(parsed);
     final delta = nextTextDelta(emittedText, text);
     if (delta == null || delta.isEmpty) {
+      yield LlamaTokenResponse(text: '', index: response.index);
       continue;
     }
 
