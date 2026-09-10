@@ -391,6 +391,60 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
     today: widget.controller.today,
   );
 
+  bool _recoverableLocalTransportFailure(Object error) {
+    if (error is FormatException || error is ArgumentError) return false;
+    final message = error.toString().toLowerCase();
+    if (message.contains('cancel') ||
+        message.contains('busy') ||
+        message.contains('select a local model') ||
+        message.contains('selected model is missing') ||
+        message.contains('model file is incomplete') ||
+        message.contains('invalid model') ||
+        message.contains('unsupported context')) {
+      return false;
+    }
+    return message.contains('runtime') ||
+        message.contains('transport') ||
+        message.contains('connection') ||
+        message.contains('closed') ||
+        message.contains('isolate') ||
+        message.contains('native');
+  }
+
+  Future<MedicineScanDraft> _understandWithRecovery(
+    LocalAiService local,
+    String routedModelId,
+    MedicineScanDraft draft,
+  ) async {
+    try {
+      return await local.understand(draft);
+    } catch (error, stack) {
+      if (local.busy || !_recoverableLocalTransportFailure(error)) {
+        Error.throwWithStackTrace(error, stack);
+      }
+
+      // Instant camera/photo review must have the same one-shot clean-runtime
+      // recovery semantics as the durable intake queue. Retire only the broken
+      // transport, then require the exact same Local AI route before re-sending
+      // this OCR draft. A model switch or Brain-off event invalidates the retry.
+      try {
+        await local.suspend();
+      } catch (_) {
+        Error.throwWithStackTrace(error, stack);
+      }
+      final mayRetry = await LocalBrainRoutePolicy.mayReasonWith(
+        local,
+        routedModelId,
+      );
+      if (!mayRetry || local.activeId != routedModelId) {
+        throw StateError(
+          'Aaris Brain route changed while recovering this scan. Deterministic OCR draft retained for review.',
+        );
+      }
+      return local.understand(draft);
+    }
+  }
+
   Future<void> _prepare() async {
     final generation = ++_generation;
     setState(() {
@@ -459,23 +513,40 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
               _semanticWarning =
                   'Aaris Brain was turned off or the selected Local AI changed during this scan. Remaining OCR drafts stay deterministic for review.';
             } else {
-              final key = '$leasedModelId:${jsonEncode(original.toMessage())}';
-              final candidate =
-                  _semanticCache[key] ?? await local.understand(original);
-              if (!mounted || generation != _generation) return;
-              final leaseStillValid = await LocalBrainRoutePolicy.mayReasonWith(
-                local,
-                leasedModelId,
-              );
-              if (!mounted || generation != _generation) return;
-              if (leaseStillValid) {
-                draft = candidate;
-                _semanticCache[key] = candidate;
-                localBrainUsed = true;
-              } else {
+              // mayReasonWith intentionally lets the current selected model own
+              // a queued scan after a healthy model switch. Cache and validate
+              // against that actual route, never the stale capture witness.
+              final routedModelId = local.activeId;
+              if (routedModelId == null) {
                 scanModelId = null;
                 _semanticWarning =
-                    'Aaris Brain was turned off or its Local AI changed while OCR was being reviewed. That AI result was discarded; deterministic OCR was retained.';
+                    'The Local AI route disappeared before OCR reasoning started. Deterministic OCR preview is being used.';
+              } else {
+                final key = '$routedModelId:${jsonEncode(original.toMessage())}';
+                final candidate = _semanticCache[key] ??
+                    await _understandWithRecovery(
+                      local,
+                      routedModelId,
+                      original,
+                    );
+                if (!mounted || generation != _generation) return;
+                final leaseStillValid =
+                    await LocalBrainRoutePolicy.mayReasonWith(
+                      local,
+                      routedModelId,
+                    ) &&
+                    local.activeId == routedModelId;
+                if (!mounted || generation != _generation) return;
+                if (leaseStillValid) {
+                  draft = candidate;
+                  _semanticCache[key] = candidate;
+                  localBrainUsed = true;
+                  scanModelId = routedModelId;
+                } else {
+                  scanModelId = null;
+                  _semanticWarning =
+                      'Aaris Brain was turned off or its Local AI changed while OCR was being reviewed. That AI result was discarded; deterministic OCR was retained.';
+                }
               }
             }
           } catch (_) {
