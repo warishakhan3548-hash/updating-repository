@@ -505,8 +505,10 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       final understanding = MedicineUnderstandingResult.fromMessage(payload);
       final reviews = <_ImportDraftReview>[];
       final local = LocalAiService.instance;
-      await local.initialize();
 
+      // Local AI is optional enrichment, never a prerequisite for deterministic
+      // OCR review. LocalBrainRoutePolicy owns best-effort model initialization;
+      // a damaged/unavailable model manifest must not fail the whole import inbox.
       String? scanModelId;
       if (widget.preparedDrafts == null) {
         try {
@@ -514,13 +516,11 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           if (!mounted || generation != _generation) return;
           scanModelId = await LocalBrainRoutePolicy.captureModelId(local);
           if (!mounted || generation != _generation) return;
-          if (brainEnabled &&
-              scanModelId == null &&
-              local.hasSelection &&
-              local.scannerEnabled &&
-              !local.scanReady) {
+          if (brainEnabled && scanModelId == null) {
             _semanticWarning =
-                'Aaris Brain is enabled, but the selected Local AI is not Ready for scan review yet. Deterministic OCR preview is being used.';
+                local.hasSelection && local.scannerEnabled && !local.scanReady
+                ? 'Aaris Brain is enabled, but the selected Local AI is not Ready for scan review yet. Deterministic OCR preview is being used.'
+                : 'Aaris Brain is enabled, but no scan-ready Local AI route is available right now. Deterministic OCR preview is being used; the scan remains fully reviewable.';
           }
         } catch (_) {
           if (!mounted || generation != _generation) return;
@@ -545,7 +545,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
             if (!mayReason) {
               scanModelId = null;
               _semanticWarning =
-                  'Aaris Brain was turned off or the selected Local AI changed during this scan. Remaining OCR drafts stay deterministic for review.';
+                  'Aaris Brain was turned off, its model changed, or Local AI is busy with model setup. Remaining OCR drafts stay deterministic for review.';
             } else {
               // mayReasonWith intentionally lets the current selected model own
               // a queued scan after a healthy model switch. Cache and validate
