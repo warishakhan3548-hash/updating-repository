@@ -22,23 +22,29 @@ class AarisAutopilotBeacon extends StatelessWidget {
     animation: supervisor,
     builder: (context, _) {
       final digest = supervisor.digest;
-      if (!digest.isReady || !digest.hasUrgentWork) {
+      if (!digest.isReady || !digest.needsProminentSignal) {
         return const SizedBox.shrink();
       }
 
       final theme = Theme.of(context);
       final scheme = theme.colorScheme;
+      final degraded = digest.health == AarisAutopilotHealth.degraded;
       final critical = digest.criticalCount > 0;
-      final background = critical
+      final useErrorSurface = degraded || critical;
+      final background = useErrorSurface
           ? scheme.errorContainer
           : scheme.primaryContainer;
-      final foreground = critical
+      final foreground = useErrorSurface
           ? scheme.onErrorContainer
           : scheme.onPrimaryContainer;
-      final priorityText = critical
+      final priorityText = degraded
+          ? 'local safety check unavailable'
+          : critical
           ? '${digest.criticalCount} critical${digest.highCount > 0 ? ' · ${digest.highCount} high' : ''}'
           : '${digest.highCount} high priority';
-      final next = digest.hasNextTask
+      final next = degraded
+          ? 'Tap to retry the deterministic pharmacist work queue'
+          : digest.hasNextTask
           ? digest.nextTaskTitle
           : 'Open the current pharmacist work queue';
 
@@ -61,7 +67,9 @@ class AarisAutopilotBeacon extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      critical
+                      degraded
+                          ? Icons.sync_problem_rounded
+                          : critical
                           ? Icons.health_and_safety_rounded
                           : Icons.psychology_alt_rounded,
                       color: foreground,
@@ -83,7 +91,7 @@ class AarisAutopilotBeacon extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Next: $next',
+                            degraded ? next : 'Next: $next',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
