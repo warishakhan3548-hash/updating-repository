@@ -1,0 +1,58 @@
+name: Offline engine surgical upgrade
+
+on:
+  push:
+    branches: [upgrade/offline-decision-engine]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: offline-engine-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  patch-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[offline-engine-patched]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: upgrade/offline-decision-engine
+          fetch-depth: 0
+      - name: Apply guarded core surgery
+        run: python3 tool/upgrade_offline_decision_engine.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Format upgraded core
+        run: dart format lib/domain/medicine_resolution_v2.dart test/offline_decision_engine_test.dart
+      - name: Analyze upgraded decision path
+        run: dart analyze lib/domain/medicine_resolution_v2.dart test/medicine_resolution_v2_test.dart test/offline_decision_engine_test.dart
+      - name: Run resolver safety and intelligence tests
+        run: flutter test --reporter expanded test/medicine_resolution_v2_test.dart test/offline_decision_engine_test.dart
+      - name: Commit only verified core changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add lib/domain/medicine_resolution_v2.dart test/offline_decision_engine_test.dart
+          if git diff --cached --quiet; then
+            echo 'No core changes to commit.'
+            exit 0
+          fi
+          git config user.name 'Aaris Offline Engine Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'Upgrade deterministic offline medicine decision engine [offline-engine-patched]'
+          git push origin HEAD:upgrade/offline-decision-engine
