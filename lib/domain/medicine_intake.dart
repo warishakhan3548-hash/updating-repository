@@ -227,15 +227,39 @@ MedicineVideoWindowResult finishMedicineVideoWindow(
       frames.length > 24 ? frames.sublist(frames.length - 24) : frames,
     );
   }
-  final tail = drafts.last.frameSequences.toSet();
-  final carry = frames.where((frame) => tail.contains(frame.sequence)).toList();
-  // Keep distinct useful views, bounded below the domain frame cap. Carrying
-  // only the latest frame would lose front-label identity when the camera flips.
+
+  final unresolvedSequences = drafts.last.frameSequences.toSet();
+
+  // A window can end just after the user turns from one pack to the next. The
+  // parser may have enough evidence to produce the current draft while the last
+  // few frames of the *next* medicine are still too weak to form a draft. The
+  // old carry rule kept only frameSequences already claimed by the final draft,
+  // silently dropping those unassigned transition frames at every 20 s window
+  // boundary. Keep a bounded recent transition tail as well, so the next window
+  // can fuse front/back/date evidence instead of starting blind.
+  const transitionFrameCount = 12;
+  final transitionFrames = frames.length > transitionFrameCount
+      ? frames.sublist(frames.length - transitionFrameCount)
+      : frames;
+  final transitionSequences = transitionFrames
+      .map((frame) => frame.sequence)
+      .toSet();
+  final carry = frames
+      .where(
+        (frame) =>
+            unresolvedSequences.contains(frame.sequence) ||
+            transitionSequences.contains(frame.sequence),
+      )
+      .toList(growable: false);
+
+  // Keep distinct useful views, bounded well below the domain frame cap. The
+  // front/identity side of the unresolved draft is retained at the head while
+  // the newest transition evidence stays at the tail.
   final bounded = carry.length <= 48
       ? carry
       : [...carry.take(24), ...carry.skip(carry.length - 24)];
   return MedicineVideoWindowResult(
-    drafts.take(drafts.length - 1).toList(),
+    drafts.take(drafts.length - 1).toList(growable: false),
     bounded,
   );
 }

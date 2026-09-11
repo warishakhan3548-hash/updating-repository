@@ -171,16 +171,17 @@ class _ScannerScreenState extends State<ScannerScreen>
     );
   }
 
-  Future<void> _recognize(InputImage input) async {
+  Future<void> _recognize(InputImage input, {String? source}) async {
     if (_busy || _closed) return;
     _busy = true;
     final generation = _generation;
     try {
       // A single immutable frame feeds all detectors; only one frame is in flight.
+      final sequence = _scanSequence++;
       final result = await _vision.analyze(
         input,
-        source: 'Live camera frame ${_scanSequence + 1}',
-        sequence: _scanSequence++,
+        source: source ?? 'Live camera frame ${sequence + 1}',
+        sequence: sequence,
       );
       if (_closed || !mounted || generation != _generation) return;
       if (result.text.isNotEmpty || result.barcode.isNotEmpty) {
@@ -239,12 +240,16 @@ class _ScannerScreenState extends State<ScannerScreen>
                 '${++_scanSequence} photos queued. Capture the next pack. Review in AI Hub.',
           );
       } else {
-        if (widget.autoSubmit) {
-          _evidence.clear();
-          _text = '';
-          _barcode = '';
-        }
-        await _recognize(InputImage.fromFilePath(photo.path));
+        // The live stream is useful evidence, not disposable preview state. It
+        // often sees a barcode/front label while the high-resolution still sees
+        // the composition/expiry panel (or vice versa). Keep the existing
+        // bounded evidence window and add the captured still as the final frame
+        // so deterministic understanding and Local AI receive the fused pack,
+        // instead of throwing away everything observed immediately before tap.
+        await _recognize(
+          InputImage.fromFilePath(photo.path),
+          source: 'Captured still photo',
+        );
         if (widget.autoSubmit &&
             mounted &&
             (_text.isNotEmpty || _barcode.isNotEmpty)) {
