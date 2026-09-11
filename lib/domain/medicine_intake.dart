@@ -126,19 +126,40 @@ class MedicineIntakeJob {
 /// available. A stream of freshly queued photos must not starve already-read OCR
 /// from its capture-bound Local AI handoff; chat still wins because callers set
 /// [allowReasoning] false while the shared model lease is occupied.
+///
+/// Camera evidence is an interactive lane: its OCR already exists when it enters
+/// this scheduler, so making it wait behind file-backed photo/video decoding adds
+/// latency without improving durability. Give the oldest direct-camera job first
+/// chance to become a deterministic draft and, once that draft is ready, first
+/// chance to reach its capture-bound Local AI. This keeps Scan -> Preview feeling
+/// immediate while preserving FIFO inside the interactive lane and the existing
+/// alternating fairness for queued media imports.
 MedicineIntakeJob? nextMedicineIntakeJob(
   Iterable<MedicineIntakeJob> jobs, {
   required bool allowReasoning,
   required bool preferReasoning,
 }) {
+  final interactiveReasoning = allowReasoning
+      ? jobs
+            .where((j) => j.kind == 'evidence' && j.status == 'reasoning')
+            .firstOrNull
+      : null;
+  if (interactiveReasoning != null) return interactiveReasoning;
+
+  final interactiveCapture = jobs
+      .where((j) => j.kind == 'evidence' && j.status == 'queued')
+      .firstOrNull;
+  if (interactiveCapture != null) return interactiveCapture;
+
   final reasoning = allowReasoning
       ? jobs.where((j) => j.status == 'reasoning').firstOrNull
       : null;
   if (preferReasoning && reasoning != null) return reasoning;
 
-  // Fresh photos get OCR ahead of video windows so their durable text exists as
-  // soon as possible. After one capture step the pump flips preferReasoning,
-  // giving an awaiting Local AI draft its fair turn before the next photo.
+  // Fresh file-backed photos get OCR ahead of video windows so their durable
+  // text exists as soon as possible. After one capture step the pump flips
+  // preferReasoning, giving an awaiting Local AI draft its fair turn before the
+  // next photo.
   final photo = jobs
       .where((j) => j.status == 'queued' && j.kind != 'video')
       .firstOrNull;
