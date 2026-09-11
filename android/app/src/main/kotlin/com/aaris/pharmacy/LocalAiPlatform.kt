@@ -313,7 +313,11 @@ internal class LocalAiPlatform(private val activity: Activity) {
                 activity.runOnUiThread {
                     if (modelResult === result) {
                         modelResult = null
-                        result.error("model_import_error", error.message, null)
+                        if (cancelModel) {
+                            result.error("model_cancelled", "Model import cancelled.", null)
+                        } else {
+                            result.error("model_import_error", error.message, null)
+                        }
                     }
                 }
             } finally { copyingModel = false }
