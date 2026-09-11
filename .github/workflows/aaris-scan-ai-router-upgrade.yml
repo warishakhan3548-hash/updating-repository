@@ -1,0 +1,76 @@
+name: Aaris scan AI router upgrade
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aaris-scan-ai-router-upgrade.yml
+      - tool/one_shot_scan_ai_router_upgrade.py
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aaris-scan-ai-router-upgrade
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Run Aaris scan AI router upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply scan AI router surgery
+        run: python3 tool/one_shot_scan_ai_router_upgrade.py
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Format and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart format \
+            lib/domain/medicine_scan_commit.dart \
+            lib/services/cloud_scan_ai_service.dart \
+            lib/ui/import_screen.dart \
+            test/scan_auto_save_decision_test.dart
+          flutter pub get
+          dart analyze lib test tool third_party/lib_llama_cpp/lib
+          flutter test test/scan_auto_save_decision_test.dart --reporter expanded
+          flutter test test/medicine_understanding_test.dart --reporter expanded
+          flutter test test/intake_resolution_test.dart --reporter expanded
+          flutter test --reporter expanded
+          flutter build apk --debug --no-pub
+
+      - name: Commit verified upgrade to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -- pubspec.lock 2>/dev/null || true
+          git config user.name 'Aaris Pharmacy Upgrade Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add \
+            lib/domain/medicine_scan_commit.dart \
+            lib/services/cloud_scan_ai_service.dart \
+            lib/ui/import_screen.dart \
+            test/scan_auto_save_decision_test.dart \
+            docs/SCAN_AI_ROUTING_2026_09_11.md
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No source upgrade diff produced'; exit 1; }
+          git commit -m 'Route scans through local cloud and smart fallback [skip ci]'
+          git push origin HEAD:main
