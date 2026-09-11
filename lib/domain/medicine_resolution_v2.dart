@@ -310,8 +310,14 @@ class MedicineProductResolverV2 {
         !exactBarcodeAmbiguous &&
         winner.product.verified &&
         winner.hardConflicts == 0;
+    // Salt + strength + dosage form can identify a generic composition but do
+    // not prove a trade product. Canonical inheritance is allowed only when a
+    // printed product/name/verified OCR alias independently anchors identity.
+    // This prevents a small catalogue from turning “Paracetamol 650 mg Tablet”
+    // into a familiar brand merely because that brand is the only candidate.
     final calibratedLock =
         winner.product.verified &&
+        winner.strongIdentity &&
         winner.score >= .86 &&
         winner.channels >= 2 &&
         margin >= .10 &&
