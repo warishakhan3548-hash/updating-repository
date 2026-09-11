@@ -158,13 +158,15 @@ class CloudScanAiService {
             },
           }
         : <String, Object?>{
+            // Keep this request at the same lowest-common-denominator contract
+            // as AiService's existing OpenAI-compatible chat route. Optional
+            // generation knobs differ across compatible servers and must not make
+            // a provider that already works for chat fail only for scanner OCR.
             'model': config.model,
             'messages': [
               {'role': 'system', 'content': handoff.systemPrompt},
               {'role': 'user', 'content': handoff.userPayload},
             ],
-            'temperature': 0,
-            'max_tokens': 1000,
           };
 
     return http.Request('POST', endpoint)
