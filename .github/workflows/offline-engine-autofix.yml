@@ -3,6 +3,7 @@ name: Offline engine surgical upgrade
 on:
   push:
     branches: [upgrade/offline-decision-engine]
+  workflow_dispatch:
 
 permissions:
   contents: write
