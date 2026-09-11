@@ -1,0 +1,41 @@
+name: Resolver V2 bounded-source test fix
+on:
+  push:
+    branches:
+      - aaris-medicine-resolver-v2
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aaris-medicine-resolver-v2
+          fetch-depth: 0
+      - name: Update bounded-source safety fixtures
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tool/check_local_ai.dart')
+          text = path.read_text()
+          replacements = {
+            "source('${'x' * 7001}\\nCefixime 200 mg')": "source('Header 5 mg\\n${'x' * 7001}\\nCefixime 200 mg')",
+            "source('${'x' * 2000}\\nCefixime 200 mg')": "source('Header 5 mg\\n${'x' * 2000}\\nCefixime 200 mg')",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'Expected safety-test anchor missing: {old}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+      - name: Commit fixture correction
+        run: |
+          git config user.name "Aaris Pharmacy CI Surgeon"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tool/check_local_ai.dart
+          git diff --cached --check
+          git commit -m "Keep bounded scan evidence tests genuinely hidden"
+          git push origin HEAD:aaris-medicine-resolver-v2
