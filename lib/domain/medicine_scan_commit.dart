@@ -63,6 +63,68 @@ String _trustedIdentityFieldIssue(
   return '';
 }
 
+String _explicitSourceForm(MedicineScanDraft draft) {
+  final source = normalize(draft.rawText);
+  if (source.isEmpty) return '';
+
+  bool contains(String expression) => RegExp(expression).hasMatch(source);
+
+  // Route-defining phrases outrank generic physical-form words. This keeps
+  // POWDER FOR INJECTION as Injection and dry-powder inhalers as Inhaler while
+  // still distinguishing oral Suspension from Syrup and Solution.
+  if (contains(r'\b(?:powder|solution)\s+for\s+injection\b') ||
+      contains(r'\bfor\s+injection\b')) {
+    return 'Injection';
+  }
+  if (contains(r'\binhalers?\b')) return 'Inhaler';
+
+  final forms = <String>{};
+  void add(String expression, String form) {
+    if (contains(expression)) forms.add(form);
+  }
+
+  add(r'\btablets?\b|\btabs?\b', 'Tablet');
+  add(r'\bcapsules?\b|\bcaps?\b', 'Capsule');
+  add(r'\bsyrups?\b', 'Syrup');
+  add(r'\bsuspensions?\b', 'Suspension');
+  add(r'\bsolutions?\b', 'Solution');
+  add(r'\binjections?\b|\binjectable\b', 'Injection');
+  add(r'\bcreams?\b', 'Cream');
+  add(r'\bointments?\b', 'Ointment');
+  add(r'\bgels?\b', 'Gel');
+  add(r'\blotions?\b', 'Lotion');
+  add(r'\bdrops?\b', 'Drops');
+  add(r'\bsprays?\b', 'Spray');
+  add(r'\bpowders?\b', 'Powder');
+  add(r'\bsachets?\b', 'Sachet');
+
+  return forms.length == 1 ? forms.single : '';
+}
+
+/// Returns the form that is safe to persist after preview confirmation.
+///
+/// A single explicit form token in raw OCR is deterministic evidence and can
+/// repair a lower-confidence parser normalization (notably Suspension vs Syrup).
+/// If raw text is ambiguous, only a strong, non-conflicted extracted field is
+/// accepted. This keeps no-AI fallback useful without letting route-changing
+/// form guesses pass the write boundary.
+String confirmedScanForm(MedicineScanDraft draft) {
+  final field = draft.field('form');
+  if (field.conflicted) return '';
+
+  final sourceForm = _explicitSourceForm(draft);
+  if (sourceForm.isNotEmpty) return sourceForm;
+
+  final rawForm = field.value.trim();
+  if (rawForm.isEmpty || field.confidence < .78) return '';
+  final normalized = normalizeForm(rawForm);
+  if (normalized.isEmpty ||
+      (normalized == 'Other' && normalize(rawForm) != 'other')) {
+    return '';
+  }
+  return normalized;
+}
+
 /// One authoritative identity gate for every fast scan-to-stock entry point.
 ///
 /// The UI may render richer warnings, but it must never be the only place that
@@ -75,7 +137,6 @@ String scanQuickIdentityIssue(MedicineScanDraft draft) {
     ('brand', 'Brand'),
     ('salt', 'Salt'),
     ('strength', 'Strength'),
-    ('form', 'Dosage form'),
   ]) {
     final issue = _trustedIdentityFieldIssue(
       draft,
@@ -89,10 +150,11 @@ String scanQuickIdentityIssue(MedicineScanDraft draft) {
     return 'Medicine name or brand still needs review before this scan can be added.';
   }
 
-  final rawForm = draft.form.trim();
-  final normalizedForm = normalizeForm(rawForm);
-  if (normalizedForm.isEmpty ||
-      (normalizedForm == 'Other' && normalize(rawForm) != 'other')) {
+  final formField = draft.field('form');
+  if (formField.conflicted) {
+    return 'Dosage form evidence conflicts and needs review before one-tap add.';
+  }
+  if (confirmedScanForm(draft).isEmpty) {
     return 'Dosage form is not recognized strongly enough for one-tap add.';
   }
   return '';
@@ -186,6 +248,7 @@ Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
   }
 
   final name = confirmedScanName(draft);
+  final form = confirmedScanForm(draft);
   final mfg = _scanDate(draft.mfg, monthOnly: draft.mfgMonthOnly);
   final expiry = _scanDate(
     draft.expiry,
@@ -198,8 +261,6 @@ Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
     );
   }
 
-  final rawForm = draft.form.trim();
-  final normalizedForm = normalizeForm(rawForm);
   return Medicine(
     id: newId(),
     name: name,
@@ -207,7 +268,7 @@ Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
     manufacturer: draft.manufacturer.trim(),
     salt: draft.salt.trim(),
     strength: draft.strength.trim(),
-    form: rawForm.isEmpty ? '' : normalizedForm,
+    form: form,
     mfg: mfg,
     mfgMonthOnly: draft.mfgMonthOnly,
     expiry: expiry,
