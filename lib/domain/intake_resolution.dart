@@ -57,9 +57,8 @@ String _trustedText(
   MedicineScanDraft draft,
   String key, {
   double minimum = _trustedIdentityConfidence,
-}) => _trusted(draft, key, minimum: minimum)
-    ? draft.field(key).value.trim()
-    : '';
+}) =>
+    _trusted(draft, key, minimum: minimum) ? draft.field(key).value.trim() : '';
 
 DateTime? _trustedDate(MedicineScanDraft draft, String key) {
   if (!_trusted(draft, key, minimum: _trustedLotConfidence)) return null;
@@ -91,13 +90,9 @@ bool _sameText(String a, String b) => normalize(a) == normalize(b);
 String _barcodeIdentity(String value) {
   final raw = value.trim();
   if (raw.isEmpty) return '';
-  final gs1 = parseGs1HealthcareBarcode(raw);
-  final candidate = gs1 != null && gs1.gtin.isNotEmpty ? gs1.gtin : raw;
-  if (RegExp(r'^\d+$').hasMatch(candidate) &&
-      const {8, 12, 13, 14}.contains(candidate.length)) {
-    return candidate.padLeft(14, '0');
-  }
-  return candidate;
+  final verified = verifiedGtinKey(raw);
+  if (verified.isNotEmpty) return verified;
+  return raw;
 }
 
 bool _sameBarcode(String a, String b) {
@@ -280,8 +275,7 @@ IntakeResolution resolveIntakeDraft({
     return const IntakeResolution(
       kind: IntakeResolutionKind.needsReview,
       candidateStockIds: <String>[],
-      reason:
-          'The scan does not contain enough trusted identity evidence to choose existing stock.',
+      reason: 'The scan does not contain enough trusted identity evidence to choose existing stock.',
     );
   }
 
@@ -303,17 +297,17 @@ IntakeResolution resolveIntakeDraft({
       return IntakeResolution(
         kind: IntakeResolutionKind.ambiguous,
         candidateStockIds: List.unmodifiable(ids),
-        reason:
-            'This barcode is already attached to different medicine identities. Verify the physical packs before using scanner automation.',
+        reason: 'This barcode is already attached to different medicine identities. Verify the physical packs before using scanner automation.',
       );
     }
-    if (barcodeMatches.every((record) => _strongIdentityConflict(draft, record))) {
+    if (barcodeMatches.every(
+      (record) => _strongIdentityConflict(draft, record),
+    )) {
       final ids = barcodeMatches.map((record) => record.id).toList()..sort();
       return IntakeResolution(
         kind: IntakeResolutionKind.needsReview,
         candidateStockIds: List.unmodifiable(ids),
-        reason:
-            'Trusted OCR identity conflicts with the medicine currently saved for this barcode. Nothing should be updated until the pack is verified.',
+        reason: 'Trusted OCR identity conflicts with the medicine currently saved for this barcode. Nothing should be updated until the pack is verified.',
       );
     }
   }
@@ -350,8 +344,7 @@ IntakeResolution resolveIntakeDraft({
       return IntakeResolution(
         kind: IntakeResolutionKind.needsReview,
         candidateStockIds: List.unmodifiable(ids),
-        reason:
-            'This trusted batch number already exists, but the scanned pack disagrees with saved lot facts such as MFG, EXP, barcode, brand or manufacturer. Verify the physical pack and correct the existing lot instead of creating or receiving stock automatically.',
+        reason: 'This trusted batch number already exists, but the scanned pack disagrees with saved lot facts such as MFG, EXP, barcode, brand or manufacturer. Verify the physical pack and correct the existing lot instead of creating or receiving stock automatically.',
       );
     }
   }
@@ -368,8 +361,7 @@ IntakeResolution resolveIntakeDraft({
     return IntakeResolution(
       kind: IntakeResolutionKind.ambiguous,
       candidateStockIds: List.unmodifiable(ids),
-      reason:
-          'More than one active row matches the same trusted physical-lot evidence. Review the duplicate rows instead of changing stock automatically.',
+      reason: 'More than one active row matches the same trusted physical-lot evidence. Review the duplicate rows instead of changing stock automatically.',
     );
   }
   if (exact.length == 1) {
@@ -379,8 +371,7 @@ IntakeResolution resolveIntakeDraft({
       kind: IntakeResolutionKind.exactLot,
       exactStockId: record.id,
       candidateStockIds: List.unmodifiable(<String>[record.id]),
-      reason:
-          'Trusted pack evidence resolves to one exact saved lot. Identity facts remain unchanged; any stock receipt still requires explicit review.',
+      reason: 'Trusted pack evidence resolves to one exact saved lot. Identity facts remain unchanged; any stock receipt still requires explicit review.',
       safeToReceive: block.isEmpty,
       receiveBlockReason: block,
     );
@@ -404,7 +395,6 @@ IntakeResolution resolveIntakeDraft({
   return const IntakeResolution(
     kind: IntakeResolutionKind.newStock,
     candidateStockIds: <String>[],
-    reason:
-        'No compatible active medicine is safely identified in the local Medicine Database. Review the draft before creating new stock.',
+    reason: 'No compatible active medicine is safely identified in the local Medicine Database. Review the draft before creating new stock.',
   );
 }
