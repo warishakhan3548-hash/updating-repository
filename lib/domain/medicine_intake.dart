@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'medicine.dart';
 import 'medicine_understanding.dart';
 
@@ -119,6 +121,42 @@ class MedicineIntakeJob {
       evidence: evidence,
       drafts: drafts,
     );
+  }
+}
+
+/// Coordinates one worker-owned capture with user terminal actions.
+///
+/// OCR/video processing deliberately checkpoints durable review state before
+/// private source cleanup finishes. The UI can therefore observe `review` or
+/// `failed` for a few asynchronous instructions while the worker still owns the
+/// same row. Retry/Dismiss must wait for that exact ownership lease to end; a
+/// global queue lock would unnecessarily block unrelated captures.
+class MedicineIntakeWorkBarrier {
+  String? _activeId;
+  Completer<void>? _released;
+
+  bool owns(String id) => _activeId == id;
+
+  void begin(String id) {
+    if (_released != null) {
+      throw StateError('A medicine intake worker lease is already active.');
+    }
+    _activeId = id;
+    _released = Completer<void>();
+  }
+
+  Future<void> wait(String id) {
+    final released = _activeId == id ? _released : null;
+    return released?.future ?? Future<void>.value();
+  }
+
+  void finish(String id) {
+    // A stale finalizer can never release a newer capture's lease.
+    if (_activeId != id) return;
+    final released = _released;
+    _activeId = null;
+    _released = null;
+    if (released != null && !released.isCompleted) released.complete();
   }
 }
 
