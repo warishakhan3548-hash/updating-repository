@@ -65,3 +65,10 @@ Startup also removes only strict unreferenced `<32-hex-id>.jpg/.mp4` capture fil
 ## Machine-save authority cleanup
 
 The explicit cloud scan screen is pharmacist-review-only, so the obsolete `ScanAutoSaveVerifier.cloudAi` authority was removed. Direct unattended scan save now has exactly one provenance: a source-verified, scan-verified Local AI route plus the deterministic duplicate/lot/date/confidence/revision gates.
+
+
+## Camera / Photo / Video resolver parity
+
+The fast direct-camera inbox previously stopped at the legacy deterministic understanding function while durable Photo/Video already used `Medicine Resolver V2` with a bounded identity-only canonical catalogue candidate set. The same physical pack could therefore rank differently depending on how it entered the app.
+
+Normal direct camera now performs the same local `CanonicalMedicineCatalogService.candidatesForEvidence(...)` lookup and calls `understandMedicineEvidenceV2Message`. Durable prepared drafts are not re-resolved. This gives Camera/Photo/Video one product-first identity policy, one contradiction model and one variant-safety model without changing the explicit cloud review lane.

@@ -8,10 +8,12 @@ import 'package:flutter/services.dart';
 import '../domain/intake_resolution.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
+import '../domain/medicine_resolution_v2.dart';
 import '../domain/medicine_scan_commit.dart';
 import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
 import '../services/backup_service.dart';
+import '../services/canonical_medicine_catalog_service.dart';
 import '../services/local_ai_service.dart';
 import '../services/local_brain_route_policy.dart';
 import '../services/media_import_service.dart';
@@ -491,17 +493,34 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       }
 
       final knowledge = medicineKnowledgeFromRecords(widget.controller.records);
+      final catalogue = widget.preparedDrafts == null
+          ? await CanonicalMedicineCatalogService.instance
+                .candidatesForEvidence(widget.evidence)
+          : const <CanonicalMedicineProduct>[];
+      if (!mounted || generation != _generation) return;
+
+      // Direct camera and durable photo/video must resolve the same physical
+      // pack with the same product-first engine. Tier-2 catalogue lookup stays
+      // local and bounded; only identity candidates cross the isolate boundary.
+      // Prepared durable drafts have already crossed Resolver V2, so they are
+      // never reinterpreted a second time here.
       final payload = widget.preparedDrafts != null
           ? MedicineUnderstandingResult(drafts: widget.preparedDrafts!)
                 .toMessage()
-          : await compute(understandMedicineEvidenceMessage, <String, Object?>{
-              'evidence': widget.evidence
-                  .map((item) => item.toMessage())
-                  .toList(growable: false),
-              'knowledge': knowledge
-                  .map((entry) => entry.toMessage())
-                  .toList(growable: false),
-            });
+          : await compute(
+              understandMedicineEvidenceV2Message,
+              <String, Object?>{
+                'evidence': widget.evidence
+                    .map((item) => item.toMessage())
+                    .toList(growable: false),
+                'knowledge': knowledge
+                    .map((entry) => entry.toMessage())
+                    .toList(growable: false),
+                'catalog': catalogue
+                    .map((entry) => entry.toMessage())
+                    .toList(growable: false),
+              },
+            );
       if (!mounted || generation != _generation) return;
       final understanding = MedicineUnderstandingResult.fromMessage(payload);
       final reviews = <_ImportDraftReview>[];

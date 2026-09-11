@@ -13,6 +13,9 @@ void main() {
 
     expect(normal, isNot(contains('CloudScanAiService')));
     expect(normal, isNot(contains("../services/cloud_scan_ai_service.dart")));
+    expect(normal, contains('understandMedicineEvidenceV2Message'));
+    expect(normal, contains('CanonicalMedicineCatalogService.instance'));
+    expect(normal, contains("'catalog': catalogue"));
     expect(explicitCloud, contains('CloudScanAiService'));
     expect(capture, contains('Scan with cloud AI'));
     expect(capture, contains('CloudScanReviewScreen'));
