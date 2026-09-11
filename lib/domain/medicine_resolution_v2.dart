@@ -256,7 +256,16 @@ class MedicineProductResolverV2 {
 
     final hypotheses = candidates
         .map((product) => _scoreProduct(product, draft, frames))
-        .where((value) => value.score >= .42)
+        // A strong candidate carrying a hard contradiction must stay visible
+        // even when the contradiction penalty drops its aggregate score below
+        // the ordinary retrieval threshold. Otherwise a dangerous mismatch can
+        // disappear and leave a deceptively clean field-by-field draft.
+        .where(
+          (value) =>
+              value.score >= .42 ||
+              (value.hardConflicts > 0 &&
+                  (value.exactBarcode || value.strongIdentity)),
+        )
         .toList(growable: false)
       ..sort((a, b) {
         final score = b.score.compareTo(a.score);
@@ -268,7 +277,17 @@ class MedicineProductResolverV2 {
     if (hypotheses.isEmpty) return draft;
 
     final winner = hypotheses.first;
-    final runnerUp = hypotheses.length > 1 ? hypotheses[1] : null;
+    _ProductHypothesis? runnerUp;
+    for (final candidate in hypotheses.skip(1)) {
+      // Tier-1 shop memory and Tier-2 master knowledge may describe the exact
+      // same product. They are corroborating sources, not competing products.
+      // Only a genuinely different product is allowed to shrink the ambiguity
+      // margin or force YELLOW review.
+      if (!_sameResolvedProductIdentity(winner.product, candidate.product)) {
+        runnerUp = candidate;
+        break;
+      }
+    }
     final margin = runnerUp == null ? 1.0 : winner.score - runnerUp.score;
 
     if (winner.hardConflicts > 0) {
@@ -531,6 +550,7 @@ class _ProductHypothesis {
     required this.channels,
     required this.hardConflicts,
     required this.exactBarcode,
+    required this.strongIdentity,
   });
 
   final CanonicalMedicineProduct product;
@@ -538,6 +558,7 @@ class _ProductHypothesis {
   final int channels;
   final int hardConflicts;
   final bool exactBarcode;
+  final bool strongIdentity;
 }
 
 _ProductHypothesis _scoreProduct(
@@ -567,8 +588,20 @@ _ProductHypothesis _scoreProduct(
     weighted += .995 * .52;
     totalWeight += .52;
     channels++;
-  } else if (observedBarcodes.isNotEmpty && productBarcodes.isNotEmpty) {
-    hardConflicts++;
+  } else {
+    // Only deterministic retail/GTIN identifiers can veto a product. Packs may
+    // also contain marketing QR codes, URLs, loyalty payloads or serial text;
+    // those are useful evidence only when they match exactly and must never
+    // contradict an otherwise coherent medicine identity merely by existing.
+    final observedStrong = observedBarcodes
+        .where(_isStrongProductBarcodeKey)
+        .toSet();
+    final productStrong = productBarcodes
+        .where(_isStrongProductBarcodeKey)
+        .toSet();
+    if (observedStrong.isNotEmpty && productStrong.isNotEmpty) {
+      hardConflicts++;
+    }
   }
 
   final identityEvidence = <String>[
@@ -658,7 +691,43 @@ _ProductHypothesis _scoreProduct(
     channels: channels,
     hardConflicts: hardConflicts,
     exactBarcode: exactBarcode,
+    strongIdentity: bestIdentity >= .88,
   );
+}
+
+bool _sameResolvedProductIdentity(
+  CanonicalMedicineProduct left,
+  CanonicalMedicineProduct right,
+) {
+  final leftStrength = left.strength.trim();
+  final rightStrength = right.strength.trim();
+  if (leftStrength.isEmpty || rightStrength.isEmpty) return false;
+  if (_strengthIdentity(leftStrength) != _strengthIdentity(rightStrength)) {
+    return false;
+  }
+
+  final leftForm = normalizeForm(left.form);
+  final rightForm = normalizeForm(right.form);
+  if (leftForm.isEmpty || rightForm.isEmpty || leftForm != rightForm) {
+    return false;
+  }
+
+  final names = <double>[
+    _weightedTextSimilarity(left.displayName, right.displayName),
+    _weightedTextSimilarity(left.displayName, right.brand),
+    _weightedTextSimilarity(left.brand, right.displayName),
+    _weightedTextSimilarity(left.brand, right.brand),
+  ];
+  if (names.reduce(max) < .94) return false;
+
+  final leftSalt = left.salt.trim();
+  final rightSalt = right.salt.trim();
+  if (leftSalt.isNotEmpty &&
+      rightSalt.isNotEmpty &&
+      _weightedTextSimilarity(leftSalt, rightSalt) < .90) {
+    return false;
+  }
+  return true;
 }
 
 double? _fieldSimilarity(
@@ -894,6 +963,9 @@ String _canonicalBarcode(String value) {
   }
   return candidate.replaceAll(RegExp(r'\s+'), '');
 }
+
+bool _isStrongProductBarcodeKey(String value) =>
+    RegExp(r'^\d{14}$').hasMatch(value);
 
 String _strengthIdentity(String value) => searchText(value)
     .replaceAll(' ', '')
