@@ -85,12 +85,12 @@ class GgufMetadata {
       architecture: architecture,
       tensorCount: number('tensorCount') ?? 0,
       contextLength: number('contextLength'),
-      layers: number('layers'),
-      embedding: number('embedding'),
-      heads: number('heads'),
-      kvHeads: number('kvHeads'),
-      keyLength: number('keyLength'),
-      valueLength: number('valueLength'),
+      layers: number('block_count'),
+      embedding: number('embedding_length'),
+      heads: number('attention.head_count'),
+      kvHeads: number('attention.head_count_kv'),
+      keyLength: number('attention.key_length'),
+      valueLength: number('attention.value_length'),
       hasChatTemplate: json['hasChatTemplate'] == true,
     );
   }
@@ -335,11 +335,12 @@ class LocalExecutionPlan {
   int get conversationCharacters => contextTokens <= 2048 ? 400 : 1500;
 }
 
-/// Conservative planning estimate, not a model-size admission gate.
-/// On phones, large GGUF files are mmap-backed by llama.cpp, so file size must
-/// not be treated as if every byte were anonymous resident RAM. Device memory
-/// facts choose an initial context and surface a warning; the native loader is
-/// the final allocation authority and LocalAiRuntime can retry smaller contexts.
+/// Conservative planning estimate, never a model-size admission gate.
+/// GGUF weights can be mmap-backed and OS memory telemetry is only a snapshot,
+/// so estimates choose an initial context and surface a Smart Warning. The
+/// native llama.cpp loader is the final allocation authority on every platform,
+/// and LocalAiRuntime can retry progressively smaller contexts after real
+/// allocator/KV-cache pressure.
 LocalExecutionPlan planLocalExecution({
   required int weightBytes,
   required GgufMetadata metadata,
@@ -352,8 +353,9 @@ LocalExecutionPlan planLocalExecution({
     throw StateError('Invalid local model weight size.');
   }
 
-  // Relative pressure replaces any fixed "1.5 GB model" admission rule. These
-  // signals are warnings/context hints only; they never reject a phone model.
+  // Relative pressure replaces fixed model-size admission rules. These signals
+  // only influence context choice and warnings; they never reject a model based
+  // on estimated RAM before native allocation has actually been attempted.
   final modelPressure =
       totalMemory != null && weightBytes >= (totalMemory * .40).floor();
   final availablePressure =
@@ -388,8 +390,9 @@ LocalExecutionPlan planLocalExecution({
       ? totalBudget
       : math.min(totalBudget, availableBudget);
 
-  // Android can reclaim mmap-backed file pages. Keep a reclaim-aware planning
-  // floor so the warning estimate does not masquerade as physical allocation.
+  // Android/iOS can reclaim mmap-backed file pages. Keep a reclaim-aware
+  // planning floor so the warning estimate does not masquerade as physical
+  // allocation and accidentally suppress useful context on constrained phones.
   if (phone && totalMemory != null) {
     final reclaimAwareFloor = (totalMemory * .52).floor();
     budget = budget == null
@@ -399,8 +402,7 @@ LocalExecutionPlan planLocalExecution({
 
   // Even a constrained phone starts from a useful 4K quality target. Memory
   // pressure is advisory only: the native runtime remains the final authority
-  // and can step down through 3K/2K on a real allocation failure. This avoids a
-  // hidden capability block based only on a coarse Android RAM snapshot.
+  // and can step down through 3K/2K on a real allocation failure.
   final contexts = phone
       ? constrainedPhone
             ? const [4096, 3072, 2048]
@@ -413,6 +415,7 @@ LocalExecutionPlan planLocalExecution({
             : const [4096, 3072, 2048]
       : const [32768, 24576, 16384, 12288, 8192, 6144, 4096, 3072, 2048];
 
+  LocalExecutionPlan? lowestSupportedFallback;
   for (final context in contexts) {
     if (metadata.contextLength != null && context > metadata.contextLength!) {
       continue;
@@ -426,8 +429,7 @@ LocalExecutionPlan planLocalExecution({
     final bytes = (residentWeights * 1.1 + kv * 1.1).ceil() + reserve;
     final overBudget = budget != null && bytes > budget;
     final warning =
-        phone &&
-        (lowMemory || modelPressure || availablePressure || overBudget);
+        lowMemory || modelPressure || availablePressure || overBudget;
     final plan = LocalExecutionPlan(
       contextTokens: context,
       estimatedBytes: bytes,
@@ -435,16 +437,30 @@ LocalExecutionPlan planLocalExecution({
       geometryKnown: knownKv != null,
       memoryWarning: warning,
     );
+    lowestSupportedFallback = plan;
 
-    // Phones are native-loader authoritative: use the best context justified by
-    // the live device profile and expose pressure as a Smart Warning. If real
-    // allocation fails, LocalAiRuntime retries lower contexts. This prevents a
-    // pessimistic Dart estimate from hard-blocking capable present/future phones.
-    if (phone) return plan;
-    if (!overBudget) return plan;
+    // Phones stay quality-first and let native fallback choose a smaller context
+    // only after a real allocation failure. Desktops prefer the first estimate
+    // that fits, but an estimate is never allowed to become an admission veto.
+    if (phone || !overBudget) return plan;
   }
 
+  if (lowestSupportedFallback != null) {
+    // Every estimate exceeded the advisory desktop budget. Still hand the lowest
+    // model-supported context to llama.cpp with a visible warning so the owner,
+    // OS pager and future hardware/runtime improvements retain final authority.
+    return LocalExecutionPlan(
+      contextTokens: lowestSupportedFallback.contextTokens,
+      estimatedBytes: lowestSupportedFallback.estimatedBytes,
+      estimatedKvBytes: lowestSupportedFallback.estimatedKvBytes,
+      geometryKnown: lowestSupportedFallback.geometryKnown,
+      memoryWarning: true,
+    );
+  }
+
+  // This is a model/runtime capability incompatibility, not a RAM estimate.
+  // The pinned runtime cannot operate below a 2K context in this app.
   throw StateError(
-    'Model weights + context cache do not fit this non-phone memory budget, or its context is below 2048.',
+    'This model advertises a context below the 2048-token runtime minimum.',
   );
 }
