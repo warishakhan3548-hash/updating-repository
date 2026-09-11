@@ -277,7 +277,7 @@ MFG 08/2026 EXP 07/2028
       expect(() => medicineFromConfirmedScan(draft), throwsFormatException);
     });
 
-    test('different trusted GTIN stays a visible blocking conflict', () {
+    test('different verified GTIN stays a visible blocking conflict', () {
       const product = CanonicalMedicineProduct(
         productId: 'in:dolo:650:tablet',
         revision: 502,
@@ -286,7 +286,42 @@ MFG 08/2026 EXP 07/2028
         salt: 'Paracetamol',
         strength: '650 mg',
         form: 'Tablet',
-        barcodes: <String>['8902222222222'],
+        barcodes: <String>['8902222222227'],
+        verified: true,
+      );
+      final result = MedicineProductResolverV2(
+        localKnowledge: const <MedicineKnowledgeEntry>[],
+        catalogue: const <CanonicalMedicineProduct>[product],
+      ).reconcile(
+        MedicineUnderstandingResult(
+          drafts: <MedicineScanDraft>[
+            _doloDraft(barcode: '8901111111116'),
+          ],
+        ),
+        const <MedicineFrameEvidence>[
+          MedicineFrameEvidence(
+            sequence: 0,
+            barcode: '8901111111116',
+            text: 'DOLO 650\nParacetamol Tablets IP 650 mg',
+          ),
+        ],
+      );
+
+      final draft = result.drafts.single;
+      expect(draft.overallConfidence, lessThan(.78));
+      expect(scanQuickAddDecision(draft, _newStock).allowed, isFalse);
+    });
+
+    test('checksum-invalid numeric payload cannot veto coherent identity', () {
+      const product = CanonicalMedicineProduct(
+        productId: 'in:dolo:650:tablet',
+        revision: 503,
+        name: 'Dolo',
+        brand: 'Dolo',
+        salt: 'Paracetamol',
+        strength: '650 mg',
+        form: 'Tablet',
+        barcodes: <String>['8902222222227'],
         verified: true,
       );
       final result = MedicineProductResolverV2(
@@ -308,8 +343,8 @@ MFG 08/2026 EXP 07/2028
       );
 
       final draft = result.drafts.single;
-      expect(draft.overallConfidence, lessThan(.78));
-      expect(scanQuickAddDecision(draft, _newStock).allowed, isFalse);
+      expect(draft.overallConfidence, greaterThanOrEqualTo(.78));
+      expect(scanQuickIdentityReady(draft), isTrue);
     });
   });
 }
