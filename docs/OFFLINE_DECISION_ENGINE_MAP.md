@@ -2,14 +2,14 @@
 
 ## Goal
 
-Make the default Aaris engine useful without a cloud API or a local LLM. The engine must stay deterministic, offline-first, fast, reviewable, and conservative around stock-changing actions.
+Make the default Aaris engine useful without a cloud API or a local LLM. The engine stays deterministic, offline-first, fast, reviewable, and conservative around stock-changing actions.
 
-This is a domain-specific expert engine, not a general-purpose language model. It should feel intelligent because evidence is narrowed, fused, ranked, cross-checked, and allowed to abstain instead of guessing.
+This is a pharmacy-domain expert engine, not a general-purpose language model. It feels intelligent by narrowing evidence early, combining independent clues, vetoing contradictions, and abstaining instead of guessing.
 
 ## Dependency tree
 
 ```text
-Camera / Photo / Video / Typed command
+Camera / Photo / Video / Typed or Voice Query
 │
 ├─ Vision intake
 │  ├─ ML Kit OCR + line geometry
@@ -22,7 +22,7 @@ Camera / Photo / Video / Typed command
 │  ├─ optional canonical catalogue candidates
 │  └─ background isolate compute
 │
-├─ MedicineUnderstandingEngine (Tier 0 evidence parser)
+├─ MedicineUnderstandingEngine (Tier 0 parser)
 │  ├─ OCR cleanup
 │  ├─ near-duplicate frame fusion
 │  ├─ medicine boundary grouping
@@ -31,7 +31,7 @@ Camera / Photo / Video / Typed command
 │  ├─ local barcode consensus
 │  └─ field confidence + conflict detection
 │
-├─ MedicineProductResolverV2 (Tier 1 coherent resolver)
+├─ MedicineProductResolverV2 (Tier 1 coherent product resolver)
 │  ├─ exact barcode candidate path
 │  ├─ rare lexical candidate retrieval
 │  ├─ bounded delete-neighbour recovery
@@ -41,15 +41,18 @@ Camera / Photo / Video / Typed command
 │  ├─ adaptive score/margin lock thresholds
 │  └─ ambiguity -> human review
 │
-├─ MedicineSearch (hot local retrieval)
-│  ├─ exact canonical barcode
-│  ├─ exact medicine terms
-│  ├─ IDF-style rare-term candidate votes
-│  ├─ bounded identity-only delete-neighbour typo/OCR recovery
-│  ├─ selective prefix / trigram / bigram recovery
-│  ├─ lazy cached scope checks only for retrieved candidates
-│  ├─ bounded final candidate set
-│  └─ weighted field reranking + strength conflict penalty
+├─ MedicineSearch V4 (hot local decision engine)
+│  ├─ exact canonical barcode / long exact record ID
+│  ├─ exact medicine terms + IDF-style rarity votes
+│  ├─ bounded identity-only delete-neighbour OCR recovery
+│  ├─ selective prefix / trigram / bigram candidate cascade
+│  ├─ lazy candidate-only scope checks
+│  ├─ bounded final candidate set (<= 240)
+│  ├─ precomputed normalized field projections
+│  ├─ weighted per-field reranking
+│  ├─ multi-clue coherent identity evidence fusion
+│  ├─ strength contradiction veto/penalty
+│  └─ dosage-form variant contradiction penalty
 │
 ├─ AppBrain (command decision firewall)
 │  ├─ negation / future / compound-write safety block
@@ -65,88 +68,97 @@ Camera / Photo / Video / Typed command
    └─ explicit confirmation before destructive stock changes
 ```
 
-## Visual/state map
+## Visual / state map
 
 ```text
-User scans pack
+User scans a medicine pack
   -> capture is durably queued
-  -> OCR/barcode evidence extracted on-device
-  -> deterministic parser creates field candidates
+  -> OCR / barcode evidence is extracted on-device
+  -> deterministic parser creates observed field candidates
   -> coherent product resolver cross-checks identity
   -> confidence + contradiction gates decide:
-       GREEN: inherit verified identity
+       GREEN: verified identity may prefill
        YELLOW: keep draft for review
-       CONFLICT: preserve observed evidence, never overwrite it
-  -> review UI
-  -> pharmacist confirms
-  -> inventory write
+       CONFLICT: preserve observed evidence; never overwrite it
+  -> pharmacist review
+  -> authoritative inventory write
 
-User types/speaks command
-  -> AppBrain safety firewall
-  -> deterministic intent
-  -> MedicineSearch candidate cascade:
-       exact ID/barcode
-       -> rare exact terms
-       -> bounded delete-neighbour typo/OCR recovery
-       -> prefix/trigram/bigram recovery
-       -> weighted rerank + contradiction penalties
-  -> high-confidence separated winner OR review/abstain
-  -> existing action preview / confirmation
-  -> inventory write only through authoritative controller path
+User types / speaks / OCR-searches
+  -> normalize once
+  -> exact identifier path
+  -> rare exact postings
+  -> bounded OCR typo recovery
+  -> prefix / trigram / bigram recovery
+  -> lazy scope check only for nominated candidates
+  -> top <= 240 candidate documents
+  -> cached field-vector rerank
+  -> coherent multi-clue evidence fusion
+  -> strength + dosage-form contradiction gates
+  -> high-confidence separated winner OR review / abstain
+  -> existing preview / confirmation
+  -> inventory write only through the authoritative controller path
 ```
 
-## Surgical intersection point
+## V4 surgical intersection point
 
-The V2 product resolver already used a bounded search-engine-style cascade and adaptive confidence. MedicineSearch still had two hot-path gaps:
+V3 already fixed the expensive candidate-retrieval problems: it removed the non-empty-query O(N) scope scan and added bounded OCR delete-neighbour nomination. The next hot-path weakness was the final `rank()` stage.
 
-1. Every non-empty query built an `allowed` set by scanning the entire indexed inventory before looking at bounded fuzzy postings. This made keystroke/search cost contain an unnecessary O(N) scope pass even when only a small number of candidates were relevant.
-2. General inventory search relied on exact/prefix/trigram/bigram nomination before the expensive weighted ranker. Mixed OCR confusions such as `D0LO` could be recovered by later similarity logic only if a weaker gram channel happened to nominate the record first.
+Before V4, every retrieved candidate re-normalized and re-split the same medicine fields for every keystroke. Ranking also selected mostly the single best matching field. A query containing several independent clues such as brand + salt + strength + form therefore could not fully benefit from their agreement.
 
-The V3 upgrade fixes both at the original search engine layer:
+V4 changes the original `MedicineSearch` core rather than adding another wrapper:
 
-- scope eligibility is memoized lazily only for IDs reached through bounded postings;
-- an OCR-folded delete-neighbour channel nominates likely typo candidates before edit-distance ranking;
-- delete-neighbour memory is deliberately capped to the first 18 identity-heavy alphabetic terms per record and terms up to 24 characters;
-- the new channel never grants authority. Existing weighted ranking, strength contradictions, Brain winner/runner-up margin checks, exact-context rules, confirmation gates, and controller writes remain authoritative.
-
-Empty-query list views still intentionally scan/sort the selected inventory projection because the user requested a complete list rather than a search.
+1. normalized field projections and identity words are built once when the search index is built;
+2. candidate retrieval stays bounded and unchanged in authority;
+3. reranking can fuse several independent identity clues into one coherent product hypothesis;
+4. strength remains the stronger product-variant contradiction gate;
+5. dosage form adds a separate variant contradiction gate so a same-name/same-strength tablet cannot silently outrank a requested syrup;
+6. long exact internal record IDs receive explicit exact-match authority, while short generic IDs do not;
+7. fuzzy/lexical evidence still cannot bypass AppBrain ambiguity, preview, confirmation, or controller write rules.
 
 ## Performance model
 
-For a non-empty query, work should scale with selective posting lists and the bounded candidate cap rather than with every inventory row:
+For a non-empty query, cost scales with selective postings and the bounded candidate cap rather than the full inventory:
 
 ```text
-normalize query
+index build / inventory revision
+  -> normalize searchable fields once
+  -> cache field words + identity words
+  -> build exact / rarity / delete / prefix / n-gram postings
+
+keystroke / voice / OCR query
+  -> normalize query
   -> exact identifier lookup
   -> selective indexed postings
   -> lazy scope check(candidate IDs only)
   -> top <= 240 candidates
-  -> expensive weighted similarity
+  -> cached-field similarity + coherent evidence fusion
+  -> contradiction gates
   -> sorted results
 ```
 
-The delete-neighbour index is not a second full fuzzy dictionary. It is a small identity-first accelerator. Long OCR payloads, receipts, notes and arbitrary text stay out of that high-memory channel.
+Expensive similarity remains bounded. OCR text and notes do not enter the high-memory delete-neighbour identity channel. Empty-query list views intentionally scan/sort the selected inventory projection because the user asked for a complete list, not a search.
 
 ## Engine rules
 
 1. Exact verified identifiers outrank fuzzy evidence.
 2. Rare evidence carries more retrieval weight than ubiquitous words.
 3. Expensive similarity runs only on a bounded candidate set.
-4. Independent evidence may corroborate; repeated noisy evidence must not dominate.
-5. Conflicting strength/barcode/identity evidence lowers confidence or forces review.
-6. No cloud call is required for the default engine.
-7. Optional Local AI may refine a deterministic draft but can never be required for intake/search correctness.
-8. Destructive operations keep explicit confirmation and never inherit fuzzy target authority.
-9. Unknown is a valid decision. The engine must abstain rather than fabricate certainty.
-10. Performance is achieved by early narrowing, bounded work, cached candidate-only scope checks, and isolate/background processing—not by skipping safety checks.
-11. Memory-heavy typo structures must remain identity-focused and explicitly bounded.
-12. A retrieval channel may nominate candidates; only calibrated downstream evidence is allowed to authorize an automatic target.
+4. Independent clues may corroborate; repeated noisy clues must not dominate.
+5. Product identity must be coherent across fields; one convenient field cannot erase a trusted contradiction.
+6. Conflicting strength is a strong safety signal; conflicting dosage form is a product-variant safety signal.
+7. No cloud call is required for the default engine.
+8. Optional Local AI may refine a deterministic draft but is never required for intake/search correctness.
+9. Destructive operations keep explicit confirmation and never inherit fuzzy target authority.
+10. UNKNOWN / review is a valid outcome. The engine must abstain rather than fabricate certainty.
+11. Performance comes from early narrowing, precomputation, bounded work and isolate/background processing—not skipped checks.
+12. Retrieval channels nominate candidates; calibrated downstream evidence is what may raise confidence.
 
 ## Public engineering benchmarks used for the design direction
 
-- SQLite FTS5: inverted full-text retrieval, IDF/BM25 ranking and bounded ranked results.
-- Apache Lucene FuzzyQuery: bounded edit-distance fuzzy expansion and top-term scoring rather than unconstrained dictionary-wide similarity.
-- Google ML Kit: on-device OCR/barcode processing for real-time and offline mobile flows.
-- GS1 Healthcare: exact structured identifiers such as GTIN, batch/lot and expiry take precedence over fuzzy text when present.
+- SQLite FTS5: inverted retrieval, BM25/IDF-style ranking, prefix/phrase search and bounded ranked results.
+- Apache Lucene FuzzyQuery: bounded edit-distance expansion and top-term scoring instead of unbounded dictionary-wide fuzzy comparison.
+- Google ML Kit: on-device text/barcode extraction suitable for real-time offline mobile paths when models are bundled.
+- Google LiteRT: optional future small specialist models can run on-device and use available CPU/GPU/NPU acceleration; they are not required for the deterministic baseline.
+- GS1 Healthcare: structured identifiers such as GTIN, batch/lot, manufacturing date and expiry are higher-authority evidence than fuzzy OCR text.
 
-These are architecture benchmarks, not claims that Aaris embeds those engines or that any proprietary pharmacy product uses the same implementation.
+These are public architecture benchmarks. They are not claims that Aaris embeds proprietary Big-Tech code or that any named pharmacy company uses this exact implementation.
