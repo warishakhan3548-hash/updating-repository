@@ -452,5 +452,40 @@ MFG 08/2026 EXP 07/2028
         expect(draft.fields.values.any((field) => field.conflicted), isFalse);
       },
     );
+
+    test('second valid GTIN blocks an otherwise exact barcode auto-lock', () {
+      const product = CanonicalMedicineProduct(
+        productId: 'in:dolo:650:multi-gtin-guard',
+        revision: 604,
+        name: 'Dolo',
+        brand: 'Dolo',
+        salt: 'Paracetamol',
+        strength: '650 mg',
+        form: 'Tablet',
+        barcodes: <String>['8902222222227'],
+        verified: true,
+      );
+      final result =
+          MedicineProductResolverV2(
+            localKnowledge: const <MedicineKnowledgeEntry>[],
+            catalogue: const <CanonicalMedicineProduct>[product],
+          ).reconcile(
+            MedicineUnderstandingResult(
+              drafts: <MedicineScanDraft>[_doloDraft(barcode: '8902222222227')],
+            ),
+            const <MedicineFrameEvidence>[
+              MedicineFrameEvidence(
+                sequence: 0,
+                barcode: '8902222222227',
+                barcodes: <String>['8901111111116'],
+                text: 'DOLO 650\nParacetamol Tablets IP 650 mg',
+              ),
+            ],
+          );
+
+      final draft = result.drafts.single;
+      expect(draft.overallConfidence, lessThan(.78));
+      expect(scanQuickAddDecision(draft, _newStock).allowed, isFalse);
+    });
   });
 }

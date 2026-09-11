@@ -944,22 +944,29 @@ _ProductHypothesis _scoreProduct(
       observedBarcodes.isNotEmpty &&
       productBarcodes.isNotEmpty &&
       observedBarcodes.intersection(productBarcodes).isNotEmpty;
+  // Compute strong retail identifiers even on the exact-match path. A video
+  // cluster can accidentally contain two products; one matching GTIN must not
+  // hide a second contradictory valid GTIN from another pack.
+  final observedStrong = observedBarcodes
+      .where(_isStrongProductBarcodeKey)
+      .toSet();
+  final productStrong = productBarcodes
+      .where(_isStrongProductBarcodeKey)
+      .toSet();
   if (exactBarcode) {
     weighted += .995 * .52;
     totalWeight += .52;
     exactIdentifierMass = .52;
     channels++;
+    if (productStrong.isNotEmpty &&
+        observedStrong.difference(productStrong).isNotEmpty) {
+      hardConflicts++;
+    }
   } else {
     // Only verified retail/GTIN identifiers can veto a product. Packs may also
     // contain numeric proprietary Code-128 payloads in standard-looking lengths;
     // those remain exact-match evidence but are not allowed to become hard GTIN
     // contradictions unless the existing GS1 kernel validates the check digit.
-    final observedStrong = observedBarcodes
-        .where(_isStrongProductBarcodeKey)
-        .toSet();
-    final productStrong = productBarcodes
-        .where(_isStrongProductBarcodeKey)
-        .toSet();
     if (observedStrong.isNotEmpty && productStrong.isNotEmpty) {
       hardConflicts++;
     }
