@@ -774,16 +774,26 @@ _IdentityConsensus _scoreIdentityConsensus(
 
   final frameScores = <double>[];
   final seenFrameFingerprints = <String>{};
-  for (final frame in frames.take(12)) {
-    final lines = frame.text
+  var remainingIdentityLines = 32;
+  for (final frame in frames.take(8)) {
+    if (remainingIdentityLines <= 0) break;
+    final rawLines = frame.text
         .split(RegExp(r'[\r\n]+'))
         .map((value) => value.trim())
         .where((value) => value.isNotEmpty)
         .take(16)
         .toList(growable: false);
-    if (lines.isEmpty) continue;
-    final fingerprint = searchText(lines.join(' ')).replaceAll(' ', '');
+    if (rawLines.isEmpty) continue;
+    final fingerprint = searchText(rawLines.join(' ')).replaceAll(' ', '');
     if (fingerprint.isEmpty || !seenFrameFingerprints.add(fingerprint)) continue;
+
+    // Preserve independent-frame corroboration without letting video length
+    // multiply expensive similarity work. At most 32 OCR lines globally reach
+    // the alias scorer, with no more than 12 lines from one unique frame.
+    final lines = rawLines
+        .take(min(12, remainingIdentityLines))
+        .toList(growable: false);
+    remainingIdentityLines -= lines.length;
     final raw = bestAgainstAliases(lines);
     bestRaw = max(bestRaw, raw);
     if (raw < .52) continue;
