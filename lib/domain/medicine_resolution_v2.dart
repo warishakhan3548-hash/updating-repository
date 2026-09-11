@@ -589,10 +589,10 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .52;
     channels++;
   } else {
-    // Only deterministic retail/GTIN identifiers can veto a product. Packs may
-    // also contain marketing QR codes, URLs, loyalty payloads or serial text;
-    // those are useful evidence only when they match exactly and must never
-    // contradict an otherwise coherent medicine identity merely by existing.
+    // Only verified retail/GTIN identifiers can veto a product. Packs may also
+    // contain numeric proprietary Code-128 payloads in standard-looking lengths;
+    // those remain exact-match evidence but are not allowed to become hard GTIN
+    // contradictions unless the existing GS1 kernel validates the check digit.
     final observedStrong = observedBarcodes
         .where(_isStrongProductBarcodeKey)
         .toSet();
@@ -964,8 +964,11 @@ String _canonicalBarcode(String value) {
   return candidate.replaceAll(RegExp(r'\s+'), '');
 }
 
-bool _isStrongProductBarcodeKey(String value) =>
-    RegExp(r'^\d{14}$').hasMatch(value);
+bool _isStrongProductBarcodeKey(String value) {
+  if (!RegExp(r'^\d{14}$').hasMatch(value)) return false;
+  final parsed = parseGs1HealthcareBarcode('01$value');
+  return parsed != null && parsed.gtin == value;
+}
 
 String _strengthIdentity(String value) => searchText(value)
     .replaceAll(' ', '')
