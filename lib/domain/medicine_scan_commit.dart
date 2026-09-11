@@ -173,6 +173,14 @@ String confirmedScanForm(MedicineScanDraft draft) {
 /// partial, low-confidence or conflicted AI/OCR draft simply because text was
 /// present in a field.
 String scanQuickIdentityIssue(MedicineScanDraft draft) {
+  // Product-level contradiction/ambiguity can lower the calibrated draft score
+  // even when each visible identity field remains individually strong. Treat
+  // that global signal as authoritative too; otherwise a wrong trusted GTIN or
+  // future cross-field conflict could still unlock one-tap add.
+  if (draft.overallConfidence < .78) {
+    return 'This scan still has unresolved product-level uncertainty or conflicting evidence. Open detailed review before one-tap add.';
+  }
+
   for (final requirement in const <(String, String)>[
     ('brand', 'Brand'),
     ('salt', 'Salt'),
@@ -213,15 +221,16 @@ bool scanQuickIdentityReady(MedicineScanDraft draft) =>
 /// preview they must be strong enough to persist without silently saving a weak
 /// OCR guess.
 String _scanLotIssue(MedicineScanDraft draft) {
-  for (final key in const ['mfg', 'expiry', 'batchNumber']) {
+  for (final key in const ['mfg', 'expiry', 'batchNumber', 'barcode']) {
     final field = draft.field(key);
     if (field.value.trim().isEmpty) continue;
     if (field.conflicted) {
-      return 'Lot/date evidence conflicts and needs manual review first.';
+      return 'Lot/date/barcode evidence conflicts and needs manual review first.';
     }
-    final minimumConfidence = key == 'batchNumber' ? .82 : .78;
+    final minimumConfidence =
+        key == 'batchNumber' || key == 'barcode' ? .82 : .78;
     if (field.confidence < minimumConfidence) {
-      return 'A captured lot/date fact is not confident enough for one-tap add. Review the printed evidence first.';
+      return 'A captured lot/date/barcode fact is not confident enough for one-tap add. Review the printed evidence first.';
     }
   }
 
@@ -343,8 +352,16 @@ Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
     mfgMonthOnly: draft.mfgMonthOnly,
     expiry: expiry,
     expiryMonthOnly: draft.expiryMonthOnly,
-    barcode: draft.barcode.trim(),
-    batchNumber: draft.batchNumber.trim(),
+    barcode: _confirmedOptionalText(
+      draft,
+      'barcode',
+      minimumConfidence: .82,
+    ),
+    batchNumber: _confirmedOptionalText(
+      draft,
+      'batchNumber',
+      minimumConfidence: .82,
+    ),
     ocrText: draft.searchableOcrText,
   );
 }
