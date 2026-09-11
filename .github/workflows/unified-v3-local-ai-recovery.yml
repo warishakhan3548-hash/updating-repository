@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Apply recovery race fix
+      - name: Apply recovery and intake identity fixes
         run: python3 tool/one_shot_local_ai_recovery_race.py
       - uses: subosito/flutter-action@v2
         with:
@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dart format lib/services/ai_service.dart
+          dart format lib/services/ai_service.dart lib/domain/intake_resolution.dart
           flutter pub get
           dart analyze lib test tool third_party/lib_llama_cpp/lib
           git checkout -- pubspec.lock 2>/dev/null || true
@@ -38,5 +38,5 @@ jobs:
           git config user.email 'actions@users.noreply.github.com'
           git add -A
           git diff --cached --check
-          git commit -m 'Fix shared Local AI recovery lease race [skip ci]'
+          git commit -m 'Fix shared Local AI and intake identity races [skip ci]'
           git push origin HEAD:unified-medicine-evidence-v3
