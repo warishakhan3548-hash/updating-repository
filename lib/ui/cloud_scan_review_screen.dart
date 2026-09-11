@@ -33,7 +33,7 @@ class CloudScanReviewScreen extends StatefulWidget {
 }
 
 class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
-  final _cloud = CloudScanAiService.instance;
+  final _cloud = CloudScanAiService();
   List<MedicineScanDraft> _drafts = const [];
   bool _loading = true;
   int? _savingIndex;
