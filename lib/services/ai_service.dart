@@ -650,6 +650,17 @@ class AiService {
     } else if (error is Map && error['message'] is String) {
       detail = error['message'] as String;
     }
+    if (detail == null) {
+      final response = event['response'];
+      if (response is Map) {
+        final nested = response['error'];
+        if (nested is String) {
+          detail = nested;
+        } else if (nested is Map && nested['message'] is String) {
+          detail = nested['message'] as String;
+        }
+      }
+    }
     if (detail == null) return '';
     final clean = detail.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (clean.length <= _maxProviderErrorCharacters) return clean;
@@ -666,6 +677,7 @@ class AiService {
   }) async {
     final output = StringBuffer();
     final sseData = <String>[];
+    var sseEvent = '';
     var wireCharacters = 0;
     var started = false;
     var terminal = false;
@@ -691,8 +703,20 @@ class AiService {
       }
     }
 
+    bool terminalSseEvent(String raw) {
+      final value = raw.trim().toLowerCase();
+      return value == 'done' ||
+          value == 'message_stop' ||
+          value == 'response.completed';
+    }
+
     bool declaresTerminalEvent(Map<String, dynamic> event) {
       if (event['done'] == true) return true;
+      final type = event['type'];
+      if (type is String && terminalSseEvent(type)) return true;
+      if (event['finish_reason'] != null || event['finishReason'] != null) {
+        return true;
+      }
       if (config.provider == 'Gemini') {
         final candidates = event['candidates'];
         if (candidates is List && candidates.isNotEmpty) {
@@ -750,10 +774,14 @@ class AiService {
     }
 
     void flushSse() {
-      if (sseData.isEmpty) return;
-      final payload = sseData.join('\n');
-      sseData.clear();
-      consume(payload);
+      final eventName = sseEvent;
+      sseEvent = '';
+      if (sseData.isNotEmpty) {
+        final payload = sseData.join('\n');
+        sseData.clear();
+        consume(payload);
+      }
+      if (terminalSseEvent(eventName)) terminal = true;
     }
 
     await for (final line in utf8.decoder
@@ -784,10 +812,26 @@ class AiService {
         sseData.add('');
         continue;
       }
+      if (line.startsWith('event:')) {
+        // Preserve the event name instead of discarding it. Several modern
+        // gateways use an explicit response.completed/message_stop event and
+        // keep the HTTP connection alive afterwards; treating that frame as a
+        // terminal signal prevents a successful answer from becoming a false
+        // inactivity timeout or leaving the UI stuck in Thinking/streaming.
+        if (sseData.isNotEmpty && isCompletePayload(sseData.join('\n'))) {
+          flushSse();
+          if (terminal) break;
+        }
+        sseEvent = line.substring(6).trim();
+        if (terminalSseEvent(sseEvent) && sseData.isEmpty) {
+          // Wait for an accompanying data frame when one is present so any
+          // provider error/output metadata can still be consumed. A blank-line
+          // frame or a one-line complete payload below will terminate promptly.
+        }
+        continue;
+      }
       if (!line.startsWith('data:')) {
-        if (line.startsWith('event:') ||
-            line.startsWith('id:') ||
-            line.startsWith('retry:')) {
+        if (line.startsWith('id:') || line.startsWith('retry:')) {
           continue;
         }
         // Several OpenAI-compatible gateways stream valid JSON records with a
@@ -821,15 +865,19 @@ class AiService {
       }
 
       // Common providers emit their final finish_reason/finishReason event as a
-      // complete one-line JSON frame. If there is no prior multi-line payload,
-      // consume that final frame immediately so a proxy that keeps the socket
-      // alive cannot strand the UI in Thinking/streaming after completion.
+      // complete one-line JSON frame. Modern gateways may instead pair a
+      // response.completed/message_stop SSE event name with that same frame. If
+      // there is no prior multi-line payload, consume it immediately so a proxy
+      // that keeps the socket alive cannot strand the UI after completion.
       if (sseData.isEmpty && isCompletePayload(data)) {
         try {
           final decoded = jsonDecode(normalizePayload(data));
           if (decoded is Map &&
-              declaresTerminalEvent(Map<String, dynamic>.from(decoded))) {
+              (declaresTerminalEvent(Map<String, dynamic>.from(decoded)) ||
+                  terminalSseEvent(sseEvent))) {
             consume(data);
+            terminal = terminal || terminalSseEvent(sseEvent);
+            sseEvent = '';
             break;
           }
         } on FormatException {
@@ -929,6 +977,9 @@ class AiService {
     }
     final topDelta = event['delta'];
     if (topDelta is String) return topDelta;
+    if (topDelta is Map && topDelta['text'] is String) {
+      return topDelta['text'] as String;
+    }
     final outputText = event['output_text'];
     if (outputText is String) return outputText;
     return '';
