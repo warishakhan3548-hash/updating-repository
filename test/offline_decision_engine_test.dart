@@ -41,7 +41,7 @@ void main() {
       expect(draft.overallConfidence, greaterThanOrEqualTo(.78));
     });
 
-    test('fuzzy product recovery cannot overwrite contradictory strength', () {
+    test('fuzzy product recovery exposes contradictory printed strength', () {
       const product = CanonicalMedicineProduct(
         productId: 'offline:alphazine:500:tablet',
         revision: 601,
@@ -74,12 +74,12 @@ void main() {
       expect(draft.overallConfidence, lessThan(.78));
     });
 
-    test('shop memory gets the same resolver cascade without a model', () {
+    test('shop memory gets the same two-edit cascade without a model', () {
       const shop = MedicineKnowledgeEntry(
-        name: 'Cardiwell',
-        brand: 'Cardiwell',
+        name: 'Alphazine',
+        brand: 'Alphazine',
         salt: '',
-        strength: '40 mg',
+        strength: '500 mg',
         form: 'Tablet',
       );
 
@@ -89,7 +89,7 @@ void main() {
             const MedicineFrameEvidence(
               sequence: 0,
               quality: .95,
-              text: 'CARDXWELX 40 mg\nTABLETS',
+              text: 'A1PHAZLNE 500 mg\nTABLETS',
             ).toMessage(),
           ],
           'knowledge': <Map<String, Object?>>[shop.toMessage()],
@@ -98,9 +98,9 @@ void main() {
       );
 
       final draft = result.drafts.single;
-      expect(draft.name, 'Cardiwell');
-      expect(draft.brand, 'Cardiwell');
-      expect(draft.strength.toLowerCase(), '40 mg');
+      expect(draft.name, 'Alphazine');
+      expect(draft.brand, 'Alphazine');
+      expect(draft.strength.toLowerCase(), '500 mg');
       expect(draft.form, 'Tablet');
       expect(draft.field('strength').conflicted, isFalse);
       expect(draft.overallConfidence, greaterThanOrEqualTo(.78));
