@@ -86,6 +86,19 @@ class AiService {
   static const _maxConversationCharacters = 6000;
   static const _maxProviderErrorCharacters = 600;
   static const _localLeaseContentionBudget = Duration(seconds: 30);
+  static const _transientProviderStatuses = <int>{
+    408,
+    425,
+    500,
+    502,
+    503,
+    504,
+    520,
+    521,
+    522,
+    523,
+    524,
+  };
   http.Client? _client;
   bool _localRequest = false;
   bool _ownsLocalLease = false;
@@ -295,9 +308,10 @@ class AiService {
     Object? lastTransientError;
 
     // Generation is read-only until the returned contract is explicitly
-    // reviewed and applied, so one bounded retry is safe for transport failures.
-    // Provider/auth/quota/schema errors are never retried because they require
-    // user action rather than another identical request.
+    // reviewed and applied, so one bounded retry is safe for transport failures
+    // and explicitly transient upstream HTTP statuses. Auth, quota, model and
+    // schema failures still fail fast because another identical request cannot
+    // safely repair them.
     for (var attempt = 0; attempt < 2; attempt++) {
       _throwIfCancelled(cancelEpoch);
       final client = http.Client();
@@ -507,8 +521,14 @@ class AiService {
   bool _isRecoverableCloudTransportFailure(Object error) {
     if (error is FormatException || error is ArgumentError) return false;
     final lower = error.toString().toLowerCase();
-    if (lower.contains('ai provider returned http') ||
-        lower.contains('provider stream failed') ||
+    final providerStatus = RegExp(
+      r'ai provider returned http (\d{3})\b',
+    ).firstMatch(lower);
+    if (providerStatus != null) {
+      final status = int.tryParse(providerStatus.group(1)!);
+      return status != null && _transientProviderStatuses.contains(status);
+    }
+    if (lower.contains('provider stream failed') ||
         lower.contains('response is too large') ||
         lower.contains('incompatible json') ||
         lower.contains('cancel')) {
