@@ -85,12 +85,12 @@ class GgufMetadata {
       architecture: architecture,
       tensorCount: number('tensorCount') ?? 0,
       contextLength: number('contextLength'),
-      layers: number('block_count'),
-      embedding: number('embedding_length'),
-      heads: number('attention.head_count'),
-      kvHeads: number('attention.head_count_kv'),
-      keyLength: number('attention.key_length'),
-      valueLength: number('attention.value_length'),
+      layers: number('layers'),
+      embedding: number('embedding'),
+      heads: number('heads'),
+      kvHeads: number('kvHeads'),
+      keyLength: number('keyLength'),
+      valueLength: number('valueLength'),
       hasChatTemplate: json['hasChatTemplate'] == true,
     );
   }
