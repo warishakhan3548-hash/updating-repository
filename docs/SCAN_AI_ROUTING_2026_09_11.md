@@ -23,9 +23,11 @@
 ## UI/state map
 
 Capture → OCR evidence → route resolution → structured fields populate the scan preview.
-A source-verified Local or Cloud AI result can proceed to automatic save only when
+A source-verified Local AI result can proceed to automatic save only when
 Brand + Salt + Strength + Form, overall confidence, batch/date integrity, duplicate
-resolution, and live inventory revision all pass. Any ambiguity stops at review.
+resolution, and live inventory revision all pass. The explicit cloud lane is
+review-only; cloud output never receives machine-save provenance. Any ambiguity
+stops at review.
 
 When no AI route is available, the existing deterministic pharmacy parser acts as
 the offline NER/entity extractor and auto-fills supported fields, but it does not

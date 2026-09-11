@@ -54,3 +54,14 @@ Photo and video now share one `_queueMedia` path. `MedicineIntakeService.addFile
 - Exact lot, duplicate, date/chronology and revision gates remain authoritative.
 - Cloud scanning remains available as an explicit per-capture action.
 - Photo/video queue capacity, private source ownership and worker barriers remain unchanged.
+
+
+## Crash-consistency cleanup hardening
+
+A successfully checkpointed photo/video draft is now independent from private-source housekeeping. If Android temporarily refuses source deletion, the job remains in its valid review/reasoning state and retains the validated private path for a later Retry/Dismiss cleanup attempt instead of being rewritten as `failed`.
+
+Startup also removes only strict unreferenced `<32-hex-id>.jpg/.mp4` capture files from the private intake directory. This closes the narrow process-death window after private copy but before the SQLite job insert without touching database files or any source still referenced by a restored job.
+
+## Machine-save authority cleanup
+
+The explicit cloud scan screen is pharmacist-review-only, so the obsolete `ScanAutoSaveVerifier.cloudAi` authority was removed. Direct unattended scan save now has exactly one provenance: a source-verified, scan-verified Local AI route plus the deterministic duplicate/lot/date/confidence/revision gates.

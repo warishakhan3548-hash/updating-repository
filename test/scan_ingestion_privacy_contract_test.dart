@@ -8,12 +8,15 @@ void main() {
     final explicitCloud = File('lib/ui/cloud_scan_review_screen.dart')
         .readAsStringSync();
     final capture = File('lib/ui/medicine_capture.dart').readAsStringSync();
+    final commitPolicy = File('lib/domain/medicine_scan_commit.dart')
+        .readAsStringSync();
 
     expect(normal, isNot(contains('CloudScanAiService')));
     expect(normal, isNot(contains("../services/cloud_scan_ai_service.dart")));
     expect(explicitCloud, contains('CloudScanAiService'));
     expect(capture, contains('Scan with cloud AI'));
     expect(capture, contains('CloudScanReviewScreen'));
+    expect(commitPolicy, isNot(contains('cloudAi')));
   });
 
   test('gallery photo and video both enter the durable intake queue', () {

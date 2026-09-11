@@ -73,14 +73,6 @@ void main() {
       ).allowed,
       isTrue,
     );
-    expect(
-      scanAutoSaveDecision(
-        draft,
-        resolution,
-        verifier: ScanAutoSaveVerifier.cloudAi,
-      ).allowed,
-      isTrue,
-    );
   });
 
   test('machine commit uses a stronger 0.88 core confidence floor', () {
