@@ -56,6 +56,13 @@ Set<String> grams(String word) {
   return {for (var i = 0; i < word.length - 1; i++) word.substring(i, i + 2)};
 }
 
+Set<String> _searchTrigrams(String word) {
+  if (word.length < 3) return {word};
+  return {
+    for (var i = 0; i < word.length - 2; i++) word.substring(i, i + 3),
+  };
+}
+
 double orderedSimilarity(String a, String b) {
   if (a == b) return 1;
   if (a.isEmpty || b.isEmpty) return 0;
@@ -228,16 +235,29 @@ class MedicineSearch {
       }
       for (final term in doc.terms) {
         exact.putIfAbsent(term, () => {}).add(m.id);
+        documentFrequency.update(term, (value) => value + 1, ifAbsent: () => 1);
         for (final gram in grams(term)) {
           index.putIfAbsent(gram, () => {}).add(m.id);
+        }
+        if (term.length >= 5) {
+          for (final gram in _searchTrigrams(term)) {
+            trigramIndex.putIfAbsent(gram, () => {}).add(m.id);
+          }
+        }
+        if (term.length >= 4) {
+          final prefix = term.substring(0, min(4, term.length));
+          prefixIndex.putIfAbsent(prefix, () => {}).add(m.id);
         }
       }
     }
   }
 
   static const maxArchivedResults = 150;
+  static const _maxRetrievalCandidates = 240;
   final Map<String, SearchDocument> docs = {};
   final Map<String, Set<String>> index = {}, exact = {}, barcode = {};
+  final Map<String, Set<String>> trigramIndex = {}, prefixIndex = {};
+  final Map<String, int> documentFrequency = {};
   static const noise = {
     'tab',
     'tablet',
@@ -268,6 +288,14 @@ class MedicineSearch {
     'mg',
     'ml',
   };
+
+  double _rarity(String term) {
+    final total = max(1, docs.length);
+    final frequency = documentFrequency[term] ?? 1;
+    return (1 + log((total + .5) / (frequency + .5)))
+        .clamp(1.0, 3.8)
+        .toDouble();
+  }
 
   List<String> chunks(String raw) {
     if (raw.length > 30000) raw = raw.substring(0, 30000);
@@ -304,11 +332,6 @@ class MedicineSearch {
     limit: limit,
   );
 
-  /// Fuzzy search over already-removed rows only. It is read-only and uses the
-  /// same barcode, field weighting, OCR normalization, strength conflict
-  /// penalty and confidence scores as normal Medicine Database search. Browsing
-  /// is bounded so years of recovery history cannot inflate a single UI frame;
-  /// a query still searches the complete local archive index.
   List<SearchHit> searchArchived(
     String raw,
     DateTime today, {
@@ -345,10 +368,6 @@ class MedicineSearch {
           .toList();
     }
 
-    // One product barcode can legitimately identify several physical batches,
-    // including several historical removed rows. Canonical GS1/GTIN identity is
-    // an exact deterministic candidate shortcut, never an automatic mutation
-    // selector.
     final barcodeKey = _barcodeIdentity(raw);
     final barcodeIds = barcodeKey.isEmpty ? null : barcode[barcodeKey];
     if (barcodeIds != null) {
@@ -377,32 +396,98 @@ class MedicineSearch {
           .where((word) => !noise.contains(word))
           .take(14)
           .toList();
-      // A direct query such as "syrup" is useful even though form words are
-      // discarded as noise inside long prescription/invoice text.
       if (tokens.isEmpty && rawTokens.isNotEmpty) {
         tokens = rawTokens.take(14).toList();
       }
       if (tokens.isEmpty) continue;
 
-      final votes = <String, int>{};
-      for (final token in tokens) {
-        for (final id in exact[token] ?? <String>{}) {
-          if (allowed.contains(id)) votes[id] = (votes[id] ?? 0) + 30;
-        }
-        for (final gram in grams(token)) {
-          for (final id in index[gram] ?? <String>{}) {
-            if (allowed.contains(id)) votes[id] = (votes[id] ?? 0) + 1;
+      final votes = <String, double>{};
+      final channels = <String, int>{};
+      void vote(
+        Iterable<String>? ids,
+        double weight, {
+        bool independentChannel = false,
+        int hardLimit = 180,
+      }) {
+        if (ids == null || ids.isEmpty || weight <= 0) return;
+        for (final id in ids.take(hardLimit)) {
+          if (!allowed.contains(id)) continue;
+          votes.update(id, (value) => value + weight, ifAbsent: () => weight);
+          if (independentChannel) {
+            channels.update(id, (value) => value + 1, ifAbsent: () => 1);
           }
         }
       }
+
+      for (final token in tokens) {
+        final rarity = _rarity(token);
+        vote(exact[token], 18 * rarity, independentChannel: true, hardLimit: 160);
+
+        if (token.length >= 4) {
+          final prefix = token.substring(0, min(4, token.length));
+          final posting = prefixIndex[prefix];
+          if (posting != null && posting.length <= 120) {
+            final selectivity =
+                (1 / sqrt(max(1, posting.length))).clamp(.10, .55).toDouble();
+            vote(
+              posting,
+              (2.0 + selectivity * 3.0) * rarity,
+              independentChannel: true,
+              hardLimit: 120,
+            );
+          }
+        }
+
+        var usedSelectiveTrigrams = false;
+        if (token.length >= 5) {
+          final postings = _searchTrigrams(token)
+              .map((gram) => (gram: gram, ids: trigramIndex[gram]))
+              .where((item) => item.ids != null && item.ids!.isNotEmpty)
+              .toList(growable: false)
+            ..sort((a, b) {
+              final size = a.ids!.length.compareTo(b.ids!.length);
+              return size != 0 ? size : a.gram.compareTo(b.gram);
+            });
+          for (final posting in postings.take(7)) {
+            if (posting.ids!.length > max(180, docs.length ~/ 2)) continue;
+            usedSelectiveTrigrams = true;
+            final selectivity =
+                (1 / sqrt(max(1, posting.ids!.length))).clamp(.08, .50).toDouble();
+            vote(
+              posting.ids,
+              (.70 + selectivity * 2.2) * rarity,
+              independentChannel: true,
+              hardLimit: 150,
+            );
+          }
+        }
+
+        if (token.length < 5 || !usedSelectiveTrigrams) {
+          final postings = grams(token)
+              .map((gram) => (gram: gram, ids: index[gram]))
+              .where((item) => item.ids != null && item.ids!.isNotEmpty)
+              .toList(growable: false)
+            ..sort((a, b) {
+              final size = a.ids!.length.compareTo(b.ids!.length);
+              return size != 0 ? size : a.gram.compareTo(b.gram);
+            });
+          for (final posting in postings.take(5)) {
+            if (posting.ids!.length > max(220, docs.length * 3 ~/ 4)) continue;
+            vote(posting.ids, .34 * rarity, hardLimit: 180);
+          }
+        }
+      }
+
       final candidates = votes.keys.toList()
         ..sort((a, b) {
-          final voteOrder = votes[b]!.compareTo(votes[a]!);
+          final aScore = votes[a]! + min(2.0, (channels[a] ?? 0) * .16);
+          final bScore = votes[b]! + min(2.0, (channels[b] ?? 0) * .16);
+          final voteOrder = bScore.compareTo(aScore);
           return voteOrder != 0
               ? voteOrder
               : order(docs[a]!.record, docs[b]!.record);
         });
-      for (final id in candidates.take(300)) {
+      for (final id in candidates.take(_maxRetrievalCandidates)) {
         final hit = rank(docs[id]!.record, query, tokens);
         if (hit.score >= .53 &&
             (found[id] == null || found[id]!.score < hit.score)) {
@@ -474,7 +559,8 @@ class MedicineSearch {
             .take(100)
             .toList();
         final usable = nameTokens.isEmpty ? tokens : nameTokens;
-        var sum = 0.0;
+        var weightedSum = 0.0;
+        var totalTokenWeight = 0.0;
         for (final token in usable) {
           var match = 0.0;
           final corrected = RegExp(r'[a-z]').hasMatch(token)
@@ -494,11 +580,14 @@ class MedicineSearch {
               ),
             );
           }
-          sum += match;
+          final tokenWeight = RegExp(r'^\d').hasMatch(token)
+              ? 1.15
+              : _rarity(token).clamp(1.0, 2.4).toDouble();
+          weightedSum += match * tokenWeight;
+          totalTokenWeight += tokenWeight;
         }
-        score = sum / usable.length;
+        score = totalTokenWeight <= 0 ? 0 : weightedSum / totalTokenWeight;
       }
-      // Check numbers in the field that actually matched, not an unrelated date.
       if (numericTokens.isNotEmpty) {
         final numbers = RegExp(
           r'\d+(?:\.\d+)?',
