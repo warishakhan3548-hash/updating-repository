@@ -237,8 +237,9 @@ void main() {
   });
   check(corrected.salt == 'Paracetamol', 'Evidence-bound semantic label');
   check(
-    corrected.field('salt').conflicted && corrected.needsReview,
-    'New labels need review',
+    !corrected.field('salt').conflicted &&
+        corrected.field('salt').confidence >= .88,
+    'Exact evidence can promote an empty priority identity field',
   );
   check(corrected.expiry == '2028-07', 'AI cannot swap MFG and EXP');
   rejects(

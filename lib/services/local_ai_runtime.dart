@@ -276,12 +276,27 @@ class LocalAiRuntime {
     StreamController<LlamaCommand>? commands,
     StreamSubscription<LlamaResponse>? subscription,
   ) async {
+    // Start both shutdown operations before awaiting either. Some async-generator
+    // transports cannot finish subscription cancellation until their command
+    // stream closes; awaiting cancel first therefore creates a circular wait.
+    Future<void>? cancelFuture;
+    Future<void>? closeFuture;
     try {
-      await subscription?.cancel();
+      cancelFuture = subscription?.cancel();
     } catch (_) {}
     try {
-      await commands?.close();
+      closeFuture = commands?.close();
     } catch (_) {}
+    if (cancelFuture != null) {
+      try {
+        await cancelFuture;
+      } catch (_) {}
+    }
+    if (closeFuture != null) {
+      try {
+        await closeFuture;
+      } catch (_) {}
+    }
   }
 
   /// A failed native load can leave allocator/KV-cache state attached to the

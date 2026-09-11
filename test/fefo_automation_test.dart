@@ -125,12 +125,12 @@ void main() {
       quantity: 4,
       date: today,
     );
-    expect(plan.complete, isTrue);
+    expect(plan.complete, isFalse);
+    expect(plan.blockedByUnknownExpiry, isTrue);
     expect(plan.requiresExpiryVerification, isTrue);
-    expect(plan.allocations.map((item) => item.stockId), [
-      'dated',
-      'unknown-exp',
-    ]);
+    expect(plan.plannedQuantity, 0);
+    expect(plan.allocations, isEmpty);
+    expect(plan.unknownExpiryStockIds, ['unknown-exp']);
   });
 
   test('controller applies reviewed multi-batch sale atomically and undo restores all', () async {

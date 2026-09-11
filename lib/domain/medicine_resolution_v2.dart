@@ -189,21 +189,16 @@ Map<String, Object?> understandMedicineEvidenceV2Message(
             .toList(growable: false)
       : const <CanonicalMedicineProduct>[];
 
-  final catalogueKnowledge = catalogue
-      .map((value) => value.knowledgeEntry)
-      .take(maxCanonicalMedicineCandidates)
-      .toList(growable: false);
-  final localBudget = max(
-    0,
-    maxMedicineKnowledgeEntries - catalogueKnowledge.length,
-  );
-  final mergedKnowledge = <MedicineKnowledgeEntry>[
-    ...catalogueKnowledge,
-    ...localKnowledge.take(localBudget),
-  ];
+  // Preserve the physical pack's observed fields before product resolution.
+  // Canonical catalogue facts must never enter the field-by-field extractor,
+  // otherwise a candidate can rewrite contradictory OCR (for example 500 mg)
+  // to its own canonical strength (650 mg) before the product-level conflict
+  // engine has a chance to reject the impossible hybrid. Shop-reviewed local
+  // knowledge remains safe recognition memory; Tier-2 catalogue data is used
+  // only by the coherent ProductHypothesis resolver below.
   final baseMessage = <String, Object?>{
     ...message,
-    'knowledge': mergedKnowledge
+    'knowledge': localKnowledge
         .take(maxMedicineKnowledgeEntries)
         .map((value) => value.toMessage())
         .toList(growable: false),
