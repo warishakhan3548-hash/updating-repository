@@ -1,0 +1,709 @@
+name: Aaris scan Local AI autosave upgrade
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aaris-scan-local-ai-autosave-upgrade.yml
+permissions:
+  contents: write
+concurrency:
+  group: aaris-scan-local-ai-autosave-upgrade
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Start Aaris scan Local AI autosave upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Apply surgical scan automation upgrade
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one patch anchor, found {count}')
+              file.write_text(text.replace(old, new))
+
+          # Domain: keep the existing quick-add review gate intact and add a
+          # strictly stronger machine-commit gate. Local AI never receives DB
+          # write authority; it only supplies source-validated evidence.
+          replace_once(
+              'lib/domain/medicine_scan_commit.dart',
+              dedent('''\
+              class ScanQuickAddDecision {
+                const ScanQuickAddDecision._({
+                  required this.allowed,
+                  required this.isNewBatch,
+                  required this.reason,
+                });
+
+                const ScanQuickAddDecision.allowed({bool isNewBatch = false})
+                    : this._(allowed: true, isNewBatch: isNewBatch, reason: '');
+
+                const ScanQuickAddDecision.blocked(String reason)
+                    : this._(allowed: false, isNewBatch: false, reason: reason);
+
+                final bool allowed;
+                final bool isNewBatch;
+                final String reason;
+
+                String get actionLabel =>
+                    isNewBatch ? 'Confirm & add new batch' : 'Confirm & add';
+              }
+              '''),
+              dedent('''\
+              class ScanQuickAddDecision {
+                const ScanQuickAddDecision._({
+                  required this.allowed,
+                  required this.isNewBatch,
+                  required this.reason,
+                });
+
+                const ScanQuickAddDecision.allowed({bool isNewBatch = false})
+                    : this._(allowed: true, isNewBatch: isNewBatch, reason: '');
+
+                const ScanQuickAddDecision.blocked(String reason)
+                    : this._(allowed: false, isNewBatch: false, reason: reason);
+
+                final bool allowed;
+                final bool isNewBatch;
+                final String reason;
+
+                String get actionLabel =>
+                    isNewBatch ? 'Confirm & add new batch' : 'Confirm & add';
+              }
+
+              /// Stronger gate used only by the explicit scanner automation path.
+              ///
+              /// The Local LLM is an evidence resolver, never the inventory writer.
+              /// Automatic persistence is unlocked only after the existing domain
+              /// gate passes AND one active on-device model actually reviewed this
+              /// exact draft. The .88 floor matches validateLocalScan(): a field the
+              /// model repaired can reach .88 only after its quote was proven to be
+              /// present in the bounded OCR source. Any weaker/conflicting/duplicate
+              /// case remains on the normal human review screen.
+              class ScanAutoSaveDecision {
+                const ScanAutoSaveDecision._({
+                  required this.allowed,
+                  required this.isNewBatch,
+                  required this.reason,
+                });
+
+                const ScanAutoSaveDecision.allowed({bool isNewBatch = false})
+                    : this._(allowed: true, isNewBatch: isNewBatch, reason: '');
+
+                const ScanAutoSaveDecision.blocked(String reason)
+                    : this._(allowed: false, isNewBatch: false, reason: reason);
+
+                final bool allowed;
+                final bool isNewBatch;
+                final String reason;
+              }
+              '''),
+          )
+
+          replace_once(
+              'lib/domain/medicine_scan_commit.dart',
+              dedent('''\
+              bool _hasTrustedBatchAnchor(MedicineScanDraft draft) {
+              '''),
+              dedent('''\
+              ScanAutoSaveDecision scanAutoSaveDecision(
+                MedicineScanDraft draft,
+                IntakeResolution resolution, {
+                required bool localAiVerified,
+              }) {
+                if (!localAiVerified) {
+                  return const ScanAutoSaveDecision.blocked(
+                    'A scan-ready Local AI did not verify this exact OCR draft. Review it before saving.',
+                  );
+                }
+
+                final quick = scanQuickAddDecision(draft, resolution);
+                if (!quick.allowed) {
+                  return ScanAutoSaveDecision.blocked(quick.reason);
+                }
+                if (draft.rawText.trim().isEmpty) {
+                  return const ScanAutoSaveDecision.blocked(
+                    'Raw packaging evidence is missing, so automatic save is disabled.',
+                  );
+                }
+                if (draft.overallConfidence < .88) {
+                  return const ScanAutoSaveDecision.blocked(
+                    'The verified medicine identity is below the automatic-save confidence floor.',
+                  );
+                }
+
+                for (final requirement in const <(String, String)>[
+                  ('brand', 'Brand'),
+                  ('salt', 'Salt'),
+                  ('strength', 'Strength'),
+                  ('form', 'Dosage form'),
+                ]) {
+                  final field = draft.field(requirement.$1);
+                  if (field.value.trim().isEmpty ||
+                      field.conflicted ||
+                      field.confidence < .88) {
+                    return ScanAutoSaveDecision.blocked(
+                      '${requirement.$2} is not strongly source-verified enough for automatic save.',
+                    );
+                  }
+                }
+
+                return ScanAutoSaveDecision.allowed(
+                  isNewBatch: quick.isNewBatch,
+                );
+              }
+
+              bool _hasTrustedBatchAnchor(MedicineScanDraft draft) {
+              '''),
+          )
+
+          # Scanner entry: capture becomes the user's last explicit action. The
+          # still frame immediately returns to the existing authoritative import
+          # pipeline; there is no second "Use scan" tap.
+          replace_once(
+              'lib/ui/import_screen.dart',
+              dedent('''\
+                Future<void> _scan() async {
+                  final result = await Navigator.push<ScanResult>(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ScannerScreen()),
+                  );
+                  if (result == null || !mounted) return;
+                  await _openInbox(
+                    result.evidence.isNotEmpty
+                        ? result.evidence
+                        : <ScanEvidence>[
+                            ScanEvidence(
+                              barcode: result.barcode,
+                              text: result.text,
+                              source: 'Live camera',
+                            ),
+                          ],
+                  );
+                }
+              '''),
+              dedent('''\
+                Future<void> _scan() async {
+                  final result = await Navigator.push<ScanResult>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ScannerScreen(autoSubmit: true),
+                    ),
+                  );
+                  if (result == null || !mounted) return;
+                  await _openInbox(
+                    result.evidence.isNotEmpty
+                        ? result.evidence
+                        : <ScanEvidence>[
+                            ScanEvidence(
+                              barcode: result.barcode,
+                              text: result.text,
+                              source: 'Live camera',
+                            ),
+                          ],
+                    autoSaveReadyDrafts: true,
+                  );
+                }
+              '''),
+          )
+
+          replace_once(
+              'lib/ui/import_screen.dart',
+              '  Future<void> _openInbox(List<ScanEvidence> evidence) async {',
+              dedent('''\
+                Future<void> _openInbox(
+                  List<ScanEvidence> evidence, {
+                  bool autoSaveReadyDrafts = false,
+                }) async {
+              ''').rstrip(),
+          )
+
+          replace_once(
+              'lib/ui/import_screen.dart',
+              dedent('''\
+                      builder: (_) => ImportInboxScreen(
+                        controller: widget.controller,
+                        evidence: evidence,
+                      ),
+              '''),
+              dedent('''\
+                      builder: (_) => ImportInboxScreen(
+                        controller: widget.controller,
+                        evidence: evidence,
+                        autoSaveReadyDrafts: autoSaveReadyDrafts,
+                      ),
+              '''),
+          )
+
+          replace_once(
+              'lib/ui/import_screen.dart',
+              dedent('''\
+              class ImportInboxScreen extends StatefulWidget {
+                const ImportInboxScreen({
+                  super.key,
+                  required this.controller,
+                  required this.evidence,
+                  this.preparedDrafts,
+                });
+
+                final PharmacyController controller;
+                final List<ScanEvidence> evidence;
+                final List<MedicineScanDraft>? preparedDrafts;
+              '''),
+              dedent('''\
+              class ImportInboxScreen extends StatefulWidget {
+                const ImportInboxScreen({
+                  super.key,
+                  required this.controller,
+                  required this.evidence,
+                  this.preparedDrafts,
+                  this.autoSaveReadyDrafts = false,
+                });
+
+                final PharmacyController controller;
+                final List<ScanEvidence> evidence;
+                final List<MedicineScanDraft>? preparedDrafts;
+
+                /// Enabled only for the direct camera scanner. Batch/file/video
+                /// imports keep their existing explicit review semantics.
+                final bool autoSaveReadyDrafts;
+              '''),
+          )
+
+          replace_once(
+              'lib/ui/import_screen.dart',
+              dedent('''\
+                bool _localBrainScanActive = false;
+                int? _savingDraftIndex;
+              '''),
+              dedent('''\
+                bool _localBrainScanActive = false;
+                int? _savingDraftIndex;
+                bool _autoSaveAttempted = false;
+                String _autoSaveStatus = '';
+              '''),
+          )
+
+          replace_once(
+              'lib/ui/import_screen.dart',
+              dedent('''\
+                    if (mounted && generation == _generation) {
+                      setState(() {
+                        _drafts = reviews;
+                        _ignoredFrames = understanding.ignoredFrames;
+                        _localBrainScanActive = localBrainUsed;
+                        _loading = false;
+                      });
+                    }
+              '''),
+              dedent('''\
+                    if (mounted && generation == _generation) {
+                      setState(() {
+                        _drafts = reviews;
+                        _ignoredFrames = understanding.ignoredFrames;
+                        _localBrainScanActive = localBrainUsed;
+                        _loading = false;
+                      });
+                      if (widget.autoSaveReadyDrafts &&
+                          reviews.length == 1 &&
+                          !_autoSaveAttempted) {
+                        unawaited(
+                          _attemptScannerAutoSave(
+                            generation,
+                            reviews.single,
+                            localBrainVerified: localBrainUsed,
+                          ),
+                        );
+                      }
+                    }
+              '''),
+          )
+
+          replace_once(
+              'lib/ui/import_screen.dart',
+              dedent('''\
+                Future<void> _confirmAndAdd(
+                  int index,
+                  _ImportDraftReview review,
+                ) async {
+              '''),
+              dedent('''\
+                Future<void> _attemptScannerAutoSave(
+                  int preparedGeneration,
+                  _ImportDraftReview review, {
+                  required bool localBrainVerified,
+                }) async {
+                  if (!widget.autoSaveReadyDrafts ||
+                      _autoSaveAttempted ||
+                      !mounted ||
+                      preparedGeneration != _generation) {
+                    return;
+                  }
+                  _autoSaveAttempted = true;
+
+                  var resolution = _resolve(review.draft);
+                  var decision = scanAutoSaveDecision(
+                    review.draft,
+                    resolution,
+                    localAiVerified: localBrainVerified,
+                  );
+                  if (!decision.allowed) {
+                    setState(
+                      () => _autoSaveStatus =
+                          'Auto-save paused · ${decision.reason}',
+                    );
+                    return;
+                  }
+
+                  setState(() {
+                    _savingDraftIndex = 0;
+                    _autoSaveStatus =
+                        'Local AI verified the printed evidence · saving safely…';
+                  });
+                  try {
+                    // Re-resolve immediately before the CAS write. A barcode,
+                    // batch or inventory change that appeared while the model was
+                    // reasoning must fail closed rather than create a duplicate.
+                    resolution = _resolve(review.draft);
+                    decision = scanAutoSaveDecision(
+                      review.draft,
+                      resolution,
+                      localAiVerified: localBrainVerified,
+                    );
+                    if (!decision.allowed) {
+                      throw StateError(decision.reason);
+                    }
+
+                    final expectedRevision = widget.controller.snapshot.revision;
+                    final medicine = medicineFromConfirmedScan(review.draft);
+                    await widget.controller.save(
+                      medicine,
+                      expectedRevision: expectedRevision,
+                    );
+                    if (!mounted) return;
+                    setState(
+                      () => _autoSaveStatus = decision.isNewBatch
+                          ? '${medicine.title} verified and saved automatically as a new batch.'
+                          : '${medicine.title} verified and saved automatically.',
+                    );
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          decision.isNewBatch
+                              ? '${medicine.title} auto-saved as a verified new batch.'
+                              : '${medicine.title} verified by Local AI and auto-saved.',
+                        ),
+                      ),
+                    );
+                  } catch (error) {
+                    if (mounted) {
+                      setState(
+                        () => _autoSaveStatus =
+                            'Auto-save paused safely · $error',
+                      );
+                    }
+                  } finally {
+                    if (mounted && _savingDraftIndex == 0) {
+                      setState(() => _savingDraftIndex = null);
+                    }
+                  }
+                }
+
+                Future<void> _confirmAndAdd(
+                  int index,
+                  _ImportDraftReview review,
+                ) async {
+              '''),
+          )
+
+          replace_once(
+              'lib/ui/import_screen.dart',
+              dedent('''\
+                                if (_localBrainScanActive)
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 10),
+                                    child: Text(
+                                      'Aaris Brain · raw OCR was handed to the active Local AI on-device before this preview. Confirmed fields still require your tap before inventory changes.',
+                                      style: TextStyle(
+                                        color: primary,
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+              '''),
+              dedent('''\
+                                if (_localBrainScanActive)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 10),
+                                    child: Text(
+                                      widget.autoSaveReadyDrafts
+                                          ? 'Aaris Brain · raw OCR was handed to the active Local AI on-device. One strongly verified medicine can save automatically; uncertainty, duplicates and conflicts still stop here for review.'
+                                          : 'Aaris Brain · raw OCR was handed to the active Local AI on-device before this preview. Confirmed fields still require your tap before inventory changes.',
+                                      style: const TextStyle(
+                                        color: primary,
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                if (widget.autoSaveReadyDrafts &&
+                                    _autoSaveStatus.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(
+                                      _autoSaveStatus,
+                                      style: TextStyle(
+                                        color: _autoSaveStatus.contains('saved automatically')
+                                            ? green
+                                            : amber,
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+              '''),
+          )
+
+          # Make the camera UX accurately describe the direct automation path.
+          replace_once(
+              'lib/ui/scanner_screen.dart',
+              "                                    : 'Check the result, then tap Use scan.',",
+              dedent('''\
+                                                  : widget.autoSubmit
+                                                  ? 'Capture once. Aaris sends the OCR into the Local AI route automatically.'
+                                                  : 'Check the result, then tap Use scan.',
+              ''').rstrip(),
+          )
+          replace_once(
+              'lib/ui/scanner_screen.dart',
+              "                                : 'Capture text',",
+              dedent('''\
+                                                : widget.autoSubmit
+                                                ? 'Capture & automate'
+                                                : 'Capture text',
+              ''').rstrip(),
+          )
+
+          # Runtime status must not claim a mandatory human confirmation now that
+          # an independent deterministic gate can safely auto-commit one scan.
+          replace_once(
+              'lib/services/local_ai_service_io.dart',
+              "      _status = 'AI scan preview ready · confirm before adding';",
+              "      _status = 'AI scan evidence verified · automation safety gate deciding next step';",
+          )
+
+          Path('test/scan_auto_save_decision_test.dart').write_text(dedent('''\
+          import 'package:aaris_pharmacy/domain/intake_resolution.dart';
+          import 'package:aaris_pharmacy/domain/medicine.dart';
+          import 'package:aaris_pharmacy/domain/medicine_scan_commit.dart';
+          import 'package:aaris_pharmacy/domain/medicine_understanding.dart';
+          import 'package:flutter_test/flutter_test.dart';
+
+          ExtractedMedicineField _field(
+            String value, {
+            double confidence = .95,
+            bool conflicted = false,
+          }) => ExtractedMedicineField(
+            value: value,
+            confidence: confidence,
+            support: 2,
+            conflicted: conflicted,
+          );
+
+          MedicineScanDraft _draft({
+            double coreConfidence = .95,
+            double overall = .95,
+            String batch = 'B-100',
+          }) => MedicineScanDraft(
+            fields: <String, ExtractedMedicineField>{
+              'name': _field('Dolo 650'),
+              'brand': _field('Dolo 650', confidence: coreConfidence),
+              'salt': _field('Paracetamol', confidence: coreConfidence),
+              'strength': _field('650 mg', confidence: coreConfidence),
+              'form': _field('Tablet', confidence: coreConfidence),
+              'batchNumber': _field(batch),
+              'barcode': _field('8901234567890'),
+              'expiry': _field('2027-12'),
+              'mfg': _field('2026-01'),
+            },
+            rawText:
+                'DOLO 650 TABLETS COMPOSITION Paracetamol IP 650 mg Batch B-100 MFG 01/2026 EXP 12/2027',
+            searchKeywords: 'dolo 650 paracetamol',
+            frameSequences: const <int>[1],
+            expiryMonthOnly: true,
+            mfgMonthOnly: true,
+            overallConfidence: overall,
+          );
+
+          Medicine _savedLot() => Medicine.fromJson(<String, dynamic>{
+            'id': 'lot-a',
+            'name': 'Dolo 650',
+            'brand': 'Dolo 650',
+            'salt': 'Paracetamol',
+            'strength': '650 mg',
+            'form': 'Tablet',
+            'batchNumber': 'B-100',
+            'barcode': '8901234567890',
+            'expiry': '2027-12',
+            'mfg': '2026-01',
+            'quantity': 10,
+          });
+
+          void main() {
+            final today = DateTime(2026, 9, 11);
+
+            test('single new stock can auto-save only after Local AI verification', () {
+              final draft = _draft();
+              final resolution = resolveIntakeDraft(
+                draft: draft,
+                records: const <Medicine>[],
+                today: today,
+              );
+
+              final blocked = scanAutoSaveDecision(
+                draft,
+                resolution,
+                localAiVerified: false,
+              );
+              expect(blocked.allowed, isFalse);
+
+              final allowed = scanAutoSaveDecision(
+                draft,
+                resolution,
+                localAiVerified: true,
+              );
+              expect(allowed.allowed, isTrue);
+              expect(allowed.isNewBatch, isFalse);
+            });
+
+            test('auto-save uses stronger 0.88 source-verification floor', () {
+              final draft = _draft(coreConfidence: .87);
+              final resolution = resolveIntakeDraft(
+                draft: draft,
+                records: const <Medicine>[],
+                today: today,
+              );
+              final decision = scanAutoSaveDecision(
+                draft,
+                resolution,
+                localAiVerified: true,
+              );
+
+              expect(decision.allowed, isFalse);
+              expect(decision.reason, contains('source-verified'));
+            });
+
+            test('exact saved lot never becomes a silent duplicate row', () {
+              final draft = _draft();
+              final resolution = resolveIntakeDraft(
+                draft: draft,
+                records: <Medicine>[_savedLot()],
+                today: today,
+              );
+              expect(resolution.kind, IntakeResolutionKind.exactLot);
+
+              final decision = scanAutoSaveDecision(
+                draft,
+                resolution,
+                localAiVerified: true,
+              );
+              expect(decision.allowed, isFalse);
+              expect(decision.reason, contains('existing stock row'));
+            });
+
+            test('verified different batch may auto-save as a distinct batch', () {
+              final draft = _draft(batch: 'B-200');
+              final resolution = resolveIntakeDraft(
+                draft: draft,
+                records: <Medicine>[_savedLot()],
+                today: today,
+              );
+              expect(resolution.kind, IntakeResolutionKind.sameProduct);
+
+              final decision = scanAutoSaveDecision(
+                draft,
+                resolution,
+                localAiVerified: true,
+              );
+              expect(decision.allowed, isTrue);
+              expect(decision.isNewBatch, isTrue);
+            });
+          }
+          '''))
+
+          Path('docs/AARIS_SCAN_LOCAL_AI_AUTOSAVE_2026_09_11.md').write_text(dedent('''\
+          # Aaris Scanner → Local AI → Safe Auto-Save
+
+          ## Dependency tree
+
+          `ScannerScreen` captures one still frame → `MedicineVisionService` runs OCR/barcode → `understandMedicineEvidenceMessage` creates deterministic medicine drafts → `ImportInboxScreen` captures the active Aaris Brain route → `LocalBrainRoutePolicy` verifies owner switch, model identity, scan readiness and lease → `LocalAiService.understand` sends bounded raw OCR to the selected on-device GGUF → `LocalScanHandoff` + `validateLocalScan` accept only exact source-backed facts → `resolveIntakeDraft` checks live Medicine Database identity/lot collisions → `scanAutoSaveDecision` applies the stronger machine-commit gate → `medicineFromConfirmedScan` revalidates domain invariants → `PharmacyController.save(expectedRevision)` performs the serialized CAS persistence write.
+
+          ## UI / state map
+
+          User opens **Scan medicine** → points at one medicine → taps **Capture & automate** → camera capture is OCR'd → scanner auto-submits without a second **Use scan** tap → review state immediately leases the active Local AI if Aaris Brain is enabled → AI-corrected evidence is source-validated → exactly one safe new-stock/new-batch draft is auto-saved → controller revision changes → the UI refreshes from the authoritative database.
+
+          If Local AI is absent/off/busy beyond the bounded policy, multiple medicines are detected, evidence conflicts, confidence is below 0.88, an exact lot already exists, or inventory changes during reasoning, automatic save stops and the existing review UI remains authoritative.
+
+          ## Surgical intersection
+
+          The LLM does **not** press a database button and never receives mutation authority. The automation is injected after validated Local-AI enrichment and immediately before the existing CAS save boundary. This keeps OCR/LLM probabilistic work upstream while duplicate detection, lot integrity, chronology, confidence and persistence remain deterministic.
+
+          ## Safety invariants
+
+          - Direct camera scanner only; photo/video/text batch imports keep explicit review.
+          - Exactly one medicine draft for automatic commit.
+          - Active, scan-ready, owner-enabled Local AI must have reviewed the exact draft.
+          - Brand, Salt, Strength and Form must each be non-conflicting and at least 0.88 confidence.
+          - Existing `scanQuickAddDecision` must also pass.
+          - Exact saved lots and ambiguous matches never auto-create duplicate rows.
+          - Live inventory is re-resolved immediately before commit.
+          - `expectedRevision` CAS remains the final persistence authority.
+          - One scanner screen gets one auto-save attempt; a race/failure falls back to review instead of retrying a mutation silently.
+          '''))
+          PY
+
+      - name: Format patched Dart
+        run: dart format lib/domain/medicine_scan_commit.dart lib/ui/import_screen.dart lib/ui/scanner_screen.dart lib/services/local_ai_service_io.dart test/scan_auto_save_decision_test.dart
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Static analysis
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+      - name: Focused scanner automation tests
+        run: flutter test --reporter expanded test/scan_auto_save_decision_test.dart test/intake_resolution_test.dart test/local_ai_resilience_test.dart test/medicine_intake_concurrency_test.dart
+      - name: Commit verified upgrade and remove one-shot surgeon
+        shell: bash
+        run: |
+          rm -f .github/workflows/aaris-scan-local-ai-autosave-upgrade.yml
+          git config user.name 'Aaris Upgrade Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No upgrade changes produced.' >&2
+            exit 1
+          fi
+          git commit -m 'Upgrade scanner Local AI safe autosave'
+          git push origin HEAD:main
