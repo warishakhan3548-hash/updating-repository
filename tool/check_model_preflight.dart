@@ -118,6 +118,7 @@ Future<void> main() async {
     );
     rejects(() => inspectGgufPrefix(bad, fileBytes: 4096));
   }
+
   const gib = 1024 * 1024 * 1024;
   final phone = planLocalExecution(
     weightBytes: gib,
@@ -127,9 +128,10 @@ Future<void> main() async {
     availableMemory: 3 * gib,
   );
   check(
-    phone.contextTokens <= 4096 && phone.estimatedBytes > gib,
-    'RAM includes KV and scanner reserve',
+    phone.contextTokens == 4096 && phone.estimatedBytes > gib,
+    'Normal phone starts from the quality-first 4K context',
   );
+
   final tight = planLocalExecution(
     weightBytes: gib,
     metadata: model,
@@ -137,13 +139,11 @@ Future<void> main() async {
     totalMemory: 4 * gib,
     availableMemory: 2500 * 1024 * 1024,
   );
-  check(tight.contextTokens == 2048, 'Context falls back to fit available RAM');
   check(
-    tight.outputTokens == 512 &&
-        tight.inventoryRows == 1 &&
-        tight.evidenceCharacters == 1800,
-    'Small context also reduces output, read pages and OCR source',
+    tight.contextTokens == 4096 && tight.memoryWarning,
+    'Memory estimate warns without pre-blocking or prematurely shrinking the model',
   );
+
   final fourGbTwoGb = planLocalExecution(
     weightBytes: 2 * gib,
     metadata: model,
@@ -152,13 +152,14 @@ Future<void> main() async {
     availableMemory: 700 * 1024 * 1024,
   );
   check(
-    fourGbTwoGb.contextTokens == 2048 && fourGbTwoGb.memoryWarning,
+    fourGbTwoGb.contextTokens == 4096 && fourGbTwoGb.memoryWarning,
     '4 GB phone admits a 2 GB mmap-backed model with a heavy-model warning',
   );
   check(
     fourGbTwoGb.estimatedBytes < 2 * gib,
     'Constrained phone estimates active mmap working set, not the whole GGUF file',
   );
+
   final veryLargePhone = planLocalExecution(
     weightBytes: 2700 * 1024 * 1024,
     metadata: model,
@@ -167,9 +168,10 @@ Future<void> main() async {
     availableMemory: 3 * gib,
   );
   check(
-    veryLargePhone.contextTokens == 2048 && veryLargePhone.memoryWarning,
+    veryLargePhone.contextTokens == 4096 && veryLargePhone.memoryWarning,
     'Phone RAM estimate warns but does not pre-block a large mmap-backed model',
   );
+
   final desktop = planLocalExecution(
     weightBytes: 2 * gib,
     metadata: model,
@@ -177,14 +179,18 @@ Future<void> main() async {
     availableMemory: 12 * gib,
   );
   check(desktop.contextTokens == 8192, 'Larger device retains larger context');
-  rejects(
-    () => planLocalExecution(
-      weightBytes: 2 * gib,
-      metadata: model,
-      totalMemory: 16 * gib,
-      availableMemory: gib,
-    ),
+
+  final pressuredDesktop = planLocalExecution(
+    weightBytes: 2 * gib,
+    metadata: model,
+    totalMemory: 16 * gib,
+    availableMemory: gib,
   );
+  check(
+    pressuredDesktop.contextTokens == 2048 && pressuredDesktop.memoryWarning,
+    'Desktop estimates also warn and fall back instead of acting as an admission veto',
+  );
+
   final pressuredPhone = planLocalExecution(
     weightBytes: gib,
     metadata: model,
@@ -194,15 +200,17 @@ Future<void> main() async {
     lowMemory: true,
   );
   check(
-    pressuredPhone.contextTokens == 2048 && pressuredPhone.memoryWarning,
-    'Phone memory pressure becomes a warning and conservative context',
+    pressuredPhone.contextTokens == 4096 && pressuredPhone.memoryWarning,
+    'Phone memory pressure is advisory; native allocation decides whether 3K/2K fallback is needed',
   );
+
   rejects(
     () => planLocalExecution(
       weightBytes: gib,
       metadata: inspectGgufPrefix(fixture(context: 1024), fileBytes: 4096),
     ),
   );
+
   final legacy = InstalledLocalModel.fromJson({
     'id': 'a' * 64,
     'label': 'Legacy',
@@ -213,6 +221,7 @@ Future<void> main() async {
     legacy.metadata == null && legacy.smokeTestPassed && legacy.loadTestPassed,
     'Old installed manifests migrate to chat-ready',
   );
+
   validateContextBudget(
     promptTokens: 3072,
     contextTokens: 4096,
@@ -234,41 +243,69 @@ Future<void> main() async {
     ),
   );
   rejects(() => validateContextBudget(promptTokens: 4096, contextTokens: 4096));
+
   final root = await Directory.systemTemp.createTemp('aaris_gguf_test_');
   for (final probe in localSetupChecks) {
     check(
       passesLocalSetup({
+        'brand': probe.brand,
         'salt': probe.salt,
         'strength': probe.strength,
+        'form': probe.form,
         'expiry': probe.expiry,
       }, probe),
       'Setup contract accepts exact printed facts',
     );
   }
+
+  final combination = localSetupChecks[2];
   check(
     !passesLocalSetup({
-      'salt': 'Dexamethasone',
-      'strength': '5 mg',
-      'expiry': null,
-    }, localSetupChecks[2]),
-    'Setup rejects decimal loss',
+      'brand': combination.brand,
+      'salt': 'Amoxicillin',
+      'strength': '500 mg',
+      'form': combination.form,
+      'expiry': combination.expiry,
+    }, combination),
+    'Setup rejects incomplete combination identity',
   );
+
+  final liquid = localSetupChecks[3];
   check(
     !passesLocalSetup({
-      'salt': 'Salbutamol',
-      'strength': '2 mg',
-      'expiry': null,
-    }, localSetupChecks[3]),
+      'brand': liquid.brand,
+      'salt': liquid.salt,
+      'strength': '100 mg',
+      'form': liquid.form,
+      'expiry': liquid.expiry,
+    }, liquid),
     'Setup rejects denominator loss',
   );
+
+  final injection = localSetupChecks[5];
   check(
     !passesLocalSetup({
-      'salt': null,
-      'strength': null,
+      'brand': injection.brand,
+      'salt': injection.salt,
+      'strength': injection.strength,
+      'form': injection.form,
       'expiry': '2099-12',
-    }, localSetupChecks[4]),
+    }, injection),
     'Setup rejects source instructions',
   );
+
+  final mixedPack = localSetupChecks[6];
+  check(
+    !passesLocalSetup({
+      'brand': 'CEFIX-O 200',
+      'salt': 'Cefixime',
+      'strength': '200 mg',
+      'form': 'Tablet',
+      'expiry': '2028-07',
+    }, mixedPack),
+    'Setup rejects choosing one identity from a mixed-pack source',
+  );
+
   final download = LocalModelFile(
     repository: 'owner/new-model',
     revision: 'a' * 40,

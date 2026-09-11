@@ -123,7 +123,16 @@ class AiService {
     );
   }
 
-  Future<void> forgetKey() => _storage.delete(key: 'pharmacy.ai.configuration');
+  /// Removes only the cloud credential. Local Brain routing and the selected
+  /// on-device model are independent preferences and must survive this action.
+  Future<void> forgetKey() async {
+    final raw = await _storage.read(key: 'pharmacy.ai.configuration');
+    if (raw == null) return;
+    final config = AiConfiguration.fromJson(
+      jsonDecode(raw) as Map<String, dynamic>,
+    );
+    await saveConfiguration(config.copyWith(key: ''));
+  }
 
   /// Cancels this AiService turn and reports whether that exact turn owned the
   /// shared native Local AI lease. The caller can therefore distinguish native

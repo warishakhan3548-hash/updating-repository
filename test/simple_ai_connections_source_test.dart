@@ -4,20 +4,25 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
-    'AI connections stays simple and uses one authoritative local setup flow',
+    'AI connections stays simple and keeps local routing independent from cloud credentials',
     () {
       final panel = File('lib/ui/local_models_panel.dart').readAsStringSync();
       final service = File('lib/services/local_ai_service_io.dart')
           .readAsStringSync();
       final ai = File('lib/ui/ai_screen.dart').readAsStringSync();
+      final routing = File('lib/services/ai_service.dart').readAsStringSync();
 
       expect(panel, contains('Download / Change model'));
       expect(panel, contains('Local AI · Ready'));
-      expect(panel, contains('Local AI · Chat Ready'));
       expect(panel, contains('Search Qwen, Gemma, Llama or paste model link'));
       expect(panel, contains('Installed models'));
       expect(panel, contains('Use Local AI for scan review'));
-      expect(panel, contains('Choose a model and wait for Chat Ready first.'));
+      expect(panel, contains('Choose a model and wait for Ready first.'));
+      expect(panel, contains('Memory estimates warn; they do not block.'));
+      expect(
+        panel,
+        contains('model file size alone never blocks native inference.'),
+      );
       expect(panel, isNot(contains('Weight-file size filter only')));
       expect(
         panel,
@@ -26,18 +31,12 @@ void main() {
 
       expect(service, contains('LocalModelSetupStage.testing'));
       expect(service, contains('await activate(model.sha256);'));
-      expect(
-        service,
-        contains('This model is Chat Ready but has not passed the stricter scan-review test.'),
-      );
-      expect(
-        service,
-        contains('Local AI Ready · chat works; scan review not verified'),
-      );
-      expect(
-        service,
-        contains('Memory data is advisory.'),
-      );
+      expect(service, contains('planLocalExecution('));
+      expect(service, contains('memoryWarning'));
+
+      expect(routing, contains('if (config.localBrainEnabled)'));
+      expect(routing, contains("await saveConfiguration(config.copyWith(key: ''));"));
+      expect(routing, isNot(contains("forgetKey() => _storage.delete")));
 
       expect(ai, contains('Choose how Aaris uses AI.'));
       expect(ai, contains('Connect with Other AI'));
