@@ -63,6 +63,39 @@ String _trustedIdentityFieldIssue(
   return '';
 }
 
+List<String> _compositionParts(String value) => value
+    .split(RegExp(r'\s*\+\s*'))
+    .map((part) => part.trim())
+    .where((part) => part.isNotEmpty)
+    .toList(growable: false);
+
+bool _hasExplicitStrengthUnit(String value) => RegExp(
+      r'\d+(?:\.\d+)?\s*(?:mcg|µg|μg|ug|mg|gm|g|ml|iu|i\.u\.|units?|%)(?:\s*/\s*(?:\d+(?:\.\d+)?\s*)?(?:mcg|µg|μg|ug|mg|gm|g|ml|l|iu|i\.u\.|units?))?(?:\s*(?:w\s*/\s*v|w\s*/\s*w|v\s*/\s*v))?',
+      caseSensitive: false,
+    ).hasMatch(value);
+
+/// Salt and strength are persisted as parallel, ordered composition lists.
+/// Confidence on each field alone is not enough: a combination with two salts
+/// and one aggregate/brand-looking number is unsafe even when an upstream model
+/// labeled both strings confidently. Enforce pair arity and an explicit dose
+/// unit at the final domain boundary so every current/future one-tap entry point
+/// inherits the same no-guess rule.
+String _compositionPairingIssue(MedicineScanDraft draft) {
+  final salts = _compositionParts(draft.salt);
+  final strengths = _compositionParts(draft.strength);
+  if (salts.isEmpty || strengths.isEmpty) {
+    return 'Salt and strength still need review before one-tap add.';
+  }
+  if (strengths.any((strength) => !_hasExplicitStrengthUnit(strength))) {
+    return 'Strength needs an explicit printed dose unit before one-tap add; a brand or pack number is not enough.';
+  }
+  if ((salts.length > 1 || strengths.length > 1) &&
+      salts.length != strengths.length) {
+    return 'Combination salt and strength evidence does not pair one-to-one. Review the printed composition before one-tap add.';
+  }
+  return '';
+}
+
 String _explicitSourceForm(MedicineScanDraft draft) {
   final source = normalize(draft.rawText);
   if (source.isEmpty) return '';
@@ -152,6 +185,9 @@ String scanQuickIdentityIssue(MedicineScanDraft draft) {
     );
     if (issue.isNotEmpty) return issue;
   }
+
+  final compositionIssue = _compositionPairingIssue(draft);
+  if (compositionIssue.isNotEmpty) return compositionIssue;
 
   if (confirmedScanName(draft).isEmpty) {
     return 'Medicine name or brand still needs review before this scan can be added.';
