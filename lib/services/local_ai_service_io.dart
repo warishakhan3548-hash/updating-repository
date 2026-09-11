@@ -512,13 +512,22 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<T> _exclusive<T>(Future<T> Function(int generation) action) async {
+  Future<T> _exclusive<T>(
+    Future<T> Function(int generation) action, {
+    void Function()? onLeaseAcquired,
+  }) async {
     await initialize();
     if (_working || _transferring)
       throw StateError('Local AI is busy. Wait for the current operation.');
     _working = true;
     _idle?.cancel();
     final generation = _requestGeneration;
+    try {
+      onLeaseAcquired?.call();
+    } catch (_) {
+      // Lease ownership notification is observational and must never break the
+      // native inference operation it describes.
+    }
     notifyListeners();
     Future<T> run() async {
       try {
@@ -778,61 +787,65 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     String instruction, {
     String conversation = '',
     void Function(String token)? onToken,
-  }) => _exclusive((generation) async {
-    if (instruction.trim().isEmpty || instruction.length > 3000) {
-      throw const FormatException('Keep the request under 3000 characters.');
-    }
-    await _loadSelected();
-    _checkRequest(generation);
-    final conversationLimit = _executionPlan!.conversationCharacters;
-    final recentConversation = conversation.length > conversationLimit
-        ? conversation.substring(conversation.length - conversationLimit)
-        : conversation;
-    var input = jsonEncode({
-      'ownerRequest': instruction,
-      'recentConversation': recentConversation,
-    });
-    final results = <Map<String, Object?>>[];
-    for (var round = 0; round <= 4; round++) {
-      _status = round == 0
-          ? 'Local AI · thinking…'
-          : 'Local AI · reading verified local inventory…';
-      notifyListeners();
-      final raw = await _runtime!.generate(
-        context.instructions,
-        input,
-        maxTokens: _executionPlan!.outputTokens,
-        onToken: onToken,
-      );
-      _checkRequest(generation);
-      final answer = localChatObject(raw);
-      if (!answer.containsKey('tool')) {
-        _status = 'Local answer ready · proposed changes require review';
-        notifyListeners();
-        return context.finish(answer);
+    void Function()? onLeaseAcquired,
+  }) => _exclusive(
+    (generation) async {
+      if (instruction.trim().isEmpty || instruction.length > 3000) {
+        throw const FormatException('Keep the request under 3000 characters.');
       }
-      if (round == 4)
-        throw StateError(
-          'Local AI reached the read-tool limit. Ask a narrower question.',
-        );
-      final facts = context.read(
-        answer,
-        rowLimit: _executionPlan!.inventoryRows,
-      );
-      results.add({'call': answer, 'result': facts});
-      if (results.length > 2) results.removeAt(0);
-      input = jsonEncode({
+      await _loadSelected();
+      _checkRequest(generation);
+      final conversationLimit = _executionPlan!.conversationCharacters;
+      final recentConversation = conversation.length > conversationLimit
+          ? conversation.substring(conversation.length - conversationLimit)
+          : conversation;
+      var input = jsonEncode({
         'ownerRequest': instruction,
         'recentConversation': recentConversation,
-        'toolResults': results,
-        'remainingReadCalls': 3 - round,
-        'next': 'Answer or request one more page. Never invent omitted facts.',
       });
-      if (input.length > 15000)
-        throw StateError('Tool result too large; ask a narrower question.');
-    }
-    throw StateError('No local answer.');
-  });
+      final results = <Map<String, Object?>>[];
+      for (var round = 0; round <= 4; round++) {
+        _status = round == 0
+            ? 'Local AI · thinking…'
+            : 'Local AI · reading verified local inventory…';
+        notifyListeners();
+        final raw = await _runtime!.generate(
+          context.instructions,
+          input,
+          maxTokens: _executionPlan!.outputTokens,
+          onToken: onToken,
+        );
+        _checkRequest(generation);
+        final answer = localChatObject(raw);
+        if (!answer.containsKey('tool')) {
+          _status = 'Local answer ready · proposed changes require review';
+          notifyListeners();
+          return context.finish(answer);
+        }
+        if (round == 4)
+          throw StateError(
+            'Local AI reached the read-tool limit. Ask a narrower question.',
+          );
+        final facts = context.read(
+          answer,
+          rowLimit: _executionPlan!.inventoryRows,
+        );
+        results.add({'call': answer, 'result': facts});
+        if (results.length > 2) results.removeAt(0);
+        input = jsonEncode({
+          'ownerRequest': instruction,
+          'recentConversation': recentConversation,
+          'toolResults': results,
+          'remainingReadCalls': 3 - round,
+          'next': 'Answer or request one more page. Never invent omitted facts.',
+        });
+        if (input.length > 15000)
+          throw StateError('Tool result too large; ask a narrower question.');
+      }
+      throw StateError('No local answer.');
+    },
+    onLeaseAcquired: onLeaseAcquired,
+  );
 
   Future<MedicineScanDraft> understand(MedicineScanDraft draft) async {
     await initialize();
