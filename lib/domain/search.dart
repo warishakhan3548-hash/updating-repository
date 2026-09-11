@@ -176,6 +176,38 @@ class SearchHit {
       : 'Low';
 }
 
+class _SearchFieldView {
+  const _SearchFieldView._({
+    required this.text,
+    required this.words,
+    required this.weight,
+    required this.label,
+  });
+
+  factory _SearchFieldView.fromRaw(
+    String raw,
+    double weight,
+    String label,
+  ) {
+    final text = searchText(raw);
+    return _SearchFieldView._(
+      text: text,
+      words: text
+          .split(' ')
+          .where((word) => word.length >= 2)
+          .take(100)
+          .toList(growable: false),
+      weight: weight,
+      label: label,
+    );
+  }
+
+  final String text;
+  final List<String> words;
+  final double weight;
+  final String label;
+}
+
 class SearchDocument {
   static const maxTerms = 384;
   static const maxTermLength = 96;
@@ -202,9 +234,14 @@ class SearchDocument {
     }
     _addTerms(record.ocrText, limit: 176);
     _addTerms(record.notes, limit: 80);
+    fields = _buildSearchFieldViews(record);
+    identityWords = _buildIdentityWords(record);
   }
+
   final Medicine record;
   final Set<String> terms = {};
+  late final List<_SearchFieldView> fields;
+  late final List<String> identityWords;
 
   void _addTerms(String value, {required int limit}) {
     var added = 0;
@@ -217,6 +254,56 @@ class SearchDocument {
       if (added >= limit || terms.length >= maxTerms) return;
     }
   }
+}
+
+List<_SearchFieldView> _buildSearchFieldViews(Medicine m) => [
+  _SearchFieldView.fromRaw(m.name, 1.0, 'Medicine name'),
+  _SearchFieldView.fromRaw(m.brand, .99, 'Brand'),
+  _SearchFieldView.fromRaw(m.salt, .98, 'Salt'),
+  _SearchFieldView.fromRaw('${m.name} ${m.strength}', 1.0, 'Name and strength'),
+  _SearchFieldView.fromRaw(m.barcode, .97, 'Barcode'),
+  _SearchFieldView.fromRaw(m.batchNumber, .91, 'Batch number'),
+  _SearchFieldView.fromRaw(m.manufacturer, .86, 'Manufacturer'),
+  _SearchFieldView.fromRaw(m.form, .82, 'Medicine form'),
+  _SearchFieldView.fromRaw(
+    m.expiry == null ? '' : dateText(m.expiry!),
+    .78,
+    'Expiry date',
+  ),
+  _SearchFieldView.fromRaw(
+    m.mfg == null ? '' : dateText(m.mfg!),
+    .72,
+    'Manufacturing date',
+  ),
+  _SearchFieldView.fromRaw(m.id, .70, 'Internal record ID'),
+  _SearchFieldView.fromRaw(m.ocrText, .78, 'Scanned keywords'),
+  _SearchFieldView.fromRaw(m.address, .72, 'Location'),
+  _SearchFieldView.fromRaw(
+    '${m.block.isEmpty ? '' : 'b${m.block}'} ${m.row.isEmpty ? '' : 'r${m.row}'} ${m.vertical.isEmpty ? '' : 'v${m.vertical}'}',
+    .84,
+    'Location code',
+  ),
+  _SearchFieldView.fromRaw(m.notes, .68, 'Note'),
+];
+
+List<String> _buildIdentityWords(Medicine m) {
+  final result = <String>{};
+  for (final raw in <String>[
+    m.name,
+    m.brand,
+    m.salt,
+    m.manufacturer,
+    m.form,
+  ]) {
+    for (final word in searchText(raw).split(' ')) {
+      if (word.length >= 2 && !MedicineSearch.noise.contains(word)) {
+        result.add(_boundedSearchTerm(word));
+      }
+      if (result.length >= 128) break;
+    }
+    if (result.length >= 128) break;
+  }
+  return result.toList(growable: false);
 }
 
 String _boundedSearchTerm(String value) =>
@@ -241,8 +328,9 @@ class MedicineSearch {
     Iterable<Medicine> records, {
     bool includeArchived = false,
   }) {
-    // Pass 1 builds complete exact identity/text statistics. Exact lookups keep
-    // full coverage even when a record has large OCR or notes payloads.
+    // Pass 1 builds complete exact identity/text statistics and precomputes the
+    // normalized field projections used by the final reranker. This moves text
+    // normalization/splitting out of the keystroke hot path.
     for (final m in records.where((m) => includeArchived || !m.archived)) {
       final doc = SearchDocument(m);
       docs[m.id] = doc;
@@ -314,6 +402,7 @@ class MedicineSearch {
     'tablets',
     'cap',
     'capsule',
+    'capsules',
     'syp',
     'syrup',
     'take',
@@ -493,10 +582,8 @@ class MedicineSearch {
         );
 
         // A bounded deletion-neighbour channel recovers common OCR/typing edits
-        // before expensive edit-distance ranking. This mirrors the product
-        // resolver's search-engine-style cascade while keeping false authority
-        // impossible: it only nominates candidates; rank() and strength conflict
-        // gates remain authoritative.
+        // before expensive edit-distance ranking. It only nominates candidates;
+        // coherent reranking and contradiction gates remain authoritative.
         for (final variant in <String>{token, _searchOcrFold(token)}) {
           if (variant.length < 4 || variant.length > 24) continue;
           final deletionPostings = _searchDeleteKeys(variant)
@@ -586,7 +673,8 @@ class MedicineSearch {
               : order(docs[a]!.record, docs[b]!.record);
         });
       for (final id in candidates.take(_maxRetrievalCandidates)) {
-        final hit = rank(docs[id]!.record, query, tokens);
+        final document = docs[id]!;
+        final hit = _rankDocument(document, query, tokens);
         if (hit.score >= .53 &&
             (found[id] == null || found[id]!.score < hit.score)) {
           found[id] = hit;
@@ -603,47 +691,43 @@ class MedicineSearch {
     return results.take(limit).toList();
   }
 
-  SearchHit rank(Medicine m, String query, List<String> tokens) {
-    final fields = <(String, double, String)>[
-      (m.name, 1.0, 'Medicine name'),
-      (m.brand, .99, 'Brand'),
-      (m.salt, .98, 'Salt'),
-      ('${m.name} ${m.strength}', 1.0, 'Name and strength'),
-      (m.barcode, .97, 'Barcode'),
-      (m.batchNumber, .91, 'Batch number'),
-      (m.manufacturer, .86, 'Manufacturer'),
-      (m.form, .82, 'Medicine form'),
-      (m.expiry == null ? '' : dateText(m.expiry!), .78, 'Expiry date'),
-      (m.mfg == null ? '' : dateText(m.mfg!), .72, 'Manufacturing date'),
-      (m.id, .70, 'Internal record ID'),
-      (m.ocrText, .78, 'Scanned keywords'),
-      (m.address, .72, 'Location'),
-      (
-        '${m.block.isEmpty ? '' : 'b${m.block}'} ${m.row.isEmpty ? '' : 'r${m.row}'} ${m.vertical.isEmpty ? '' : 'v${m.vertical}'}',
-        .84,
-        'Location code',
-      ),
-      (m.notes, .68, 'Note'),
-    ];
+  SearchHit rank(Medicine m, String query, List<String> tokens) =>
+      _rankDocument(docs[m.id] ?? SearchDocument(m), query, tokens);
+
+  SearchHit _rankDocument(
+    SearchDocument document,
+    String query,
+    List<String> tokens,
+  ) {
+    final m = document.record;
     var best = 0.0;
     var reason = 'Possible match';
     final strength = RegExp(r'\b(\d+(?:\.\d+)?)(mg|ml|mcg|g)\b');
     final queryStrength = strength
         .allMatches(query)
-        .map((m) => m.group(0)!)
+        .map((match) => match.group(0)!)
         .toSet();
     final actualStrength = strength
         .allMatches(searchText('${m.strength} ${m.name}'))
-        .map((m) => m.group(0)!)
+        .map((match) => match.group(0)!)
         .toSet();
     final numericTokens = tokens
-        .where((t) => RegExp(r'^\d+(?:\.\d+)?$').hasMatch(t))
-        .toList();
+        .where((token) => RegExp(r'^\d+(?:\.\d+)?$').hasMatch(token))
+        .toList(growable: false);
     final nameTokens = tokens
-        .where((t) => !strength.hasMatch(t) && !numericTokens.contains(t))
-        .toList();
-    for (final (raw, weight, label) in fields) {
-      final value = searchText(raw);
+        .where((token) => !strength.hasMatch(token) && !numericTokens.contains(token))
+        .toList(growable: false);
+    final usable = nameTokens.isEmpty ? tokens : nameTokens;
+
+    // Long internal IDs are exact authority. This cannot turn short generic
+    // strings such as "1" into an authoritative target.
+    final normalizedId = searchText(m.id);
+    if (normalizedId.length >= 6 && query == normalizedId) {
+      return SearchHit(m.id, .995, 'Exact record ID', query);
+    }
+
+    for (final field in document.fields) {
+      final value = field.text;
       if (value.isEmpty) continue;
       var score = 0.0;
       if (query == value) {
@@ -651,32 +735,12 @@ class MedicineSearch {
       } else if (value.contains(query)) {
         score = .96;
       } else {
-        final words = value
-            .split(' ')
-            .where((w) => w.length >= 2)
-            .take(100)
-            .toList();
-        final usable = nameTokens.isEmpty ? tokens : nameTokens;
         var weightedSum = 0.0;
         var totalTokenWeight = 0.0;
         for (final token in usable) {
           var match = 0.0;
-          final corrected = RegExp(r'[a-z]').hasMatch(token)
-              ? token
-                    .replaceAll('0', 'o')
-                    .replaceAll('1', 'i')
-                    .replaceAll('5', 's')
-                    .replaceAll('8', 'b')
-              : token;
-          for (final word in words) {
-            match = max(
-              match,
-              max(
-                orderedSimilarity(token, word),
-                orderedSimilarity(corrected, word) *
-                    (corrected == token ? 1 : .96),
-              ),
-            );
+          for (final word in field.words) {
+            match = max(match, _searchTokenSimilarity(token, word));
           }
           final tokenWeight = RegExp(r'^\d').hasMatch(token)
               ? 1.15
@@ -689,7 +753,7 @@ class MedicineSearch {
       if (numericTokens.isNotEmpty) {
         final numbers = RegExp(
           r'\d+(?:\.\d+)?',
-        ).allMatches(value).map((match) => match[0]!).toList();
+        ).allMatches(value).map((match) => match[0]!).toList(growable: false);
         final matchesNumbers = numericTokens.every(
           (token) => numbers.any(
             (number) =>
@@ -701,21 +765,150 @@ class MedicineSearch {
         );
         if (!matchesNumbers) score *= .66;
       }
-      score *= weight;
+      score *= field.weight;
       if (score > best) {
         best = score;
-        reason = label;
+        reason = field.label;
       }
     }
-    if (queryStrength.isNotEmpty &&
+
+    // V4 evidence fusion: a multi-clue query should be judged as one coherent
+    // identity hypothesis instead of letting a single coincidental field win.
+    // Only alphabetic identity clues participate and at least two independently
+    // matched clues are required before this channel may raise a score.
+    final lexicalTokens = usable
+        .where(
+          (token) => token.length >= 3 && RegExp(r'[a-z\u0900-\u097f]').hasMatch(token),
+        )
+        .take(8)
+        .toList(growable: false);
+    if (lexicalTokens.length >= 2 && document.identityWords.isNotEmpty) {
+      var weightedSimilarity = 0.0;
+      var totalWeight = 0.0;
+      var matchedWeight = 0.0;
+      var matchedClues = 0;
+      for (final token in lexicalTokens) {
+        var match = 0.0;
+        for (final word in document.identityWords) {
+          match = max(match, _searchTokenSimilarity(token, word));
+        }
+        final tokenWeight = _rarity(token).clamp(1.0, 2.4).toDouble();
+        weightedSimilarity += match * tokenWeight;
+        totalWeight += tokenWeight;
+        if (match >= .80) {
+          matchedWeight += tokenWeight;
+          matchedClues++;
+        }
+      }
+      if (totalWeight > 0 && matchedClues >= 2) {
+        final similarity = weightedSimilarity / totalWeight;
+        final coverage = matchedWeight / totalWeight;
+        if (coverage >= .58 && similarity >= .72) {
+          final coherent =
+              (similarity * .80 + coverage * .20).clamp(0, 1).toDouble();
+          final fused = (coherent * .985).clamp(0, .985).toDouble();
+          if (fused > best) {
+            best = fused;
+            reason = 'Corroborated medicine identity';
+          }
+        }
+      }
+    }
+
+    final strengthConflict = queryStrength.isNotEmpty &&
         actualStrength.isNotEmpty &&
-        queryStrength.intersection(actualStrength).isEmpty) {
+        queryStrength.intersection(actualStrength).isEmpty;
+    if (strengthConflict) {
       best *= .48;
       reason = 'Different strength — check carefully';
     }
-    return SearchHit(m.id, best.clamp(0, 1), reason, query);
+
+    // Dosage form is a product-variant constraint just like strength, but weaker.
+    // It is read from the original normalized query even though common form words
+    // are intentionally treated as retrieval noise.
+    if (!strengthConflict) {
+      final requestedForms = _queryFormConstraints(query);
+      final actualForm = _searchFormIdentity(m.form);
+      if (requestedForms.isNotEmpty && actualForm.isNotEmpty) {
+        if (!requestedForms.contains(actualForm)) {
+          best *= .64;
+          reason = 'Different dosage form — check carefully';
+        } else if (best >= .68) {
+          best = min(.995, best + .012);
+        }
+      }
+    }
+
+    return SearchHit(m.id, best.clamp(0, 1).toDouble(), reason, query);
+  }
+
+  double _searchTokenSimilarity(String token, String word) {
+    if (token == word) return 1;
+    if (token.isEmpty || word.isEmpty) return 0;
+    if (word.startsWith(token)) return .93;
+    final corrected = RegExp(r'[a-z]').hasMatch(token)
+        ? token
+              .replaceAll('0', 'o')
+              .replaceAll('1', 'i')
+              .replaceAll('5', 's')
+              .replaceAll('8', 'b')
+        : token;
+    if (corrected == word) return corrected == token ? 1 : .96;
+    if (word.startsWith(corrected) && corrected.length >= 3) {
+      return corrected == token ? .93 : .91;
+    }
+    return max(
+      orderedSimilarity(token, word),
+      orderedSimilarity(corrected, word) * (corrected == token ? 1 : .96),
+    );
   }
 }
+
+String _searchFormIdentity(String raw) {
+  final tokens = searchText(raw).split(' ').where((value) => value.isNotEmpty);
+  for (final token in tokens) {
+    final form = _searchFormAliases[token];
+    if (form != null) return form;
+  }
+  return '';
+}
+
+Set<String> _queryFormConstraints(String query) {
+  final result = <String>{};
+  for (final token in searchText(query).split(' ')) {
+    final form = _searchFormAliases[token];
+    if (form != null) result.add(form);
+  }
+  return result;
+}
+
+const Map<String, String> _searchFormAliases = {
+  'tab': 'tablet',
+  'tabs': 'tablet',
+  'tablet': 'tablet',
+  'tablets': 'tablet',
+  'cap': 'capsule',
+  'caps': 'capsule',
+  'capsule': 'capsule',
+  'capsules': 'capsule',
+  'syp': 'syrup',
+  'syrup': 'syrup',
+  'susp': 'suspension',
+  'suspension': 'suspension',
+  'inj': 'injection',
+  'injection': 'injection',
+  'drop': 'drops',
+  'drops': 'drops',
+  'cream': 'cream',
+  'ointment': 'ointment',
+  'oint': 'ointment',
+  'gel': 'gel',
+  'lotion': 'lotion',
+  'powder': 'powder',
+  'inhaler': 'inhaler',
+  'spray': 'spray',
+  'sachet': 'sachet',
+};
 
 int _archivedOrder(Medicine a, Medicine b) {
   final aTime = a.archivedAt;
