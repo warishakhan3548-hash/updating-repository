@@ -200,3 +200,34 @@ Expensive similarity remains bounded. OCR text and notes do not enter the high-m
 - GS1 Healthcare: structured identifiers such as GTIN, batch/lot, manufacturing date and expiry are higher-authority evidence than fuzzy OCR text.
 
 These are public architecture benchmarks. They are not claims that Aaris embeds proprietary Big-Tech code or that any named pharmacy company uses this exact implementation.
+
+
+## V6 correlation-aware reasoning upgrade
+
+V6 keeps the same authoritative pipeline and upgrades the original resolver core rather than adding a parallel wrapper.
+
+1. **Verified exact-identifier fast lane:** when one or more verified catalogue/shop products match an observed canonical barcode exactly, fuzzy candidate expansion is skipped. Those exact candidates still pass through the existing contradiction and ambiguity gates. Unverified code matches do not suppress verified lexical hypotheses.
+2. **Near-duplicate video evidence collapse:** exact duplicate frame fingerprints were already suppressed in V5. V6 additionally collapses bounded near-duplicate frame token sets, so tiny OCR drift across adjacent video frames cannot manufacture independent evidence authority.
+3. **Correlation-aware decision mass:** salt and strength commonly originate from one printed composition region. The stronger composition clue keeps full authority; the second receives a bounded diminishing-return contribution instead of being counted as fully independent evidence.
+4. **OCR-aware Damerau edit scoring:** the resolver now treats an adjacent character transposition as one bounded edit while retaining the existing cheap OCR-confusion substitution costs. This improves recovery such as `DLOO -> DOLO` without opening unbounded fuzzy search.
+5. **No LLM dependency:** all V6 decisions remain deterministic, local, bounded and auditable. Optional on-device models remain specialists, not a correctness dependency.
+
+### V6 decision order
+
+```text
+verified exact identifier
+  -> prune to exact verified collision set
+  -> contradiction check
+  -> exact lock / conflict / ambiguity
+
+otherwise
+  -> rare indexed candidate retrieval
+  -> bounded OCR-aware Damerau similarity
+  -> near-duplicate evidence collapse
+  -> semantic evidence channels
+  -> correlation-aware authority mass
+  -> adaptive score + margin + contradiction gates
+  -> lock / review / conflict
+```
+
+This follows the same public engineering direction used by modern search and edge-inference systems: aggressively narrow candidates before expensive scoring, keep fuzzy expansion bounded, exploit hardware/on-device execution where models are useful, and preserve an explicit abstain/review state when evidence is insufficient.
