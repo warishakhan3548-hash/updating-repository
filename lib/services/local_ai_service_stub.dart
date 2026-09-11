@@ -43,7 +43,10 @@ class LocalAiService extends ChangeNotifier {
   Future<void> download(LocalModelFile file) async =>
       throw UnsupportedError(status);
   Future<void> importModel() async => throw UnsupportedError(status);
-  Future<void> activate(String id) async => throw UnsupportedError(status);
+  Future<void> activate(
+    String id, {
+    void Function()? onLeaseAcquired,
+  }) async => throw UnsupportedError(status);
   Future<void> suspend() async {}
   Future<void> deactivate() async {}
   Future<void> remove(String id) async {}

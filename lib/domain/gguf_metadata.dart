@@ -373,12 +373,12 @@ LocalExecutionPlan planLocalExecution({
       availableMemory >= (totalMemory * .30).floor();
   final ultraHighEndPhone =
       highEndPhone &&
-      totalMemory! >= 16 * 1024 * _mib &&
-      availableMemory! >= (totalMemory * .40).floor();
+      totalMemory >= 16 * 1024 * _mib &&
+      availableMemory >= (totalMemory * .40).floor();
   final flagshipPhone =
       ultraHighEndPhone &&
-      totalMemory! >= 24 * 1024 * _mib &&
-      availableMemory! >= (totalMemory * .45).floor();
+      totalMemory >= 24 * 1024 * _mib &&
+      availableMemory >= (totalMemory * .45).floor();
 
   final totalBudget = totalMemory == null ? null : (totalMemory * .65).floor();
   final availableBudget = availableMemory == null

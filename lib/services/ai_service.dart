@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -1239,4 +1240,25 @@ class AiService {
       callback(delta);
     } catch (_) {}
   }
+}
+
+/// Shares the exact inventory snapshot as a text attachment while placing the
+/// matching instruction contract on the clipboard for the external AI journey.
+/// Keeping both artifacts generated from the same [PharmacyExport] prevents a
+/// stale prompt from being paired with a different inventory revision.
+Future<void> sharePharmacy(PharmacyExport data) async {
+  await Clipboard.setData(ClipboardData(text: data.prompt));
+  final file = XFile.fromData(
+    Uint8List.fromList(utf8.encode(data.content)),
+    mimeType: 'text/plain',
+  );
+  await SharePlus.instance.share(
+    ShareParams(
+      files: [file],
+      fileNameOverrides: [data.fileName],
+      subject: data.fileName,
+      text:
+          'Aaris Pharmacy inventory export. The matching AI instructions are copied to your clipboard.',
+    ),
+  );
 }
