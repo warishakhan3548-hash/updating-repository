@@ -153,8 +153,8 @@ index build / inventory revision
 scan resolution
   -> exact identifiers
   -> bounded candidate retrieval (<= 96 products)
-  -> max 12 resolver frames
-  -> max 16 text lines per frame for identity evidence
+  -> inspect max 8 resolver frames for identity consensus
+  -> global <= 32 identity lines, <= 12 lines per unique frame
   -> duplicate-frame fingerprint collapse
   -> bounded alias comparison
   -> coherent score + authority mass + contradiction gates
