@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
-import '../domain/medicine_understanding.dart';
 import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
 import 'default_ai_prompt.dart';
@@ -190,23 +189,12 @@ class _ScannerScreenState extends State<ScannerScreen>
         if (evidence.length > 18) {
           evidence.removeRange(0, evidence.length - 18);
         }
-        final payload =
-            await compute(understandMedicineEvidenceMessage, <String, Object?>{
-              'evidence': evidence
-                  .map((item) => item.toMessage())
-                  .toList(growable: false),
-            });
-        if (_closed || !mounted || generation != _generation) return;
-        final understood = MedicineUnderstandingResult.fromMessage(payload);
         setState(() {
           _evidence
             ..clear()
             ..addAll(evidence);
-          final current = understood.drafts.isEmpty
-              ? null
-              : understood.drafts.last;
-          _text = current?.rawText ?? result.text;
-          _barcode = current?.barcode ?? result.barcode;
+          _text = result.text;
+          if (result.barcode.isNotEmpty) _barcode = result.barcode;
           _error = '';
         });
       }

@@ -10,12 +10,11 @@ import 'package:sqflite/sqflite.dart';
 
 import '../domain/medicine.dart';
 import '../domain/medicine_intake.dart';
-import '../domain/medicine_resolution_v2.dart';
 import '../domain/medicine_understanding.dart';
-import 'canonical_medicine_catalog_service.dart';
 import 'local_ai_service.dart';
 import 'local_brain_route_policy.dart';
 import 'media_import_service.dart';
+import 'medicine_resolution_service.dart';
 import 'scan_service.dart';
 
 /// Persistent, bounded work queue shared by AI Hub and ordinary import.
@@ -39,9 +38,6 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   bool _ready = false, _preferReasoning = false, _observingMemory = false;
   String persistenceError = '';
   Iterable<Medicine> Function()? _records;
-  int Function()? _revision;
-  int? _knowledgeRevision;
-  List<Map<String, Object?>>? _knowledge;
   String pauseReason = '';
 
   List<MedicineIntakeJob> get jobs => List.unmodifiable(_jobs);
@@ -56,9 +52,6 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     int Function()? revision,
   }) async {
     _records = records;
-    _revision = revision;
-    _knowledgeRevision = null;
-    _knowledge = null;
     await initialize();
     _kick();
   }
@@ -247,8 +240,6 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     _paused = true;
     pauseReason =
         'Device memory is low. Close other apps, then resume this saved queue.';
-    _knowledge = null;
-    _knowledgeRevision = null;
     notifyListeners();
   }
 
@@ -303,32 +294,10 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<MedicineUnderstandingResult> _understand(
     List<MedicineFrameEvidence> frames,
-  ) async {
-    final revision = _revision?.call();
-    if (_knowledge == null ||
-        revision == null ||
-        revision != _knowledgeRevision) {
-      _knowledge = medicineKnowledgeFromRecords(_records!())
-          .map((k) => k.toMessage())
-          .toList();
-      _knowledgeRevision = revision;
-    }
-
-    // Tier-2 master knowledge is optional and queried before isolate work so a
-    // very large canonical catalogue never crosses the isolate boundary. The
-    // catalogue service is fail-open: empty/corrupt/unavailable knowledge simply
-    // leaves Tier-1 pharmacist-reviewed shop memory as the authoritative fallback.
-    final catalogue = await CanonicalMedicineCatalogService.instance
-        .candidatesForEvidence(frames);
-
-    return MedicineUnderstandingResult.fromMessage(
-      await compute(understandMedicineEvidenceV2Message, <String, Object?>{
-        'evidence': frames.map((e) => e.toMessage()).toList(),
-        'knowledge': _knowledge!,
-        'catalog': catalogue.map((value) => value.toMessage()).toList(),
-      }),
-    );
-  }
+  ) => MedicineResolutionService.instance.resolve(
+    evidence: frames,
+    records: _records!(),
+  );
 
   Future<void> _pump() async {
     if (_running) return;

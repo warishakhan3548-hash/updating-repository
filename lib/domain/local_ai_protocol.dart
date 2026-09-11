@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'ai_protocol.dart';
 import 'medicine.dart';
+import 'medicine_evidence_focus.dart';
 import 'medicine_understanding.dart';
 import 'search.dart';
 import 'tracking.dart';
@@ -696,7 +697,7 @@ String localScanSource(MedicineScanDraft draft, {int limit = 7000}) {
   if (limit < 256 || limit > 7000) {
     throw const FormatException('Invalid source budget.');
   }
-  final source = draft.rawText;
+  final source = medicineDecisionTextFromDraft(draft.rawText);
   if (source.length <= limit) return source;
 
   final composition = RegExp(

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'local_ai_protocol.dart';
+import 'medicine_evidence_focus.dart';
 import 'medicine_understanding.dart';
 
 /// Evidence-first handoff for exactly one OCR-grouped medicine.
@@ -61,7 +62,8 @@ FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form indepe
           'needsReview': entry.value.needsReview,
         },
     };
-    final truncated = draft.rawText.length > source.length;
+    final truncated =
+        medicineDecisionTextFromDraft(draft.rawText).length > source.length;
     final conflictedFields = draft.fields.entries
         .where((entry) => entry.value.conflicted)
         .map((entry) => entry.key)

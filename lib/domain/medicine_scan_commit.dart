@@ -1,5 +1,6 @@
 import 'intake_resolution.dart';
 import 'medicine.dart';
+import 'medicine_evidence_focus.dart';
 import 'medicine_understanding.dart';
 
 /// Final, deterministic gate between a scan preview and a one-tap inventory add.
@@ -97,7 +98,7 @@ String _compositionPairingIssue(MedicineScanDraft draft) {
 }
 
 String _explicitSourceForm(MedicineScanDraft draft) {
-  final source = normalize(draft.rawText);
+  final source = normalize(medicineDecisionTextFromDraft(draft.rawText));
   if (source.isEmpty) return '';
 
   bool contains(String expression) => RegExp(expression).hasMatch(source);
@@ -362,6 +363,6 @@ Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
       'batchNumber',
       minimumConfidence: .82,
     ),
-    ocrText: draft.searchableOcrText,
+    ocrText: searchableRawOcrText(draft),
   );
 }
