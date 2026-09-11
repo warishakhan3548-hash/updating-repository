@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/aaris-scan-ai-router-upgrade.yml
       - tool/one_shot_scan_ai_router_upgrade.py
+      - tool/one_shot_scan_ai_router_upgrade_v2.py
 
 permissions:
   contents: write
@@ -27,7 +28,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply scan AI router surgery
-        run: python3 tool/one_shot_scan_ai_router_upgrade.py
+        run: python3 tool/one_shot_scan_ai_router_upgrade_v2.py
 
       - uses: actions/setup-java@v4
         with:
