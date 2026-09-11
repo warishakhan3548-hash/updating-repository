@@ -76,6 +76,35 @@ void main() {
     expect(hits.every((hit) => hit.id != 'active-dolo'), isTrue);
   });
 
+  test('scope filtering happens before a broad exact posting is capped', () async {
+    final worker = SearchWorker();
+    addTearDown(worker.close);
+    final data = [
+      for (var i = 0; i < 220; i++)
+        stock(
+          'active-$i',
+          name: 'Paracetamol',
+          expiry: '2027-12-31',
+        ),
+      stock(
+        'expired-after-cap',
+        name: 'Paracetamol',
+        expiry: '2026-01-01',
+      ),
+    ];
+
+    final hits = await worker.search(
+      data,
+      1,
+      'Paracetamol',
+      SearchScope.expired,
+      contractSettings,
+      contractToday,
+    );
+
+    expect(hits.single.id, 'expired-after-cap');
+  });
+
   test('typo candidate recovery never overrides a strength contradiction', () async {
     final worker = SearchWorker();
     addTearDown(worker.close);
