@@ -612,8 +612,7 @@ class _AiScreenState extends State<AiScreen> {
   void _cancelRequest() {
     if (!_cancellableRequest) return;
     final cancellationGeneration = ++_generation;
-    _service.cancel();
-    final drainingLocal = _configuration.localBrainEnabled && _local.busy;
+    final drainingLocal = _service.cancel();
     setState(() {
       _journey = drainingLocal
           ? _AiJourneyState.stopping
