@@ -21,6 +21,8 @@ String medicineIdentity(String name, String strength, String form) => [
   normalizeForm(form).toLowerCase(),
 ].join('|');
 
+const maxStoredOcrTextCharacters = 120000;
+
 DateTime civilDay(DateTime value) =>
     DateTime.utc(value.year, value.month, value.day);
 String dateText(DateTime value) =>
@@ -400,7 +402,7 @@ class Medicine {
       vertical: text('vertical'),
       location: text('location', 1000),
       notes: text('notes', 10000),
-      ocrText: text('ocrText', 30000),
+      ocrText: text('ocrText', maxStoredOcrTextCharacters),
       sold: sold,
       archived: archived,
       archivedAt: archivedAt,

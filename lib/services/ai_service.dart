@@ -211,10 +211,7 @@ class AiService {
   /// release notification, with a lost-wakeup check, while keeping Stop instantly
   /// cancellable. Model transfers remain explicit setup work and are never hidden
   /// behind an unbounded Send wait.
-  Future<void> _waitForLocalLease(
-    LocalAiService local,
-    int cancelEpoch,
-  ) async {
+  Future<void> _waitForLocalLease(LocalAiService local, int cancelEpoch) async {
     _throwIfCancelled(cancelEpoch);
     if (local.transferring) {
       throw StateError(
@@ -484,7 +481,25 @@ class AiService {
         // the old random "Connection Failed until restart" dead end.
         try {
           await local.suspend();
-        } catch (_) {
+        } catch (suspendError) {
+          // Another scan can legitimately acquire the shared native lease in
+          // the tiny transport-failure -> suspend gap. That is scheduling
+          // contention, not a second connection failure. Rejoin the same
+          // event-driven lease wait instead of surfacing the stale transport
+          // error or cancelling the unrelated scanner inference.
+          if (_isLocalLeaseContention(suspendError)) {
+            contentionSince ??= DateTime.now();
+            _safeReset(onStreamReset);
+            if (DateTime.now().difference(contentionSince!) >=
+                _localLeaseContentionBudget) {
+              throw StateError(
+                'Local AI stayed occupied by other on-device work. Finish or cancel that task and send again; no inventory changes were made.',
+              );
+            }
+            await _waitForLocalLease(local, cancelEpoch);
+            await Future<void>.delayed(const Duration(milliseconds: 80));
+            continue;
+          }
           Error.throwWithStackTrace(error, stack);
         }
         _throwIfCancelled(cancelEpoch);
@@ -531,9 +546,8 @@ class AiService {
   bool _isRecoverableCloudTransportFailure(Object error) {
     if (error is FormatException || error is ArgumentError) return false;
     final lower = error.toString().toLowerCase();
-    final providerStatus = RegExp(
-      r'ai provider returned http (\d{3})\b',
-    ).firstMatch(lower);
+    final providerStatus = RegExp(r'ai provider returned http (\d{3})\b')
+        .firstMatch(lower);
     if (providerStatus != null) {
       final status = int.tryParse(providerStatus.group(1)!);
       return status != null && _transientProviderStatuses.contains(status);
@@ -673,10 +687,7 @@ class AiService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final errorBytes = await _readBoundedBytes(response, cancelEpoch);
       throw StateError(
-        _providerFailure(
-          response.statusCode,
-          _providerErrorDetail(errorBytes),
-        ),
+        _providerFailure(response.statusCode, _providerErrorDetail(errorBytes)),
       );
     }
     final bytes = await _readBoundedBytes(response, cancelEpoch);
@@ -943,10 +954,11 @@ class AiService {
       if (terminalSseEvent(eventName)) terminal = true;
     }
 
-    await for (final line in utf8.decoder
-        .bind(response.stream)
-        .transform(const LineSplitter())
-        .timeout(const Duration(seconds: 60))) {
+    await for (final line
+        in utf8.decoder
+            .bind(response.stream)
+            .transform(const LineSplitter())
+            .timeout(const Duration(seconds: 60))) {
       _throwIfCancelled(cancelEpoch);
       wireCharacters += line.length + 1;
       if (wireCharacters > _maxResponseBytes) {
@@ -1257,8 +1269,7 @@ Future<void> sharePharmacy(PharmacyExport data) async {
       files: [file],
       fileNameOverrides: [data.fileName],
       subject: data.fileName,
-      text:
-          'Aaris Pharmacy inventory export. The matching AI instructions are copied to your clipboard.',
+      text: 'Aaris Pharmacy inventory export. The matching AI instructions are copied to your clipboard.',
     ),
   );
 }

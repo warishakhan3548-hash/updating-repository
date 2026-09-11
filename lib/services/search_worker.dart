@@ -5,6 +5,62 @@ import '../domain/medicine.dart';
 import '../domain/search.dart';
 import '../domain/inventory.dart';
 
+List<SearchHit> _withRawOcrFallback(
+  List<SearchHit> primary,
+  Iterable<Medicine> records,
+  String query, {
+  required bool Function(Medicine) allowed,
+  required int limit,
+}) {
+  final rawQuery = query.trim();
+  if (rawQuery.isEmpty || rawQuery.length > 512) return primary;
+
+  final queryLower = rawQuery.toLowerCase();
+  final normalizedQuery = searchText(rawQuery);
+  final queryTokens = normalizedQuery
+      .split(' ')
+      .where((token) => token.length >= 2)
+      .take(10)
+      .toList(growable: false);
+  final found = <String, SearchHit>{for (final hit in primary) hit.id: hit};
+
+  for (final medicine in records) {
+    if (!allowed(medicine) || medicine.ocrText.trim().isEmpty) continue;
+    if ((found[medicine.id]?.score ?? 0) >= .85) continue;
+
+    var score = 0.0;
+    final raw = medicine.ocrText;
+    if (raw.toLowerCase().contains(queryLower)) {
+      score = .82;
+    } else if (normalizedQuery.isNotEmpty) {
+      final normalizedRaw = searchText(raw);
+      if (normalizedRaw.contains(normalizedQuery)) {
+        score = .79;
+      } else if (queryTokens.isNotEmpty &&
+          queryTokens.every((token) => normalizedRaw.contains(token))) {
+        score = .74;
+      }
+    }
+    if (score <= 0) continue;
+    final existing = found[medicine.id];
+    if (existing == null || existing.score < score) {
+      found[medicine.id] = SearchHit(
+        medicine.id,
+        score,
+        'Raw OCR text',
+        rawQuery,
+      );
+    }
+  }
+
+  final result = found.values.toList(growable: false)
+    ..sort((a, b) {
+      final score = b.score.compareTo(a.score);
+      return score != 0 ? score : a.id.compareTo(b.id);
+    });
+  return result.take(limit).toList(growable: false);
+}
+
 void _searchEntry(SendPort main) {
   final receive = ReceivePort();
   main.send(receive.sendPort);
@@ -20,9 +76,6 @@ void _searchEntry(SendPort main) {
       if (kind == 'index') {
         indexedRecords = (message['records'] as List).cast<Medicine>();
         engine = MedicineSearch(indexedRecords!);
-        // Removed history is intentionally indexed lazily. Normal medicine
-        // search stays as small and hot as before even when years of archived
-        // stock are retained for recovery/audit.
         archivedEngine = null;
         revision = message['revision'] as int;
         main.send({'id': id, 'result': true});
@@ -37,23 +90,46 @@ void _searchEntry(SendPort main) {
             indexedRecords!.where((medicine) => medicine.archived),
             includeArchived: true,
           );
+          final query = message['query'] as String;
+          final limit = message['limit'] as int;
+          final primary = archivedEngine!.searchArchived(
+            query,
+            message['today'] as DateTime,
+            limit: limit,
+          );
           main.send({
             'id': id,
-            'result': archivedEngine!.searchArchived(
-              message['query'] as String,
-              message['today'] as DateTime,
-              limit: message['limit'] as int,
+            'result': _withRawOcrFallback(
+              primary,
+              indexedRecords!,
+              query,
+              allowed: (medicine) => medicine.archived,
+              limit: limit,
             ),
           });
         } else if (kind == 'search') {
+          final query = message['query'] as String;
+          final scope = message['scope'] as SearchScope;
+          final settings = message['settings'] as WarningSettings;
+          final today = message['today'] as DateTime;
+          final limit = message['limit'] as int;
+          final primary = engine!.search(
+            query,
+            scope,
+            settings,
+            today,
+            limit: limit,
+          );
           main.send({
             'id': id,
-            'result': engine!.search(
-              message['query'] as String,
-              message['scope'] as SearchScope,
-              message['settings'] as WarningSettings,
-              message['today'] as DateTime,
-              limit: message['limit'] as int,
+            'result': _withRawOcrFallback(
+              primary,
+              indexedRecords!,
+              query,
+              allowed: (medicine) =>
+                  !medicine.archived &&
+                  inScope(medicine, scope, settings, today),
+              limit: limit,
             ),
           });
         } else {

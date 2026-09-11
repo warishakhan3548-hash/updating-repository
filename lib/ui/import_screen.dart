@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/intake_resolution.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
+import '../domain/medicine_evidence_focus.dart';
 import '../domain/medicine_scan_commit.dart';
 import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
@@ -16,6 +16,7 @@ import '../services/local_ai_service.dart';
 import '../services/local_brain_route_policy.dart';
 import '../services/media_import_service.dart';
 import '../services/medicine_intake_service.dart';
+import '../services/medicine_resolution_service.dart';
 import '../services/scan_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
@@ -488,21 +489,12 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       _localBrainScanActive = false;
     });
     try {
-      final knowledge = medicineKnowledgeFromRecords(widget.controller.records);
-      final payload = widget.preparedDrafts != null
-          ? MedicineUnderstandingResult(
-              drafts: widget.preparedDrafts!,
-            ).toMessage()
-          : await compute(understandMedicineEvidenceMessage, <String, Object?>{
-              'evidence': widget.evidence
-                  .map((item) => item.toMessage())
-                  .toList(growable: false),
-              'knowledge': knowledge
-                  .map((entry) => entry.toMessage())
-                  .toList(growable: false),
-            });
-      if (!mounted || generation != _generation) return;
-      final understanding = MedicineUnderstandingResult.fromMessage(payload);
+      final understanding = widget.preparedDrafts != null
+          ? MedicineUnderstandingResult(drafts: widget.preparedDrafts!)
+          : await MedicineResolutionService.instance.resolve(
+              evidence: widget.evidence,
+              records: widget.controller.records,
+            );
       final reviews = <_ImportDraftReview>[];
       final local = LocalAiService.instance;
 
@@ -604,7 +596,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           draft.salt,
           draft.strength,
           draft.batchNumber,
-          draft.rawText,
+          medicineDecisionTextFromDraft(draft.rawText),
         ].where((value) => value.trim().isNotEmpty).join('\n');
         if (identityQuery.isNotEmpty) {
           for (final hit in await widget.controller.search(

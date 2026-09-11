@@ -5,6 +5,7 @@ import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 import '../domain/gs1_healthcare.dart';
+import '../domain/medicine_evidence_focus.dart';
 import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
 
@@ -76,15 +77,15 @@ class MedicineVisionService {
               : 'Medicine recognition is temporarily unavailable.',
         );
       }
-      final lines = _mergeLines([
-        if (latin is RecognizedText)
-          ...(latin as RecognizedText).text.split('\n'),
-        if (hindi is RecognizedText)
-          ...(hindi as RecognizedText).text.split('\n'),
+      final rawText = _completeOcrText([
+        if (latin is RecognizedText) (latin as RecognizedText).text,
+        if (hindi is RecognizedText) (hindi as RecognizedText).text,
       ]);
       final layoutLines = _mergeLayoutLines([
-        if (latin is RecognizedText) ..._layoutEvidence(latin as RecognizedText),
-        if (hindi is RecognizedText) ..._layoutEvidence(hindi as RecognizedText),
+        if (latin is RecognizedText)
+          ..._layoutEvidence(latin as RecognizedText),
+        if (hindi is RecognizedText)
+          ..._layoutEvidence(hindi as RecognizedText),
       ]);
       final barcodes = barcodeResult is List<Barcode>
           ? _rankBarcodes(
@@ -97,7 +98,7 @@ class MedicineVisionService {
         barcode: barcodes.isEmpty ? '' : barcodes.first,
         barcodes: barcodes,
         layoutLines: layoutLines,
-        text: lines.join('\n'),
+        text: rawText,
         source: source,
         sequence: sequence,
         timestampMs: timestampMs,
@@ -175,124 +176,25 @@ List<MedicineTextLineEvidence> _mergeLayoutLines(
   return values.take(240).toList(growable: false);
 }
 
-List<String> _mergeLines(Iterable<String> raw) {
-  final values = <String>[];
-  final normalized = <String>[];
-  final exact = <String, int>{};
-  final gramIndex = <String, Set<int>>{};
-  for (final item in raw.take(500)) {
-    final value = item.replaceAll(RegExp(r'\s+'), ' ').trim();
-    final key = searchText(value);
-    if (key.length < 2) continue;
-    var duplicate = exact[key] ?? -1;
-    if (duplicate < 0 && key.length >= 6) {
-      final votes = <int, int>{};
-      for (final gram in grams(key)) {
-        for (final index in gramIndex[gram] ?? const <int>{}) {
-          votes[index] = (votes[index] ?? 0) + 1;
-        }
-      }
-      final candidates = votes.entries.toList()
-        ..sort((a, b) {
-          final count = b.value.compareTo(a.value);
-          return count != 0 ? count : a.key.compareTo(b.key);
-        });
-      for (final candidate in candidates.take(16)) {
-        final other = normalized[candidate.key];
-        final longest = max(key.length, other.length);
-        if ((key.length - other.length).abs() >
-            max(2, (longest * .12).ceil())) {
-          continue;
-        }
-        if (orderedSimilarity(key, other) >= .96) {
-          duplicate = candidate.key;
-          break;
-        }
-      }
-    }
-    if (duplicate < 0) {
-      final index = values.length;
-      values.add(value);
-      normalized.add(key);
-      exact[key] = index;
-      if (key.length >= 6) {
-        for (final gram in grams(key)) {
-          gramIndex.putIfAbsent(gram, () => <int>{}).add(index);
-        }
-      }
-    } else if (_lineQuality(value) > _lineQuality(values[duplicate])) {
-      final oldKey = normalized[duplicate];
-      values[duplicate] = value;
-      normalized[duplicate] = key;
-      if (exact[oldKey] == duplicate) exact.remove(oldKey);
-      exact[key] = duplicate;
-      if (key.length >= 6) {
-        for (final gram in grams(key)) {
-          gramIndex.putIfAbsent(gram, () => <int>{}).add(duplicate);
-        }
-      }
+String _completeOcrText(Iterable<String> documents) {
+  final buffer = StringBuffer();
+  var remaining = maxPersistedRawOcrCharacters;
+  for (final document in documents) {
+    for (final raw in document.split(RegExp(r'[\r\n]+'))) {
+      final line = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (line.isEmpty) continue;
+      final separator = buffer.isEmpty ? '' : '\n';
+      if (remaining <= separator.length) return buffer.toString();
+      buffer.write(separator);
+      remaining -= separator.length;
+      final take = line.length < remaining ? line.length : remaining;
+      buffer.write(line.substring(0, take));
+      remaining -= take;
+      if (take < line.length || remaining == 0) return buffer.toString();
     }
   }
-  return _evidenceFirstMedicineText(values);
+  return buffer.toString();
 }
-
-/// Raw OCR is intentionally bounded before it reaches a local language model.
-/// Preserve the first package-heading lines in their original order, then move
-/// later composition/dose/form/date evidence ahead of low-signal legal or
-/// promotional text. This is a deterministic evidence-budgeting step only: no
-/// medicine fact is invented, removed, normalized or trusted because of rank.
-List<String> _evidenceFirstMedicineText(List<String> values) {
-  const headingContext = 12;
-  if (values.length <= headingContext) return values;
-
-  final result = <String>[...values.take(headingContext)];
-  final evidence = <String>[];
-  final remainder = <String>[];
-  for (final value in values.skip(headingContext)) {
-    if (_medicineEvidenceLineScore(value) >= 2) {
-      evidence.add(value);
-    } else {
-      remainder.add(value);
-    }
-  }
-  result
-    ..addAll(evidence)
-    ..addAll(remainder);
-  return result;
-}
-
-int _medicineEvidenceLineScore(String value) {
-  final normalized = searchText(value);
-  if (normalized.isEmpty) return 0;
-  var score = 0;
-  if (_compositionCue.hasMatch(normalized)) score += 4;
-  if (_printedDoseCue.hasMatch(value)) score += 3;
-  if (_dateCue.hasMatch(normalized)) score += 3;
-  if (_formCue.hasMatch(normalized)) score += 2;
-  if (_batchCue.hasMatch(normalized)) score += 1;
-  return score;
-}
-
-final _compositionCue = RegExp(
-  r'\b(?:composition|contains|active ingredient|active ingredients|generic name|salt)\b',
-  caseSensitive: false,
-);
-final _printedDoseCue = RegExp(
-  r'(?<![\d.,])\d+(?:\.\d+)?\s*(?:mcg|mg|gm|g|ml|iu|units?|%)(?:\s*/\s*(?:\d+(?:\.\d+)?\s*)?(?:ml|g))?(?![a-z\d/])',
-  caseSensitive: false,
-);
-final _dateCue = RegExp(
-  r'\b(?:exp|expiry|expires|mfg|mfd|manufactured|manufacturing)\b',
-  caseSensitive: false,
-);
-final _formCue = RegExp(
-  r'\b(?:tablet|tablets|capsule|capsules|syrup|suspension|solution|injection|cream|ointment|gel|lotion|drop|drops|spray|inhaler|powder|sachet|sachets)\b',
-  caseSensitive: false,
-);
-final _batchCue = RegExp(
-  r'\b(?:batch|batch no|batch number|b no|lot|lot no)\b',
-  caseSensitive: false,
-);
 
 double _lineQuality(String value) {
   if (value.isEmpty) return 0;
@@ -326,32 +228,20 @@ List<String> _rankBarcodes(Iterable<String> input) {
     final gs1 = parseGs1HealthcareBarcode(raw);
     if (gs1 != null && gs1.gtin.isNotEmpty) values.add(gs1.gtin);
   }
-  final ranked = values.toList(growable: false)..sort((a, b) {
-    final score = _barcodeScore(b).compareTo(_barcodeScore(a));
-    return score != 0 ? score : a.compareTo(b);
-  });
+  final ranked = values.toList(growable: false)
+    ..sort((a, b) {
+      final score = _barcodeScore(b).compareTo(_barcodeScore(a));
+      return score != 0 ? score : a.compareTo(b);
+    });
   return ranked.take(8).toList(growable: false);
 }
 
 int _barcodeScore(String value) {
+  if (verifiedGtinKey(value).isNotEmpty) return 4;
   final digits = value.replaceAll(RegExp(r'\D'), '');
   if (digits == value && const {8, 12, 13, 14}.contains(digits.length)) {
-    return _validGtin(digits) ? 4 : 3;
+    return 3;
   }
   if (digits == value && digits.length >= 6) return 2;
   return 1;
-}
-
-bool _validGtin(String digits) {
-  if (!const {8, 12, 13, 14}.contains(digits.length)) return false;
-  var sum = 0;
-  for (
-    var index = digits.length - 2, position = 1;
-    index >= 0;
-    index--, position++
-  ) {
-    final digit = int.parse(digits[index]);
-    sum += digit * (position.isOdd ? 3 : 1);
-  }
-  return (10 - sum % 10) % 10 == int.parse(digits[digits.length - 1]);
 }
