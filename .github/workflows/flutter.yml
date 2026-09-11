@@ -22,6 +22,7 @@ jobs:
       - name: Apply one-shot unified evidence surgery
         if: github.ref == 'refs/heads/unified-medicine-evidence-v3'
         run: |
+          python3 tool/fix_unified_patcher_literal_replacement.py
           python3 tool/one_shot_unified_medicine_evidence_v3.py
           git config user.name "Aaris CI Surgeon"
           git config user.email "actions@users.noreply.github.com"
