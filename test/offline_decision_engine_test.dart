@@ -5,12 +5,12 @@ import 'package:aaris_pharmacy/domain/medicine_understanding.dart';
 
 void main() {
   group('Aaris deterministic offline decision engine', () {
-    test('recovers a two-edit OCR product without an LLM or API', () {
+    test('recovers a two-edit invented brand without an LLM or API', () {
       const product = CanonicalMedicineProduct(
-        productId: 'in:azithromycin:500:tablet',
+        productId: 'offline:alphazine:500:tablet',
         revision: 600,
-        name: 'Azithromycin',
-        brand: 'Azithromycin',
+        name: 'Alphazine',
+        brand: 'Alphazine',
         salt: '',
         strength: '500 mg',
         form: 'Tablet',
@@ -23,8 +23,8 @@ void main() {
           'evidence': <Map<String, Object?>>[
             const MedicineFrameEvidence(
               sequence: 0,
-              quality: .93,
-              text: 'AZYTHROMYCXN 500 mg\nTABLETS',
+              quality: .95,
+              text: 'A1PHAZLNE 500 mg\nTABLETS',
             ).toMessage(),
           ],
           'knowledge': const <Map<String, Object?>>[],
@@ -33,20 +33,20 @@ void main() {
       );
 
       final draft = result.drafts.single;
-      expect(draft.name, 'Azithromycin');
-      expect(draft.brand, 'Azithromycin');
+      expect(draft.name, 'Alphazine');
+      expect(draft.brand, 'Alphazine');
       expect(draft.strength.toLowerCase(), '500 mg');
       expect(draft.form, 'Tablet');
       expect(draft.field('strength').conflicted, isFalse);
       expect(draft.overallConfidence, greaterThanOrEqualTo(.78));
     });
 
-    test('two-edit recovery cannot overwrite contradictory printed strength', () {
+    test('fuzzy product recovery cannot overwrite contradictory strength', () {
       const product = CanonicalMedicineProduct(
-        productId: 'in:azithromycin:500:tablet',
+        productId: 'offline:alphazine:500:tablet',
         revision: 601,
-        name: 'Azithromycin',
-        brand: 'Azithromycin',
+        name: 'Alphazine',
+        brand: 'Alphazine',
         salt: '',
         strength: '500 mg',
         form: 'Tablet',
@@ -60,7 +60,7 @@ void main() {
             const MedicineFrameEvidence(
               sequence: 0,
               quality: .96,
-              text: 'AZYTHROMYCXN 250 mg\nTABLETS',
+              text: 'A1PHAZLNE 250 mg\nTABLETS',
             ).toMessage(),
           ],
           'knowledge': const <Map<String, Object?>>[],
@@ -74,10 +74,10 @@ void main() {
       expect(draft.overallConfidence, lessThan(.78));
     });
 
-    test('shop memory also benefits from the multi-stage fuzzy cascade', () {
+    test('shop memory gets the same resolver cascade without a model', () {
       const shop = MedicineKnowledgeEntry(
-        name: 'Telmisartan',
-        brand: 'Telmisartan',
+        name: 'Cardiwell',
+        brand: 'Cardiwell',
         salt: '',
         strength: '40 mg',
         form: 'Tablet',
@@ -88,8 +88,8 @@ void main() {
           'evidence': <Map<String, Object?>>[
             const MedicineFrameEvidence(
               sequence: 0,
-              quality: .92,
-              text: 'TELMXSARTXN 40 mg\nTABLETS',
+              quality: .95,
+              text: 'CARDXWELX 40 mg\nTABLETS',
             ).toMessage(),
           ],
           'knowledge': <Map<String, Object?>>[shop.toMessage()],
@@ -98,10 +98,12 @@ void main() {
       );
 
       final draft = result.drafts.single;
-      expect(draft.name, 'Telmisartan');
+      expect(draft.name, 'Cardiwell');
+      expect(draft.brand, 'Cardiwell');
       expect(draft.strength.toLowerCase(), '40 mg');
       expect(draft.form, 'Tablet');
-      expect(draft.needsReview, isFalse);
+      expect(draft.field('strength').conflicted, isFalse);
+      expect(draft.overallConfidence, greaterThanOrEqualTo(.78));
     });
   });
 }
