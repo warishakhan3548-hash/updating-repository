@@ -35,8 +35,6 @@ String searchText(String value) {
   for (final entry in aliases.entries) {
     text = text.replaceAll(entry.key, entry.value);
   }
-  // OCR commonly reads a trailing zero as O when it touches a dosage unit.
-  // Keep this narrow so ordinary medicine names and product codes are intact.
   text = text.replaceAllMapped(
     RegExp(r'\b(\d+)o(?=\s*(?:mg|ml|mcg|g)\b)'),
     (match) => '${match[1]}0',
@@ -172,8 +170,6 @@ class SearchDocument {
     ]) {
       _addTerms(value, limit: 48);
     }
-    // Free text is useful, but it must never dominate index memory or crowd out
-    // authoritative identity, date, batch, barcode and location facts.
     _addTerms(record.ocrText, limit: 176);
     _addTerms(record.notes, limit: 80);
   }
@@ -198,12 +194,6 @@ String _boundedSearchTerm(String value) =>
     ? value
     : value.substring(0, SearchDocument.maxTermLength);
 
-/// Canonical exact-search key for retail and GS1 healthcare barcodes.
-///
-/// Scanner hardware can expose the same product as EAN-8, UPC-A, EAN-13,
-/// GTIN-14, or as a GS1 element string carrying AI (01). Inventory must not
-/// downgrade that deterministic identifier to fuzzy text merely because the
-/// presentation changed. Non-GTIN identifiers stay byte-for-byte searchable.
 String _barcodeIdentity(String value) {
   final raw = value.trim();
   if (raw.isEmpty) return '';
@@ -216,16 +206,13 @@ String _barcodeIdentity(String value) {
   return candidate;
 }
 
-/// One ranking/index implementation serves both live inventory and the removed
-/// projection. Archived rows are excluded from the normal engine by default so
-/// long-term history cannot inflate the hot search index. A caller that needs
-/// removed-stock recovery builds a lazy archive-only engine with
-/// [includeArchived] and then calls [searchArchived].
 class MedicineSearch {
   MedicineSearch(
     Iterable<Medicine> records, {
     bool includeArchived = false,
   }) {
+    // Pass 1 builds complete exact identity/text statistics. Exact lookups keep
+    // full coverage even when a record has large OCR or notes payloads.
     for (final m in records.where((m) => includeArchived || !m.archived)) {
       final doc = SearchDocument(m);
       docs[m.id] = doc;
@@ -236,17 +223,27 @@ class MedicineSearch {
       for (final term in doc.terms) {
         exact.putIfAbsent(term, () => {}).add(m.id);
         documentFrequency.update(term, (value) => value + 1, ifAbsent: () => 1);
+      }
+    }
+
+    // Pass 2 builds bounded fuzzy indexes only from the earliest/high-signal
+    // terms. SearchDocument inserts canonical identity, dates and location before
+    // free OCR/notes, so this keeps typo recovery strong without multiplying RAM
+    // by every low-value OCR token in a large pharmacy database.
+    for (final doc in docs.values) {
+      for (final term in doc.terms.take(_maxSecondaryTermsPerDocument)) {
+        if (term.length > 48) continue;
         for (final gram in grams(term)) {
-          index.putIfAbsent(gram, () => {}).add(m.id);
+          index.putIfAbsent(gram, () => {}).add(doc.record.id);
         }
         if (term.length >= 5) {
           for (final gram in _searchTrigrams(term)) {
-            trigramIndex.putIfAbsent(gram, () => {}).add(m.id);
+            trigramIndex.putIfAbsent(gram, () => {}).add(doc.record.id);
           }
         }
         if (term.length >= 4) {
           final prefix = term.substring(0, min(4, term.length));
-          prefixIndex.putIfAbsent(prefix, () => {}).add(m.id);
+          prefixIndex.putIfAbsent(prefix, () => {}).add(doc.record.id);
         }
       }
     }
@@ -254,6 +251,7 @@ class MedicineSearch {
 
   static const maxArchivedResults = 150;
   static const _maxRetrievalCandidates = 240;
+  static const _maxSecondaryTermsPerDocument = 112;
   final Map<String, SearchDocument> docs = {};
   final Map<String, Set<String>> index = {}, exact = {}, barcode = {};
   final Map<String, Set<String>> trigramIndex = {}, prefixIndex = {};
