@@ -51,7 +51,7 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
   Future<void> _scan() async {
     final result = await Navigator.push<ScanResult>(
       context,
-      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+      MaterialPageRoute(builder: (_) => const ScannerScreen(autoSubmit: true)),
     );
     if (result == null || !mounted) return;
     await _openInbox(
@@ -64,6 +64,7 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
                 source: 'Live camera',
               ),
             ],
+      autoSaveReadyDrafts: true,
     );
   }
 
@@ -197,7 +198,10 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
     }
   }
 
-  Future<void> _openInbox(List<ScanEvidence> evidence) async {
+  Future<void> _openInbox(
+    List<ScanEvidence> evidence, {
+    bool autoSaveReadyDrafts = false,
+  }) async {
     if (evidence.every(
       (item) => item.barcode.isEmpty && item.text.trim().isEmpty,
     )) {
@@ -209,6 +213,7 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
         builder: (_) => ImportInboxScreen(
           controller: widget.controller,
           evidence: evidence,
+          autoSaveReadyDrafts: autoSaveReadyDrafts,
         ),
       ),
     );
@@ -222,16 +227,14 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
       children: [
         const ScreenIntro(
           title: 'Add your medicines',
-          message:
-              'Choose the easiest way to start. Review captured details before saving.',
+          message: 'Choose the easiest way to start. Review captured details before saving.',
           icon: Icons.add_box_outlined,
         ),
         const FlowSteps(['Add or scan', 'Review', 'Save']),
         _ImportAction(
           icon: Icons.burst_mode_outlined,
           title: 'Queued photo / video capture',
-          detail:
-              'Rapid capture, resumable processing, selected local AI and saved drafts.',
+          detail: 'Rapid capture, resumable processing, selected local AI and saved drafts.',
           onTap: _busy
               ? null
               : () => openMedicineCapture(context, widget.controller),
@@ -246,7 +249,7 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
         _ImportAction(
           icon: Icons.qr_code_scanner_rounded,
           title: 'Scan medicine',
-          detail: 'Barcode and packaging text together.',
+          detail: 'Capture once · Local AI verifies · safe scans can save automatically.',
           onTap: _busy ? null : _scan,
         ),
         _ImportAction(
@@ -338,11 +341,16 @@ class ImportInboxScreen extends StatefulWidget {
     required this.controller,
     required this.evidence,
     this.preparedDrafts,
+    this.autoSaveReadyDrafts = false,
   });
 
   final PharmacyController controller;
   final List<ScanEvidence> evidence;
   final List<MedicineScanDraft>? preparedDrafts;
+
+  /// True only for the direct camera scanner. Photo/video/text and prepared
+  /// batch imports preserve explicit review semantics.
+  final bool autoSaveReadyDrafts;
 
   @override
   State<ImportInboxScreen> createState() => _ImportInboxScreenState();
@@ -359,6 +367,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
   String _semanticWarning = '';
   bool _localBrainScanActive = false;
   int? _savingDraftIndex;
+  bool _autoSaveAttempted = false;
 
   @override
   void initState() {
@@ -490,9 +499,8 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
     try {
       final knowledge = medicineKnowledgeFromRecords(widget.controller.records);
       final payload = widget.preparedDrafts != null
-          ? MedicineUnderstandingResult(
-              drafts: widget.preparedDrafts!,
-            ).toMessage()
+          ? MedicineUnderstandingResult(drafts: widget.preparedDrafts!)
+                .toMessage()
           : await compute(understandMedicineEvidenceMessage, <String, Object?>{
               'evidence': widget.evidence
                   .map((item) => item.toMessage())
@@ -525,12 +533,12 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
         } catch (_) {
           if (!mounted || generation != _generation) return;
           scanModelId = null;
-          _semanticWarning =
-              'Aaris Brain state could not be loaded for this scan. Deterministic OCR preview is being used; nothing was sent externally.';
+          _semanticWarning = 'Aaris Brain state could not be loaded for this scan. Deterministic OCR preview is being used; nothing was sent externally.';
         }
       }
 
       var localBrainUsed = false;
+      var localBrainAutoSaveVerified = false;
       for (final original in understanding.drafts) {
         if (!mounted || generation != _generation) return;
         var draft = original;
@@ -544,8 +552,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
             if (!mounted || generation != _generation) return;
             if (!mayReason) {
               scanModelId = null;
-              _semanticWarning =
-                  'Aaris Brain was turned off, its model changed, or Local AI is busy with model setup. Remaining OCR drafts stay deterministic for review.';
+              _semanticWarning = 'Aaris Brain was turned off, its model changed, or Local AI is busy with model setup. Remaining OCR drafts stay deterministic for review.';
             } else {
               // mayReasonWith intentionally lets the current selected model own
               // a queued scan after a healthy model switch. Cache and validate
@@ -553,11 +560,12 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
               final routedModelId = local.activeId;
               if (routedModelId == null) {
                 scanModelId = null;
-                _semanticWarning =
-                    'The Local AI route disappeared before OCR reasoning started. Deterministic OCR preview is being used.';
+                _semanticWarning = 'The Local AI route disappeared before OCR reasoning started. Deterministic OCR preview is being used.';
               } else {
-                final key = '$routedModelId:${jsonEncode(original.toMessage())}';
-                final candidate = _semanticCache[key] ??
+                final key =
+                    '$routedModelId:${jsonEncode(original.toMessage())}';
+                final candidate =
+                    _semanticCache[key] ??
                     await _understandWithRecovery(
                       local,
                       routedModelId,
@@ -575,17 +583,18 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                   draft = candidate;
                   _semanticCache[key] = candidate;
                   localBrainUsed = true;
+                  localBrainAutoSaveVerified = local.isModelScanVerified(
+                    routedModelId,
+                  );
                   scanModelId = routedModelId;
                 } else {
                   scanModelId = null;
-                  _semanticWarning =
-                      'Aaris Brain was turned off or its Local AI changed while OCR was being reviewed. That AI result was discarded; deterministic OCR was retained.';
+                  _semanticWarning = 'Aaris Brain was turned off or its Local AI changed while OCR was being reviewed. That AI result was discarded; deterministic OCR was retained.';
                 }
               }
             }
           } catch (_) {
-            _semanticWarning =
-                'Local AI could not safely finish this OCR handoff. Original deterministic OCR drafts were retained; nothing was sent to an external AI.';
+            _semanticWarning = 'Local AI could not safely finish this OCR handoff. Original deterministic OCR drafts were retained; nothing was sent to an external AI.';
           }
         }
         if (!mounted || generation != _generation) return;
@@ -634,6 +643,17 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           _localBrainScanActive = localBrainUsed;
           _loading = false;
         });
+        if (widget.autoSaveReadyDrafts &&
+            reviews.length == 1 &&
+            !_autoSaveAttempted) {
+          unawaited(
+            _attemptScannerAutoSave(
+              generation,
+              reviews.single,
+              localBrainVerified: localBrainAutoSaveVerified,
+            ),
+          );
+        }
       }
     } catch (error) {
       if (mounted && generation == _generation) {
@@ -645,10 +665,81 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
     }
   }
 
-  Future<void> _confirmAndAdd(
-    int index,
-    _ImportDraftReview review,
-  ) async {
+  Future<void> _attemptScannerAutoSave(
+    int preparedGeneration,
+    _ImportDraftReview review, {
+    required bool localBrainVerified,
+  }) async {
+    if (!widget.autoSaveReadyDrafts ||
+        _autoSaveAttempted ||
+        !mounted ||
+        preparedGeneration != _generation) {
+      return;
+    }
+    _autoSaveAttempted = true;
+
+    var resolution = _resolve(review.draft);
+    var decision = scanAutoSaveDecision(
+      review.draft,
+      resolution,
+      localAiVerified: localBrainVerified,
+    );
+    if (!decision.allowed) {
+      setState(() {
+        _semanticWarning = 'Auto-save paused · ${decision.reason}';
+      });
+      return;
+    }
+
+    setState(() => _savingDraftIndex = 0);
+    try {
+      // Re-resolve against the live database immediately before CAS. Any lot,
+      // duplicate or concurrent inventory change fails closed rather than
+      // turning a probabilistic AI result into a second stock row.
+      resolution = _resolve(review.draft);
+      decision = scanAutoSaveDecision(
+        review.draft,
+        resolution,
+        localAiVerified: localBrainVerified,
+      );
+      if (!decision.allowed) {
+        throw StateError(
+          decision.reason.isEmpty
+              ? 'Inventory changed. Review this scan before saving.'
+              : decision.reason,
+        );
+      }
+
+      final expectedRevision = widget.controller.snapshot.revision;
+      final medicine = medicineFromConfirmedScan(review.draft);
+      await widget.controller.save(
+        medicine,
+        expectedRevision: expectedRevision,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            decision.isNewBatch
+                ? '${medicine.title} auto-saved as a verified new batch.'
+                : '${medicine.title} verified by Local AI and auto-saved.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _semanticWarning = 'Auto-save paused safely · $error';
+        });
+      }
+    } finally {
+      if (mounted && _savingDraftIndex == 0) {
+        setState(() => _savingDraftIndex = null);
+      }
+    }
+  }
+
+  Future<void> _confirmAndAdd(int index, _ImportDraftReview review) async {
     if (_savingDraftIndex != null) return;
 
     var resolution = _resolve(review.draft);
@@ -708,9 +799,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
         !preflight.safeToReceive) {
       showError(
         context,
-        preflight.receiveBlockReason.isNotEmpty
-            ? preflight.receiveBlockReason
-            : 'Inventory or scan evidence changed. Review the medicine again before receiving stock.',
+        preflight.receiveBlockReason.isNotEmpty ? preflight.receiveBlockReason : 'Inventory or scan evidence changed. Review the medicine again before receiving stock.',
       );
       return;
     }
@@ -874,7 +963,8 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
               animation: LocalAiService.instance,
               builder: (context, _) {
                 final local = LocalAiService.instance;
-                final scanThinking = local.busy &&
+                final scanThinking =
+                    local.busy &&
                     local.status.toLowerCase().contains('scan preview');
                 final message = scanThinking
                     ? local.status
@@ -939,11 +1029,13 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                   ),
                 ),
                 if (_localBrainScanActive)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 10),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
                     child: Text(
-                      'Aaris Brain · raw OCR was handed to the active Local AI on-device before this preview. Confirmed fields still require your tap before inventory changes.',
-                      style: TextStyle(
+                      widget.autoSaveReadyDrafts
+                          ? 'Aaris Brain · raw OCR was handed to the active Local AI on-device. One scan-verified, unambiguous medicine can save automatically; uncertainty and duplicates stop here for review.'
+                          : 'Aaris Brain · raw OCR was handed to the active Local AI on-device before this preview. Confirmed fields still require your tap before inventory changes.',
+                      style: const TextStyle(
                         color: primary,
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
@@ -977,12 +1069,14 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                       style: const TextStyle(color: muted, fontSize: 11),
                     ),
                   ),
-                const Padding(
-                  padding: EdgeInsets.only(top: 10),
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
                   child: Text(
-                    'OCR text stays separate from your personal note. Every auto-filled fact remains review evidence until you explicitly save a reviewed action.',
+                    widget.autoSaveReadyDrafts
+                        ? 'OCR text stays separate from your personal note. Automatic save is allowed only after Local AI source verification plus deterministic duplicate, lot, chronology, confidence and revision checks.'
+                        : 'OCR text stays separate from your personal note. Every auto-filled fact remains review evidence until you explicitly save a reviewed action.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: muted, fontSize: 11),
+                    style: const TextStyle(color: muted, fontSize: 11),
                   ),
                 ),
               ],
@@ -990,10 +1084,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
     );
   }
 
-  Widget _resolutionCard(
-    BuildContext context,
-    _ImportDraftReview review,
-  ) {
+  Widget _resolutionCard(BuildContext context, _ImportDraftReview review) {
     final resolution = review.resolution;
     final (title, icon, tone) = switch (resolution.kind) {
       IntakeResolutionKind.exactLot => (
@@ -1041,10 +1132,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                 Expanded(
                   child: Text(
                     title,
-                    style: TextStyle(
-                      color: tone,
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: TextStyle(color: tone, fontWeight: FontWeight.w800),
                   ),
                 ),
               ],
@@ -1059,12 +1147,16 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
               Text(
                 [
                   exact.title,
-                  if (exact.batchNumber.isNotEmpty) 'Batch ${exact.batchNumber}',
+                  if (exact.batchNumber.isNotEmpty)
+                    'Batch ${exact.batchNumber}',
                   if (exact.expiry != null) 'EXP ${dateText(exact.expiry!)}',
                   if (exact.quantity != null) '${exact.quantity} units',
                   if (exact.address.isNotEmpty) exact.address,
                 ].join(' · '),
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
               ),
               if (resolution.receiveBlockReason.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -1090,11 +1182,8 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                       label: const Text('Receive into exact lot'),
                     ),
                   OutlinedButton.icon(
-                    onPressed: () => openEditor(
-                      context,
-                      widget.controller,
-                      record: exact,
-                    ),
+                    onPressed: () =>
+                        openEditor(context, widget.controller, record: exact),
                     icon: const Icon(Icons.open_in_new_rounded),
                     label: const Text('Open exact stock'),
                   ),
@@ -1220,11 +1309,8 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
             const SizedBox(height: 7),
             OutlinedButton.icon(
               onPressed: _savingDraftIndex == null
-                  ? () => openEditor(
-                      context,
-                      widget.controller,
-                      scanDraft: draft,
-                    )
+                  ? () =>
+                        openEditor(context, widget.controller, scanDraft: draft)
                   : null,
               icon: const Icon(Icons.edit_outlined),
               label: const Text('Edit preview first'),

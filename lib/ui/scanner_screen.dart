@@ -72,8 +72,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     final generation = ++_generation;
     if (kIsWeb) {
       setState(
-        () => _error =
-            'Live camera OCR is available in the Android app. You can paste text into search.',
+        () => _error = 'Live camera OCR is available in the Android app. You can paste text into search.',
       );
       return;
     }
@@ -116,8 +115,7 @@ class _ScannerScreenState extends State<ScannerScreen>
       } catch (_) {}
       if (mounted && !_closed)
         setState(
-          () => _error =
-              'Camera unavailable. Allow camera access in your phone settings, then retry.',
+          () => _error = 'Camera unavailable. Allow camera access in your phone settings, then retry.',
         );
     }
   }
@@ -190,12 +188,14 @@ class _ScannerScreenState extends State<ScannerScreen>
         if (evidence.length > 18) {
           evidence.removeRange(0, evidence.length - 18);
         }
-        final payload =
-            await compute(understandMedicineEvidenceMessage, <String, Object?>{
-              'evidence': evidence
-                  .map((item) => item.toMessage())
-                  .toList(growable: false),
-            });
+        final payload = await compute(
+          understandMedicineEvidenceMessage,
+          <String, Object?>{
+            'evidence': evidence
+                .map((item) => item.toMessage())
+                .toList(growable: false),
+          },
+        );
         if (_closed || !mounted || generation != _generation) return;
         final understood = MedicineUnderstandingResult.fromMessage(payload);
         setState(() {
@@ -466,6 +466,8 @@ class _ScannerScreenState extends State<ScannerScreen>
                               Text(
                                 widget.onCaptureQueued != null
                                     ? 'Keep capturing. Processing continues in the saved inbox.'
+                                    : widget.autoSubmit
+                                    ? 'Capture once. OCR will hand off automatically to Aaris Brain.'
                                     : 'Check the result, then tap Use scan.',
                                 style: const TextStyle(
                                   color: muted,
@@ -487,8 +489,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                             [
                               if (_barcode.isNotEmpty) 'Barcode: $_barcode',
                               if (_text.isNotEmpty) _text,
-                              if (_text.isEmpty && _barcode.isEmpty)
-                                'Point at packaging or a printed medicine list.',
+                              if (_text.isEmpty && _barcode.isEmpty) 'Point at packaging or a printed medicine list.',
                             ].join('\n\n'),
                             style: const TextStyle(color: muted, fontSize: 13),
                           ),
@@ -520,6 +521,8 @@ class _ScannerScreenState extends State<ScannerScreen>
                                 ? 'Retry camera'
                                 : _capturing
                                 ? 'Reading…'
+                                : widget.autoSubmit
+                                ? 'Capture & automate'
                                 : 'Capture text',
                           ),
                         ),

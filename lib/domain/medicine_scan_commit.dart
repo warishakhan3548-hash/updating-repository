@@ -4,10 +4,10 @@ import 'medicine_understanding.dart';
 
 /// Final, deterministic gate between a scan preview and a one-tap inventory add.
 ///
-/// AI/OCR may propose identity facts, but only the human-visible preview can
-/// authorize creation. Existing-stock ambiguity, weak lot identity and invalid
-/// chronology remain fail-closed. The controller's revision/CAS boundary is the
-/// final authority at commit time.
+/// AI/OCR may propose identity facts, but deterministic commit policy alone
+/// authorizes creation. Human review remains the fail-closed fallback whenever
+/// evidence, lot identity or chronology is weak. The controller's revision/CAS
+/// boundary is the final authority at commit time.
 class ScanQuickAddDecision {
   const ScanQuickAddDecision._({
     required this.allowed,
@@ -16,10 +16,10 @@ class ScanQuickAddDecision {
   });
 
   const ScanQuickAddDecision.allowed({bool isNewBatch = false})
-      : this._(allowed: true, isNewBatch: isNewBatch, reason: '');
+    : this._(allowed: true, isNewBatch: isNewBatch, reason: '');
 
   const ScanQuickAddDecision.blocked(String reason)
-      : this._(allowed: false, isNewBatch: false, reason: reason);
+    : this._(allowed: false, isNewBatch: false, reason: reason);
 
   final bool allowed;
   final bool isNewBatch;
@@ -27,6 +27,29 @@ class ScanQuickAddDecision {
 
   String get actionLabel =>
       isNewBatch ? 'Confirm & add new batch' : 'Confirm & add';
+}
+
+/// Stronger machine-commit gate for the direct camera automation path.
+///
+/// Local AI is an evidence resolver, never an inventory writer. Automatic
+/// persistence requires a scan-verified on-device model to have reviewed this
+/// exact OCR draft, plus all pre-existing deterministic quick-add invariants.
+class ScanAutoSaveDecision {
+  const ScanAutoSaveDecision._({
+    required this.allowed,
+    required this.isNewBatch,
+    required this.reason,
+  });
+
+  const ScanAutoSaveDecision.allowed({bool isNewBatch = false})
+    : this._(allowed: true, isNewBatch: isNewBatch, reason: '');
+
+  const ScanAutoSaveDecision.blocked(String reason)
+    : this._(allowed: false, isNewBatch: false, reason: reason);
+
+  final bool allowed;
+  final bool isNewBatch;
+  final String reason;
 }
 
 /// Inventory requires a human-readable medicine name, but medicine packs often
@@ -37,9 +60,7 @@ class ScanQuickAddDecision {
 String confirmedScanName(MedicineScanDraft draft) {
   final nameField = draft.field('name');
   final name = nameField.value.trim();
-  if (name.isNotEmpty &&
-      !nameField.conflicted &&
-      nameField.confidence >= .78) {
+  if (name.isNotEmpty && !nameField.conflicted && nameField.confidence >= .78) {
     return name;
   }
   return draft.brand.trim();
@@ -70,9 +91,9 @@ List<String> _compositionParts(String value) => value
     .toList(growable: false);
 
 bool _hasExplicitStrengthUnit(String value) => RegExp(
-      r'\d+(?:\.\d+)?\s*(?:mcg|µg|μg|ug|mg|gm|g|ml|iu|i\.u\.|units?|%)(?:\s*/\s*(?:\d+(?:\.\d+)?\s*)?(?:mcg|µg|μg|ug|mg|gm|g|ml|l|iu|i\.u\.|units?))?(?:\s*(?:w\s*/\s*v|w\s*/\s*w|v\s*/\s*v))?',
-      caseSensitive: false,
-    ).hasMatch(value);
+  r'\d+(?:\.\d+)?\s*(?:mcg|µg|μg|ug|mg|gm|g|ml|iu|i\.u\.|units?|%)(?:\s*/\s*(?:\d+(?:\.\d+)?\s*)?(?:mcg|µg|μg|ug|mg|gm|g|ml|l|iu|i\.u\.|units?))?(?:\s*(?:w\s*/\s*v|w\s*/\s*w|v\s*/\s*v))?',
+  caseSensitive: false,
+).hasMatch(value);
 
 /// Salt and strength are persisted as parallel, ordered composition lists.
 /// Confidence on each field alone is not enough: a combination with two salts
@@ -227,8 +248,9 @@ String _scanLotIssue(MedicineScanDraft draft) {
     if (field.conflicted) {
       return 'Lot/date/barcode evidence conflicts and needs manual review first.';
     }
-    final minimumConfidence =
-        key == 'batchNumber' || key == 'barcode' ? .82 : .78;
+    final minimumConfidence = key == 'batchNumber' || key == 'barcode'
+        ? .82
+        : .78;
     if (field.confidence < minimumConfidence) {
       return 'A captured lot/date/barcode fact is not confident enough for one-tap add. Review the printed evidence first.';
     }
@@ -281,6 +303,49 @@ ScanQuickAddDecision scanQuickAddDecision(
   return ScanQuickAddDecision.allowed(isNewBatch: isPossibleNewBatch);
 }
 
+ScanAutoSaveDecision scanAutoSaveDecision(
+  MedicineScanDraft draft,
+  IntakeResolution resolution, {
+  required bool localAiVerified,
+}) {
+  if (!localAiVerified) {
+    return const ScanAutoSaveDecision.blocked(
+      'A scan-verified Local AI did not verify this exact OCR draft. Review it before saving.',
+    );
+  }
+
+  final quick = scanQuickAddDecision(draft, resolution);
+  if (!quick.allowed) return ScanAutoSaveDecision.blocked(quick.reason);
+  if (draft.rawText.trim().isEmpty) {
+    return const ScanAutoSaveDecision.blocked(
+      'Raw packaging evidence is missing, so automatic save is disabled.',
+    );
+  }
+  if (draft.overallConfidence < .88) {
+    return const ScanAutoSaveDecision.blocked(
+      'The verified medicine identity is below the automatic-save confidence floor.',
+    );
+  }
+
+  for (final requirement in const <(String, String)>[
+    ('brand', 'Brand'),
+    ('salt', 'Salt'),
+    ('strength', 'Strength'),
+    ('form', 'Dosage form'),
+  ]) {
+    final field = draft.field(requirement.$1);
+    if (field.value.trim().isEmpty ||
+        field.conflicted ||
+        field.confidence < .88) {
+      return ScanAutoSaveDecision.blocked(
+        '${requirement.$2} is not strongly source-verified enough for automatic save.',
+      );
+    }
+  }
+
+  return ScanAutoSaveDecision.allowed(isNewBatch: quick.isNewBatch);
+}
+
 bool _hasTrustedBatchAnchor(MedicineScanDraft draft) {
   final field = draft.field('batchNumber');
   return field.value.trim().isNotEmpty &&
@@ -309,7 +374,9 @@ String _confirmedOptionalText(
 }) {
   final field = draft.field(key);
   final value = field.value.trim();
-  if (value.isEmpty || field.conflicted || field.confidence < minimumConfidence) {
+  if (value.isEmpty ||
+      field.conflicted ||
+      field.confidence < minimumConfidence) {
     return '';
   }
   return value;
@@ -352,11 +419,7 @@ Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
     mfgMonthOnly: draft.mfgMonthOnly,
     expiry: expiry,
     expiryMonthOnly: draft.expiryMonthOnly,
-    barcode: _confirmedOptionalText(
-      draft,
-      'barcode',
-      minimumConfidence: .82,
-    ),
+    barcode: _confirmedOptionalText(draft, 'barcode', minimumConfidence: .82),
     batchNumber: _confirmedOptionalText(
       draft,
       'batchNumber',

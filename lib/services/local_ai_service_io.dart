@@ -499,11 +499,15 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
           generation != _transferGeneration ||
           (error is PlatformException && error.code == 'model_cancelled');
       _setupStage = cancelled
-          ? (ready ? LocalModelSetupStage.ready : LocalModelSetupStage.chooseModel)
+          ? (ready
+                ? LocalModelSetupStage.ready
+                : LocalModelSetupStage.chooseModel)
           : (ready
                 ? LocalModelSetupStage.ready
                 : LocalModelSetupStage.attention);
-      _status = cancelled ? 'Model import cancelled' : 'Could not import this model';
+      _status = cancelled
+          ? 'Model import cancelled'
+          : 'Could not import this model';
       rethrow;
     } finally {
       try {
@@ -543,8 +547,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
           try {
             await _release();
           } catch (_) {}
-          _status =
-              'Memory pressure · local model unloaded after current turn; selection retained';
+          _status = 'Memory pressure · local model unloaded after current turn; selection retained';
         }
         _working = false;
         notifyListeners();
@@ -668,95 +671,92 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> activate(
     String id, {
     void Function()? onLeaseAcquired,
-  }) => _exclusive(
-    (generation) async {
-      final model = _models.where((m) => m.id == id).firstOrNull;
-      if (model == null) throw StateError('Download or import this model first.');
-      if (isModelReady(id)) {
-        _setupStage = LocalModelSetupStage.ready;
-        _status = isModelScanVerified(id)
-            ? 'Local AI Ready'
-            : 'Local AI Ready · scan extraction is available with review warning';
-        return;
-      }
-      final previous = _activeId;
-      await _release();
-      _activeId = id;
-      try {
-        final file = _weights(id);
-        _setupStage = LocalModelSetupStage.verifying;
-        _status = 'Checking model…';
-        notifyListeners();
-        final metadata = await _checkGguf(file);
-        if (await _hash(file.path) != id) {
-          throw StateError(
-            'Model changed since installation. Re-import a trusted file.',
-          );
-        }
-        _checkRequest(generation);
-        _setupStage = LocalModelSetupStage.connecting;
-        _status = 'Connecting on this device…';
-        notifyListeners();
-        await _loadSelected(requestGeneration: generation);
-        _checkRequest(generation);
-
-        var scanTestPassed = true;
-        _setupStage = LocalModelSetupStage.testing;
-        for (var i = 0; i < localSetupChecks.length; i++) {
-          final probe = localSetupChecks[i];
-          _status = 'Testing optional scan review…';
-          notifyListeners();
-          final raw = await _runtime!.generate(
-            localSetupPrompt,
-            jsonEncode({'SOURCE': probe.source}),
-            maxTokens: 180,
-          );
-          _checkRequest(generation);
-          Map<String, dynamic> answer;
-          try {
-            answer = localJsonObject(raw);
-          } on FormatException {
-            scanTestPassed = false;
-            break;
-          }
-          if (!passesLocalSetup(answer, probe)) {
-            scanTestPassed = false;
-            break;
-          }
-        }
-        _models[_models.indexOf(model)] = InstalledLocalModel(
-          id: model.id,
-          label: model.label,
-          bytes: model.bytes,
-          source: model.source,
-          loadTestPassed: true,
-          smokeTestPassed: scanTestPassed,
-          metadata: metadata,
-          testedRuntime: scanTestPassed
-              ? '$localRuntimeBuild/setup-$localSetupCheckVersion'
-              : '$localRuntimeBuild/chat-load',
+  }) => _exclusive((generation) async {
+    final model = _models.where((m) => m.id == id).firstOrNull;
+    if (model == null) throw StateError('Download or import this model first.');
+    if (isModelReady(id)) {
+      _setupStage = LocalModelSetupStage.ready;
+      _status = isModelScanVerified(id)
+          ? 'Local AI Ready'
+          : 'Local AI Ready · scan extraction is available with review warning';
+      return;
+    }
+    final previous = _activeId;
+    await _release();
+    _activeId = id;
+    try {
+      final file = _weights(id);
+      _setupStage = LocalModelSetupStage.verifying;
+      _status = 'Checking model…';
+      notifyListeners();
+      final metadata = await _checkGguf(file);
+      if (await _hash(file.path) != id) {
+        throw StateError(
+          'Model changed since installation. Re-import a trusted file.',
         );
-        await _save();
-        _setupStage = LocalModelSetupStage.ready;
-        _status = scanTestPassed
-            ? 'Local AI Ready'
-            : 'Local AI Ready · scan extraction is available with review warning';
-      } catch (_) {
-        _activeId = previous;
-        final index = _models.indexWhere((m) => m.id == model.id);
-        if (index >= 0) _models[index] = model;
-        await _release();
-        _setupStage = ready
-            ? LocalModelSetupStage.ready
-            : LocalModelSetupStage.attention;
-        _status = ready
-            ? 'That model could not start · previous Local AI is still Ready'
-            : 'This model could not become Ready';
-        rethrow;
       }
-    },
-    onLeaseAcquired: onLeaseAcquired,
-  );
+      _checkRequest(generation);
+      _setupStage = LocalModelSetupStage.connecting;
+      _status = 'Connecting on this device…';
+      notifyListeners();
+      await _loadSelected(requestGeneration: generation);
+      _checkRequest(generation);
+
+      var scanTestPassed = true;
+      _setupStage = LocalModelSetupStage.testing;
+      for (var i = 0; i < localSetupChecks.length; i++) {
+        final probe = localSetupChecks[i];
+        _status = 'Testing optional scan review…';
+        notifyListeners();
+        final raw = await _runtime!.generate(
+          localSetupPrompt,
+          jsonEncode({'SOURCE': probe.source}),
+          maxTokens: 180,
+        );
+        _checkRequest(generation);
+        Map<String, dynamic> answer;
+        try {
+          answer = localJsonObject(raw);
+        } on FormatException {
+          scanTestPassed = false;
+          break;
+        }
+        if (!passesLocalSetup(answer, probe)) {
+          scanTestPassed = false;
+          break;
+        }
+      }
+      _models[_models.indexOf(model)] = InstalledLocalModel(
+        id: model.id,
+        label: model.label,
+        bytes: model.bytes,
+        source: model.source,
+        loadTestPassed: true,
+        smokeTestPassed: scanTestPassed,
+        metadata: metadata,
+        testedRuntime: scanTestPassed
+            ? '$localRuntimeBuild/setup-$localSetupCheckVersion'
+            : '$localRuntimeBuild/chat-load',
+      );
+      await _save();
+      _setupStage = LocalModelSetupStage.ready;
+      _status = scanTestPassed
+          ? 'Local AI Ready'
+          : 'Local AI Ready · scan extraction is available with review warning';
+    } catch (_) {
+      _activeId = previous;
+      final index = _models.indexWhere((m) => m.id == model.id);
+      if (index >= 0) _models[index] = model;
+      await _release();
+      _setupStage = ready
+          ? LocalModelSetupStage.ready
+          : LocalModelSetupStage.attention;
+      _status = ready
+          ? 'That model could not start · previous Local AI is still Ready'
+          : 'This model could not become Ready';
+      rethrow;
+    }
+  }, onLeaseAcquired: onLeaseAcquired);
 
   Future<void> suspend() => _exclusive((_) async {
     await _release();
@@ -844,64 +844,61 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     String conversation = '',
     void Function(String token)? onToken,
     void Function()? onLeaseAcquired,
-  }) => _exclusive(
-    (generation) async {
-      if (instruction.trim().isEmpty || instruction.length > 3000) {
-        throw const FormatException('Keep the request under 3000 characters.');
-      }
-      await _loadSelected(requestGeneration: generation);
+  }) => _exclusive((generation) async {
+    if (instruction.trim().isEmpty || instruction.length > 3000) {
+      throw const FormatException('Keep the request under 3000 characters.');
+    }
+    await _loadSelected(requestGeneration: generation);
+    _checkRequest(generation);
+    final conversationLimit = _executionPlan!.conversationCharacters;
+    final recentConversation = conversation.length > conversationLimit
+        ? conversation.substring(conversation.length - conversationLimit)
+        : conversation;
+    var input = jsonEncode({
+      'ownerRequest': instruction,
+      'recentConversation': recentConversation,
+    });
+    final results = <Map<String, Object?>>[];
+    for (var round = 0; round <= 4; round++) {
+      _status = round == 0
+          ? 'Local AI · thinking…'
+          : 'Local AI · reading verified local inventory…';
+      notifyListeners();
+      final raw = await _runtime!.generate(
+        context.instructions,
+        input,
+        maxTokens: _chatOutputBudget(instruction),
+        onToken: onToken,
+      );
       _checkRequest(generation);
-      final conversationLimit = _executionPlan!.conversationCharacters;
-      final recentConversation = conversation.length > conversationLimit
-          ? conversation.substring(conversation.length - conversationLimit)
-          : conversation;
-      var input = jsonEncode({
+      final answer = localChatObject(raw);
+      if (!answer.containsKey('tool')) {
+        _status = 'Local answer ready · proposed changes require review';
+        notifyListeners();
+        return context.finish(answer);
+      }
+      if (round == 4)
+        throw StateError(
+          'Local AI reached the read-tool limit. Ask a narrower question.',
+        );
+      final facts = context.read(
+        answer,
+        rowLimit: _executionPlan!.inventoryRows,
+      );
+      results.add({'call': answer, 'result': facts});
+      if (results.length > 2) results.removeAt(0);
+      input = jsonEncode({
         'ownerRequest': instruction,
         'recentConversation': recentConversation,
+        'toolResults': results,
+        'remainingReadCalls': 3 - round,
+        'next': 'Answer or request one more page. Never invent omitted facts.',
       });
-      final results = <Map<String, Object?>>[];
-      for (var round = 0; round <= 4; round++) {
-        _status = round == 0
-            ? 'Local AI · thinking…'
-            : 'Local AI · reading verified local inventory…';
-        notifyListeners();
-        final raw = await _runtime!.generate(
-          context.instructions,
-          input,
-          maxTokens: _chatOutputBudget(instruction),
-          onToken: onToken,
-        );
-        _checkRequest(generation);
-        final answer = localChatObject(raw);
-        if (!answer.containsKey('tool')) {
-          _status = 'Local answer ready · proposed changes require review';
-          notifyListeners();
-          return context.finish(answer);
-        }
-        if (round == 4)
-          throw StateError(
-            'Local AI reached the read-tool limit. Ask a narrower question.',
-          );
-        final facts = context.read(
-          answer,
-          rowLimit: _executionPlan!.inventoryRows,
-        );
-        results.add({'call': answer, 'result': facts});
-        if (results.length > 2) results.removeAt(0);
-        input = jsonEncode({
-          'ownerRequest': instruction,
-          'recentConversation': recentConversation,
-          'toolResults': results,
-          'remainingReadCalls': 3 - round,
-          'next': 'Answer or request one more page. Never invent omitted facts.',
-        });
-        if (input.length > 15000)
-          throw StateError('Tool result too large; ask a narrower question.');
-      }
-      throw StateError('No local answer.');
-    },
-    onLeaseAcquired: onLeaseAcquired,
-  );
+      if (input.length > 15000)
+        throw StateError('Tool result too large; ask a narrower question.');
+    }
+    throw StateError('No local answer.');
+  }, onLeaseAcquired: onLeaseAcquired);
 
   Future<MedicineScanDraft> understand(MedicineScanDraft draft) async {
     await initialize();
@@ -929,7 +926,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         localJsonObject(raw),
         sourceLimit: sourceLimit,
       );
-      _status = 'AI scan preview ready · confirm before adding';
+      _status = 'AI scan evidence verified · deterministic save gate deciding next step';
       notifyListeners();
       return result;
     });
