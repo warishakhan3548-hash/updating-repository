@@ -85,6 +85,7 @@ class AiService {
   static const _maxResponseBytes = 1500000;
   static const _maxConversationCharacters = 6000;
   static const _maxProviderErrorCharacters = 600;
+  static const _localLeaseContentionBudget = Duration(seconds: 30);
   http.Client? _client;
   bool _localRequest = false;
   bool _ownsLocalLease = false;
@@ -388,7 +389,7 @@ class AiService {
     }
 
     var recoveredTransport = false;
-    var contentionRetries = 0;
+    DateTime? contentionSince;
     while (true) {
       _throwIfCancelled(cancelEpoch);
       await _waitForLocalLease(local, cancelEpoch);
@@ -401,6 +402,9 @@ class AiService {
           conversation: conversation,
           onLeaseAcquired: () {
             _ownsLocalLease = true;
+            // A real lease acquisition ends any prior scheduling-race window.
+            // A later contention episode therefore receives a fresh budget.
+            contentionSince = null;
             // Cancel may land in the tiny gap after the idle check but before
             // LocalAiService grants this turn its lease. Once ownership is known,
             // retire only this just-acquired command if its epoch is already stale.
@@ -420,14 +424,23 @@ class AiService {
       } catch (error, stack) {
         _throwIfCancelled(cancelEpoch);
 
-        // Another scan can win the few microtasks between an idle notification
-        // and the actual exclusive acquisition. That is lease contention, not a
-        // failed AI connection. Rejoin the wait a few times instead of surfacing
-        // the old random "Local AI is busy" dead end to the owner.
-        if (_isLocalLeaseContention(error) && contentionRetries < 4) {
-          contentionRetries++;
+        // Scanner refinement and foreground Send share one native llama.cpp
+        // lease. Another task can win the tiny idle->acquire event-loop gap even
+        // after an exact idle notification. That is scheduling contention, not a
+        // failed connection. Rejoin the event-driven wait instead of using a
+        // brittle fixed retry count. Bound only consecutive acquisition races so
+        // a genuinely stuck runtime cannot spin forever; Stop stays cancellable.
+        if (_isLocalLeaseContention(error)) {
+          contentionSince ??= DateTime.now();
           _safeReset(onStreamReset);
-          await Future<void>.delayed(const Duration(milliseconds: 40));
+          if (DateTime.now().difference(contentionSince!) >=
+              _localLeaseContentionBudget) {
+            throw StateError(
+              'Local AI stayed occupied by other on-device work. Finish or cancel that task and send again; this was not treated as a connection failure and no inventory changes were made.',
+            );
+          }
+          await _waitForLocalLease(local, cancelEpoch);
+          await Future<void>.delayed(const Duration(milliseconds: 80));
           continue;
         }
 
