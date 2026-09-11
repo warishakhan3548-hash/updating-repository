@@ -10,7 +10,9 @@ import 'package:sqflite/sqflite.dart';
 
 import '../domain/medicine.dart';
 import '../domain/medicine_intake.dart';
+import '../domain/medicine_resolution_v2.dart';
 import '../domain/medicine_understanding.dart';
+import 'canonical_medicine_catalog_service.dart';
 import 'local_ai_service.dart';
 import 'local_brain_route_policy.dart';
 import 'media_import_service.dart';
@@ -311,10 +313,19 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
           .toList();
       _knowledgeRevision = revision;
     }
+
+    // Tier-2 master knowledge is optional and queried before isolate work so a
+    // very large canonical catalogue never crosses the isolate boundary. The
+    // catalogue service is fail-open: empty/corrupt/unavailable knowledge simply
+    // leaves Tier-1 pharmacist-reviewed shop memory as the authoritative fallback.
+    final catalogue = await CanonicalMedicineCatalogService.instance
+        .candidatesForEvidence(frames);
+
     return MedicineUnderstandingResult.fromMessage(
-      await compute(understandMedicineEvidenceMessage, <String, Object?>{
+      await compute(understandMedicineEvidenceV2Message, <String, Object?>{
         'evidence': frames.map((e) => e.toMessage()).toList(),
         'knowledge': _knowledge!,
+        'catalog': catalogue.map((value) => value.toMessage()).toList(),
       }),
     );
   }

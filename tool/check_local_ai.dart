@@ -237,8 +237,9 @@ void main() {
   });
   check(corrected.salt == 'Paracetamol', 'Evidence-bound semantic label');
   check(
-    corrected.field('salt').conflicted && corrected.needsReview,
-    'New labels need review',
+    !corrected.field('salt').conflicted &&
+        corrected.field('salt').confidence >= .88,
+    'Exact evidence can promote an empty priority identity field',
   );
   check(corrected.expiry == '2028-07', 'AI cannot swap MFG and EXP');
   rejects(
@@ -354,8 +355,8 @@ void main() {
           allowReasoning: true,
           preferReasoning: true,
         ) ==
-        photoJob,
-    'Rapid photo OCR has priority over long video and model work',
+        reasoningJob,
+    'Ready photo reasoning gets its fair turn before the next queued photo',
   );
   check(
     nextMedicineIntakeJob(
@@ -364,7 +365,7 @@ void main() {
           preferReasoning: true,
         ) ==
         reasoningJob,
-    'Video yields to a ready photo between windows',
+    'Video yields to ready photo reasoning between windows',
   );
   check(
     nextMedicineIntakeJob(
@@ -490,7 +491,7 @@ void main() {
   );
   rejects(
     () => validateLocalScan(
-      source('${'x' * 7001}\nCefixime 200 mg'),
+      source('Header 5 mg\n${'x' * 7001}\nCefixime 200 mg'),
       pair('Cefixime', '200 mg', 'Cefixime 200 mg'),
     ),
     'Unseen evidence outside model excerpt',
@@ -531,7 +532,7 @@ void main() {
   );
   rejects(
     () => validateLocalScan(
-      source('${'x' * 2000}\nCefixime 200 mg'),
+      source('Header 5 mg\n${'x' * 2000}\nCefixime 200 mg'),
       pair('Cefixime', '200 mg', 'Cefixime 200 mg'),
       sourceLimit: 1800,
     ),
