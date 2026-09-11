@@ -415,7 +415,9 @@ class LocalAiRuntime {
     // architecture, tokenizer and other compatibility failures remain fail-fast
     // so a bad model is never disguised as a low-memory phone. Native backends
     // use several allocator spellings across releases, so recognize the bounded
-    // family rather than one library-version-specific message.
+    // family rather than one library-version-specific message. llama.cpp can
+    // also report a null context creation without allocator wording; retrying a
+    // smaller n_ctx is bounded and persistent incompatibility still fails at 2K.
     return value.contains('out of memory') ||
         value.contains('not enough memory') ||
         value.contains('memory allocation') ||
@@ -429,7 +431,8 @@ class LocalAiRuntime {
         value.contains('kv cache') ||
         value.contains('kv_cache') ||
         value.contains('context size') ||
-        value.contains('context buffer');
+        value.contains('context buffer') ||
+        value.contains('failed to create llama.cpp context');
   }
 
   Future<void> load(String path, {int contextTokens = 4096}) async {
