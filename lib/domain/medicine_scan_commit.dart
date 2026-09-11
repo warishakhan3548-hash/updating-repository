@@ -29,11 +29,21 @@ class ScanQuickAddDecision {
       isNewBatch ? 'Confirm & add new batch' : 'Confirm & add';
 }
 
+enum ScanAutoSaveVerifier { localAi, cloudAi }
+
+String scanAutoSaveVerifierLabel(ScanAutoSaveVerifier verifier) =>
+    switch (verifier) {
+      ScanAutoSaveVerifier.localAi => 'Local AI',
+      ScanAutoSaveVerifier.cloudAi => 'Cloud AI',
+    };
+
 /// Stronger machine-commit gate for the direct camera automation path.
 ///
-/// Local AI is an evidence resolver, never an inventory writer. Automatic
-/// persistence requires a scan-verified on-device model to have reviewed this
-/// exact OCR draft, plus all pre-existing deterministic quick-add invariants.
+/// AI is an evidence resolver, never an inventory writer. Automatic persistence
+/// requires this exact OCR draft to have crossed one source-verified AI route
+/// plus all pre-existing deterministic quick-add invariants. Deterministic OCR
+/// still auto-fills the preview when no AI route exists, but cannot grant itself
+/// unattended inventory-write authority.
 class ScanAutoSaveDecision {
   const ScanAutoSaveDecision._({
     required this.allowed,
@@ -306,11 +316,11 @@ ScanQuickAddDecision scanQuickAddDecision(
 ScanAutoSaveDecision scanAutoSaveDecision(
   MedicineScanDraft draft,
   IntakeResolution resolution, {
-  required bool localAiVerified,
+  required ScanAutoSaveVerifier? verifier,
 }) {
-  if (!localAiVerified) {
+  if (verifier == null) {
     return const ScanAutoSaveDecision.blocked(
-      'A scan-verified Local AI did not verify this exact OCR draft. Review it before saving.',
+      'No source-verified AI route verified this exact OCR draft. The smart on-device extractor filled what it could; review before saving.',
     );
   }
 

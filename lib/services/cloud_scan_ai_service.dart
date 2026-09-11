@@ -10,14 +10,15 @@ import '../domain/local_scan_handoff.dart';
 import '../domain/medicine_understanding.dart';
 import 'ai_service.dart';
 
-/// Explicit cloud-only medicine-pack refinement.
+/// Privacy-bounded cloud medicine-pack refinement.
 ///
 /// This service never receives an inventory export and never writes inventory.
 /// It sends only the bounded OCR handoff for one deterministic medicine draft,
 /// then runs the same quote/evidence validator used by Local AI before returning
-/// a preview candidate. The caller still owns the existing Confirm/Add boundary.
-/// One instance belongs to one review screen, so cancellation cannot cross
-/// navigation sessions.
+/// a preview candidate. A direct camera flow may pass that validated candidate
+/// through the authoritative machine-commit gate; all other callers keep the
+/// existing review/Confirm boundary. One instance belongs to one review session,
+/// so cancellation cannot cross navigation sessions.
 class CloudScanAiService {
   CloudScanAiService();
 
@@ -127,11 +128,7 @@ class CloudScanAiService {
         } else {
           final modelText = _decodeAssistantText(config, bytes);
           final object = localJsonObject(modelText);
-          return validateLocalScan(
-            draft,
-            object,
-            sourceLimit: _sourceLimit,
-          );
+          return validateLocalScan(draft, object, sourceLimit: _sourceLimit);
         }
       } on TimeoutException catch (error) {
         _checkEpoch(epoch);
@@ -239,10 +236,7 @@ class CloudScanAiService {
     return bytes.takeBytes();
   }
 
-  String _decodeAssistantText(
-    AiConfiguration config,
-    List<int> bytes,
-  ) {
+  String _decodeAssistantText(AiConfiguration config, List<int> bytes) {
     final raw = utf8.decode(bytes, allowMalformed: true).trim();
     if (raw.isEmpty) {
       throw const FormatException('Cloud scan AI returned an empty response.');
@@ -259,7 +253,9 @@ class CloudScanAiService {
       }
       final first = candidates.first;
       if (first is! Map) {
-        throw const FormatException('Gemini returned an invalid scan candidate.');
+        throw const FormatException(
+          'Gemini returned an invalid scan candidate.',
+        );
       }
       final content = first['content'];
       final parts = content is Map ? content['parts'] : null;

@@ -11,7 +11,9 @@ import '../domain/medicine.dart';
 import '../domain/medicine_scan_commit.dart';
 import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
+import '../services/ai_service.dart';
 import '../services/backup_service.dart';
+import '../services/cloud_scan_ai_service.dart';
 import '../services/local_ai_service.dart';
 import '../services/local_brain_route_policy.dart';
 import '../services/media_import_service.dart';
@@ -249,7 +251,7 @@ class _ImportCenterScreenState extends State<ImportCenterScreen> {
         _ImportAction(
           icon: Icons.qr_code_scanner_rounded,
           title: 'Scan medicine',
-          detail: 'Capture once · Local AI verifies · safe scans can save automatically.',
+          detail: 'Capture once · Local AI first, cloud AI when configured, smart on-device fallback · verified scans can save automatically.',
           onTap: _busy ? null : _scan,
         ),
         _ImportAction(
@@ -364,8 +366,11 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
   int _generation = 0;
   int _inventoryRevision = -1;
   final _semanticCache = <String, MedicineScanDraft>{};
+  final _cloudScan = CloudScanAiService();
   String _semanticWarning = '';
+  String _scanReasoningRoute = '';
   bool _localBrainScanActive = false;
+  bool _cloudBrainScanActive = false;
   int? _savingDraftIndex;
   bool _autoSaveAttempted = false;
 
@@ -380,6 +385,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
   @override
   void dispose() {
     ++_generation;
+    _cloudScan.cancel();
     widget.controller.removeListener(_inventoryChanged);
     super.dispose();
   }
@@ -494,10 +500,52 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       _loading = true;
       _error = '';
       _semanticWarning = '';
+      _scanReasoningRoute = '';
       _localBrainScanActive = false;
+      _cloudBrainScanActive = false;
     });
     try {
-      final knowledge = medicineKnowledgeFromRecords(widget.controller.records);
+      final local = LocalAiService.instance;
+      String? scanModelId;
+      AiConfiguration? cloudConfig;
+
+      // Route ownership is resolved BEFORE deterministic extraction. When the
+      // direct camera is using cloud AI, local Medicine Database identity memory
+      // is deliberately excluded from the provider-bound draft so only bounded
+      // evidence from this scan can leave the device.
+      if (widget.preparedDrafts == null) {
+        try {
+          final brainEnabled = await LocalBrainRoutePolicy.enabled();
+          if (!mounted || generation != _generation) return;
+          if (brainEnabled) {
+            scanModelId = await LocalBrainRoutePolicy.captureModelId(local);
+            if (!mounted || generation != _generation) return;
+            if (scanModelId == null) {
+              _semanticWarning =
+                  local.hasSelection && local.scannerEnabled && !local.scanReady
+                  ? 'Aaris Brain is enabled, but the selected Local AI is not Ready for scan review yet. Deterministic on-device extraction is being used.'
+                  : 'Aaris Brain is enabled, but no scan-ready Local AI route is available right now. Deterministic on-device extraction is being used; cloud fallback stays off while Local Brain owns the route.';
+            }
+          } else if (widget.autoSaveReadyDrafts) {
+            try {
+              cloudConfig = await _cloudScan.requireConfiguration();
+              if (!mounted || generation != _generation) return;
+              _scanReasoningRoute = _cloudScan.routeLabel(cloudConfig);
+            } catch (_) {
+              cloudConfig = null;
+            }
+          }
+        } catch (_) {
+          if (!mounted || generation != _generation) return;
+          scanModelId = null;
+          cloudConfig = null;
+          _semanticWarning = 'AI route state could not be loaded for this scan. Smart deterministic on-device extraction is being used; nothing was sent externally.';
+        }
+      }
+
+      final knowledge = cloudConfig == null
+          ? medicineKnowledgeFromRecords(widget.controller.records)
+          : const <MedicineKnowledgeEntry>[];
       final payload = widget.preparedDrafts != null
           ? MedicineUnderstandingResult(drafts: widget.preparedDrafts!)
                 .toMessage()
@@ -512,36 +560,13 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       if (!mounted || generation != _generation) return;
       final understanding = MedicineUnderstandingResult.fromMessage(payload);
       final reviews = <_ImportDraftReview>[];
-      final local = LocalAiService.instance;
-
-      // Local AI is optional enrichment, never a prerequisite for deterministic
-      // OCR review. LocalBrainRoutePolicy owns best-effort model initialization;
-      // a damaged/unavailable model manifest must not fail the whole import inbox.
-      String? scanModelId;
-      if (widget.preparedDrafts == null) {
-        try {
-          final brainEnabled = await LocalBrainRoutePolicy.enabled();
-          if (!mounted || generation != _generation) return;
-          scanModelId = await LocalBrainRoutePolicy.captureModelId(local);
-          if (!mounted || generation != _generation) return;
-          if (brainEnabled && scanModelId == null) {
-            _semanticWarning =
-                local.hasSelection && local.scannerEnabled && !local.scanReady
-                ? 'Aaris Brain is enabled, but the selected Local AI is not Ready for scan review yet. Deterministic OCR preview is being used.'
-                : 'Aaris Brain is enabled, but no scan-ready Local AI route is available right now. Deterministic OCR preview is being used; the scan remains fully reviewable.';
-          }
-        } catch (_) {
-          if (!mounted || generation != _generation) return;
-          scanModelId = null;
-          _semanticWarning = 'Aaris Brain state could not be loaded for this scan. Deterministic OCR preview is being used; nothing was sent externally.';
-        }
-      }
 
       var localBrainUsed = false;
-      var localBrainAutoSaveVerified = false;
+      var cloudBrainUsed = false;
       for (final original in understanding.drafts) {
         if (!mounted || generation != _generation) return;
         var draft = original;
+        ScanAutoSaveVerifier? autoSaveVerifier;
         final leasedModelId = scanModelId;
         if (leasedModelId != null) {
           try {
@@ -583,9 +608,9 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                   draft = candidate;
                   _semanticCache[key] = candidate;
                   localBrainUsed = true;
-                  localBrainAutoSaveVerified = local.isModelScanVerified(
-                    routedModelId,
-                  );
+                  if (local.isModelScanVerified(routedModelId)) {
+                    autoSaveVerifier = ScanAutoSaveVerifier.localAi;
+                  }
                   scanModelId = routedModelId;
                 } else {
                   scanModelId = null;
@@ -595,6 +620,25 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
             }
           } catch (_) {
             _semanticWarning = 'Local AI could not safely finish this OCR handoff. Original deterministic OCR drafts were retained; nothing was sent to an external AI.';
+          }
+        } else if (cloudConfig != null) {
+          try {
+            draft = await _cloudScan.refine(cloudConfig, original);
+            if (!mounted || generation != _generation) return;
+            cloudBrainUsed = true;
+            autoSaveVerifier = ScanAutoSaveVerifier.cloudAi;
+          } catch (error) {
+            final detail = error
+                .toString()
+                .replaceFirst(
+                  RegExp(
+                    r'^(Exception|FormatException|Bad state|StateError):\s*',
+                  ),
+                  '',
+                )
+                .trim();
+            _semanticWarning =
+                'Cloud AI could not safely finish this OCR handoff. Smart deterministic on-device extraction was retained and nothing was auto-saved. $detail';
           }
         }
         if (!mounted || generation != _generation) return;
@@ -633,6 +677,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
             draft: draft,
             hits: hits.take(6).toList(growable: false),
             resolution: _resolve(draft),
+            autoSaveVerifier: autoSaveVerifier,
           ),
         );
       }
@@ -641,18 +686,13 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           _drafts = reviews;
           _ignoredFrames = understanding.ignoredFrames;
           _localBrainScanActive = localBrainUsed;
+          _cloudBrainScanActive = cloudBrainUsed;
           _loading = false;
         });
         if (widget.autoSaveReadyDrafts &&
             reviews.length == 1 &&
             !_autoSaveAttempted) {
-          unawaited(
-            _attemptScannerAutoSave(
-              generation,
-              reviews.single,
-              localBrainVerified: localBrainAutoSaveVerified,
-            ),
-          );
+          unawaited(_attemptScannerAutoSave(generation, reviews.single));
         }
       }
     } catch (error) {
@@ -667,9 +707,8 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
 
   Future<void> _attemptScannerAutoSave(
     int preparedGeneration,
-    _ImportDraftReview review, {
-    required bool localBrainVerified,
-  }) async {
+    _ImportDraftReview review,
+  ) async {
     if (!widget.autoSaveReadyDrafts ||
         _autoSaveAttempted ||
         !mounted ||
@@ -682,7 +721,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
     var decision = scanAutoSaveDecision(
       review.draft,
       resolution,
-      localAiVerified: localBrainVerified,
+      verifier: review.autoSaveVerifier,
     );
     if (!decision.allowed) {
       setState(() {
@@ -700,7 +739,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       decision = scanAutoSaveDecision(
         review.draft,
         resolution,
-        localAiVerified: localBrainVerified,
+        verifier: review.autoSaveVerifier,
       );
       if (!decision.allowed) {
         throw StateError(
@@ -722,7 +761,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
           content: Text(
             decision.isNewBatch
                 ? '${medicine.title} auto-saved as a verified new batch.'
-                : '${medicine.title} verified by Local AI and auto-saved.',
+                : '${medicine.title} verified by ${scanAutoSaveVerifierLabel(review.autoSaveVerifier!)} and auto-saved.',
           ),
         ),
       );
@@ -1004,7 +1043,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'LOCAL REVIEW',
+                        'SCAN REVIEW',
                         style: TextStyle(
                           color: inverseMuted,
                           fontSize: 10,
@@ -1042,6 +1081,34 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                       ),
                     ),
                   ),
+                if (_cloudBrainScanActive)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(
+                      _scanReasoningRoute.isEmpty
+                          ? 'Cloud AI · only bounded OCR evidence from this scan was sent. Returned medicine fields were checked against the captured source before this preview.'
+                          : 'Cloud AI · $_scanReasoningRoute · only bounded OCR evidence from this scan was sent. Returned medicine fields were checked against the captured source before this preview.',
+                      style: const TextStyle(
+                        color: primary,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                if (widget.autoSaveReadyDrafts &&
+                    !_localBrainScanActive &&
+                    !_cloudBrainScanActive)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 10),
+                    child: Text(
+                      'Aaris Smart Extractor · on-device OCR + pharmacy NER/rules auto-filled supported medicine fields. No source-verified AI route completed this scan, so the preview stays review-first instead of writing uncertain OCR directly to stock.',
+                      style: TextStyle(
+                        color: amber,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                 if (_error.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 14),
@@ -1073,7 +1140,7 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
                   padding: const EdgeInsets.only(top: 10),
                   child: Text(
                     widget.autoSaveReadyDrafts
-                        ? 'OCR text stays separate from your personal note. Automatic save is allowed only after Local AI source verification plus deterministic duplicate, lot, chronology, confidence and revision checks.'
+                        ? 'OCR text stays separate from your personal note. Automatic save is allowed only after source-verified Local AI or configured cloud AI plus deterministic duplicate, lot, chronology, confidence and revision checks. With no AI route, the smart on-device extractor still auto-fills the preview for review.'
                         : 'OCR text stays separate from your personal note. Every auto-filled fact remains review evidence until you explicitly save a reviewed action.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: muted, fontSize: 11),
@@ -1369,11 +1436,13 @@ class _ImportDraftReview {
     required this.draft,
     required this.hits,
     required this.resolution,
+    required this.autoSaveVerifier,
   });
 
   final MedicineScanDraft draft;
   final List<SearchHit> hits;
   final IntakeResolution resolution;
+  final ScanAutoSaveVerifier? autoSaveVerifier;
 
   bool get hasStrongLocalMatch =>
       resolution.kind == IntakeResolutionKind.exactLot ||

@@ -54,7 +54,7 @@ Medicine _savedLot() => Medicine.fromJson(<String, dynamic>{
 void main() {
   final today = DateTime(2026, 9, 11);
 
-  test('new stock needs scan-verified Local AI before auto-save', () {
+  test('new stock needs source-verified AI before auto-save', () {
     final draft = _draft();
     final resolution = resolveIntakeDraft(
       draft: draft,
@@ -62,11 +62,23 @@ void main() {
       today: today,
     );
     expect(
-      scanAutoSaveDecision(draft, resolution, localAiVerified: false).allowed,
+      scanAutoSaveDecision(draft, resolution, verifier: null).allowed,
       isFalse,
     );
     expect(
-      scanAutoSaveDecision(draft, resolution, localAiVerified: true).allowed,
+      scanAutoSaveDecision(
+        draft,
+        resolution,
+        verifier: ScanAutoSaveVerifier.localAi,
+      ).allowed,
+      isTrue,
+    );
+    expect(
+      scanAutoSaveDecision(
+        draft,
+        resolution,
+        verifier: ScanAutoSaveVerifier.cloudAi,
+      ).allowed,
       isTrue,
     );
   });
@@ -81,7 +93,7 @@ void main() {
     final decision = scanAutoSaveDecision(
       draft,
       resolution,
-      localAiVerified: true,
+      verifier: ScanAutoSaveVerifier.localAi,
     );
     expect(decision.allowed, isFalse);
     expect(decision.reason, contains('source-verified'));
@@ -97,7 +109,7 @@ void main() {
     final decision = scanAutoSaveDecision(
       draft,
       resolution,
-      localAiVerified: true,
+      verifier: ScanAutoSaveVerifier.localAi,
     );
     expect(decision.allowed, isFalse);
     expect(decision.reason, contains('confidence floor'));
@@ -114,7 +126,7 @@ void main() {
     final decision = scanAutoSaveDecision(
       draft,
       resolution,
-      localAiVerified: true,
+      verifier: ScanAutoSaveVerifier.localAi,
     );
     expect(decision.allowed, isFalse);
     expect(decision.reason, contains('existing stock row'));
@@ -131,7 +143,7 @@ void main() {
     final decision = scanAutoSaveDecision(
       draft,
       resolution,
-      localAiVerified: true,
+      verifier: ScanAutoSaveVerifier.localAi,
     );
     expect(decision.allowed, isTrue);
     expect(decision.isNewBatch, isTrue);
