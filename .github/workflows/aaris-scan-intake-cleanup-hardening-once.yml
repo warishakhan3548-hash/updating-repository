@@ -1,0 +1,57 @@
+name: Aaris intake cleanup hardening
+on:
+  push:
+    branches: [ai/scan-ingestion-hardening-20260911]
+    paths:
+      - .github/workflows/aaris-scan-intake-cleanup-hardening-once.yml
+permissions:
+  contents: write
+concurrency:
+  group: aaris-scan-intake-cleanup-hardening
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Run Aaris intake cleanup hardening'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply crash-consistency patch
+        run: python3 tool/one_shot_scan_intake_cleanup_hardening.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Format and verify intake cleanup invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart format lib/services/medicine_intake_service.dart lib/domain/medicine_scan_commit.dart test/scan_auto_save_decision_test.dart test/scan_ingestion_privacy_contract_test.dart
+          flutter pub get
+          dart analyze lib test tool third_party/lib_llama_cpp/lib
+          flutter test test/scan_ingestion_privacy_contract_test.dart test/scan_auto_save_decision_test.dart test/medicine_intake_concurrency_test.dart --reporter expanded
+          flutter test --reporter expanded
+          flutter build apk --debug --no-pub
+      - name: Commit verified cleanup hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -- pubspec.lock 2>/dev/null || true
+          git config user.name 'Aaris Pharmacy Upgrade Bot'
+          git config user.email 'aaris-pharmacy-upgrade@users.noreply.github.com'
+          git rm tool/one_shot_scan_intake_cleanup_hardening.py .github/workflows/aaris-scan-intake-cleanup-hardening-once.yml
+          git add lib/services/medicine_intake_service.dart lib/domain/medicine_scan_commit.dart test/scan_auto_save_decision_test.dart test/scan_ingestion_privacy_contract_test.dart docs/SCAN_AI_ROUTING_2026_09_11.md docs/SCAN_INGESTION_HARDENING_2026_09_11.md
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No cleanup hardening diff produced'; exit 1; }
+          git commit -m 'Harden intake cleanup crash consistency [skip ci]'
+          git push origin HEAD:ai/scan-ingestion-hardening-20260911
