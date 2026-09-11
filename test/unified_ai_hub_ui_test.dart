@@ -44,4 +44,31 @@ void main() {
       expect(modifyRoute.hasMatch(brain), isTrue);
     },
   );
+
+  test(
+    'scan evidence Ask delegates route selection to the unified AI hub',
+    () {
+      final panel = File('lib/ui/medicine_intake_panel.dart')
+          .readAsStringSync();
+      final ai = File('lib/ui/ai_screen.dart').readAsStringSync();
+      final routing = File('lib/services/ai_service.dart').readAsStringSync();
+
+      expect(
+        panel,
+        contains('onPressed: () => widget.onAsk!(draft.rawText)'),
+      );
+      expect(
+        panel,
+        isNot(contains('!LocalAiService.instance.hasSelection ||')),
+      );
+      expect(ai, contains('MedicineIntakePanel('));
+      expect(ai, contains('unawaited(_ask());'));
+      expect(
+        ai,
+        contains("? _local.hasSelection\n      : _configuration.key.isNotEmpty"),
+      );
+      expect(routing, contains('if (config.localBrainEnabled)'));
+      expect(routing, contains('final endpoint = config.uri;'));
+    },
+  );
 }

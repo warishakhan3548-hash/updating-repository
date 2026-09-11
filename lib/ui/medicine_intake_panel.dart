@@ -325,11 +325,12 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                                 ),
                               if (widget.onAsk != null && job.terminal)
                                 TextButton(
-                                  onPressed:
-                                      !LocalAiService.instance.hasSelection ||
-                                          LocalAiService.instance.busy
-                                      ? null
-                                      : () => widget.onAsk!(draft.rawText),
+                                  // AI routing belongs to AiScreen/AiService, not
+                                  // this scan-preview widget. A cloud-only route
+                                  // is valid, a busy Local AI turn can queue at
+                                  // the shared lease, and a missing route is
+                                  // handled by AiScreen's Connections flow.
+                                  onPressed: () => widget.onAsk!(draft.rawText),
                                   child: const Text('Ask about this scan'),
                                 ),
                             ],
