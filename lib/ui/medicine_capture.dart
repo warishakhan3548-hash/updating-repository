@@ -63,7 +63,10 @@ Future<void> openMedicineCapture(
       ),
     );
     if (choice == null || !context.mounted) return;
-    if (queue.full) {
+    // Cloud review is interactive and does not enter the durable local intake
+    // queue. A full photo/video queue must therefore never block an explicitly
+    // requested cloud scan; capacity applies only to queued local capture work.
+    if (choice != 'cloud' && queue.full) {
       throw StateError('The queue is full. Review/dismiss captures first.');
     }
     if (choice == 'rapid') {
