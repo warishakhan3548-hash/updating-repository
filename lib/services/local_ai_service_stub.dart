@@ -55,6 +55,7 @@ class LocalAiService extends ChangeNotifier {
     String instruction, {
     String conversation = '',
     void Function(String token)? onToken,
+    void Function()? onLeaseAcquired,
   }) async => throw UnsupportedError(status);
   Future<MedicineScanDraft> understand(MedicineScanDraft draft) async => draft;
 }
