@@ -32,7 +32,7 @@ class _RunawayProgressEngine implements LlamaEngine {
         // generation deadline.
         for (var i = 0; i < 200; i++) {
           await Future<void>.delayed(const Duration(milliseconds: 5));
-          yield const LlamaTokenResponse(text: 'x');
+          yield LlamaTokenResponse(text: 'x', index: i);
         }
         yield const LlamaDoneResponse();
         continue;
