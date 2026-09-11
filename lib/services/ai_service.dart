@@ -87,6 +87,8 @@ class AiService {
   static const _maxProviderErrorCharacters = 600;
   http.Client? _client;
   bool _localRequest = false;
+  bool _ownsLocalLease = false;
+  Completer<void>? _localLeaseWaitCancel;
   int _cancelEpoch = 0;
 
   Future<AiConfiguration> loadConfiguration() async {
@@ -111,7 +113,15 @@ class AiService {
 
   void cancel() {
     ++_cancelEpoch;
-    if (_localRequest) LocalAiService.instance.cancelRequest();
+    final waiting = _localLeaseWaitCancel;
+    if (waiting != null && !waiting.isCompleted) waiting.complete();
+    // LocalAiService is shared by foreground chat and scan extraction. Cancel
+    // native inference only when this AiService turn actually owns the lease;
+    // otherwise Stop would be able to kill an unrelated OCR preview that merely
+    // happened to be using the same on-device model.
+    if (_localRequest && _ownsLocalLease) {
+      LocalAiService.instance.cancelRequest();
+    }
     _client?.close();
     _client = null;
   }
@@ -142,6 +152,50 @@ class AiService {
     if (id == null || local.busy || local.transferring) return false;
     await local.activate(id);
     return local.ready;
+  }
+
+  /// Foreground Send and OCR refinement intentionally share one native llama.cpp
+  /// runtime. A healthy scan may already own that exclusive lease for a moment.
+  /// Treat that as scheduling, not a connection failure: wait for the exact lease
+  /// release notification, with a lost-wakeup check, while keeping Stop instantly
+  /// cancellable. Model transfers remain explicit setup work and are never hidden
+  /// behind an unbounded Send wait.
+  Future<void> _waitForLocalLease(
+    LocalAiService local,
+    int cancelEpoch,
+  ) async {
+    _throwIfCancelled(cancelEpoch);
+    if (local.transferring) {
+      throw StateError(
+        'Local AI model setup or transfer is still running. Finish or cancel it before sending a chat request.',
+      );
+    }
+    if (!local.busy) return;
+
+    final idle = Completer<void>();
+    final cancelled = Completer<void>();
+    _localLeaseWaitCancel = cancelled;
+    void listener() {
+      if (!local.busy && !idle.isCompleted) idle.complete();
+    }
+
+    local.addListener(listener);
+    try {
+      // Close the race between the first busy check and listener registration.
+      listener();
+      await Future.any<void>([idle.future, cancelled.future]);
+      _throwIfCancelled(cancelEpoch);
+      if (local.transferring) {
+        throw StateError(
+          'Local AI model setup or transfer started while Send was waiting. Finish or cancel it, then send again.',
+        );
+      }
+    } finally {
+      local.removeListener(listener);
+      if (identical(_localLeaseWaitCancel, cancelled)) {
+        _localLeaseWaitCancel = null;
+      }
+    }
   }
 
   Future<String> ask(
@@ -183,7 +237,11 @@ class AiService {
           onStreamReset: onStreamReset,
         );
       } finally {
+        _ownsLocalLease = false;
         _localRequest = false;
+        final waiting = _localLeaseWaitCancel;
+        if (waiting != null && !waiting.isCompleted) waiting.complete();
+        _localLeaseWaitCancel = null;
       }
     }
 
@@ -299,14 +357,25 @@ class AiService {
       throw const FormatException('Describe what you want the AI to do.');
     }
 
-    for (var attempt = 0; attempt < 2; attempt++) {
+    var recoveredTransport = false;
+    var contentionRetries = 0;
+    while (true) {
       _throwIfCancelled(cancelEpoch);
+      await _waitForLocalLease(local, cancelEpoch);
       var streamStarted = false;
       try {
+        _ownsLocalLease = false;
         return await local.ask(
           context,
           instruction,
           conversation: conversation,
+          onLeaseAcquired: () {
+            _ownsLocalLease = true;
+            // Cancel may land in the tiny gap after the idle check but before
+            // LocalAiService grants this turn its lease. Once ownership is known,
+            // retire only this just-acquired command if its epoch is already stale.
+            if (cancelEpoch != _cancelEpoch) local.cancelRequest();
+          },
           onToken: onDelta == null && onStreamStarted == null
               ? null
               : (token) {
@@ -321,16 +390,28 @@ class AiService {
       } catch (error, stack) {
         _throwIfCancelled(cancelEpoch);
 
+        // Another scan can win the few microtasks between an idle notification
+        // and the actual exclusive acquisition. That is lease contention, not a
+        // failed AI connection. Rejoin the wait a few times instead of surfacing
+        // the old random "Local AI is busy" dead end to the owner.
+        if (_isLocalLeaseContention(error) && contentionRetries < 4) {
+          contentionRetries++;
+          _safeReset(onStreamReset);
+          await Future<void>.delayed(const Duration(milliseconds: 40));
+          continue;
+        }
+
         // The runtime itself owns progress-aware stall detection. Protocol,
         // model and configuration failures need user action and are not retried.
         // A retired/failed transport is recoverable only after its local lease
         // has actually been released.
         final canRecover =
-            attempt == 0 &&
+            !recoveredTransport &&
             !local.busy &&
             _isRecoverableLocalFailure(error);
         if (!canRecover) Error.throwWithStackTrace(error, stack);
 
+        recoveredTransport = true;
         // The selected model remains selected. Releasing only the failed
         // runtime gives the next attempt a clean inference isolate and closes
         // the old random "Connection Failed until restart" dead end.
@@ -342,11 +423,16 @@ class AiService {
         _throwIfCancelled(cancelEpoch);
         _safeReset(onStreamReset);
         await Future<void>.delayed(const Duration(milliseconds: 120));
+      } finally {
+        _ownsLocalLease = false;
       }
     }
-    throw StateError(
-      'Local AI could not finish after one safe runtime recovery. No inventory changes were made.',
-    );
+  }
+
+  bool _isLocalLeaseContention(Object error) {
+    final lower = error.toString().toLowerCase();
+    return lower.contains('local ai is busy') ||
+        lower.contains('current local ai operation');
   }
 
   bool _isRecoverableLocalFailure(Object error) {
