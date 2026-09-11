@@ -207,9 +207,15 @@ void main() {
     () => ctx.finish({'reply': 'ok', 'actions': [], 'baseRevision': 8}),
     'Model revision',
   );
+  check(
+    localJsonObject('Here is JSON: {"reply":"hi"}')['reply'] == 'hi',
+    'Bounded prose wrapper recovery',
+  );
   rejects(
-    () => localJsonObject('Here is JSON: {"reply":"hi"}'),
-    'Prose extraction',
+    () => ctx.finish(
+      localChatObject('{"actions":[{"op":"remove"}]} broken'),
+    ),
+    'Prose-wrapped action cannot bypass authoritative envelope',
   );
   check(
     localJsonObject('```json\n{"reply":"नमस्ते"}\n```')['reply'] == 'नमस्ते',
