@@ -17,7 +17,7 @@ class LocalScanHandoff {
     required this.sourceTruncated,
   });
 
-  static const schemaVersion = 9;
+  static const schemaVersion = 10;
 
   final String systemPrompt;
   final String userPayload;
@@ -62,6 +62,13 @@ FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form indepe
         .where((entry) => entry.value.conflicted)
         .map((entry) => entry.key)
         .toList(growable: false);
+    const priorityIdentity = <String>['brand', 'salt', 'strength', 'form'];
+    final priorityFieldsNeedingEvidence = priorityIdentity
+        .where((key) {
+          final field = draft.field(key);
+          return field.value.trim().isEmpty || field.needsReview;
+        })
+        .toList(growable: false);
 
     return LocalScanHandoff(
       systemPrompt: _systemPrompt,
@@ -73,12 +80,9 @@ FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form indepe
         'deterministicCandidates': candidates,
         if (conflictedFields.isNotEmpty)
           'conflictedCandidateFields': conflictedFields,
-        'requiredPreviewIdentity': const <String>[
-          'brand',
-          'salt',
-          'strength',
-          'form',
-        ],
+        'requiredPreviewIdentity': priorityIdentity,
+        if (priorityFieldsNeedingEvidence.isNotEmpty)
+          'priorityFieldsNeedingEvidence': priorityFieldsNeedingEvidence,
         'contract': const <String, Object?>{
           'exactSourceQuotePerField': true,
           'ingredientEvidenceForSaltStrength': true,
@@ -86,6 +90,7 @@ FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form indepe
           'chemicalEquivalenceMustStayEvidenceBound': true,
           'literalPrintedFormTokenPreferred': true,
           'priorityFieldsIndependent': true,
+          'focusWeakPriorityFieldsFirst': true,
           'deterministicCandidatesAreEvidence': false,
           'medicineKnowledgeCompletionAllowed': false,
           'mergeDifferentProducts': false,
@@ -94,7 +99,7 @@ FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form indepe
           'confirmationBoundary': 'user_confirm_add',
         },
         'task':
-            'Extract the evidence-grounded medicine identity for the preview. Prioritize exact printed Brand, Salt, Strength and Form so Confirm/Add needs no retyping when the pack clearly provides them. Bind each strength only to its nearest explicitly printed ingredient evidence, including equivalent-to composition lines. Use deterministic candidates only to find relevant SOURCE regions. Return only the required JSON object.',
+            'Extract the evidence-grounded medicine identity for the preview. If priorityFieldsNeedingEvidence is present, resolve those fields first from exact printed SOURCE evidence while still preserving every other explicitly supported Brand, Salt, Strength and Form fact. This focus signal is not evidence and never permits guessing. Bind each strength only to its nearest explicitly printed ingredient evidence, including equivalent-to composition lines. Use deterministic candidates only to find relevant SOURCE regions. Return only the required JSON object so Confirm/Add needs no retyping when the pack clearly provides the identity.',
       }),
       sourceCharacters: source.length,
       sourceTruncated: truncated,
