@@ -16,10 +16,11 @@ import 'ai_service.dart';
 /// It sends only the bounded OCR handoff for one deterministic medicine draft,
 /// then runs the same quote/evidence validator used by Local AI before returning
 /// a preview candidate. The caller still owns the existing Confirm/Add boundary.
+/// One instance belongs to one review screen, so cancellation cannot cross
+/// navigation sessions.
 class CloudScanAiService {
-  CloudScanAiService._();
+  CloudScanAiService();
 
-  static final instance = CloudScanAiService._();
   static const _storage = FlutterSecureStorage();
   static const _configurationKey = 'pharmacy.ai.configuration';
   static const _maxConfigurationCharacters = 64 * 1024;
