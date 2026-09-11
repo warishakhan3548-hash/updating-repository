@@ -615,7 +615,11 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .18;
     if (agrees) {
       channels++;
-    } else if (draft.field('strength').confidence >= .78) {
+    } else if (draft.field('strength').confidence >= .65) {
+      // Strength disagreement is a safety signal, not an auto-fill signal.
+      // Use a lower threshold than the normal .78 review boundary so a
+      // plausible printed dose can never be overwritten by a verified product
+      // candidate merely because OCR confidence was slightly degraded.
       hardConflicts++;
     }
   }

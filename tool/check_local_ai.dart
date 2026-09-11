@@ -355,8 +355,8 @@ void main() {
           allowReasoning: true,
           preferReasoning: true,
         ) ==
-        photoJob,
-    'Rapid photo OCR has priority over long video and model work',
+        reasoningJob,
+    'Ready photo reasoning gets its fair turn before the next queued photo',
   );
   check(
     nextMedicineIntakeJob(
@@ -365,7 +365,7 @@ void main() {
           preferReasoning: true,
         ) ==
         reasoningJob,
-    'Video yields to a ready photo between windows',
+    'Video yields to ready photo reasoning between windows',
   );
   check(
     nextMedicineIntakeJob(
