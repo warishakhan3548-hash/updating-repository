@@ -12,9 +12,10 @@ import 'editor_screen.dart';
 
 /// Explicit cloud-assisted scan lane.
 ///
-/// OCR is still extracted on-device first. The configured cloud provider sees
-/// only the bounded OCR handoff for each deterministic draft, never the pharmacy
-/// inventory export. Returned values remain evidence-validated preview data and
+/// OCR is still extracted on-device first. When a cloud route is available, the
+/// provider-bound deterministic draft is intentionally built WITHOUT local
+/// inventory identity memory, so the provider receives only evidence derived
+/// from this scan. Returned values remain evidence-validated preview data and
 /// cannot write stock until the existing revision-bound Confirm/Add or editor
 /// review succeeds.
 class CloudScanReviewScreen extends StatefulWidget {
@@ -50,6 +51,9 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
   @override
   void dispose() {
     ++_generation;
+    // The preview owns the explicit cloud request. Leaving this screen retires
+    // only that transport; no local scan/model lease or inventory write exists.
+    _cloud.cancel();
     super.dispose();
   }
 
@@ -59,6 +63,7 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
       _loading = true;
       _error = '';
       _warning = '';
+      _route = '';
       _drafts = const [];
     });
     try {
@@ -69,26 +74,11 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
         throw const FormatException('No barcode or medicine text was captured.');
       }
 
-      final knowledge = medicineKnowledgeFromRecords(widget.controller.records);
-      final payload = await compute(
-        understandMedicineEvidenceMessage,
-        <String, Object?>{
-          'evidence': widget.evidence
-              .map((item) => item.toMessage())
-              .toList(growable: false),
-          'knowledge': knowledge
-              .map((item) => item.toMessage())
-              .toList(growable: false),
-        },
-      );
-      if (!mounted || generation != _generation) return;
-      final deterministic = MedicineUnderstandingResult.fromMessage(payload);
-      if (deterministic.drafts.isEmpty) {
-        throw const FormatException(
-          'No medicine could be read. Take a closer, steadier scan.',
-        );
-      }
-
+      // Resolve cloud permission/configuration before building the provider-bound
+      // draft. If no API route exists, nothing can leave the device and we may
+      // safely use the normal private identity memory for a stronger deterministic
+      // fallback. If a cloud route exists, knowledge is deliberately empty so the
+      // handoff cannot contain names/salts/manufacturers learned from inventory.
       AiConfiguration? config;
       try {
         config = await _cloud.requireConfiguration();
@@ -98,6 +88,28 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
         if (!mounted || generation != _generation) return;
         _warning =
             '${_cleanError(error)} Deterministic OCR preview is retained; nothing was sent externally.';
+      }
+
+      final knowledge = config == null
+          ? medicineKnowledgeFromRecords(widget.controller.records)
+              .map((item) => item.toMessage())
+              .toList(growable: false)
+          : const <Map<String, Object?>>[];
+      final payload = await compute(
+        understandMedicineEvidenceMessage,
+        <String, Object?>{
+          'evidence': widget.evidence
+              .map((item) => item.toMessage())
+              .toList(growable: false),
+          'knowledge': knowledge,
+        },
+      );
+      if (!mounted || generation != _generation) return;
+      final deterministic = MedicineUnderstandingResult.fromMessage(payload);
+      if (deterministic.drafts.isEmpty) {
+        throw const FormatException(
+          'No medicine could be read. Take a closer, steadier scan.',
+        );
       }
 
       final refined = <MedicineScanDraft>[];
@@ -110,6 +122,7 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
         try {
           refined.add(await _cloud.refine(config, original));
         } catch (error) {
+          if (!mounted || generation != _generation) return;
           refined.add(original);
           _warning =
               'Cloud AI could not safely validate every scan. Deterministic OCR was retained for affected drafts. ${_cleanError(error)}';
@@ -238,7 +251,7 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
                     Text(
                       _route.isEmpty
                           ? 'Cloud route unavailable · deterministic OCR preview retained.'
-                          : '$_route\nOnly this scan’s bounded OCR is sent. Full inventory is not uploaded.',
+                          : '$_route\nOnly evidence derived from this scan’s bounded OCR is sent. Local inventory identity memory and the full Medicine Database stay on-device.',
                       style: const TextStyle(fontSize: 11.5, height: 1.4),
                     ),
                     const SizedBox(height: 6),
