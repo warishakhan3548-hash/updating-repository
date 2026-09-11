@@ -200,13 +200,11 @@ String _boundedSearchTerm(String value) =>
 String _barcodeIdentity(String value) {
   final raw = value.trim();
   if (raw.isEmpty) return '';
-  final gs1 = parseGs1HealthcareBarcode(raw);
-  final candidate = gs1 != null && gs1.gtin.isNotEmpty ? gs1.gtin : raw;
-  if (RegExp(r'^\d+$').hasMatch(candidate) &&
-      const {8, 12, 13, 14}.contains(candidate.length)) {
-    return candidate.padLeft(14, '0');
-  }
-  return candidate;
+  final verified = verifiedGtinKey(raw);
+  if (verified.isNotEmpty) return verified;
+  // Proprietary/invalid numeric identifiers remain exact. Zero-padding them
+  // would create false equivalence with a different 14-digit identifier.
+  return raw;
 }
 
 /// One ranking/index implementation serves both live inventory and the removed
@@ -215,10 +213,7 @@ String _barcodeIdentity(String value) {
 /// removed-stock recovery builds a lazy archive-only engine with
 /// [includeArchived] and then calls [searchArchived].
 class MedicineSearch {
-  MedicineSearch(
-    Iterable<Medicine> records, {
-    bool includeArchived = false,
-  }) {
+  MedicineSearch(Iterable<Medicine> records, {bool includeArchived = false}) {
     for (final m in records.where((m) => includeArchived || !m.archived)) {
       final doc = SearchDocument(m);
       docs[m.id] = doc;
@@ -334,11 +329,12 @@ class MedicineSearch {
     }
 
     if (raw.trim().isEmpty) {
-      final records = docs.values
-          .map((document) => document.record)
-          .where(allowedRecord)
-          .toList()
-        ..sort(order);
+      final records =
+          docs.values
+              .map((document) => document.record)
+              .where(allowedRecord)
+              .toList()
+            ..sort(order);
       return records
           .take(limit)
           .map((m) => SearchHit(m.id, 1, emptyReason, ''))
@@ -500,9 +496,10 @@ class MedicineSearch {
       }
       // Check numbers in the field that actually matched, not an unrelated date.
       if (numericTokens.isNotEmpty) {
-        final numbers = RegExp(
-          r'\d+(?:\.\d+)?',
-        ).allMatches(value).map((match) => match[0]!).toList();
+        final numbers = RegExp(r'\d+(?:\.\d+)?')
+            .allMatches(value)
+            .map((match) => match[0]!)
+            .toList();
         final matchesNumbers = numericTokens.every(
           (token) => numbers.any(
             (number) =>

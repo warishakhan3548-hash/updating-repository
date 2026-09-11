@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
+import '../domain/gs1_healthcare.dart';
 import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
 import 'default_ai_prompt.dart';
@@ -48,6 +49,7 @@ class _ScannerScreenState extends State<ScannerScreen>
   int _generation = 0;
   int _scanSequence = 0;
   String _text = '', _barcode = '', _error = '';
+  String? _activeStrongGtin;
   final List<ScanEvidence> _evidence = <ScanEvidence>[];
   bool _manualOnly = false;
   @override
@@ -71,8 +73,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     final generation = ++_generation;
     if (kIsWeb) {
       setState(
-        () => _error =
-            'Live camera OCR is available in the Android app. You can paste text into search.',
+        () => _error = 'Live camera OCR is available in the Android app. You can paste text into search.',
       );
       return;
     }
@@ -115,8 +116,7 @@ class _ScannerScreenState extends State<ScannerScreen>
       } catch (_) {}
       if (mounted && !_closed)
         setState(
-          () => _error =
-              'Camera unavailable. Allow camera access in your phone settings, then retry.',
+          () => _error = 'Camera unavailable. Allow camera access in your phone settings, then retry.',
         );
     }
   }
@@ -185,6 +185,28 @@ class _ScannerScreenState extends State<ScannerScreen>
       );
       if (_closed || !mounted || generation != _generation) return;
       if (result.text.isNotEmpty || result.barcode.isNotEmpty) {
+        final incomingStrongGtins = result.allBarcodes
+            .map(verifiedGtinKey)
+            .where((value) => value.isNotEmpty)
+            .toSet();
+        if (incomingStrongGtins.length == 1) {
+          final incoming = incomingStrongGtins.single;
+          final priorStrongGtins = <String>{
+            for (final frame in _evidence)
+              for (final raw in frame.allBarcodes)
+                if (verifiedGtinKey(raw).isNotEmpty) verifiedGtinKey(raw),
+          };
+          final changedProduct =
+              _activeStrongGtin != null && _activeStrongGtin != incoming;
+          final resolvesAmbiguousScene =
+              _activeStrongGtin == null && priorStrongGtins.length > 1;
+          if (changedProduct || resolvesAmbiguousScene) {
+            _evidence.clear();
+            _text = '';
+            _barcode = '';
+          }
+          _activeStrongGtin = incoming;
+        }
         final evidence = <ScanEvidence>[..._evidence, result];
         if (evidence.length > 18) {
           evidence.removeRange(0, evidence.length - 18);
@@ -231,6 +253,7 @@ class _ScannerScreenState extends State<ScannerScreen>
           _evidence.clear();
           _text = '';
           _barcode = '';
+          _activeStrongGtin = null;
         }
         await _recognize(InputImage.fromFilePath(photo.path));
         if (widget.autoSubmit &&
@@ -475,8 +498,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                             [
                               if (_barcode.isNotEmpty) 'Barcode: $_barcode',
                               if (_text.isNotEmpty) _text,
-                              if (_text.isEmpty && _barcode.isEmpty)
-                                'Point at packaging or a printed medicine list.',
+                              if (_text.isEmpty && _barcode.isEmpty) 'Point at packaging or a printed medicine list.',
                             ].join('\n\n'),
                             style: const TextStyle(color: muted, fontSize: 13),
                           ),

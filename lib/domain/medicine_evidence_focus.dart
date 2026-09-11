@@ -12,12 +12,12 @@ const medicineEvidenceFocusMarker =
 const maxPersistedRawOcrCharacters = 120000;
 
 String rawOcrTextFromDraft(String value) {
-  final marker = value.indexOf(medicineEvidenceFocusMarker);
+  final marker = value.lastIndexOf(medicineEvidenceFocusMarker);
   return (marker < 0 ? value : value.substring(0, marker)).trim();
 }
 
 String medicineDecisionTextFromDraft(String value) {
-  final marker = value.indexOf(medicineEvidenceFocusMarker);
+  final marker = value.lastIndexOf(medicineEvidenceFocusMarker);
   return (marker < 0
           ? value
           : value.substring(marker + medicineEvidenceFocusMarker.length))
@@ -149,10 +149,12 @@ String _fallbackText(String raw) {
   final lines = raw
       .split(RegExp(r'[\r\n]+'))
       .map((line) => line.replaceAll(RegExp(r'\s+'), ' ').trim())
-      .where((line) =>
-          line.isNotEmpty &&
-          !_uiOrWebNoise(line) &&
-          !_unsafeStandalonePackDose(line))
+      .where(
+        (line) =>
+            line.isNotEmpty &&
+            !_uiOrWebNoise(line) &&
+            !_unsafeStandalonePackDose(line),
+      )
       .take(160);
   return _bounded(lines.join('\n'), 30000);
 }

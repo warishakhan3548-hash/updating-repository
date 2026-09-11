@@ -82,8 +82,10 @@ class MedicineVisionService {
         if (hindi is RecognizedText) (hindi as RecognizedText).text,
       ]);
       final layoutLines = _mergeLayoutLines([
-        if (latin is RecognizedText) ..._layoutEvidence(latin as RecognizedText),
-        if (hindi is RecognizedText) ..._layoutEvidence(hindi as RecognizedText),
+        if (latin is RecognizedText)
+          ..._layoutEvidence(latin as RecognizedText),
+        if (hindi is RecognizedText)
+          ..._layoutEvidence(hindi as RecognizedText),
       ]);
       final barcodes = barcodeResult is List<Barcode>
           ? _rankBarcodes(
@@ -226,32 +228,20 @@ List<String> _rankBarcodes(Iterable<String> input) {
     final gs1 = parseGs1HealthcareBarcode(raw);
     if (gs1 != null && gs1.gtin.isNotEmpty) values.add(gs1.gtin);
   }
-  final ranked = values.toList(growable: false)..sort((a, b) {
-    final score = _barcodeScore(b).compareTo(_barcodeScore(a));
-    return score != 0 ? score : a.compareTo(b);
-  });
+  final ranked = values.toList(growable: false)
+    ..sort((a, b) {
+      final score = _barcodeScore(b).compareTo(_barcodeScore(a));
+      return score != 0 ? score : a.compareTo(b);
+    });
   return ranked.take(8).toList(growable: false);
 }
 
 int _barcodeScore(String value) {
+  if (verifiedGtinKey(value).isNotEmpty) return 4;
   final digits = value.replaceAll(RegExp(r'\D'), '');
   if (digits == value && const {8, 12, 13, 14}.contains(digits.length)) {
-    return _validGtin(digits) ? 4 : 3;
+    return 3;
   }
   if (digits == value && digits.length >= 6) return 2;
   return 1;
-}
-
-bool _validGtin(String digits) {
-  if (!const {8, 12, 13, 14}.contains(digits.length)) return false;
-  var sum = 0;
-  for (
-    var index = digits.length - 2, position = 1;
-    index >= 0;
-    index--, position++
-  ) {
-    final digit = int.parse(digits[index]);
-    sum += digit * (position.isOdd ? 3 : 1);
-  }
-  return (10 - sum % 10) % 10 == int.parse(digits[digits.length - 1]);
 }

@@ -47,8 +47,7 @@ class CanonicalMedicineProduct {
 
   bool get active => status == 'active';
 
-  String get displayName =>
-      name.trim().isNotEmpty ? name.trim() : brand.trim();
+  String get displayName => name.trim().isNotEmpty ? name.trim() : brand.trim();
 
   String get fingerprint => <String>[
     searchText(displayName),
@@ -254,26 +253,27 @@ class MedicineProductResolverV2 {
     final candidates = _index.candidates(draft, frames);
     if (candidates.isEmpty) return draft;
 
-    final hypotheses = candidates
-        .map((product) => _scoreProduct(product, draft, frames))
-        // A strong candidate carrying a hard contradiction must stay visible
-        // even when the contradiction penalty drops its aggregate score below
-        // the ordinary retrieval threshold. Otherwise a dangerous mismatch can
-        // disappear and leave a deceptively clean field-by-field draft.
-        .where(
-          (value) =>
-              value.score >= .42 ||
-              (value.hardConflicts > 0 &&
-                  (value.exactBarcode || value.strongIdentity)),
-        )
-        .toList(growable: false)
-      ..sort((a, b) {
-        final score = b.score.compareTo(a.score);
-        if (score != 0) return score;
-        final channels = b.channels.compareTo(a.channels);
-        if (channels != 0) return channels;
-        return a.product.productId.compareTo(b.product.productId);
-      });
+    final hypotheses =
+        candidates
+            .map((product) => _scoreProduct(product, draft, frames))
+            // A strong candidate carrying a hard contradiction must stay visible
+            // even when the contradiction penalty drops its aggregate score below
+            // the ordinary retrieval threshold. Otherwise a dangerous mismatch can
+            // disappear and leave a deceptively clean field-by-field draft.
+            .where(
+              (value) =>
+                  value.score >= .42 ||
+                  (value.hardConflicts > 0 &&
+                      (value.exactBarcode || value.strongIdentity)),
+            )
+            .toList(growable: false)
+          ..sort((a, b) {
+            final score = b.score.compareTo(a.score);
+            if (score != 0) return score;
+            final channels = b.channels.compareTo(a.channels);
+            if (channels != 0) return channels;
+            return a.product.productId.compareTo(b.product.productId);
+          });
     if (hypotheses.isEmpty) return draft;
 
     final winner = hypotheses.first;
@@ -294,12 +294,18 @@ class MedicineProductResolverV2 {
     // legacy catalogues can contain the same GTIN against multiple variants; a
     // tie must never become a deterministic auto-fill merely because sorting
     // happened to put one product first.
-    final exactBarcodeAmbiguous = winner.exactBarcode &&
-        hypotheses.skip(1).any(
-          (candidate) =>
-              candidate.exactBarcode &&
-              !_sameResolvedProductIdentity(winner.product, candidate.product),
-        );
+    final exactBarcodeAmbiguous =
+        winner.exactBarcode &&
+        hypotheses
+            .skip(1)
+            .any(
+              (candidate) =>
+                  candidate.exactBarcode &&
+                  !_sameResolvedProductIdentity(
+                    winner.product,
+                    candidate.product,
+                  ),
+            );
 
     if (winner.hardConflicts > 0) {
       return _markConflictAgainstProduct(draft, winner.product);
@@ -498,7 +504,10 @@ Set<String> _queryTerms(
   void add(String raw) {
     final normalized = searchText(raw);
     if (normalized.isEmpty) return;
-    final tokens = normalized.split(' ').where((value) => value.isNotEmpty).toList();
+    final tokens = normalized
+        .split(' ')
+        .where((value) => value.isNotEmpty)
+        .toList();
     for (final token in tokens) {
       if (token.length >= 3 && !_resolverNoise.contains(token)) {
         result.add(token);
@@ -600,34 +609,40 @@ _ProductHypothesis _scoreProduct(
       .map(_canonicalBarcode)
       .where((value) => value.isNotEmpty)
       .toSet();
+  final observedStrong = observedBarcodes
+      .where(_isStrongProductBarcodeKey)
+      .toSet();
+  final productStrong = productBarcodes
+      .where(_isStrongProductBarcodeKey)
+      .toSet();
   final exactBarcode =
       observedBarcodes.isNotEmpty &&
       productBarcodes.isNotEmpty &&
       observedBarcodes.intersection(productBarcodes).isNotEmpty;
+  // One pack can legitimately expose multiple encodings of the SAME GTIN, but
+  // two distinct checksum-valid GTIN identities mean the visual evidence is
+  // multi-product/contaminated unless this canonical product explicitly owns all
+  // of them. Matching only one code is not enough to auto-lock a medicine.
+  final unexplainedStrongGtins = observedStrong.difference(productStrong);
   if (exactBarcode) {
     weighted += .995 * .52;
     totalWeight += .52;
     channels++;
-  } else {
-    // Only verified retail/GTIN identifiers can veto a product. Packs may also
-    // contain numeric proprietary Code-128 payloads in standard-looking lengths;
-    // those remain exact-match evidence but are not allowed to become hard GTIN
-    // contradictions unless the existing GS1 kernel validates the check digit.
-    final observedStrong = observedBarcodes
-        .where(_isStrongProductBarcodeKey)
-        .toSet();
-    final productStrong = productBarcodes
-        .where(_isStrongProductBarcodeKey)
-        .toSet();
-    if (observedStrong.isNotEmpty && productStrong.isNotEmpty) {
+    if (productStrong.isNotEmpty && unexplainedStrongGtins.isNotEmpty) {
       hardConflicts++;
     }
+  } else if (observedStrong.isNotEmpty && productStrong.isNotEmpty) {
+    // Only verified retail/GTIN identifiers can veto a product. Proprietary
+    // numeric Code-128 payloads remain exact-match evidence, never hard GTIN
+    // contradictions.
+    hardConflicts++;
   }
 
   final identityEvidence = <String>[
     draft.name,
     draft.brand,
-    for (final frame in frames) ...frame.text.split(RegExp(r'[\r\n]+')).take(16),
+    for (final frame in frames)
+      ...frame.text.split(RegExp(r'[\r\n]+')).take(16),
   ];
   final aliases = <String>{
     product.displayName,
@@ -639,7 +654,10 @@ _ProductHypothesis _scoreProduct(
   for (final evidence
       in identityEvidence.where((value) => value.trim().isNotEmpty).take(32)) {
     for (final alias in aliases.take(32)) {
-      bestIdentity = max(bestIdentity, _weightedTextSimilarity(evidence, alias));
+      bestIdentity = max(
+        bestIdentity,
+        _weightedTextSimilarity(evidence, alias),
+      );
     }
   }
   if (bestIdentity >= .52) {
@@ -663,7 +681,8 @@ _ProductHypothesis _scoreProduct(
   final observedStrength = draft.strength.trim();
   if (observedStrength.isNotEmpty && product.strength.trim().isNotEmpty) {
     final agrees =
-        _strengthIdentity(observedStrength) == _strengthIdentity(product.strength);
+        _strengthIdentity(observedStrength) ==
+        _strengthIdentity(product.strength);
     weighted += (agrees ? 1.0 : 0.0) * .18;
     totalWeight += .18;
     if (agrees) {
@@ -791,12 +810,13 @@ MedicineScanDraft _inheritCanonicalIdentity(
   inherit('form', product.form);
   inherit('manufacturer', product.manufacturer);
 
-  final identityConfidence = <String>['name', 'brand', 'salt', 'strength', 'form']
-      .map((key) => fields[key])
-      .whereType<ExtractedMedicineField>()
-      .where((value) => !value.isEmpty)
-      .map((value) => value.confidence)
-      .toList(growable: false);
+  final identityConfidence =
+      <String>['name', 'brand', 'salt', 'strength', 'form']
+          .map((key) => fields[key])
+          .whereType<ExtractedMedicineField>()
+          .where((value) => !value.isEmpty)
+          .map((value) => value.confidence)
+          .toList(growable: false);
   final overall = identityConfidence.isEmpty
       ? draft.overallConfidence
       : identityConfidence.reduce(min).clamp(0, 1).toDouble();
@@ -991,7 +1011,11 @@ MedicineScanDraft _applyGs1Traceability(
   );
 }
 
-bool _structuredFieldCompatible(String field, String observed, String structured) {
+bool _structuredFieldCompatible(
+  String field,
+  String observed,
+  String structured,
+) {
   if (field == 'mfg' || field == 'expiry') {
     final pattern = RegExp(r'^(\d{4})-(\d{2})(?:-(\d{2}))?$');
     final left = pattern.firstMatch(observed.trim());
@@ -1016,7 +1040,8 @@ bool _invalidStructuredChronology(String mfg, String expiry) {
   final right = pattern.firstMatch(expiry.trim());
   if (left == null || right == null) return false;
   final leftMonth = int.parse(left.group(1)!) * 12 + int.parse(left.group(2)!);
-  final rightMonth = int.parse(right.group(1)!) * 12 + int.parse(right.group(2)!);
+  final rightMonth =
+      int.parse(right.group(1)!) * 12 + int.parse(right.group(2)!);
   if (leftMonth != rightMonth) return leftMonth > rightMonth;
   final leftDay = int.tryParse(left.group(3) ?? '');
   final rightDay = int.tryParse(right.group(3) ?? '');
@@ -1047,25 +1072,19 @@ String _fieldIdentity(String field, String value) {
 String _canonicalBarcode(String value) {
   final raw = value.trim();
   if (raw.isEmpty) return '';
-  final gs1 = parseGs1HealthcareBarcode(raw);
-  final candidate = gs1 != null && gs1.gtin.isNotEmpty ? gs1.gtin : raw;
-  if (RegExp(r'^\d+$').hasMatch(candidate) &&
-      const <int>{8, 12, 13, 14}.contains(candidate.length)) {
-    return candidate.padLeft(14, '0');
-  }
-  return candidate.replaceAll(RegExp(r'\s+'), '');
+  final verified = verifiedGtinKey(raw);
+  if (verified.isNotEmpty) return verified;
+  return raw.replaceAll(RegExp(r'\s+'), '');
 }
 
-bool _isStrongProductBarcodeKey(String value) {
-  if (!RegExp(r'^\d{14}$').hasMatch(value)) return false;
-  final parsed = parseGs1HealthcareBarcode('01$value');
-  return parsed != null && parsed.gtin == value;
-}
+bool _isStrongProductBarcodeKey(String value) =>
+    verifiedGtinKey(value).isNotEmpty;
 
-String _strengthIdentity(String value) => searchText(value)
-    .replaceAll(' ', '')
-    .replaceAll('μ', 'µ')
-    .replaceAll('ug', 'mcg');
+String _strengthIdentity(String value) =>
+    searchText(value)
+        .replaceAll(' ', '')
+        .replaceAll('μ', 'µ')
+        .replaceAll('ug', 'mcg');
 
 double _weightedTextSimilarity(String rawObserved, String rawCanonical) {
   final canonical = _compactForOcr(rawCanonical);

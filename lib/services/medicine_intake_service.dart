@@ -438,8 +438,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     job.cursorMs = window.nextStartMs;
     job.durationMs = window.durationMs;
     if (unreadable > 0) {
-      job.error =
-          'Some sampled frames were unreadable. Review completeness; video sampling cannot guarantee every pack.';
+      job.error = 'Some sampled frames were unreadable. Review completeness; video sampling cannot guarantee every pack.';
     }
     if (window.complete) {
       _ocrFinished(job);
@@ -512,7 +511,10 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       // resurrect a stale result under a different Local AI identity.
       try {
         await local.suspend();
-      } catch (_) {
+      } catch (suspendError, suspendStack) {
+        if (_localLeaseContention(suspendError)) {
+          Error.throwWithStackTrace(suspendError, suspendStack);
+        }
         Error.throwWithStackTrace(error, stack);
       }
       if (!await _routeStillOwnsResult(local, routedModelId) ||
@@ -538,8 +540,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     if (readiness != LocalBrainRouteReadiness.ready) {
-      job.error =
-          'Aaris Brain is off, not scan-ready, or the selected Local AI changed. Deterministic OCR draft retained for review.';
+      job.error = 'Aaris Brain is off, not scan-ready, or the selected Local AI changed. Deterministic OCR draft retained for review.';
       job.status = 'review';
       return;
     }
@@ -556,8 +557,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     if (routedModelId == null ||
         !local.scannerEnabled ||
         !local.isModelScanReady(routedModelId)) {
-      job.error =
-          'The active Local AI route disappeared before scan reasoning started. Deterministic OCR draft retained for review.';
+      job.error = 'The active Local AI route disappeared before scan reasoning started. Deterministic OCR draft retained for review.';
       job.status = 'review';
       return;
     }
@@ -572,8 +572,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
         original,
       );
       if (!await _routeStillOwnsResult(local, routedModelId)) {
-        job.error =
-            'Aaris Brain was turned off or its Local AI changed while this scan was being reviewed. The stale AI result was discarded; deterministic OCR was retained.';
+        job.error = 'Aaris Brain was turned off or its Local AI changed while this scan was being reviewed. The stale AI result was discarded; deterministic OCR was retained.';
         job.status = 'review';
         return;
       }

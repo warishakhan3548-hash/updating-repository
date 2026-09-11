@@ -239,11 +239,8 @@ CREATE TABLE catalog_deletes (
   Future<List<CanonicalMedicineProduct>> _loadProducts(List<String> ids) async {
     if (ids.isEmpty) return const <CanonicalMedicineProduct>[];
     final placeholders = List.filled(ids.length, '?').join(',');
-    final rows = await _database!.rawQuery(
-      '''SELECT * FROM catalog_products
-         WHERE product_id IN ($placeholders) AND status = 'active' ''',
-      ids,
-    );
+    final rows = await _database!.rawQuery('''SELECT * FROM catalog_products
+         WHERE product_id IN ($placeholders) AND status = 'active' ''', ids);
     if (rows.isEmpty) return const <CanonicalMedicineProduct>[];
 
     final aliases = <String, List<(String, String)>>{};
@@ -350,9 +347,7 @@ CREATE TABLE catalog_deletes (
           'Catalog delta line must be a JSON object.',
         );
       }
-      final change = _CatalogDelta.fromJson(
-        Map<String, dynamic>.from(decoded),
-      );
+      final change = _CatalogDelta.fromJson(Map<String, dynamic>.from(decoded));
       if (previousRevision >= 0 && change.revision <= previousRevision) {
         throw const FormatException(
           'Catalog revisions must be strictly increasing.',
@@ -397,24 +392,20 @@ CREATE TABLE catalog_deletes (
               whereArgs: <Object?>[change.productId, change.revision],
             );
             if (changed == 0) {
-              await txn.insert(
-                'catalog_products',
-                {
-                  'product_id': change.productId,
-                  'rev': change.revision,
-                  'status': 'deprecated',
-                  'name': '',
-                  'brand': '',
-                  'salt': '',
-                  'strength': '',
-                  'form': '',
-                  'manufacturer': '',
-                  'source': 'master',
-                  'verified': 0,
-                  'prior_weight': 0.0,
-                },
-                conflictAlgorithm: ConflictAlgorithm.ignore,
-              );
+              await txn.insert('catalog_products', {
+                'product_id': change.productId,
+                'rev': change.revision,
+                'status': 'deprecated',
+                'name': '',
+                'brand': '',
+                'salt': '',
+                'strength': '',
+                'form': '',
+                'manufacturer': '',
+                'source': 'master',
+                'verified': 0,
+                'prior_weight': 0.0,
+              }, conflictAlgorithm: ConflictAlgorithm.ignore);
             }
             break;
         }
@@ -422,16 +413,14 @@ CREATE TABLE catalog_deletes (
         applied++;
       }
       finalRevision = current;
-      await txn.insert(
-        'catalog_meta',
-        {'key': 'last_applied_revision', 'value': '$current'},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-      await txn.insert(
-        'catalog_meta',
-        {'key': 'last_delta_sha256', 'value': actual},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await txn.insert('catalog_meta', {
+        'key': 'last_applied_revision',
+        'value': '$current',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await txn.insert('catalog_meta', {
+        'key': 'last_delta_sha256',
+        'value': actual,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
     return CatalogDeltaApplyResult(
       applied: applied,
@@ -463,24 +452,20 @@ CREATE TABLE catalog_deletes (
       return;
     }
 
-    await txn.insert(
-      'catalog_products',
-      {
-        'product_id': product.productId,
-        'rev': product.revision,
-        'status': product.status,
-        'name': product.name,
-        'brand': product.brand,
-        'salt': product.salt,
-        'strength': product.strength,
-        'form': product.form,
-        'manufacturer': product.manufacturer,
-        'source': product.source,
-        'verified': product.verified ? 1 : 0,
-        'prior_weight': product.priorWeight.clamp(0, 1),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await txn.insert('catalog_products', {
+      'product_id': product.productId,
+      'rev': product.revision,
+      'status': product.status,
+      'name': product.name,
+      'brand': product.brand,
+      'salt': product.salt,
+      'strength': product.strength,
+      'form': product.form,
+      'manufacturer': product.manufacturer,
+      'source': product.source,
+      'verified': product.verified ? 1 : 0,
+      'prior_weight': product.priorWeight.clamp(0, 1),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     for (final table in const <String>[
       'catalog_aliases',
       'catalog_barcodes',
@@ -501,53 +486,37 @@ CREATE TABLE catalog_deletes (
     for (final pair in aliases.take(48)) {
       final normalized = searchText(pair.$2);
       if (normalized.isEmpty) continue;
-      await txn.insert(
-        'catalog_aliases',
-        {
-          'product_id': product.productId,
-          'kind': pair.$1,
-          'value': pair.$2,
-          'normalized': normalized,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      await txn.insert('catalog_aliases', {
+        'product_id': product.productId,
+        'kind': pair.$1,
+        'value': pair.$2,
+        'normalized': normalized,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
     for (final value in product.barcodes.take(12)) {
       final normalized = _barcodeKey(value);
       if (normalized.isEmpty) continue;
-      await txn.insert(
-        'catalog_barcodes',
-        {
-          'product_id': product.productId,
-          'value': value,
-          'normalized': normalized,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      await txn.insert('catalog_barcodes', {
+        'product_id': product.productId,
+        'value': value,
+        'normalized': normalized,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
 
     final weightedTerms = _catalogTerms(product);
     for (final entry in weightedTerms.entries.take(160)) {
-      await txn.insert(
-        'catalog_terms',
-        {
-          'product_id': product.productId,
-          'term': entry.key,
-          'weight': entry.value,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await txn.insert('catalog_terms', {
+        'product_id': product.productId,
+        'term': entry.key,
+        'weight': entry.value,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
       if (entry.key.length < 4 || entry.key.length > 28) continue;
       for (final deletion in _deleteKeys(entry.key).take(28)) {
-        await txn.insert(
-          'catalog_deletes',
-          {
-            'product_id': product.productId,
-            'delete_key': deletion,
-            'weight': entry.value,
-          },
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
+        await txn.insert('catalog_deletes', {
+          'product_id': product.productId,
+          'delete_key': deletion,
+          'weight': entry.value,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
       }
     }
   }
@@ -765,13 +734,10 @@ String _ocrFoldToken(String token) {
 String _barcodeKey(String value) {
   final raw = value.trim();
   if (raw.isEmpty) return '';
-  final gs1 = parseGs1HealthcareBarcode(raw);
-  final candidate = gs1 != null && gs1.gtin.isNotEmpty ? gs1.gtin : raw;
-  if (RegExp(r'^\d+$').hasMatch(candidate) &&
-      const <int>{8, 12, 13, 14}.contains(candidate.length)) {
-    return candidate.padLeft(14, '0');
-  }
-  return candidate.replaceAll(RegExp(r'\s+'), '');
+  final verified = verifiedGtinKey(raw);
+  if (verified.isNotEmpty) return verified;
+  // Keep proprietary/non-GTIN payloads exact across catalogue lookup too.
+  return raw.replaceAll(RegExp(r'\s+'), '');
 }
 
 const _catalogNoise = <String>{
