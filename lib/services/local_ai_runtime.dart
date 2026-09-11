@@ -10,7 +10,19 @@ import 'package:lib_llama_cpp/lib_llama_cpp.dart';
 /// and then starts a fresh actor, so Stop never has to wait for a long generation
 /// to naturally exhaust its token budget.
 class LocalAiRuntime {
-  LocalAiRuntime({LlamaEngine engine = const LibLlamaCpp()}) : _engine = engine;
+  LocalAiRuntime({
+    LlamaEngine engine = const LibLlamaCpp(),
+    Duration generationWallClockLimit = const Duration(minutes: 2),
+  }) : _engine = engine,
+       _generationWallClockLimit = generationWallClockLimit {
+    if (generationWallClockLimit <= Duration.zero) {
+      throw ArgumentError.value(
+        generationWallClockLimit,
+        'generationWallClockLimit',
+        'Must be positive.',
+      );
+    }
+  }
 
   static const _terminalErrorDrainBudget = Duration(seconds: 15);
   static const _maxVisibleResponseCharacters = 32000;
@@ -18,6 +30,7 @@ class LocalAiRuntime {
   static const _maxContextTokens = 32768;
 
   final LlamaEngine _engine;
+  final Duration _generationWallClockLimit;
   StreamController<LlamaCommand>? _commands;
   StreamSubscription<LlamaResponse>? _subscription;
   Completer<String>? _pending;
@@ -31,6 +44,7 @@ class LocalAiRuntime {
   Future<void>? _closeFuture;
   Future<void> _transportCleanup = Future<void>.value();
   Timer? _stallTimer;
+  Timer? _generationDeadlineTimer;
   Duration? _activeStallBudget;
   int? _contextTokens;
   int _transportEpoch = 0;
@@ -156,10 +170,12 @@ class LocalAiRuntime {
     return const Duration(minutes: 2);
   }
 
-  /// There is deliberately no total-generation deadline. Slow local models are
-  /// allowed to keep working for as long as they keep producing native progress.
-  /// Only a completely silent/stalled transport is retired. This avoids the old
-  /// false timeout where a healthy long answer crossed a wall-clock deadline.
+  /// Progress and wall-clock safety are intentionally separate. The stall
+  /// watchdog is refreshed by healthy native progress so a temporarily slow CPU
+  /// is not mistaken for a dead transport. Generation additionally has a hard
+  /// upper bound: a weak/reasoning model that keeps emitting useless tokens can
+  /// no longer keep the UI in Thinking forever. Load remains progress-only
+  /// because large mmap/native initialization can legitimately take longer.
   void _armStallWatchdog(int epoch, Duration budget) {
     _stallTimer?.cancel();
     _activeStallBudget = budget;
@@ -174,6 +190,26 @@ class LocalAiRuntime {
         subscription,
         StateError(
           'Local runtime transport stopped making progress. The stalled transport was retired safely and can be retried.',
+        ),
+        StackTrace.current,
+      );
+    });
+  }
+
+  void _armGenerationDeadline(int epoch) {
+    _generationDeadlineTimer?.cancel();
+    _generationDeadlineTimer = Timer(_generationWallClockLimit, () {
+      if (_closed || epoch != _transportEpoch || _pending == null) return;
+      final commands = _commands;
+      final subscription = _subscription;
+      if (commands == null || subscription == null) return;
+      _invalidateTransport(
+        epoch,
+        commands,
+        subscription,
+        TimeoutException(
+          'Local AI kept generating without finishing. The model was stopped safely; try a shorter request or a faster local model.',
+          _generationWallClockLimit,
         ),
         StackTrace.current,
       );
@@ -195,6 +231,11 @@ class LocalAiRuntime {
     _stallTimer?.cancel();
     _stallTimer = null;
     _activeStallBudget = null;
+  }
+
+  void _clearGenerationDeadline() {
+    _generationDeadlineTimer?.cancel();
+    _generationDeadlineTimer = null;
   }
 
   void _invalidateTransport(
@@ -252,6 +293,7 @@ class LocalAiRuntime {
       throw StateError('Local runtime is still processing a failed model load.');
     }
     _clearStallWatchdog();
+    _clearGenerationDeadline();
     ++_transportEpoch;
     final commands = _commands;
     final subscription = _subscription;
@@ -265,6 +307,7 @@ class LocalAiRuntime {
 
   void _complete() {
     _clearStallWatchdog();
+    _clearGenerationDeadline();
     final pending = _pending;
     _loading = false;
 
@@ -295,6 +338,7 @@ class LocalAiRuntime {
 
   void _fail(Object error, [StackTrace? stack]) {
     _clearStallWatchdog();
+    _clearGenerationDeadline();
     final pending = _pending;
     _pending = null;
     _loading = false;
@@ -370,9 +414,13 @@ class LocalAiRuntime {
         throw StateError('Local runtime transport could not start.');
       }
       _armStallWatchdog(_transportEpoch, _stallBudgetFor(command));
+      if (command is LlamaGenerateMessagesCommand) {
+        _armGenerationDeadline(_transportEpoch);
+      }
       commands.add(command);
     } catch (error, stack) {
       _clearStallWatchdog();
+      _clearGenerationDeadline();
       _pending = null;
       _loading = false;
       _commandError = null;
@@ -531,6 +579,7 @@ class LocalAiRuntime {
       }
     } finally {
       _clearStallWatchdog();
+      _clearGenerationDeadline();
       modelPath = null;
       _contextTokens = null;
       _onToken = null;
