@@ -289,13 +289,27 @@ class MedicineProductResolverV2 {
       }
     }
     final margin = runnerUp == null ? 1.0 : winner.score - runnerUp.score;
+    // A barcode identifies a product only when that mapping is unique, or when
+    // independent printed evidence resolves the duplicate mapping. Retail and
+    // legacy catalogues can contain the same GTIN against multiple variants; a
+    // tie must never become a deterministic auto-fill merely because sorting
+    // happened to put one product first.
+    final exactBarcodeAmbiguous = winner.exactBarcode &&
+        hypotheses.skip(1).any(
+          (candidate) =>
+              candidate.exactBarcode &&
+              !_sameResolvedProductIdentity(winner.product, candidate.product),
+        );
 
     if (winner.hardConflicts > 0) {
       return _markConflictAgainstProduct(draft, winner.product);
     }
 
     final exactBarcodeLock =
-        winner.exactBarcode && winner.product.verified && winner.hardConflicts == 0;
+        winner.exactBarcode &&
+        !exactBarcodeAmbiguous &&
+        winner.product.verified &&
+        winner.hardConflicts == 0;
     final calibratedLock =
         winner.product.verified &&
         winner.score >= .86 &&
@@ -891,11 +905,21 @@ MedicineScanDraft _applyGs1Traceability(
   }
 
   final fields = Map<String, ExtractedMedicineField>.of(draft.fields);
+  var structuredConflict = false;
+
+  double conflictFloor(String key) => switch (key) {
+    'barcode' => .82,
+    'batchNumber' => .78,
+    'mfg' || 'expiry' => .78,
+    _ => .82,
+  };
+
   void apply(String key, Set<String> values) {
     if (values.isEmpty) return;
     final ordered = values.toList()..sort();
     final current = fields[key];
     if (ordered.length > 1) {
+      structuredConflict = true;
       final value = current?.value.trim().isNotEmpty == true
           ? current!.value
           : ordered.first;
@@ -907,20 +931,24 @@ MedicineScanDraft _applyGs1Traceability(
       );
       return;
     }
+
     final value = ordered.single;
-    final currentKey = current == null ? '' : _fieldIdentity(key, current.value);
-    final structuredKey = _fieldIdentity(key, value);
+    final priorConflict = current?.conflicted == true;
     final conflict =
         current != null &&
         !current.isEmpty &&
-        current.confidence >= .97 &&
-        currentKey.isNotEmpty &&
-        currentKey != structuredKey;
+        current.confidence >= conflictFloor(key) &&
+        !_structuredFieldCompatible(key, current.value, value);
+    if (priorConflict || conflict) structuredConflict = true;
+
+    // Valid GS1 remains the displayed structured fact, but disagreement with
+    // credible printed OCR is surfaced as review state rather than silently
+    // erasing the contradictory observation.
     fields[key] = ExtractedMedicineField(
       value: value,
-      confidence: conflict ? .82 : .995,
+      confidence: (priorConflict || conflict) ? .82 : .995,
       support: max(1, current?.support ?? 0),
-      conflicted: conflict,
+      conflicted: priorConflict || conflict,
     );
   }
 
@@ -928,7 +956,65 @@ MedicineScanDraft _applyGs1Traceability(
   apply('batchNumber', batches);
   apply('mfg', mfgs);
   apply('expiry', expiries);
-  return _copyDraft(draft, fields: fields);
+
+  final mfg = fields['mfg'];
+  final expiry = fields['expiry'];
+  if (mfg != null &&
+      expiry != null &&
+      !mfg.isEmpty &&
+      !expiry.isEmpty &&
+      _invalidStructuredChronology(mfg.value, expiry.value)) {
+    structuredConflict = true;
+    for (final key in const <String>['mfg', 'expiry']) {
+      final field = fields[key]!;
+      fields[key] = ExtractedMedicineField(
+        value: field.value,
+        confidence: min(field.confidence, .82),
+        support: field.support,
+        conflicted: true,
+      );
+    }
+  }
+
+  return _copyDraft(
+    draft,
+    fields: fields,
+    overallConfidence: structuredConflict
+        ? min(draft.overallConfidence, .77)
+        : draft.overallConfidence,
+  );
+}
+
+bool _structuredFieldCompatible(String field, String observed, String structured) {
+  if (field == 'mfg' || field == 'expiry') {
+    final pattern = RegExp(r'^(\d{4})-(\d{2})(?:-(\d{2}))?$');
+    final left = pattern.firstMatch(observed.trim());
+    final right = pattern.firstMatch(structured.trim());
+    if (left != null &&
+        right != null &&
+        left.group(1) == right.group(1) &&
+        left.group(2) == right.group(2)) {
+      final leftDay = left.group(3);
+      final rightDay = right.group(3);
+      if (leftDay == null || rightDay == null || leftDay == rightDay) {
+        return true;
+      }
+    }
+  }
+  return _fieldIdentity(field, observed) == _fieldIdentity(field, structured);
+}
+
+bool _invalidStructuredChronology(String mfg, String expiry) {
+  final pattern = RegExp(r'^(\d{4})-(\d{2})(?:-(\d{2}))?$');
+  final left = pattern.firstMatch(mfg.trim());
+  final right = pattern.firstMatch(expiry.trim());
+  if (left == null || right == null) return false;
+  final leftMonth = int.parse(left.group(1)!) * 12 + int.parse(left.group(2)!);
+  final rightMonth = int.parse(right.group(1)!) * 12 + int.parse(right.group(2)!);
+  if (leftMonth != rightMonth) return leftMonth > rightMonth;
+  final leftDay = int.tryParse(left.group(3) ?? '');
+  final rightDay = int.tryParse(right.group(3) ?? '');
+  return leftDay != null && rightDay != null && leftDay > rightDay;
 }
 
 String _gs1Date(String value) {
