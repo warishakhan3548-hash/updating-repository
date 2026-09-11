@@ -1,0 +1,58 @@
+name: Unified V3 E2E hardening
+on:
+  push:
+    branches: [unified-medicine-evidence-v3]
+    paths:
+      - .github/workflows/unified-v3-e2e-hardening.yml
+permissions:
+  contents: write
+concurrency:
+  group: unified-v3-e2e-hardening
+  cancel-in-progress: false
+jobs:
+  harden:
+    if: github.event.head_commit.message == 'Run unified V3 E2E hardening'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply E2E source hardening
+        run: python3 tool/one_shot_e2e_flow_hardening.py
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Format and static-check hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart format \
+            lib/domain/gs1_healthcare.dart \
+            lib/domain/medicine_evidence_focus.dart \
+            lib/domain/medicine_resolution_v2.dart \
+            lib/domain/search.dart \
+            lib/services/canonical_medicine_catalog_service.dart \
+            lib/services/medicine_intake_service.dart \
+            lib/services/scan_service.dart \
+            lib/ui/scanner_screen.dart
+          flutter pub get
+          dart analyze lib test tool third_party/lib_llama_cpp/lib
+      - name: Commit source hardening and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -- pubspec.lock 2>/dev/null || true
+          rm -f .github/workflows/unified-v3-e2e-hardening.yml
+          git config user.name 'Aaris CI Surgeon'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No source hardening diff produced'; exit 1; }
+          git commit -m 'Harden E2E scan and Local AI connectivity [skip ci]'
+          git push origin HEAD:unified-medicine-evidence-v3
