@@ -47,8 +47,7 @@ class CanonicalMedicineProduct {
 
   bool get active => status == 'active';
 
-  String get displayName =>
-      name.trim().isNotEmpty ? name.trim() : brand.trim();
+  String get displayName => name.trim().isNotEmpty ? name.trim() : brand.trim();
 
   String get fingerprint => <String>[
     searchText(displayName),
@@ -254,26 +253,27 @@ class MedicineProductResolverV2 {
     final candidates = _index.candidates(draft, frames);
     if (candidates.isEmpty) return draft;
 
-    final hypotheses = candidates
-        .map((product) => _scoreProduct(product, draft, frames))
-        // A strong candidate carrying a hard contradiction must stay visible
-        // even when the contradiction penalty drops its aggregate score below
-        // the ordinary retrieval threshold. Otherwise a dangerous mismatch can
-        // disappear and leave a deceptively clean field-by-field draft.
-        .where(
-          (value) =>
-              value.score >= .42 ||
-              (value.hardConflicts > 0 &&
-                  (value.exactBarcode || value.strongIdentity)),
-        )
-        .toList(growable: false)
-      ..sort((a, b) {
-        final score = b.score.compareTo(a.score);
-        if (score != 0) return score;
-        final channels = b.channels.compareTo(a.channels);
-        if (channels != 0) return channels;
-        return a.product.productId.compareTo(b.product.productId);
-      });
+    final hypotheses =
+        candidates
+            .map((product) => _scoreProduct(product, draft, frames))
+            // A strong candidate carrying a hard contradiction must stay visible
+            // even when the contradiction penalty drops its aggregate score below
+            // the ordinary retrieval threshold. Otherwise a dangerous mismatch can
+            // disappear and leave a deceptively clean field-by-field draft.
+            .where(
+              (value) =>
+                  value.score >= .42 ||
+                  (value.hardConflicts > 0 &&
+                      (value.exactBarcode || value.strongIdentity)),
+            )
+            .toList(growable: false)
+          ..sort((a, b) {
+            final score = b.score.compareTo(a.score);
+            if (score != 0) return score;
+            final channels = b.channels.compareTo(a.channels);
+            if (channels != 0) return channels;
+            return a.product.productId.compareTo(b.product.productId);
+          });
     if (hypotheses.isEmpty) return draft;
 
     final winner = hypotheses.first;
@@ -295,22 +295,30 @@ class MedicineProductResolverV2 {
     }
 
     final exactBarcodeLock =
-        winner.exactBarcode && winner.product.verified && winner.hardConflicts == 0;
+        winner.exactBarcode &&
+        winner.product.verified &&
+        winner.hardConflicts == 0;
+    final evidenceQuality = _resolverDecisionEvidenceQuality(winner, draft);
+    final requiredScore = _resolverRequiredLockScore(winner, evidenceQuality);
+    final requiredMargin = _resolverRequiredLockMargin(winner, evidenceQuality);
     final calibratedLock =
         winner.product.verified &&
-        winner.score >= .86 &&
+        winner.score >= requiredScore &&
         winner.channels >= 2 &&
-        margin >= .10 &&
+        margin >= requiredMargin &&
         winner.hardConflicts == 0;
 
     if (exactBarcodeLock || calibratedLock) {
       return _inheritCanonicalIdentity(draft, winner);
     }
 
+    // Low-quality evidence requires a wider separation before automation. High
+    // quality evidence stays compatible with the historical .10 ambiguity gate.
+    final ambiguityMargin = max(.10, requiredMargin);
     if (runnerUp != null &&
         winner.score >= .72 &&
         runnerUp.score >= .68 &&
-        margin < .10) {
+        margin < ambiguityMargin) {
       return _markProductAmbiguity(draft, winner.product, runnerUp.product);
     }
     return draft;
@@ -374,33 +382,67 @@ String _stableFingerprint(String value) {
   return hash.toRadixString(16).padLeft(8, '0');
 }
 
+// Rarity-aware multi-stage candidate cascade. The resolver deliberately uses
+// bounded deterministic indexes instead of an LLM: exact identifiers first,
+// then rare lexical evidence, edit-neighbour recovery, prefix anchors and
+// trigrams. Expensive weighted edit scoring still runs only on the tiny final
+// candidate set below.
 class _ProductIndex {
   _ProductIndex(Iterable<CanonicalMedicineProduct> source) {
     for (final product in source) {
       if (!product.active || product.displayName.isEmpty) continue;
-      final index = products.length;
+      final productIndex = products.length;
       products.add(product);
       for (final rawBarcode in product.barcodes.take(12)) {
         final key = _canonicalBarcode(rawBarcode);
         if (key.isEmpty) continue;
-        barcodes.putIfAbsent(key, () => <int>{}).add(index);
+        barcodes.putIfAbsent(key, () => <int>{}).add(productIndex);
       }
-      final terms = _productTerms(product);
+
+      final terms = _productTerms(product).take(192).toSet();
       for (final term in terms) {
-        exact.putIfAbsent(term, () => <int>{}).add(index);
+        exact.putIfAbsent(term, () => <int>{}).add(productIndex);
+        _termDocumentFrequency.update(
+          term,
+          (value) => value + 1,
+          ifAbsent: () => 1,
+        );
         if (term.length >= 4 && term.length <= 28) {
           for (final deletion in _deleteKeys(term)) {
-            deletes.putIfAbsent(deletion, () => <int>{}).add(index);
+            deletes.putIfAbsent(deletion, () => <int>{}).add(productIndex);
+          }
+        }
+        if (term.length >= 6) {
+          final prefix = _resolverPrefix(term);
+          if (prefix.isNotEmpty) {
+            prefixes.putIfAbsent(prefix, () => <int>{}).add(productIndex);
+          }
+          for (final gram in _resolverTrigrams(term).take(28)) {
+            trigrams.putIfAbsent(gram, () => <int>{}).add(productIndex);
           }
         }
       }
     }
   }
 
+  static const int _maxRetrievedProducts = maxCanonicalMedicineCandidates;
   final List<CanonicalMedicineProduct> products = <CanonicalMedicineProduct>[];
   final Map<String, Set<int>> barcodes = <String, Set<int>>{};
   final Map<String, Set<int>> exact = <String, Set<int>>{};
   final Map<String, Set<int>> deletes = <String, Set<int>>{};
+  final Map<String, Set<int>> prefixes = <String, Set<int>>{};
+  final Map<String, Set<int>> trigrams = <String, Set<int>>{};
+  final Map<String, int> _termDocumentFrequency = <String, int>{};
+
+  double _rarityBoost(String term) {
+    final total = max(1, products.length);
+    final frequency = _termDocumentFrequency[term] ?? 1;
+    // BM25/IDF-inspired bounded rarity prior: rare medicine identity terms may
+    // outrank ubiquitous words, but can never acquire barcode-like authority.
+    return (1.0 + log((total + 1) / (frequency + 1)))
+        .clamp(1.0, 3.6)
+        .toDouble();
+  }
 
   List<CanonicalMedicineProduct> candidates(
     MedicineScanDraft draft,
@@ -408,10 +450,24 @@ class _ProductIndex {
   ) {
     if (products.isEmpty) return const <CanonicalMedicineProduct>[];
     final votes = <int, double>{};
-    void vote(Iterable<int>? indexes, double weight) {
-      if (indexes == null) return;
-      for (final index in indexes.take(256)) {
+    final lexicalChannels = <int, int>{};
+
+    void vote(
+      Iterable<int>? indexes,
+      double weight, {
+      bool lexicalChannel = false,
+      int hardLimit = 256,
+    }) {
+      if (indexes == null || weight <= 0) return;
+      for (final index in indexes.take(hardLimit)) {
         votes.update(index, (value) => value + weight, ifAbsent: () => weight);
+        if (lexicalChannel) {
+          lexicalChannels.update(
+            index,
+            (value) => value + 1,
+            ifAbsent: () => 1,
+          );
+        }
       }
     }
 
@@ -421,27 +477,85 @@ class _ProductIndex {
         for (final barcode in frame.allBarcodes) _canonicalBarcode(barcode),
     }..remove('');
     for (final barcode in barcodeKeys) {
-      vote(barcodes[barcode], 20);
+      vote(barcodes[barcode], 48);
     }
 
-    final queryTerms = _queryTerms(draft, frames);
-    for (final term in queryTerms.take(32)) {
-      vote(exact[term], 4);
-      final folded = _ocrFoldToken(term);
-      if (folded != term) vote(exact[folded], 3.7);
-      for (final deletion in _deleteKeys(folded).take(24)) {
-        vote(deletes[deletion], 1.2);
+    final queryTerms = _queryTerms(
+      draft,
+      frames,
+    ).take(72).toList(growable: false);
+    for (final rawTerm in queryTerms) {
+      if (rawTerm.length < 3) continue;
+      final folded = _ocrFoldToken(rawTerm);
+      final variants = <String>{rawTerm, folded};
+
+      for (final term in variants) {
+        final rarity = _rarityBoost(term);
+        vote(exact[term], 4.5 * rarity, lexicalChannel: true);
+
+        if (term.length >= 4 && term.length <= 28) {
+          for (final deletion in _deleteKeys(term).take(24)) {
+            vote(
+              deletes[deletion],
+              1.05 * rarity,
+              lexicalChannel: true,
+              hardLimit: 160,
+            );
+          }
+        }
+
+        if (term.length >= 6) {
+          final prefix = _resolverPrefix(term);
+          final prefixPosting = prefixes[prefix];
+          if (prefixPosting != null && prefixPosting.length <= 96) {
+            vote(
+              prefixPosting,
+              .72 * rarity,
+              lexicalChannel: true,
+              hardLimit: 96,
+            );
+          }
+
+          // A rare-trigram cascade recovers two-character OCR damage without a
+          // quadratic scan or a huge two-deletion dictionary. Inspect the rarest
+          // postings first, mirroring search-engine candidate pruning.
+          final postings =
+              _resolverTrigrams(term)
+                  .map((gram) => (gram: gram, ids: trigrams[gram]))
+                  .where((item) => item.ids != null && item.ids!.isNotEmpty)
+                  .toList(growable: false)
+                ..sort((a, b) {
+                  final bySize = a.ids!.length.compareTo(b.ids!.length);
+                  return bySize != 0 ? bySize : a.gram.compareTo(b.gram);
+                });
+          for (final posting in postings.take(8)) {
+            final selectivity = (1.0 / sqrt(max(1, posting.ids!.length))).clamp(
+              .08,
+              .55,
+            );
+            vote(
+              posting.ids,
+              (.45 + selectivity) * rarity,
+              lexicalChannel: true,
+              hardLimit: 128,
+            );
+          }
+        }
       }
     }
 
     if (votes.isEmpty) return const <CanonicalMedicineProduct>[];
     final ranked = votes.entries.toList(growable: false)
       ..sort((a, b) {
-        final score = b.value.compareTo(a.value);
+        // A candidate supported by independent lexical clues gets a small,
+        // bounded corroboration lift. Repeated noisy grams cannot dominate.
+        final aScore = a.value + min(2.4, (lexicalChannels[a.key] ?? 0) * .12);
+        final bScore = b.value + min(2.4, (lexicalChannels[b.key] ?? 0) * .12);
+        final score = bScore.compareTo(aScore);
         return score != 0 ? score : a.key.compareTo(b.key);
       });
     return ranked
-        .take(maxCanonicalMedicineCandidates)
+        .take(_maxRetrievedProducts)
         .map((entry) => products[entry.key])
         .toList(growable: false);
   }
@@ -449,16 +563,36 @@ class _ProductIndex {
 
 Set<String> _productTerms(CanonicalMedicineProduct product) {
   final result = <String>{};
+
   void add(String value) {
     final normalized = searchText(value);
     if (normalized.isEmpty) return;
-    final tokens = normalized.split(' ').where((value) => value.length >= 3);
-    for (final token in tokens.take(24)) {
+    final tokens = normalized
+        .split(' ')
+        .where((value) => value.length >= 2 && !_resolverNoise.contains(value))
+        .take(24)
+        .toList(growable: false);
+    for (final token in tokens) {
+      if (token.length < 3) continue;
       result.add(token);
       result.add(_ocrFoldToken(token));
     }
+    // Phrase shingles preserve product identity such as "montek lc" while
+    // avoiding full-document fuzzy comparison.
+    for (var width = 2; width <= min(3, tokens.length); width++) {
+      for (var start = 0; start + width <= tokens.length; start++) {
+        final phrase = tokens.sublist(start, start + width).join('');
+        if (phrase.length >= 4 && phrase.length <= 28) {
+          result.add(phrase);
+          result.add(_ocrFoldToken(phrase));
+        }
+      }
+    }
     final compact = normalized.replaceAll(' ', '');
-    if (compact.length >= 4 && compact.length <= 28) result.add(compact);
+    if (compact.length >= 4 && compact.length <= 28) {
+      result.add(compact);
+      result.add(_ocrFoldToken(compact));
+    }
   }
 
   add(product.displayName);
@@ -475,16 +609,41 @@ Set<String> _queryTerms(
   List<MedicineFrameEvidence> frames,
 ) {
   final result = <String>{};
-  void add(String raw) {
+
+  void add(String raw, {bool phrases = true}) {
     final normalized = searchText(raw);
     if (normalized.isEmpty) return;
-    final tokens = normalized.split(' ').where((value) => value.isNotEmpty).toList();
+    final tokens = normalized
+        .split(' ')
+        .where((value) => value.isNotEmpty)
+        .take(24)
+        .toList(growable: false);
     for (final token in tokens) {
       if (token.length >= 3 && !_resolverNoise.contains(token)) {
         result.add(token);
         result.add(_ocrFoldToken(token));
       }
     }
+    if (phrases) {
+      final useful = tokens
+          .where(
+            (value) => value.length >= 2 && !_resolverNoise.contains(value),
+          )
+          .take(10)
+          .toList(growable: false);
+      for (var width = 2; width <= min(3, useful.length); width++) {
+        for (var start = 0; start + width <= useful.length; start++) {
+          final phrase = useful.sublist(start, start + width).join('');
+          if (phrase.length >= 4 && phrase.length <= 28) {
+            result.add(phrase);
+            result.add(_ocrFoldToken(phrase));
+          }
+        }
+      }
+    }
+
+    // OCR occasionally spaces a brand as D O L O. Join only bounded runs of
+    // alphabetic single-character tokens; never fuse arbitrary document text.
     for (var start = 0; start < tokens.length;) {
       if (tokens[start].length != 1 ||
           !RegExp(r'^[a-z]$').hasMatch(tokens[start])) {
@@ -500,17 +659,45 @@ Set<String> _queryTerms(
         buffer.write(tokens[end]);
         end++;
       }
-      if (buffer.length >= 3) result.add(buffer.toString());
+      if (buffer.length >= 3) {
+        final joined = buffer.toString();
+        result.add(joined);
+        result.add(_ocrFoldToken(joined));
+      }
       start = max(start + 1, end);
     }
   }
 
+  // High-signal structured fields are inserted first because Set iteration
+  // order is stable and downstream retrieval is deliberately bounded.
   add(draft.name);
   add(draft.brand);
   add(draft.salt);
   add(draft.manufacturer);
-  for (final frame in frames) add(frame.text);
+  for (final frame in frames.take(12)) {
+    for (final line in frame.text.split(RegExp(r'[\r\n]+')).take(24)) {
+      add(line);
+      if (result.length >= 160) break;
+    }
+    if (result.length >= 160) break;
+  }
   return result;
+}
+
+String _resolverPrefix(String value) {
+  final compact = value.replaceAll(' ', '');
+  if (compact.length < 6) return '';
+  return compact.substring(0, min(5, compact.length));
+}
+
+Iterable<String> _resolverTrigrams(String value) sync* {
+  final compact = value.replaceAll(' ', '');
+  if (compact.length < 3) return;
+  final seen = <String>{};
+  for (var index = 0; index + 3 <= compact.length; index++) {
+    final gram = compact.substring(index, index + 3);
+    if (seen.add(gram)) yield gram;
+  }
 }
 
 Iterable<String> _deleteKeys(String value) sync* {
@@ -607,7 +794,8 @@ _ProductHypothesis _scoreProduct(
   final identityEvidence = <String>[
     draft.name,
     draft.brand,
-    for (final frame in frames) ...frame.text.split(RegExp(r'[\r\n]+')).take(16),
+    for (final frame in frames)
+      ...frame.text.split(RegExp(r'[\r\n]+')).take(16),
   ];
   final aliases = <String>{
     product.displayName,
@@ -619,7 +807,10 @@ _ProductHypothesis _scoreProduct(
   for (final evidence
       in identityEvidence.where((value) => value.trim().isNotEmpty).take(32)) {
     for (final alias in aliases.take(32)) {
-      bestIdentity = max(bestIdentity, _weightedTextSimilarity(evidence, alias));
+      bestIdentity = max(
+        bestIdentity,
+        _weightedTextSimilarity(evidence, alias),
+      );
     }
   }
   if (bestIdentity >= .52) {
@@ -643,7 +834,8 @@ _ProductHypothesis _scoreProduct(
   final observedStrength = draft.strength.trim();
   if (observedStrength.isNotEmpty && product.strength.trim().isNotEmpty) {
     final agrees =
-        _strengthIdentity(observedStrength) == _strengthIdentity(product.strength);
+        _strengthIdentity(observedStrength) ==
+        _strengthIdentity(product.strength);
     weighted += (agrees ? 1.0 : 0.0) * .18;
     totalWeight += .18;
     if (agrees) {
@@ -691,8 +883,53 @@ _ProductHypothesis _scoreProduct(
     channels: channels,
     hardConflicts: hardConflicts,
     exactBarcode: exactBarcode,
-    strongIdentity: bestIdentity >= .88,
+    strongIdentity: bestIdentity >= .82,
   );
+}
+
+double _resolverDecisionEvidenceQuality(
+  _ProductHypothesis hypothesis,
+  MedicineScanDraft draft,
+) {
+  final confidences = <double>[];
+  for (final key in const <String>[
+    'name',
+    'brand',
+    'salt',
+    'strength',
+    'form',
+  ]) {
+    final field = draft.field(key);
+    if (field.isEmpty || field.conflicted) continue;
+    confidences.add(field.confidence.clamp(0, 1).toDouble());
+  }
+  final fieldQuality = confidences.isEmpty
+      ? draft.overallConfidence.clamp(0, 1).toDouble()
+      : confidences.reduce((a, b) => a + b) / confidences.length;
+  final channelQuality = (hypothesis.channels / 4).clamp(0, 1).toDouble();
+  return (fieldQuality * .72 + channelQuality * .28).clamp(0, 1).toDouble();
+}
+
+double _resolverRequiredLockScore(
+  _ProductHypothesis hypothesis,
+  double evidenceQuality,
+) {
+  // Strong independent evidence can decide slightly earlier; weak evidence is
+  // deliberately stricter than the previous global .86 threshold.
+  final channelRelief = hypothesis.channels >= 3 ? .012 : 0.0;
+  return (.915 - evidenceQuality * .055 - channelRelief)
+      .clamp(.845, .915)
+      .toDouble();
+}
+
+double _resolverRequiredLockMargin(
+  _ProductHypothesis hypothesis,
+  double evidenceQuality,
+) {
+  final channelRelief = hypothesis.channels >= 3 ? .008 : 0.0;
+  return (.145 - evidenceQuality * .05 - channelRelief)
+      .clamp(.082, .145)
+      .toDouble();
 }
 
 bool _sameResolvedProductIdentity(
@@ -771,12 +1008,13 @@ MedicineScanDraft _inheritCanonicalIdentity(
   inherit('form', product.form);
   inherit('manufacturer', product.manufacturer);
 
-  final identityConfidence = <String>['name', 'brand', 'salt', 'strength', 'form']
-      .map((key) => fields[key])
-      .whereType<ExtractedMedicineField>()
-      .where((value) => !value.isEmpty)
-      .map((value) => value.confidence)
-      .toList(growable: false);
+  final identityConfidence =
+      <String>['name', 'brand', 'salt', 'strength', 'form']
+          .map((key) => fields[key])
+          .whereType<ExtractedMedicineField>()
+          .where((value) => !value.isEmpty)
+          .map((value) => value.confidence)
+          .toList(growable: false);
   final overall = identityConfidence.isEmpty
       ? draft.overallConfidence
       : identityConfidence.reduce(min).clamp(0, 1).toDouble();
@@ -908,7 +1146,9 @@ MedicineScanDraft _applyGs1Traceability(
       return;
     }
     final value = ordered.single;
-    final currentKey = current == null ? '' : _fieldIdentity(key, current.value);
+    final currentKey = current == null
+        ? ''
+        : _fieldIdentity(key, current.value);
     final structuredKey = _fieldIdentity(key, value);
     final conflict =
         current != null &&
@@ -970,10 +1210,9 @@ bool _isStrongProductBarcodeKey(String value) {
   return parsed != null && parsed.gtin == value;
 }
 
-String _strengthIdentity(String value) => searchText(value)
-    .replaceAll(' ', '')
-    .replaceAll('μ', 'µ')
-    .replaceAll('ug', 'mcg');
+String _strengthIdentity(String value) => searchText(
+  value,
+).replaceAll(' ', '').replaceAll('μ', 'µ').replaceAll('ug', 'mcg');
 
 double _weightedTextSimilarity(String rawObserved, String rawCanonical) {
   final canonical = _compactForOcr(rawCanonical);
