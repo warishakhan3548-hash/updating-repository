@@ -457,11 +457,21 @@ class MedicineSearch {
         Iterable<String>? ids,
         double weight, {
         bool independentChannel = false,
+        bool orderBeforeLimit = false,
         int hardLimit = 180,
       }) {
         if (ids == null || ids.isEmpty || weight <= 0) return;
-        for (final id in ids.take(hardLimit)) {
-          if (!allowedId(id)) continue;
+        Iterable<String> eligible;
+        if (orderBeforeLimit) {
+          final ordered = ids.where(allowedId).toList(growable: false)
+            ..sort((a, b) => order(docs[a]!.record, docs[b]!.record));
+          eligible = ordered.take(hardLimit);
+        } else {
+          // Filter before capping. A narrow status scope must never lose valid
+          // candidates merely because disallowed IDs were inserted first.
+          eligible = ids.where(allowedId).take(hardLimit);
+        }
+        for (final id in eligible) {
           votes.update(id, (value) => value + weight, ifAbsent: () => weight);
           if (independentChannel) {
             channels.update(id, (value) => value + 1, ifAbsent: () => 1);
@@ -471,7 +481,16 @@ class MedicineSearch {
 
       for (final token in tokens) {
         final rarity = _rarity(token);
-        vote(exact[token], 18 * rarity, independentChannel: true, hardLimit: 160);
+        // Exact postings can represent hundreds of physical batches for one
+        // medicine. Preserve FEFO/business ordering before the candidate cap so
+        // results are deterministic and independent of database insertion order.
+        vote(
+          exact[token],
+          18 * rarity,
+          independentChannel: true,
+          orderBeforeLimit: true,
+          hardLimit: 160,
+        );
 
         // A bounded deletion-neighbour channel recovers common OCR/typing edits
         // before expensive edit-distance ranking. This mirrors the product
