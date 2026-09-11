@@ -6,6 +6,7 @@ import 'medicine_understanding.dart';
 import 'search.dart';
 
 const int maxCanonicalMedicineCandidates = 96;
+const double _resolverMinimumDecisionMass = .50;
 
 /// Versioned identity-only product knowledge. Physical lot/stock facts are
 /// deliberately excluded: MFG/EXP/batch/quantity/cost/location must come from
@@ -270,6 +271,8 @@ class MedicineProductResolverV2 {
           ..sort((a, b) {
             final score = b.score.compareTo(a.score);
             if (score != 0) return score;
+            final mass = b.decisionMass.compareTo(a.decisionMass);
+            if (mass != 0) return mass;
             final channels = b.channels.compareTo(a.channels);
             if (channels != 0) return channels;
             return a.product.productId.compareTo(b.product.productId);
@@ -305,6 +308,7 @@ class MedicineProductResolverV2 {
         winner.product.verified &&
         winner.score >= requiredScore &&
         winner.channels >= 2 &&
+        winner.decisionMass >= _resolverMinimumDecisionMass &&
         margin >= requiredMargin &&
         winner.hardConflicts == 0;
 
@@ -730,11 +734,92 @@ String _ocrFoldToken(String token) {
       .replaceAll('8', 'b');
 }
 
+class _IdentityConsensus {
+  const _IdentityConsensus({
+    required this.score,
+    required this.bestRawScore,
+    required this.strongSources,
+  });
+
+  final double score;
+  final double bestRawScore;
+  final int strongSources;
+}
+
+_IdentityConsensus _scoreIdentityConsensus(
+  MedicineScanDraft draft,
+  List<MedicineFrameEvidence> frames,
+  Set<String> aliases,
+) {
+  double bestAgainstAliases(Iterable<String> evidence) {
+    var best = 0.0;
+    for (final observed in evidence.where((value) => value.trim().isNotEmpty)) {
+      for (final alias in aliases.take(32)) {
+        best = max(best, _weightedTextSimilarity(observed, alias));
+      }
+    }
+    return best;
+  }
+
+  final structuredRaw = bestAgainstAliases(<String>[draft.name, draft.brand]);
+  var bestRaw = structuredRaw;
+  var structuredScore = structuredRaw;
+  if (structuredScore > 0) {
+    final confidence = max(
+      draft.field('name').confidence,
+      draft.field('brand').confidence,
+    ).clamp(0, 1).toDouble();
+    structuredScore *= .90 + confidence * .10;
+  }
+
+  final frameScores = <double>[];
+  final seenFrameFingerprints = <String>{};
+  for (final frame in frames.take(12)) {
+    final lines = frame.text
+        .split(RegExp(r'[\r\n]+'))
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .take(16)
+        .toList(growable: false);
+    if (lines.isEmpty) continue;
+    final fingerprint = searchText(lines.join(' ')).replaceAll(' ', '');
+    if (fingerprint.isEmpty || !seenFrameFingerprints.add(fingerprint)) continue;
+    final raw = bestAgainstAliases(lines);
+    bestRaw = max(bestRaw, raw);
+    if (raw < .52) continue;
+    final quality = frame.quality.clamp(0, 1).toDouble();
+    frameScores.add(raw * (.90 + quality * .10));
+  }
+  frameScores.sort((a, b) => b.compareTo(a));
+
+  var score = structuredScore;
+  if (frameScores.isNotEmpty) score = max(score, frameScores.first);
+  final strongFrameScores = frameScores.where((value) => value >= .78).toList();
+  if (strongFrameScores.length >= 2) {
+    final second = strongFrameScores[1];
+    score += ((second - .78) / .22).clamp(0, 1).toDouble() * .025;
+  }
+  if (strongFrameScores.length >= 3) {
+    final third = strongFrameScores[2];
+    score += ((third - .78) / .22).clamp(0, 1).toDouble() * .010;
+  }
+
+  final structuredStrong = structuredScore >= .78 ? 1 : 0;
+  final strongSources = max(structuredStrong, strongFrameScores.length);
+  return _IdentityConsensus(
+    score: score.clamp(0, .999).toDouble(),
+    bestRawScore: bestRaw.clamp(0, 1).toDouble(),
+    strongSources: strongSources,
+  );
+}
+
 class _ProductHypothesis {
   const _ProductHypothesis({
     required this.product,
     required this.score,
     required this.channels,
+    required this.decisionMass,
+    required this.identitySources,
     required this.hardConflicts,
     required this.exactBarcode,
     required this.strongIdentity,
@@ -743,6 +828,8 @@ class _ProductHypothesis {
   final CanonicalMedicineProduct product;
   final double score;
   final int channels;
+  final double decisionMass;
+  final int identitySources;
   final int hardConflicts;
   final bool exactBarcode;
   final bool strongIdentity;
@@ -756,6 +843,7 @@ _ProductHypothesis _scoreProduct(
   var weighted = 0.0;
   var totalWeight = 0.0;
   var channels = 0;
+  var decisionMass = 0.0;
   var hardConflicts = 0;
 
   final observedBarcodes = <String>{
@@ -774,6 +862,7 @@ _ProductHypothesis _scoreProduct(
   if (exactBarcode) {
     weighted += .995 * .52;
     totalWeight += .52;
+    decisionMass += .52;
     channels++;
   } else {
     // Only verified retail/GTIN identifiers can veto a product. Packs may also
@@ -791,35 +880,27 @@ _ProductHypothesis _scoreProduct(
     }
   }
 
-  final identityEvidence = <String>[
-    draft.name,
-    draft.brand,
-    for (final frame in frames)
-      ...frame.text.split(RegExp(r'[\r\n]+')).take(16),
-  ];
   final aliases = <String>{
     product.displayName,
     product.brand,
     ...product.aliases,
     ...product.ocrAliases,
   }..removeWhere((value) => value.trim().isEmpty);
-  var bestIdentity = 0.0;
-  for (final evidence
-      in identityEvidence.where((value) => value.trim().isNotEmpty).take(32)) {
-    for (final alias in aliases.take(32)) {
-      bestIdentity = max(
-        bestIdentity,
-        _weightedTextSimilarity(evidence, alias),
-      );
-    }
-  }
+  final identity = _scoreIdentityConsensus(draft, frames, aliases);
+  final bestIdentity = identity.score;
   if (bestIdentity >= .52) {
     weighted += bestIdentity * .36;
     totalWeight += .36;
-    if (bestIdentity >= .78) channels++;
+    if (bestIdentity >= .78) {
+      channels++;
+      decisionMass += .36;
+      if (identity.strongSources >= 2) decisionMass += .02;
+    }
   }
   final nameField = draft.field('name');
-  if (!nameField.isEmpty && nameField.confidence >= .86 && bestIdentity < .56) {
+  if (!nameField.isEmpty &&
+      nameField.confidence >= .86 &&
+      identity.bestRawScore < .56) {
     hardConflicts++;
   }
 
@@ -827,7 +908,10 @@ _ProductHypothesis _scoreProduct(
   if (salt != null) {
     weighted += salt * .19;
     totalWeight += .19;
-    if (salt >= .88) channels++;
+    if (salt >= .88) {
+      channels++;
+      decisionMass += .19;
+    }
     if (draft.field('salt').confidence >= .86 && salt < .62) hardConflicts++;
   }
 
@@ -840,6 +924,7 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .18;
     if (agrees) {
       channels++;
+      decisionMass += .18;
     } else if (draft.field('strength').confidence >= .65) {
       // Strength disagreement is a safety signal, not an auto-fill signal.
       // Use a lower threshold than the normal .78 review boundary so a
@@ -866,7 +951,10 @@ _ProductHypothesis _scoreProduct(
   if (manufacturer != null) {
     weighted += manufacturer * .05;
     totalWeight += .05;
-    if (manufacturer >= .90) channels++;
+    if (manufacturer >= .90) {
+      channels++;
+      decisionMass += .05;
+    }
     if (draft.field('manufacturer').confidence >= .90 && manufacturer < .58) {
       hardConflicts++;
     }
@@ -881,6 +969,8 @@ _ProductHypothesis _scoreProduct(
     product: product,
     score: score.clamp(0, .999).toDouble(),
     channels: channels,
+    decisionMass: decisionMass.clamp(0, 1).toDouble(),
+    identitySources: identity.strongSources,
     hardConflicts: hardConflicts,
     exactBarcode: exactBarcode,
     strongIdentity: bestIdentity >= .82,
@@ -907,7 +997,14 @@ double _resolverDecisionEvidenceQuality(
       ? draft.overallConfidence.clamp(0, 1).toDouble()
       : confidences.reduce((a, b) => a + b) / confidences.length;
   final channelQuality = (hypothesis.channels / 4).clamp(0, 1).toDouble();
-  return (fieldQuality * .72 + channelQuality * .28).clamp(0, 1).toDouble();
+  final massQuality = (hypothesis.decisionMass / .72).clamp(0, 1).toDouble();
+  final sourceQuality = (hypothesis.identitySources / 3).clamp(0, 1).toDouble();
+  return (fieldQuality * .62 +
+          channelQuality * .20 +
+          massQuality * .14 +
+          sourceQuality * .04)
+      .clamp(0, 1)
+      .toDouble();
 }
 
 double _resolverRequiredLockScore(
