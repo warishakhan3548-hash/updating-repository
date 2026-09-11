@@ -17,7 +17,7 @@ class LocalScanHandoff {
     required this.sourceTruncated,
   });
 
-  static const schemaVersion = 10;
+  static const schemaVersion = 11;
 
   final String systemPrompt;
   final String userPayload;
@@ -28,7 +28,9 @@ class LocalScanHandoff {
 
 OUTPUT: {"fields":{...},"ingredients":[...]}. Allowed fields are name, brand, salt, strength, form, manufacturer, mfg, expiry, batchNumber. Omit unknown or conflicting fields. Each non-empty field must be {"value":"...","quote":"..."}, where quote is one short contiguous excerpt actually present in SOURCE after whitespace normalization. Deterministic candidates are locators only, never evidence.
 
-PRIORITY: fill Brand, Salt, Strength and Form whenever SOURCE explicitly supports them. Treat these as independent decisions. Brand is the printed trade/product identity, not a generic salt or manufacturer. If one clear trade-name heading is the product name, the same printed text may be returned as both name and brand. Never infer a salt or strength from a familiar brand.
+PRIORITY: fill Brand, Salt, Strength and Form whenever SOURCE explicitly supports them. Treat these as independent decisions. Brand is the printed trade/product identity, not a generic salt or manufacturer. If one clear trade-name heading is the product name, the same printed text may be returned as both name and brand. Never infer a salt or strength from a familiar brand. If all four priority facts are explicitly printed, return all four even when deterministic candidates were missing or weak.
+
+BRAND VARIANTS: a number printed inside a trade name or variant heading (for example DOLO 650, CEFIX-O 200, BRAND-X 625) remains part of Brand. That number is NOT Strength merely because it looks like a dose. Strength needs independent composition/dose evidence that explicitly binds an amount and unit to the active ingredient. A brand-heading quote alone can support Brand but can never support Strength.
 
 COMPOSITION: prefer explicit COMPOSITION / ACTIVE INGREDIENT / EACH TABLET / EACH CAPSULE / EACH 5 ML CONTAINS evidence. IP/BP/USP/NF are standards, not ingredients. Excipients, colours, flavours, preservatives and q.s. are not active salts unless explicitly labelled active. A combination medicine requires printed composition evidence joining the actives; never merge nearby products or repeated multilingual OCR.
 
@@ -40,7 +42,7 @@ FORM: use only an explicitly printed pharmaceutical form that maps to Tablet, Ca
 
 IDENTITY SAFETY: repeated sides/translations are corroboration, not extra medicines. Do not copy manufacturer/marketer text into brand unless SOURCE presents it as the product brand. Do not silently repair OCR into a familiar medicine. If two supported identities conflict and SOURCE cannot resolve them, omit the uncertain field. Dates are suggestions only and must agree with printed deterministic evidence; never derive EXP from MFG, current date or medicine knowledge.
 
-FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form independently verify that (1) the quote is contiguous SOURCE text, (2) the value is contained in that evidence rather than recalled from knowledge, (3) it belongs to this product rather than a nearby pack/company/price/pack-size block, and (4) no stronger printed evidence contradicts it. For every ingredient, verify the selected dose is the nearest dose belonging to that exact printed ingredient inside its quote. Include every explicitly supported priority fact; omit unresolved uncertainty. Never return stock actions, treatment advice or prescriptions.''';
+FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form independently verify that (1) the quote is contiguous SOURCE text, (2) the value is contained in that evidence rather than recalled from knowledge, (3) it belongs to this product rather than a nearby pack/company/price/pack-size block, and (4) no stronger printed evidence contradicts it. For every ingredient, verify the selected dose is the nearest dose belonging to that exact printed ingredient inside its quote. Re-check that no brand-variant number was promoted to Strength without an independent ingredient/dose quote. Include every explicitly supported priority fact; omit unresolved uncertainty. Never return stock actions, treatment advice or prescriptions.''';
 
   factory LocalScanHandoff.fromDraft(
     MedicineScanDraft draft, {
@@ -87,10 +89,12 @@ FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form indepe
           'exactSourceQuotePerField': true,
           'ingredientEvidenceForSaltStrength': true,
           'nearestIngredientDoseBinding': true,
+          'brandVariantNumberIsNotStrengthEvidence': true,
           'chemicalEquivalenceMustStayEvidenceBound': true,
           'literalPrintedFormTokenPreferred': true,
           'priorityFieldsIndependent': true,
           'focusWeakPriorityFieldsFirst': true,
+          'returnAllExplicitPriorityFields': true,
           'deterministicCandidatesAreEvidence': false,
           'medicineKnowledgeCompletionAllowed': false,
           'mergeDifferentProducts': false,
@@ -99,7 +103,7 @@ FINAL SELF-CHECK before emitting JSON: for Brand, Salt, Strength and Form indepe
           'confirmationBoundary': 'user_confirm_add',
         },
         'task':
-            'Extract the evidence-grounded medicine identity for the preview. If priorityFieldsNeedingEvidence is present, resolve those fields first from exact printed SOURCE evidence while still preserving every other explicitly supported Brand, Salt, Strength and Form fact. This focus signal is not evidence and never permits guessing. Bind each strength only to its nearest explicitly printed ingredient evidence, including equivalent-to composition lines. Use deterministic candidates only to find relevant SOURCE regions. Return only the required JSON object so Confirm/Add needs no retyping when the pack clearly provides the identity.',
+            'Extract the evidence-grounded medicine identity for the preview. If priorityFieldsNeedingEvidence is present, resolve those fields first from exact printed SOURCE evidence while still preserving every other explicitly supported Brand, Salt, Strength and Form fact. This focus signal is not evidence and never permits guessing. Never promote a number that appears only in the brand/variant heading into Strength. Bind each strength only to its nearest explicitly printed ingredient evidence, including equivalent-to composition lines. Use deterministic candidates only to find relevant SOURCE regions. Return only the required JSON object so Confirm/Add needs no retyping when the pack clearly provides the identity.',
       }),
       sourceCharacters: source.length,
       sourceTruncated: truncated,

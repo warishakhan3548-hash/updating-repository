@@ -172,12 +172,20 @@ bool scanQuickIdentityReady(MedicineScanDraft draft) =>
 
 /// Lot/date integrity belongs at the domain boundary, not only in a button.
 /// Every caller of medicineFromConfirmedScan() must therefore inherit the same
-/// conflict, parse and chronology checks as the visible quick-add decision.
+/// conflict, confidence, parse and chronology checks as the visible quick-add
+/// decision. Optional lot facts may be omitted, but if shown in a one-tap
+/// preview they must be strong enough to persist without silently saving a weak
+/// OCR guess.
 String _scanLotIssue(MedicineScanDraft draft) {
   for (final key in const ['mfg', 'expiry', 'batchNumber']) {
     final field = draft.field(key);
-    if (field.value.trim().isNotEmpty && field.conflicted) {
+    if (field.value.trim().isEmpty) continue;
+    if (field.conflicted) {
       return 'Lot/date evidence conflicts and needs manual review first.';
+    }
+    final minimumConfidence = key == 'batchNumber' ? .82 : .78;
+    if (field.confidence < minimumConfidence) {
+      return 'A captured lot/date fact is not confident enough for one-tap add. Review the printed evidence first.';
     }
   }
 
