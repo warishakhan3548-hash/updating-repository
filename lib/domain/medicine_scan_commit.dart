@@ -30,15 +30,37 @@ class ScanQuickAddDecision {
 }
 
 /// Inventory requires a human-readable medicine name, but medicine packs often
-/// print only one product identity string. When OCR/Local AI has a supported
-/// Brand but no separate Name label, use that same reviewed Brand as the stored
-/// display name. This removes pointless manual typing without inventing a fact:
-/// the Brand remains visible in the preview and the user still confirms the
-/// exact draft before any write.
+/// print only one product identity string. Prefer a separately extracted name
+/// only when it crossed the same review-confidence boundary as other identity
+/// facts. Otherwise a trusted Brand is the safest visible name; this avoids a
+/// weak OCR heading silently overriding a stronger, reviewed trade identity.
 String confirmedScanName(MedicineScanDraft draft) {
-  final name = draft.name.trim();
-  if (name.isNotEmpty) return name;
+  final nameField = draft.field('name');
+  final name = nameField.value.trim();
+  if (name.isNotEmpty &&
+      !nameField.conflicted &&
+      nameField.confidence >= .78) {
+    return name;
+  }
   return draft.brand.trim();
+}
+
+String _trustedIdentityFieldIssue(
+  MedicineScanDraft draft,
+  String key,
+  String label,
+) {
+  final field = draft.field(key);
+  if (field.value.trim().isEmpty) {
+    return '$label still needs review before one-tap add.';
+  }
+  if (field.conflicted) {
+    return '$label evidence conflicts and needs review before one-tap add.';
+  }
+  if (field.confidence < .78) {
+    return '$label confidence is too low for one-tap add. Review the captured evidence first.';
+  }
+  return '';
 }
 
 /// One authoritative identity gate for every fast scan-to-stock entry point.
@@ -46,25 +68,28 @@ String confirmedScanName(MedicineScanDraft draft) {
 /// The UI may render richer warnings, but it must never be the only place that
 /// enforces the four pharmacy identity facts promised by the scan journey. This
 /// keeps future buttons/background entry points from accidentally allowing a
-/// partial AI draft simply because a display name happened to be present.
+/// partial, low-confidence or conflicted AI/OCR draft simply because text was
+/// present in a field.
 String scanQuickIdentityIssue(MedicineScanDraft draft) {
+  for (final requirement in const <(String, String)>[
+    ('brand', 'Brand'),
+    ('salt', 'Salt'),
+    ('strength', 'Strength'),
+    ('form', 'Dosage form'),
+  ]) {
+    final issue = _trustedIdentityFieldIssue(
+      draft,
+      requirement.$1,
+      requirement.$2,
+    );
+    if (issue.isNotEmpty) return issue;
+  }
+
   if (confirmedScanName(draft).isEmpty) {
     return 'Medicine name or brand still needs review before this scan can be added.';
   }
-  if (draft.brand.trim().isEmpty) {
-    return 'Brand still needs review before one-tap add.';
-  }
-  if (draft.salt.trim().isEmpty) {
-    return 'Salt still needs review before one-tap add.';
-  }
-  if (draft.strength.trim().isEmpty) {
-    return 'Strength still needs review before one-tap add.';
-  }
 
   final rawForm = draft.form.trim();
-  if (rawForm.isEmpty) {
-    return 'Dosage form still needs review before one-tap add.';
-  }
   final normalizedForm = normalizeForm(rawForm);
   if (normalizedForm.isEmpty ||
       (normalizedForm == 'Other' && normalize(rawForm) != 'other')) {
