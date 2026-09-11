@@ -103,26 +103,33 @@ String _explicitSourceForm(MedicineScanDraft draft) {
 
 /// Returns the form that is safe to persist after preview confirmation.
 ///
-/// A single explicit form token in raw OCR is deterministic evidence and can
-/// repair a lower-confidence parser normalization (notably Suspension vs Syrup).
-/// If raw text is ambiguous, only a strong, non-conflicted extracted field is
-/// accepted. This keeps no-AI fallback useful without letting route-changing
-/// form guesses pass the write boundary.
+/// A strong extracted form and an unambiguous source form are independent
+/// evidence channels. Neither is allowed to silently override the other: if
+/// both exist and disagree, one-tap add fails closed and detailed review owns
+/// the decision. When extraction is weak/missing, one explicit source form can
+/// still rescue the no-AI deterministic path without manual typing.
 String confirmedScanForm(MedicineScanDraft draft) {
   final field = draft.field('form');
   if (field.conflicted) return '';
 
   final sourceForm = _explicitSourceForm(draft);
-  if (sourceForm.isNotEmpty) return sourceForm;
-
   final rawForm = field.value.trim();
-  if (rawForm.isEmpty || field.confidence < .78) return '';
-  final normalized = normalizeForm(rawForm);
-  if (normalized.isEmpty ||
-      (normalized == 'Other' && normalize(rawForm) != 'other')) {
+  var extractedForm = '';
+  if (rawForm.isNotEmpty && field.confidence >= .78) {
+    final normalized = normalizeForm(rawForm);
+    if (normalized.isNotEmpty &&
+        (normalized != 'Other' || normalize(rawForm) == 'other')) {
+      extractedForm = normalized;
+    }
+  }
+
+  if (extractedForm.isNotEmpty &&
+      sourceForm.isNotEmpty &&
+      extractedForm != sourceForm) {
     return '';
   }
-  return normalized;
+  if (extractedForm.isNotEmpty) return extractedForm;
+  return sourceForm;
 }
 
 /// One authoritative identity gate for every fast scan-to-stock entry point.
@@ -163,6 +170,33 @@ String scanQuickIdentityIssue(MedicineScanDraft draft) {
 bool scanQuickIdentityReady(MedicineScanDraft draft) =>
     scanQuickIdentityIssue(draft).isEmpty;
 
+/// Lot/date integrity belongs at the domain boundary, not only in a button.
+/// Every caller of medicineFromConfirmedScan() must therefore inherit the same
+/// conflict, parse and chronology checks as the visible quick-add decision.
+String _scanLotIssue(MedicineScanDraft draft) {
+  for (final key in const ['mfg', 'expiry', 'batchNumber']) {
+    final field = draft.field(key);
+    if (field.value.trim().isNotEmpty && field.conflicted) {
+      return 'Lot/date evidence conflicts and needs manual review first.';
+    }
+  }
+
+  try {
+    final mfg = _scanDate(draft.mfg, monthOnly: draft.mfgMonthOnly);
+    final expiry = _scanDate(
+      draft.expiry,
+      monthOnly: draft.expiryMonthOnly,
+      expiry: true,
+    );
+    if (mfg != null && expiry != null && mfg.isAfter(expiry)) {
+      return 'Manufacturing date is after expiry; verify the printed dates first.';
+    }
+  } on FormatException {
+    return 'A captured date is not valid enough for one-tap add.';
+  }
+  return '';
+}
+
 ScanQuickAddDecision scanQuickAddDecision(
   MedicineScanDraft draft,
   IntakeResolution resolution,
@@ -186,31 +220,9 @@ ScanQuickAddDecision scanQuickAddDecision(
     );
   }
 
-  for (final key in const ['mfg', 'expiry', 'batchNumber']) {
-    final field = draft.field(key);
-    if (field.value.trim().isNotEmpty && field.conflicted) {
-      return const ScanQuickAddDecision.blocked(
-        'Lot/date evidence conflicts and needs manual review first.',
-      );
-    }
-  }
-
-  try {
-    final mfg = _scanDate(draft.mfg, monthOnly: draft.mfgMonthOnly);
-    final expiry = _scanDate(
-      draft.expiry,
-      monthOnly: draft.expiryMonthOnly,
-      expiry: true,
-    );
-    if (mfg != null && expiry != null && mfg.isAfter(expiry)) {
-      return const ScanQuickAddDecision.blocked(
-        'Manufacturing date is after expiry; verify the printed dates first.',
-      );
-    }
-  } on FormatException {
-    return const ScanQuickAddDecision.blocked(
-      'A captured date is not valid enough for one-tap add.',
-    );
+  final lotIssue = _scanLotIssue(draft);
+  if (lotIssue.isNotEmpty) {
+    return ScanQuickAddDecision.blocked(lotIssue);
   }
 
   return ScanQuickAddDecision.allowed(isNewBatch: isPossibleNewBatch);
@@ -237,6 +249,19 @@ DateTime? _scanDate(
   );
 }
 
+String _confirmedOptionalText(
+  MedicineScanDraft draft,
+  String key, {
+  double minimumConfidence = .78,
+}) {
+  final field = draft.field(key);
+  final value = field.value.trim();
+  if (value.isEmpty || field.conflicted || field.confidence < minimumConfidence) {
+    return '';
+  }
+  return value;
+}
+
 Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
   // Defense in depth: every present/future caller must cross the exact same
   // Brand + Salt + Strength + Form identity boundary as the visible one-tap UI.
@@ -245,6 +270,10 @@ Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
   final identityIssue = scanQuickIdentityIssue(draft);
   if (identityIssue.isNotEmpty) {
     throw FormatException(identityIssue);
+  }
+  final lotIssue = _scanLotIssue(draft);
+  if (lotIssue.isNotEmpty) {
+    throw FormatException(lotIssue);
   }
 
   final name = confirmedScanName(draft);
@@ -255,17 +284,14 @@ Medicine medicineFromConfirmedScan(MedicineScanDraft draft) {
     monthOnly: draft.expiryMonthOnly,
     expiry: true,
   );
-  if (mfg != null && expiry != null && mfg.isAfter(expiry)) {
-    throw const FormatException(
-      'Manufacturing date cannot be after the expiry date.',
-    );
-  }
 
   return Medicine(
     id: newId(),
     name: name,
     brand: draft.brand.trim(),
-    manufacturer: draft.manufacturer.trim(),
+    // Manufacturer is not part of the compact quick-add preview. Never persist
+    // a weak/conflicted hidden optional value merely because identity passed.
+    manufacturer: _confirmedOptionalText(draft, 'manufacturer'),
     salt: draft.salt.trim(),
     strength: draft.strength.trim(),
     form: form,
