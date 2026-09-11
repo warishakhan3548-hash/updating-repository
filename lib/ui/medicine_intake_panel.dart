@@ -77,18 +77,18 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
       '$label: ${value.trim().isEmpty ? 'Unknown' : value.trim()}';
 
   bool _hasCompleteQuickIdentity(MedicineScanDraft draft) {
-    // A medicine pack commonly prints one product identity string rather than
-    // separate "name" and "brand" labels. The domain commit gate uses the
-    // evidence-backed brand as display name when name is absent, so do not force
-    // the pharmacist to type the same printed brand twice just to unlock Add.
-    if (confirmedScanName(draft).isEmpty ||
-        [draft.brand, draft.salt, draft.strength, draft.form]
-            .any((value) => value.trim().isEmpty)) {
-      return false;
-    }
-    final normalizedForm = normalizeForm(draft.form);
-    return normalizedForm.isNotEmpty &&
-        (normalizedForm != 'Other' || normalize(draft.form) == 'other');
+    // Keep the quick-add affordance on the same authoritative identity projection
+    // that the commit boundary persists. Raw deterministic form candidates can be
+    // deliberately conservative or legacy-normalized; confirmedScanForm() first
+    // recovers an unambiguous pharmaceutical form directly from source OCR and
+    // otherwise requires a strong non-conflicted extracted form. The preview,
+    // button gate and saved Medicine therefore cannot disagree about Form.
+    final form = confirmedScanForm(draft);
+    return confirmedScanName(draft).isNotEmpty &&
+        draft.brand.trim().isNotEmpty &&
+        draft.salt.trim().isNotEmpty &&
+        draft.strength.trim().isNotEmpty &&
+        form.isNotEmpty;
   }
 
   ScanQuickAddDecision _quickAddDecision(MedicineScanDraft draft) {
@@ -110,13 +110,11 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
   bool _canConfirmAdd(MedicineScanDraft draft) =>
       _quickAddDecision(draft).allowed;
 
-  bool _identityNeedsReview(MedicineScanDraft draft) => [
-    'name',
-    'brand',
-    'salt',
-    'strength',
-    'form',
-  ].any((key) => draft.field(key).needsReview);
+  bool _identityNeedsReview(MedicineScanDraft draft) {
+    if (confirmedScanForm(draft).isEmpty) return true;
+    return ['name', 'brand', 'salt', 'strength']
+        .any((key) => draft.field(key).needsReview);
+  }
 
   Future<void> _confirmAndAdd(MedicineScanDraft draft) async {
     if (_savingQuickAdd) return;
@@ -278,7 +276,7 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                                   _fact('Brand', draft.brand),
                                   _fact('Salt', draft.salt),
                                   _fact('Strength', draft.strength),
-                                  _fact('Form', draft.form),
+                                  _fact('Form', confirmedScanForm(draft)),
                                   _fact('EXP', draft.expiry),
                                 ].join('\n'),
                                 style: const TextStyle(fontSize: 12, height: 1.35),
@@ -300,7 +298,7 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                                 const Padding(
                                   padding: EdgeInsets.only(top: 6),
                                   child: Text(
-                                    'AI-refined identity: compare these values with the pack before confirming.',
+                                    'Evidence-refined identity: compare these values with the pack before confirming.',
                                     style: TextStyle(
                                       color: amber,
                                       fontSize: 11,
