@@ -563,10 +563,10 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    // LocalAiRuntime owns a progress-aware stall watchdog. Do not impose a
-    // wall-clock deadline here: a healthy large model may legitimately run for
-    // several minutes while continuously streaming tokens/native state. A truly
-    // silent native transport is retired by the runtime and becomes recoverable.
+    // LocalAiRuntime owns both progress-aware stall detection and the bounded
+    // generation deadline. Do not stack another service-level timeout here:
+    // runtime retirement must remain the single authority that invalidates the
+    // native transport epoch/isolate and prevents late callbacks from leaking.
     return run();
   }
 
@@ -807,6 +807,37 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     _status = 'Model removed from this device; inventory unchanged';
   });
 
+  int _chatOutputBudget(String instruction) {
+    final planned = _executionPlan!.outputTokens;
+    final normalized = instruction
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[.!?।]+$'), '')
+        .trim();
+    const quickGreetings = <String>{
+      'hi',
+      'hii',
+      'hello',
+      'hey',
+      'hi bhai',
+      'hello bhai',
+      'good morning',
+      'good evening',
+      'namaste',
+      'नमस्ते',
+      'नमस्कार',
+      'हैलो',
+      'हेलो',
+      'हाय',
+      'हैलो भाई',
+      'हेलो भाई',
+      'हाय भाई',
+    };
+    // Only exact harmless greetings get the tiny budget. A request such as
+    // "hi add paracetamol" does not match and retains the full pharmacy budget.
+    return quickGreetings.contains(normalized) && planned > 160 ? 160 : planned;
+  }
+
   Future<String> ask(
     LocalInventoryContext context,
     String instruction, {
@@ -837,7 +868,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         final raw = await _runtime!.generate(
           context.instructions,
           input,
-          maxTokens: _executionPlan!.outputTokens,
+          maxTokens: _chatOutputBudget(instruction),
           onToken: onToken,
         );
         _checkRequest(generation);
