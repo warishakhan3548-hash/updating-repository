@@ -108,9 +108,9 @@ Map<String, dynamic> localChatObject(String input) {
     final looksStructured =
         text.contains('{') ||
         text.contains('}') ||
-        lower.contains('\"tool\"') ||
-        lower.contains('\"actions\"') ||
-        lower.contains('\"op\"');
+        lower.contains('"tool"') ||
+        lower.contains('"actions"') ||
+        lower.contains('"op"');
     if (text.isEmpty || text.length > 4000 || looksStructured) rethrow;
     return {'reply': _bounded(text, 2000), 'actions': <Object?>[]};
   }
@@ -364,8 +364,38 @@ FACTS: ${jsonEncode(summary)}''';
   }
 }
 
-/// A model may label evidence; it may not invent it or turn confidence into
-/// save authority. New/disagreeing semantic labels always remain review-needed.
+bool _canPromoteVerifiedScanField(
+  String key,
+  ExtractedMedicineField current,
+) {
+  if (!const {'brand', 'salt', 'strength', 'form'}.contains(key)) return false;
+  if (current.conflicted) return false;
+  return current.value.trim().isEmpty || current.confidence < .78;
+}
+
+double _verifiedScanOverallConfidence(
+  Map<String, ExtractedMedicineField> fields,
+  double fallback,
+) {
+  if (fields.values.any((field) => field.conflicted)) return .60;
+  const priority = ['brand', 'salt', 'strength', 'form'];
+  final selected = priority
+      .map((key) => fields[key])
+      .whereType<ExtractedMedicineField>()
+      .where((field) => field.value.trim().isNotEmpty)
+      .toList(growable: false);
+  if (selected.length != priority.length) return fallback;
+  final average =
+      selected.fold<double>(0, (sum, field) => sum + field.confidence) /
+      selected.length;
+  return average > fallback ? average.clamp(0, .99).toDouble() : fallback;
+}
+
+/// A model may label evidence; it may not invent it or turn model confidence
+/// into save authority. Priority identity fields can become preview-ready only
+/// after this validator proves exact bounded-source support and only when the
+/// deterministic parser had no strong competing fact. Strong disagreements stay
+/// conflicted and require manual review.
 MedicineScanDraft validateLocalScan(
   MedicineScanDraft draft,
   Map<String, dynamic> answer, {
@@ -462,11 +492,12 @@ MedicineScanDraft validateLocalScan(
         );
       }
     }
+    final promoted = _canPromoteVerifiedScanField(key, current);
     fields[key] = ExtractedMedicineField(
       value: value.trim(),
-      confidence: .60,
+      confidence: promoted ? .88 : .60,
       support: 1,
-      conflicted: true,
+      conflicted: !promoted,
     );
   }
   final ingredients = answer['ingredients'];
@@ -579,17 +610,17 @@ MedicineScanDraft validateLocalScan(
               'Ingredient pairs contradict the proposed salt/strength fields.',
             );
         }
+        final original = draft.field(entry.key);
         final unchanged = entry.key == 'strength'
-            ? _compactDose(draft.field(entry.key).value) ==
-                  _compactDose(entry.value)
-            : searchText(draft.field(entry.key).value) ==
-                  searchText(entry.value);
+            ? _compactDose(original.value) == _compactDose(entry.value)
+            : searchText(original.value) == searchText(entry.value);
         if (!unchanged) {
+          final promoted = _canPromoteVerifiedScanField(entry.key, original);
           fields[entry.key] = ExtractedMedicineField(
             value: entry.value,
-            confidence: .60,
+            confidence: promoted ? .88 : .60,
             support: 1,
-            conflicted: true,
+            conflicted: !promoted,
           );
         }
       }
@@ -604,9 +635,10 @@ MedicineScanDraft validateLocalScan(
     mfgMonthOnly: draft.mfgMonthOnly,
     printedPackSize: draft.printedPackSize,
     printedMrp: draft.printedMrp,
-    overallConfidence: fields.values.any((f) => f.conflicted)
-        ? .60
-        : draft.overallConfidence,
+    overallConfidence: _verifiedScanOverallConfidence(
+      fields,
+      draft.overallConfidence,
+    ),
   );
 }
 
