@@ -112,8 +112,7 @@ MedicineFrameEvidence focusMedicineFrameEvidence(MedicineFrameEvidence frame) {
     selected.addAll(ordered.where((line) => !_uiOrWebNoise(line.text)));
   } else {
     final verticalWindow = max(medianHeight * 6.5, verticalSpan * .24);
-    for (var index = 0; index < ordered.length; index++) {
-      final line = ordered[index];
+    for (final line in ordered) {
       if (_uiOrWebNoise(line.text)) continue;
       final ownScore = _anchorScore(line.text);
       final nearby = anchors.any(
@@ -123,18 +122,11 @@ MedicineFrameEvidence focusMedicineFrameEvidence(MedicineFrameEvidence frame) {
       );
       if (!nearby && ownScore < 3) continue;
 
-      if (_unsafeStandalonePackDose(line.text)) {
-        final previous = index == 0 ? null : ordered[index - 1];
-        final next = index + 1 >= ordered.length ? null : ordered[index + 1];
-        final ingredientBound = <MedicineTextLineEvidence?>[previous, next].any(
-          (neighbor) =>
-              neighbor != null &&
-              !_uiOrWebNoise(neighbor.text) &&
-              _verticalDistance(line, neighbor) <= medianHeight * 2.8 &&
-              _ingredientOrCompositionContext(neighbor.text),
-        );
-        if (!ingredientBound) continue;
-      }
+      // A total dry-powder/reconstitution amount such as 12 gm / 30 ml can sit
+      // directly above the medicine name. Geometry alone cannot turn that pack
+      // metric into therapeutic strength, so remove it from decision evidence.
+      // The exact line remains untouched in the raw OCR/search channel.
+      if (_unsafeStandalonePackDose(line.text)) continue;
       selected.add(line);
     }
   }
@@ -157,7 +149,10 @@ String _fallbackText(String raw) {
   final lines = raw
       .split(RegExp(r'[\r\n]+'))
       .map((line) => line.replaceAll(RegExp(r'\s+'), ' ').trim())
-      .where((line) => line.isNotEmpty && !_uiOrWebNoise(line))
+      .where((line) =>
+          line.isNotEmpty &&
+          !_uiOrWebNoise(line) &&
+          !_unsafeStandalonePackDose(line))
       .take(160);
   return _bounded(lines.join('\n'), 30000);
 }
@@ -208,6 +203,7 @@ int _anchorScore(String raw) {
   if (_dateOrBatchCue.hasMatch(text)) score += 2;
   if (_packLegalNoise.hasMatch(text)) score -= 2;
   if (_promotionalNoise.hasMatch(text)) score -= 5;
+  if (_unsafeStandalonePackDose(raw)) score -= 8;
   return score;
 }
 
@@ -223,8 +219,8 @@ bool _unsafeStandalonePackDose(String raw) {
   final text = searchText(raw);
   if (_compositionCue.hasMatch(text)) return false;
   // Total dry-powder/reconstitution amounts such as 12 gm / 30 ml are common
-  // pack facts. They must not become therapeutic strength without adjacent
-  // ingredient/composition evidence. A normal 125 mg/5 ml dose is not caught.
+  // pack facts. They must not become therapeutic strength without explicit
+  // same-line composition evidence. A normal 125 mg/5 ml dose is not caught.
   return RegExp(
     r'\b\d+(?:\.\d+)?\s*(?:gm|g)\s*/\s*\d+(?:\.\d+)?\s*ml\b',
     caseSensitive: false,
@@ -235,12 +231,16 @@ bool _uiOrWebNoise(String raw) {
   final compact = raw.trim();
   if (compact.isEmpty) return true;
   final text = searchText(compact);
-  if (RegExp(r'https?://|www\.|\bgoogle\.[a-z]{2,}\b|\b[a-z0-9.-]+\.(?:com|in|org|net)(?:/|\b)', caseSensitive: false)
-      .hasMatch(compact)) {
+  if (RegExp(
+    r'https?://|www\.|\bgoogle\.[a-z]{2,}\b|\b[a-z0-9.-]+\.(?:com|in|org|net)(?:/|\b)',
+    caseSensitive: false,
+  ).hasMatch(compact)) {
     return true;
   }
-  if (RegExp(r'^\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m?)?$', caseSensitive: false)
-      .hasMatch(compact)) {
+  if (RegExp(
+    r'^\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m?)?$',
+    caseSensitive: false,
+  ).hasMatch(compact)) {
     return true;
   }
   if (_uiChrome.hasMatch(text)) return true;
