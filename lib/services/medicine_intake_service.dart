@@ -118,6 +118,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     _jobs
       ..clear()
       ..addAll(restored);
+    await _cleanupOrphanedCaptureFiles(restored);
     if (!_observingMemory) {
       WidgetsBinding.instance.addObserver(this);
       _observingMemory = true;
@@ -130,6 +131,53 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
 
   String _capturePath(String id, String kind) =>
       '${_root!.path}/$id.${kind == 'video' ? 'mp4' : 'jpg'}';
+
+  Future<void> _cleanupOrphanedCaptureFiles(
+    Iterable<MedicineIntakeJob> restored,
+  ) async {
+    final root = _root;
+    if (root == null) return;
+    final retained = restored
+        .where((job) => job.path.isNotEmpty)
+        .map((job) => job.path)
+        .toSet();
+    final captureName = RegExp(r'^[a-f0-9]{32}\.(?:jpg|mp4)$');
+    try {
+      await for (final entity in root.list(followLinks: false)) {
+        if (entity is! File ||
+            retained.contains(entity.path) ||
+            !captureName.hasMatch(entity.uri.pathSegments.last)) {
+          continue;
+        }
+        try {
+          await entity.delete();
+        } on FileSystemException {
+          // A pre-checkpoint orphan is housekeeping only. Never make the
+          // authoritative queue unavailable because Android temporarily refused
+          // to delete an otherwise unreferenced private capture.
+        }
+      }
+    } on FileSystemException {
+      // Directory enumeration is best-effort for the same reason. Restored jobs
+      // have already had their exact private paths validated above.
+    }
+  }
+
+  Future<void> _releaseProcessedSource(MedicineIntakeJob job) async {
+    if (job.path.isEmpty) return;
+    if (job.path != _capturePath(job.id, job.kind)) {
+      throw StateError('Capture source path changed unexpectedly.');
+    }
+    final source = File(job.path);
+    try {
+      if (await source.exists()) await source.delete();
+      job.path = '';
+    } on FileSystemException {
+      // OCR/drafts are already durably checkpointed. Keep the validated path in
+      // the row so Retry/Dismiss or a later launch can attempt cleanup again;
+      // a housekeeping failure must never downgrade valid recognition to failed.
+    }
+  }
 
   Future<void> _persist(MedicineIntakeJob job, {bool insert = false}) async {
     final data = jsonEncode(job.toJson());
@@ -424,9 +472,8 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     // Persist OCR before deleting source, so a killed process can resume from
     // text. The private image is retained on recognition failure for retry.
     await _persist(job);
-    if (job.status != 'failed' && job.path.isNotEmpty) {
-      await File(job.path).delete();
-      job.path = '';
+    if (job.status != 'failed') {
+      await _releaseProcessedSource(job);
     }
   }
 
@@ -491,8 +538,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     // Cursor + completed drafts + unresolved carry commit together.
     await _persist(job);
     if (window.complete && job.status != 'failed') {
-      await File(job.path).delete();
-      job.path = '';
+      await _releaseProcessedSource(job);
     }
   }
 

@@ -29,18 +29,14 @@ class ScanQuickAddDecision {
       isNewBatch ? 'Confirm & add new batch' : 'Confirm & add';
 }
 
-enum ScanAutoSaveVerifier { localAi, cloudAi }
+enum ScanAutoSaveVerifier { localAi }
 
-String scanAutoSaveVerifierLabel(ScanAutoSaveVerifier verifier) =>
-    switch (verifier) {
-      ScanAutoSaveVerifier.localAi => 'Local AI',
-      ScanAutoSaveVerifier.cloudAi => 'Cloud AI',
-    };
+String scanAutoSaveVerifierLabel(ScanAutoSaveVerifier verifier) => 'Local AI';
 
 /// Stronger machine-commit gate for the direct camera automation path.
 ///
 /// AI is an evidence resolver, never an inventory writer. Automatic persistence
-/// requires this exact OCR draft to have crossed one source-verified AI route
+/// requires this exact OCR draft to have crossed the source-verified Local AI route
 /// plus all pre-existing deterministic quick-add invariants. Deterministic OCR
 /// still auto-fills the preview when no AI route exists, but cannot grant itself
 /// unattended inventory-write authority.

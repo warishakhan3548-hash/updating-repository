@@ -10,8 +10,8 @@
 → deterministic pharmacy entity extraction (`MedicineScanDraft`)
 → route policy
   - Local Brain ON + scan-ready model → `LocalAiService.understand`
-  - Local Brain OFF + valid configured API → `CloudScanAiService.refine`
-  - neither route → deterministic on-device extractor only
+  - Local Brain OFF/unavailable → deterministic on-device extractor only
+  - explicit **Scan with cloud AI** action → separate `CloudScanReviewScreen` → `CloudScanAiService.refine`
 → exact-source validation (`validateLocalScan`)
 → duplicate / lot resolution (`resolveIntakeDraft`)
 → machine-save gate (`scanAutoSaveDecision`)
@@ -23,9 +23,11 @@
 ## UI/state map
 
 Capture → OCR evidence → route resolution → structured fields populate the scan preview.
-A source-verified Local or Cloud AI result can proceed to automatic save only when
+A source-verified Local AI result can proceed to automatic save only when
 Brand + Salt + Strength + Form, overall confidence, batch/date integrity, duplicate
-resolution, and live inventory revision all pass. Any ambiguity stops at review.
+resolution, and live inventory revision all pass. The explicit cloud lane is
+review-only; cloud output never receives machine-save provenance. Any ambiguity
+stops at review.
 
 When no AI route is available, the existing deterministic pharmacy parser acts as
 the offline NER/entity extractor and auto-fills supported fields, but it does not
@@ -35,8 +37,8 @@ grant itself unattended inventory-write authority.
 
 1. Local Brain has priority when its owner switch is ON. A Local AI failure never
    silently leaks the scan to cloud.
-2. Cloud routing is considered only for the direct camera automation path when
-   Local Brain is OFF and a valid API configuration already exists.
+2. Cloud routing is never inferred from a saved API configuration. It is entered
+   only after the owner explicitly chooses **Scan with cloud AI** for that capture.
 3. Before cloud handoff, local Medicine Database identity memory is removed from
    the provider-bound deterministic draft. Only bounded OCR evidence and
    deterministic candidates derived from that scan are sent.
