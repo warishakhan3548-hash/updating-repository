@@ -249,12 +249,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     if (_appActive == active) return;
     _appActive = active;
 
-    // Identity-only derived knowledge can be rebuilt cheaply after resume and
-    // need not occupy memory while the app is backgrounded. Do not rewrite the
-    // user's explicit/manual pause state here.
+    // Durable queue state survives backgrounding. Resolution knowledge is now
+    // owned by the shared gateway and has no queue-local cache to retire here.
     if (!active) {
-      _knowledge = null;
-      _knowledgeRevision = null;
       notifyListeners();
       return;
     }
