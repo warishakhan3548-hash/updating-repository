@@ -111,19 +111,24 @@ class AiService {
 
   Future<void> forgetKey() => _storage.delete(key: 'pharmacy.ai.configuration');
 
-  void cancel() {
+  /// Cancels this AiService turn and reports whether that exact turn owned the
+  /// shared native Local AI lease. The caller can therefore distinguish native
+  /// teardown from merely abandoning a queue wait behind an unrelated scan.
+  bool cancel() {
     ++_cancelEpoch;
     final waiting = _localLeaseWaitCancel;
     if (waiting != null && !waiting.isCompleted) waiting.complete();
+    final ownedLocalLease = _localRequest && _ownsLocalLease;
     // LocalAiService is shared by foreground chat and scan extraction. Cancel
     // native inference only when this AiService turn actually owns the lease;
     // otherwise Stop would be able to kill an unrelated OCR preview that merely
     // happened to be using the same on-device model.
-    if (_localRequest && _ownsLocalLease) {
+    if (ownedLocalLease) {
       LocalAiService.instance.cancelRequest();
     }
     _client?.close();
     _client = null;
+    return ownedLocalLease;
   }
 
   /// Resolves the privacy-first inference route without sending any inventory.
@@ -146,11 +151,33 @@ class AiService {
   /// Send may validate/activate that exact model instead of surfacing a generic
   /// connection failure. This never chooses a different user model, never falls
   /// through to cloud, and never runs merely because the settings screen opened.
-  Future<bool> _prepareLocalRouteForSend(LocalAiService local) async {
-    if (await preparePreferredLocalRoute()) return true;
+  /// The activation lease is owned by this Send so Stop can retire an in-flight
+  /// native load instead of waiting for it to finish before observing cancellation.
+  Future<bool> _prepareLocalRouteForSend(
+    LocalAiService local,
+    int cancelEpoch,
+  ) async {
+    if (await preparePreferredLocalRoute()) {
+      _throwIfCancelled(cancelEpoch);
+      return true;
+    }
+    _throwIfCancelled(cancelEpoch);
     final id = local.activeId;
     if (id == null || local.busy || local.transferring) return false;
-    await local.activate(id);
+
+    _ownsLocalLease = false;
+    try {
+      await local.activate(
+        id,
+        onLeaseAcquired: () {
+          _ownsLocalLease = true;
+          if (cancelEpoch != _cancelEpoch) local.cancelRequest();
+        },
+      );
+    } finally {
+      _ownsLocalLease = false;
+    }
+    _throwIfCancelled(cancelEpoch);
     return local.ready;
   }
 
@@ -219,7 +246,10 @@ class AiService {
       _localRequest = true;
       try {
         _throwIfCancelled(cancelEpoch);
-        final hasLocalRoute = await _prepareLocalRouteForSend(local);
+        final hasLocalRoute = await _prepareLocalRouteForSend(
+          local,
+          cancelEpoch,
+        );
         _throwIfCancelled(cancelEpoch);
         if (!hasLocalRoute) {
           throw StateError(
