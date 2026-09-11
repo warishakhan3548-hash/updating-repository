@@ -66,7 +66,21 @@ Iterable<LlamaResponse> streamToolAwareMessageResponses({
 
     final text = contentFromParsedMessage(parsed);
     final delta = nextTextDelta(emittedText, text);
-    if (delta != null && delta.isNotEmpty) {
+    if (delta == null) {
+      // Partial chat-template parsers are allowed to withhold text while their
+      // envelope is incomplete, but they must never rewrite text that has
+      // already crossed the streaming boundary. Without this guard a parser
+      // correction at finalization silently leaves the UI with an earlier
+      // prefix while the native turn reports Done, which looks like a dropped
+      // or truncated response. Fail the turn explicitly so the higher-level
+      // clean-runtime recovery can retry it instead of accepting stale output.
+      yield const LlamaErrorResponse(
+        message:
+            'Local streaming parser changed text that was already emitted. The turn was retired safely and can be retried.',
+      );
+      return;
+    }
+    if (delta.isNotEmpty) {
       yield LlamaTokenResponse(text: delta, index: emittedText.length);
     }
     return;
