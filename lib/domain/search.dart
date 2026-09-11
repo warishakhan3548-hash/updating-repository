@@ -62,7 +62,7 @@ Set<String> _searchTrigrams(String word) {
 }
 
 Iterable<String> _searchDeleteKeys(String word) sync* {
-  if (word.length < 4 || word.length > 28) return;
+  if (word.length < 4 || word.length > 24) return;
   final seen = <String>{};
   for (var i = 0; i < word.length; i++) {
     final deleted = word.substring(0, i) + word.substring(i + 1);
@@ -275,8 +275,22 @@ class MedicineSearch {
           final prefix = term.substring(0, min(4, term.length));
           prefixIndex.putIfAbsent(prefix, () => {}).add(doc.record.id);
         }
+      }
+
+      // Delete-neighbour memory is intentionally tighter than the general fuzzy
+      // indexes. Identity-bearing terms are inserted before OCR/notes, so a small
+      // alphabetic slice captures names/brands/salts/manufacturers without
+      // multiplying RAM by long receipts, notes, dates, IDs or arbitrary OCR.
+      final deleteTerms = doc.terms
+          .where(
+            (term) =>
+                term.length >= 4 &&
+                term.length <= 24 &&
+                RegExp(r'[a-z]').hasMatch(term),
+          )
+          .take(_maxDeleteTermsPerDocument);
+      for (final term in deleteTerms) {
         for (final variant in <String>{term, _searchOcrFold(term)}) {
-          if (variant.length < 4 || variant.length > 28) continue;
           for (final deletion in _searchDeleteKeys(variant)) {
             deleteIndex.putIfAbsent(deletion, () => {}).add(doc.record.id);
           }
@@ -288,6 +302,7 @@ class MedicineSearch {
   static const maxArchivedResults = 150;
   static const _maxRetrievalCandidates = 240;
   static const _maxSecondaryTermsPerDocument = 112;
+  static const _maxDeleteTermsPerDocument = 18;
   final Map<String, SearchDocument> docs = {};
   final Map<String, Set<String>> index = {}, exact = {}, barcode = {};
   final Map<String, Set<String>> trigramIndex = {}, prefixIndex = {};
@@ -464,7 +479,7 @@ class MedicineSearch {
         // impossible: it only nominates candidates; rank() and strength conflict
         // gates remain authoritative.
         for (final variant in <String>{token, _searchOcrFold(token)}) {
-          if (variant.length < 4 || variant.length > 28) continue;
+          if (variant.length < 4 || variant.length > 24) continue;
           final deletionPostings = _searchDeleteKeys(variant)
               .map((key) => (key: key, ids: deleteIndex[key]))
               .where((item) => item.ids != null && item.ids!.isNotEmpty)
@@ -475,8 +490,9 @@ class MedicineSearch {
             });
           for (final posting in deletionPostings.take(6)) {
             if (posting.ids!.length > max(160, docs.length ~/ 2)) continue;
-            final selectivity =
-                (1 / sqrt(max(1, posting.ids!.length))).clamp(.08, .52).toDouble();
+            final selectivity = (1 / sqrt(max(1, posting.ids!.length)))
+                .clamp(.08, .52)
+                .toDouble();
             vote(
               posting.ids,
               (.78 + selectivity * 1.8) * rarity,
