@@ -491,7 +491,7 @@ void main() {
   );
   rejects(
     () => validateLocalScan(
-      source('${'x' * 7001}\nCefixime 200 mg'),
+      source('Header 5 mg\n${'x' * 7001}\nCefixime 200 mg'),
       pair('Cefixime', '200 mg', 'Cefixime 200 mg'),
     ),
     'Unseen evidence outside model excerpt',
@@ -532,7 +532,7 @@ void main() {
   );
   rejects(
     () => validateLocalScan(
-      source('${'x' * 2000}\nCefixime 200 mg'),
+      source('Header 5 mg\n${'x' * 2000}\nCefixime 200 mg'),
       pair('Cefixime', '200 mg', 'Cefixime 200 mg'),
       sourceLimit: 1800,
     ),
