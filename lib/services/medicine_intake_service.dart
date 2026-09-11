@@ -35,6 +35,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   Directory? _root;
   Future<void>? _initializing;
   Future<void> _intakeWrites = Future.value();
+  final _workBarrier = MedicineIntakeWorkBarrier();
   bool _running = false, _paused = false, _appActive = true;
   bool _ready = false, _preferReasoning = false, _observingMemory = false;
   String persistenceError = '';
@@ -345,25 +346,33 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
           preferReasoning: _preferReasoning,
         );
         if (job == null) break;
+        _workBarrier.begin(job.id);
         try {
-          if (job.status == 'reasoning') {
-            _preferReasoning = false;
-            await _reason(job);
-          } else {
-            _preferReasoning = true;
-            job.status = 'processing';
-            await _persist(job);
-            if (job.kind == 'video') {
-              await _videoStep(job);
+          try {
+            if (job.status == 'reasoning') {
+              _preferReasoning = false;
+              await _reason(job);
             } else {
-              await _photoStep(job);
+              _preferReasoning = true;
+              job.status = 'processing';
+              await _persist(job);
+              if (job.kind == 'video') {
+                await _videoStep(job);
+              } else {
+                await _photoStep(job);
+              }
             }
+            await _persist(job);
+          } catch (e) {
+            job.status = 'failed';
+            job.error = e.toString();
+            await _persist(job);
           }
-          await _persist(job);
-        } catch (e) {
-          job.status = 'failed';
-          job.error = e.toString();
-          await _persist(job);
+        } finally {
+          // Terminal state may have been checkpointed earlier by the OCR/video
+          // step. Release only after the worker's final row write/cleanup path is
+          // completely finished so Retry/Dismiss cannot delete beneath it.
+          _workBarrier.finish(job.id);
         }
       }
     } finally {
@@ -472,8 +481,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     job.cursorMs = window.nextStartMs;
     job.durationMs = window.durationMs;
     if (unreadable > 0) {
-      job.error =
-          'Some sampled frames were unreadable. Review completeness; video sampling cannot guarantee every pack.';
+      job.error = 'Some sampled frames were unreadable. Review completeness; video sampling cannot guarantee every pack.';
     }
     if (window.complete) {
       _ocrFinished(job);
@@ -572,8 +580,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     if (readiness != LocalBrainRouteReadiness.ready) {
-      job.error =
-          'Aaris Brain is off, not scan-ready, or the selected Local AI changed. Deterministic OCR draft retained for review.';
+      job.error = 'Aaris Brain is off, not scan-ready, or the selected Local AI changed. Deterministic OCR draft retained for review.';
       job.status = 'review';
       return;
     }
@@ -590,8 +597,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     if (routedModelId == null ||
         !local.scannerEnabled ||
         !local.isModelScanReady(routedModelId)) {
-      job.error =
-          'The active Local AI route disappeared before scan reasoning started. Deterministic OCR draft retained for review.';
+      job.error = 'The active Local AI route disappeared before scan reasoning started. Deterministic OCR draft retained for review.';
       job.status = 'review';
       return;
     }
@@ -606,8 +612,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
         original,
       );
       if (!await _routeStillOwnsResult(local, routedModelId)) {
-        job.error =
-            'Aaris Brain was turned off or its Local AI changed while this scan was being reviewed. The stale AI result was discarded; deterministic OCR was retained.';
+        job.error = 'Aaris Brain was turned off or its Local AI changed while this scan was being reviewed. The stale AI result was discarded; deterministic OCR was retained.';
         job.status = 'review';
         return;
       }
@@ -633,36 +638,60 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> retry(MedicineIntakeJob job) async {
-    if (!job.terminal) return;
-    if (job.kind == 'video' &&
-        job.path.isNotEmpty &&
-        job.cursorMs < job.durationMs) {
-      job.status = 'queued';
-    } else if (job.drafts.isNotEmpty) {
-      job.modelId = await LocalBrainRoutePolicy.captureModelId(
-        LocalAiService.instance,
-      );
-      job.aiIndex = 0;
-      job.status = job.modelId == null ? 'review' : 'reasoning';
-    } else {
-      job.status = 'queued';
-    }
-    job.error = '';
-    persistenceError = '';
-    await _persist(job);
+    // A durable terminal checkpoint can become visible before the worker has
+    // finished source cleanup/final persistence. Wait only for this exact job;
+    // unrelated captures continue to enqueue and process independently.
+    await _workBarrier.wait(job.id);
+    await _enqueue(() async {
+      if (!_jobs.contains(job) || !job.terminal) return;
+      if (job.kind == 'video' &&
+          job.path.isNotEmpty &&
+          job.cursorMs < job.durationMs) {
+        job.status = 'queued';
+      } else if (job.drafts.isNotEmpty) {
+        job.modelId = await LocalBrainRoutePolicy.captureModelId(
+          LocalAiService.instance,
+        );
+        job.aiIndex = 0;
+        job.status = job.modelId == null ? 'review' : 'reasoning';
+      } else {
+        job.status = 'queued';
+      }
+      job.error = '';
+      persistenceError = '';
+      await _persist(job);
+    });
     _kick();
   }
 
   Future<void> dismiss(MedicineIntakeJob job) async {
-    if (!job.terminal) {
-      throw StateError('Pause/finish processing before dismissing a capture.');
-    }
-    await _database!.delete('jobs', where: 'id=?', whereArgs: [job.id]);
-    _jobs.remove(job);
-    if (job.path.isNotEmpty && job.path == _capturePath(job.id, job.kind)) {
-      final file = File(job.path);
-      if (await file.exists()) await file.delete();
-    }
-    notifyListeners();
+    await _workBarrier.wait(job.id);
+    await _enqueue(() async {
+      if (!_jobs.contains(job)) return;
+      if (!job.terminal) {
+        throw StateError(
+          'Pause/finish processing before dismissing a capture.',
+        );
+      }
+      final deleted = await _database!.delete(
+        'jobs',
+        where: 'id=?',
+        whereArgs: [job.id],
+      );
+      if (deleted != 1) {
+        throw StateError('Capture draft could not be dismissed safely.');
+      }
+      _jobs.remove(job);
+
+      // SQLite owns dismissal. Source-file cleanup is housekeeping and must not
+      // turn a successfully removed durable job into a false dismissal failure.
+      if (job.path.isNotEmpty && job.path == _capturePath(job.id, job.kind)) {
+        try {
+          final file = File(job.path);
+          if (await file.exists()) await file.delete();
+        } catch (_) {}
+      }
+      notifyListeners();
+    });
   }
 }

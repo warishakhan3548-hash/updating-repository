@@ -61,3 +61,18 @@ Safety invariants:
 - Removed, SOLD, expired and warning screens are calculated projections, not
   copied databases.
 - SQLite is authoritative. There is no Firebase, cloud-sync or server-sync path.
+
+
+## Intake finalization intersection
+
+The capture queue has an intentional two-phase durability boundary:
+
+`OCR/video evidence -> durable terminal/reasoning checkpoint -> private source cleanup -> final row checkpoint -> worker lease release -> Retry/Dismiss`
+
+A terminal card may render after the first checkpoint, before the worker has
+finished the final cleanup/write. `MedicineIntakeWorkBarrier` binds that tiny
+window to the exact job ID. Retry/Dismiss wait only for that job and then enter
+the existing serialized intake-write lane, preventing delete/update races without
+blocking unrelated captures or adding a second queue engine. Dismissal treats
+SQLite row removal as authoritative and source-file deletion as best-effort
+housekeeping.
