@@ -61,6 +61,36 @@ Set<String> _searchTrigrams(String word) {
   };
 }
 
+Iterable<String> _searchDeleteKeys(String word) sync* {
+  if (word.length < 4 || word.length > 24) return;
+  final seen = <String>{};
+  for (var i = 0; i < word.length; i++) {
+    final deleted = word.substring(0, i) + word.substring(i + 1);
+    if (deleted.length >= 3 && seen.add(deleted)) yield deleted;
+  }
+}
+
+String _searchOcrFold(String token) {
+  final value = token.toLowerCase();
+  if (!RegExp(r'\d').hasMatch(value) || !RegExp(r'[a-z]').hasMatch(value)) {
+    return value;
+  }
+  if (RegExp(r'^\d').hasMatch(value)) {
+    return value
+        .replaceAll('o', '0')
+        .replaceAll('i', '1')
+        .replaceAll('l', '1')
+        .replaceAll('s', '5')
+        .replaceAll('b', '8')
+        .replaceAll('z', '2');
+  }
+  return value
+      .replaceAll('0', 'o')
+      .replaceAll('1', 'i')
+      .replaceAll('5', 's')
+      .replaceAll('8', 'b');
+}
+
 double orderedSimilarity(String a, String b) {
   if (a == b) return 1;
   if (a.isEmpty || b.isEmpty) return 0;
@@ -246,15 +276,37 @@ class MedicineSearch {
           prefixIndex.putIfAbsent(prefix, () => {}).add(doc.record.id);
         }
       }
+
+      // Delete-neighbour memory is intentionally tighter than the general fuzzy
+      // indexes. Identity-bearing terms are inserted before OCR/notes, so a small
+      // alphabetic slice captures names/brands/salts/manufacturers without
+      // multiplying RAM by long receipts, notes, dates, IDs or arbitrary OCR.
+      final deleteTerms = doc.terms
+          .where(
+            (term) =>
+                term.length >= 4 &&
+                term.length <= 24 &&
+                RegExp(r'[a-z]').hasMatch(term),
+          )
+          .take(_maxDeleteTermsPerDocument);
+      for (final term in deleteTerms) {
+        for (final variant in <String>{term, _searchOcrFold(term)}) {
+          for (final deletion in _searchDeleteKeys(variant)) {
+            deleteIndex.putIfAbsent(deletion, () => {}).add(doc.record.id);
+          }
+        }
+      }
     }
   }
 
   static const maxArchivedResults = 150;
   static const _maxRetrievalCandidates = 240;
   static const _maxSecondaryTermsPerDocument = 112;
+  static const _maxDeleteTermsPerDocument = 18;
   final Map<String, SearchDocument> docs = {};
   final Map<String, Set<String>> index = {}, exact = {}, barcode = {};
   final Map<String, Set<String>> trigramIndex = {}, prefixIndex = {};
+  final Map<String, Set<String>> deleteIndex = {};
   final Map<String, int> documentFrequency = {};
   static const noise = {
     'tab',
@@ -349,10 +401,14 @@ class MedicineSearch {
     required String emptyReason,
     required int limit,
   }) {
-    bool allowedId(String id) {
+    // Scope evaluation can involve expiry calculations. Cache it per retrieved
+    // row so fuzzy search cost scales with bounded postings rather than requiring
+    // a full O(N) inventory scan for every keystroke.
+    final allowedCache = <String, bool>{};
+    bool allowedId(String id) => allowedCache.putIfAbsent(id, () {
       final document = docs[id];
       return document != null && allowedRecord(document.record);
-    }
+    });
 
     if (raw.trim().isEmpty) {
       final records = docs.values
@@ -377,10 +433,6 @@ class MedicineSearch {
           .toList();
     }
 
-    final allowed = {
-      for (final document in docs.values)
-        if (allowedRecord(document.record)) document.record.id,
-    };
     final found = <String, SearchHit>{};
     for (final chunk in chunks(raw)) {
       final query = searchText(chunk);
@@ -405,11 +457,21 @@ class MedicineSearch {
         Iterable<String>? ids,
         double weight, {
         bool independentChannel = false,
+        bool orderBeforeLimit = false,
         int hardLimit = 180,
       }) {
         if (ids == null || ids.isEmpty || weight <= 0) return;
-        for (final id in ids.take(hardLimit)) {
-          if (!allowed.contains(id)) continue;
+        Iterable<String> eligible;
+        if (orderBeforeLimit) {
+          final ordered = ids.where(allowedId).toList(growable: false)
+            ..sort((a, b) => order(docs[a]!.record, docs[b]!.record));
+          eligible = ordered.take(hardLimit);
+        } else {
+          // Filter before capping. A narrow status scope must never lose valid
+          // candidates merely because disallowed IDs were inserted first.
+          eligible = ids.where(allowedId).take(hardLimit);
+        }
+        for (final id in eligible) {
           votes.update(id, (value) => value + weight, ifAbsent: () => weight);
           if (independentChannel) {
             channels.update(id, (value) => value + 1, ifAbsent: () => 1);
@@ -419,7 +481,45 @@ class MedicineSearch {
 
       for (final token in tokens) {
         final rarity = _rarity(token);
-        vote(exact[token], 18 * rarity, independentChannel: true, hardLimit: 160);
+        // Exact postings can represent hundreds of physical batches for one
+        // medicine. Preserve FEFO/business ordering before the candidate cap so
+        // results are deterministic and independent of database insertion order.
+        vote(
+          exact[token],
+          18 * rarity,
+          independentChannel: true,
+          orderBeforeLimit: true,
+          hardLimit: 160,
+        );
+
+        // A bounded deletion-neighbour channel recovers common OCR/typing edits
+        // before expensive edit-distance ranking. This mirrors the product
+        // resolver's search-engine-style cascade while keeping false authority
+        // impossible: it only nominates candidates; rank() and strength conflict
+        // gates remain authoritative.
+        for (final variant in <String>{token, _searchOcrFold(token)}) {
+          if (variant.length < 4 || variant.length > 24) continue;
+          final deletionPostings = _searchDeleteKeys(variant)
+              .map((key) => (key: key, ids: deleteIndex[key]))
+              .where((item) => item.ids != null && item.ids!.isNotEmpty)
+              .toList(growable: false)
+            ..sort((a, b) {
+              final size = a.ids!.length.compareTo(b.ids!.length);
+              return size != 0 ? size : a.key.compareTo(b.key);
+            });
+          for (final posting in deletionPostings.take(6)) {
+            if (posting.ids!.length > max(160, docs.length ~/ 2)) continue;
+            final selectivity = (1 / sqrt(max(1, posting.ids!.length)))
+                .clamp(.08, .52)
+                .toDouble();
+            vote(
+              posting.ids,
+              (.78 + selectivity * 1.8) * rarity,
+              independentChannel: true,
+              hardLimit: 128,
+            );
+          }
+        }
 
         if (token.length >= 4) {
           final prefix = token.substring(0, min(4, token.length));
