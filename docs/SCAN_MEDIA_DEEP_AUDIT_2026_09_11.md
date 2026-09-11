@@ -18,7 +18,7 @@ The capture path now preserves the bounded live evidence and appends the capture
 
 Queued photo capture already follows the durable intake path: the selected source is copied into app-private storage, the job row is committed before acknowledgement, OCR runs locally, deterministic drafts are checkpointed, the selected Local AI is consulted only when the capture-bound route remains valid, and source cleanup happens only after durable OCR state exists.
 
-The immediate Upload photo path remains intentionally interactive: it runs the same `MedicineVisionService` OCR/barcode extraction and opens the same review inbox. It does not bypass validation or the authoritative controller save boundary.
+The Add / Import **Upload photo** path now enters the same durable intake lane as video: the picker staging file is copied into app-private storage and the SQLite job row is committed before the UI considers the import accepted. OCR and optional selected Local AI run afterwards, so process death/background interruption cannot erase an accepted photo. Review and the authoritative controller save boundary remain unchanged.
 
 ## Video-window intersection
 
