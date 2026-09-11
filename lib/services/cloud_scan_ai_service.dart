@@ -40,6 +40,25 @@ class CloudScanAiService {
     524,
   };
 
+  http.Client? _client;
+  int _requestEpoch = 0;
+
+  bool get busy => _client != null;
+
+  /// Cancels only the currently owned cloud-scan transport. The provider never
+  /// owns an inventory mutation, so abandoning a preview is always safe.
+  void cancel() {
+    ++_requestEpoch;
+    _client?.close();
+    _client = null;
+  }
+
+  void _checkEpoch(int epoch) {
+    if (epoch != _requestEpoch) {
+      throw StateError('Cloud scan AI request cancelled.');
+    }
+  }
+
   Future<AiConfiguration> requireConfiguration() async {
     final raw = await _storage.read(key: _configurationKey);
     if (raw == null || raw.trim().isEmpty) {
@@ -69,6 +88,12 @@ class CloudScanAiService {
     AiConfiguration config,
     MedicineScanDraft draft,
   ) async {
+    if (_client != null) {
+      throw StateError(
+        'Cloud scan AI is already reviewing another draft. Finish or cancel it first.',
+      );
+    }
+    final epoch = _requestEpoch;
     final handoff = LocalScanHandoff.fromDraft(
       draft,
       sourceLimit: _sourceLimit,
@@ -77,12 +102,16 @@ class CloudScanAiService {
     Object? lastTransient;
 
     for (var attempt = 0; attempt < 2; attempt++) {
+      _checkEpoch(epoch);
       final client = http.Client();
+      _client = client;
       try {
         final response = await client
             .send(_request(config, endpoint, handoff))
             .timeout(const Duration(seconds: 50));
-        final bytes = await _readBounded(response);
+        _checkEpoch(epoch);
+        final bytes = await _readBounded(response, epoch);
+        _checkEpoch(epoch);
         if (response.statusCode < 200 || response.statusCode >= 300) {
           final detail = _providerError(bytes);
           final message = detail.isEmpty
@@ -104,6 +133,7 @@ class CloudScanAiService {
           );
         }
       } on TimeoutException catch (error) {
+        _checkEpoch(epoch);
         lastTransient = error;
         if (attempt == 1) {
           throw TimeoutException(
@@ -111,6 +141,7 @@ class CloudScanAiService {
           );
         }
       } on http.ClientException catch (error) {
+        _checkEpoch(epoch);
         lastTransient = error;
         if (attempt == 1) {
           throw StateError(
@@ -119,10 +150,13 @@ class CloudScanAiService {
         }
       } finally {
         client.close();
+        if (identical(_client, client)) _client = null;
       }
 
+      _checkEpoch(epoch);
       if (attempt == 0) {
         await Future<void>.delayed(const Duration(milliseconds: 300));
+        _checkEpoch(epoch);
       }
     }
 
@@ -182,12 +216,16 @@ class CloudScanAiService {
       ..body = jsonEncode(body);
   }
 
-  Future<List<int>> _readBounded(http.StreamedResponse response) async {
+  Future<List<int>> _readBounded(
+    http.StreamedResponse response,
+    int epoch,
+  ) async {
     final bytes = BytesBuilder(copy: false);
     var total = 0;
     await for (final chunk in response.stream.timeout(
       const Duration(seconds: 35),
     )) {
+      _checkEpoch(epoch);
       total += chunk.length;
       if (total > _maxResponseBytes) {
         throw StateError(
@@ -196,6 +234,7 @@ class CloudScanAiService {
       }
       bytes.add(chunk);
     }
+    _checkEpoch(epoch);
     return bytes.takeBytes();
   }
 
