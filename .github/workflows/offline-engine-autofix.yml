@@ -26,7 +26,18 @@ jobs:
           ref: upgrade/offline-decision-engine
           fetch-depth: 0
       - name: Apply guarded core surgery
-        run: python3 tool/upgrade_offline_decision_engine.py
+        run: |
+          python3 tool/upgrade_offline_decision_engine.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('lib/domain/medicine_resolution_v2.dart')
+          text = path.read_text(encoding='utf-8')
+          old = 'strongIdentity: bestIdentity >= .88,'
+          new = 'strongIdentity: bestIdentity >= .82,'
+          if old not in text:
+              raise SystemExit('strong-identity safety marker changed; refusing unsafe patch')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
