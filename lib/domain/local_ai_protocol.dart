@@ -99,9 +99,47 @@ String? _singleEmbeddedJsonObject(String text) {
   return text.substring(start, end);
 }
 
+const _safeReplyAliases = <String>{
+  'reply',
+  'response',
+  'message',
+  'answer',
+  'content',
+  'text',
+};
+
+Map<String, dynamic> _normalizeSafeReplyEnvelope(Map<String, dynamic> value) {
+  // Read tools stay byte-for-byte strict and are validated by context.read().
+  // This adapter exists only for harmless answer-only drift from tiny models.
+  if (value.containsKey('tool')) return value;
+
+  if (value.keys.any(
+    (key) => key != 'actions' && !_safeReplyAliases.contains(key),
+  )) {
+    return value;
+  }
+
+  // Never reinterpret a non-empty or malformed action list. Mutations remain
+  // fail-closed and still require the authoritative finish() validator/review.
+  final actions = value['actions'];
+  if (actions != null && (actions is! List || actions.isNotEmpty)) return value;
+
+  final replies = <String>[];
+  for (final key in _safeReplyAliases) {
+    if (!value.containsKey(key)) continue;
+    final candidate = value[key];
+    if (candidate is! String) return value;
+    final clean = candidate.trim();
+    if (clean.isNotEmpty) replies.add(clean);
+  }
+  if (replies.length != 1) return value;
+
+  return {'reply': _bounded(replies.single, 2000), 'actions': <Object?>[]};
+}
+
 Map<String, dynamic> localChatObject(String input) {
   try {
-    return localJsonObject(input);
+    return _normalizeSafeReplyEnvelope(localJsonObject(input));
   } on FormatException {
     final text = input.trim();
     final lower = text.toLowerCase();
@@ -169,6 +207,7 @@ class LocalInventoryContext {
 Return ONLY one JSON object, no reasoning or markdown.
 To READ use {"tool":"search","query":"name/salt/barcode","offset":0}, {"tool":"get","id":"exact ID"}, {"tool":"expiring","days":30,"offset":0}, {"tool":"expired","offset":0}, {"tool":"sold","offset":0}, {"tool":"archived","offset":0}, or {"tool":"sales","days":30}. Search matches literal normalized terms in active stock (not sold/archived); use the actual medicine name, not a whole sentence. Empty search lists active stock. Expiring covers today through the requested future day; expired is strictly before today. Sales days includes today: 1 means today only. Get retrieves detailed facts for one exact ID, including archived stock. Results are paged, not the whole database. Do not claim a page is the entire stock or omitted/truncated fields are empty.
 To ANSWER/PROPOSE use {"reply":"explanation","actions":[]}.
+For greetings or casual chat, never call a read tool: answer immediately with one short reply and actions:[]. Keep replies concise and stop immediately after the closing JSON object.
 Allowed proposals: {"op":"add","fields":{"name":"..."}}, {"op":"update","id":"retrieved ID","fields":{"quantity":25}}, {"op":"remove","id":"retrieved ID"}, {"op":"mark_sold","id":"retrieved ID"}, {"op":"restock","id":"retrieved ID","fields":{"quantity":25}}, {"op":"restore","id":"retrieved archived ID"}.
 Editable fields: name, brand, salt, strength, form, manufacturer, mfg, expiry, batchNumber, barcode, quantity, unitPricePaise, location, notes. Dates YYYY-MM-DD or printed month YYYY-MM. Expiry month includes its last day. Do not invent dates, quantities or costs. Printed MRP is NOT inventory cost; pack size is NOT stock quantity. Never equate unknown quantity with zero. Never combine stock quantities of different strengths/forms or stock units.
 Only propose mutations explicitly requested by the owner. Questions mean actions:[]. Ambiguous matches require a question, not a guessed ID. Remove archives, never deletes permanently. Restore only an exact archived row returned by the archived/get tool; never guess a removed ID. No raw SQL, paths or hidden tools. At most 8 proposals. EVERY mutation requires the app's review before saving. Expiry/status and sales totals come from deterministic tools, not your memory.
