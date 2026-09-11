@@ -105,5 +105,134 @@ void main() {
       expect(draft.field('strength').conflicted, isFalse);
       expect(draft.overallConfidence, greaterThanOrEqualTo(.78));
     });
+
+    test('weak dosage-form corroboration cannot auto-lock fuzzy identity', () {
+      const product = CanonicalMedicineProduct(
+        productId: 'offline:alphazine:500:tablet',
+        revision: 602,
+        name: 'Alphazine',
+        brand: 'Alphazine',
+        salt: '',
+        strength: '500 mg',
+        form: 'Tablet',
+        verified: true,
+        source: 'verified-offline-catalog',
+      );
+      const observedName = ExtractedMedicineField(
+        value: 'A1PHAZLNE',
+        confidence: .94,
+        support: 1,
+        conflicted: false,
+      );
+      const observedForm = ExtractedMedicineField(
+        value: 'Tablet',
+        confidence: .95,
+        support: 1,
+        conflicted: false,
+      );
+      final baseline = MedicineUnderstandingResult(
+        drafts: <MedicineScanDraft>[
+          const MedicineScanDraft(
+            fields: <String, ExtractedMedicineField>{
+              'name': observedName,
+              'brand': observedName,
+              'form': observedForm,
+            },
+            rawText: 'A1PHAZLNE\nTABLETS',
+            searchKeywords: 'a1phazlne tablet',
+            frameSequences: <int>[0],
+            overallConfidence: .94,
+          ),
+        ],
+      );
+
+      final result = MedicineProductResolverV2(
+        localKnowledge: const <MedicineKnowledgeEntry>[],
+        catalogue: const <CanonicalMedicineProduct>[product],
+      ).reconcile(
+        baseline,
+        const <MedicineFrameEvidence>[
+          MedicineFrameEvidence(
+            sequence: 0,
+            quality: .98,
+            text: 'A1PHAZLNE\nTABLETS',
+          ),
+        ],
+      );
+
+      final draft = result.drafts.single;
+      expect(draft.name, 'A1PHAZLNE');
+      expect(draft.strength, isEmpty);
+      expect(draft.form, 'Tablet');
+    });
+
+    test('duplicate OCR frames cannot manufacture decision authority', () {
+      const product = CanonicalMedicineProduct(
+        productId: 'offline:alphazine:500:tablet',
+        revision: 603,
+        name: 'Alphazine',
+        brand: 'Alphazine',
+        salt: '',
+        strength: '500 mg',
+        form: 'Tablet',
+        verified: true,
+        source: 'verified-offline-catalog',
+      );
+      const observedName = ExtractedMedicineField(
+        value: 'A1PHAZLNE',
+        confidence: .94,
+        support: 3,
+        conflicted: false,
+      );
+      const observedForm = ExtractedMedicineField(
+        value: 'Tablet',
+        confidence: .95,
+        support: 3,
+        conflicted: false,
+      );
+      final baseline = MedicineUnderstandingResult(
+        drafts: <MedicineScanDraft>[
+          const MedicineScanDraft(
+            fields: <String, ExtractedMedicineField>{
+              'name': observedName,
+              'brand': observedName,
+              'form': observedForm,
+            },
+            rawText: 'A1PHAZLNE\nTABLETS',
+            searchKeywords: 'a1phazlne tablet',
+            frameSequences: <int>[0, 1, 2],
+            overallConfidence: .94,
+          ),
+        ],
+      );
+
+      final result = MedicineProductResolverV2(
+        localKnowledge: const <MedicineKnowledgeEntry>[],
+        catalogue: const <CanonicalMedicineProduct>[product],
+      ).reconcile(
+        baseline,
+        const <MedicineFrameEvidence>[
+          MedicineFrameEvidence(
+            sequence: 0,
+            quality: .98,
+            text: 'A1PHAZLNE\nTABLETS',
+          ),
+          MedicineFrameEvidence(
+            sequence: 1,
+            quality: .98,
+            text: 'A1PHAZLNE\nTABLETS',
+          ),
+          MedicineFrameEvidence(
+            sequence: 2,
+            quality: .98,
+            text: 'A1PHAZLNE\nTABLETS',
+          ),
+        ],
+      );
+
+      final draft = result.drafts.single;
+      expect(draft.name, 'A1PHAZLNE');
+      expect(draft.strength, isEmpty);
+    });
   });
 }
