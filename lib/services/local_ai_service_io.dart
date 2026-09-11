@@ -495,10 +495,15 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       _setupStage = LocalModelSetupStage.chooseModel;
       _status = 'Model imported · choose Use to test it';
     } catch (error) {
-      _setupStage = ready
-          ? LocalModelSetupStage.ready
-          : LocalModelSetupStage.attention;
-      _status = 'Could not import this model';
+      final cancelled =
+          generation != _transferGeneration ||
+          (error is PlatformException && error.code == 'model_cancelled');
+      _setupStage = cancelled
+          ? (ready ? LocalModelSetupStage.ready : LocalModelSetupStage.chooseModel)
+          : (ready
+                ? LocalModelSetupStage.ready
+                : LocalModelSetupStage.attention);
+      _status = cancelled ? 'Model import cancelled' : 'Could not import this model';
       rethrow;
     } finally {
       try {
@@ -612,21 +617,32 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  Future<void> _loadSelected() async {
+  Future<void> _loadSelected({int? requestGeneration}) async {
+    void checkCurrent() {
+      if (requestGeneration != null) _checkRequest(requestGeneration);
+    }
+
+    checkCurrent();
     final id = _activeId;
     if (id == null) throw StateError('Select a local model first.');
     final model = _models.where((m) => m.id == id).firstOrNull;
     if (model == null)
       throw StateError('Selected model is missing. Open local model settings.');
     final file = _weights(id);
-    if (!await file.exists() || await file.length() != model.bytes) {
+    final exists = await file.exists();
+    checkCurrent();
+    final length = exists ? await file.length() : -1;
+    checkCurrent();
+    if (!exists || length != model.bytes) {
       throw StateError(
         'Selected model file is incomplete. No external fallback was used.',
       );
     }
     if (_runtime?.modelPath != file.path) {
       final metadata = await _checkGguf(file);
+      checkCurrent();
       final facts = await _checkResources(weightBytes: model.bytes);
+      checkCurrent();
       _executionPlan = planLocalExecution(
         weightBytes: model.bytes,
         metadata: metadata,
@@ -635,103 +651,112 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
         lowMemory: facts?['lowMemory'] == true,
         phone: Platform.isAndroid || Platform.isIOS,
       );
+      checkCurrent();
       _runtime ??= LocalAiRuntime();
       _status = 'Local AI · loading · $executionSummary';
       notifyListeners();
+      checkCurrent();
       await _runtime!.load(
         file.path,
         contextTokens: _executionPlan!.contextTokens,
       );
+      checkCurrent();
       _adoptLoadedContextBudget();
     }
   }
 
-  Future<void> activate(String id) => _exclusive((generation) async {
-    final model = _models.where((m) => m.id == id).firstOrNull;
-    if (model == null) throw StateError('Download or import this model first.');
-    if (isModelReady(id)) {
-      _setupStage = LocalModelSetupStage.ready;
-      _status = isModelScanVerified(id)
-          ? 'Local AI Ready'
-          : 'Local AI Ready · scan extraction is available with review warning';
-      return;
-    }
-    final previous = _activeId;
-    await _release();
-    _activeId = id;
-    try {
-      final file = _weights(id);
-      _setupStage = LocalModelSetupStage.verifying;
-      _status = 'Checking model…';
-      notifyListeners();
-      final metadata = await _checkGguf(file);
-      if (await _hash(file.path) != id) {
-        throw StateError(
-          'Model changed since installation. Re-import a trusted file.',
-        );
+  Future<void> activate(
+    String id, {
+    void Function()? onLeaseAcquired,
+  }) => _exclusive(
+    (generation) async {
+      final model = _models.where((m) => m.id == id).firstOrNull;
+      if (model == null) throw StateError('Download or import this model first.');
+      if (isModelReady(id)) {
+        _setupStage = LocalModelSetupStage.ready;
+        _status = isModelScanVerified(id)
+            ? 'Local AI Ready'
+            : 'Local AI Ready · scan extraction is available with review warning';
+        return;
       }
-      _checkRequest(generation);
-      _setupStage = LocalModelSetupStage.connecting;
-      _status = 'Connecting on this device…';
-      notifyListeners();
-      await _loadSelected();
-      _checkRequest(generation);
-
-      var scanTestPassed = true;
-      _setupStage = LocalModelSetupStage.testing;
-      for (var i = 0; i < localSetupChecks.length; i++) {
-        final probe = localSetupChecks[i];
-        _status = 'Testing optional scan review…';
-        notifyListeners();
-        final raw = await _runtime!.generate(
-          localSetupPrompt,
-          jsonEncode({'SOURCE': probe.source}),
-          maxTokens: 180,
-        );
-        _checkRequest(generation);
-        Map<String, dynamic> answer;
-        try {
-          answer = localJsonObject(raw);
-        } on FormatException {
-          scanTestPassed = false;
-          break;
-        }
-        if (!passesLocalSetup(answer, probe)) {
-          scanTestPassed = false;
-          break;
-        }
-      }
-      _models[_models.indexOf(model)] = InstalledLocalModel(
-        id: model.id,
-        label: model.label,
-        bytes: model.bytes,
-        source: model.source,
-        loadTestPassed: true,
-        smokeTestPassed: scanTestPassed,
-        metadata: metadata,
-        testedRuntime: scanTestPassed
-            ? '$localRuntimeBuild/setup-$localSetupCheckVersion'
-            : '$localRuntimeBuild/chat-load',
-      );
-      await _save();
-      _setupStage = LocalModelSetupStage.ready;
-      _status = scanTestPassed
-          ? 'Local AI Ready'
-          : 'Local AI Ready · scan extraction is available with review warning';
-    } catch (_) {
-      _activeId = previous;
-      final index = _models.indexWhere((m) => m.id == model.id);
-      if (index >= 0) _models[index] = model;
+      final previous = _activeId;
       await _release();
-      _setupStage = ready
-          ? LocalModelSetupStage.ready
-          : LocalModelSetupStage.attention;
-      _status = ready
-          ? 'That model could not start · previous Local AI is still Ready'
-          : 'This model could not become Ready';
-      rethrow;
-    }
-  });
+      _activeId = id;
+      try {
+        final file = _weights(id);
+        _setupStage = LocalModelSetupStage.verifying;
+        _status = 'Checking model…';
+        notifyListeners();
+        final metadata = await _checkGguf(file);
+        if (await _hash(file.path) != id) {
+          throw StateError(
+            'Model changed since installation. Re-import a trusted file.',
+          );
+        }
+        _checkRequest(generation);
+        _setupStage = LocalModelSetupStage.connecting;
+        _status = 'Connecting on this device…';
+        notifyListeners();
+        await _loadSelected(requestGeneration: generation);
+        _checkRequest(generation);
+
+        var scanTestPassed = true;
+        _setupStage = LocalModelSetupStage.testing;
+        for (var i = 0; i < localSetupChecks.length; i++) {
+          final probe = localSetupChecks[i];
+          _status = 'Testing optional scan review…';
+          notifyListeners();
+          final raw = await _runtime!.generate(
+            localSetupPrompt,
+            jsonEncode({'SOURCE': probe.source}),
+            maxTokens: 180,
+          );
+          _checkRequest(generation);
+          Map<String, dynamic> answer;
+          try {
+            answer = localJsonObject(raw);
+          } on FormatException {
+            scanTestPassed = false;
+            break;
+          }
+          if (!passesLocalSetup(answer, probe)) {
+            scanTestPassed = false;
+            break;
+          }
+        }
+        _models[_models.indexOf(model)] = InstalledLocalModel(
+          id: model.id,
+          label: model.label,
+          bytes: model.bytes,
+          source: model.source,
+          loadTestPassed: true,
+          smokeTestPassed: scanTestPassed,
+          metadata: metadata,
+          testedRuntime: scanTestPassed
+              ? '$localRuntimeBuild/setup-$localSetupCheckVersion'
+              : '$localRuntimeBuild/chat-load',
+        );
+        await _save();
+        _setupStage = LocalModelSetupStage.ready;
+        _status = scanTestPassed
+            ? 'Local AI Ready'
+            : 'Local AI Ready · scan extraction is available with review warning';
+      } catch (_) {
+        _activeId = previous;
+        final index = _models.indexWhere((m) => m.id == model.id);
+        if (index >= 0) _models[index] = model;
+        await _release();
+        _setupStage = ready
+            ? LocalModelSetupStage.ready
+            : LocalModelSetupStage.attention;
+        _status = ready
+            ? 'That model could not start · previous Local AI is still Ready'
+            : 'This model could not become Ready';
+        rethrow;
+      }
+    },
+    onLeaseAcquired: onLeaseAcquired,
+  );
 
   Future<void> suspend() => _exclusive((_) async {
     await _release();
@@ -793,7 +818,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
       if (instruction.trim().isEmpty || instruction.length > 3000) {
         throw const FormatException('Keep the request under 3000 characters.');
       }
-      await _loadSelected();
+      await _loadSelected(requestGeneration: generation);
       _checkRequest(generation);
       final conversationLimit = _executionPlan!.conversationCharacters;
       final recentConversation = conversation.length > conversationLimit
@@ -851,7 +876,7 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     await initialize();
     if (!hasSelection || !scannerEnabled || !scanReady) return draft;
     return _exclusive((generation) async {
-      await _loadSelected();
+      await _loadSelected(requestGeneration: generation);
       _checkRequest(generation);
       final sourceLimit = _executionPlan!.evidenceCharacters;
       final handoff = LocalScanHandoff.fromDraft(
