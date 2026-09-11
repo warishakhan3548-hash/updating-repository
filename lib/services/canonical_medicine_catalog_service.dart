@@ -230,7 +230,7 @@ CREATE TABLE catalog_deletes (
           .take(boundedLimit)
           .map((entry) => entry.key)
           .toList(growable: false);
-      return _loadProducts(ids);
+      return await _loadProducts(ids);
     } catch (_) {
       return const <CanonicalMedicineProduct>[];
     }
