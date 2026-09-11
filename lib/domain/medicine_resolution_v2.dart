@@ -7,6 +7,7 @@ import 'search.dart';
 
 const int maxCanonicalMedicineCandidates = 96;
 const double _resolverMinimumDecisionMass = .50;
+const double _resolverCorrelatedEvidenceDecay = .55;
 
 /// Versioned identity-only product knowledge. Physical lot/stock facts are
 /// deliberately excluded: MFG/EXP/batch/quantity/cost/location must come from
@@ -480,6 +481,41 @@ class _ProductIndex {
       for (final frame in frames)
         for (final barcode in frame.allBarcodes) _canonicalBarcode(barcode),
     }..remove('');
+
+    // V6 exact-identifier fast lane. A verified exact product identifier is
+    // stronger than every fuzzy lexical channel and already has contradiction
+    // checks in _scoreProduct. Once one exists, do not spend milliseconds
+    // expanding unrelated fuzzy candidates. Multiple verified collisions remain
+    // visible so the downstream ambiguity/conflict gates can arbitrate safely.
+    final verifiedExactIndexes = <int>{};
+    for (final barcode in barcodeKeys) {
+      final posting = barcodes[barcode];
+      if (posting == null) continue;
+      for (final index in posting) {
+        if (products[index].verified) verifiedExactIndexes.add(index);
+      }
+    }
+    if (verifiedExactIndexes.isNotEmpty) {
+      final rankedExact = verifiedExactIndexes.toList(growable: false)
+        ..sort((a, b) {
+          final source = (products[b].source == 'shop' ? 1 : 0).compareTo(
+            products[a].source == 'shop' ? 1 : 0,
+          );
+          if (source != 0) return source;
+          final prior = products[b].priorWeight.compareTo(
+            products[a].priorWeight,
+          );
+          if (prior != 0) return prior;
+          return products[a].productId.compareTo(products[b].productId);
+        });
+      return rankedExact
+          .take(_maxRetrievedProducts)
+          .map((index) => products[index])
+          .toList(growable: false);
+    }
+
+    // Unverified identifiers are useful retrieval evidence, but they are never
+    // allowed to suppress a verified coherent lexical hypothesis.
     for (final barcode in barcodeKeys) {
       vote(barcodes[barcode], 48);
     }
@@ -734,6 +770,26 @@ String _ocrFoldToken(String token) {
       .replaceAll('8', 'b');
 }
 
+bool _nearDuplicateIdentityFrame(Set<String> left, Set<String> right) {
+  // Exact fingerprints are handled before this function. This second gate
+  // collapses video frames whose OCR differs only by a couple of noisy tokens,
+  // preventing one physical view from manufacturing independent authority.
+  // Small token sets are deliberately excluded: two different pack sides often
+  // share only brand/strength and must remain independent evidence.
+  if (left.length < 4 || right.length < 4) return false;
+  var intersection = 0;
+  final smaller = left.length <= right.length ? left : right;
+  final larger = identical(smaller, left) ? right : left;
+  for (final token in smaller) {
+    if (larger.contains(token)) intersection++;
+  }
+  if (intersection < 4) return false;
+  final union = left.length + right.length - intersection;
+  final jaccard = intersection / max(1, union);
+  final containment = intersection / min(left.length, right.length);
+  return jaccard >= .72 && containment >= .84;
+}
+
 class _IdentityConsensus {
   const _IdentityConsensus({
     required this.score,
@@ -774,6 +830,7 @@ _IdentityConsensus _scoreIdentityConsensus(
 
   final frameScores = <double>[];
   final seenFrameFingerprints = <String>{};
+  final seenFrameIdentityTokens = <Set<String>>[];
   var remainingIdentityLines = 32;
   for (final frame in frames.take(8)) {
     if (remainingIdentityLines <= 0) break;
@@ -784,8 +841,21 @@ _IdentityConsensus _scoreIdentityConsensus(
         .take(16)
         .toList(growable: false);
     if (rawLines.isEmpty) continue;
-    final fingerprint = searchText(rawLines.join(' ')).replaceAll(' ', '');
-    if (fingerprint.isEmpty || !seenFrameFingerprints.add(fingerprint)) continue;
+    final normalizedFrame = searchText(rawLines.join(' '));
+    final fingerprint = normalizedFrame.replaceAll(' ', '');
+    if (fingerprint.isEmpty || !seenFrameFingerprints.add(fingerprint))
+      continue;
+    final identityTokens = normalizedFrame
+        .split(' ')
+        .where((value) => value.length >= 3 && !_resolverNoise.contains(value))
+        .take(48)
+        .toSet();
+    if (seenFrameIdentityTokens.any(
+      (seen) => _nearDuplicateIdentityFrame(seen, identityTokens),
+    )) {
+      continue;
+    }
+    if (identityTokens.isNotEmpty) seenFrameIdentityTokens.add(identityTokens);
 
     // Preserve independent-frame corroboration without letting video length
     // multiply expensive similarity work. At most 32 OCR lines globally reach
@@ -853,7 +923,12 @@ _ProductHypothesis _scoreProduct(
   var weighted = 0.0;
   var totalWeight = 0.0;
   var channels = 0;
-  var decisionMass = 0.0;
+  var exactIdentifierMass = 0.0;
+  var identityMass = 0.0;
+  var identityCorroborationMass = 0.0;
+  var saltMass = 0.0;
+  var strengthMass = 0.0;
+  var manufacturerMass = 0.0;
   var hardConflicts = 0;
 
   final observedBarcodes = <String>{
@@ -869,22 +944,29 @@ _ProductHypothesis _scoreProduct(
       observedBarcodes.isNotEmpty &&
       productBarcodes.isNotEmpty &&
       observedBarcodes.intersection(productBarcodes).isNotEmpty;
+  // Compute strong retail identifiers even on the exact-match path. A video
+  // cluster can accidentally contain two products; one matching GTIN must not
+  // hide a second contradictory valid GTIN from another pack.
+  final observedStrong = observedBarcodes
+      .where(_isStrongProductBarcodeKey)
+      .toSet();
+  final productStrong = productBarcodes
+      .where(_isStrongProductBarcodeKey)
+      .toSet();
   if (exactBarcode) {
     weighted += .995 * .52;
     totalWeight += .52;
-    decisionMass += .52;
+    exactIdentifierMass = .52;
     channels++;
+    if (productStrong.isNotEmpty &&
+        observedStrong.difference(productStrong).isNotEmpty) {
+      hardConflicts++;
+    }
   } else {
     // Only verified retail/GTIN identifiers can veto a product. Packs may also
     // contain numeric proprietary Code-128 payloads in standard-looking lengths;
     // those remain exact-match evidence but are not allowed to become hard GTIN
     // contradictions unless the existing GS1 kernel validates the check digit.
-    final observedStrong = observedBarcodes
-        .where(_isStrongProductBarcodeKey)
-        .toSet();
-    final productStrong = productBarcodes
-        .where(_isStrongProductBarcodeKey)
-        .toSet();
     if (observedStrong.isNotEmpty && productStrong.isNotEmpty) {
       hardConflicts++;
     }
@@ -903,8 +985,8 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .36;
     if (bestIdentity >= .78) {
       channels++;
-      decisionMass += .36;
-      if (identity.strongSources >= 2) decisionMass += .02;
+      identityMass = .36;
+      if (identity.strongSources >= 2) identityCorroborationMass = .02;
     }
   }
   final nameField = draft.field('name');
@@ -920,7 +1002,7 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .19;
     if (salt >= .88) {
       channels++;
-      decisionMass += .19;
+      saltMass = .19;
     }
     if (draft.field('salt').confidence >= .86 && salt < .62) hardConflicts++;
   }
@@ -934,7 +1016,7 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .18;
     if (agrees) {
       channels++;
-      decisionMass += .18;
+      strengthMass = .18;
     } else if (draft.field('strength').confidence >= .65) {
       // Strength disagreement is a safety signal, not an auto-fill signal.
       // Use a lower threshold than the normal .78 review boundary so a
@@ -963,12 +1045,26 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .05;
     if (manufacturer >= .90) {
       channels++;
-      decisionMass += .05;
+      manufacturerMass = .05;
     }
     if (draft.field('manufacturer').confidence >= .90 && manufacturer < .58) {
       hardConflicts++;
     }
   }
+
+  // Salt and strength usually originate from the same printed composition
+  // region. Treating both as fully independent double-counts one OCR source.
+  // V6 applies diminishing authority to the second composition clue while
+  // preserving the historical mass of either clue alone.
+  final compositionMass =
+      max(saltMass, strengthMass) +
+      min(saltMass, strengthMass) * _resolverCorrelatedEvidenceDecay;
+  final decisionMass =
+      exactIdentifierMass +
+      identityMass +
+      identityCorroborationMass +
+      compositionMass +
+      manufacturerMass;
 
   var score = totalWeight <= 0 ? 0.0 : weighted / totalWeight;
   final priorCap = product.source == 'shop' ? .035 : .018;
@@ -1317,9 +1413,11 @@ bool _isStrongProductBarcodeKey(String value) {
   return parsed != null && parsed.gtin == value;
 }
 
-String _strengthIdentity(String value) => searchText(
-  value,
-).replaceAll(' ', '').replaceAll('μ', 'µ').replaceAll('ug', 'mcg');
+String _strengthIdentity(String value) =>
+    searchText(value)
+        .replaceAll(' ', '')
+        .replaceAll('μ', 'µ')
+        .replaceAll('ug', 'mcg');
 
 double _weightedTextSimilarity(String rawObserved, String rawCanonical) {
   final canonical = _compactForOcr(rawCanonical);
@@ -1360,6 +1458,11 @@ double _weightedEditSimilarity(String left, String right) {
   if (left.isEmpty || right.isEmpty) return 0;
   if (left.length > 80) left = left.substring(0, 80);
   if (right.length > 80) right = right.substring(0, 80);
+
+  // Weighted optimal-string-alignment Damerau-Levenshtein. Adjacent swaps are
+  // a common OCR/typing failure (DLOO -> DOLO) and should cost one bounded edit,
+  // not two substitutions. Memory remains O(m): only three rows are retained.
+  var previousPrevious = <double>[];
   var previous = List<double>.generate(
     right.length + 1,
     (index) => index * .82,
@@ -1372,8 +1475,17 @@ double _weightedEditSimilarity(String left, String right) {
           previous[j] + _ocrSubstitutionCost(left[i], right[j]);
       final deletion = previous[j + 1] + .82;
       final insertion = current[j] + .82;
-      current[j + 1] = min(substitution, min(deletion, insertion));
+      var best = min(substitution, min(deletion, insertion));
+      if (i > 0 &&
+          j > 0 &&
+          left[i] == right[j - 1] &&
+          left[i - 1] == right[j] &&
+          previousPrevious.isNotEmpty) {
+        best = min(best, previousPrevious[j - 1] + .72);
+      }
+      current[j + 1] = best;
     }
+    previousPrevious = previous;
     previous = current;
   }
   final scale = max(left.length, right.length).toDouble();
