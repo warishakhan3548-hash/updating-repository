@@ -173,6 +173,14 @@ String confirmedScanForm(MedicineScanDraft draft) {
 /// partial, low-confidence or conflicted AI/OCR draft simply because text was
 /// present in a field.
 String scanQuickIdentityIssue(MedicineScanDraft draft) {
+  // Product-level contradiction/ambiguity can lower the calibrated draft score
+  // even when each visible identity field remains individually strong. Treat
+  // that global signal as authoritative too; otherwise a wrong trusted GTIN or
+  // future cross-field conflict could still unlock one-tap add.
+  if (draft.overallConfidence < .78) {
+    return 'This scan still has unresolved product-level uncertainty or conflicting evidence. Open detailed review before one-tap add.';
+  }
+
   for (final requirement in const <(String, String)>[
     ('brand', 'Brand'),
     ('salt', 'Salt'),
