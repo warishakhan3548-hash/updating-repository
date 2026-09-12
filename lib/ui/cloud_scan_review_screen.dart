@@ -2,22 +2,26 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../domain/intake_resolution.dart';
+import '../domain/medicine_resolution_v2.dart';
 import '../domain/medicine_scan_commit.dart';
 import '../domain/medicine_understanding.dart';
 import '../services/ai_service.dart';
+import '../services/canonical_medicine_catalog_service.dart';
 import '../services/cloud_scan_ai_service.dart';
+import '../services/offline_recognition_memory_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'editor_screen.dart';
 
 /// Explicit cloud-assisted scan lane.
 ///
-/// OCR is still extracted on-device first. When a cloud route is available, the
+/// OCR is extracted on-device first. When a cloud route is available, the
 /// provider-bound deterministic draft is intentionally built WITHOUT local
-/// inventory identity memory, so the provider receives only evidence derived
-/// from this scan. Returned values remain evidence-validated preview data and
-/// cannot write stock until the existing revision-bound Confirm/Add or editor
-/// review succeeds.
+/// inventory identity memory or the private correction memory. The latest V2
+/// resolver still performs its bounded evidence-safety checks, but no private
+/// medicine catalogue hint is supplied to a configured cloud route. Returned
+/// values remain evidence-validated preview data and cannot write stock until
+/// the existing revision-bound Confirm/Add or editor review succeeds.
 class CloudScanReviewScreen extends StatefulWidget {
   const CloudScanReviewScreen({
     super.key,
@@ -69,16 +73,18 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
     try {
       if (widget.evidence.isEmpty ||
           widget.evidence.every(
-            (item) => item.text.trim().isEmpty && item.barcode.trim().isEmpty,
+            (item) =>
+                item.text.trim().isEmpty && item.barcode.trim().isEmpty,
           )) {
         throw const FormatException('No barcode or medicine text was captured.');
       }
 
       // Resolve cloud permission/configuration before building the provider-bound
       // draft. If no API route exists, nothing can leave the device and we may
-      // safely use the normal private identity memory for a stronger deterministic
-      // fallback. If a cloud route exists, knowledge is deliberately empty so the
-      // handoff cannot contain names/salts/manufacturers learned from inventory.
+      // safely use normal private identity/correction memory plus the local
+      // canonical catalogue for the strongest deterministic fallback. If a
+      // cloud route exists, all three private knowledge inputs stay empty: only
+      // this capture's bounded OCR/barcode evidence can influence the handoff.
       AiConfiguration? config;
       try {
         config = await _cloud.requireConfiguration();
@@ -90,18 +96,39 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
             '${_cleanError(error)} Deterministic OCR preview is retained; nothing was sent externally.';
       }
 
-      final knowledge = config == null
+      final baseKnowledge = config == null
           ? medicineKnowledgeFromRecords(widget.controller.records)
-              .map((item) => item.toMessage())
-              .toList(growable: false)
-          : const <Map<String, Object?>>[];
+          : const <MedicineKnowledgeEntry>[];
+      final knowledge = config == null
+          ? await OfflineRecognitionMemoryService.instance.enrichKnowledge(
+              baseKnowledge,
+              widget.evidence,
+            )
+          : const <MedicineKnowledgeEntry>[];
+      final catalogue = config == null
+          ? await CanonicalMedicineCatalogService.instance.candidatesForEvidence(
+              widget.evidence,
+            )
+          : const <CanonicalMedicineProduct>[];
+      if (!mounted || generation != _generation) return;
+
+      // Cloud review used to call the legacy understanding entrypoint while the
+      // ordinary scanner/import queue already used Resolver V2. That split made
+      // the explicit cloud lane weaker before the request even left the phone.
+      // Both lanes now share the same product-first/counterfactual safety engine;
+      // only their knowledge boundary differs.
       final payload = await compute(
-        understandMedicineEvidenceMessage,
+        understandMedicineEvidenceV2Message,
         <String, Object?>{
           'evidence': widget.evidence
               .map((item) => item.toMessage())
               .toList(growable: false),
-          'knowledge': knowledge,
+          'knowledge': knowledge
+              .map((item) => item.toMessage())
+              .toList(growable: false),
+          'catalog': catalogue
+              .map((item) => item.toMessage())
+              .toList(growable: false),
         },
       );
       if (!mounted || generation != _generation) return;
@@ -180,6 +207,15 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
         medicine,
         expectedRevision: expectedRevision,
       );
+
+      // A pharmacist-confirmed cloud preview is just as authoritative as a
+      // confirmed local preview for future on-device recognition. Learn only
+      // after the CAS-backed inventory save succeeds; raw OCR and cloud traffic
+      // are never stored in this correction memory.
+      await OfflineRecognitionMemoryService.instance.learnFromConfirmedScan(
+        draft,
+        medicine,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -215,7 +251,7 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
                   Text(
-                    'Reading OCR locally, then validating medicine fields with your configured cloud AI…',
+                    'Reading OCR locally with the latest evidence-safe resolver, then validating medicine fields with your configured cloud AI…',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: muted, fontSize: 12),
                   ),
@@ -251,7 +287,7 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
                     Text(
                       _route.isEmpty
                           ? 'Cloud route unavailable · deterministic OCR preview retained.'
-                          : '$_route\nOnly evidence derived from this scan’s bounded OCR is sent. Local inventory identity memory and the full Medicine Database stay on-device.',
+                          : '$_route\nOnly evidence derived from this scan’s bounded OCR is sent. Local inventory identity memory, correction memory and the full Medicine Database stay on-device.',
                       style: const TextStyle(fontSize: 11.5, height: 1.4),
                     ),
                     const SizedBox(height: 6),
@@ -305,7 +341,9 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              name.isEmpty ? 'Medicine ${index + 1} · identity needs review' : name,
+              name.isEmpty
+                  ? 'Medicine ${index + 1} · identity needs review'
+                  : name,
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),

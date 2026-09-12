@@ -11,6 +11,7 @@ import '../services/local_ai_service.dart';
 import '../services/medicine_intake_service.dart';
 import '../services/offline_recognition_memory_service.dart';
 import '../state/pharmacy_controller.dart';
+import 'cloud_scan_review_screen.dart';
 import 'design.dart';
 import 'import_screen.dart';
 
@@ -57,6 +58,28 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
           controller: widget.controller,
           evidence: const [],
           preparedDrafts: List.of(job.drafts),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _cloudReview(MedicineScanDraft draft) async {
+    // A durable queue draft may contain deterministic identity hints learned from
+    // private shop memory. Never forward that enriched object to an external
+    // provider. Reconstruct the explicit cloud lane from the draft's raw OCR and
+    // barcode only; CloudScanReviewScreen then rebuilds a provider-bound V2 draft
+    // with private knowledge disabled before any request leaves the device.
+    final evidence = MedicineFrameEvidence(
+      text: draft.rawText,
+      barcode: draft.barcode,
+      source: 'Saved on-device OCR draft',
+    );
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CloudScanReviewScreen(
+          controller: widget.controller,
+          evidence: <MedicineFrameEvidence>[evidence],
         ),
       ),
     );
@@ -212,7 +235,7 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
             ],
           ),
           const Text(
-            'OCR stays local, deterministic extraction runs first, then the active Local AI can refine evidence-grounded Brand, Salt, Strength and Form. Nothing enters stock until you confirm.',
+            'OCR stays local, deterministic extraction runs first, then the active Local AI can refine evidence-grounded Brand, Salt, Strength and Form. Cloud refinement is always an explicit per-draft action. Nothing enters stock until you confirm.',
             style: TextStyle(fontSize: 11, color: muted),
           ),
           if (local.hasSelection && local.scannerEnabled && !local.scanVerified)
@@ -336,6 +359,15 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                                                 .actionLabel,
                                     ),
                                   ),
+                                ),
+                              if (job.terminal)
+                                TextButton.icon(
+                                  onPressed: () => _cloudReview(draft),
+                                  icon: const Icon(
+                                    Icons.cloud_outlined,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Cloud refine this draft'),
                                 ),
                               if (widget.onAsk != null && job.terminal)
                                 TextButton(
