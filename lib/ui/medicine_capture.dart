@@ -39,11 +39,11 @@ Future<void> openMedicineCapture(
           const ListTile(
             title: Text('Capture medicine'),
             subtitle: Text(
-              'Normal capture stays local. Choose Cloud AI scan only when you want this scan’s bounded OCR sent to your configured API for field filling.',
+              'Aaris Offline Core works without any LLM or API. Local AI can refine it when enabled; Cloud AI is used only when you explicitly choose that scan lane.',
             ),
           ),
           for (final item in const [
-            ('scan', 'Scan one pack · local', Icons.camera_alt_outlined),
+            ('scan', 'Scan one pack · Offline Core', Icons.camera_alt_outlined),
             ('cloud', 'Scan with cloud AI', Icons.cloud_outlined),
             ('rapid', 'Rapid photos', Icons.burst_mode_outlined),
             ('photo', 'Choose photo', Icons.photo_library_outlined),
@@ -54,7 +54,11 @@ Future<void> openMedicineCapture(
               title: Text(item.$2),
               subtitle: item.$1 == 'cloud'
                   ? const Text(
-                      'OCR stays bounded; inventory is not uploaded. AI fields remain review-only until Confirm/Add.',
+                      'Only this scan’s bounded OCR may leave the device. Inventory is not uploaded; AI fields stay review-only until Confirm/Add.',
+                    )
+                  : item.$1 == 'scan'
+                  ? const Text(
+                      'On-device OCR + barcode + deterministic medicine reasoning. No model download, API key or internet is required.',
                     )
                   : null,
               onTap: () => Navigator.pop(context, item.$1),
