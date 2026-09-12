@@ -535,8 +535,18 @@ class MedicineSearch {
     }
     if (unique.length <= _maxPlannedTokens) return unique;
 
+    bool structuralSignal(String token) {
+      if (exact.containsKey(token)) return true;
+      if (token.length >= 4) return true;
+      if (RegExp(r'^\d+(?:\.\d+)?(?:mg|ml|mcg|g)$').hasMatch(token)) {
+        return true;
+      }
+      return RegExp(r'^\d{6,}$').hasMatch(token);
+    }
+
     double priority(String token) {
-      var value = _rarity(token);
+      final known = documentFrequency.containsKey(token);
+      var value = known ? _rarity(token) : .65;
       final posting = exact[token];
       if (posting != null && posting.isNotEmpty) {
         value += 1.65;
@@ -556,11 +566,17 @@ class MedicineSearch {
       return value;
     }
 
-    final indexes = List<int>.generate(unique.length, (i) => i)
-      ..sort((a, b) {
-        final score = priority(unique[b]).compareTo(priority(unique[a]));
-        return score != 0 ? score : a.compareTo(b);
-      });
+    final highSignalIndexes = <int>[
+      for (var i = 0; i < unique.length; i++)
+        if (structuralSignal(unique[i])) i,
+    ];
+    final indexes = highSignalIndexes.isNotEmpty
+        ? highSignalIndexes
+        : List<int>.generate(unique.length, (i) => i);
+    indexes.sort((a, b) {
+      final score = priority(unique[b]).compareTo(priority(unique[a]));
+      return score != 0 ? score : a.compareTo(b);
+    });
     final keep = indexes.take(_maxPlannedTokens).toSet();
     return <String>[
       for (var i = 0; i < unique.length; i++)
@@ -843,10 +859,10 @@ class MedicineSearch {
     var best = 0.0;
     var reason = 'Possible match';
     final strength = RegExp(r'\b(\d+(?:\.\d+)?)(mg|ml|mcg|g)\b');
-    final queryStrength = strength
-        .allMatches(query)
-        .map((match) => match.group(0)!)
-        .toSet();
+    final queryStrength = <String>{
+      ...strength.allMatches(query).map((match) => match.group(0)!),
+      ...tokens.where((token) => strength.hasMatch(token)),
+    };
     final actualStrength = strength
         .allMatches(searchText('${m.strength} ${m.name}'))
         .map((match) => match.group(0)!)
