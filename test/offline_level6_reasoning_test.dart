@@ -7,11 +7,7 @@ import 'package:aaris_pharmacy/domain/regulatory_medicine_code.dart';
 import 'package:aaris_pharmacy/domain/spatial_traceability.dart';
 
 ExtractedMedicineField _field(String value, {double confidence = .94}) =>
-    ExtractedMedicineField(
-      value: value,
-      confidence: confidence,
-      support: 2,
-    );
+    ExtractedMedicineField(value: value, confidence: confidence, support: 2);
 
 void main() {
   group('Aaris Offline V9 Level 6', () {
@@ -141,7 +137,9 @@ void main() {
         ],
       );
 
-      final hints = inferSpatialTraceability(const <MedicineFrameEvidence>[frame]);
+      final hints = inferSpatialTraceability(const <MedicineFrameEvidence>[
+        frame,
+      ]);
       expect(hints.mfg?.value, '2026-08');
       expect(hints.expiry?.value, '2028-07');
       expect(hints.batch?.value, 'AB12');
@@ -182,19 +180,20 @@ void main() {
         frameSequences: const <int>[0],
         overallConfidence: .94,
       );
-      final resolved = MedicineProductResolverV2(
-        localKnowledge: const <MedicineKnowledgeEntry>[],
-        catalogue: const <CanonicalMedicineProduct>[winner, confusable],
-      ).reconcile(
-        MedicineUnderstandingResult(drafts: <MedicineScanDraft>[draft]),
-        const <MedicineFrameEvidence>[
-          MedicineFrameEvidence(
-            sequence: 0,
-            quality: .95,
-            text: 'VINCRISTINE\n1 mg\nINJECTION',
-          ),
-        ],
-      );
+      final resolved =
+          MedicineProductResolverV2(
+            localKnowledge: const <MedicineKnowledgeEntry>[],
+            catalogue: const <CanonicalMedicineProduct>[winner, confusable],
+          ).reconcile(
+            MedicineUnderstandingResult(drafts: <MedicineScanDraft>[draft]),
+            const <MedicineFrameEvidence>[
+              MedicineFrameEvidence(
+                sequence: 0,
+                quality: .95,
+                text: 'VINCRISTINE\n1 mg\nINJECTION',
+              ),
+            ],
+          );
 
       expect(resolved.drafts.single.salt, isEmpty);
       expect(resolved.drafts.single.overallConfidence, lessThan(.78));

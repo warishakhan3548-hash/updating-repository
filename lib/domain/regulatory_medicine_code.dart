@@ -72,7 +72,7 @@ RegulatoryMedicineCodeData? _parseDigitalLink(String raw) {
 
   final values = <String, String>{};
   final segments = uri.pathSegments
-      .map(Uri.decodeComponent)
+      .map((value) => value.trim())
       .where((value) => value.isNotEmpty)
       .take(40)
       .toList(growable: false);
@@ -128,7 +128,8 @@ RegulatoryMedicineCodeData? _parseLabelledPayload(String raw) {
   }
 
   final matcher = RegExp(
-    r'(?i)\b(gtin|batch(?:\s*(?:no|number))?|lot(?:\s*no)?|mfg|mfd|manufacturing(?:\s*date)?|exp|expiry|expiration(?:\s*date)?|serial(?:\s*(?:no|number))?)\s*[:=]\s*([^;|\r\n]{1,80})',
+    r'\b(gtin|batch(?:\s*(?:no|number))?|lot(?:\s*no)?|mfg|mfd|manufacturing(?:\s*date)?|exp|expiry|expiration(?:\s*date)?|serial(?:\s*(?:no|number))?)\s*[:=]\s*([^;|\r\n]{1,80})',
+    caseSensitive: false,
   );
   for (final match in matcher.allMatches(raw).take(24)) {
     final key = _labelKey(match.group(1) ?? '');
@@ -144,9 +145,13 @@ RegulatoryMedicineCodeData? _parseLabelledPayload(String raw) {
   final mfg = _normalizeDate(values['11'] ?? '');
   final expiry = _normalizeDate(values['17'] ?? '');
   final serial = _boundedLot(values['21'] ?? '');
-  final facts = <String>[gtin, batch, mfg, expiry, serial]
-      .where((value) => value.isNotEmpty)
-      .length;
+  final facts = <String>[
+    gtin,
+    batch,
+    mfg,
+    expiry,
+    serial,
+  ].where((value) => value.isNotEmpty).length;
 
   // One labelled GTIN is independently checksum-verifiable. Without a GTIN,
   // require at least two explicit traceability facts so ordinary promotional QR
@@ -171,7 +176,9 @@ String _labelKey(String raw) {
   if (key == 'mfg' || key == 'mfd' || key.startsWith('manufacturing')) {
     return '11';
   }
-  if (key == 'exp' || key.startsWith('expiry') || key.startsWith('expiration')) {
+  if (key == 'exp' ||
+      key.startsWith('expiry') ||
+      key.startsWith('expiration')) {
     return '17';
   }
   if (key.startsWith('serial')) return '21';
@@ -189,9 +196,11 @@ String _normalizeGtin(String raw) {
 bool _validGtin(String digits) {
   if (!const {8, 12, 13, 14}.contains(digits.length)) return false;
   var sum = 0;
-  for (var index = digits.length - 2, position = 1;
-      index >= 0;
-      index--, position++) {
+  for (
+    var index = digits.length - 2, position = 1;
+    index >= 0;
+    index--, position++
+  ) {
     sum += int.parse(digits[index]) * (position.isOdd ? 3 : 1);
   }
   return (10 - sum % 10) % 10 == int.parse(digits[digits.length - 1]);

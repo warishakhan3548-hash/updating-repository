@@ -124,10 +124,11 @@ Set<String> _criticalDifferences(
 String _nameKey(String value) =>
     searchText(value).replaceAll(RegExp(r'[^a-z0-9\u0900-\u097f]+'), '');
 
-String _strengthKey(String value) => searchText(value)
-    .replaceAll(' ', '')
-    .replaceAll('μ', 'µ')
-    .replaceAll('ug', 'mcg');
+String _strengthKey(String value) =>
+    searchText(value)
+        .replaceAll(' ', '')
+        .replaceAll('μ', 'µ')
+        .replaceAll('ug', 'mcg');
 
 String _phoneticKey(String input) {
   var value = input.toLowerCase();

@@ -108,9 +108,11 @@ List<_SpatialObservation> _frameObservations(MedicineFrameEvidence frame) {
       }
 
       _SpatialObservation? best;
-      for (var candidateIndex = 0;
-          candidateIndex < lines.length;
-          candidateIndex++) {
+      for (
+        var candidateIndex = 0;
+        candidateIndex < lines.length;
+        candidateIndex++
+      ) {
         if (candidateIndex == labelIndex) continue;
         final candidate = lines[candidateIndex];
         if (_labelPattern.hasMatch(candidate.text)) continue;
@@ -167,10 +169,7 @@ String _extractValue(_TraceKind kind, String text) => switch (kind) {
 String _extractBatch(String raw) {
   var value = raw
       .replaceAll(
-        RegExp(
-          r'\b(?:batch|no|number|b\s*no|lot)\b',
-          caseSensitive: false,
-        ),
+        RegExp(r'\b(?:batch|no|number|b\s*no|lot)\b', caseSensitive: false),
         ' ',
       )
       .replaceAll(RegExp(r'\s+'), ' ')
@@ -212,9 +211,8 @@ String _extractDate(String raw) {
     return _isoDate(year, month, day);
   }
 
-  final monthYear = RegExp(
-    r'(?<!\d)(0?[1-9]|1[0-2])[-/.](\d{2}|20\d{2})(?!\d)',
-  ).firstMatch(value);
+  final monthYear = RegExp(r'(?<!\d)(0?[1-9]|1[0-2])[-/.](\d{2}|20\d{2})(?!\d)')
+      .firstMatch(value);
   if (monthYear != null) {
     final month = int.parse(monthYear.group(1)!);
     final rawYear = int.parse(monthYear.group(2)!);
@@ -252,7 +250,10 @@ double _geometryScore(
   }
 
   final horizontalOverlap =
-      max(0.0, min(labelRight, candidateRight) - max(label.left, candidate.left)) /
+      max(
+        0.0,
+        min(labelRight, candidateRight) - max(label.left, candidate.left),
+      ) /
       max(1.0, min(label.width, candidate.width));
   final belowGap = (candidate.top - (label.top + label.height)) / height;
   if (belowGap >= -.25 && belowGap <= 2.6 && horizontalOverlap >= .12) {
@@ -275,27 +276,26 @@ SpatialTraceabilityField? _resolveField(
   }
   if (groups.isEmpty) return null;
 
-  final ranked = groups.entries.map((entry) {
-    final maxConfidence = entry.value
-        .map((value) => value.confidence)
-        .reduce(max);
-    final support = entry.value.length;
-    final score = (maxConfidence + min(.06, (support - 1) * .025))
-        .clamp(0, .98)
-        .toDouble();
-    return (entry.value.first.value, score, support, maxConfidence);
-  }).toList()
-    ..sort((a, b) {
-      final score = b.$2.compareTo(a.$2);
-      if (score != 0) return score;
-      final support = b.$3.compareTo(a.$3);
-      return support != 0 ? support : a.$1.compareTo(b.$1);
-    });
+  final ranked =
+      groups.entries.map((entry) {
+        final maxConfidence = entry.value
+            .map((value) => value.confidence)
+            .reduce(max);
+        final support = entry.value.length;
+        final score = (maxConfidence + min(.06, (support - 1) * .025))
+            .clamp(0, .98)
+            .toDouble();
+        return (entry.value.first.value, score, support, maxConfidence);
+      }).toList()..sort((a, b) {
+        final score = b.$2.compareTo(a.$2);
+        if (score != 0) return score;
+        final support = b.$3.compareTo(a.$3);
+        return support != 0 ? support : a.$1.compareTo(b.$1);
+      });
   final best = ranked.first;
   if (best.$2 < .80) return null;
-  final conflict = ranked.length > 1 &&
-      ranked[1].$4 >= .84 &&
-      best.$2 - ranked[1].$2 < .09;
+  final conflict =
+      ranked.length > 1 && ranked[1].$4 >= .84 && best.$2 - ranked[1].$2 < .09;
   return SpatialTraceabilityField(
     value: best.$1,
     confidence: conflict ? min(best.$2, .82) : best.$2,
