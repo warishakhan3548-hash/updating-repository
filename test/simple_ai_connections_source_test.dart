@@ -45,6 +45,34 @@ void main() {
       expect(ai, contains('if (apiExpanded) _apiFields(context)'));
       expect(ai, isNot(contains('Models, external AI, or your own API.')));
       expect(ai, isNot(contains('Key stays in secure device storage.')));
+
+      // Cloud credentials and the local Brain switch are independent
+      // capabilities. Saving an API connection must not silently turn off or
+      // suspend an already-selected on-device route.
+      final saveStart = ai.indexOf('Future<void> _save() async');
+      final saveEnd = ai.indexOf('Future<void> _setLocalBrain', saveStart);
+      expect(saveStart, greaterThanOrEqualTo(0));
+      expect(saveEnd, greaterThan(saveStart));
+      final cloudSave = ai.substring(saveStart, saveEnd);
+      expect(cloudSave, contains('localBrainEnabled: localBrainEnabled'));
+      expect(cloudSave, isNot(contains('localBrainEnabled: false')));
+      expect(cloudSave, isNot(contains('await local.suspend();')));
+      expect(ai, contains('Cloud connection saved'));
     },
   );
+
+  test('medicine capture keeps an explicit always-available offline lane', () {
+    final capture = File('lib/ui/medicine_capture.dart').readAsStringSync();
+
+    expect(capture, contains('Scan one pack · Offline Core'));
+    expect(
+      capture,
+      contains('No model download, API key or internet is required.'),
+    );
+    expect(capture, contains('Scan with cloud AI'));
+    expect(
+      capture,
+      contains("Only this scan’s bounded OCR may leave the device."),
+    );
+  });
 }
