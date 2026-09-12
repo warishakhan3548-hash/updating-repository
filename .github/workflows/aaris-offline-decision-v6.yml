@@ -27,7 +27,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply surgical source patch
-        run: python3 tool/one_shot_offline_decision_v6.py
+        run: python3 tool/one_shot_offline_decision_v6_frame_fix.py
 
       - uses: actions/setup-java@v4
         with:
@@ -68,7 +68,7 @@ jobs:
           git checkout -- pubspec.lock 2>/dev/null || true
           git config user.name 'Aaris Pharmacy Upgrade Bot'
           git config user.email 'warishakhan3548@gmail.com'
-          git rm .github/workflows/aaris-offline-decision-v6.yml tool/one_shot_offline_decision_v6.py
+          git rm .github/workflows/aaris-offline-decision-v6.yml tool/one_shot_offline_decision_v6.py tool/one_shot_offline_decision_v6_frame_fix.py
           git add lib/domain/medicine_resolution_v2.dart test/medicine_resolution_v2_test.dart docs/OFFLINE_DECISION_ENGINE_MAP.md
           git diff --cached --check
           git diff --cached --quiet && { echo 'No source upgrade diff produced'; exit 1; }
