@@ -181,6 +181,28 @@ This closes a specific failure mode where a low-confidence OCR field could cross
 a similarity threshold and previously receive the same automation authority as a
 high-confidence field.
 
+## V12 counterfactual variant-discrimination gate
+
+V11 made the parser semantically stronger and the reliability layer compensation-resistant. The remaining high-value failure mode was **missing discriminator evidence**: a winner can be globally coherent while a plausible product from the same medicine family differs in a safety-critical variant field that the pack scan never actually observed.
+
+The original `MedicineProductResolverV2` canonicalization boundary now performs one bounded counterfactual check before auto-fill:
+
+```text
+ranked winner
+  -> inspect at most 7 post-winner hypotheses
+  -> ignore unverified / already contradicted / remote alternatives
+  -> keep only plausible same-family identities
+  -> detect material salt / strength / dosage-form differences
+  -> ask: did reliable observed pack evidence distinguish winner from variant?
+       YES -> existing score + margin + authority + reliability gates continue
+       NO  -> REVIEW / ambiguity; do not invent the missing canonical field
+  -> verified exact barcode/GTIN keeps its separate highest-authority lock path
+```
+
+This is not another wrapper or another model. It changes the original lock boundary itself. Retrieval stays permissive for recall; canonicalization becomes **counterfactual**: before the engine fills a missing critical field, it must be able to explain why the strongest realistic variant is not the scanned product.
+
+The extra cost is constant and bounded: no new database scan, no network call, no LLM, and at most seven already-scored hypotheses are inspected using cached normalized product fields.
+
 ## Performance model
 
 For a non-empty query or product resolution, cost scales with selective postings and bounded candidate/evidence caps rather than the full inventory:
