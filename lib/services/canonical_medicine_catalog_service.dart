@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 import '../domain/gs1_healthcare.dart';
 import '../domain/medicine_resolution_v2.dart';
 import '../domain/medicine_understanding.dart';
+import '../domain/retrieval_fusion.dart';
 import '../domain/search.dart';
 
 /// Identity-only, versioned offline master catalogue.
@@ -137,6 +138,11 @@ CREATE TABLE catalog_deletes (
 
   /// Returns only a tiny scan-targeted candidate set. A 300k+ catalogue never
   /// gets copied into Dart memory or the medicine-understanding isolate.
+  ///
+  /// V7 treats this as a true first-stage retrieval problem instead of mixing
+  /// incomparable raw scores. Exact verified barcodes are pinned. Lexical and
+  /// typo-recovery retrievers remain independent, use information-rich terms,
+  /// and are fused by reciprocal rank before the downstream safety resolver.
   Future<List<CanonicalMedicineProduct>> candidatesForEvidence(
     List<MedicineFrameEvidence> evidence, {
     int limit = _maxCandidateRows,
@@ -145,7 +151,7 @@ CREATE TABLE catalog_deletes (
     try {
       await initialize();
       final boundedLimit = min(max(1, limit), _maxCandidateRows);
-      final votes = <String, double>{};
+      final pinned = <String>{};
       final barcodeKeys = <String>{};
       for (final frame in evidence.take(maxMedicineEvidenceFrames)) {
         for (final value in frame.allBarcodes) {
@@ -155,41 +161,79 @@ CREATE TABLE catalog_deletes (
       }
       if (barcodeKeys.isNotEmpty) {
         final placeholders = List.filled(barcodeKeys.length, '?').join(',');
-        final rows = await _database!.rawQuery(
-          'SELECT product_id FROM catalog_barcodes WHERE normalized IN ($placeholders)',
-          barcodeKeys.toList(growable: false),
-        );
+        final rows = await _database!.rawQuery('''SELECT cb.product_id
+           FROM catalog_barcodes cb
+           INNER JOIN catalog_products p ON p.product_id = cb.product_id
+           WHERE cb.normalized IN ($placeholders)
+             AND p.status = 'active'
+             AND p.verified = 1''', barcodeKeys.toList(growable: false));
         for (final row in rows) {
           final id = row['product_id'];
-          if (id is String) votes[id] = 100;
+          if (id is String) pinned.add(id);
         }
       }
 
-      final terms = _evidenceTerms(evidence).take(28).toList(growable: false);
-      if (terms.isNotEmpty) {
-        final placeholders = List.filled(terms.length, '?').join(',');
-        final rows = await _database!.rawQuery(
-          '''SELECT product_id, SUM(weight) AS score
-             FROM catalog_terms
-             WHERE term IN ($placeholders)
-             GROUP BY product_id
-             ORDER BY score DESC
-             LIMIT ${boundedLimit * 3}''',
-          terms,
+      final rawTerms = _evidenceTerms(evidence)
+          .take(72)
+          .toList(growable: false);
+      final lexicalIds = <String>[];
+      final recoveryIds = <String>[];
+      if (rawTerms.isNotEmpty) {
+        final frequencyPlaceholders = List.filled(
+          rawTerms.length,
+          '?',
+        ).join(',');
+        final frequencyRows = await _database!.rawQuery(
+          '''SELECT ct.term, COUNT(*) AS df
+           FROM catalog_terms ct
+           INNER JOIN catalog_products p ON p.product_id = ct.product_id
+           WHERE ct.term IN ($frequencyPlaceholders)
+             AND p.status = 'active'
+             AND p.verified = 1
+           GROUP BY ct.term''',
+          rawTerms,
         );
-        for (final row in rows) {
-          final id = row['product_id'];
-          final score = row['score'];
-          if (id is! String || score is! num) continue;
-          votes.update(
-            id,
-            (value) => value + score.toDouble(),
-            ifAbsent: () => score.toDouble(),
-          );
+        final documentFrequency = <String, int>{};
+        for (final row in frequencyRows) {
+          final term = row['term'];
+          final frequency = row['df'];
+          if (term is String && frequency is num) {
+            documentFrequency[term] = frequency.toInt();
+          }
         }
 
+        final exactTerms = selectInformationRichTerms(
+          rawTerms,
+          documentFrequency,
+          limit: 20,
+        );
+        if (exactTerms.isNotEmpty) {
+          final placeholders = List.filled(exactTerms.length, '?').join(',');
+          final rows = await _database!.rawQuery(
+            '''SELECT ct.product_id, SUM(ct.weight) AS score
+             FROM catalog_terms ct
+             INNER JOIN catalog_products p ON p.product_id = ct.product_id
+             WHERE ct.term IN ($placeholders)
+               AND p.status = 'active'
+               AND p.verified = 1
+             GROUP BY ct.product_id
+             ORDER BY score DESC, ct.product_id ASC
+             LIMIT ${boundedLimit * 3}''',
+            exactTerms,
+          );
+          for (final row in rows) {
+            final id = row['product_id'];
+            if (id is String) lexicalIds.add(id);
+          }
+        }
+
+        final recoveryTerms = selectRecoveryTerms(
+          rawTerms,
+          documentFrequency,
+          limit: 18,
+        );
         final deleteKeys = <String>{};
-        for (final term in terms.where((value) => value.length >= 4).take(18)) {
+        for (final term in recoveryTerms) {
           for (final value in _deleteKeys(_ocrFoldToken(term)).take(18)) {
             deleteKeys.add(value);
             if (deleteKeys.length >= 120) break;
@@ -199,37 +243,43 @@ CREATE TABLE catalog_deletes (
         if (deleteKeys.isNotEmpty) {
           final placeholders = List.filled(deleteKeys.length, '?').join(',');
           final rows = await _database!.rawQuery(
-            '''SELECT product_id, SUM(weight) AS score
-               FROM catalog_deletes
-               WHERE delete_key IN ($placeholders)
-               GROUP BY product_id
-               ORDER BY score DESC
-               LIMIT ${boundedLimit * 3}''',
+            '''SELECT cd.product_id, SUM(cd.weight) AS score
+             FROM catalog_deletes cd
+             INNER JOIN catalog_products p ON p.product_id = cd.product_id
+             WHERE cd.delete_key IN ($placeholders)
+               AND p.status = 'active'
+               AND p.verified = 1
+             GROUP BY cd.product_id
+             ORDER BY score DESC, cd.product_id ASC
+             LIMIT ${boundedLimit * 3}''',
             deleteKeys.toList(growable: false),
           );
           for (final row in rows) {
             final id = row['product_id'];
-            final score = row['score'];
-            if (id is! String || score is! num) continue;
-            votes.update(
-              id,
-              (value) => value + score.toDouble() * .42,
-              ifAbsent: () => score.toDouble() * .42,
-            );
+            if (id is String) recoveryIds.add(id);
           }
         }
       }
 
-      if (votes.isEmpty) return const <CanonicalMedicineProduct>[];
-      final ranked = votes.entries.toList(growable: false)
+      final fused = reciprocalRankFuse(<RankedRetrievalChannel>[
+        RankedRetrievalChannel(ids: lexicalIds),
+        RankedRetrievalChannel(ids: recoveryIds, weight: .62),
+      ]);
+      if (pinned.isEmpty && fused.isEmpty) {
+        return const <CanonicalMedicineProduct>[];
+      }
+
+      final ranked = fused.entries.toList(growable: false)
         ..sort((a, b) {
           final score = b.value.compareTo(a.value);
           return score != 0 ? score : a.key.compareTo(b.key);
         });
-      final ids = ranked
-          .take(boundedLimit)
-          .map((entry) => entry.key)
-          .toList(growable: false);
+      final pinnedIds = pinned.toList(growable: false)..sort();
+      final ids = <String>[
+        ...pinnedIds,
+        for (final entry in ranked)
+          if (!pinned.contains(entry.key)) entry.key,
+      ].take(boundedLimit).toList(growable: false);
       return await _loadProducts(ids);
     } catch (_) {
       return const <CanonicalMedicineProduct>[];
@@ -241,7 +291,7 @@ CREATE TABLE catalog_deletes (
     final placeholders = List.filled(ids.length, '?').join(',');
     final rows = await _database!.rawQuery(
       '''SELECT * FROM catalog_products
-         WHERE product_id IN ($placeholders) AND status = 'active' ''',
+         WHERE product_id IN ($placeholders) AND status = 'active' AND verified = 1 ''',
       ids,
     );
     if (rows.isEmpty) return const <CanonicalMedicineProduct>[];
@@ -350,9 +400,7 @@ CREATE TABLE catalog_deletes (
           'Catalog delta line must be a JSON object.',
         );
       }
-      final change = _CatalogDelta.fromJson(
-        Map<String, dynamic>.from(decoded),
-      );
+      final change = _CatalogDelta.fromJson(Map<String, dynamic>.from(decoded));
       if (previousRevision >= 0 && change.revision <= previousRevision) {
         throw const FormatException(
           'Catalog revisions must be strictly increasing.',
@@ -397,24 +445,20 @@ CREATE TABLE catalog_deletes (
               whereArgs: <Object?>[change.productId, change.revision],
             );
             if (changed == 0) {
-              await txn.insert(
-                'catalog_products',
-                {
-                  'product_id': change.productId,
-                  'rev': change.revision,
-                  'status': 'deprecated',
-                  'name': '',
-                  'brand': '',
-                  'salt': '',
-                  'strength': '',
-                  'form': '',
-                  'manufacturer': '',
-                  'source': 'master',
-                  'verified': 0,
-                  'prior_weight': 0.0,
-                },
-                conflictAlgorithm: ConflictAlgorithm.ignore,
-              );
+              await txn.insert('catalog_products', {
+                'product_id': change.productId,
+                'rev': change.revision,
+                'status': 'deprecated',
+                'name': '',
+                'brand': '',
+                'salt': '',
+                'strength': '',
+                'form': '',
+                'manufacturer': '',
+                'source': 'master',
+                'verified': 0,
+                'prior_weight': 0.0,
+              }, conflictAlgorithm: ConflictAlgorithm.ignore);
             }
             break;
         }
@@ -422,16 +466,14 @@ CREATE TABLE catalog_deletes (
         applied++;
       }
       finalRevision = current;
-      await txn.insert(
-        'catalog_meta',
-        {'key': 'last_applied_revision', 'value': '$current'},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-      await txn.insert(
-        'catalog_meta',
-        {'key': 'last_delta_sha256', 'value': actual},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await txn.insert('catalog_meta', {
+        'key': 'last_applied_revision',
+        'value': '$current',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await txn.insert('catalog_meta', {
+        'key': 'last_delta_sha256',
+        'value': actual,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
     return CatalogDeltaApplyResult(
       applied: applied,
@@ -463,24 +505,20 @@ CREATE TABLE catalog_deletes (
       return;
     }
 
-    await txn.insert(
-      'catalog_products',
-      {
-        'product_id': product.productId,
-        'rev': product.revision,
-        'status': product.status,
-        'name': product.name,
-        'brand': product.brand,
-        'salt': product.salt,
-        'strength': product.strength,
-        'form': product.form,
-        'manufacturer': product.manufacturer,
-        'source': product.source,
-        'verified': product.verified ? 1 : 0,
-        'prior_weight': product.priorWeight.clamp(0, 1),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await txn.insert('catalog_products', {
+      'product_id': product.productId,
+      'rev': product.revision,
+      'status': product.status,
+      'name': product.name,
+      'brand': product.brand,
+      'salt': product.salt,
+      'strength': product.strength,
+      'form': product.form,
+      'manufacturer': product.manufacturer,
+      'source': product.source,
+      'verified': product.verified ? 1 : 0,
+      'prior_weight': product.priorWeight.clamp(0, 1),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     for (final table in const <String>[
       'catalog_aliases',
       'catalog_barcodes',
@@ -501,53 +539,37 @@ CREATE TABLE catalog_deletes (
     for (final pair in aliases.take(48)) {
       final normalized = searchText(pair.$2);
       if (normalized.isEmpty) continue;
-      await txn.insert(
-        'catalog_aliases',
-        {
-          'product_id': product.productId,
-          'kind': pair.$1,
-          'value': pair.$2,
-          'normalized': normalized,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      await txn.insert('catalog_aliases', {
+        'product_id': product.productId,
+        'kind': pair.$1,
+        'value': pair.$2,
+        'normalized': normalized,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
     for (final value in product.barcodes.take(12)) {
       final normalized = _barcodeKey(value);
       if (normalized.isEmpty) continue;
-      await txn.insert(
-        'catalog_barcodes',
-        {
-          'product_id': product.productId,
-          'value': value,
-          'normalized': normalized,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      await txn.insert('catalog_barcodes', {
+        'product_id': product.productId,
+        'value': value,
+        'normalized': normalized,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
 
     final weightedTerms = _catalogTerms(product);
     for (final entry in weightedTerms.entries.take(160)) {
-      await txn.insert(
-        'catalog_terms',
-        {
-          'product_id': product.productId,
-          'term': entry.key,
-          'weight': entry.value,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await txn.insert('catalog_terms', {
+        'product_id': product.productId,
+        'term': entry.key,
+        'weight': entry.value,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
       if (entry.key.length < 4 || entry.key.length > 28) continue;
       for (final deletion in _deleteKeys(entry.key).take(28)) {
-        await txn.insert(
-          'catalog_deletes',
-          {
-            'product_id': product.productId,
-            'delete_key': deletion,
-            'weight': entry.value,
-          },
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
+        await txn.insert('catalog_deletes', {
+          'product_id': product.productId,
+          'delete_key': deletion,
+          'weight': entry.value,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
       }
     }
   }
@@ -705,6 +727,28 @@ Set<String> _evidenceTerms(List<MedicineFrameEvidence> evidence) {
       result.add(token);
       result.add(_ocrFoldToken(token));
     }
+
+    for (final rawLine in frame.text.split(RegExp(r'[\r\n]+')).take(48)) {
+      final line = searchText(rawLine);
+      if (line.isEmpty) continue;
+      final useful = line
+          .split(' ')
+          .where((value) => value.length >= 2 && !_catalogNoise.contains(value))
+          .take(8)
+          .toList(growable: false);
+      for (var width = 2; width <= min(3, useful.length); width++) {
+        for (var start = 0; start + width <= useful.length; start++) {
+          final phrase = useful.sublist(start, start + width).join();
+          if (phrase.length < 4 || phrase.length > 28) continue;
+          result.add(phrase);
+          result.add(_ocrFoldToken(phrase));
+          if (result.length >= 192) break;
+        }
+        if (result.length >= 192) break;
+      }
+      if (result.length >= 192) break;
+    }
+
     for (var start = 0; start < tokens.length;) {
       if (tokens[start].length != 1 ||
           !RegExp(r'^[a-z]$').hasMatch(tokens[start])) {
@@ -723,13 +767,9 @@ Set<String> _evidenceTerms(List<MedicineFrameEvidence> evidence) {
       if (buffer.length >= 3) result.add(buffer.toString());
       start = max(start + 1, end);
     }
+    if (result.length >= 192) break;
   }
-  final ranked = result.toList(growable: false)
-    ..sort((a, b) {
-      final length = b.length.compareTo(a.length);
-      return length != 0 ? length : a.compareTo(b);
-    });
-  return ranked.take(64).toSet();
+  return result.take(96).toSet();
 }
 
 Iterable<String> _deleteKeys(String value) sync* {
