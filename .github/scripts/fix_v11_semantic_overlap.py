@@ -19,8 +19,8 @@ replace_once(
     '''    final windows = _compositionWindows(lines);\n    final frameComponents = <String, _ComponentCandidate>{};\n    for (final window in windows) {\n      for (final component in _parseComposition(window, quality)) {\n        final key = searchText(component.ingredient);\n        if (key.length < 3) continue;\n        final old = frameComponents[key];\n        if (old == null || component.confidence > old.confidence) {\n          frameComponents[key] = component;\n        }\n      }\n    }\n    for (final component in frameComponents.values) {\n      rememberComponent(component);\n    }\n''',
 )
 
-# Explicit role labels are already handled above. Do not feed the label-bearing
-# line back into the generic prominent-heading brand heuristic.
+# Explicit role labels are already handled above. Do not feed label-bearing
+# lines back into the generic prominent-heading brand heuristic.
 replace_once(
     '''      if (_compositionCue.hasMatch(normalized) ||\n          _semanticLegalNoise.hasMatch(normalized) ||\n''',
     '''      if (_compositionCue.hasMatch(normalized) ||\n          _brandLabel.hasMatch(normalized) ||\n          _genericLabel.hasMatch(normalized) ||\n          _semanticLegalNoise.hasMatch(normalized) ||\n''',
@@ -34,11 +34,18 @@ new_windows = '''List<String> _compositionWindows(List<_SemanticLine> lines) {\n
 replace_once(old_windows, new_windows)
 
 # "Generic Name" is semantic identity evidence, not a composition-section
-# opener. It remains handled by _genericLabel without swallowing later lines.
-replace_once(
-    r'''final _compositionCue = RegExp(\n  r'\\b(?:composition|active\\s+ingredients?|generic\\s+name|each\\s+(?:film\\s*coated\\s+)?(?:tablet|capsule|5\\s*ml)[^\\n]{0,32}\\bcontains?)\\b',\n  caseSensitive: false,\n);''',
-    r'''final _compositionCue = RegExp(\n  r'\\b(?:composition|active\\s+ingredients?|each\\s+(?:film\\s*coated\\s+)?(?:tablet|capsule|5\\s*ml)[^\\n]{0,32}\\bcontains?)\\b',\n  caseSensitive: false,\n);''',
-)
+# opener. Patch only the _compositionCue declaration so the generic label itself
+# remains available to _genericLabel.
+start = text.find('final _compositionCue = RegExp(')
+end = text.find('final _compositionStop = RegExp(', start)
+if start < 0 or end < 0:
+    raise SystemExit('composition cue section not found')
+section = text[start:end]
+needle = r'generic\s+name|'
+if section.count(needle) != 1:
+    raise SystemExit(f'expected one generic-name composition alternative, found {section.count(needle)}')
+section = section.replace(needle, '', 1)
+text = text[:start] + section + text[end:]
 
 path.write_text(text)
 print('V11 overlapping semantic evidence guard applied')
