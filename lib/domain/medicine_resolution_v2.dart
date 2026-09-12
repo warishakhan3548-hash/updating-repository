@@ -3,6 +3,7 @@ import 'dart:math';
 import 'gs1_healthcare.dart';
 import 'medicine.dart';
 import 'medicine_confusion_firewall.dart';
+import 'medicine_date_intelligence.dart';
 import 'medicine_understanding.dart';
 import 'offline_decision_reliability.dart';
 import 'offline_evidence_graph.dart';
@@ -245,7 +246,8 @@ class MedicineProductResolverV2 {
           .toList(growable: false);
       final spatialSafe = _applySpatialTraceability(draft, frames);
       final regulatorySafe = _applyRegulatoryTraceability(spatialSafe, frames);
-      drafts.add(_resolveProduct(regulatorySafe, frames));
+      final temporalSafe = _applyDateIntelligence(regulatorySafe, frames);
+      drafts.add(_resolveProduct(temporalSafe, frames));
     }
     return MedicineUnderstandingResult(
       drafts: List<MedicineScanDraft>.unmodifiable(drafts),
@@ -1411,6 +1413,82 @@ MedicineScanDraft _markProductAmbiguity(
     draft,
     fields: fields,
     overallConfidence: min(draft.overallConfidence, .77),
+  );
+}
+
+MedicineScanDraft _applyDateIntelligence(
+  MedicineScanDraft draft,
+  List<MedicineFrameEvidence> frames,
+) {
+  final intelligence = inferMedicineDateIntelligence(
+    frames: frames,
+    referenceDate: DateTime.now(),
+    existingMfg: draft.mfg,
+    existingExpiry: draft.expiry,
+    existingMfgConfidence: draft.field('mfg').confidence,
+    existingExpiryConfidence: draft.field('expiry').confidence,
+  );
+  if (intelligence.isEmpty) return draft;
+
+  final fields = Map<String, ExtractedMedicineField>.of(draft.fields);
+
+  void apply(String key, MedicineDateEvidence? suggestion) {
+    if (suggestion == null || suggestion.confidence < .78) return;
+    final current = fields[key];
+    final currentDate = current == null
+        ? null
+        : parseMedicineDateText(current.value);
+    final same = currentDate?.value == suggestion.date.value;
+    if (same) {
+      fields[key] = ExtractedMedicineField(
+        value: suggestion.date.value,
+        confidence: max(current?.confidence ?? 0, suggestion.confidence),
+        support: max(current?.support ?? 0, suggestion.support),
+        conflicted: current?.conflicted == true,
+      );
+      return;
+    }
+
+    if (current != null && !current.isEmpty && current.confidence >= .86) {
+      fields[key] = ExtractedMedicineField(
+        value: current.value,
+        confidence: min(current.confidence, .84),
+        support: max(current.support, suggestion.support),
+        conflicted: true,
+      );
+      return;
+    }
+
+    fields[key] = ExtractedMedicineField(
+      value: suggestion.date.value,
+      confidence: suggestion.confidence.clamp(.78, .96).toDouble(),
+      support: max(current?.support ?? 0, suggestion.support),
+      conflicted: false,
+    );
+  }
+
+  apply('mfg', intelligence.manufacturing);
+  apply('expiry', intelligence.expiry);
+
+  if (intelligence.conflicted) {
+    for (final key in const <String>['mfg', 'expiry']) {
+      final field = fields[key];
+      if (field == null || field.isEmpty) continue;
+      fields[key] = ExtractedMedicineField(
+        value: field.value,
+        confidence: min(field.confidence, .80),
+        support: field.support,
+        conflicted: true,
+      );
+    }
+  }
+
+  return _copyDraft(
+    draft,
+    fields: fields,
+    overallConfidence: intelligence.conflicted
+        ? min(draft.overallConfidence, .77)
+        : draft.overallConfidence,
   );
 }
 

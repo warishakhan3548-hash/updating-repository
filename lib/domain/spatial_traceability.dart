@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'medicine_date_intelligence.dart';
 import 'medicine_understanding.dart';
 import 'offline_evidence_graph.dart';
 import 'search.dart';
@@ -187,49 +188,8 @@ String _extractBatch(String raw) {
 }
 
 String _extractDate(String raw) {
-  final value = raw.trim();
-  if (value.isEmpty) return '';
-
-  final yearFirst = RegExp(
-    r'(?<!\d)(20\d{2})[-/.](0?[1-9]|1[0-2])(?:[-/.]([0-2]?\d|3[01]))?(?!\d)',
-  ).firstMatch(value);
-  if (yearFirst != null) {
-    final year = int.parse(yearFirst.group(1)!);
-    final month = int.parse(yearFirst.group(2)!);
-    final dayText = yearFirst.group(3);
-    return _isoDate(year, month, dayText == null ? 0 : int.parse(dayText));
-  }
-
-  final full = RegExp(
-    r'(?<!\d)([0-2]?\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](\d{2}|20\d{2})(?!\d)',
-  ).firstMatch(value);
-  if (full != null) {
-    final day = int.parse(full.group(1)!);
-    final month = int.parse(full.group(2)!);
-    final rawYear = int.parse(full.group(3)!);
-    final year = full.group(3)!.length == 2 ? 2000 + rawYear : rawYear;
-    return _isoDate(year, month, day);
-  }
-
-  final monthYear = RegExp(r'(?<!\d)(0?[1-9]|1[0-2])[-/.](\d{2}|20\d{2})(?!\d)')
-      .firstMatch(value);
-  if (monthYear != null) {
-    final month = int.parse(monthYear.group(1)!);
-    final rawYear = int.parse(monthYear.group(2)!);
-    final year = monthYear.group(2)!.length == 2 ? 2000 + rawYear : rawYear;
-    return _isoDate(year, month, 0);
-  }
-  return '';
-}
-
-String _isoDate(int year, int month, int day) {
-  if (year < 2000 || year > 2099 || month < 1 || month > 12) return '';
-  if (day == 0) {
-    return '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}';
-  }
-  final date = DateTime.utc(year, month, day);
-  if (date.year != year || date.month != month || date.day != day) return '';
-  return '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+  final parsed = parseMedicineDateText(raw);
+  return parsed?.value ?? '';
 }
 
 double _geometryScore(
