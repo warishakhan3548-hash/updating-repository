@@ -118,6 +118,10 @@ and the existing Confirm/Add review requirement. No privacy check was removed.
 
 ## Verification and limits
 
+This section describes the earlier date/chat change. For the subsequent
+scan/photo upgrade and its explicitly local-only, CI/APK-skipped verification,
+see [SMART_CAPTURE_2026_09_12.md](SMART_CAPTURE_2026_09_12.md).
+
 Standalone checks run with Dart 3.13.2:
 
 - `dart tool/check_offline_capture_context.dart`: compact/invalid/Unicode dates,

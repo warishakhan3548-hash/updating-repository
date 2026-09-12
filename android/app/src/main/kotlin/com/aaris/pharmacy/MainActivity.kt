@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.database.Cursor
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -21,6 +22,7 @@ import java.io.FileOutputStream
 import java.io.ByteArrayOutputStream
 import java.text.NumberFormat
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import java.nio.charset.StandardCharsets
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -34,6 +36,7 @@ class MainActivity : FlutterActivity() {
     private val pickVideoRequest = 4073
     private var pendingTextResult: MethodChannel.Result? = null
     private var pendingMediaResult: MethodChannel.Result? = null
+    private val photoMetricsBusy = AtomicBoolean(false)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -64,6 +67,29 @@ class MainActivity : FlutterActivity() {
                         }.start()
                     }
                     "pickTextDocument" -> pickTextDocument(result)
+                    "measureImageQuality" -> {
+                        val path = call.argument<String>("path").orEmpty()
+                        if (!photoMetricsBusy.compareAndSet(false, true)) {
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            // Optional capture hint only; decoding failure does not
+                            // change OCR success or retain a full-size bitmap.
+                            val metrics = try {
+                                photoMetrics(path)
+                            } catch (_: Exception) {
+                                null
+                            } catch (_: OutOfMemoryError) {
+                                null
+                            } finally {
+                                photoMetricsBusy.set(false)
+                            }
+                            runOnUiThread { result.success(metrics?.let {
+                                mapOf("quality" to it.quality)
+                            }) }
+                        }.start()
+                    }
                     "pickImportSource" -> {
                         val kind = call.argument<String>("kind")
                         pickImportSource(kind, result)
@@ -516,6 +542,29 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {
             false
         }
+    }
+
+    private fun photoMetrics(path: String): FrameMetrics? {
+        if (path.isBlank()) return null
+        val target = File(path).canonicalFile
+        val roots = listOf(cacheDir, filesDir, File(applicationInfo.dataDir, "app_flutter"))
+        if (!target.isFile || target.length() > 40_000_000L || roots.none {
+            target.path.startsWith(it.canonicalPath + File.separator)
+        }) return null
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(target.path, options)
+        if (options.outWidth <= 0 || options.outHeight <= 0 ||
+            options.outWidth > 32768 || options.outHeight > 32768) return null
+        // Read bounds first; at most ~512x512 pixels for this advisory metric.
+        // Full-resolution OCR still receives the original unmodified image.
+        var sample = 1
+        while (maxOf(options.outWidth, options.outHeight) / sample > 512) sample *= 2
+        options.inSampleSize = sample
+        options.inJustDecodeBounds = false
+        options.inScaled = false
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888
+        val bitmap = BitmapFactory.decodeFile(target.path, options) ?: return null
+        return try { imageMetrics(bitmap) } finally { bitmap.recycle() }
     }
 
     private fun imageMetrics(bitmap: Bitmap): FrameMetrics {

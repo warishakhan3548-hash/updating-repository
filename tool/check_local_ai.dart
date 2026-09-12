@@ -212,9 +212,7 @@ void main() {
     'Bounded prose wrapper recovery',
   );
   rejects(
-    () => ctx.finish(
-      localChatObject('{"actions":[{"op":"remove"}]} broken'),
-    ),
+    () => ctx.finish(localChatObject('{"actions":[{"op":"remove"}]} broken')),
     'Prose-wrapped action cannot bypass authoritative envelope',
   );
   check(
@@ -234,6 +232,13 @@ void main() {
       'salt': {'value': 'Paracetamol', 'quote': 'Paracetamol 650 mg'},
       'expiry': {'value': '2026-08', 'quote': 'MFG 08/2026'},
     },
+    'ingredients': [
+      {
+        'salt': 'Paracetamol',
+        'strength': '650 mg',
+        'quote': 'Paracetamol 650 mg',
+      },
+    ],
   });
   check(corrected.salt == 'Paracetamol', 'Evidence-bound semantic label');
   check(
@@ -387,8 +392,7 @@ void main() {
   );
   const combo = MedicineScanDraft(
     fields: {},
-    rawText:
-        'Rifampicin 150 mg Isoniazid 75 mg Pyrazinamide 400 mg Ethambutol 275 mg',
+    rawText: 'Rifampicin 150 mg Isoniazid 75 mg Pyrazinamide 400 mg Ethambutol 275 mg',
     searchKeywords: '',
     frameSequences: [1],
   );
@@ -491,7 +495,7 @@ void main() {
   );
   rejects(
     () => validateLocalScan(
-      source('Header 5 mg\n${'x' * 7001}\nCefixime 200 mg'),
+      source('Header 5 mg\n${'x' * 7001} Cefixime 200 mg'),
       pair('Cefixime', '200 mg', 'Cefixime 200 mg'),
     ),
     'Unseen evidence outside model excerpt',
@@ -532,7 +536,7 @@ void main() {
   );
   rejects(
     () => validateLocalScan(
-      source('Header 5 mg\n${'x' * 2000}\nCefixime 200 mg'),
+      source('Header 5 mg\n${'x' * 2000} Cefixime 200 mg'),
       pair('Cefixime', '200 mg', 'Cefixime 200 mg'),
       sourceLimit: 1800,
     ),

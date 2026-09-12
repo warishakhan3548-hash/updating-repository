@@ -133,8 +133,10 @@ class MedicineFrameEvidence {
       timestampMs: map['timestampMs'] is int
           ? map['timestampMs']! as int
           : null,
-      quality: map['quality'] is num
+      quality: map['quality'] is num && (map['quality']! as num).isFinite
           ? (map['quality']! as num).toDouble().clamp(0, 1)
+          : map['quality'] is num
+          ? .65
           : 1,
       startsNewItem: map['startsNewItem'] == true,
     );
@@ -644,7 +646,9 @@ class MedicineUnderstandingEngine {
       if (key.length < 2 || !seen.add(key)) continue;
       lines.add(line);
     }
-    final quality = frame.quality.clamp(0, 1).toDouble();
+    final quality = frame.quality.isFinite
+        ? frame.quality.clamp(0, 1).toDouble()
+        : .65;
     final richness =
         (lines.fold<int>(0, (sum, line) => sum + line.length) / 180)
             .clamp(0, 1)

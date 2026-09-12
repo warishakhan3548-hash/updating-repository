@@ -15,9 +15,11 @@ become a second inventory authority.
 | `lib/domain/` | `medicine_resolution_v2.dart`, `medicine_semantic_roles.dart`, `offline_evidence_graph.dart`, `offline_decision_reliability.dart` | Product-level recognition, independent evidence, ingredient roles and contradiction gates |
 | `lib/domain/` | `ai_protocol.dart`, `local_ai_protocol.dart` | Reviewed mutations, paged read tools, exact IDs and evidence quotes |
 | `lib/domain/` | `local_scan_handoff.dart`, `medicine_scan_commit.dart` | Evidence-only scan handoff and authoritative scan-to-stock commit gates |
+| `lib/domain/` | `medicine_ocr_text.dart`, `capture_quality.dart`, `local_scan_evidence.dart` | Conservative OCR deduplication, bounded luminance sampling and complete-line source excerpts |
 | `lib/domain/` | `local_model.dart`, `medicine_intake.dart` | Model manifests, persistent job state and video carry/scheduling |
 | `lib/services/` | `ai_service.dart`, `local_ai_service.dart`, `local_ai_service_io.dart`, `local_ai_runtime.dart` | Explicit chat routing, model store and exclusive in-process inference |
 | `lib/services/` + `lib/domain/` | `local_chat_turn.dart`, `local_context_budget.dart` | Bounded read-tool loop and fresh-chat recovery from exact native token counts |
+| `lib/services/` | `local_scan_turn.dart` | Fresh scan prompts with at most four native admission attempts; exact evidence validation after re-budgeting |
 | `lib/services/` | `cloud_scan_ai_service.dart` | Explicit bounded OCR handoff to the configured Gemini/OpenAI-compatible API; no inventory export/write |
 | `lib/services/` | `scan_service.dart`, `media_import_service.dart`, `medicine_intake_service.dart` | Shared OCR, bounded video windows and durable local draft queue |
 | `lib/services/` | `search_worker.dart`, `backup_service.dart` | Background search and explicit backup/import |
@@ -148,11 +150,22 @@ For conversational inventory control:
 - `LocalScanHandoff` + `validateLocalScan()` are the model-to-OCR-evidence
   intersection. Local and cloud extraction converge here instead of trusting a
   provider-specific schema directly.
+- `medicine_ocr_text.dart` preserves differing dose/date readings instead of
+  fuzzy-merging them. `LocalScanEvidence` keeps selected spans in source order,
+  with explicit gaps and complete lines; field and ingredient quotes cannot
+  bridge omitted text. `local_scan_turn.dart` only retries exact pre-inference
+  context-budget failures, not invalid answers or cancelled work.
+- `CaptureQuality` reads at most 1024 camera pixels with validated strides.
+  Android photo metrics reuse the video scoring function on a bounded decode;
+  missing metrics cannot suppress OCR. The original image remains unchanged.
 - `medicine_scan_commit.dart` + `PharmacyController` are the final scan-to-stock
   boundary. AI previews cannot bypass duplicate/date/revision checks.
 
 The [September 12 date/context audit](OFFLINE_CAPTURE_CONTEXT_2026_09_12.md)
 records the root causes, exact changed paths, safety cases and verification limits.
+The [smart-capture upgrade](SMART_CAPTURE_2026_09_12.md) records subsequent
+scan admission, OCR merge and image-quality changes, verified locally with CI/APK
+explicitly skipped for this delivery.
 
 ## Safety invariants
 

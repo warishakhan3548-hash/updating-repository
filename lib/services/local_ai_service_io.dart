@@ -14,13 +14,13 @@ import '../domain/local_ai_protocol.dart';
 import '../domain/gguf_metadata.dart';
 import '../domain/local_model.dart';
 import '../domain/local_model_checks.dart';
-import '../domain/local_scan_handoff.dart';
 import '../domain/model_catalogue.dart';
 import 'gguf_inspector.dart';
 import 'model_catalogue_service.dart';
 import '../domain/medicine_understanding.dart';
 import 'local_ai_runtime.dart';
 import 'local_chat_turn.dart';
+import 'local_scan_turn.dart';
 
 class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   static final instance = LocalAiService();
@@ -888,26 +888,24 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     return _exclusive((generation) async {
       await _loadSelected(requestGeneration: generation);
       _checkRequest(generation);
-      final sourceLimit = _executionPlan!.evidenceCharacters;
-      final handoff = LocalScanHandoff.fromDraft(
-        draft,
-        sourceLimit: sourceLimit,
-      );
-      _status = handoff.sourceTruncated
-          ? 'Local AI · reasoning over bounded raw OCR for scan preview…'
-          : 'Local AI · reasoning over raw OCR for scan preview…';
-      notifyListeners();
-      final raw = await _runtime!.generate(
-        handoff.systemPrompt,
-        handoff.userPayload,
-        maxTokens: _executionPlan!.outputTokens.clamp(1, 1000),
+      final result = await runLocalScanTurn(
+        draft: draft,
+        sourceLimit: _executionPlan!.evidenceCharacters,
+        outputTokens: _executionPlan!.outputTokens.clamp(1, 1000),
+        checkCurrent: () => _checkRequest(generation),
+        onAttempt: (handoff, attempt) {
+          _status = attempt > 0
+              ? 'Local AI · fitting scan evidence to this phone’s context…'
+              : 'Local AI · verifying ${handoff.sourceCharacters} OCR characters for preview…';
+          notifyListeners();
+        },
+        generate: (handoff, budget) => _runtime!.generate(
+          handoff.systemPrompt,
+          handoff.userPayload,
+          maxTokens: budget,
+        ),
       );
       _checkRequest(generation);
-      final result = validateLocalScan(
-        draft,
-        localJsonObject(raw),
-        sourceLimit: sourceLimit,
-      );
       _status = 'AI scan evidence verified · deterministic save gate deciding next step';
       notifyListeners();
       return result;

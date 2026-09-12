@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 import '../domain/medicine_resolution_v2.dart';
+import '../domain/capture_quality.dart';
 import '../domain/medicine_understanding.dart';
 import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
@@ -50,6 +51,7 @@ class _ScannerScreenState extends State<ScannerScreen>
   int _generation = 0;
   int _scanSequence = 0;
   String _text = '', _barcode = '', _error = '';
+  String _qualityHint = '';
   final List<ScanEvidence> _evidence = <ScanEvidence>[];
   bool _manualOnly = false;
   @override
@@ -134,7 +136,16 @@ class _ScannerScreenState extends State<ScannerScreen>
       return;
     }
     _lastFrame = DateTime.now();
-    _frameWork = _recognize(input);
+    final bgra = defaultTargetPlatform != TargetPlatform.android;
+    final quality = CaptureQuality.fromPlane(
+      bytes: image.planes.first.bytes,
+      width: image.width,
+      height: image.height,
+      bytesPerRow: image.planes.first.bytesPerRow,
+      pixelStride: bgra ? 4 : 1,
+      bgra: bgra,
+    );
+    _frameWork = _recognize(input, quality: quality);
   }
 
   InputImage? _inputImage(CameraImage image) {
@@ -172,7 +183,12 @@ class _ScannerScreenState extends State<ScannerScreen>
     );
   }
 
-  Future<void> _recognize(InputImage input, {String? source}) async {
+  Future<void> _recognize(
+    InputImage input, {
+    String? source,
+    CaptureQuality? quality,
+    String? qualityPath,
+  }) async {
     if (_busy || _closed) return;
     _busy = true;
     final generation = _generation;
@@ -183,8 +199,15 @@ class _ScannerScreenState extends State<ScannerScreen>
         input,
         source: source ?? 'Live camera frame ${sequence + 1}',
         sequence: sequence,
+        quality: quality?.score,
+        qualityPath: qualityPath,
       );
       if (_closed || !mounted || generation != _generation) return;
+      final hint =
+          quality?.guidance ??
+          (result.quality < .28
+              ? 'Try a closer, steadier photo with even light.'
+              : '');
       if (result.text.isNotEmpty || result.barcode.isNotEmpty) {
         final evidence = <ScanEvidence>[..._evidence, result];
         if (evidence.length > 18) {
@@ -217,7 +240,10 @@ class _ScannerScreenState extends State<ScannerScreen>
           _text = current?.rawText ?? result.text;
           _barcode = current?.barcode ?? result.barcode;
           _error = '';
+          _qualityHint = hint;
         });
+      } else if (_qualityHint != hint) {
+        setState(() => _qualityHint = hint);
       }
     } catch (e) {
       if (mounted && !_closed && _capturing)
@@ -257,6 +283,7 @@ class _ScannerScreenState extends State<ScannerScreen>
         await _recognize(
           InputImage.fromFilePath(photo.path),
           source: 'Captured still photo',
+          qualityPath: photo.path,
         );
         if (widget.autoSubmit &&
             mounted &&
@@ -432,7 +459,9 @@ class _ScannerScreenState extends State<ScannerScreen>
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            _manualOnly
+                            _qualityHint.isNotEmpty
+                                ? _qualityHint
+                                : _manualOnly
                                 ? 'Tap Capture text to read the label.'
                                 : 'Barcode and label text are read together.',
                             textAlign: TextAlign.center,
