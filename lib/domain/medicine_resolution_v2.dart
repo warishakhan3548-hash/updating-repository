@@ -304,11 +304,12 @@ class MedicineProductResolverV2 {
     final evidenceQuality = _resolverDecisionEvidenceQuality(winner, draft);
     final requiredScore = _resolverRequiredLockScore(winner, evidenceQuality);
     final requiredMargin = _resolverRequiredLockMargin(winner, evidenceQuality);
+    final requiredDecisionMass = _resolverRequiredDecisionMass(evidenceQuality);
     final calibratedLock =
         winner.product.verified &&
         winner.score >= requiredScore &&
         winner.channels >= 2 &&
-        winner.decisionMass >= _resolverMinimumDecisionMass &&
+        winner.decisionMass >= requiredDecisionMass &&
         margin >= requiredMargin &&
         winner.hardConflicts == 0;
 
@@ -739,11 +740,17 @@ class _IdentityConsensus {
     required this.score,
     required this.bestRawScore,
     required this.strongSources,
+    required this.decisionConfidence,
   });
 
   final double score;
   final double bestRawScore;
   final int strongSources;
+
+  /// Confidence of evidence that actually produced a strong match against this
+  /// product. This is product-specific: unrelated high-quality frames cannot
+  /// lend authority to another candidate.
+  final double decisionConfidence;
 }
 
 _IdentityConsensus _scoreIdentityConsensus(
@@ -773,6 +780,7 @@ _IdentityConsensus _scoreIdentityConsensus(
   }
 
   final frameScores = <double>[];
+  var strongestMatchedFrameQuality = 0.0;
   final seenFrameFingerprints = <String>{};
   var remainingIdentityLines = 32;
   for (final frame in frames.take(8)) {
@@ -785,7 +793,8 @@ _IdentityConsensus _scoreIdentityConsensus(
         .toList(growable: false);
     if (rawLines.isEmpty) continue;
     final fingerprint = searchText(rawLines.join(' ')).replaceAll(' ', '');
-    if (fingerprint.isEmpty || !seenFrameFingerprints.add(fingerprint)) continue;
+    if (fingerprint.isEmpty || !seenFrameFingerprints.add(fingerprint))
+      continue;
 
     // Preserve independent-frame corroboration without letting video length
     // multiply expensive similarity work. At most 32 OCR lines globally reach
@@ -798,7 +807,11 @@ _IdentityConsensus _scoreIdentityConsensus(
     bestRaw = max(bestRaw, raw);
     if (raw < .52) continue;
     final quality = frame.quality.clamp(0, 1).toDouble();
-    frameScores.add(raw * (.90 + quality * .10));
+    final frameScore = raw * (.90 + quality * .10);
+    frameScores.add(frameScore);
+    if (frameScore >= .78) {
+      strongestMatchedFrameQuality = max(strongestMatchedFrameQuality, quality);
+    }
   }
   frameScores.sort((a, b) => b.compareTo(a));
 
@@ -816,10 +829,21 @@ _IdentityConsensus _scoreIdentityConsensus(
 
   final structuredStrong = structuredScore >= .78 ? 1 : 0;
   final strongSources = max(structuredStrong, strongFrameScores.length);
+  final structuredConfidence = structuredStrong > 0
+      ? max(
+          draft.field('name').confidence,
+          draft.field('brand').confidence,
+        ).clamp(0, 1).toDouble()
+      : 0.0;
+  final decisionConfidence = max(
+    structuredConfidence,
+    strongestMatchedFrameQuality,
+  ).clamp(0, 1).toDouble();
   return _IdentityConsensus(
     score: score.clamp(0, .999).toDouble(),
     bestRawScore: bestRaw.clamp(0, 1).toDouble(),
     strongSources: strongSources,
+    decisionConfidence: decisionConfidence,
   );
 }
 
@@ -843,6 +867,29 @@ class _ProductHypothesis {
   final int hardConflicts;
   final bool exactBarcode;
   final bool strongIdentity;
+}
+
+/// Converts parser confidence into decision authority without changing the
+/// similarity score used for candidate ordering. Evidence below 0.35 is useful
+/// for search/review, but it is too uncertain to authorize canonical auto-fill.
+/// Above that floor, authority rises continuously instead of jumping at one
+/// binary threshold.
+double _resolverEvidenceReliability(double confidence) {
+  final value = confidence.clamp(0, 1).toDouble();
+  if (value < .35) return 0;
+  return (.20 + value * .80).clamp(0, 1).toDouble();
+}
+
+/// Similarity gates still establish whether a clue agrees. Once it agrees, this
+/// function gives near-threshold matches slightly less authority than exact
+/// matches. The narrow 0.90..1.00 range preserves existing high-quality behavior
+/// while preventing borderline fuzzy evidence from pretending to be exact.
+double _resolverAgreementReliability(double similarity, double threshold) {
+  if (similarity < threshold || threshold >= 1) return 0;
+  final normalized = ((similarity - threshold) / (1 - threshold))
+      .clamp(0, 1)
+      .toDouble();
+  return (.90 + normalized * .10).clamp(0, 1).toDouble();
 }
 
 _ProductHypothesis _scoreProduct(
@@ -903,8 +950,13 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .36;
     if (bestIdentity >= .78) {
       channels++;
-      decisionMass += .36;
-      if (identity.strongSources >= 2) decisionMass += .02;
+      final identityAuthority =
+          _resolverEvidenceReliability(identity.decisionConfidence) *
+          _resolverAgreementReliability(bestIdentity, .78);
+      decisionMass += .36 * identityAuthority;
+      if (identity.strongSources >= 2) {
+        decisionMass += .02 * identityAuthority;
+      }
     }
   }
   final nameField = draft.field('name');
@@ -920,7 +972,10 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .19;
     if (salt >= .88) {
       channels++;
-      decisionMass += .19;
+      final saltAuthority =
+          _resolverEvidenceReliability(draft.field('salt').confidence) *
+          _resolverAgreementReliability(salt, .88);
+      decisionMass += .19 * saltAuthority;
     }
     if (draft.field('salt').confidence >= .86 && salt < .62) hardConflicts++;
   }
@@ -934,7 +989,18 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .18;
     if (agrees) {
       channels++;
-      decisionMass += .18;
+      final strengthConfidence = draft.field('strength').confidence;
+      final baseStrengthAuthority = _resolverEvidenceReliability(
+        strengthConfidence,
+      );
+      // The parser already treats confidence >= .65 as trustworthy enough to
+      // hard-veto a contradictory strength. Apply the same trust symmetrically
+      // when the normalized strength exactly agrees with the product; otherwise
+      // a correct 500 mg clue is paradoxically weaker than an incorrect one.
+      final strengthAuthority = strengthConfidence >= .65
+          ? max(.92, baseStrengthAuthority)
+          : baseStrengthAuthority;
+      decisionMass += .18 * strengthAuthority;
     } else if (draft.field('strength').confidence >= .65) {
       // Strength disagreement is a safety signal, not an auto-fill signal.
       // Use a lower threshold than the normal .78 review boundary so a
@@ -963,7 +1029,10 @@ _ProductHypothesis _scoreProduct(
     totalWeight += .05;
     if (manufacturer >= .90) {
       channels++;
-      decisionMass += .05;
+      final manufacturerAuthority =
+          _resolverEvidenceReliability(draft.field('manufacturer').confidence) *
+          _resolverAgreementReliability(manufacturer, .90);
+      decisionMass += .05 * manufacturerAuthority;
     }
     if (draft.field('manufacturer').confidence >= .90 && manufacturer < .58) {
       hardConflicts++;
@@ -1036,6 +1105,17 @@ double _resolverRequiredLockMargin(
   final channelRelief = hypothesis.channels >= 3 ? .008 : 0.0;
   return (.145 - evidenceQuality * .05 - channelRelief)
       .clamp(.082, .145)
+      .toDouble();
+}
+
+/// V6 keeps the historical 0.50 authority target as its center, but avoids a
+/// discontinuity where confidence-calibrated evidence can become safer yet miss
+/// automation by only a few thousandths. High-quality coherent evidence may
+/// lower the gate by at most 0.025; poor evidence raises it by at most 0.015.
+/// Identity-only or identity+form hypotheses remain far below this range.
+double _resolverRequiredDecisionMass(double evidenceQuality) {
+  return (_resolverMinimumDecisionMass + .015 - evidenceQuality * .045)
+      .clamp(.475, .515)
       .toDouble();
 }
 
@@ -1317,9 +1397,11 @@ bool _isStrongProductBarcodeKey(String value) {
   return parsed != null && parsed.gtin == value;
 }
 
-String _strengthIdentity(String value) => searchText(
-  value,
-).replaceAll(' ', '').replaceAll('μ', 'µ').replaceAll('ug', 'mcg');
+String _strengthIdentity(String value) =>
+    searchText(value)
+        .replaceAll(' ', '')
+        .replaceAll('μ', 'µ')
+        .replaceAll('ug', 'mcg');
 
 double _weightedTextSimilarity(String rawObserved, String rawCanonical) {
   final canonical = _compactForOcr(rawCanonical);

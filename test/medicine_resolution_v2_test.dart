@@ -205,26 +205,29 @@ MFG 08/2026 EXP 07/2028
         barcodes: <String>['8901234567890'],
         verified: true,
       );
-      final result = MedicineProductResolverV2(
-        localKnowledge: const <MedicineKnowledgeEntry>[],
-        catalogue: const <CanonicalMedicineProduct>[product],
-      ).reconcile(
-        MedicineUnderstandingResult(drafts: <MedicineScanDraft>[_doloDraft()]),
-        const <MedicineFrameEvidence>[
-          MedicineFrameEvidence(
-            sequence: 0,
-            barcodes: <String>['https://example.invalid/promo/dolo'],
-            text: 'DOLO 650\nParacetamol Tablets IP 650 mg',
-          ),
-        ],
-      );
+      final result =
+          MedicineProductResolverV2(
+            localKnowledge: const <MedicineKnowledgeEntry>[],
+            catalogue: const <CanonicalMedicineProduct>[product],
+          ).reconcile(
+            MedicineUnderstandingResult(
+              drafts: <MedicineScanDraft>[_doloDraft()],
+            ),
+            const <MedicineFrameEvidence>[
+              MedicineFrameEvidence(
+                sequence: 0,
+                barcodes: <String>['https://example.invalid/promo/dolo'],
+                text: 'DOLO 650\nParacetamol Tablets IP 650 mg',
+              ),
+            ],
+          );
 
       final draft = result.drafts.single;
       expect(draft.overallConfidence, greaterThan(.78));
       expect(
-        draft.fields.values.where((field) => !field.isEmpty).any(
-              (field) => field.conflicted,
-            ),
+        draft.fields.values
+            .where((field) => !field.isEmpty)
+            .any((field) => field.conflicted),
         isFalse,
       );
       expect(draft.strength, '650 mg');
@@ -248,18 +251,21 @@ MFG 08/2026 EXP 07/2028
         form: 'Tablet',
         verified: true,
       );
-      final result = MedicineProductResolverV2(
-        localKnowledge: const <MedicineKnowledgeEntry>[local],
-        catalogue: const <CanonicalMedicineProduct>[master],
-      ).reconcile(
-        MedicineUnderstandingResult(drafts: <MedicineScanDraft>[_doloDraft()]),
-        const <MedicineFrameEvidence>[
-          MedicineFrameEvidence(
-            sequence: 0,
-            text: 'DOLO 650\nParacetamol Tablets IP 650 mg',
-          ),
-        ],
-      );
+      final result =
+          MedicineProductResolverV2(
+            localKnowledge: const <MedicineKnowledgeEntry>[local],
+            catalogue: const <CanonicalMedicineProduct>[master],
+          ).reconcile(
+            MedicineUnderstandingResult(
+              drafts: <MedicineScanDraft>[_doloDraft()],
+            ),
+            const <MedicineFrameEvidence>[
+              MedicineFrameEvidence(
+                sequence: 0,
+                text: 'DOLO 650\nParacetamol Tablets IP 650 mg',
+              ),
+            ],
+          );
 
       final draft = result.drafts.single;
       expect(draft.overallConfidence, greaterThan(.78));
@@ -289,23 +295,22 @@ MFG 08/2026 EXP 07/2028
         barcodes: <String>['8902222222227'],
         verified: true,
       );
-      final result = MedicineProductResolverV2(
-        localKnowledge: const <MedicineKnowledgeEntry>[],
-        catalogue: const <CanonicalMedicineProduct>[product],
-      ).reconcile(
-        MedicineUnderstandingResult(
-          drafts: <MedicineScanDraft>[
-            _doloDraft(barcode: '8901111111116'),
-          ],
-        ),
-        const <MedicineFrameEvidence>[
-          MedicineFrameEvidence(
-            sequence: 0,
-            barcode: '8901111111116',
-            text: 'DOLO 650\nParacetamol Tablets IP 650 mg',
-          ),
-        ],
-      );
+      final result =
+          MedicineProductResolverV2(
+            localKnowledge: const <MedicineKnowledgeEntry>[],
+            catalogue: const <CanonicalMedicineProduct>[product],
+          ).reconcile(
+            MedicineUnderstandingResult(
+              drafts: <MedicineScanDraft>[_doloDraft(barcode: '8901111111116')],
+            ),
+            const <MedicineFrameEvidence>[
+              MedicineFrameEvidence(
+                sequence: 0,
+                barcode: '8901111111116',
+                text: 'DOLO 650\nParacetamol Tablets IP 650 mg',
+              ),
+            ],
+          );
 
       final draft = result.drafts.single;
       expect(draft.overallConfidence, lessThan(.78));
@@ -324,27 +329,128 @@ MFG 08/2026 EXP 07/2028
         barcodes: <String>['8902222222227'],
         verified: true,
       );
-      final result = MedicineProductResolverV2(
-        localKnowledge: const <MedicineKnowledgeEntry>[],
-        catalogue: const <CanonicalMedicineProduct>[product],
-      ).reconcile(
-        MedicineUnderstandingResult(
-          drafts: <MedicineScanDraft>[
-            _doloDraft(barcode: '8901111111111'),
-          ],
-        ),
-        const <MedicineFrameEvidence>[
-          MedicineFrameEvidence(
-            sequence: 0,
-            barcode: '8901111111111',
-            text: 'DOLO 650\nParacetamol Tablets IP 650 mg',
-          ),
-        ],
-      );
+      final result =
+          MedicineProductResolverV2(
+            localKnowledge: const <MedicineKnowledgeEntry>[],
+            catalogue: const <CanonicalMedicineProduct>[product],
+          ).reconcile(
+            MedicineUnderstandingResult(
+              drafts: <MedicineScanDraft>[_doloDraft(barcode: '8901111111111')],
+            ),
+            const <MedicineFrameEvidence>[
+              MedicineFrameEvidence(
+                sequence: 0,
+                barcode: '8901111111111',
+                text: 'DOLO 650\nParacetamol Tablets IP 650 mg',
+              ),
+            ],
+          );
 
       final draft = result.drafts.single;
       expect(draft.overallConfidence, greaterThanOrEqualTo(.78));
       expect(scanQuickIdentityReady(draft), isTrue);
     });
+
+    test(
+      'low-confidence salt cannot manufacture canonical auto-fill authority',
+      () {
+        const product = CanonicalMedicineProduct(
+          productId: 'in:dolo:650:tablet',
+          revision: 600,
+          name: 'Dolo',
+          brand: 'Dolo',
+          salt: 'Paracetamol',
+          strength: '650 mg',
+          form: 'Tablet',
+          manufacturer: 'Micro Labs Limited',
+          verified: true,
+        );
+        final uncertainDraft = MedicineScanDraft(
+          fields: <String, ExtractedMedicineField>{
+            'name': _field('Dolo', confidence: .95),
+            'brand': _field('Dolo', confidence: .95),
+            'salt': _field('Paracetamol', confidence: .31),
+            'form': _field('Tablet', confidence: .95),
+          },
+          rawText: 'DOLO\nParacetamol\nTABLETS',
+          searchKeywords: 'dolo paracetamol tablet',
+          frameSequences: const <int>[0],
+          overallConfidence: .72,
+        );
+
+        final result =
+            MedicineProductResolverV2(
+              localKnowledge: const <MedicineKnowledgeEntry>[],
+              catalogue: const <CanonicalMedicineProduct>[product],
+            ).reconcile(
+              MedicineUnderstandingResult(
+                drafts: <MedicineScanDraft>[uncertainDraft],
+              ),
+              const <MedicineFrameEvidence>[
+                MedicineFrameEvidence(
+                  sequence: 0,
+                  quality: .95,
+                  text: 'DOLO\nParacetamol\nTABLETS',
+                ),
+              ],
+            );
+
+        final draft = result.drafts.single;
+        expect(draft.strength, isEmpty);
+        expect(draft.manufacturer, isEmpty);
+        expect(scanQuickIdentityReady(draft), isFalse);
+      },
+    );
+
+    test(
+      'independent medium-confidence clues still unlock verified identity',
+      () {
+        const product = CanonicalMedicineProduct(
+          productId: 'in:dolo:650:tablet',
+          revision: 601,
+          name: 'Dolo',
+          brand: 'Dolo',
+          salt: 'Paracetamol',
+          strength: '650 mg',
+          form: 'Tablet',
+          manufacturer: 'Micro Labs Limited',
+          verified: true,
+        );
+        final supportedDraft = MedicineScanDraft(
+          fields: <String, ExtractedMedicineField>{
+            'name': _field('Dolo', confidence: .82),
+            'brand': _field('Dolo', confidence: .82),
+            'salt': _field('Paracetamol', confidence: .82),
+            'strength': _field('650 mg', confidence: .82),
+            'form': _field('Tablet', confidence: .90),
+          },
+          rawText: 'DOLO 650\nParacetamol Tablets IP 650 mg\nTABLETS',
+          searchKeywords: 'dolo paracetamol 650 mg tablet',
+          frameSequences: const <int>[0],
+          overallConfidence: .82,
+        );
+
+        final result =
+            MedicineProductResolverV2(
+              localKnowledge: const <MedicineKnowledgeEntry>[],
+              catalogue: const <CanonicalMedicineProduct>[product],
+            ).reconcile(
+              MedicineUnderstandingResult(
+                drafts: <MedicineScanDraft>[supportedDraft],
+              ),
+              const <MedicineFrameEvidence>[
+                MedicineFrameEvidence(
+                  sequence: 0,
+                  quality: .90,
+                  text: 'DOLO 650\nParacetamol Tablets IP 650 mg\nTABLETS',
+                ),
+              ],
+            );
+
+        final draft = result.drafts.single;
+        expect(draft.manufacturer, 'Micro Labs Limited');
+        expect(draft.needsReview, isFalse);
+      },
+    );
   });
 }
