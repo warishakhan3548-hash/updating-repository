@@ -28,9 +28,16 @@ String searchText(String value) {
     'पांच सौ': '500',
     'छह सौ पचास': '650',
     'एमजी': 'mg',
+    'एमएल': 'ml',
+    'एमसीजी': 'mcg',
     'milligrams': 'mg',
     'milligram': 'mg',
     'millilitres': 'ml',
+    'milliliters': 'ml',
+    'millilitre': 'ml',
+    'milliliter': 'ml',
+    'micrograms': 'mcg',
+    'microgram': 'mcg',
   };
   for (final entry in aliases.entries) {
     text = text.replaceAll(entry.key, entry.value);
@@ -89,6 +96,81 @@ String _searchOcrFold(String token) {
       .replaceAll('1', 'i')
       .replaceAll('5', 's')
       .replaceAll('8', 'b');
+}
+
+/// Turns OCR/voice fragmentation into bounded search atoms before retrieval.
+///
+/// Examples:
+///   D O L O 650mg -> dolo, 650mg
+///   6 5 0 mg      -> 650mg
+///
+/// This is intentionally conservative. We only join alphabetic single-character
+/// runs of length >= 3, and numeric runs only when they terminate in a known
+/// medicine unit. Arbitrary document words are never fused together.
+List<String> _searchQueryTokens(String query) {
+  final parts = query
+      .split(' ')
+      .where((value) => value.isNotEmpty)
+      .take(64)
+      .toList(growable: false);
+  final result = <String>[];
+  var index = 0;
+  while (index < parts.length && result.length < 48) {
+    final token = parts[index];
+
+    if (token.length == 1 && RegExp(r'^[a-z]$').hasMatch(token)) {
+      final buffer = StringBuffer();
+      var end = index;
+      while (end < parts.length &&
+          parts[end].length == 1 &&
+          RegExp(r'^[a-z]$').hasMatch(parts[end]) &&
+          buffer.length < 16) {
+        buffer.write(parts[end]);
+        end++;
+      }
+      if (buffer.length >= 3) {
+        result.add(_boundedSearchTerm(buffer.toString()));
+        index = end;
+        continue;
+      }
+    }
+
+    if (token.length == 1 && RegExp(r'^\d$').hasMatch(token)) {
+      final digits = StringBuffer();
+      var end = index;
+      while (end < parts.length &&
+          parts[end].length == 1 &&
+          RegExp(r'^\d$').hasMatch(parts[end]) &&
+          digits.length < 4) {
+        digits.write(parts[end]);
+        end++;
+      }
+      if (digits.length >= 2 && end < parts.length) {
+        final unitOnly = RegExp(r'^(mg|ml|mcg|g)$').firstMatch(parts[end]);
+        final digitWithUnit = RegExp(
+          r'^(\d)(mg|ml|mcg|g)$',
+        ).firstMatch(parts[end]);
+        if (unitOnly != null) {
+          result.add('${digits.toString()}${unitOnly.group(1)}');
+          index = end + 1;
+          continue;
+        }
+        if (digitWithUnit != null && digits.length < 4) {
+          result.add(
+            '${digits.toString()}${digitWithUnit.group(1)}${digitWithUnit.group(2)}',
+          );
+          index = end + 1;
+          continue;
+        }
+      }
+    }
+
+    if (token.length >= 2 || RegExp(r'^\d$').hasMatch(token)) {
+      result.add(_boundedSearchTerm(token));
+    }
+    index++;
+  }
+  return result;
 }
 
 double orderedSimilarity(String a, String b) {
@@ -391,6 +473,7 @@ class MedicineSearch {
   static const _maxRetrievalCandidates = 240;
   static const _maxSecondaryTermsPerDocument = 112;
   static const _maxDeleteTermsPerDocument = 18;
+  static const _maxPlannedTokens = 18;
   final Map<String, SearchDocument> docs = {};
   final Map<String, Set<String>> index = {}, exact = {}, barcode = {};
   final Map<String, Set<String>> trigramIndex = {}, prefixIndex = {};
@@ -434,6 +517,74 @@ class MedicineSearch {
     return (1 + log((total + .5) / (frequency + .5)))
         .clamp(1.0, 3.8)
         .toDouble();
+  }
+
+  /// V5 query planner. It keeps one vote per independent clue and, when a query
+  /// contains more evidence than the bounded hot path can consume, selects clues
+  /// by information gain instead of blindly taking the first words.
+  ///
+  /// The final returned order remains the user's order; priority is only used to
+  /// choose the bounded subset. That preserves existing field-ranking semantics.
+  List<String> _planTokens(List<String> rawTokens) {
+    final filtered = rawTokens.where((word) => !noise.contains(word)).toList();
+    final source = filtered.isEmpty ? rawTokens : filtered;
+    final unique = <String>[];
+    final seen = <String>{};
+    for (final token in source) {
+      if (seen.add(token)) unique.add(token);
+    }
+    if (unique.length <= _maxPlannedTokens) return unique;
+
+    double priority(String token) {
+      var value = _rarity(token);
+      final posting = exact[token];
+      if (posting != null && posting.isNotEmpty) {
+        value += 1.65;
+        value += (1 / sqrt(posting.length)).clamp(.05, .55).toDouble();
+      }
+      if (RegExp(r'^\d+(?:\.\d+)?(?:mg|ml|mcg|g)$').hasMatch(token)) {
+        value += 1.45;
+      } else if (RegExp(r'^\d{6,}$').hasMatch(token)) {
+        value += 1.75;
+      }
+      if (token.length >= 6) {
+        value += min(.70, (token.length - 5) * .07);
+      }
+      if (RegExp(r'[a-z]').hasMatch(token) && RegExp(r'\d').hasMatch(token)) {
+        value += .22;
+      }
+      return value;
+    }
+
+    final indexes = List<int>.generate(unique.length, (i) => i)
+      ..sort((a, b) {
+        final score = priority(unique[b]).compareTo(priority(unique[a]));
+        return score != 0 ? score : a.compareTo(b);
+      });
+    final keep = indexes.take(_maxPlannedTokens).toSet();
+    return <String>[
+      for (var i = 0; i < unique.length; i++)
+        if (keep.contains(i)) unique[i],
+    ];
+  }
+
+  List<String> _identityEvidenceTokens(List<String> tokens) {
+    final unique = <String>[];
+    final seen = <String>{};
+    for (final token in tokens) {
+      if (token.length < 3 ||
+          !RegExp(r'[a-z\u0900-\u097f]').hasMatch(token) ||
+          !seen.add(token)) {
+        continue;
+      }
+      unique.add(token);
+    }
+    unique.sort((a, b) {
+      final rarity = _rarity(b).compareTo(_rarity(a));
+      if (rarity != 0) return rarity;
+      return b.length.compareTo(a.length);
+    });
+    return unique.take(10).toList(growable: false);
   }
 
   List<String> chunks(String raw) {
@@ -525,19 +676,8 @@ class MedicineSearch {
     final found = <String, SearchHit>{};
     for (final chunk in chunks(raw)) {
       final query = searchText(chunk);
-      final rawTokens = query
-          .split(' ')
-          .where((word) => word.length >= 2 || RegExp(r'^\d$').hasMatch(word))
-          .map(_boundedSearchTerm)
-          .take(40)
-          .toList();
-      var tokens = rawTokens
-          .where((word) => !noise.contains(word))
-          .take(14)
-          .toList();
-      if (tokens.isEmpty && rawTokens.isNotEmpty) {
-        tokens = rawTokens.take(14).toList();
-      }
+      final rawTokens = _searchQueryTokens(query);
+      final tokens = _planTokens(rawTokens);
       if (tokens.isEmpty) continue;
 
       final votes = <String, double>{};
@@ -772,38 +912,43 @@ class MedicineSearch {
       }
     }
 
-    // V4 evidence fusion: a multi-clue query should be judged as one coherent
-    // identity hypothesis instead of letting a single coincidental field win.
-    // Only alphabetic identity clues participate and at least two independently
-    // matched clues are required before this channel may raise a score.
-    final lexicalTokens = usable
-        .where(
-          (token) => token.length >= 3 && RegExp(r'[a-z\u0900-\u097f]').hasMatch(token),
-        )
-        .take(8)
-        .toList(growable: false);
+    // V5 evidence fusion: multi-clue identity is ranked by information value,
+    // not by arbitrary word position. Duplicate OCR/voice tokens are removed by
+    // the query planner, so repetition cannot manufacture independent evidence.
+    final lexicalTokens = _identityEvidenceTokens(usable);
     if (lexicalTokens.length >= 2 && document.identityWords.isNotEmpty) {
       var weightedSimilarity = 0.0;
       var totalWeight = 0.0;
       var matchedWeight = 0.0;
       var matchedClues = 0;
+      var strongestRarity = 0.0;
+      var strongestSimilarity = 1.0;
       for (final token in lexicalTokens) {
         var match = 0.0;
         for (final word in document.identityWords) {
           match = max(match, _searchTokenSimilarity(token, word));
         }
-        final tokenWeight = _rarity(token).clamp(1.0, 2.4).toDouble();
+        final tokenWeight = _rarity(token).clamp(1.0, 2.6).toDouble();
         weightedSimilarity += match * tokenWeight;
         totalWeight += tokenWeight;
         if (match >= .80) {
           matchedWeight += tokenWeight;
           matchedClues++;
         }
+        if (tokenWeight > strongestRarity) {
+          strongestRarity = tokenWeight;
+          strongestSimilarity = match;
+        }
       }
       if (totalWeight > 0 && matchedClues >= 2) {
         final similarity = weightedSimilarity / totalWeight;
         final coverage = matchedWeight / totalWeight;
-        if (coverage >= .58 && similarity >= .72) {
+        // A very rare missing clue is a useful anti-decoy signal. It does not
+        // reject the row; it only prevents the corroboration channel from
+        // upgrading a weak hypothesis above the best ordinary field evidence.
+        final rareClueMissing =
+            strongestRarity >= 2.35 && strongestSimilarity < .52;
+        if (!rareClueMissing && coverage >= .58 && similarity >= .72) {
           final coherent =
               (similarity * .80 + coverage * .20).clamp(0, 1).toDouble();
           final fused = (coherent * .985).clamp(0, .985).toDouble();
