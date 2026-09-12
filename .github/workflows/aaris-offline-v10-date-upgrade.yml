@@ -26,9 +26,11 @@ jobs:
           channel: stable
           cache: true
       - name: Apply V10 integration surgery
-        run: python3 .github/scripts/apply_v10_date_intelligence.py
+        run: |
+          python3 .github/scripts/apply_v10_date_intelligence.py
+          python3 .github/scripts/fix_v10_invalid_span.py
       - name: Remove temporary upgrade tooling
-        run: rm -f .github/scripts/apply_v10_date_intelligence.py .github/workflows/aaris-offline-v10-date-upgrade.yml
+        run: rm -f .github/scripts/apply_v10_date_intelligence.py .github/scripts/fix_v10_invalid_span.py .github/workflows/aaris-offline-v10-date-upgrade.yml
       - name: Format intended files only
         run: dart format lib/domain/medicine_date_intelligence.dart lib/domain/spatial_traceability.dart lib/domain/medicine_resolution_v2.dart test/offline_date_intelligence_v10_test.dart
       - name: Resolve pinned dependencies
