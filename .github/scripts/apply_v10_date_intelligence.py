@@ -123,16 +123,19 @@ replace_once(
     "import 'medicine_understanding.dart';\nimport 'offline_evidence_graph.dart';",
     "import 'medicine_date_intelligence.dart';\nimport 'medicine_understanding.dart';\nimport 'offline_evidence_graph.dart';",
 )
-start = read(spatial).find('String _extractDate(String raw) {')
-end = read(spatial).find('\nString _isoDate(', start)
-if start < 0 or end < 0:
-    raise SystemExit('spatial_traceability.dart: date parser anchors missing')
 text = read(spatial)
+start = text.find('String _extractDate(String raw) {')
+iso_start = text.find('\nString _isoDate(', start)
+geometry_start = text.find('\ndouble _geometryScore(', iso_start)
+if start < 0 or iso_start < 0 or geometry_start < 0:
+    raise SystemExit('spatial_traceability.dart: date helper anchors missing')
 replacement = r'''String _extractDate(String raw) {
   final parsed = parseMedicineDateText(raw);
   return parsed?.value ?? '';
 }
 '''
-write(spatial, text[:start] + replacement + text[end:])
+# Replace the old extractor and remove the now-dead private ISO helper. V10's
+# shared parser is the single date normalizer for both spatial and temporal lanes.
+write(spatial, text[:start] + replacement + text[geometry_start + 1:])
 
 print('V10 date intelligence integration applied')
