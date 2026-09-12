@@ -17,6 +17,7 @@ class MedicineIntakeJob {
     this.cursorMs = 0,
     this.durationMs = 0,
     this.aiIndex = 0,
+    this.unreadableFrames = 0,
     List<MedicineFrameEvidence>? evidence,
     List<MedicineScanDraft>? drafts,
   }) : evidence = evidence ?? [],
@@ -25,11 +26,22 @@ class MedicineIntakeJob {
   String path, status, error;
   String? modelId;
   int cursorMs, durationMs, aiIndex;
+  int unreadableFrames;
   List<MedicineFrameEvidence> evidence;
   List<MedicineScanDraft> drafts;
   bool get ready => status == 'review';
   bool get terminal => ready || status == 'failed';
   double? get videoProgress => durationMs > 0 ? cursorMs / durationMs : null;
+  bool get canRescanVideo =>
+      kind == 'video' &&
+      terminal &&
+      path.isNotEmpty &&
+      durationMs > 0 &&
+      cursorMs >= durationMs &&
+      unreadableFrames > 0;
+  String get coverageWarning => unreadableFrames == 0
+      ? ''
+      : '$unreadableFrames video samples had no readable medicine text or barcode. Check the medicine count; some packs may need another scan.';
   Map<String, Object?> toJson() => {
     'id': id,
     'kind': kind,
@@ -41,6 +53,7 @@ class MedicineIntakeJob {
     'cursorMs': cursorMs,
     'durationMs': durationMs,
     'aiIndex': aiIndex,
+    'unreadableFrames': unreadableFrames,
     'evidence': evidence.map((e) => e.toMessage()).toList(),
     'drafts': drafts.map((d) => d.toMessage()).toList(),
   };
@@ -76,6 +89,10 @@ class MedicineIntakeJob {
       }
     }
     final rawEvidence = json['evidence'], rawDrafts = json['drafts'];
+    final unreadable = json['unreadableFrames'] ?? 0;
+    if (unreadable is! int || unreadable < 0 || unreadable > 3600000) {
+      throw const FormatException('Invalid saved video coverage.');
+    }
     if (rawEvidence is! List ||
         rawDrafts is! List ||
         rawEvidence.length > maxMedicineEvidenceFrames ||
@@ -118,6 +135,7 @@ class MedicineIntakeJob {
       cursorMs: json['cursorMs'] as int,
       durationMs: json['durationMs'] as int,
       aiIndex: json['aiIndex'] as int,
+      unreadableFrames: unreadable,
       evidence: evidence,
       drafts: drafts,
     );
@@ -229,6 +247,8 @@ MedicineVideoWindowResult finishMedicineVideoWindow(
   }
 
   final unresolvedSequences = drafts.last.frameSequences.toSet();
+  final completed = drafts.take(drafts.length - 1).toList(growable: false);
+  final completedSequences = completed.expand((d) => d.frameSequences).toSet();
 
   // A window can end just after the user turns from one pack to the next. The
   // parser may have enough evidence to produce the current draft while the last
@@ -247,21 +267,59 @@ MedicineVideoWindowResult finishMedicineVideoWindow(
   final carry = frames
       .where(
         (frame) =>
-            unresolvedSequences.contains(frame.sequence) ||
-            transitionSequences.contains(frame.sequence),
+            !completedSequences.contains(frame.sequence) &&
+            (unresolvedSequences.contains(frame.sequence) ||
+                transitionSequences.contains(frame.sequence)),
       )
       .toList(growable: false);
 
-  // Keep distinct useful views, bounded well below the domain frame cap. The
-  // front/identity side of the unresolved draft is retained at the head while
-  // the newest transition evidence stays at the tail.
-  final bounded = carry.length <= 48
-      ? carry
-      : [...carry.take(24), ...carry.skip(carry.length - 24)];
-  return MedicineVideoWindowResult(
-    drafts.take(drafts.length - 1).toList(growable: false),
-    bounded,
-  );
+  return MedicineVideoWindowResult(completed, _compactVideoCarry(carry));
+}
+
+List<MedicineFrameEvidence> _compactVideoCarry(
+  List<MedicineFrameEvidence> frames,
+) {
+  if (frames.length <= 48) return frames;
+  // Keep the initial identity view and the transition tail, then retain the
+  // views that add the most distinct OCR/barcode evidence. A head/tail slice
+  // alone drops a unique expiry/composition panel in the middle of a slow pan.
+  final keys = <MedicineFrameEvidence, Set<String>>{
+    for (final frame in frames)
+      frame: {
+        ...frame.text
+            .split(RegExp(r'[\r\n]+'))
+            .take(240)
+            .map(normalize)
+            .where((line) => line.length >= 2),
+        ...frame.allBarcodes.map((code) => 'barcode:$code'),
+      },
+  };
+  final selected = <MedicineFrameEvidence>{
+    frames.first,
+    ...frames.skip(frames.length - 12),
+  };
+  final covered = <String>{for (final frame in selected) ...keys[frame]!};
+  while (selected.length < 48) {
+    MedicineFrameEvidence? best;
+    var bestNovelty = -1;
+    for (final frame in frames) {
+      if (selected.contains(frame)) continue;
+      final novelty = keys[frame]!
+          .where((key) => !covered.contains(key))
+          .length;
+      if (novelty > bestNovelty ||
+          (novelty == bestNovelty &&
+              best != null &&
+              frame.quality > best.quality)) {
+        best = frame;
+        bestNovelty = novelty;
+      }
+    }
+    if (best == null) break;
+    selected.add(best);
+    covered.addAll(keys[best]!);
+  }
+  return frames.where(selected.contains).toList(growable: false);
 }
 
 String intakeId() => newId();

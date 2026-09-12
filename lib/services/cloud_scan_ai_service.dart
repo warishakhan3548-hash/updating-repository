@@ -8,7 +8,7 @@ import 'package:http/http.dart' as http;
 import '../domain/local_ai_protocol.dart';
 import '../domain/local_scan_handoff.dart';
 import '../domain/medicine_understanding.dart';
-import 'ai_service.dart';
+import '../domain/ai_configuration.dart';
 
 /// Privacy-bounded cloud medicine-pack refinement.
 ///
@@ -20,9 +20,14 @@ import 'ai_service.dart';
 /// existing review/Confirm boundary. One instance belongs to one review session,
 /// so cancellation cannot cross navigation sessions.
 class CloudScanAiService {
-  CloudScanAiService({http.Client Function()? clientFactory})
-    : _clientFactory = clientFactory ?? http.Client.new;
+  CloudScanAiService({
+    http.Client Function()? clientFactory,
+    Duration responseTimeout = const Duration(seconds: 35),
+  }) : assert(responseTimeout > Duration.zero),
+       _responseTimeout = responseTimeout,
+       _clientFactory = clientFactory ?? http.Client.new;
   final http.Client Function() _clientFactory;
+  final Duration _responseTimeout;
 
   static const _storage = FlutterSecureStorage();
   static const _configurationKey = 'pharmacy.ai.configuration';
@@ -228,17 +233,31 @@ class CloudScanAiService {
   ) async {
     final bytes = BytesBuilder(copy: false);
     var total = 0;
-    await for (final chunk in response.stream.timeout(
-      const Duration(seconds: 35),
-    )) {
-      _checkEpoch(epoch);
-      total += chunk.length;
-      if (total > _maxResponseBytes) {
-        throw StateError(
-          'Cloud scan AI response is too large. No inventory changes were made.',
-        );
+    final elapsed = Stopwatch()..start();
+    final chunks = StreamIterator<List<int>>(response.stream);
+    try {
+      while (true) {
+        _checkEpoch(epoch);
+        final remaining = _responseTimeout - elapsed.elapsed;
+        if (remaining <= Duration.zero) {
+          throw TimeoutException('Cloud scan response deadline exceeded.');
+        }
+        // An inactivity timeout restarts with every chunk and lets a slow-drip
+        // response hold the preview forever. Bound the whole response instead.
+        if (!await chunks.moveNext().timeout(remaining)) break;
+        _checkEpoch(epoch);
+        final chunk = chunks.current;
+        total += chunk.length;
+        if (total > _maxResponseBytes) {
+          throw StateError(
+            'Cloud scan AI response is too large. No inventory changes were made.',
+          );
+        }
+        bytes.add(chunk);
       }
-      bytes.add(chunk);
+    } finally {
+      elapsed.stop();
+      await chunks.cancel();
     }
     _checkEpoch(epoch);
     return bytes.takeBytes();

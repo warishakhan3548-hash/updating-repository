@@ -617,8 +617,6 @@ class MedicineUnderstandingEngine {
         groups.last.add(frame);
       }
     }
-    _repairWeakBoundaries(groups);
-
     final drafts = <MedicineScanDraft>[];
     for (final group in groups.where((value) => value.isNotEmpty)) {
       final draft = _fuse(group);
@@ -674,8 +672,8 @@ class MedicineUnderstandingEngine {
   }
 
   bool _nearDuplicate(_PreparedFrame a, _PreparedFrame b) {
-    if (b.frame.startsNewItem) return false;
-    if (_strongFieldConflict(a, b, 'batchNumber', similarityFloor: .72) ||
+    if (_startsNewMedicine(<_PreparedFrame>[a], b)) return false;
+    if (_strongFieldConflict(a, b, 'batchNumber') ||
         _strongFieldConflict(a, b, 'expiry')) {
       return false;
     }
@@ -764,12 +762,7 @@ class MedicineUnderstandingEngine {
     );
   }
 
-  bool _strongFieldConflict(
-    _PreparedFrame a,
-    _PreparedFrame b,
-    String field, {
-    double similarityFloor = 1,
-  }) {
+  bool _strongFieldConflict(_PreparedFrame a, _PreparedFrame b, String field) {
     final left = _bestCandidate(<_PreparedFrame>[a], field);
     final right = _bestCandidate(<_PreparedFrame>[b], field);
     if (left == null ||
@@ -781,49 +774,61 @@ class MedicineUnderstandingEngine {
     final leftKey = _candidateKey(field, left.value);
     final rightKey = _candidateKey(field, right.value);
     if (leftKey == rightKey) return false;
-    return similarityFloor >= 1 ||
-        orderedSimilarity(leftKey, rightKey) < similarityFloor;
+    if ((field == 'expiry' || field == 'mfg') &&
+        _samePrintedDate(left.value, right.value)) {
+      return false;
+    }
+    return true;
   }
 
   bool _startsNewMedicine(List<_PreparedFrame> group, _PreparedFrame next) {
     if (next.frame.startsNewItem) return true;
     final recent = group.reversed.take(4).toList(growable: false);
+    // Identity and lot anchors belong to the whole unresolved pack. Looking only
+    // at four recent back-panel views forgets the front and can attach its dates
+    // to the next medicine. The domain evidence cap bounds this search.
     // A GTIN commonly identifies a product, not a physical batch. Therefore a
     // confidently different batch or expiry is a stronger stock boundary than
     // seeing the same barcode again.
-    final recentBatch = _bestCandidate(recent, 'batchNumber');
+    final recentBatch = _bestCandidate(group, 'batchNumber');
     final nextBatch = _bestCandidate(<_PreparedFrame>[next], 'batchNumber');
     if (recentBatch != null &&
         nextBatch != null &&
         recentBatch.score >= .76 &&
         nextBatch.score >= .76 &&
         _candidateKey('batchNumber', recentBatch.value) !=
-            _candidateKey('batchNumber', nextBatch.value) &&
-        orderedSimilarity(
-              _candidateKey('batchNumber', recentBatch.value),
-              _candidateKey('batchNumber', nextBatch.value),
-            ) <
-            .72) {
+            _candidateKey('batchNumber', nextBatch.value)) {
       return true;
     }
-    final recentExpiry = _bestCandidate(recent, 'expiry');
+    final recentExpiry = _bestCandidate(group, 'expiry');
     final nextExpiry = _bestCandidate(<_PreparedFrame>[next], 'expiry');
     if (recentExpiry != null &&
         nextExpiry != null &&
         recentExpiry.score >= .84 &&
         nextExpiry.score >= .84 &&
-        recentExpiry.value != nextExpiry.value) {
+        !_samePrintedDate(recentExpiry.value, nextExpiry.value)) {
       return true;
     }
-    final knownBarcodes = recent.expand((frame) => frame.barcodes).toSet();
-    if (knownBarcodes.isNotEmpty && next.barcodes.isNotEmpty) {
-      if (knownBarcodes.intersection(next.barcodes.toSet()).isNotEmpty) {
-        return false;
-      }
+    final knownBarcodes = group.expand((frame) => frame.barcodes).toSet();
+    if (knownBarcodes.isNotEmpty &&
+        next.barcodes.isNotEmpty &&
+        knownBarcodes.intersection(next.barcodes.toSet()).isEmpty) {
       return true;
     }
 
-    final previousIdentity = _bestIdentity(recent);
+    // Explicit printed/locally verified brands are stronger than fuzzy name
+    // similarity. Similar trade names can be different products or variants.
+    final previousBrand = _bestCandidate(group, 'brand');
+    final nextBrand = _bestCandidate(<_PreparedFrame>[next], 'brand');
+    if (previousBrand != null &&
+        nextBrand != null &&
+        previousBrand.score >= .82 &&
+        nextBrand.score >= .82 &&
+        searchText(previousBrand.value) != searchText(nextBrand.value)) {
+      return true;
+    }
+
+    final previousIdentity = _bestIdentity(group);
     final nextIdentity = _bestIdentity(<_PreparedFrame>[next]);
     if (previousIdentity != null && nextIdentity != null) {
       final similarity = orderedSimilarity(
@@ -831,7 +836,7 @@ class MedicineUnderstandingEngine {
         searchText(nextIdentity.value),
       );
       if (similarity >= .82) {
-        final previousStrength = _bestCandidate(recent, 'strength');
+        final previousStrength = _bestCandidate(group, 'strength');
         final nextStrength = _bestCandidate(<_PreparedFrame>[next], 'strength');
         if (previousStrength != null &&
             nextStrength != null &&
@@ -841,13 +846,26 @@ class MedicineUnderstandingEngine {
             nextStrength.score >= .72) {
           return true;
         }
+        final previousSalt = _bestCandidate(group, 'salt');
+        final nextSalt = _bestCandidate(<_PreparedFrame>[next], 'salt');
+        if (previousSalt != null &&
+            nextSalt != null &&
+            previousSalt.score >= .76 &&
+            nextSalt.score >= .76 &&
+            _differentIngredients(previousSalt.value, nextSalt.value)) {
+          return true;
+        }
         return false;
       }
       if (previousIdentity.score >= .68 &&
           nextIdentity.score >= .68 &&
-          similarity < .52) {
+          similarity < .82) {
         return true;
       }
+    }
+
+    if (knownBarcodes.isNotEmpty && next.barcodes.isNotEmpty) {
+      return false;
     }
 
     final previousTokens = <String>{
@@ -867,22 +885,20 @@ class MedicineUnderstandingEngine {
     return false;
   }
 
-  void _repairWeakBoundaries(List<List<_PreparedFrame>> groups) {
-    for (var index = groups.length - 1; index > 0; index--) {
-      final current = groups[index];
-      final previous = groups[index - 1];
-      if (current.isEmpty || previous.isEmpty) continue;
-      if (current.length == 1 && !_hasStrongIdentity(current.single)) {
-        previous.addAll(current);
-        current.clear();
-      }
-    }
-    groups.removeWhere((group) => group.isEmpty);
-  }
+  bool _samePrintedDate(String a, String b) =>
+      a == b ||
+      (a.length >= 7 &&
+          b.length >= 7 &&
+          (a.length == 7 || b.length == 7) &&
+          a.substring(0, 7) == b.substring(0, 7));
 
-  bool _hasStrongIdentity(_PreparedFrame frame) =>
-      frame.barcodes.isNotEmpty ||
-      (frame.candidates['name']?.any((value) => value.score >= .68) ?? false);
+  bool _differentIngredients(String a, String b) {
+    final left = _knowledgeKey(a).split(' ').toSet();
+    final right = _knowledgeKey(b).split(' ').toSet();
+    // A partial view of a combination is complementary evidence, not a new pack.
+    if (left.containsAll(right) || right.containsAll(left)) return false;
+    return orderedSimilarity(_knowledgeKey(a), _knowledgeKey(b)) < .82;
+  }
 
   MedicineScanDraft _fuse(List<_PreparedFrame> group) {
     final candidates = <String, List<_Candidate>>{};

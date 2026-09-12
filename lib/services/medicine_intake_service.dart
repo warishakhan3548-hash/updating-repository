@@ -460,7 +460,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     job.status = job.modelId == null ? 'review' : 'reasoning';
     if (job.drafts.isEmpty) {
       job.status = 'failed';
-      job.error = 'No medicine could be read. Take a closer, steadier photo.';
+      job.error = job.kind == 'video'
+          ? 'No medicine could be read. Retry the video or record closer, steadier views of each pack.'
+          : 'No medicine could be read. Take a closer, steadier photo.';
     }
   }
 
@@ -490,19 +492,23 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     }
     final vision = MedicineVisionService();
     final evidence = List<MedicineFrameEvidence>.of(job.evidence);
-    var unreadable = 0;
+    var unreadable = window.unreadableFrames;
+    if (window.frames.isEmpty && unreadable == 0) unreadable = 1;
     try {
       for (final frame in window.frames) {
         try {
-          evidence.add(
-            await vision.analyzeFile(
-              frame.path,
-              source: job.title,
-              sequence: frame.sequence,
-              timestampMs: frame.timestampMs,
-              quality: frame.quality,
-            ),
+          final scanned = await vision.analyzeFile(
+            frame.path,
+            source: job.title,
+            sequence: frame.sequence,
+            timestampMs: frame.timestampMs,
+            quality: frame.quality,
           );
+          if (scanned.text.trim().isEmpty && scanned.allBarcodes.isEmpty) {
+            unreadable++;
+          } else {
+            evidence.add(scanned);
+          }
         } catch (_) {
           unreadable++;
         } finally {
@@ -533,9 +539,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     job.evidence = grouped.carry;
     job.cursorMs = window.nextStartMs;
     job.durationMs = window.durationMs;
-    if (unreadable > 0) {
-      job.error = 'Some sampled frames were unreadable. Review completeness; video sampling cannot guarantee every pack.';
-    }
+    job.unreadableFrames += unreadable;
     if (window.complete) {
       _ocrFinished(job);
     } else {
@@ -543,7 +547,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     }
     // Cursor + completed drafts + unresolved carry commit together.
     await _persist(job);
-    if (window.complete && job.status != 'failed') {
+    if (window.complete &&
+        job.status != 'failed' &&
+        job.unreadableFrames == 0) {
       await _releaseProcessedSource(job);
     }
   }
@@ -689,14 +695,32 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     if (job.aiIndex >= job.drafts.length) job.status = 'review';
   }
 
-  Future<void> retry(MedicineIntakeJob job) async {
+  Future<void> retry(MedicineIntakeJob job, {bool rescanVideo = false}) async {
     // A durable terminal checkpoint can become visible before the worker has
     // finished source cleanup/final persistence. Wait only for this exact job;
     // unrelated captures continue to enqueue and process independently.
     await _workBarrier.wait(job.id);
     await _enqueue(() async {
       if (!_jobs.contains(job) || !job.terminal) return;
+      if (rescanVideo && !job.canRescanVideo) {
+        throw StateError(
+          'The original video is no longer available for rescan.',
+        );
+      }
       if (job.kind == 'video' &&
+          job.path.isNotEmpty &&
+          (rescanVideo ||
+              (job.drafts.isEmpty && job.cursorMs >= job.durationMs))) {
+        // A failed empty video reached EOF. Retrying from that cursor would
+        // read zero frames forever. Restart only the retained source; never mix
+        // new sampling with drafts from its previous pass.
+        job.cursorMs = 0;
+        job.aiIndex = 0;
+        job.unreadableFrames = 0;
+        job.evidence = [];
+        job.drafts = [];
+        job.status = 'queued';
+      } else if (job.kind == 'video' &&
           job.path.isNotEmpty &&
           job.cursorMs < job.durationMs) {
         job.status = 'queued';

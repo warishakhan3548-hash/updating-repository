@@ -63,6 +63,24 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
     );
   }
 
+  String _jobStatus(MedicineIntakeJob job) {
+    String clock(int milliseconds) {
+      final seconds = milliseconds ~/ 1000;
+      return '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+    }
+
+    final progress = job.kind == 'video' && job.durationMs > 0
+        ? ' ${clock(job.cursorMs)} / ${clock(job.durationMs)}'
+        : '';
+    final state = switch (job.status) {
+      'reasoning' => 'Refining fields',
+      'review' => 'Ready to review',
+      'failed' => 'Needs attention',
+      _ => job.kind == 'video' ? 'Reading video$progress' : 'Reading medicine',
+    };
+    return '$state · ${job.drafts.length} medicines found';
+  }
+
   Future<void> _cloudReview(MedicineScanDraft draft) async {
     // A durable queue draft may contain deterministic identity hints learned from
     // private shop memory. Never forward that enriched object to an external
@@ -262,17 +280,20 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                       job.title,
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
-                    Text(
-                      '${job.status} · ${job.drafts.length} medicine drafts',
-                      style: const TextStyle(fontSize: 12),
-                    ),
+                    Text(_jobStatus(job), style: const TextStyle(fontSize: 12)),
                     if (!job.terminal)
                       LinearProgressIndicator(
-                        value: job.kind == 'video'
-                            ? job.videoProgress
-                            : job.status == 'reasoning' && job.drafts.isNotEmpty
+                        value:
+                            job.status == 'reasoning' && job.drafts.isNotEmpty
                             ? job.aiIndex / job.drafts.length
+                            : job.kind == 'video'
+                            ? job.videoProgress
                             : null,
+                      ),
+                    if (job.coverageWarning.isNotEmpty)
+                      Text(
+                        job.coverageWarning,
+                        style: const TextStyle(color: amber, fontSize: 12),
                       ),
                     if (job.error.isNotEmpty)
                       Text(
@@ -388,7 +409,7 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                     Wrap(
                       spacing: 8,
                       children: [
-                        if (job.terminal && job.drafts.isNotEmpty)
+                        if (job.drafts.isNotEmpty)
                           FilledButton.icon(
                             onPressed: () => _review(job),
                             icon: const Icon(Icons.fact_check_outlined),
@@ -397,7 +418,18 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                         if (job.terminal)
                           TextButton(
                             onPressed: () => _run(() => queue.retry(job)),
-                            child: const Text('Retry local reasoning'),
+                            child: Text(
+                              job.drafts.isEmpty || job.status == 'failed'
+                                  ? 'Retry capture'
+                                  : 'Retry local reasoning',
+                            ),
+                          ),
+                        if (job.canRescanVideo)
+                          TextButton.icon(
+                            onPressed: () =>
+                                _run(() => queue.retry(job, rescanVideo: true)),
+                            icon: const Icon(Icons.video_library_outlined),
+                            label: const Text('Read video again'),
                           ),
                         if (job.terminal)
                           IconButton(

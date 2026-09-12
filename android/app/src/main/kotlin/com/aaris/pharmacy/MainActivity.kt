@@ -37,6 +37,9 @@ class MainActivity : FlutterActivity() {
     private var pendingTextResult: MethodChannel.Result? = null
     private var pendingMediaResult: MethodChannel.Result? = null
     private val photoMetricsBusy = AtomicBoolean(false)
+    // A Dart timeout does not cancel native decoding. Keep one decoder owner
+    // until it really drains so Retry cannot start overlapping bitmap workloads.
+    private val videoSamplingBusy = AtomicBoolean(false)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -101,10 +104,14 @@ class MainActivity : FlutterActivity() {
                             result.error("invalid_video", "Video path is missing.", null)
                             return@setMethodCallHandler
                         }
+                        if (!videoSamplingBusy.compareAndSet(false, true)) {
+                            result.error("video_busy", "The previous video step is still finishing. Retry shortly.", null)
+                            return@setMethodCallHandler
+                        }
                         Thread {
                             try {
                                 val frames = sampleVideo(path, maxFrames.coerceIn(1, 72))
-                                runOnUiThread { result.success(frames) }
+                                runOnUiThread { result.success(frames.frames) }
                             } catch (error: Exception) {
                                 runOnUiThread {
                                     result.error(
@@ -113,6 +120,8 @@ class MainActivity : FlutterActivity() {
                                         null,
                                     )
                                 }
+                            } finally {
+                                videoSamplingBusy.set(false)
                             }
                         }.start()
                     }
@@ -123,16 +132,24 @@ class MainActivity : FlutterActivity() {
                             result.error("invalid_video", "Invalid video window.", null)
                             return@setMethodCallHandler
                         }
+                        if (!videoSamplingBusy.compareAndSet(false, true)) {
+                            result.error("video_busy", "The previous video step is still finishing. Retry shortly.", null)
+                            return@setMethodCallHandler
+                        }
                         Thread {
                             try {
                                 val duration = videoDuration(path)
                                 if (duration > 3_600_000L) throw IllegalArgumentException("Split videos longer than one hour.")
                                 val end = minOf(start + 20_000L, duration)
-                                val frames = if (start >= duration) emptyList() else sampleVideo(path, 24, start, end)
-                                runOnUiThread { result.success(mapOf("frames" to frames,
+                                val sampled = if (start >= duration) SampledVideo(emptyList())
+                                    else sampleVideo(path, 40, start, end)
+                                runOnUiThread { result.success(mapOf("frames" to sampled.frames,
+                                    "unreadableFrames" to sampled.unreadableFrames,
                                     "durationMs" to duration, "nextStartMs" to end)) }
                             } catch (error: Exception) {
                                 runOnUiThread { result.error("video_window_error", error.message, null) }
+                            } finally {
+                                videoSamplingBusy.set(false)
                             }
                         }.start()
                     }
@@ -361,11 +378,15 @@ class MainActivity : FlutterActivity() {
     }
 
     private data class FrameMetrics(
-        val hash: Long,
         val sharpness: Double,
         val contrast: Double,
         val exposure: Double,
         val quality: Double,
+    )
+
+    private data class SampledVideo(
+        val frames: List<Map<String, Any>>,
+        val unreadableFrames: Int = 0,
     )
 
     private fun videoSource(path: String): File {
@@ -388,7 +409,7 @@ class MainActivity : FlutterActivity() {
         } finally { retriever.release() }
     }
 
-    private fun sampleVideo(path: String, maxFrames: Int, startMs: Long = 0L, endMs: Long? = null): List<Map<String, Any>> {
+    private fun sampleVideo(path: String, maxFrames: Int, startMs: Long = 0L, endMs: Long? = null): SampledVideo {
         val source = videoSource(path)
         val retriever = MediaMetadataRetriever()
         var frameDirectory: File? = null
@@ -399,7 +420,7 @@ class MainActivity : FlutterActivity() {
                 ?.toLongOrNull()
                 ?: throw IllegalArgumentException("The video duration could not be read.")
             val durationMs = minOf(endMs ?: totalDurationMs, totalDurationMs) - startMs
-            if (durationMs < 1) return emptyList()
+            if (durationMs < 1) return SampledVideo(emptyList())
             val sourceWidth = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
                 ?.toIntOrNull()
@@ -409,63 +430,79 @@ class MainActivity : FlutterActivity() {
                 ?.toIntOrNull()
                 ?: 0
             val intervalMs = when {
-                durationMs <= 20_000L -> 650.0
+                durationMs <= 20_000L -> 500.0
                 durationMs <= 60_000L -> 900.0
                 durationMs <= 180_000L -> 1_400.0
                 else -> durationMs.toDouble() / maxFrames.coerceAtLeast(1)
             }
             val proposed = (ceil(durationMs / intervalMs).toInt() + 1).coerceAtLeast(1)
-            val count = minOf(maxFrames, proposed)
+            val count = minOf(maxFrames, proposed, durationMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
             val frameRoot = File(cacheDir, "video_frames").apply { mkdirs() }
             frameRoot.listFiles()?.filter {
                 System.currentTimeMillis() - it.lastModified() > 24 * 60 * 60 * 1000L
             }?.forEach { it.deleteRecursively() }
             val directory = File(frameRoot, java.util.UUID.randomUUID().toString()).apply { mkdirs() }
             frameDirectory = directory
-            val acceptedHashes = mutableListOf<Pair<Long, Long>>()
             val result = mutableListOf<Map<String, Any>>()
+            var unreadable = 0
+            var rescueBudget = 12
+
+            // Bounded resolution preserves small pack text without keeping a
+            // full-resolution movie or all decoded bitmaps in memory.
+            fun decode(timeUs: Long): Bitmap? = try {
+                val largestSource = maxOf(sourceWidth, sourceHeight)
+                val scale = minOf(1.0, 1920.0 / largestSource.coerceAtLeast(1))
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1 &&
+                    sourceWidth > 0 && sourceHeight > 0) {
+                    retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST,
+                        (sourceWidth * scale).toInt().coerceAtLeast(1),
+                        (sourceHeight * scale).toInt().coerceAtLeast(1))
+                } else {
+                    retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                }
+            } catch (_: RuntimeException) {
+                // One corrupt/unsupported frame must not abandon later packs.
+                null
+            }
 
             for (index in 0 until count) {
                 // Sample the middle of each bucket. Exact endpoints are often
                 // black transition frames and add no medicine evidence.
-                val timeUs = startMs * 1000L + durationMs * 1000L * (index * 2L + 1L) / (count * 2L)
-                val largestSource = maxOf(sourceWidth, sourceHeight)
-                val sourceScale = minOf(1.0, 1600.0 / largestSource.coerceAtLeast(1))
-                val scaledWidth = (sourceWidth * sourceScale).toInt().coerceAtLeast(1)
-                val scaledHeight = (sourceHeight * sourceScale).toInt().coerceAtLeast(1)
-                val original = if (
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1 &&
-                    sourceWidth > 0 &&
-                    sourceHeight > 0
-                ) {
-                    retriever.getScaledFrameAtTime(
-                        timeUs,
-                        MediaMetadataRetriever.OPTION_CLOSEST,
-                        scaledWidth,
-                        scaledHeight,
-                    )
-                } else {
-                    retriever.getFrameAtTime(
-                        timeUs,
-                        MediaMetadataRetriever.OPTION_CLOSEST,
-                    )
-                } ?: continue
-                var frame: Bitmap? = null
-                try {
-                val metrics = imageMetrics(original)
-                val timestampMs = timeUs / 1000L
-                val duplicate = acceptedHashes.takeLast(8).any {
-                    // Similar-looking cartons can have different tiny expiry
-                    // text. Do not throw those away using a coarse hash distance.
-                    abs(timestampMs - it.second) <= 600L && it.first == metrics.hash
+                var timeUs = startMs * 1000L + durationMs * 1000L * (index * 2L + 1L) / (count * 2L)
+                var decoded = decode(timeUs)
+                var metrics = decoded?.let { imageMetrics(it) }
+                // Rescue a weak/null centre from the same temporal bucket.
+                // Budget is per window; quality selects an alternative, NEVER
+                // authorizes discarding fine text before OCR has seen it.
+                if ((metrics == null || metrics.quality < 0.28) && rescueBudget > 0) {
+                    rescueBudget--
+                    val offset = durationMs * 1000L / (count * 4L)
+                    val alternateTime = (timeUs + if (index % 2 == 0) offset else -offset)
+                        .coerceIn(startMs * 1000L, (startMs + durationMs) * 1000L - 1L)
+                    val alternate = decode(alternateTime)
+                    if (alternate != null) {
+                        val alternateMetrics = imageMetrics(alternate)
+                        if (metrics == null || alternateMetrics.quality > metrics.quality) {
+                            decoded?.recycle()
+                            decoded = alternate
+                            metrics = alternateMetrics
+                            timeUs = alternateTime
+                        } else {
+                            alternate.recycle()
+                        }
+                    }
                 }
-                if (duplicate || metrics.quality < 0.16) {
-                    original.recycle()
+                val original = decoded
+                val selectedMetrics = metrics
+                if (original == null || selectedMetrics == null) {
+                    unreadable++
                     continue
                 }
-                acceptedHashes.add(metrics.hash to timestampMs)
+                var frame: Bitmap? = null
+                try {
+                val timestampMs = timeUs / 1000L
                 val largest = maxOf(original.width, original.height)
-                val scale = minOf(1.0, 1600.0 / largest.coerceAtLeast(1))
+                val scale = minOf(1.0, 1920.0 / largest.coerceAtLeast(1))
                 val width = (original.width * scale).toInt().coerceAtLeast(1)
                 val height = (original.height * scale).toInt().coerceAtLeast(1)
                 val outputFrame = if (width == original.width && height == original.height) {
@@ -488,7 +525,7 @@ class MainActivity : FlutterActivity() {
                         "path" to file.absolutePath,
                         "sequence" to timestampMs.toInt(),
                         "timestampMs" to timestampMs,
-                        "quality" to metrics.quality,
+                        "quality" to selectedMetrics.quality,
                     ),
                 )
                 } finally {
@@ -501,7 +538,7 @@ class MainActivity : FlutterActivity() {
                     "No clear frame could be sampled. Try a shorter, steadier video.",
                 )
             }
-            return result
+            return SampledVideo(result, unreadable)
         } catch (error: Exception) {
             frameDirectory?.deleteRecursively()
             throw error
@@ -584,14 +621,6 @@ class MainActivity : FlutterActivity() {
             distance * distance
         } / luminance.size
         val contrast = sqrt(variance)
-        var hash = 0L
-        for (y in 0 until 8) {
-            for (x in 0 until 8) {
-                val value = luminance[(y * 4 + 2) * side + (x * 4 + 2)]
-                val bit = y * 8 + x
-                if (value >= average) hash = hash or (1L shl bit)
-            }
-        }
         var edge = 0.0
         var edgeCount = 0
         for (y in 0 until side) {
@@ -612,7 +641,7 @@ class MainActivity : FlutterActivity() {
         val exposure = (1.0 - abs(average - 128.0) / 128.0).coerceIn(0.0, 1.0)
         val quality = (sharpness * 0.52 + contrastScore * 0.28 + exposure * 0.20)
             .coerceIn(0.0, 1.0)
-        return FrameMetrics(hash, sharpness, contrast, exposure, quality)
+        return FrameMetrics(sharpness, contrast, exposure, quality)
     }
 
     private fun createPurchaseOrderPdf(arguments: Map<String, Any?>): String {

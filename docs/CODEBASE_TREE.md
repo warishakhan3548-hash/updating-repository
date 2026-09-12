@@ -5,6 +5,10 @@ Business rules live below `domain/`; UI screens collect intent and render review
 or committed state. Optional AI routes may propose facts/actions, but they never
 become a second inventory authority.
 
+The [video recognition audit](VIDEO_MEDICINE_AUDIT_2026_09_12.md) maps the
+multi-pack sampling/grouping fixes, bounded carry, readable progress, retained
+source retry and cloud response deadline, with exact verification limits.
+
 The [12 September scanner UI review](SCANNER_UI_REVIEW_2026_09_12.md) maps the
 fixed capture controls, camera-session ownership and connected search/review
 changes, with the exact local verification limits. `ui/scanner_view.dart` owns

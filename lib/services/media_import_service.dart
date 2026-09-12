@@ -147,11 +147,12 @@ class MediaImportService {
 
   Future<VideoWindow> sampleVideoWindow(String path, int startMs) async {
     _requireAndroid();
+    if (startMs < 0) throw const FormatException('Invalid video cursor.');
     final raw = await _boundedNative<Map<Object?, Object?>?>(
-      _channel.invokeMapMethod<Object?, Object?>(
-        'sampleVideoWindow',
-        {'path': path, 'startMs': startMs},
-      ),
+      _channel.invokeMapMethod<Object?, Object?>('sampleVideoWindow', {
+        'path': path,
+        'startMs': startMs,
+      }),
       timeout: _videoWindowTimeout,
       action: 'Video intake window',
     );
@@ -161,16 +162,52 @@ class MediaImportService {
         raw['durationMs'] is! int) {
       throw StateError('Invalid video window response.');
     }
+    final nextStartMs = raw['nextStartMs'] as int;
+    final durationMs = raw['durationMs'] as int;
+    final unreadable = raw['unreadableFrames'] ?? 0;
+    final rawFrames = raw['frames'] as List;
+    if (durationMs <= 0 ||
+        durationMs > 3600000 ||
+        startMs > durationMs ||
+        nextStartMs < startMs ||
+        nextStartMs > durationMs ||
+        (nextStartMs == startMs && startMs < durationMs) ||
+        unreadable is! int ||
+        unreadable < 0 ||
+        unreadable > 72 ||
+        rawFrames.length > 72 ||
+        rawFrames.any((frame) => frame is! Map)) {
+      throw StateError('Invalid video coverage checkpoint.');
+    }
+    final frames = <VideoFrameSample>[];
+    final sequences = <int>{};
+    for (final rawFrame in rawFrames.cast<Map>()) {
+      if (rawFrame['path'] is! String ||
+          (rawFrame['path'] as String).isEmpty ||
+          rawFrame['sequence'] is! int ||
+          rawFrame['timestampMs'] is! int ||
+          rawFrame['quality'] is! num ||
+          !(rawFrame['quality'] as num).isFinite) {
+        throw StateError('Invalid sampled video frame.');
+      }
+      final frame = VideoFrameSample.fromMap(
+        Map<Object?, Object?>.from(rawFrame),
+        fallbackSequence: startMs,
+      );
+      if (frame.timestampMs < startMs ||
+          frame.timestampMs >= nextStartMs ||
+          frame.sequence != frame.timestampMs ||
+          !sequences.add(frame.sequence)) {
+        throw StateError('Video frame is outside its coverage window.');
+      }
+      frames.add(frame);
+    }
+    frames.sort((a, b) => a.timestampMs.compareTo(b.timestampMs));
     return VideoWindow(
-      frames: [
-        for (final frame in (raw['frames'] as List).whereType<Map>())
-          VideoFrameSample.fromMap(
-            Map<Object?, Object?>.from(frame),
-            fallbackSequence: startMs,
-          ),
-      ],
-      nextStartMs: raw['nextStartMs'] as int,
-      durationMs: raw['durationMs'] as int,
+      frames: frames,
+      nextStartMs: nextStartMs,
+      durationMs: durationMs,
+      unreadableFrames: unreadable,
     );
   }
 
@@ -199,8 +236,10 @@ class VideoWindow {
     required this.frames,
     required this.nextStartMs,
     required this.durationMs,
+    this.unreadableFrames = 0,
   });
   final List<VideoFrameSample> frames;
   final int nextStartMs, durationMs;
+  final int unreadableFrames;
   bool get complete => nextStartMs >= durationMs;
 }
