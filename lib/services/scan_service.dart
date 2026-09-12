@@ -4,8 +4,8 @@ import 'dart:math';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
-import '../domain/gs1_healthcare.dart';
 import '../domain/medicine_understanding.dart';
+import '../domain/regulatory_medicine_code.dart';
 import '../domain/search.dart';
 
 typedef ScanEvidence = MedicineFrameEvidence;
@@ -13,7 +13,18 @@ typedef ScanEvidence = MedicineFrameEvidence;
 class MedicineVisionService {
   final _latin = TextRecognizer(script: TextRecognitionScript.latin);
   final _hindi = TextRecognizer(script: TextRecognitionScript.devanagiri);
-  final _barcodes = BarcodeScanner();
+  final _barcodes = BarcodeScanner(
+    formats: const <BarcodeFormat>[
+      BarcodeFormat.dataMatrix,
+      BarcodeFormat.qrCode,
+      BarcodeFormat.ean13,
+      BarcodeFormat.ean8,
+      BarcodeFormat.code128,
+      BarcodeFormat.upca,
+      BarcodeFormat.upce,
+      BarcodeFormat.itf,
+    ],
+  );
   bool _closing = false, _closed = false;
   int _inFlight = 0;
   Completer<void>? _drained;
@@ -83,8 +94,10 @@ class MedicineVisionService {
           ...(hindi as RecognizedText).text.split('\n'),
       ]);
       final layoutLines = _mergeLayoutLines([
-        if (latin is RecognizedText) ..._layoutEvidence(latin as RecognizedText),
-        if (hindi is RecognizedText) ..._layoutEvidence(hindi as RecognizedText),
+        if (latin is RecognizedText)
+          ..._layoutEvidence(latin as RecognizedText),
+        if (hindi is RecognizedText)
+          ..._layoutEvidence(hindi as RecognizedText),
       ]);
       final barcodes = barcodeResult is List<Barcode>
           ? _rankBarcodes(
@@ -323,22 +336,28 @@ List<String> _rankBarcodes(Iterable<String> input) {
     // but also expose its verified GTIN as a canonical barcode candidate. That
     // lets the existing private inventory knowledge index hit the exact product
     // instead of treating a structured GS1 payload as an unrelated long string.
-    final gs1 = parseGs1HealthcareBarcode(raw);
-    if (gs1 != null && gs1.gtin.isNotEmpty) values.add(gs1.gtin);
+    final structured = parseRegulatoryMedicineCode(raw);
+    if (structured != null && structured.gtin.isNotEmpty) {
+      values.add(structured.gtin);
+    }
   }
-  final ranked = values.toList(growable: false)..sort((a, b) {
-    final score = _barcodeScore(b).compareTo(_barcodeScore(a));
-    return score != 0 ? score : a.compareTo(b);
-  });
+  final ranked = values.toList(growable: false)
+    ..sort((a, b) {
+      final score = _barcodeScore(b).compareTo(_barcodeScore(a));
+      return score != 0 ? score : a.compareTo(b);
+    });
   return ranked.take(8).toList(growable: false);
 }
 
 int _barcodeScore(String value) {
   final digits = value.replaceAll(RegExp(r'\D'), '');
   if (digits == value && const {8, 12, 13, 14}.contains(digits.length)) {
-    return _validGtin(digits) ? 4 : 3;
+    return _validGtin(digits) ? 6 : 3;
   }
-  if (digits == value && digits.length >= 6) return 2;
+  final structured = parseRegulatoryMedicineCode(value);
+  if (structured != null && structured.gtin.isNotEmpty) return 5;
+  if (digits == value && digits.length >= 6) return 3;
+  if (structured != null && structured.hasTraceability) return 2;
   return 1;
 }
 
