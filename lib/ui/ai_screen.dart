@@ -895,7 +895,9 @@ class _AiScreenState extends State<AiScreen> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Aaris Brain · On-device · ${_local.activeLabel}',
+                  _configuration.key.isNotEmpty
+                      ? 'Aaris Brain · On-device · ${_local.activeLabel} · Cloud connection saved'
+                      : 'Aaris Brain · On-device · ${_local.activeLabel}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 10.5, color: muted),
@@ -1591,11 +1593,13 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
         model: model.text.trim(),
         endpoint: endpoint.text.trim(),
         key: key.text.trim(),
-        localBrainEnabled: false,
+        // Saving or changing a cloud credential must not mutate the independent
+        // Local Brain preference. The owner can keep a private on-device route
+        // active while also keeping a cloud provider ready for explicit use.
+        localBrainEnabled: localBrainEnabled,
       );
       config.uri;
       await widget.service.saveConfiguration(config);
-      await local.suspend();
       if (mounted) Navigator.pop(context, config);
     } catch (e) {
       if (mounted) {
@@ -1662,7 +1666,9 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
                 const SizedBox(height: 2),
                 Text(
                   localBrainEnabled
-                      ? 'ON · typed messages use ${local.activeLabel.isEmpty ? 'the selected local model' : local.activeLabel}.'
+                      ? widget.initial.key.isNotEmpty
+                            ? 'ON · local model is active; your saved API stays connected independently.'
+                            : 'ON · typed messages use ${local.activeLabel.isEmpty ? 'the selected local model' : local.activeLabel}.'
                       : widget.initial.key.isNotEmpty
                       ? 'OFF · typed messages use the saved API.'
                       : local.hasSelection
