@@ -329,6 +329,19 @@ class MedicineProductResolverV2 {
         winner.exactBarcode &&
         winner.product.verified &&
         winner.hardConflicts == 0;
+
+    // V12 counterfactual gate: a high aggregate winner is not enough when a
+    // plausible member of the same medicine family differs on a safety-critical
+    // variant field that the scan never actually observed. This is deliberately
+    // evaluated at the canonicalization boundary, not during retrieval: search
+    // remains recall-friendly, while auto-fill must prove the distinguishing
+    // salt/strength/form evidence or abstain. Verified exact barcodes retain
+    // their separate highest-authority path.
+    final blockingVariant = exactBarcodeLock
+        ? null
+        : _findUnresolvedCounterfactualVariant(draft, winner, hypotheses);
+    final counterfactualSafe = blockingVariant == null;
+
     final evidenceQuality = _resolverDecisionEvidenceQuality(winner, draft);
     final requiredScore = _resolverRequiredLockScore(winner, evidenceQuality);
     final requiredMargin = _resolverRequiredLockMargin(winner, evidenceQuality);
@@ -363,13 +376,22 @@ class MedicineProductResolverV2 {
         margin >= requiredMargin &&
         winner.hardConflicts == 0 &&
         selectiveReliability.acceptCanonicalLock &&
-        confusionSafe;
+        confusionSafe &&
+        counterfactualSafe;
 
     if (exactBarcodeLock || calibratedLock) {
       return _inheritCanonicalIdentity(
         draft,
         winner,
         decisionReliability: selectiveReliability.score,
+      );
+    }
+
+    if (blockingVariant != null) {
+      return _markProductAmbiguity(
+        draft,
+        winner.product,
+        blockingVariant.product,
       );
     }
 
@@ -1243,6 +1265,177 @@ bool _confusionResolvedByEvidence(
       ? 2
       : 1;
   return confirmations >= min(required, assessment.criticalFields.length);
+}
+
+/// Returns the strongest plausible same-family variant that the observed pack
+/// evidence has not yet distinguished from [winner]. A null result means either
+/// there is no material variant competitor or at least one reliable critical
+/// field proves the winner over every plausible variant inspected.
+///
+/// Work is intentionally bounded to seven post-winner hypotheses. Candidate
+/// retrieval already caps the resolver set; this additional gate therefore adds
+/// constant, allocation-light work at the final decision boundary instead of a
+/// second search pass.
+_ProductHypothesis? _findUnresolvedCounterfactualVariant(
+  MedicineScanDraft draft,
+  _ProductHypothesis winner,
+  List<_ProductHypothesis> hypotheses,
+) {
+  var inspected = 0;
+  for (final candidate in hypotheses.skip(1)) {
+    if (inspected >= 7) break;
+    inspected++;
+
+    if (!candidate.product.verified || candidate.hardConflicts > 0) continue;
+    if (_sameResolvedProductIdentity(winner.product, candidate.product)) {
+      continue;
+    }
+
+    // Only a realistically reachable alternative may block automation. The
+    // bounded score window protects recall for true variants without letting a
+    // remote catalogue neighbour turn every confident result into REVIEW.
+    final plausibleFloor = max(.60, winner.score - .24);
+    if (!candidate.strongIdentity && candidate.score < plausibleFloor) continue;
+
+    final identitySimilarity = _counterfactualIdentitySimilarity(
+      winner.product,
+      candidate.product,
+    );
+    if (identitySimilarity < .76) continue;
+
+    final saltDiffers = _criticalTextVariantDiffers(
+      winner.product.salt,
+      candidate.product.salt,
+      sameThreshold: .92,
+    );
+    final strengthDiffers = _criticalStrengthVariantDiffers(
+      winner.product.strength,
+      candidate.product.strength,
+    );
+    final formDiffers = _criticalFormVariantDiffers(
+      winner.product.form,
+      candidate.product.form,
+    );
+    if (!saltDiffers && !strengthDiffers && !formDiffers) continue;
+
+    var distinguished = false;
+    if (saltDiffers &&
+        _observedTextDiscriminatorSupportsWinner(
+          draft.field('salt'),
+          winner.product.salt,
+          candidate.product.salt,
+          minimumConfidence: .78,
+          winnerThreshold: .88,
+          alternativeCeiling: .82,
+        )) {
+      distinguished = true;
+    }
+    if (strengthDiffers &&
+        _observedStrengthDiscriminatorSupportsWinner(
+          draft.field('strength'),
+          winner.product.strength,
+          candidate.product.strength,
+        )) {
+      distinguished = true;
+    }
+    if (formDiffers &&
+        _observedFormDiscriminatorSupportsWinner(
+          draft.field('form'),
+          winner.product.form,
+          candidate.product.form,
+        )) {
+      distinguished = true;
+    }
+
+    if (!distinguished) return candidate;
+  }
+  return null;
+}
+
+double _counterfactualIdentitySimilarity(
+  CanonicalMedicineProduct left,
+  CanonicalMedicineProduct right,
+) {
+  var best = 0.0;
+  for (final pair in <(String, String)>[
+    (left.displayName, right.displayName),
+    (left.displayName, right.brand),
+    (left.brand, right.displayName),
+    (left.brand, right.brand),
+  ]) {
+    if (pair.$1.trim().isEmpty || pair.$2.trim().isEmpty) continue;
+    best = max(best, _weightedTextSimilarity(pair.$1, pair.$2));
+  }
+  return best.clamp(0, 1).toDouble();
+}
+
+bool _criticalTextVariantDiffers(
+  String left,
+  String right, {
+  required double sameThreshold,
+}) {
+  if (left.trim().isEmpty || right.trim().isEmpty) return false;
+  return _weightedTextSimilarity(left, right) < sameThreshold;
+}
+
+bool _criticalStrengthVariantDiffers(String left, String right) {
+  final a = _strengthIdentity(left);
+  final b = _strengthIdentity(right);
+  return a.isNotEmpty && b.isNotEmpty && a != b;
+}
+
+bool _criticalFormVariantDiffers(String left, String right) {
+  final a = normalizeForm(left);
+  final b = normalizeForm(right);
+  return a.isNotEmpty && b.isNotEmpty && a != b;
+}
+
+bool _observedTextDiscriminatorSupportsWinner(
+  ExtractedMedicineField observed,
+  String winner,
+  String alternative, {
+  required double minimumConfidence,
+  required double winnerThreshold,
+  required double alternativeCeiling,
+}) {
+  if (observed.isEmpty ||
+      observed.conflicted ||
+      observed.confidence < minimumConfidence) {
+    return false;
+  }
+  final winnerScore = _weightedTextSimilarity(observed.value, winner);
+  final alternativeScore = _weightedTextSimilarity(observed.value, alternative);
+  return winnerScore >= winnerThreshold &&
+      alternativeScore < alternativeCeiling &&
+      winnerScore - alternativeScore >= .08;
+}
+
+bool _observedStrengthDiscriminatorSupportsWinner(
+  ExtractedMedicineField observed,
+  String winner,
+  String alternative,
+) {
+  if (observed.isEmpty || observed.conflicted || observed.confidence < .65) {
+    return false;
+  }
+  final key = _strengthIdentity(observed.value);
+  return key.isNotEmpty &&
+      key == _strengthIdentity(winner) &&
+      key != _strengthIdentity(alternative);
+}
+
+bool _observedFormDiscriminatorSupportsWinner(
+  ExtractedMedicineField observed,
+  String winner,
+  String alternative,
+) {
+  if (observed.isEmpty || observed.conflicted || observed.confidence < .82) {
+    return false;
+  }
+  final key = normalizeForm(observed.value);
+  return key.isNotEmpty &&
+      key == normalizeForm(winner) &&
+      key != normalizeForm(alternative);
 }
 
 bool _sameResolvedProductIdentity(
