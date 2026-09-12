@@ -146,19 +146,17 @@ void main() {
         ],
       );
 
-      final result = MedicineProductResolverV2(
-        localKnowledge: const <MedicineKnowledgeEntry>[],
-        catalogue: const <CanonicalMedicineProduct>[product],
-      ).reconcile(
-        baseline,
-        const <MedicineFrameEvidence>[
-          MedicineFrameEvidence(
-            sequence: 0,
-            quality: .98,
-            text: 'A1PHAZLNE\nTABLETS',
-          ),
-        ],
-      );
+      final result =
+          MedicineProductResolverV2(
+            localKnowledge: const <MedicineKnowledgeEntry>[],
+            catalogue: const <CanonicalMedicineProduct>[product],
+          ).reconcile(baseline, const <MedicineFrameEvidence>[
+            MedicineFrameEvidence(
+              sequence: 0,
+              quality: .98,
+              text: 'A1PHAZLNE\nTABLETS',
+            ),
+          ]);
 
       final draft = result.drafts.single;
       expect(draft.name, 'A1PHAZLNE');
@@ -206,29 +204,27 @@ void main() {
         ],
       );
 
-      final result = MedicineProductResolverV2(
-        localKnowledge: const <MedicineKnowledgeEntry>[],
-        catalogue: const <CanonicalMedicineProduct>[product],
-      ).reconcile(
-        baseline,
-        const <MedicineFrameEvidence>[
-          MedicineFrameEvidence(
-            sequence: 0,
-            quality: .98,
-            text: 'A1PHAZLNE\nTABLETS',
-          ),
-          MedicineFrameEvidence(
-            sequence: 1,
-            quality: .98,
-            text: 'A1PHAZLNE\nTABLETS',
-          ),
-          MedicineFrameEvidence(
-            sequence: 2,
-            quality: .98,
-            text: 'A1PHAZLNE\nTABLETS',
-          ),
-        ],
-      );
+      final result =
+          MedicineProductResolverV2(
+            localKnowledge: const <MedicineKnowledgeEntry>[],
+            catalogue: const <CanonicalMedicineProduct>[product],
+          ).reconcile(baseline, const <MedicineFrameEvidence>[
+            MedicineFrameEvidence(
+              sequence: 0,
+              quality: .98,
+              text: 'A1PHAZLNE\nTABLETS',
+            ),
+            MedicineFrameEvidence(
+              sequence: 1,
+              quality: .98,
+              text: 'A1PHAZLNE\nTABLETS',
+            ),
+            MedicineFrameEvidence(
+              sequence: 2,
+              quality: .98,
+              text: 'A1PHAZLNE\nTABLETS',
+            ),
+          ]);
 
       final draft = result.drafts.single;
       expect(draft.name, 'A1PHAZLNE');

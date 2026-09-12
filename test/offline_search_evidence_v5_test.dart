@@ -77,36 +77,39 @@ void main() {
       }
     });
 
-    test('information-gain planning keeps a rare useful clue in a noisy query', () {
-      final engine = MedicineSearch([
-        stock(
-          'cefikid',
-          name: 'CefiKid',
-          salt: 'Cefixime',
-          strength: '100mg',
-          form: 'Tablet',
-          expiry: '2027-12-31',
-        ),
-        stock(
-          'other',
-          name: 'OtherMed',
-          salt: 'Paracetamol',
-          strength: '100mg',
-          form: 'Tablet',
-          expiry: '2027-12-31',
-        ),
-      ]);
+    test(
+      'information-gain planning keeps a rare useful clue in a noisy query',
+      () {
+        final engine = MedicineSearch([
+          stock(
+            'cefikid',
+            name: 'CefiKid',
+            salt: 'Cefixime',
+            strength: '100mg',
+            form: 'Tablet',
+            expiry: '2027-12-31',
+          ),
+          stock(
+            'other',
+            name: 'OtherMed',
+            salt: 'Paracetamol',
+            strength: '100mg',
+            form: 'Tablet',
+            expiry: '2027-12-31',
+          ),
+        ]);
 
-      final hits = engine.search(
-        'aa bb cc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr ss tt uu vv cefixime',
-        SearchScope.all,
-        contractSettings,
-        contractToday,
-      );
+        final hits = engine.search(
+          'aa bb cc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr ss tt uu vv cefixime',
+          SearchScope.all,
+          contractSettings,
+          contractToday,
+        );
 
-      expect(hits, isNotEmpty);
-      expect(hits.first.id, 'cefikid');
-    });
+        expect(hits, isNotEmpty);
+        expect(hits.first.id, 'cefikid');
+      },
+    );
 
     test('repeated OCR words do not become independent evidence', () {
       final engine = MedicineSearch([

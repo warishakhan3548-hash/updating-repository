@@ -78,7 +78,8 @@ class StatsScreen extends StatelessWidget {
           icon: Icons.bar_chart_rounded,
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => _SoldMedicineTrackerScreen(controller: controller),
+              builder: (_) =>
+                  _SoldMedicineTrackerScreen(controller: controller),
             ),
           ),
         ),
@@ -135,8 +136,14 @@ class StatsScreen extends StatelessWidget {
                 height: 1.35,
                 color: muted,
               );
-              final labelHeight = maxTextHeight((metric) => metric.label, labelStyle);
-              final detailHeight = maxTextHeight((metric) => metric.detail, detailStyle);
+              final labelHeight = maxTextHeight(
+                (metric) => metric.label,
+                labelStyle,
+              );
+              final detailHeight = maxTextHeight(
+                (metric) => metric.detail,
+                detailStyle,
+              );
               final cardHeight =
                   32 +
                   40 +
@@ -204,7 +211,11 @@ class _SnapshotCard extends StatelessWidget {
               ),
               if (metric.onTap != null) ...[
                 const Spacer(),
-                const Icon(Icons.chevron_right_rounded, color: primary, size: 22),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: primary,
+                  size: 22,
+                ),
               ],
             ],
           ),
@@ -238,11 +249,7 @@ class _SnapshotCard extends StatelessWidget {
             metric.detail,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 11,
-              height: 1.35,
-              color: muted,
-            ),
+            style: const TextStyle(fontSize: 11, height: 1.35, color: muted),
           ),
         ],
       ),
@@ -362,7 +369,8 @@ class _DemandRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final share = demand.demandShare(totalUnitsSold);
     final percentage = share * 100;
-    final percentText = percentage < 10 && percentage != percentage.roundToDouble()
+    final percentText =
+        percentage < 10 && percentage != percentage.roundToDouble()
         ? '${percentage.toStringAsFixed(1)}%'
         : '${percentage.round()}%';
     return GlassPanel(

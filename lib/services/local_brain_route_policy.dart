@@ -35,10 +35,7 @@ class LocalBrainRoutePolicy {
     try {
       final raw = await _storage
           .read(key: configurationKey)
-          .timeout(
-            _configurationReadTimeout,
-            onTimeout: () => null,
-          );
+          .timeout(_configurationReadTimeout, onTimeout: () => null);
       if (raw == null ||
           raw.isEmpty ||
           raw.length > _maxConfigurationCharacters) {

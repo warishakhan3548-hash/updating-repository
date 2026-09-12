@@ -21,8 +21,7 @@ class _ContextFallbackEngine implements LlamaEngine {
           // Mirrors NativeLlamaRuntime when llama_new_context_with_model returns
           // nullptr. The message does not necessarily contain generic OOM words.
           yield const LlamaErrorResponse(
-            message:
-                'Failed to create llama.cpp context for: /test/large.gguf',
+            message: 'Failed to create llama.cpp context for: /test/large.gguf',
           );
         } else {
           yield LlamaStateChangedResponse(
@@ -49,19 +48,16 @@ class _ContextFallbackEngine implements LlamaEngine {
 }
 
 void main() {
-  test(
-    'native null-context load retries smaller context instead of false connection failure',
-    () async {
-      final engine = _ContextFallbackEngine();
-      final runtime = LocalAiRuntime(engine: engine);
+  test('native null-context load retries smaller context instead of false connection failure', () async {
+    final engine = _ContextFallbackEngine();
+    final runtime = LocalAiRuntime(engine: engine);
 
-      await runtime.load('/test/large.gguf', contextTokens: 4096);
+    await runtime.load('/test/large.gguf', contextTokens: 4096);
 
-      expect(engine.attemptedContexts, <int>[4096, 3072]);
-      expect(runtime.modelPath, '/test/large.gguf');
-      expect(runtime.loadedContextTokens, 3072);
+    expect(engine.attemptedContexts, <int>[4096, 3072]);
+    expect(runtime.modelPath, '/test/large.gguf');
+    expect(runtime.loadedContextTokens, 3072);
 
-      await runtime.close();
-    },
-  );
+    await runtime.close();
+  });
 }

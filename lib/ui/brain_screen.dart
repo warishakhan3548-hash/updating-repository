@@ -492,7 +492,8 @@ class _BrainScreenState extends State<BrainScreen> {
         if (intent.openExact) {
           widget.onOpenSection(AppSection.stock);
           setState(
-            () => _reply = '${record.title} matched exactly. Opening that stock entry now.',
+            () => _reply =
+                '${record.title} matched exactly. Opening that stock entry now.',
           );
           await Future<void>.delayed(Duration.zero);
           if (mounted) {

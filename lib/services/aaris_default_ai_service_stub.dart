@@ -14,7 +14,6 @@ class AarisDefaultAiService extends ChangeNotifier {
 
   Future<void> initialize() async {}
   Future<bool> ensureActiveIfInstalled() async => false;
-  Future<void> installAndActivate() async =>
-      throw UnsupportedError(status);
+  Future<void> installAndActivate() async => throw UnsupportedError(status);
   void cancel() {}
 }

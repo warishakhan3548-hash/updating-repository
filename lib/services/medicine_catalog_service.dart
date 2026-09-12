@@ -30,10 +30,7 @@ class MedicineCatalogService {
            ? <MedicineCatalogProvider>[]
            : List<MedicineCatalogProvider>.of(providers) {
     if (_providers.isEmpty) {
-      _providers.addAll([
-        OpenFdaNdcProvider(_client),
-        RxNormProvider(_client),
-      ]);
+      _providers.addAll([OpenFdaNdcProvider(_client), RxNormProvider(_client)]);
     }
   }
 
@@ -62,26 +59,29 @@ class MedicineCatalogService {
     final running = _inflight[key];
     if (running != null) return running;
 
-    final future = _searchProviders(
-      barcode: cleanBarcode,
-      text: cleanText,
-      limit: boundedLimit,
-    ).then((values) {
-      _cache[key] = _CatalogCacheEntry(
-        values,
-        now.add(Duration(minutes: values.isEmpty ? 5 : 360)),
-      );
-      while (_cache.length > 64) {
-        _cache.remove(_cache.keys.first);
-      }
-      return values;
-    }).whenComplete(() {
-      // Do not use `() => _inflight.remove(key)` here. Map.remove returns the
-      // removed Future; whenComplete would then await that Future. Because the
-      // removed value is this same in-flight completion Future, that creates a
-      // self-referential completion cycle and the catalog lookup never settles.
-      _inflight.remove(key);
-    });
+    final future =
+        _searchProviders(
+              barcode: cleanBarcode,
+              text: cleanText,
+              limit: boundedLimit,
+            )
+            .then((values) {
+              _cache[key] = _CatalogCacheEntry(
+                values,
+                now.add(Duration(minutes: values.isEmpty ? 5 : 360)),
+              );
+              while (_cache.length > 64) {
+                _cache.remove(_cache.keys.first);
+              }
+              return values;
+            })
+            .whenComplete(() {
+              // Do not use `() => _inflight.remove(key)` here. Map.remove returns the
+              // removed Future; whenComplete would then await that Future. Because the
+              // removed value is this same in-flight completion Future, that creates a
+              // self-referential completion cycle and the catalog lookup never settles.
+              _inflight.remove(key);
+            });
     _inflight[key] = future;
     return future;
   }
@@ -94,11 +94,7 @@ class MedicineCatalogService {
     final jobs = _providers.map((provider) async {
       try {
         return await provider
-            .search(
-              barcode: barcode,
-              text: text,
-              limit: limit,
-            )
+            .search(barcode: barcode, text: text, limit: limit)
             .timeout(const Duration(seconds: 5));
       } catch (_) {
         // One catalog being unavailable must not block another provider or the
@@ -248,7 +244,9 @@ class OpenFdaNdcProvider implements MedicineCatalogProvider {
 
       final salt = ingredients.isNotEmpty ? ingredients.join(' + ') : generic;
       final strength = strengths.join(' + ');
-      final name = brand.isNotEmpty ? brand : (generic.isNotEmpty ? generic : salt);
+      final name = brand.isNotEmpty
+          ? brand
+          : (generic.isNotEmpty ? generic : salt);
       if (name.isEmpty) continue;
       final seed = MedicineDraftSeed(
         name: name,
@@ -408,14 +406,16 @@ double _candidateScore(
 }) {
   final query = searchText(queryText);
   if (query.isEmpty) return providerFloor;
-  final document = searchText([
-    seed.name,
-    seed.brand,
-    seed.salt,
-    seed.strength,
-    seed.form,
-    seed.manufacturer,
-  ].join(' '));
+  final document = searchText(
+    [
+      seed.name,
+      seed.brand,
+      seed.salt,
+      seed.strength,
+      seed.form,
+      seed.manufacturer,
+    ].join(' '),
+  );
   final queryTokens = query
       .split(' ')
       .where((token) => token.length >= 2)
@@ -500,22 +500,21 @@ List<String> _searchTerms(String value) {
       .split(' ')
       .where((token) => RegExp(r'^[a-z][a-z0-9]{2,}$').hasMatch(token))
       .where(
-        (token) =>
-            !const {
-              'tablet',
-              'tablets',
-              'capsule',
-              'capsules',
-              'syrup',
-              'injection',
-              'cream',
-              'ointment',
-              'medicine',
-              'mg',
-              'ml',
-              'manufactured',
-              'manufacturer',
-            }.contains(token),
+        (token) => !const {
+          'tablet',
+          'tablets',
+          'capsule',
+          'capsules',
+          'syrup',
+          'injection',
+          'cream',
+          'ointment',
+          'medicine',
+          'mg',
+          'ml',
+          'manufactured',
+          'manufacturer',
+        }.contains(token),
       )
       .toList();
   tokens.sort((a, b) => b.length.compareTo(a.length));

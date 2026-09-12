@@ -403,10 +403,7 @@ FACTS: ${jsonEncode(summary)}''';
   }
 }
 
-bool _canPromoteVerifiedScanField(
-  String key,
-  ExtractedMedicineField current,
-) {
+bool _canPromoteVerifiedScanField(String key, ExtractedMedicineField current) {
   if (!const {'brand', 'salt', 'strength', 'form'}.contains(key)) return false;
   if (current.conflicted) return false;
   return current.value.trim().isEmpty || current.confidence < .78;
@@ -500,8 +497,7 @@ MedicineScanDraft validateLocalScan(
     // chronology. AI cannot promote an unlabelled date into EXP or MFG.
     if (key == 'mfg' || key == 'expiry') continue;
     final cleanValue = searchText(value), cleanQuote = searchText(quote);
-    final pairBackedIdentity =
-        hasPairs && (key == 'salt' || key == 'strength');
+    final pairBackedIdentity = hasPairs && (key == 'salt' || key == 'strength');
     // For combination medicines the canonical field is intentionally a joined
     // projection ("Salt A + Salt B" / "500 mg + 125 mg"). That joined string
     // usually does not occur contiguously on the wrapper because each dose sits
@@ -509,8 +505,7 @@ MedicineScanDraft validateLocalScan(
     // the authority for pair-backed salt/strength fields; all other fields must
     // still appear literally inside their own source quote.
     if (cleanValue.isEmpty ||
-        (!pairBackedIdentity &&
-            !(' $cleanQuote ').contains(' $cleanValue '))) {
+        (!pairBackedIdentity && !(' $cleanQuote ').contains(' $cleanValue '))) {
       throw const FormatException(
         'AI value is not supported by its quoted text.',
       );

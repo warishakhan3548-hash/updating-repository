@@ -279,8 +279,7 @@ class _SearchScreenState extends State<SearchScreen> {
             maxLines: 12,
             maxLength: 30000,
             decoration: const InputDecoration(
-              hintText:
-                  'Paste text from an invoice or a medicine list. Put each medicine on its own line.',
+              hintText: 'Paste text from an invoice or a medicine list. Put each medicine on its own line.',
             ),
           ),
         ),
@@ -339,11 +338,7 @@ class _SearchScreenState extends State<SearchScreen> {
       required IconData icon,
       required String label,
       required VoidCallback? onPressed,
-    }) => RaisedActionButton(
-      icon: icon,
-      label: label,
-      onPressed: onPressed,
-    );
+    }) => RaisedActionButton(icon: icon, label: label, onPressed: onPressed);
 
     final body = CustomScrollView(
       key: PageStorageKey('search-${widget.scope}-${widget.database}'),
@@ -358,8 +353,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 if (widget.embedded)
                   ScreenIntro(
                     title: title,
-                    message:
-                        'Find a medicine to edit, record a sale or remove stock.',
+                    message: 'Find a medicine to edit, record a sale or remove stock.',
                     icon: Icons.inventory_2_outlined,
                   )
                 else
@@ -479,15 +473,16 @@ class _SearchScreenState extends State<SearchScreen> {
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
                     child: Tooltip(
-                      message:
-                          'When enabled, a short single-medicine query can also search free public medicine catalogs. Stock dates and pharmacy-specific values are never taken from the internet.',
+                      message: 'When enabled, a short single-medicine query can also search free public medicine catalogs. Stock dates and pharmacy-specific values are never taken from the internet.',
                       child: FilterChip(
                         avatar: Icon(
                           Icons.public_rounded,
                           size: 18,
                           color: _onlineMode ? primary : muted,
                         ),
-                        label: Text(_onlineMode ? 'Online search on' : 'Online search'),
+                        label: Text(
+                          _onlineMode ? 'Online search on' : 'Online search',
+                        ),
                         selected: _onlineMode,
                         onSelected: _toggleOnlineMode,
                       ),

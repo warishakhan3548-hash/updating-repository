@@ -32,35 +32,38 @@ AttentionItem _item(
 
 void main() {
   group('pharmacist operations plan', () {
-    test('unknown quantity becomes a prerequisite for same-product reorder', () {
-      final dolo = _stock('dolo', 'Dolo');
-      final plan = PharmacyOperationsPlan.build(
-        medicines: [dolo],
-        items: [
-          _item(
-            'quantity:dolo',
-            AttentionKind.unknownQuantity,
-            severity: AttentionSeverity.high,
-            stockIds: [dolo.id],
-          ),
-          _item(
-            'reorder:dolo',
-            AttentionKind.urgentReorder,
-            severity: AttentionSeverity.high,
-            stockIds: [dolo.id],
-            productKey: dolo.identity,
-          ),
-        ],
-      );
+    test(
+      'unknown quantity becomes a prerequisite for same-product reorder',
+      () {
+        final dolo = _stock('dolo', 'Dolo');
+        final plan = PharmacyOperationsPlan.build(
+          medicines: [dolo],
+          items: [
+            _item(
+              'quantity:dolo',
+              AttentionKind.unknownQuantity,
+              severity: AttentionSeverity.high,
+              stockIds: [dolo.id],
+            ),
+            _item(
+              'reorder:dolo',
+              AttentionKind.urgentReorder,
+              severity: AttentionSeverity.high,
+              stockIds: [dolo.id],
+              productKey: dolo.identity,
+            ),
+          ],
+        );
 
-      final reorder = plan.steps.singleWhere(
-        (step) => step.item.key == 'reorder:dolo',
-      );
-      expect(reorder.blocked, isTrue);
-      expect(reorder.prerequisites.single.key, 'quantity:dolo');
-      expect(plan.nextStep?.item.key, 'quantity:dolo');
-      expect(plan.blockedCount, 1);
-    });
+        final reorder = plan.steps.singleWhere(
+          (step) => step.item.key == 'reorder:dolo',
+        );
+        expect(reorder.blocked, isTrue);
+        expect(reorder.prerequisites.single.key, 'quantity:dolo');
+        expect(plan.nextStep?.item.key, 'quantity:dolo');
+        expect(plan.blockedCount, 1);
+      },
+    );
 
     test('verification on another product does not block a safe reorder', () {
       final dolo = _stock('dolo', 'Dolo');
@@ -88,38 +91,46 @@ void main() {
       expect(reorder.blocked, isFalse);
     });
 
-    test('cross-identity barcode conflict blocks downstream work on either row', () {
-      final dolo = _stock('dolo', 'Dolo');
-      final crocin = _stock('crocin', 'Crocin');
-      final plan = PharmacyOperationsPlan.build(
-        medicines: [dolo, crocin],
-        items: [
-          _item(
-            'barcode:123',
-            AttentionKind.barcodeConflict,
-            severity: AttentionSeverity.high,
-            stockIds: [dolo.id, crocin.id],
-          ),
-          _item(
-            'reorder:dolo',
-            AttentionKind.urgentReorder,
-            stockIds: [dolo.id],
-            productKey: dolo.identity,
-          ),
-          _item(
-            'reorder:crocin',
-            AttentionKind.urgentReorder,
-            stockIds: [crocin.id],
-            productKey: crocin.identity,
-          ),
-        ],
-      );
+    test(
+      'cross-identity barcode conflict blocks downstream work on either row',
+      () {
+        final dolo = _stock('dolo', 'Dolo');
+        final crocin = _stock('crocin', 'Crocin');
+        final plan = PharmacyOperationsPlan.build(
+          medicines: [dolo, crocin],
+          items: [
+            _item(
+              'barcode:123',
+              AttentionKind.barcodeConflict,
+              severity: AttentionSeverity.high,
+              stockIds: [dolo.id, crocin.id],
+            ),
+            _item(
+              'reorder:dolo',
+              AttentionKind.urgentReorder,
+              stockIds: [dolo.id],
+              productKey: dolo.identity,
+            ),
+            _item(
+              'reorder:crocin',
+              AttentionKind.urgentReorder,
+              stockIds: [crocin.id],
+              productKey: crocin.identity,
+            ),
+          ],
+        );
 
-      for (final key in ['reorder:dolo', 'reorder:crocin']) {
-        final step = plan.steps.singleWhere((candidate) => candidate.item.key == key);
-        expect(step.prerequisites.map((item) => item.key), contains('barcode:123'));
-      }
-    });
+        for (final key in ['reorder:dolo', 'reorder:crocin']) {
+          final step = plan.steps.singleWhere(
+            (candidate) => candidate.item.key == key,
+          );
+          expect(
+            step.prerequisites.map((item) => item.key),
+            contains('barcode:123'),
+          );
+        }
+      },
+    );
 
     test('expired stock remains the first unblocked safety action', () {
       final dolo = _stock('dolo', 'Dolo');

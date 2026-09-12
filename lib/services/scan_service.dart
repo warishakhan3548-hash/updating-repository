@@ -83,8 +83,10 @@ class MedicineVisionService {
           ...(hindi as RecognizedText).text.split('\n'),
       ]);
       final layoutLines = _mergeLayoutLines([
-        if (latin is RecognizedText) ..._layoutEvidence(latin as RecognizedText),
-        if (hindi is RecognizedText) ..._layoutEvidence(hindi as RecognizedText),
+        if (latin is RecognizedText)
+          ..._layoutEvidence(latin as RecognizedText),
+        if (hindi is RecognizedText)
+          ..._layoutEvidence(hindi as RecognizedText),
       ]);
       final barcodes = barcodeResult is List<Barcode>
           ? _rankBarcodes(
@@ -326,10 +328,11 @@ List<String> _rankBarcodes(Iterable<String> input) {
     final gs1 = parseGs1HealthcareBarcode(raw);
     if (gs1 != null && gs1.gtin.isNotEmpty) values.add(gs1.gtin);
   }
-  final ranked = values.toList(growable: false)..sort((a, b) {
-    final score = _barcodeScore(b).compareTo(_barcodeScore(a));
-    return score != 0 ? score : a.compareTo(b);
-  });
+  final ranked = values.toList(growable: false)
+    ..sort((a, b) {
+      final score = _barcodeScore(b).compareTo(_barcodeScore(a));
+      return score != 0 ? score : a.compareTo(b);
+    });
   return ranked.take(8).toList(growable: false);
 }
 

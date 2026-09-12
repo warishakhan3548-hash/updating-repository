@@ -44,12 +44,30 @@ class _AmbientPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final bounds = Offset.zero & size;
     canvas.drawRect(bounds, Paint()..color = const Color(0xFFF3F5F8));
-    _glow(canvas, bounds, const Alignment(-1.15, -1.2), .88, green.withAlpha(28));
-    _glow(canvas, bounds, const Alignment(1.15, 1.18), .96, primary.withAlpha(24));
+    _glow(
+      canvas,
+      bounds,
+      const Alignment(-1.15, -1.2),
+      .88,
+      green.withAlpha(28),
+    );
+    _glow(
+      canvas,
+      bounds,
+      const Alignment(1.15, 1.18),
+      .96,
+      primary.withAlpha(24),
+    );
     _glow(canvas, bounds, const Alignment(.08, 1.24), .68, amber.withAlpha(10));
   }
 
-  void _glow(Canvas canvas, Rect bounds, Alignment center, double radius, Color color) {
+  void _glow(
+    Canvas canvas,
+    Rect bounds,
+    Alignment center,
+    double radius,
+    Color color,
+  ) {
     canvas.drawRect(
       bounds,
       Paint()
@@ -57,7 +75,11 @@ class _AmbientPainter extends CustomPainter {
         ..shader = RadialGradient(
           center: center,
           radius: radius,
-          colors: [color, color.withValues(alpha: color.a * .35), Colors.transparent],
+          colors: [
+            color,
+            color.withValues(alpha: color.a * .35),
+            Colors.transparent,
+          ],
           stops: const [0, .45, 1],
         ).createShader(bounds),
     );
@@ -70,7 +92,8 @@ class _AmbientPainter extends CustomPainter {
 int _alpha(int value, double elevation) =>
     (value * elevation.clamp(.25, 1.5)).round().clamp(0, 255);
 
-Color _ambient(Color color) => Color.lerp(color, const Color(0xFF172033), .045)!;
+Color _ambient(Color color) =>
+    Color.lerp(color, const Color(0xFF172033), .045)!;
 
 List<BoxShadow> _surfaceDepth(double elevation) => [
   BoxShadow(
@@ -127,7 +150,8 @@ class GlassPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final highContrast = MediaQuery.highContrastOf(context);
     final strong = dark || tint.computeLuminance() < .20;
-    final semantic = shadowColor ?? accentColor ?? (tint == Colors.white ? null : tint);
+    final semantic =
+        shadowColor ?? accentColor ?? (tint == Colors.white ? null : tint);
     final r = BorderRadius.circular(radius);
 
     final colors = strong
@@ -150,7 +174,10 @@ class GlassPanel extends StatelessWidget {
         ? Colors.white.withValues(alpha: .17)
         : semantic == null
         ? Colors.white
-        : Color.alphaBlend(semantic.withValues(alpha: .067), const Color(0xF0FFFFFF));
+        : Color.alphaBlend(
+            semantic.withValues(alpha: .067),
+            const Color(0xF0FFFFFF),
+          );
 
     final shadows = <BoxShadow>[];
     if (elevation > 0) {
@@ -267,7 +294,10 @@ class GlassPanel extends StatelessWidget {
                       gradient: RadialGradient(
                         center: Alignment.bottomRight,
                         radius: 1.28,
-                        colors: [semantic.withValues(alpha: .055), Colors.transparent],
+                        colors: [
+                          semantic.withValues(alpha: .055),
+                          Colors.transparent,
+                        ],
                         stops: const [0, .72],
                       ),
                     ),
@@ -488,7 +518,9 @@ class DepthIcon extends StatelessWidget {
           icon,
           color: color,
           size: size * .52,
-          shadows: [Shadow(color: color.withValues(alpha: .18), blurRadius: 10)],
+          shadows: [
+            Shadow(color: color.withValues(alpha: .18), blurRadius: 10),
+          ],
         ),
       ),
     ),
@@ -573,7 +605,8 @@ class ResponsivePair extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      if (constraints.maxWidth < 300 || MediaQuery.textScalerOf(context).scale(14) > 20) {
+      if (constraints.maxWidth < 300 ||
+          MediaQuery.textScalerOf(context).scale(14) > 20) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [first, const SizedBox(height: 12), second],
@@ -617,7 +650,12 @@ class FormSection extends StatelessWidget {
             children: [
               DepthIcon(icon, size: 38),
               const SizedBox(width: 12),
-              Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium)),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -653,10 +691,29 @@ ThemeData pharmacyTheme() => ThemeData(
   fontFamily: 'Manrope',
   fontFamilyFallback: const ['NotoSansDevanagari'],
   textTheme: const TextTheme(
-    headlineLarge: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: -1, color: ink),
-    headlineMedium: TextStyle(fontSize: 27, fontWeight: FontWeight.w800, letterSpacing: -.7, color: ink),
-    titleLarge: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, letterSpacing: -.4, color: ink),
-    titleMedium: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: ink),
+    headlineLarge: TextStyle(
+      fontSize: 34,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -1,
+      color: ink,
+    ),
+    headlineMedium: TextStyle(
+      fontSize: 27,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -.7,
+      color: ink,
+    ),
+    titleLarge: TextStyle(
+      fontSize: 21,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -.4,
+      color: ink,
+    ),
+    titleMedium: TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w700,
+      color: ink,
+    ),
     bodyLarge: TextStyle(fontSize: 16, height: 1.45, color: ink),
     bodyMedium: TextStyle(fontSize: 14, height: 1.45, color: ink),
     bodySmall: TextStyle(fontSize: 12, height: 1.45, color: muted),
@@ -680,7 +737,10 @@ ThemeData pharmacyTheme() => ThemeData(
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
     fillColor: const Color(0xFFFCFDFE),
-    floatingLabelStyle: const TextStyle(color: primary, fontWeight: FontWeight.w700),
+    floatingLabelStyle: const TextStyle(
+      color: primary,
+      fontWeight: FontWeight.w700,
+    ),
     hintStyle: const TextStyle(color: muted),
     helperMaxLines: 3,
     errorMaxLines: 3,
@@ -837,7 +897,11 @@ ThemeData pharmacyTheme() => ThemeData(
     elevation: 8,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
   ),
-  dividerTheme: DividerThemeData(color: ink.withValues(alpha: .08), thickness: 1, space: 1),
+  dividerTheme: DividerThemeData(
+    color: ink.withValues(alpha: .08),
+    thickness: 1,
+    space: 1,
+  ),
   progressIndicatorTheme: const ProgressIndicatorThemeData(color: primary),
   navigationBarTheme: NavigationBarThemeData(
     backgroundColor: Colors.white.withValues(alpha: .92),
@@ -846,7 +910,9 @@ ThemeData pharmacyTheme() => ThemeData(
     shadowColor: ink.withValues(alpha: .12),
     height: 72,
     indicatorColor: primarySoft,
-    indicatorShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    indicatorShape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+    ),
     iconTheme: WidgetStateProperty.resolveWith(
       (states) => IconThemeData(
         color: states.contains(WidgetState.selected) ? primary : muted,
@@ -855,7 +921,9 @@ ThemeData pharmacyTheme() => ThemeData(
     labelTextStyle: WidgetStateProperty.resolveWith(
       (states) => TextStyle(
         fontSize: 11,
-        fontWeight: states.contains(WidgetState.selected) ? FontWeight.w800 : FontWeight.w600,
+        fontWeight: states.contains(WidgetState.selected)
+            ? FontWeight.w800
+            : FontWeight.w600,
         color: states.contains(WidgetState.selected) ? primary : muted,
       ),
     ),
@@ -894,15 +962,24 @@ class SectionHeading extends StatelessWidget {
     padding: const EdgeInsets.only(top: 26, bottom: 14),
     child: LayoutBuilder(
       builder: (context, constraints) {
-        final heading = Text(title, style: Theme.of(context).textTheme.titleLarge);
+        final heading = Text(
+          title,
+          style: Theme.of(context).textTheme.titleLarge,
+        );
         if (action != null &&
-            (constraints.maxWidth < 350 || MediaQuery.textScalerOf(context).scale(14) > 20)) {
+            (constraints.maxWidth < 350 ||
+                MediaQuery.textScalerOf(context).scale(14) > 20)) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [heading, const SizedBox(height: 8), action!],
           );
         }
-        return Row(children: [Expanded(child: heading), if (action != null) action!]);
+        return Row(
+          children: [
+            Expanded(child: heading),
+            if (action != null) action!,
+          ],
+        );
       },
     ),
   );
@@ -960,7 +1037,8 @@ class MedicineCard extends StatelessWidget {
       _ => Icons.medication_rounded,
     };
     final timeline =
-        state.status == StockStatus.shortExpiry || state.status == StockStatus.monthExpiry;
+        state.status == StockStatus.shortExpiry ||
+        state.status == StockStatus.monthExpiry;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -979,7 +1057,9 @@ class MedicineCard extends StatelessWidget {
                 : timeline
                 ? green
                 : Colors.transparent,
-            timeline || state.status == StockStatus.expired || state.status == StockStatus.sold,
+            timeline ||
+                state.status == StockStatus.expired ||
+                state.status == StockStatus.sold,
           ),
           child: GlassPanel(
             tint: Colors.white,
@@ -993,7 +1073,10 @@ class MedicineCard extends StatelessWidget {
                 onTap: onTap,
                 borderRadius: BorderRadius.circular(28),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 15),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 17,
+                    vertical: 15,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1013,7 +1096,9 @@ class MedicineCard extends StatelessWidget {
                               width: 52,
                               height: 52,
                               child: Icon(
-                                state.status == StockStatus.sold ? Icons.check_rounded : icon,
+                                state.status == StockStatus.sold
+                                    ? Icons.check_rounded
+                                    : icon,
                                 color: statusColor,
                                 size: 27,
                                 shadows: [
@@ -1030,32 +1115,52 @@ class MedicineCard extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(record.name, style: Theme.of(context).textTheme.titleMedium),
-                                if (record.strength.isNotEmpty || record.brand.isNotEmpty)
+                                Text(
+                                  record.name,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium,
+                                ),
+                                if (record.strength.isNotEmpty ||
+                                    record.brand.isNotEmpty)
                                   Text(
-                                    [record.strength, record.brand]
-                                        .where((s) => s.isNotEmpty)
-                                        .join(' · '),
-                                    style: const TextStyle(color: muted, fontSize: 12),
+                                    [
+                                      record.strength,
+                                      record.brand,
+                                    ].where((s) => s.isNotEmpty).join(' · '),
+                                    style: const TextStyle(
+                                      color: muted,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 if (record.manufacturer.isNotEmpty)
                                   Text(
                                     record.manufacturer,
-                                    style: const TextStyle(color: muted, fontSize: 12),
+                                    style: const TextStyle(
+                                      color: muted,
+                                      fontSize: 12,
+                                    ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 if (record.salt.isNotEmpty)
                                   Text(
                                     record.salt,
-                                    style: const TextStyle(color: muted, fontSize: 12),
+                                    style: const TextStyle(
+                                      color: muted,
+                                      fontSize: 12,
+                                    ),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right_rounded, color: muted, size: 24),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            color: muted,
+                            size: 24,
+                          ),
                         ],
                       ),
                       const SizedBox(height: 15),
@@ -1081,12 +1186,19 @@ class MedicineCard extends StatelessWidget {
                           padding: const EdgeInsets.only(top: 12),
                           child: Row(
                             children: [
-                              const Icon(Icons.location_on_outlined, size: 15, color: muted),
+                              const Icon(
+                                Icons.location_on_outlined,
+                                size: 15,
+                                color: muted,
+                              ),
                               const SizedBox(width: 4),
                               Expanded(
                                 child: Text(
                                   record.address,
-                                  style: const TextStyle(fontSize: 12, color: muted),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: muted,
+                                  ),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -1097,7 +1209,10 @@ class MedicineCard extends StatelessWidget {
                       if (matchLabel != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 10),
-                          child: Text(matchLabel!, style: const TextStyle(fontSize: 12, color: amber)),
+                          child: Text(
+                            matchLabel!,
+                            style: const TextStyle(fontSize: 12, color: amber),
+                          ),
                         ),
                     ],
                   ),
@@ -1160,11 +1275,23 @@ class EmptyState extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 12),
     child: Column(
       children: [
-        const DepthIcon(Icons.inventory_2_outlined, size: 76, background: primarySoft),
+        const DepthIcon(
+          Icons.inventory_2_outlined,
+          size: 76,
+          background: primarySoft,
+        ),
         const SizedBox(height: 18),
-        Text(title, style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleLarge,
+          textAlign: TextAlign.center,
+        ),
         const SizedBox(height: 8),
-        Text(message, textAlign: TextAlign.center, style: const TextStyle(color: muted)),
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: muted),
+        ),
         if (action != null)
           Padding(padding: const EdgeInsets.only(top: 20), child: action!),
       ],

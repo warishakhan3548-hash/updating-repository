@@ -73,26 +73,29 @@ void main() {
     );
   });
 
-  test('direct SOLD immediately contributes entered amount and sold quantity', () {
-    final sold = Medicine(
-      id: 'p1',
-      name: 'Paracetamol',
-      quantity: 0,
-      unitPricePaise: 2000,
-      sold: true,
-      soldAt: DateTime(2026, 9, 8, 12).toIso8601String(),
-      soldQuantity: 25,
-      soldUnitPricePaise: 2000,
-    );
+  test(
+    'direct SOLD immediately contributes entered amount and sold quantity',
+    () {
+      final sold = Medicine(
+        id: 'p1',
+        name: 'Paracetamol',
+        quantity: 0,
+        unitPricePaise: 2000,
+        sold: true,
+        soldAt: DateTime(2026, 9, 8, 12).toIso8601String(),
+        soldQuantity: 25,
+        soldUnitPricePaise: 2000,
+      );
 
-    final overview = SalesOverview(const [], medicines: [sold]);
+      final overview = SalesOverview(const [], medicines: [sold]);
 
-    expect(overview.salesValuePaise, 2000);
-    expect(overview.totalUnitsSold, 25);
-    expect(overview.recordedSales, 1);
-    expect(overview.ranked.single.name, 'Paracetamol');
-    expect(overview.ranked.single.unitsSold, 25);
-  });
+      expect(overview.salesValuePaise, 2000);
+      expect(overview.totalUnitsSold, 25);
+      expect(overview.recordedSales, 1);
+      expect(overview.ranked.single.name, 'Paracetamol');
+      expect(overview.ranked.single.unitsSold, 25);
+    },
+  );
 
   test('recorded sold-out sale is not counted twice by SOLD fallback', () {
     final time = DateTime(2026, 9, 8, 12);

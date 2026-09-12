@@ -184,13 +184,17 @@ class DateEntryField extends StatelessWidget {
             ? const EdgeInsets.symmetric(horizontal: 14, vertical: 18)
             : null,
         border: surfaceStyle
-            ? OutlineInputBorder(borderRadius: radius, borderSide: BorderSide.none)
+            ? OutlineInputBorder(
+                borderRadius: radius,
+                borderSide: BorderSide.none,
+              )
             : null,
         enabledBorder: surfaceStyle
             ? OutlineInputBorder(
                 borderRadius: radius,
                 borderSide: BorderSide(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: .08),
+                  color: Theme.of(context).colorScheme.primary
+                      .withValues(alpha: .08),
                 ),
               )
             : null,

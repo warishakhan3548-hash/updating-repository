@@ -138,9 +138,11 @@ class _FrameSignature {
         .toSet();
     final compact = normalized.replaceAll(' ', '');
     final trigrams = <String>{};
-    for (var index = 0;
-        index + 3 <= compact.length && trigrams.length < 72;
-        index++) {
+    for (
+      var index = 0;
+      index + 3 <= compact.length && trigrams.length < 72;
+      index++
+    ) {
       trigrams.add(compact.substring(index, index + 3));
     }
     final richness = (tokens.length / 24).clamp(0, 1).toDouble();

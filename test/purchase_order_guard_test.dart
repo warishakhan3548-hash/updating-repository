@@ -62,13 +62,16 @@ void main() {
       );
     });
 
-    test('fails closed when an estimated order amount cannot be represented', () {
-      expect(
-        () => validatePurchaseOrderDraft([
-          _line(quantity: 2, unitCostPaise: maxExactPaise),
-        ]),
-        throwsA(anything),
-      );
-    });
+    test(
+      'fails closed when an estimated order amount cannot be represented',
+      () {
+        expect(
+          () => validatePurchaseOrderDraft([
+            _line(quantity: 2, unitCostPaise: maxExactPaise),
+          ]),
+          throwsA(anything),
+        );
+      },
+    );
   });
 }

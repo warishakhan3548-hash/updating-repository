@@ -1,7 +1,14 @@
 import 'attention.dart';
 import 'medicine.dart';
 
-enum OperationsLane { safety, verification, stock, location, expiry, purchasing }
+enum OperationsLane {
+  safety,
+  verification,
+  stock,
+  location,
+  expiry,
+  purchasing,
+}
 
 class OperationsPlanStep {
   const OperationsPlanStep({
@@ -100,9 +107,8 @@ class PharmacyOperationsPlan {
   bool get isEmpty => steps.isEmpty;
   int get blockedCount => steps.where((step) => step.blocked).length;
   int get readyCount => steps.length - blockedCount;
-  int get verificationCount => steps
-      .where((step) => _isVerificationPrerequisite(step.item.kind))
-      .length;
+  int get verificationCount =>
+      steps.where((step) => _isVerificationPrerequisite(step.item.kind)).length;
 
   OperationsPlanStep? get nextStep {
     for (final step in steps) {
@@ -142,10 +148,7 @@ bool _isDependencyPrerequisite(AttentionKind kind) =>
     kind == AttentionKind.missingStockLocation ||
     _isVerificationPrerequisite(kind);
 
-bool _blocksDependent(
-  AttentionKind dependent,
-  AttentionKind prerequisite,
-) {
+bool _blocksDependent(AttentionKind dependent, AttentionKind prerequisite) {
   // A missing shelf/rack location is crucial for physical FEFO work but is not
   // evidence for demand or stock quantity. It must never block a valid reorder
   // merely because the pharmacist has not yet recorded where the pack is kept.
@@ -193,10 +196,10 @@ OperationsLane _laneFor(AttentionKind kind) => switch (kind) {
   AttentionKind.unknownQuantity ||
   AttentionKind.unknownExpiry => OperationsLane.stock,
   AttentionKind.missingStockLocation => OperationsLane.location,
-  AttentionKind.shortExpiry || AttentionKind.expiryWastePressure =>
-    OperationsLane.expiry,
-  AttentionKind.urgentReorder || AttentionKind.reorderReview =>
-    OperationsLane.purchasing,
+  AttentionKind.shortExpiry ||
+  AttentionKind.expiryWastePressure => OperationsLane.expiry,
+  AttentionKind.urgentReorder ||
+  AttentionKind.reorderReview => OperationsLane.purchasing,
 };
 
 String _actionFor(AttentionKind kind) => switch (kind) {
@@ -204,34 +207,22 @@ String _actionFor(AttentionKind kind) => switch (kind) {
     'Keep this stock out of dispensing and review its Expired removal.',
   AttentionKind.shortExpiry =>
     'Verify FEFO placement so this earlier-expiry stock is handled first.',
-  AttentionKind.expiryWastePressure =>
-    'Review FEFO placement and avoid adding stock until the recorded demand signal is checked.',
+  AttentionKind.expiryWastePressure => 'Review FEFO placement and avoid adding stock until the recorded demand signal is checked.',
   AttentionKind.zeroQuantityMismatch =>
     'Confirm whether the row is truly SOLD or correct the physical quantity.',
-  AttentionKind.missingStockLocation =>
-    'Record the exact shelf/rack location so FEFO picking and retrieval can route to this stock without relying on memory.',
-  AttentionKind.barcodeConflict =>
-    'Verify the physical packs and correct the barcode-to-medicine identity conflict.',
+  AttentionKind.missingStockLocation => 'Record the exact shelf/rack location so FEFO picking and retrieval can route to this stock without relying on memory.',
+  AttentionKind.barcodeConflict => 'Verify the physical packs and correct the barcode-to-medicine identity conflict.',
   AttentionKind.conflictingLotFacts =>
     'Verify the physical lot and reconcile the conflicting saved batch facts.',
-  AttentionKind.staleSoldMetadata =>
-    'Review the stock row and reconcile stale SOLD metadata before using its history.',
-  AttentionKind.soldAuditGap =>
-    'Review the stock row and repair the audit gap before relying on sales history.',
-  AttentionKind.futureSaleHistory =>
-    'Verify the business date and historical sale source before relying on this demand signal.',
-  AttentionKind.saleLifecycleConflict =>
-    'Verify the physical MFG/EXP and sale-history source; keep immutable history unchanged until provenance is clear.',
-  AttentionKind.urgentReorder =>
-    'Open Order Review and confirm the urgent quantity from verified stock facts.',
-  AttentionKind.reorderReview =>
-    'Open Order Review and verify the suggested quantity before creating an order.',
-  AttentionKind.unknownExpiry =>
-    'Read the expiry from the physical pack and save it before relying on FEFO automation.',
-  AttentionKind.unknownQuantity =>
-    'Count the physical stock and save the exact quantity before automation continues.',
+  AttentionKind.staleSoldMetadata => 'Review the stock row and reconcile stale SOLD metadata before using its history.',
+  AttentionKind.soldAuditGap => 'Review the stock row and repair the audit gap before relying on sales history.',
+  AttentionKind.futureSaleHistory => 'Verify the business date and historical sale source before relying on this demand signal.',
+  AttentionKind.saleLifecycleConflict => 'Verify the physical MFG/EXP and sale-history source; keep immutable history unchanged until provenance is clear.',
+  AttentionKind.urgentReorder => 'Open Order Review and confirm the urgent quantity from verified stock facts.',
+  AttentionKind.reorderReview => 'Open Order Review and verify the suggested quantity before creating an order.',
+  AttentionKind.unknownExpiry => 'Read the expiry from the physical pack and save it before relying on FEFO automation.',
+  AttentionKind.unknownQuantity => 'Count the physical stock and save the exact quantity before automation continues.',
   AttentionKind.futureManufactureDate =>
     'Verify the physical MFG date and correct the saved fact if needed.',
-  AttentionKind.possibleDuplicateBatch =>
-    'Verify the physical stock rows; keep separate legitimate lots and remove only confirmed duplicates.',
+  AttentionKind.possibleDuplicateBatch => 'Verify the physical stock rows; keep separate legitimate lots and remove only confirmed duplicates.',
 };

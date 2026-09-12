@@ -51,21 +51,18 @@ void main() {
     controller.dispose();
     await Future<void>.delayed(Duration.zero);
   });
-  test(
-    'write commits once, rejects stale concurrent writer, and publishes committed data',
-    () async {
-      var publications = 0;
-      controller.addListener(() => publications++);
-      final first = controller.save(stock('a'), expectedRevision: 0);
-      final second = controller.save(stock('b'), expectedRevision: 0);
-      final rejected = expectLater(second, throwsStateError);
-      await first;
-      await rejected;
-      expect(controller.snapshot.records.keys, ['a']);
-      expect(publications, 1);
-      expect((await storage.load()).revision, 1);
-    },
-  );
+  test('write commits once, rejects stale concurrent writer, and publishes committed data', () async {
+    var publications = 0;
+    controller.addListener(() => publications++);
+    final first = controller.save(stock('a'), expectedRevision: 0);
+    final second = controller.save(stock('b'), expectedRevision: 0);
+    final rejected = expectLater(second, throwsStateError);
+    await first;
+    await rejected;
+    expect(controller.snapshot.records.keys, ['a']);
+    expect(publications, 1);
+    expect((await storage.load()).revision, 1);
+  });
   test('invalid second row rolls back the entire SQL transaction', () async {
     await expectLater(
       storage.commit(
@@ -134,36 +131,33 @@ void main() {
     await controller.undo();
     expect(controller.snapshot.records, isEmpty);
   });
-  test(
-    'AI selected changes are atomic and request replay stays blocked after Undo',
-    () async {
-      final export = controller.export();
-      final response = jsonEncode({
-        'schema': pharmacySchema,
-        'requestId': export.requestId,
-        'baseRevision': 0,
-        'actions': [
-          {
-            'op': 'add',
-            'fields': {'name': 'First'},
-          },
-          {
-            'op': 'add',
-            'fields': {'name': 'Second'},
-          },
-        ],
-      });
-      final plan = controller.review(response);
-      await controller.applyAi(plan, {0});
-      expect(controller.records.single.name, 'First');
-      expect(controller.snapshot.receipts, contains(export.requestId));
-      await controller.undo();
-      expect(controller.records, isEmpty);
-      final retry = jsonDecode(response) as Map<String, dynamic>;
-      retry['baseRevision'] = controller.snapshot.revision;
-      expect(() => controller.review(jsonEncode(retry)), throwsFormatException);
-    },
-  );
+  test('AI selected changes are atomic and request replay stays blocked after Undo', () async {
+    final export = controller.export();
+    final response = jsonEncode({
+      'schema': pharmacySchema,
+      'requestId': export.requestId,
+      'baseRevision': 0,
+      'actions': [
+        {
+          'op': 'add',
+          'fields': {'name': 'First'},
+        },
+        {
+          'op': 'add',
+          'fields': {'name': 'Second'},
+        },
+      ],
+    });
+    final plan = controller.review(response);
+    await controller.applyAi(plan, {0});
+    expect(controller.records.single.name, 'First');
+    expect(controller.snapshot.receipts, contains(export.requestId));
+    await controller.undo();
+    expect(controller.records, isEmpty);
+    final retry = jsonDecode(response) as Map<String, dynamic>;
+    retry['baseRevision'] = controller.snapshot.revision;
+    expect(() => controller.review(jsonEncode(retry)), throwsFormatException);
+  });
   test('cancel a multi-batch AI preparation before any write', () async {
     final export = controller.export();
     final plan = controller.review(

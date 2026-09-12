@@ -101,19 +101,22 @@ void main() {
       expect(result.receiveBlockReason, isEmpty);
     });
 
-    test('same product with a different batch is not merged into existing lot', () {
-      final stock = _medicine('lot-a', batch: 'OLD-1', expiry: '2027-10');
-      final result = resolveIntakeDraft(
-        draft: _draft(batch: 'NEW-2', expiry: '2028-01'),
-        records: <Medicine>[stock],
-        today: today,
-      );
+    test(
+      'same product with a different batch is not merged into existing lot',
+      () {
+        final stock = _medicine('lot-a', batch: 'OLD-1', expiry: '2027-10');
+        final result = resolveIntakeDraft(
+          draft: _draft(batch: 'NEW-2', expiry: '2028-01'),
+          records: <Medicine>[stock],
+          today: today,
+        );
 
-      expect(result.kind, IntakeResolutionKind.sameProduct);
-      expect(result.exactStockId, isNull);
-      expect(result.safeToReceive, isFalse);
-      expect(result.candidateStockIds, contains(stock.id));
-    });
+        expect(result.kind, IntakeResolutionKind.sameProduct);
+        expect(result.exactStockId, isNull);
+        expect(result.safeToReceive, isFalse);
+        expect(result.candidateStockIds, contains(stock.id));
+      },
+    );
 
     test('same trusted batch with conflicting expiry fails closed', () {
       final stock = _medicine('lot-a', batch: 'B-100', expiry: '2027-10');
@@ -150,19 +153,22 @@ void main() {
       expect(result.candidateStockIds.toSet(), <String>{first.id, second.id});
     });
 
-    test('trusted OCR identity conflicting with saved barcode requires review', () {
-      final stock = _medicine('a', name: 'Azithro', salt: 'Azithromycin');
-      final result = resolveIntakeDraft(
-        draft: _draft(name: 'Dolo', salt: 'Paracetamol'),
-        records: <Medicine>[stock],
-        today: today,
-      );
+    test(
+      'trusted OCR identity conflicting with saved barcode requires review',
+      () {
+        final stock = _medicine('a', name: 'Azithro', salt: 'Azithromycin');
+        final result = resolveIntakeDraft(
+          draft: _draft(name: 'Dolo', salt: 'Paracetamol'),
+          records: <Medicine>[stock],
+          today: today,
+        );
 
-      expect(result.kind, IntakeResolutionKind.needsReview);
-      expect(result.safeToReceive, isFalse);
-      expect(result.candidateStockIds, <String>[stock.id]);
-      expect(result.reason, contains('conflicts'));
-    });
+        expect(result.kind, IntakeResolutionKind.needsReview);
+        expect(result.safeToReceive, isFalse);
+        expect(result.candidateStockIds, <String>[stock.id]);
+        expect(result.reason, contains('conflicts'));
+      },
+    );
 
     test('duplicate rows matching the same physical lot remain ambiguous', () {
       final first = _medicine('a');
@@ -199,23 +205,26 @@ void main() {
       expect(result.candidateStockIds, isEmpty);
     });
 
-    test('high-confidence unseen medicine stays a reviewed new-stock draft', () {
-      final result = resolveIntakeDraft(
-        draft: _draft(
-          name: 'NewMed',
-          strength: '20mg',
-          salt: 'New Salt',
-          batch: 'N-1',
-          barcode: '8909999999999',
-        ),
-        records: <Medicine>[_medicine('a')],
-        today: today,
-      );
+    test(
+      'high-confidence unseen medicine stays a reviewed new-stock draft',
+      () {
+        final result = resolveIntakeDraft(
+          draft: _draft(
+            name: 'NewMed',
+            strength: '20mg',
+            salt: 'New Salt',
+            batch: 'N-1',
+            barcode: '8909999999999',
+          ),
+          records: <Medicine>[_medicine('a')],
+          today: today,
+        );
 
-      expect(result.kind, IntakeResolutionKind.newStock);
-      expect(result.safeToReceive, isFalse);
-      expect(result.candidateStockIds, isEmpty);
-    });
+        expect(result.kind, IntakeResolutionKind.newStock);
+        expect(result.safeToReceive, isFalse);
+        expect(result.candidateStockIds, isEmpty);
+      },
+    );
 
     test('expired exact lot is identified but receiving is blocked', () {
       final stock = _medicine('a', expiry: '2026-08');
@@ -244,28 +253,26 @@ void main() {
       expect(result.receiveBlockReason, contains('quantity is unknown'));
     });
 
-    test('identity plus trusted batch can resolve without a retail barcode', () {
-      final stock = _medicine('a', barcode: '');
-      final result = resolveIntakeDraft(
-        draft: _draft(barcode: ''),
-        records: <Medicine>[stock],
-        today: today,
-      );
+    test(
+      'identity plus trusted batch can resolve without a retail barcode',
+      () {
+        final stock = _medicine('a', barcode: '');
+        final result = resolveIntakeDraft(
+          draft: _draft(barcode: ''),
+          records: <Medicine>[stock],
+          today: today,
+        );
 
-      expect(result.kind, IntakeResolutionKind.exactLot);
-      expect(result.exactStockId, stock.id);
-      expect(result.safeToReceive, isTrue);
-    });
+        expect(result.kind, IntakeResolutionKind.exactLot);
+        expect(result.exactStockId, stock.id);
+        expect(result.safeToReceive, isTrue);
+      },
+    );
 
     test('conflicted OCR batch cannot be used as an exact-lot anchor', () {
       final stock = _medicine('a', barcode: '', expiry: '');
       final result = resolveIntakeDraft(
-        draft: _draft(
-          barcode: '',
-          batchConflict: true,
-          expiry: '',
-          mfg: '',
-        ),
+        draft: _draft(barcode: '', batchConflict: true, expiry: '', mfg: ''),
         records: <Medicine>[stock],
         today: today,
       );

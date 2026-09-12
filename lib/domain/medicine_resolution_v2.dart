@@ -3,6 +3,8 @@ import 'dart:math';
 import 'gs1_healthcare.dart';
 import 'medicine.dart';
 import 'medicine_understanding.dart';
+import 'offline_decision_reliability.dart';
+import 'offline_evidence_graph.dart';
 import 'search.dart';
 
 const int maxCanonicalMedicineCandidates = 96;
@@ -305,16 +307,31 @@ class MedicineProductResolverV2 {
     final requiredScore = _resolverRequiredLockScore(winner, evidenceQuality);
     final requiredMargin = _resolverRequiredLockMargin(winner, evidenceQuality);
     final requiredDecisionMass = _resolverRequiredDecisionMass(evidenceQuality);
+    final selectiveReliability = assessOfflineDecisionReliability(
+      winnerScore: winner.score,
+      margin: margin,
+      channels: winner.channels,
+      decisionMass: winner.decisionMass,
+      evidenceQuality: evidenceQuality,
+      verified: winner.product.verified,
+      hardConflicts: winner.hardConflicts,
+      exactBarcode: exactBarcodeLock,
+    );
     final calibratedLock =
         winner.product.verified &&
         winner.score >= requiredScore &&
         winner.channels >= 2 &&
         winner.decisionMass >= requiredDecisionMass &&
         margin >= requiredMargin &&
-        winner.hardConflicts == 0;
+        winner.hardConflicts == 0 &&
+        selectiveReliability.acceptCanonicalLock;
 
     if (exactBarcodeLock || calibratedLock) {
-      return _inheritCanonicalIdentity(draft, winner);
+      return _inheritCanonicalIdentity(
+        draft,
+        winner,
+        decisionReliability: selectiveReliability.score,
+      );
     }
 
     // Low-quality evidence requires a wider separation before automation. High
@@ -361,9 +378,11 @@ List<CanonicalMedicineProduct> _collapseLocalKnowledge(
         form: entry.form,
         manufacturer: entry.manufacturer,
         aliases: <String>[
+          ...entry.aliases.take(24),
           if (entry.name.trim().isNotEmpty) entry.name.trim(),
           if (entry.brand.trim().isNotEmpty) entry.brand.trim(),
         ],
+        ocrAliases: entry.ocrAliases.take(24).toList(growable: false),
         barcodes: <String>[
           if (entry.barcode.trim().isNotEmpty) entry.barcode.trim(),
         ],
@@ -741,16 +760,14 @@ class _IdentityConsensus {
     required this.bestRawScore,
     required this.strongSources,
     required this.decisionConfidence,
+    required this.graphQuality,
   });
 
   final double score;
   final double bestRawScore;
   final int strongSources;
-
-  /// Confidence of evidence that actually produced a strong match against this
-  /// product. This is product-specific: unrelated high-quality frames cannot
-  /// lend authority to another candidate.
   final double decisionConfidence;
+  final double graphQuality;
 }
 
 _IdentityConsensus _scoreIdentityConsensus(
@@ -779,12 +796,16 @@ _IdentityConsensus _scoreIdentityConsensus(
     structuredScore *= .90 + confidence * .10;
   }
 
+  // V8 evidence graph: correlated video frames form one observation component.
+  // Only genuinely different views can increase independent-source authority.
+  final graph = buildOfflineEvidenceGraph(frames, maxFrames: 12);
   final frameScores = <double>[];
+  final strongMatchedQualities = <double>[];
   var strongestMatchedFrameQuality = 0.0;
-  final seenFrameFingerprints = <String>{};
   var remainingIdentityLines = 32;
-  for (final frame in frames.take(8)) {
+  for (final group in graph.groups.take(8)) {
     if (remainingIdentityLines <= 0) break;
+    final frame = group.representative;
     final rawLines = frame.text
         .split(RegExp(r'[\r\n]+'))
         .map((value) => value.trim())
@@ -792,13 +813,6 @@ _IdentityConsensus _scoreIdentityConsensus(
         .take(16)
         .toList(growable: false);
     if (rawLines.isEmpty) continue;
-    final fingerprint = searchText(rawLines.join(' ')).replaceAll(' ', '');
-    if (fingerprint.isEmpty || !seenFrameFingerprints.add(fingerprint))
-      continue;
-
-    // Preserve independent-frame corroboration without letting video length
-    // multiply expensive similarity work. At most 32 OCR lines globally reach
-    // the alias scorer, with no more than 12 lines from one unique frame.
     final lines = rawLines
         .take(min(12, remainingIdentityLines))
         .toList(growable: false);
@@ -811,6 +825,7 @@ _IdentityConsensus _scoreIdentityConsensus(
     frameScores.add(frameScore);
     if (frameScore >= .78) {
       strongestMatchedFrameQuality = max(strongestMatchedFrameQuality, quality);
+      strongMatchedQualities.add(quality);
     }
   }
   frameScores.sort((a, b) => b.compareTo(a));
@@ -839,11 +854,22 @@ _IdentityConsensus _scoreIdentityConsensus(
     structuredConfidence,
     strongestMatchedFrameQuality,
   ).clamp(0, 1).toDouble();
+  final averageMatchedQuality = strongMatchedQualities.isEmpty
+      ? 0.0
+      : strongMatchedQualities.reduce((a, b) => a + b) /
+            strongMatchedQualities.length;
+  final independentMass = (strongFrameScores.length / 3).clamp(0, 1).toDouble();
+  final graphQuality = strongFrameScores.isEmpty
+      ? 0.0
+      : (independentMass * .65 + averageMatchedQuality * .35)
+            .clamp(0, 1)
+            .toDouble();
   return _IdentityConsensus(
     score: score.clamp(0, .999).toDouble(),
     bestRawScore: bestRaw.clamp(0, 1).toDouble(),
     strongSources: strongSources,
     decisionConfidence: decisionConfidence,
+    graphQuality: graphQuality,
   );
 }
 
@@ -854,6 +880,7 @@ class _ProductHypothesis {
     required this.channels,
     required this.decisionMass,
     required this.identitySources,
+    required this.identityGraphQuality,
     required this.hardConflicts,
     required this.exactBarcode,
     required this.strongIdentity,
@@ -864,6 +891,7 @@ class _ProductHypothesis {
   final int channels;
   final double decisionMass;
   final int identitySources;
+  final double identityGraphQuality;
   final int hardConflicts;
   final bool exactBarcode;
   final bool strongIdentity;
@@ -1050,6 +1078,7 @@ _ProductHypothesis _scoreProduct(
     channels: channels,
     decisionMass: decisionMass.clamp(0, 1).toDouble(),
     identitySources: identity.strongSources,
+    identityGraphQuality: identity.graphQuality,
     hardConflicts: hardConflicts,
     exactBarcode: exactBarcode,
     strongIdentity: bestIdentity >= .82,
@@ -1078,10 +1107,11 @@ double _resolverDecisionEvidenceQuality(
   final channelQuality = (hypothesis.channels / 4).clamp(0, 1).toDouble();
   final massQuality = (hypothesis.decisionMass / .72).clamp(0, 1).toDouble();
   final sourceQuality = (hypothesis.identitySources / 3).clamp(0, 1).toDouble();
-  return (fieldQuality * .62 +
-          channelQuality * .20 +
+  return (fieldQuality * .58 +
+          channelQuality * .18 +
           massQuality * .14 +
-          sourceQuality * .04)
+          sourceQuality * .04 +
+          hypothesis.identityGraphQuality * .06)
       .clamp(0, 1)
       .toDouble();
 }
@@ -1166,13 +1196,18 @@ double? _fieldSimilarity(
 
 MedicineScanDraft _inheritCanonicalIdentity(
   MedicineScanDraft draft,
-  _ProductHypothesis hypothesis,
-) {
+  _ProductHypothesis hypothesis, {
+  required double decisionReliability,
+}) {
   final product = hypothesis.product;
   final fields = Map<String, ExtractedMedicineField>.of(draft.fields);
+  final reliabilityCap =
+      (.80 + decisionReliability.clamp(0, 1).toDouble() * .19)
+          .clamp(.82, .99)
+          .toDouble();
   final confidence = hypothesis.exactBarcode
       ? .995
-      : hypothesis.score.clamp(.82, .99).toDouble();
+      : min(hypothesis.score, reliabilityCap).clamp(.82, .99).toDouble();
   final support = max(1, hypothesis.channels);
 
   void inherit(String key, String value) {

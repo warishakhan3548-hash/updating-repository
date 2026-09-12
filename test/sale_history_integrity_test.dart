@@ -92,33 +92,32 @@ void main() {
       expect(issue.detail, contains('after recorded EXP 2026-08-31'));
     });
 
-    test('does not project corrected current identity facts onto old sales', () {
-      final corrected = _stock(
-        id: 'corrected',
-        name: 'Crocin',
-        strength: '500mg',
-        mfg: '2026-09-05',
-        expiry: '2027-09-01',
-      );
+    test(
+      'does not project corrected current identity facts onto old sales',
+      () {
+        final corrected = _stock(
+          id: 'corrected',
+          name: 'Crocin',
+          strength: '500mg',
+          mfg: '2026-09-05',
+          expiry: '2027-09-01',
+        );
 
-      final report = SaleHistoryIntegrityReport.build(
-        medicines: [corrected],
-        sales: [
-          _sale('historic-dolo', corrected.id, DateTime(2026, 8, 1)),
-        ],
-        today: today,
-      );
+        final report = SaleHistoryIntegrityReport.build(
+          medicines: [corrected],
+          sales: [_sale('historic-dolo', corrected.id, DateTime(2026, 8, 1))],
+          today: today,
+        );
 
-      expect(report.isEmpty, isTrue);
-    });
+        expect(report.isEmpty, isTrue);
+      },
+    );
 
     test('removed stock is not turned into an unactionable active task', () {
       final archived = _stock(id: 'removed', archived: true);
       final report = SaleHistoryIntegrityReport.build(
         medicines: [archived],
-        sales: [
-          _sale('future-on-removed', archived.id, DateTime(2026, 9, 12)),
-        ],
+        sales: [_sale('future-on-removed', archived.id, DateTime(2026, 9, 12))],
         today: today,
       );
 

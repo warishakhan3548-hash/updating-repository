@@ -302,8 +302,7 @@ class _OfflineVoiceSheetState extends State<_OfflineVoiceSheet> {
     } catch (_) {
       if (mounted)
         setState(
-          () => error =
-              'On-device speech is unavailable. Android 12+ and an installed Hindi/English speech model are required. Use the keyboard; no online recognizer was used.',
+          () => error = 'On-device speech is unavailable. Android 12+ and an installed Hindi/English speech model are required. Use the keyboard; no online recognizer was used.',
         );
     } finally {
       if (mounted) setState(() => listening = false);

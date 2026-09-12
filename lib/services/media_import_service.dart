@@ -148,10 +148,10 @@ class MediaImportService {
   Future<VideoWindow> sampleVideoWindow(String path, int startMs) async {
     _requireAndroid();
     final raw = await _boundedNative<Map<Object?, Object?>?>(
-      _channel.invokeMapMethod<Object?, Object?>(
-        'sampleVideoWindow',
-        {'path': path, 'startMs': startMs},
-      ),
+      _channel.invokeMapMethod<Object?, Object?>('sampleVideoWindow', {
+        'path': path,
+        'startMs': startMs,
+      }),
       timeout: _videoWindowTimeout,
       action: 'Video intake window',
     );

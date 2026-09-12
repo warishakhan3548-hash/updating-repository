@@ -40,8 +40,10 @@ class BrainAnalyticsRequest {
     final range = resolveRange(today);
     return switch (rangeKind) {
       BrainAnalyticsRangeKind.today => 'today',
-      BrainAnalyticsRangeKind.weekToDate => 'this week (${dateText(range.start)} to ${dateText(range.end)})',
-      BrainAnalyticsRangeKind.monthToDate => 'this month (${dateText(range.start)} to ${dateText(range.end)})',
+      BrainAnalyticsRangeKind.weekToDate =>
+        'this week (${dateText(range.start)} to ${dateText(range.end)})',
+      BrainAnalyticsRangeKind.monthToDate =>
+        'this month (${dateText(range.start)} to ${dateText(range.end)})',
       BrainAnalyticsRangeKind.lastDays =>
         '${range.days} day${range.days == 1 ? '' : 's'} (${dateText(range.start)} to ${dateText(range.end)})',
     };
@@ -149,7 +151,8 @@ String _movementCue(ProductMovement movement) =>
 BrainAnalyticsFocus? _analyticsFocus(String text) {
   if (_containsAny(text, _fastTerms)) return BrainAnalyticsFocus.fastMoving;
   if (_containsAny(text, _slowTerms)) return BrainAnalyticsFocus.slowMoving;
-  if (_containsAny(text, _summaryTerms)) return BrainAnalyticsFocus.salesSummary;
+  if (_containsAny(text, _summaryTerms))
+    return BrainAnalyticsFocus.salesSummary;
   return null;
 }
 
@@ -246,11 +249,7 @@ const _slowTerms = <String>[
   'कम बिकने',
 ];
 
-const _todayTerms = <String>[
-  'today',
-  'aaj',
-  'आज',
-];
+const _todayTerms = <String>['today', 'aaj', 'आज'];
 
 const _weekTerms = <String>[
   'this week',

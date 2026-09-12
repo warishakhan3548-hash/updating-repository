@@ -11,41 +11,47 @@ InstalledLocalModel model({required bool loaded, required bool scanTested}) =>
     );
 
 void main() {
-  test('Scan admission follows native load; extraction verification is advisory', () {
-    final installedOnly = model(loaded: false, scanTested: false);
-    expect(
-      isLocalModelReady(model: installedOnly, activeId: installedOnly.id),
-      isFalse,
-    );
-    expect(
-      isLocalModelScanReady(model: installedOnly, activeId: installedOnly.id),
-      isFalse,
-    );
+  test(
+    'Scan admission follows native load; extraction verification is advisory',
+    () {
+      final installedOnly = model(loaded: false, scanTested: false);
+      expect(
+        isLocalModelReady(model: installedOnly, activeId: installedOnly.id),
+        isFalse,
+      );
+      expect(
+        isLocalModelScanReady(model: installedOnly, activeId: installedOnly.id),
+        isFalse,
+      );
 
-    final chatReady = model(loaded: true, scanTested: false);
-    expect(isLocalModelReady(model: chatReady, activeId: chatReady.id), isTrue);
-    expect(
-      isLocalModelScanReady(model: chatReady, activeId: chatReady.id),
-      isTrue,
-    );
-    expect(
-      isLocalModelScanVerified(model: chatReady, activeId: chatReady.id),
-      isFalse,
-    );
+      final chatReady = model(loaded: true, scanTested: false);
+      expect(
+        isLocalModelReady(model: chatReady, activeId: chatReady.id),
+        isTrue,
+      );
+      expect(
+        isLocalModelScanReady(model: chatReady, activeId: chatReady.id),
+        isTrue,
+      );
+      expect(
+        isLocalModelScanVerified(model: chatReady, activeId: chatReady.id),
+        isFalse,
+      );
 
-    final verified = model(loaded: true, scanTested: true);
-    expect(isLocalModelReady(model: verified, activeId: null), isFalse);
-    expect(isLocalModelReady(model: verified, activeId: 'b' * 64), isFalse);
-    expect(isLocalModelReady(model: verified, activeId: verified.id), isTrue);
-    expect(
-      isLocalModelScanReady(model: verified, activeId: verified.id),
-      isTrue,
-    );
-    expect(
-      isLocalModelScanVerified(model: verified, activeId: verified.id),
-      isTrue,
-    );
-  });
+      final verified = model(loaded: true, scanTested: true);
+      expect(isLocalModelReady(model: verified, activeId: null), isFalse);
+      expect(isLocalModelReady(model: verified, activeId: 'b' * 64), isFalse);
+      expect(isLocalModelReady(model: verified, activeId: verified.id), isTrue);
+      expect(
+        isLocalModelScanReady(model: verified, activeId: verified.id),
+        isTrue,
+      );
+      expect(
+        isLocalModelScanVerified(model: verified, activeId: verified.id),
+        isTrue,
+      );
+    },
+  );
 
   test('Old smoke-tested manifests migrate as chat-ready', () {
     final legacy = InstalledLocalModel.fromJson({

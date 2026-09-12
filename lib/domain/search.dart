@@ -63,9 +63,7 @@ Set<String> grams(String word) {
 
 Set<String> _searchTrigrams(String word) {
   if (word.length < 3) return {word};
-  return {
-    for (var i = 0; i < word.length - 2; i++) word.substring(i, i + 3),
-  };
+  return {for (var i = 0; i < word.length - 2; i++) word.substring(i, i + 3)};
 }
 
 Iterable<String> _searchDeleteKeys(String word) sync* {
@@ -147,9 +145,8 @@ List<String> _searchQueryTokens(String query) {
       }
       if (digits.length >= 2 && end < parts.length) {
         final unitOnly = RegExp(r'^(mg|ml|mcg|g)$').firstMatch(parts[end]);
-        final digitWithUnit = RegExp(
-          r'^(\d)(mg|ml|mcg|g)$',
-        ).firstMatch(parts[end]);
+        final digitWithUnit = RegExp(r'^(\d)(mg|ml|mcg|g)$')
+            .firstMatch(parts[end]);
         if (unitOnly != null) {
           result.add('${digits.toString()}${unitOnly.group(1)}');
           index = end + 1;
@@ -266,11 +263,7 @@ class _SearchFieldView {
     required this.label,
   });
 
-  factory _SearchFieldView.fromRaw(
-    String raw,
-    double weight,
-    String label,
-  ) {
+  factory _SearchFieldView.fromRaw(String raw, double weight, String label) {
     final text = searchText(raw);
     return _SearchFieldView._(
       text: text,
@@ -370,13 +363,7 @@ List<_SearchFieldView> _buildSearchFieldViews(Medicine m) => [
 
 List<String> _buildIdentityWords(Medicine m) {
   final result = <String>{};
-  for (final raw in <String>[
-    m.name,
-    m.brand,
-    m.salt,
-    m.manufacturer,
-    m.form,
-  ]) {
+  for (final raw in <String>[m.name, m.brand, m.salt, m.manufacturer, m.form]) {
     for (final word in searchText(raw).split(' ')) {
       if (word.length >= 2 && !MedicineSearch.noise.contains(word)) {
         result.add(_boundedSearchTerm(word));
@@ -406,10 +393,7 @@ String _barcodeIdentity(String value) {
 }
 
 class MedicineSearch {
-  MedicineSearch(
-    Iterable<Medicine> records, {
-    bool includeArchived = false,
-  }) {
+  MedicineSearch(Iterable<Medicine> records, {bool includeArchived = false}) {
     // Pass 1 builds complete exact identity/text statistics and precomputes the
     // normalized field projections used by the final reranker. This moves text
     // normalization/splitting out of the keystroke hot path.
@@ -667,11 +651,12 @@ class MedicineSearch {
     });
 
     if (raw.trim().isEmpty) {
-      final records = docs.values
-          .map((document) => document.record)
-          .where(allowedRecord)
-          .toList()
-        ..sort(order);
+      final records =
+          docs.values
+              .map((document) => document.record)
+              .where(allowedRecord)
+              .toList()
+            ..sort(order);
       return records
           .take(limit)
           .map((m) => SearchHit(m.id, 1, emptyReason, ''))
@@ -742,14 +727,15 @@ class MedicineSearch {
         // coherent reranking and contradiction gates remain authoritative.
         for (final variant in <String>{token, _searchOcrFold(token)}) {
           if (variant.length < 4 || variant.length > 24) continue;
-          final deletionPostings = _searchDeleteKeys(variant)
-              .map((key) => (key: key, ids: deleteIndex[key]))
-              .where((item) => item.ids != null && item.ids!.isNotEmpty)
-              .toList(growable: false)
-            ..sort((a, b) {
-              final size = a.ids!.length.compareTo(b.ids!.length);
-              return size != 0 ? size : a.key.compareTo(b.key);
-            });
+          final deletionPostings =
+              _searchDeleteKeys(variant)
+                  .map((key) => (key: key, ids: deleteIndex[key]))
+                  .where((item) => item.ids != null && item.ids!.isNotEmpty)
+                  .toList(growable: false)
+                ..sort((a, b) {
+                  final size = a.ids!.length.compareTo(b.ids!.length);
+                  return size != 0 ? size : a.key.compareTo(b.key);
+                });
           for (final posting in deletionPostings.take(6)) {
             if (posting.ids!.length > max(160, docs.length ~/ 2)) continue;
             final selectivity = (1 / sqrt(max(1, posting.ids!.length)))
@@ -768,8 +754,9 @@ class MedicineSearch {
           final prefix = token.substring(0, min(4, token.length));
           final posting = prefixIndex[prefix];
           if (posting != null && posting.length <= 120) {
-            final selectivity =
-                (1 / sqrt(max(1, posting.length))).clamp(.10, .55).toDouble();
+            final selectivity = (1 / sqrt(max(1, posting.length)))
+                .clamp(.10, .55)
+                .toDouble();
             vote(
               posting,
               (2.0 + selectivity * 3.0) * rarity,
@@ -781,19 +768,21 @@ class MedicineSearch {
 
         var usedSelectiveTrigrams = false;
         if (token.length >= 5) {
-          final postings = _searchTrigrams(token)
-              .map((gram) => (gram: gram, ids: trigramIndex[gram]))
-              .where((item) => item.ids != null && item.ids!.isNotEmpty)
-              .toList(growable: false)
-            ..sort((a, b) {
-              final size = a.ids!.length.compareTo(b.ids!.length);
-              return size != 0 ? size : a.gram.compareTo(b.gram);
-            });
+          final postings =
+              _searchTrigrams(token)
+                  .map((gram) => (gram: gram, ids: trigramIndex[gram]))
+                  .where((item) => item.ids != null && item.ids!.isNotEmpty)
+                  .toList(growable: false)
+                ..sort((a, b) {
+                  final size = a.ids!.length.compareTo(b.ids!.length);
+                  return size != 0 ? size : a.gram.compareTo(b.gram);
+                });
           for (final posting in postings.take(7)) {
             if (posting.ids!.length > max(180, docs.length ~/ 2)) continue;
             usedSelectiveTrigrams = true;
-            final selectivity =
-                (1 / sqrt(max(1, posting.ids!.length))).clamp(.08, .50).toDouble();
+            final selectivity = (1 / sqrt(max(1, posting.ids!.length)))
+                .clamp(.08, .50)
+                .toDouble();
             vote(
               posting.ids,
               (.70 + selectivity * 2.2) * rarity,
@@ -804,14 +793,15 @@ class MedicineSearch {
         }
 
         if (token.length < 5 || !usedSelectiveTrigrams) {
-          final postings = grams(token)
-              .map((gram) => (gram: gram, ids: index[gram]))
-              .where((item) => item.ids != null && item.ids!.isNotEmpty)
-              .toList(growable: false)
-            ..sort((a, b) {
-              final size = a.ids!.length.compareTo(b.ids!.length);
-              return size != 0 ? size : a.gram.compareTo(b.gram);
-            });
+          final postings =
+              grams(token)
+                  .map((gram) => (gram: gram, ids: index[gram]))
+                  .where((item) => item.ids != null && item.ids!.isNotEmpty)
+                  .toList(growable: false)
+                ..sort((a, b) {
+                  final size = a.ids!.length.compareTo(b.ids!.length);
+                  return size != 0 ? size : a.gram.compareTo(b.gram);
+                });
           for (final posting in postings.take(5)) {
             if (posting.ids!.length > max(220, docs.length * 3 ~/ 4)) continue;
             vote(posting.ids, .34 * rarity, hardLimit: 180);
@@ -871,7 +861,10 @@ class MedicineSearch {
         .where((token) => RegExp(r'^\d+(?:\.\d+)?$').hasMatch(token))
         .toList(growable: false);
     final nameTokens = tokens
-        .where((token) => !strength.hasMatch(token) && !numericTokens.contains(token))
+        .where(
+          (token) =>
+              !strength.hasMatch(token) && !numericTokens.contains(token),
+        )
         .toList(growable: false);
     final usable = nameTokens.isEmpty ? tokens : nameTokens;
 
@@ -907,9 +900,10 @@ class MedicineSearch {
         score = totalTokenWeight <= 0 ? 0 : weightedSum / totalTokenWeight;
       }
       if (numericTokens.isNotEmpty) {
-        final numbers = RegExp(
-          r'\d+(?:\.\d+)?',
-        ).allMatches(value).map((match) => match[0]!).toList(growable: false);
+        final numbers = RegExp(r'\d+(?:\.\d+)?')
+            .allMatches(value)
+            .map((match) => match[0]!)
+            .toList(growable: false);
         final matchesNumbers = numericTokens.every(
           (token) => numbers.any(
             (number) =>
@@ -965,8 +959,9 @@ class MedicineSearch {
         final rareClueMissing =
             strongestRarity >= 2.35 && strongestSimilarity < .52;
         if (!rareClueMissing && coverage >= .58 && similarity >= .72) {
-          final coherent =
-              (similarity * .80 + coverage * .20).clamp(0, 1).toDouble();
+          final coherent = (similarity * .80 + coverage * .20)
+              .clamp(0, 1)
+              .toDouble();
           final fused = (coherent * .985).clamp(0, .985).toDouble();
           if (fused > best) {
             best = fused;
@@ -976,7 +971,8 @@ class MedicineSearch {
       }
     }
 
-    final strengthConflict = queryStrength.isNotEmpty &&
+    final strengthConflict =
+        queryStrength.isNotEmpty &&
         actualStrength.isNotEmpty &&
         queryStrength.intersection(actualStrength).isEmpty;
     if (strengthConflict) {

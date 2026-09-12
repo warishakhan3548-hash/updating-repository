@@ -99,10 +99,8 @@ Future<void> openMedicineCapture(
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (_) => CloudScanReviewScreen(
-            controller: controller,
-            evidence: evidence,
-          ),
+          builder: (_) =>
+              CloudScanReviewScreen(controller: controller, evidence: evidence),
         ),
       );
     } else if (choice == 'scan') {

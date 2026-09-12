@@ -102,11 +102,13 @@ void _addConflictingLotFacts(
       conflicts.add('manufacturing date');
     }
 
-    final sameBarcode = group
-        .map((medicine) => normalize(medicine.barcode))
-        .where((value) => value.isNotEmpty)
-        .toSet()
-        .length == 1;
+    final sameBarcode =
+        group
+            .map((medicine) => normalize(medicine.barcode))
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .length ==
+        1;
     if (sameBarcode) {
       if (_textValues(group, (medicine) => medicine.manufacturer).length > 1) {
         conflicts.add('manufacturer');
@@ -155,8 +157,7 @@ void _addSaleAuditIssues(
           kind: InventoryIntegrityKind.staleSoldMetadata,
           severity: InventoryIntegritySeverity.high,
           title: '${medicine.title} · active stock has stale SOLD audit facts',
-          detail:
-              'This row is currently active/not SOLD but still carries historical SOLD fields. Those stale facts can distort operational history or reorder evidence. Review the exact stock row; Aaris will not silently clear audit data.',
+          detail: 'This row is currently active/not SOLD but still carries historical SOLD fields. Those stale facts can distort operational history or reorder evidence. Review the exact stock row; Aaris will not silently clear audit data.',
           stockIds: List.unmodifiable(<String>[medicine.id]),
         ),
       );
@@ -198,11 +199,7 @@ void _addSaleAuditIssues(
 Set<String> _dateValues(
   Iterable<Medicine> records,
   DateTime? Function(Medicine) select,
-) => records
-    .map(select)
-    .whereType<DateTime>()
-    .map(dateText)
-    .toSet();
+) => records.map(select).whereType<DateTime>().map(dateText).toSet();
 
 Set<String> _textValues(
   Iterable<Medicine> records,

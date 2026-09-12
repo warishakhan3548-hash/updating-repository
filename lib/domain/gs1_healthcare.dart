@@ -55,7 +55,9 @@ Gs1HealthcareData? _parseParenthesized(String raw) {
   for (var index = 0; index < matches.length; index++) {
     final match = matches[index];
     final ai = match.group(1)!;
-    final end = index + 1 < matches.length ? matches[index + 1].start : raw.length;
+    final end = index + 1 < matches.length
+        ? matches[index + 1].start
+        : raw.length;
     final value = raw.substring(match.end, end).trim();
     if (!_accept(ai, value, values)) return null;
   }
@@ -127,7 +129,8 @@ bool _accept(String ai, String input, Map<String, String> values) {
       break;
     case '10':
     case '21':
-      if (value.length > 20 || value.contains(RegExp(r'[\x00-\x1c\x1e-\x1f]'))) {
+      if (value.length > 20 ||
+          value.contains(RegExp(r'[\x00-\x1c\x1e-\x1f]'))) {
         return false;
       }
       break;
@@ -171,9 +174,11 @@ bool _validGtin(String digits) {
     return false;
   }
   var sum = 0;
-  for (var index = digits.length - 2, position = 1;
-      index >= 0;
-      index--, position++) {
+  for (
+    var index = digits.length - 2, position = 1;
+    index >= 0;
+    index--, position++
+  ) {
     final digit = int.parse(digits[index]);
     sum += digit * (position.isOdd ? 3 : 1);
   }

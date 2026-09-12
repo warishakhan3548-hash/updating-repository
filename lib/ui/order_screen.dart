@@ -30,9 +30,7 @@ class _OrderScreenState extends State<OrderScreen> {
   List<ReorderSuggestion> get _suggestions =>
       widget.controller.tracking(widget.range).reorder;
 
-  PharmacyOperationsPlan _operationsPlan(
-    List<ReorderSuggestion> suggestions,
-  ) {
+  PharmacyOperationsPlan _operationsPlan(List<ReorderSuggestion> suggestions) {
     final attention = PharmacyAttentionReport.build(
       medicines: widget.controller.records,
       settings: widget.controller.settings,
@@ -46,9 +44,7 @@ class _OrderScreenState extends State<OrderScreen> {
     );
   }
 
-  Map<String, OperationsPlanStep> _blockedOrders(
-    PharmacyOperationsPlan plan,
-  ) {
+  Map<String, OperationsPlanStep> _blockedOrders(PharmacyOperationsPlan plan) {
     final blocked = <String, OperationsPlanStep>{};
     for (final step in plan.steps) {
       final productKey = step.item.productKey;
@@ -109,10 +105,7 @@ class _OrderScreenState extends State<OrderScreen> {
   List<PurchaseOrderLine> _lines() {
     final suggestions = _suggestions;
     final blocked = _blockedOrders(_operationsPlan(suggestions));
-    _ensureControllers(
-      suggestions,
-      blockedProductKeys: blocked.keys.toSet(),
-    );
+    _ensureControllers(suggestions, blockedProductKeys: blocked.keys.toSet());
     final lines = <PurchaseOrderLine>[];
     for (final suggestion in suggestions) {
       if (!_selected.contains(suggestion.productKey)) continue;
@@ -178,8 +171,7 @@ class _OrderScreenState extends State<OrderScreen> {
           children: [
             const ScreenIntro(
               title: 'Prepare your order',
-              message:
-                  'Aaris uses recorded stock, expiry and sales movement to prepare reorder suggestions. Uncertain suggestions stay unselected, and known data-integrity blockers must be resolved before ordering.',
+              message: 'Aaris uses recorded stock, expiry and sales movement to prepare reorder suggestions. Uncertain suggestions stay unselected, and known data-integrity blockers must be resolved before ordering.',
               icon: Icons.shopping_bag_outlined,
             ),
             const FlowSteps(['Verify blockers', 'Check quantity', 'Share PDF']),
@@ -195,10 +187,7 @@ class _OrderScreenState extends State<OrderScreen> {
                       color: amber,
                     ),
                     if (needsReview > 0)
-                      StatusPill(
-                        '$needsReview need review',
-                        color: primary,
-                      ),
+                      StatusPill('$needsReview need review', color: primary),
                     if (blockedOrders.isNotEmpty)
                       StatusPill(
                         '${blockedOrders.length} blocked by stock facts',
@@ -210,14 +199,14 @@ class _OrderScreenState extends State<OrderScreen> {
             if (suggestions.isEmpty)
               const EmptyState(
                 title: 'No reorder suggestions',
-                message:
-                    'Sold-out, low-stock or expiring-before-lead-time medicines will appear here when recorded facts support a suggestion.',
+                message: 'Sold-out, low-stock or expiring-before-lead-time medicines will appear here when recorded facts support a suggestion.',
               ),
             for (final suggestion in suggestions)
               Builder(
                 builder: (context) {
                   final blocked = blockedOrders[suggestion.productKey];
-                  final prerequisites = blocked?.prerequisites ?? const <AttentionItem>[];
+                  final prerequisites =
+                      blocked?.prerequisites ?? const <AttentionItem>[];
                   final enabled = !_sharing && blocked == null;
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
@@ -232,7 +221,9 @@ class _OrderScreenState extends State<OrderScreen> {
                             controlAffinity: ListTileControlAffinity.leading,
                             title: Text(
                               suggestion.title,
-                              style: const TextStyle(fontWeight: FontWeight.w700),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                             subtitle: Text(
                               [

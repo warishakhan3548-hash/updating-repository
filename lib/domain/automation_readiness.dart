@@ -1,10 +1,7 @@
 import 'inventory.dart';
 import 'medicine.dart';
 
-enum AutomationReadinessKind {
-  fefoExpiryUncertainty,
-  fefoQuantityBlocker,
-}
+enum AutomationReadinessKind { fefoExpiryUncertainty, fefoQuantityBlocker }
 
 class AutomationReadinessIssue {
   const AutomationReadinessIssue({

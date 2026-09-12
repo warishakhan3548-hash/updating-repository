@@ -16,6 +16,7 @@ import 'canonical_medicine_catalog_service.dart';
 import 'local_ai_service.dart';
 import 'local_brain_route_policy.dart';
 import 'media_import_service.dart';
+import 'offline_recognition_memory_service.dart';
 import 'scan_service.dart';
 
 /// Persistent, bounded work queue shared by AI Hub and ordinary import.
@@ -42,7 +43,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   Iterable<Medicine> Function()? _records;
   int Function()? _revision;
   int? _knowledgeRevision;
-  List<Map<String, Object?>>? _knowledge;
+  List<MedicineKnowledgeEntry>? _knowledge;
   String pauseReason = '';
 
   List<MedicineIntakeJob> get jobs => List.unmodifiable(_jobs);
@@ -357,11 +358,14 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     if (_knowledge == null ||
         revision == null ||
         revision != _knowledgeRevision) {
-      _knowledge = medicineKnowledgeFromRecords(_records!())
-          .map((k) => k.toMessage())
-          .toList();
+      _knowledge = medicineKnowledgeFromRecords(_records!());
       _knowledgeRevision = revision;
     }
+
+    // A bounded correction memory enriches only matching current local
+    // identities and fails open. Raw OCR documents are never stored in it.
+    final knowledge = await OfflineRecognitionMemoryService.instance
+        .enrichKnowledge(_knowledge!, frames);
 
     // Tier-2 master knowledge is optional and queried before isolate work so a
     // very large canonical catalogue never crosses the isolate boundary. The
@@ -373,7 +377,9 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     return MedicineUnderstandingResult.fromMessage(
       await compute(understandMedicineEvidenceV2Message, <String, Object?>{
         'evidence': frames.map((e) => e.toMessage()).toList(),
-        'knowledge': _knowledge!,
+        'knowledge': knowledge
+            .map((k) => k.toMessage())
+            .toList(growable: false),
         'catalog': catalogue.map((value) => value.toMessage()).toList(),
       }),
     );

@@ -231,7 +231,8 @@ class ActivityScreen extends StatelessWidget {
     final event = controller.snapshot.events.first;
     final label = '${event['label']}';
     final revision = event['revision'];
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Undo the latest change?'),
@@ -271,8 +272,7 @@ class ActivityScreen extends StatelessWidget {
         children: [
           const ScreenIntro(
             title: 'Your recent activity',
-            message:
-                'See the latest 200 changes. Undo reverses only the most recent current change, including an approved import.',
+            message: 'See the latest 200 changes. Undo reverses only the most recent current change, including an approved import.',
             icon: Icons.history_rounded,
           ),
           FilledButton.icon(

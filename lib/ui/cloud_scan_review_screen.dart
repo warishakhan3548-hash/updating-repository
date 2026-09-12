@@ -71,7 +71,9 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
           widget.evidence.every(
             (item) => item.text.trim().isEmpty && item.barcode.trim().isEmpty,
           )) {
-        throw const FormatException('No barcode or medicine text was captured.');
+        throw const FormatException(
+          'No barcode or medicine text was captured.',
+        );
       }
 
       // Resolve cloud permission/configuration before building the provider-bound
@@ -92,8 +94,8 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
 
       final knowledge = config == null
           ? medicineKnowledgeFromRecords(widget.controller.records)
-              .map((item) => item.toMessage())
-              .toList(growable: false)
+                .map((item) => item.toMessage())
+                .toList(growable: false)
           : const <Map<String, Object?>>[];
       final payload = await compute(
         understandMedicineEvidenceMessage,
@@ -226,7 +228,11 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
         : ListView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 30),
             children: [
-              const FlowSteps(['Scan', 'AI preview', 'Confirm / Add'], current: 1),
+              const FlowSteps([
+                'Scan',
+                'AI preview',
+                'Confirm / Add',
+              ], current: 1),
               Surface(
                 color: primarySoft,
                 child: Column(
@@ -305,7 +311,9 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              name.isEmpty ? 'Medicine ${index + 1} · identity needs review' : name,
+              name.isEmpty
+                  ? 'Medicine ${index + 1} · identity needs review'
+                  : name,
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),
@@ -362,11 +370,8 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
             const SizedBox(height: 7),
             OutlinedButton.icon(
               onPressed: _savingIndex == null
-                  ? () => openEditor(
-                      context,
-                      widget.controller,
-                      scanDraft: draft,
-                    )
+                  ? () =>
+                        openEditor(context, widget.controller, scanDraft: draft)
                   : null,
               icon: const Icon(Icons.fact_check_outlined),
               label: const Text('Review / edit every field first'),

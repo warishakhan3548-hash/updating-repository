@@ -17,7 +17,9 @@ class PurchaseOrderService {
     required DateTime date,
   }) async {
     if (date.year < 2000 || date.year > 2200) {
-      throw const FormatException('Purchase-order date is outside the safe range.');
+      throw const FormatException(
+        'Purchase-order date is outside the safe range.',
+      );
     }
 
     // Validate at the service boundary as well as in the UI. This keeps native

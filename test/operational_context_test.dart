@@ -68,21 +68,24 @@ void main() {
       expect(controller.operationalTargetId, isNull);
     });
 
-    test('removed or unknown active targets fail closed instead of becoming stale', () async {
-      final controller = await controllerForContext();
-      addTearDown(controller.dispose);
-      await controller.save(stock('a'), expectedRevision: 0);
-      controller.rememberOperationalTarget('a');
+    test(
+      'removed or unknown active targets fail closed instead of becoming stale',
+      () async {
+        final controller = await controllerForContext();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a'), expectedRevision: 0);
+        controller.rememberOperationalTarget('a');
 
-      await controller.archive('a', 'Correction', expectedRevision: 1);
-      expect(controller.operationalTarget, isNull);
-      expect(controller.operationalTargetId, isNull);
+        await controller.archive('a', 'Correction', expectedRevision: 1);
+        expect(controller.operationalTarget, isNull);
+        expect(controller.operationalTargetId, isNull);
 
-      expect(
-        () => controller.rememberOperationalTarget('missing'),
-        throwsStateError,
-      );
-    });
+        expect(
+          () => controller.rememberOperationalTarget('missing'),
+          throwsStateError,
+        );
+      },
+    );
 
     test('reviewed archive migrates exact Brain target into archived context', () async {
       final controller = await controllerForContext();
@@ -101,57 +104,68 @@ void main() {
       expect(controller.archivedOperationalTarget?.quantity, 10);
     });
 
-    test('restore invalidates archived context and active context can be rebound', () async {
-      final controller = await controllerForContext();
-      addTearDown(controller.dispose);
-      await controller.save(stock('a'), expectedRevision: 0);
-      await controller.archive('a', 'Damaged', expectedRevision: 1);
-      controller.rememberArchivedOperationalTarget('a');
+    test(
+      'restore invalidates archived context and active context can be rebound',
+      () async {
+        final controller = await controllerForContext();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a'), expectedRevision: 0);
+        await controller.archive('a', 'Damaged', expectedRevision: 1);
+        controller.rememberArchivedOperationalTarget('a');
 
-      final review = controller.reviewArchivedRestore('a');
-      await controller.applyArchivedRestore(review);
+        final review = controller.reviewArchivedRestore('a');
+        await controller.applyArchivedRestore(review);
 
-      expect(controller.archivedOperationalTarget, isNull);
-      expect(controller.archivedOperationalTargetId, isNull);
-      controller.rememberOperationalTarget('a');
-      expect(controller.operationalTargetId, 'a');
-      expect(controller.operationalTarget?.archived, isFalse);
-    });
+        expect(controller.archivedOperationalTarget, isNull);
+        expect(controller.archivedOperationalTargetId, isNull);
+        controller.rememberOperationalTarget('a');
+        expect(controller.operationalTargetId, 'a');
+        expect(controller.operationalTarget?.archived, isFalse);
+      },
+    );
 
-    test('a new archive lifecycle cannot reuse stale archived context', () async {
-      final controller = await controllerForContext();
-      addTearDown(controller.dispose);
-      await controller.save(stock('a'), expectedRevision: 0);
-      await controller.archive('a', 'Correction', expectedRevision: 1);
-      controller.rememberArchivedOperationalTarget('a');
-      final oldArchivedAt = controller.archivedOperationalTarget!.archivedAt;
+    test(
+      'a new archive lifecycle cannot reuse stale archived context',
+      () async {
+        final controller = await controllerForContext();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a'), expectedRevision: 0);
+        await controller.archive('a', 'Correction', expectedRevision: 1);
+        controller.rememberArchivedOperationalTarget('a');
+        final oldArchivedAt = controller.archivedOperationalTarget!.archivedAt;
 
-      await controller.applyArchivedRestore(controller.reviewArchivedRestore('a'));
-      await controller.archive('a', 'Returned', expectedRevision: 3);
+        await controller.applyArchivedRestore(
+          controller.reviewArchivedRestore('a'),
+        );
+        await controller.archive('a', 'Returned', expectedRevision: 3);
 
-      expect(oldArchivedAt, isNotNull);
-      expect(controller.archivedOperationalTarget, isNull);
-    });
+        expect(oldArchivedAt, isNotNull);
+        expect(controller.archivedOperationalTarget, isNull);
+      },
+    );
 
-    test('clearing another ID cannot erase the current exact targets', () async {
-      final controller = await controllerForContext();
-      addTearDown(controller.dispose);
-      await controller.save(stock('a'), expectedRevision: 0);
-      await controller.save(stock('b'), expectedRevision: 1);
-      controller.rememberOperationalTarget('b');
+    test(
+      'clearing another ID cannot erase the current exact targets',
+      () async {
+        final controller = await controllerForContext();
+        addTearDown(controller.dispose);
+        await controller.save(stock('a'), expectedRevision: 0);
+        await controller.save(stock('b'), expectedRevision: 1);
+        controller.rememberOperationalTarget('b');
 
-      controller.clearOperationalTarget('a');
-      expect(controller.operationalTarget?.id, 'b');
+        controller.clearOperationalTarget('a');
+        expect(controller.operationalTarget?.id, 'b');
 
-      await controller.archive('a', 'Correction', expectedRevision: 2);
-      controller.rememberArchivedOperationalTarget('a');
-      controller.clearArchivedOperationalTarget('b');
-      expect(controller.archivedOperationalTarget?.id, 'a');
+        await controller.archive('a', 'Correction', expectedRevision: 2);
+        controller.rememberArchivedOperationalTarget('a');
+        controller.clearArchivedOperationalTarget('b');
+        expect(controller.archivedOperationalTarget?.id, 'a');
 
-      controller.clearOperationalTarget('b');
-      controller.clearArchivedOperationalTarget('a');
-      expect(controller.operationalTarget, isNull);
-      expect(controller.archivedOperationalTarget, isNull);
-    });
+        controller.clearOperationalTarget('b');
+        controller.clearArchivedOperationalTarget('a');
+        expect(controller.operationalTarget, isNull);
+        expect(controller.archivedOperationalTarget, isNull);
+      },
+    );
   });
 }

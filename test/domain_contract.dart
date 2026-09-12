@@ -513,9 +513,8 @@ Map<String, void Function()> domainContract() {
         ),
         'An oversized token entered the n-gram index.',
       );
-      final hits = MedicineSearch([
-        document.record,
-      ]).search(longQuery, SearchScope.all, contractSettings, contractToday);
+      final hits = MedicineSearch([document.record])
+          .search(longQuery, SearchScope.all, contractSettings, contractToday);
       check(hits.isEmpty, 'Hostile long query produced a false match.');
     },
     'identity normalizes punctuation and strength spacing': () {

@@ -89,9 +89,7 @@ void main() {
   test('unknown quantity never becomes a fabricated reorder amount', () {
     final stats = TrackingStats(
       medicines: [_stock('p1', quantity: null)],
-      sales: [
-        _sale('s1', 20, DateTime(2026, 9, 8)),
-      ],
+      sales: [_sale('s1', 20, DateTime(2026, 9, 8))],
       range: range,
       today: today,
     );

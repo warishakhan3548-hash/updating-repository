@@ -172,34 +172,37 @@ void main() {
       expect(conflicts.single.detail, contains('expiry'));
     });
 
-    test('does not treat a bare reused batch number as the same physical lot', () {
-      final report = PharmacyAttentionReport.build(
-        medicines: [
-          _stock(
-            'weak-a',
-            name: 'Paracetamol',
-            batchNumber: 'COMMON-1',
-            expiry: '2027-01',
-          ),
-          _stock(
-            'weak-b',
-            name: 'Paracetamol',
-            batchNumber: 'COMMON-1',
-            expiry: '2027-02',
-          ),
-        ],
-        settings: const WarningSettings(),
-        today: _today,
-        reorder: const [],
-      );
+    test(
+      'does not treat a bare reused batch number as the same physical lot',
+      () {
+        final report = PharmacyAttentionReport.build(
+          medicines: [
+            _stock(
+              'weak-a',
+              name: 'Paracetamol',
+              batchNumber: 'COMMON-1',
+              expiry: '2027-01',
+            ),
+            _stock(
+              'weak-b',
+              name: 'Paracetamol',
+              batchNumber: 'COMMON-1',
+              expiry: '2027-02',
+            ),
+          ],
+          settings: const WarningSettings(),
+          today: _today,
+          reorder: const [],
+        );
 
-      expect(
-        report.items.where(
-          (item) => item.kind == AttentionKind.conflictingLotFacts,
-        ),
-        isEmpty,
-      );
-    });
+        expect(
+          report.items.where(
+            (item) => item.kind == AttentionKind.conflictingLotFacts,
+          ),
+          isEmpty,
+        );
+      },
+    );
 
     test('surfaces stale active SOLD metadata instead of trusting it', () {
       final report = PharmacyAttentionReport.build(
@@ -258,9 +261,11 @@ void main() {
     });
 
     test('never reports archived stock as an active operational issue', () {
-      final archived = _stock('archived', name: 'Old', expiry: '2026-01').patch({
-        'archived': true,
-      });
+      final archived = _stock(
+        'archived',
+        name: 'Old',
+        expiry: '2026-01',
+      ).patch({'archived': true});
       final report = PharmacyAttentionReport.build(
         medicines: [archived],
         settings: const WarningSettings(),

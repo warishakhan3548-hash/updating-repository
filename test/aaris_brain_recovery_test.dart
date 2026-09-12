@@ -4,34 +4,44 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('Aaris Brain removed-stock recovery intents', () {
-    test('targeted restore opens reviewed recovery for the requested medicine', () {
-      final intent = parseAppBrainIntent('Dolo 650 restore karo');
-      expect(intent.action, AppBrainAction.restoreMedicine);
-      expect(intent.query, 'Dolo 650');
-      expect(intent.confidence, greaterThanOrEqualTo(.99));
-      expect(intent.needsMedicineTarget, isTrue);
-      expect(intent.mutatesInventory, isTrue);
-      expect(intent.destructive, isFalse);
-    });
+    test(
+      'targeted restore opens reviewed recovery for the requested medicine',
+      () {
+        final intent = parseAppBrainIntent('Dolo 650 restore karo');
+        expect(intent.action, AppBrainAction.restoreMedicine);
+        expect(intent.query, 'Dolo 650');
+        expect(intent.confidence, greaterThanOrEqualTo(.99));
+        expect(intent.needsMedicineTarget, isTrue);
+        expect(intent.mutatesInventory, isTrue);
+        expect(intent.destructive, isFalse);
+      },
+    );
 
-    test('contextual restore preserves the pronoun for exact session resolution', () {
-      for (final command in [
-        'restore it',
-        'restore isko',
-        'isko restore karo',
-        'इसे रिस्टोर करो',
-      ]) {
-        final intent = parseAppBrainIntent(command);
-        expect(intent.action, AppBrainAction.restoreMedicine, reason: command);
-        expect(
-          isAppBrainContextReference(intent.query),
-          isTrue,
-          reason: command,
-        );
-        expect(intent.mutatesInventory, isTrue, reason: command);
-        expect(intent.destructive, isFalse, reason: command);
-      }
-    });
+    test(
+      'contextual restore preserves the pronoun for exact session resolution',
+      () {
+        for (final command in [
+          'restore it',
+          'restore isko',
+          'isko restore karo',
+          'इसे रिस्टोर करो',
+        ]) {
+          final intent = parseAppBrainIntent(command);
+          expect(
+            intent.action,
+            AppBrainAction.restoreMedicine,
+            reason: command,
+          );
+          expect(
+            isAppBrainContextReference(intent.query),
+            isTrue,
+            reason: command,
+          );
+          expect(intent.mutatesInventory, isTrue, reason: command);
+          expect(intent.destructive, isFalse, reason: command);
+        }
+      },
+    );
 
     test('targetless removed-stock language opens recovery history only', () {
       for (final command in [
@@ -66,13 +76,16 @@ void main() {
   });
 
   group('Aaris Brain natural dispensing intents', () {
-    test('plain pharmacist sell command enters the existing reviewed sale path', () {
-      final intent = parseAppBrainIntent('Dolo 650 sell');
-      expect(intent.action, AppBrainAction.recordSale);
-      expect(intent.query, 'Dolo 650');
-      expect(intent.quantity, isNull);
-      expect(intent.destructive, isTrue);
-    });
+    test(
+      'plain pharmacist sell command enters the existing reviewed sale path',
+      () {
+        final intent = parseAppBrainIntent('Dolo 650 sell');
+        expect(intent.action, AppBrainAction.recordSale);
+        expect(intent.query, 'Dolo 650');
+        expect(intent.quantity, isNull);
+        expect(intent.destructive, isTrue);
+      },
+    );
 
     test('explicit units are separated from strength before FEFO planning', () {
       final english = parseAppBrainIntent('Dolo 650 5 units sell');

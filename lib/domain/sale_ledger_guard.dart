@@ -72,8 +72,7 @@ SaleLedgerMutationBlock? saleLedgerMutationBlock({
   final removed = removeSaleIds.toList(growable: false);
   if (removed.isNotEmpty) {
     return SaleLedgerMutationBlock(
-      message:
-          'Aaris blocked this transaction because ordinary app actions may not delete recorded sale history. Use the existing audited Undo or reviewed backup recovery flow instead. Nothing was changed.',
+      message: 'Aaris blocked this transaction because ordinary app actions may not delete recorded sale history. Use the existing audited Undo or reviewed backup recovery flow instead. Nothing was changed.',
       saleIds: List.unmodifiable(removed),
     );
   }
@@ -87,8 +86,7 @@ SaleLedgerMutationBlock? saleLedgerMutationBlock({
     }
     if (!_sameSale(existing, sale)) {
       return SaleLedgerMutationBlock(
-        message:
-            'Aaris blocked this transaction because an existing sale audit event cannot be rewritten by an ordinary stock action. Use the reviewed recovery/history workflow instead. Nothing was changed.',
+        message: 'Aaris blocked this transaction because an existing sale audit event cannot be rewritten by an ordinary stock action. Use the reviewed recovery/history workflow instead. Nothing was changed.',
         saleIds: List.unmodifiable(<String>[sale.id]),
         stockIds: List.unmodifiable(<String>[sale.stockId]),
       );
@@ -101,8 +99,7 @@ SaleLedgerMutationBlock? saleLedgerMutationBlock({
     final before = beforeRecords[sale.stockId];
     if (before == null) {
       return SaleLedgerMutationBlock(
-        message:
-            'Aaris blocked this sale because its stock ID does not point to a medicine that existed before the transaction. Select an exact current stock entry instead of creating sale history for an unknown row. Nothing was changed.',
+        message: 'Aaris blocked this sale because its stock ID does not point to a medicine that existed before the transaction. Select an exact current stock entry instead of creating sale history for an unknown row. Nothing was changed.',
         saleIds: List.unmodifiable(<String>[sale.id]),
         stockIds: List.unmodifiable(<String>[sale.stockId]),
       );
@@ -122,8 +119,7 @@ SaleLedgerMutationBlock? saleLedgerMutationBlock({
     if (sale.productKey != before.identity ||
         normalize(sale.salt) != normalize(before.salt)) {
       return SaleLedgerMutationBlock(
-        message:
-            'Aaris blocked this sale because its medicine snapshot does not match the exact authoritative stock entry. Reopen the medicine and record the sale from that row; nothing was changed.',
+        message: 'Aaris blocked this sale because its medicine snapshot does not match the exact authoritative stock entry. Reopen the medicine and record the sale from that row; nothing was changed.',
         saleIds: List.unmodifiable(<String>[sale.id]),
         stockIds: List.unmodifiable(<String>[sale.stockId]),
       );
@@ -149,8 +145,7 @@ SaleLedgerMutationBlock? saleLedgerMutationBlock({
     final saleIds = entry.value.map((sale) => sale.id).toList(growable: false);
     if (after == null || after.archived) {
       return SaleLedgerMutationBlock(
-        message:
-            'Aaris blocked this transaction because a sale and removal of the same stock row were combined. Record the sale first, then review any separate removal action. Nothing was changed.',
+        message: 'Aaris blocked this transaction because a sale and removal of the same stock row were combined. Record the sale first, then review any separate removal action. Nothing was changed.',
         saleIds: List.unmodifiable(saleIds),
         stockIds: List.unmodifiable(<String>[entry.key]),
       );
@@ -159,8 +154,7 @@ SaleLedgerMutationBlock? saleLedgerMutationBlock({
     if (after.identity != before.identity ||
         normalize(after.salt) != normalize(before.salt)) {
       return SaleLedgerMutationBlock(
-        message:
-            'Aaris blocked this transaction because medicine identity facts changed in the same transaction as a sale. Save the verified medicine correction separately, then record the sale from the exact row. Nothing was changed.',
+        message: 'Aaris blocked this transaction because medicine identity facts changed in the same transaction as a sale. Save the verified medicine correction separately, then record the sale from the exact row. Nothing was changed.',
         saleIds: List.unmodifiable(saleIds),
         stockIds: List.unmodifiable(<String>[entry.key]),
       );
@@ -171,8 +165,7 @@ SaleLedgerMutationBlock? saleLedgerMutationBlock({
       soldUnits += sale.quantity;
       if (soldUnits > 100000000) {
         return SaleLedgerMutationBlock(
-          message:
-              'Aaris blocked this transaction because the combined sale quantity is outside the supported stock range. Nothing was changed.',
+          message: 'Aaris blocked this transaction because the combined sale quantity is outside the supported stock range. Nothing was changed.',
           saleIds: List.unmodifiable(saleIds),
           stockIds: List.unmodifiable(<String>[entry.key]),
         );

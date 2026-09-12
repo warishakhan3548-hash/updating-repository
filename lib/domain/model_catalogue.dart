@@ -69,9 +69,8 @@ class ModelRepositoryLocation {
 
 bool isModelRepository(String value) =>
     value.length <= 250 &&
-    RegExp(
-      r'^[A-Za-z0-9_][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*$',
-    ).hasMatch(value) &&
+    RegExp(r'^[A-Za-z0-9_][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*$')
+        .hasMatch(value) &&
     !value.split('/').any((p) => p.contains('..'));
 
 bool isSafeModelPath(String name) =>

@@ -76,71 +76,69 @@ void main() {
     expect(hits.every((hit) => hit.id != 'active-dolo'), isTrue);
   });
 
-  test('scope filtering happens before a broad exact posting is capped', () async {
-    final worker = SearchWorker();
-    addTearDown(worker.close);
-    final data = [
-      for (var i = 0; i < 220; i++)
-        stock(
-          'active-$i',
-          name: 'Paracetamol',
-          expiry: '2027-12-31',
-        ),
-      stock(
-        'expired-after-cap',
-        name: 'Paracetamol',
-        expiry: '2026-01-01',
-      ),
-    ];
+  test(
+    'scope filtering happens before a broad exact posting is capped',
+    () async {
+      final worker = SearchWorker();
+      addTearDown(worker.close);
+      final data = [
+        for (var i = 0; i < 220; i++)
+          stock('active-$i', name: 'Paracetamol', expiry: '2027-12-31'),
+        stock('expired-after-cap', name: 'Paracetamol', expiry: '2026-01-01'),
+      ];
 
-    final hits = await worker.search(
-      data,
-      1,
-      'Paracetamol',
-      SearchScope.expired,
-      contractSettings,
-      contractToday,
-    );
-
-    expect(hits.single.id, 'expired-after-cap');
-  });
-
-  test('typo candidate recovery never overrides a strength contradiction', () async {
-    final worker = SearchWorker();
-    addTearDown(worker.close);
-    final data = [
-      stock(
-        'dolo-650',
-        name: 'Dolo',
-        strength: '650mg',
-        expiry: '2027-01-01',
-      ),
-      stock(
-        'dolo-500',
-        name: 'Dolo',
-        strength: '500mg',
-        expiry: '2027-01-01',
-      ),
-    ];
-
-    final hits = await worker.search(
-      data,
-      1,
-      'D0LO 650mg',
-      SearchScope.all,
-      contractSettings,
-      contractToday,
-    );
-
-    expect(hits, isNotEmpty);
-    expect(hits.first.id, 'dolo-650');
-    final wrongStrength = hits.where((hit) => hit.id == 'dolo-500').toList();
-    if (wrongStrength.isNotEmpty) {
-      expect(wrongStrength.single.score, lessThan(hits.first.score));
-      expect(
-        wrongStrength.single.reason,
-        'Different strength — check carefully',
+      final hits = await worker.search(
+        data,
+        1,
+        'Paracetamol',
+        SearchScope.expired,
+        contractSettings,
+        contractToday,
       );
-    }
-  });
+
+      expect(hits.single.id, 'expired-after-cap');
+    },
+  );
+
+  test(
+    'typo candidate recovery never overrides a strength contradiction',
+    () async {
+      final worker = SearchWorker();
+      addTearDown(worker.close);
+      final data = [
+        stock(
+          'dolo-650',
+          name: 'Dolo',
+          strength: '650mg',
+          expiry: '2027-01-01',
+        ),
+        stock(
+          'dolo-500',
+          name: 'Dolo',
+          strength: '500mg',
+          expiry: '2027-01-01',
+        ),
+      ];
+
+      final hits = await worker.search(
+        data,
+        1,
+        'D0LO 650mg',
+        SearchScope.all,
+        contractSettings,
+        contractToday,
+      );
+
+      expect(hits, isNotEmpty);
+      expect(hits.first.id, 'dolo-650');
+      final wrongStrength = hits.where((hit) => hit.id == 'dolo-500').toList();
+      if (wrongStrength.isNotEmpty) {
+        expect(wrongStrength.single.score, lessThan(hits.first.score));
+        expect(
+          wrongStrength.single.reason,
+          'Different strength — check carefully',
+        );
+      }
+    },
+  );
 }

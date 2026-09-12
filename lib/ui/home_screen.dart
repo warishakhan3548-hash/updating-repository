@@ -248,8 +248,7 @@ class HomeScreen extends StatelessWidget {
           if (records.isEmpty)
             EmptyState(
               title: 'Start with your first medicine',
-              message:
-                  'Add its name now. Fill in expiry, location and price when you have them.',
+              message: 'Add its name now. Fill in expiry, location and price when you have them.',
               action: RaisedActionButton(
                 icon: Icons.add_rounded,
                 label: 'Add medicine',
@@ -487,28 +486,19 @@ class _ScanBanner extends StatelessWidget {
                   children: [
                     Text(
                       'Scan & Search',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: primaryDeep,
-                      ),
+                      style: Theme.of(context).textTheme.titleLarge
+                          ?.copyWith(color: primaryDeep),
                     ),
                     const SizedBox(height: 5),
                     const Text(
                       'Scan a pack. Speak a name. Find your stock.',
-                      style: TextStyle(
-                        color: muted,
-                        fontSize: 12,
-                        height: 1.5,
-                      ),
+                      style: TextStyle(color: muted, fontSize: 12, height: 1.5),
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(
-                Icons.arrow_forward_rounded,
-                color: primary,
-                size: 22,
-              ),
+              const Icon(Icons.arrow_forward_rounded, color: primary, size: 22),
             ],
           ),
         ),

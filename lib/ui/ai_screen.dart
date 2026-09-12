@@ -317,8 +317,7 @@ class _AiScreenState extends State<AiScreen> {
         if (!mounted) return;
         if (!_hasAiRoute) {
           setState(
-            () => _error =
-                'Connect a Local AI model or API for reasoning requests. Add, Open, Delete, stock search and other deterministic Aaris Brain commands still work without AI.',
+            () => _error = 'Connect a Local AI model or API for reasoning requests. Add, Open, Delete, stock search and other deterministic Aaris Brain commands still work without AI.',
           );
           return;
         }
@@ -384,7 +383,8 @@ class _AiScreenState extends State<AiScreen> {
           final snapshot = rawStream.toString();
           final lead = snapshot.trimLeft();
           if (lead.isEmpty) return;
-          structuredStream = structuredStream ||
+          structuredStream =
+              structuredStream ||
               lead.startsWith('{') ||
               lead.startsWith('```') ||
               (lead.contains('aaris.pharmacy.v1') && lead.contains('actions'));
@@ -416,8 +416,7 @@ class _AiScreenState extends State<AiScreen> {
       if (plan == null) {
         if (_error.isEmpty) {
           setState(
-            () => _error =
-                'The AI response arrived but could not be validated. Nothing was changed.',
+            () => _error = 'The AI response arrived but could not be validated. Nothing was changed.',
           );
         }
         return;
@@ -861,10 +860,7 @@ class _AiScreenState extends State<AiScreen> {
           widget.controller.aiPreparing;
       return Column(
         children: [
-          _AiHubHeader(
-            configured: _hasAiRoute,
-            onSettings: _openConnections,
-          ),
+          _AiHubHeader(configured: _hasAiRoute, onSettings: _openConnections),
           _AiComposer(
             controller: _request,
             busy: busy,
@@ -940,7 +936,8 @@ class _AiScreenState extends State<AiScreen> {
                   _AiMessageBubble(message: message),
                 if (_journey == _AiJourneyState.thinking)
                   _AiThinkingBubble(
-                    detail: _configuration.localBrainEnabled && _local.hasSelection
+                    detail:
+                        _configuration.localBrainEnabled && _local.hasSelection
                         ? _local.status
                         : 'AI route connected · preparing answer',
                   ),
@@ -956,8 +953,7 @@ class _AiScreenState extends State<AiScreen> {
                   ),
                 if (_journey == _AiJourneyState.stopping)
                   const _AiThinkingBubble(
-                    detail:
-                        'Stopping local inference safely · next Send unlocks when the native lease is free',
+                    detail: 'Stopping local inference safely · next Send unlocks when the native lease is free',
                   ),
                 if (_error.isNotEmpty)
                   Padding(
@@ -1159,7 +1155,10 @@ class _AiThinkingBubble extends StatelessWidget {
                 children: [
                   const Text(
                     'Thinking…',
-                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(

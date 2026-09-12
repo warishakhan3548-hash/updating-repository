@@ -9,6 +9,7 @@ import '../domain/medicine_scan_commit.dart';
 import '../domain/medicine_understanding.dart';
 import '../services/local_ai_service.dart';
 import '../services/medicine_intake_service.dart';
+import '../services/offline_recognition_memory_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'import_screen.dart';
@@ -112,8 +113,12 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
 
   bool _identityNeedsReview(MedicineScanDraft draft) {
     if (confirmedScanForm(draft).isEmpty) return true;
-    return ['name', 'brand', 'salt', 'strength']
-        .any((key) => draft.field(key).needsReview);
+    return [
+      'name',
+      'brand',
+      'salt',
+      'strength',
+    ].any((key) => draft.field(key).needsReview);
   }
 
   Future<void> _confirmAndAdd(MedicineScanDraft draft) async {
@@ -150,6 +155,10 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
         );
       }
       await widget.controller.save(record, expectedRevision: expectedRevision);
+      await OfflineRecognitionMemoryService.instance.learnFromConfirmedScan(
+        draft,
+        record,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -163,9 +172,10 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
     } catch (e) {
       if (mounted) {
         setState(
-          () => error = e
-              .toString()
-              .replaceFirst(RegExp(r'^(Bad state|StateError):\s*'), ''),
+          () => error = e.toString().replaceFirst(
+            RegExp(r'^(Bad state|StateError):\s*'),
+            '',
+          ),
         );
       }
     } finally {
@@ -279,7 +289,10 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                                   _fact('Form', confirmedScanForm(draft)),
                                   _fact('EXP', draft.expiry),
                                 ].join('\n'),
-                                style: const TextStyle(fontSize: 12, height: 1.35),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  height: 1.35,
+                                ),
                               ),
                               if (_expired(draft.expiry))
                                 const Padding(
@@ -319,7 +332,8 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
                                     label: Text(
                                       _savingQuickAdd
                                           ? 'Adding…'
-                                          : _quickAddDecision(draft).actionLabel,
+                                          : _quickAddDecision(draft)
+                                                .actionLabel,
                                     ),
                                   ),
                                 ),

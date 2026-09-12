@@ -48,34 +48,51 @@ void main() {
     expect(released, isTrue);
   });
 
-  test('video carry preserves unassigned transition frames for next window', () {
-    final frames = <MedicineFrameEvidence>[
-      for (var sequence = 0; sequence < 20; sequence++)
-        MedicineFrameEvidence(
-          text: 'frame $sequence',
-          sequence: sequence,
-          timestampMs: sequence * 800,
-        ),
-    ];
-    final draft = MedicineScanDraft(
-      fields: const <String, ExtractedMedicineField>{},
-      rawText: 'current medicine',
-      searchKeywords: '',
-      frameSequences: const <int>[2, 3, 4],
-    );
+  test(
+    'video carry preserves unassigned transition frames for next window',
+    () {
+      final frames = <MedicineFrameEvidence>[
+        for (var sequence = 0; sequence < 20; sequence++)
+          MedicineFrameEvidence(
+            text: 'frame $sequence',
+            sequence: sequence,
+            timestampMs: sequence * 800,
+          ),
+      ];
+      final draft = MedicineScanDraft(
+        fields: const <String, ExtractedMedicineField>{},
+        rawText: 'current medicine',
+        searchKeywords: '',
+        frameSequences: const <int>[2, 3, 4],
+      );
 
-    final result = finishMedicineVideoWindow(
-      frames,
-      <MedicineScanDraft>[draft],
-      isLast: false,
-    );
+      final result = finishMedicineVideoWindow(frames, <MedicineScanDraft>[
+        draft,
+      ], isLast: false);
 
-    expect(result.completed, isEmpty);
-    expect(
-      result.carry.map((frame) => frame.sequence),
-      orderedEquals(<int>[2, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]),
-    );
-  });
+      expect(result.completed, isEmpty);
+      expect(
+        result.carry.map((frame) => frame.sequence),
+        orderedEquals(<int>[
+          2,
+          3,
+          4,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+        ]),
+      );
+    },
+  );
 
   test('video carry emits completed drafts once and stays bounded', () {
     final frames = <MedicineFrameEvidence>[
@@ -92,14 +109,15 @@ void main() {
       fields: const <String, ExtractedMedicineField>{},
       rawText: 'unresolved',
       searchKeywords: '',
-      frameSequences: <int>[for (var sequence = 3; sequence < 80; sequence++) sequence],
+      frameSequences: <int>[
+        for (var sequence = 3; sequence < 80; sequence++) sequence,
+      ],
     );
 
-    final result = finishMedicineVideoWindow(
-      frames,
-      <MedicineScanDraft>[first, unresolved],
-      isLast: false,
-    );
+    final result = finishMedicineVideoWindow(frames, <MedicineScanDraft>[
+      first,
+      unresolved,
+    ], isLast: false);
 
     expect(result.completed, hasLength(1));
     expect(result.completed.single.rawText, 'finished');

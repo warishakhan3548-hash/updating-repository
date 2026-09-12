@@ -116,10 +116,7 @@ class AttentionScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _openStep(
-    BuildContext context,
-    OperationsPlanStep step,
-  ) async {
+  Future<void> _openStep(BuildContext context, OperationsPlanStep step) async {
     // Downstream FEFO/reorder work is never opened ahead of a known prerequisite.
     // The user is taken to the first blocking fact instead, and the AnimatedBuilder
     // recalculates the plan from the authoritative controller after every edit.
@@ -392,7 +389,9 @@ class _AttentionCard extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             Icon(
-              step.blocked ? Icons.lock_clock_rounded : Icons.chevron_right_rounded,
+              step.blocked
+                  ? Icons.lock_clock_rounded
+                  : Icons.chevron_right_rounded,
               color: _color,
             ),
           ],

@@ -81,43 +81,48 @@ void main() {
       }
     });
 
-    test('strength contradiction remains stronger than fuzzy identity evidence', () {
-      final engine = MedicineSearch([
-        stock(
-          'right-strength',
-          name: 'Dolo',
-          salt: 'Paracetamol',
-          strength: '650mg',
-          form: 'Tablet',
-          expiry: '2027-12-31',
-        ),
-        stock(
-          'wrong-strength',
-          name: 'Dolo',
-          salt: 'Paracetamol',
-          strength: '500mg',
-          form: 'Tablet',
-          expiry: '2027-12-31',
-        ),
-      ]);
+    test(
+      'strength contradiction remains stronger than fuzzy identity evidence',
+      () {
+        final engine = MedicineSearch([
+          stock(
+            'right-strength',
+            name: 'Dolo',
+            salt: 'Paracetamol',
+            strength: '650mg',
+            form: 'Tablet',
+            expiry: '2027-12-31',
+          ),
+          stock(
+            'wrong-strength',
+            name: 'Dolo',
+            salt: 'Paracetamol',
+            strength: '500mg',
+            form: 'Tablet',
+            expiry: '2027-12-31',
+          ),
+        ]);
 
-      final hits = engine.search(
-        'D0LO paracetamol 650mg tablet',
-        SearchScope.all,
-        contractSettings,
-        contractToday,
-      );
-
-      expect(hits, isNotEmpty);
-      expect(hits.first.id, 'right-strength');
-      final wrongStrength = hits.where((hit) => hit.id == 'wrong-strength').toList();
-      if (wrongStrength.isNotEmpty) {
-        expect(wrongStrength.single.score, lessThan(hits.first.score));
-        expect(
-          wrongStrength.single.reason,
-          'Different strength — check carefully',
+        final hits = engine.search(
+          'D0LO paracetamol 650mg tablet',
+          SearchScope.all,
+          contractSettings,
+          contractToday,
         );
-      }
-    });
+
+        expect(hits, isNotEmpty);
+        expect(hits.first.id, 'right-strength');
+        final wrongStrength = hits
+            .where((hit) => hit.id == 'wrong-strength')
+            .toList();
+        if (wrongStrength.isNotEmpty) {
+          expect(wrongStrength.single.score, lessThan(hits.first.score));
+          expect(
+            wrongStrength.single.reason,
+            'Different strength — check carefully',
+          );
+        }
+      },
+    );
   });
 }

@@ -49,28 +49,34 @@ void main() {
       expect(item.stockIds, ['missing']);
       expect(item.productKey, medicine.identity);
       expect(item.severity, AttentionSeverity.high);
-      expect(item.detail, contains('no Block, Row, Vertical or shelf location'));
-    });
-
-    test('findability does not create noise for sold, zero or located stock', () {
-      final report = PharmacyAttentionReport.build(
-        medicines: [
-          stock('sold', sold: true),
-          stock('zero', quantity: 0),
-          stock('located', block: 'B1', row: 'R2'),
-        ],
-        settings: settings,
-        today: today,
-        reorder: const [],
-      );
-
       expect(
-        report.items.where(
-          (item) => item.kind == AttentionKind.missingStockLocation,
-        ),
-        isEmpty,
+        item.detail,
+        contains('no Block, Row, Vertical or shelf location'),
       );
     });
+
+    test(
+      'findability does not create noise for sold, zero or located stock',
+      () {
+        final report = PharmacyAttentionReport.build(
+          medicines: [
+            stock('sold', sold: true),
+            stock('zero', quantity: 0),
+            stock('located', block: 'B1', row: 'R2'),
+          ],
+          settings: settings,
+          today: today,
+          reorder: const [],
+        );
+
+        expect(
+          report.items.where(
+            (item) => item.kind == AttentionKind.missingStockLocation,
+          ),
+          isEmpty,
+        );
+      },
+    );
 
     test('missing location is sequenced before physical short-expiry work', () {
       final medicine = stock('near-expiry');
@@ -101,42 +107,41 @@ void main() {
       expect(plan.nextStep?.item.kind, AttentionKind.missingStockLocation);
     });
 
-    test('missing location never blocks a valid purchasing review by itself', () {
-      final medicine = stock(
-        'stock-a',
-        expiry: '2027-12',
-        quantity: 3,
-      );
-      final items = <AttentionItem>[
-        AttentionItem(
-          key: 'location-missing:${medicine.id}',
-          kind: AttentionKind.missingStockLocation,
-          severity: AttentionSeverity.medium,
-          title: 'Location missing',
-          detail: 'Record physical location.',
-          stockIds: [medicine.id],
-          productKey: medicine.identity,
-        ),
-        AttentionItem(
-          key: 'reorder:${medicine.identity}',
-          kind: AttentionKind.reorderReview,
-          severity: AttentionSeverity.medium,
-          title: 'Reorder review',
-          detail: 'Review stock order.',
-          stockIds: [medicine.id],
-          productKey: medicine.identity,
-        ),
-      ];
+    test(
+      'missing location never blocks a valid purchasing review by itself',
+      () {
+        final medicine = stock('stock-a', expiry: '2027-12', quantity: 3);
+        final items = <AttentionItem>[
+          AttentionItem(
+            key: 'location-missing:${medicine.id}',
+            kind: AttentionKind.missingStockLocation,
+            severity: AttentionSeverity.medium,
+            title: 'Location missing',
+            detail: 'Record physical location.',
+            stockIds: [medicine.id],
+            productKey: medicine.identity,
+          ),
+          AttentionItem(
+            key: 'reorder:${medicine.identity}',
+            kind: AttentionKind.reorderReview,
+            severity: AttentionSeverity.medium,
+            title: 'Reorder review',
+            detail: 'Review stock order.',
+            stockIds: [medicine.id],
+            productKey: medicine.identity,
+          ),
+        ];
 
-      final plan = PharmacyOperationsPlan.build(
-        items: items,
-        medicines: [medicine],
-      );
-      final reorder = plan.steps.singleWhere(
-        (step) => step.item.kind == AttentionKind.reorderReview,
-      );
-      expect(reorder.blocked, isFalse);
-      expect(reorder.prerequisites, isEmpty);
-    });
+        final plan = PharmacyOperationsPlan.build(
+          items: items,
+          medicines: [medicine],
+        );
+        final reorder = plan.steps.singleWhere(
+          (step) => step.item.kind == AttentionKind.reorderReview,
+        );
+        expect(reorder.blocked, isFalse);
+        expect(reorder.prerequisites, isEmpty);
+      },
+    );
   });
 }

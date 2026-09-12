@@ -130,7 +130,9 @@ CREATE TABLE recognition_aliases (
       await _initialize();
       final db = _database;
       if (db == null) return knowledge;
-      final keys = _evidenceAliasKeys(evidence).take(96).toList(growable: false);
+      final keys = _evidenceAliasKeys(evidence)
+          .take(96)
+          .toList(growable: false);
       if (keys.isEmpty) return knowledge;
       final placeholders = List.filled(keys.length, '?').join(',');
       final rows = await db.rawQuery(
@@ -170,9 +172,10 @@ CREATE TABLE recognition_aliases (
           result.add(entry);
           continue;
         }
-        final merged = <String>{...entry.ocrAliases, ...aliases}
-            .take(24)
-            .toList(growable: false);
+        final merged = <String>{
+          ...entry.ocrAliases,
+          ...aliases,
+        }.take(24).toList(growable: false);
         result.add(
           MedicineKnowledgeEntry(
             name: entry.name,
@@ -188,7 +191,9 @@ CREATE TABLE recognition_aliases (
         );
         changed = true;
       }
-      return changed ? List<MedicineKnowledgeEntry>.unmodifiable(result) : knowledge;
+      return changed
+          ? List<MedicineKnowledgeEntry>.unmodifiable(result)
+          : knowledge;
     } catch (_) {
       return knowledge;
     }
@@ -203,9 +208,13 @@ String recognitionIdentityKey({
   required String strength,
   required String form,
 }) {
-  final parts = <String>[name, brand, salt, strength, form]
-      .map(searchText)
-      .toList(growable: false);
+  final parts = <String>[
+    name,
+    brand,
+    salt,
+    strength,
+    form,
+  ].map(searchText).toList(growable: false);
   if (parts.every((value) => value.isEmpty)) return '';
   return sha256.convert(parts.join('|').codeUnits).toString();
 }
@@ -218,10 +227,10 @@ List<String> deriveLearnableIdentityAliases(
   MedicineScanDraft draft,
   Medicine confirmed,
 ) {
-  final targets = <String>{confirmed.name, confirmed.brand}
-      .map(searchText)
-      .where((value) => value.length >= 3)
-      .toSet();
+  final targets = <String>{
+    confirmed.name,
+    confirmed.brand,
+  }.map(searchText).where((value) => value.length >= 3).toSet();
   if (targets.isEmpty || draft.rawText.trim().isEmpty) return const <String>[];
 
   final observed = <String>{};
@@ -251,7 +260,8 @@ List<String> deriveLearnableIdentityAliases(
     if (RegExp(r'^\d+(?:[ ./:+-]\d+)*$').hasMatch(candidate)) continue;
     var best = 0.0;
     for (final target in targets) {
-      final ratio = min(candidate.length, target.length) /
+      final ratio =
+          min(candidate.length, target.length) /
           max(candidate.length, target.length);
       if (ratio < .58) continue;
       best = max(best, _identitySimilarity(candidate, target));
@@ -295,7 +305,10 @@ Set<String> _evidenceAliasKeys(List<MedicineFrameEvidence> evidence) {
 }
 
 double _identitySimilarity(String left, String right) {
-  final raw = _editSimilarity(left.replaceAll(' ', ''), right.replaceAll(' ', ''));
+  final raw = _editSimilarity(
+    left.replaceAll(' ', ''),
+    right.replaceAll(' ', ''),
+  );
   final folded = _editSimilarity(
     _ocrFoldIdentity(left).replaceAll(' ', ''),
     _ocrFoldIdentity(right).replaceAll(' ', ''),

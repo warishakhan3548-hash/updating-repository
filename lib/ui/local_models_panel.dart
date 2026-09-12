@@ -115,8 +115,7 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
           repositories = result.repositories;
           nextPage = result.next;
           if (repositories.isEmpty) {
-            catalogueNote =
-                'No models found. Try Qwen, Gemma, Llama, or paste a model link.';
+            catalogueNote = 'No models found. Try Qwen, Gemma, Llama, or paste a model link.';
           }
         });
       }
@@ -174,9 +173,10 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
     LocalModelSetupStage.verifying => 'Checking download…',
     LocalModelSetupStage.connecting => 'Connecting…',
     LocalModelSetupStage.testing => 'Testing on this phone…',
-    LocalModelSetupStage.ready => local.scanVerified
-        ? 'Local AI · Ready'
-        : 'Local AI · Ready · verify scans',
+    LocalModelSetupStage.ready =>
+      local.scanVerified
+          ? 'Local AI · Ready'
+          : 'Local AI · Ready · verify scans',
     LocalModelSetupStage.attention => 'Setup needs attention',
   };
 

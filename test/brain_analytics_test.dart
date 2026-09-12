@@ -13,14 +13,8 @@ void main() {
       expect(intent.action, AppBrainAction.analyticsBrief);
       expect(intent.mutatesInventory, isFalse);
       expect(intent.analyticsRequest, isNotNull);
-      expect(
-        intent.analyticsRequest!.rangeKind,
-        BrainAnalyticsRangeKind.today,
-      );
-      expect(
-        intent.analyticsRequest!.focus,
-        BrainAnalyticsFocus.salesSummary,
-      );
+      expect(intent.analyticsRequest!.rangeKind, BrainAnalyticsRangeKind.today);
+      expect(intent.analyticsRequest!.focus, BrainAnalyticsFocus.salesSummary);
     });
 
     test('understands bounded English and Devanagari day windows', () {

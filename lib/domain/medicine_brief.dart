@@ -83,7 +83,9 @@ class MedicineOperationalBrief {
       fefoEligibleBatchCount: candidates.length,
       knownUsableUnits: knownUsableUnits,
       unknownQuantityBatchCount: unknownQuantity,
-      expiredBatchCount: active.where((record) => isExpiredOn(record, day)).length,
+      expiredBatchCount: active
+          .where((record) => isExpiredOn(record, day))
+          .length,
       futureManufactureBatchCount: active
           .where(
             (record) =>
@@ -92,8 +94,7 @@ class MedicineOperationalBrief {
           .length,
       zeroQuantityBatchCount: active
           .where(
-            (record) =>
-                isDispensableOn(record, day) && record.quantity == 0,
+            (record) => isDispensableOn(record, day) && record.quantity == 0,
           )
           .length,
       unknownExpiryBatchCount: unknownExpiry,
@@ -162,7 +163,9 @@ class MedicineOperationalBrief {
     final knownExpiry = nextFefo?.expiry;
     final buffer = StringBuffer('$title: ');
     if (!hasCurrentFefoStock) {
-      buffer.write('no current FEFO-eligible batch is available for an expiry answer.');
+      buffer.write(
+        'no current FEFO-eligible batch is available for an expiry answer.',
+      );
     } else if (knownExpiry == null) {
       buffer.write(
         'the next current FEFO candidate has no recorded expiry. Verify the physical pack; Aaris will not invent an EXP date.',
@@ -203,9 +206,13 @@ class MedicineOperationalBrief {
       );
     } else {
       final visible = locations.take(4).toList(growable: false);
-      buffer.write('current stock location${visible.length == 1 ? '' : 's'}: ${visible.join(' · ')}.');
+      buffer.write(
+        'current stock location${visible.length == 1 ? '' : 's'}: ${visible.join(' · ')}.',
+      );
       if (locations.length > visible.length) {
-        buffer.write(' ${locations.length - visible.length} more recorded location${locations.length - visible.length == 1 ? '' : 's'} exist.');
+        buffer.write(
+          ' ${locations.length - visible.length} more recorded location${locations.length - visible.length == 1 ? '' : 's'} exist.',
+        );
       }
     }
     if (unlocatedBatchCount > 0) {
@@ -232,9 +239,13 @@ class MedicineOperationalBrief {
           : 'Batch ${next.batchNumber.trim()}',
       next.expiry == null ? 'EXP not recorded' : 'EXP ${_expiryText(next)}',
       next.quantity == null ? 'quantity unknown' : '${next.quantity} units',
-      next.address.trim().isEmpty ? 'location not recorded' : next.address.trim(),
+      next.address.trim().isEmpty
+          ? 'location not recorded'
+          : next.address.trim(),
     ];
-    final buffer = StringBuffer('$title · next FEFO candidate: ${parts.join(' · ')}.');
+    final buffer = StringBuffer(
+      '$title · next FEFO candidate: ${parts.join(' · ')}.',
+    );
     if (next.quantity == null) {
       buffer.write(
         ' Verify this physical batch quantity before dispensing; Aaris will not skip an earlier-priority unknown batch or guess its stock.',

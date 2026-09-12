@@ -157,6 +157,8 @@ class MedicineKnowledgeEntry {
     this.form = '',
     this.manufacturer = '',
     this.barcode = '',
+    this.aliases = const <String>[],
+    this.ocrAliases = const <String>[],
   });
 
   final String name;
@@ -166,6 +168,8 @@ class MedicineKnowledgeEntry {
   final String form;
   final String manufacturer;
   final String barcode;
+  final List<String> aliases;
+  final List<String> ocrAliases;
 
   factory MedicineKnowledgeEntry.fromMedicine(Medicine medicine) =>
       MedicineKnowledgeEntry(
@@ -186,6 +190,8 @@ class MedicineKnowledgeEntry {
     'form': form,
     'manufacturer': manufacturer,
     'barcode': barcode,
+    'aliases': aliases.take(24).toList(growable: false),
+    'ocrAliases': ocrAliases.take(24).toList(growable: false),
   };
 
   factory MedicineKnowledgeEntry.fromMessage(Map<Object?, Object?> map) {
@@ -196,6 +202,17 @@ class MedicineKnowledgeEntry {
       return value.length <= 300 ? value : value.substring(0, 300);
     }
 
+    List<String> texts(String key) {
+      final raw = map[key];
+      if (raw is! List) return const <String>[];
+      return raw
+          .whereType<String>()
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty && value.length <= 300)
+          .take(24)
+          .toList(growable: false);
+    }
+
     return MedicineKnowledgeEntry(
       name: text('name'),
       brand: text('brand'),
@@ -204,6 +221,8 @@ class MedicineKnowledgeEntry {
       form: text('form'),
       manufacturer: text('manufacturer'),
       barcode: text('barcode'),
+      aliases: texts('aliases'),
+      ocrAliases: texts('ocrAliases'),
     );
   }
 
@@ -517,9 +536,9 @@ Map<String, Object?> understandMedicineEvidenceMessage(
             )
             .toList(growable: false)
       : const <MedicineKnowledgeEntry>[];
-  return MedicineUnderstandingEngine(
-    knowledge: knowledge,
-  ).understand(frames).toMessage();
+  return MedicineUnderstandingEngine(knowledge: knowledge)
+      .understand(frames)
+      .toMessage();
 }
 
 /// Deterministic, offline-first medicine evidence parser and temporal grouper.
@@ -1516,9 +1535,10 @@ class _OfflineMedicineKnowledge {
       for (final hit in brandHits)
         _KnowledgeHit('name', hit.value, max(0, hit.score - .01)),
     ];
-    final evidenceNumbers = _knowledgeKey(
-      raw,
-    ).split(' ').where(_isNumericKnowledgeToken).toList(growable: false);
+    final evidenceNumbers = _knowledgeKey(raw)
+        .split(' ')
+        .where(_isNumericKnowledgeToken)
+        .toList(growable: false);
     if (evidenceNumbers.isEmpty) return hits;
 
     final supportedStrengths = <String, String>{};
@@ -1528,9 +1548,10 @@ class _OfflineMedicineKnowledge {
       for (final strength
           in _strengthsByIdentity[_knowledgeKey(identity.value)] ??
               const <String>[]) {
-        final requiredNumbers = _knowledgeStrengthKey(
-          strength,
-        ).split(' ').where(_isNumericKnowledgeToken).toList(growable: false);
+        final requiredNumbers = _knowledgeStrengthKey(strength)
+            .split(' ')
+            .where(_isNumericKnowledgeToken)
+            .toList(growable: false);
         if (requiredNumbers.isEmpty ||
             !_containsOrderedValues(evidenceNumbers, requiredNumbers)) {
           continue;
@@ -1794,9 +1815,12 @@ bool _containsOrderedValues(List<String> values, List<String> expected) {
   return false;
 }
 
-String _knowledgeStrengthKey(String value) => _knowledgeKey(
-  value,
-).split(' ').where(_isNumericKnowledgeToken).take(4).join(' ');
+String _knowledgeStrengthKey(String value) =>
+    _knowledgeKey(value)
+        .split(' ')
+        .where(_isNumericKnowledgeToken)
+        .take(4)
+        .join(' ');
 
 _KnowledgeWindowMatch _bestKnowledgeWindow(String query, String phrase) {
   final queryTokens = query
@@ -1971,9 +1995,10 @@ String _cleanLine(String value) => value
     .replaceAll(RegExp(r'\s+'), ' ')
     .trim();
 
-String _cleanValue(String value) => _cleanLine(
-  value,
-).replaceAll(RegExp(r'^[\s:;,.#-]+|[\s:;,.#-]+$'), '').trim();
+String _cleanValue(String value) =>
+    _cleanLine(value)
+        .replaceAll(RegExp(r'^[\s:;,.#-]+|[\s:;,.#-]+$'), '')
+        .trim();
 
 String _labelValue(String line, RegExp expression) =>
     expression.firstMatch(line)?.group(1)?.trim() ?? '';
@@ -2061,9 +2086,8 @@ String? _canonicalPrintedDate(String raw, {required bool expiry}) {
     'dec': 12,
     'december': 12,
   };
-  final word = RegExp(
-    r'(?:(\d{1,2})[\s./-]+)?([a-z]{3,9})[\s./-]+(\d{2,4})',
-  ).firstMatch(value);
+  final word = RegExp(r'(?:(\d{1,2})[\s./-]+)?([a-z]{3,9})[\s./-]+(\d{2,4})')
+      .firstMatch(value);
   if (word != null && months.containsKey(word[2])) {
     final year = _fullYear(int.parse(word[3]!));
     final month = months[word[2]]!;
@@ -2080,9 +2104,8 @@ String? _canonicalPrintedDate(String raw, {required bool expiry}) {
     if (a > 99) return _validatedIso(a, b, c, expiry: expiry);
     return _validatedIso(_fullYear(c), b, a, expiry: expiry);
   }
-  final spacedFull = RegExp(
-    r'(?<!\d)(\d{1,2})\s+(\d{1,2})\s+(\d{2,4})(?!\d)',
-  ).firstMatch(value);
+  final spacedFull = RegExp(r'(?<!\d)(\d{1,2})\s+(\d{1,2})\s+(\d{2,4})(?!\d)')
+      .firstMatch(value);
   if (spacedFull != null) {
     return _validatedIso(
       _fullYear(int.parse(spacedFull[3]!)),
@@ -2091,9 +2114,8 @@ String? _canonicalPrintedDate(String raw, {required bool expiry}) {
       expiry: expiry,
     );
   }
-  final month = RegExp(
-    r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{2,4})(?!\s*[./-]\s*\d)',
-  ).firstMatch(value);
+  final month = RegExp(r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{2,4})(?!\s*[./-]\s*\d)')
+      .firstMatch(value);
   if (month == null) return null;
   final a = int.parse(month[1]!);
   final b = int.parse(month[2]!);

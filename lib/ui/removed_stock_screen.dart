@@ -144,7 +144,8 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
     final live = widget.controller.snapshot.records[review.stockId];
     if (live == null || !live.archived || !mounted) return;
     final facts = <String>[
-      if (live.batchNumber.trim().isNotEmpty) 'Batch ${live.batchNumber.trim()}',
+      if (live.batchNumber.trim().isNotEmpty)
+        'Batch ${live.batchNumber.trim()}',
       live.expiry == null
           ? 'EXP not recorded'
           : 'EXP ${live.expiryMonthOnly ? dateText(live.expiry!).substring(0, 7) : dateText(live.expiry!)}',
@@ -158,7 +159,8 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
         ? 'Legacy removal reason not available'
         : live.archiveReason.trim();
 
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Restore this removed stock?'),
@@ -172,10 +174,7 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
                 ),
                 const SizedBox(height: 8),
                 if (facts.isNotEmpty)
-                  Text(
-                    facts.join(' · '),
-                    style: const TextStyle(color: muted),
-                  ),
+                  Text(facts.join(' · '), style: const TextStyle(color: muted)),
                 const SizedBox(height: 10),
                 Text('$reason · $removedWhen'),
                 const SizedBox(height: 14),
@@ -249,8 +248,7 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
         children: [
           const ScreenIntro(
             title: 'Find & restore removed stock',
-            message:
-                'Search local removed history by medicine, brand, salt, barcode, batch, expiry, location or scanned keywords. Restoring always requires an exact-row review.',
+            message: 'Search local removed history by medicine, brand, salt, barcode, batch, expiry, location or scanned keywords. Restoring always requires an exact-row review.',
             icon: Icons.inventory_2_outlined,
             color: amber,
           ),

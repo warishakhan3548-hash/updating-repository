@@ -45,8 +45,7 @@ void main() {
       );
 
       final expiry = report.issues.where(
-        (issue) =>
-            issue.kind == AutomationReadinessKind.fefoExpiryUncertainty,
+        (issue) => issue.kind == AutomationReadinessKind.fefoExpiryUncertainty,
       );
       expect(expiry, hasLength(1));
       expect(expiry.single.stockIds, ['undated']);
@@ -54,23 +53,25 @@ void main() {
       expect(expiry.single.detail, contains('no expiry will be invented'));
     });
 
-    test('reports when no candidate has an expiry instead of inventing order', () {
-      final report = PharmacyAutomationReadinessReport.build(
-        medicines: [
-          _stock('a', expiry: '', batch: 'A'),
-          _stock('b', expiry: '', batch: 'B'),
-        ],
-        today: _today,
-      );
+    test(
+      'reports when no candidate has an expiry instead of inventing order',
+      () {
+        final report = PharmacyAutomationReadinessReport.build(
+          medicines: [
+            _stock('a', expiry: '', batch: 'A'),
+            _stock('b', expiry: '', batch: 'B'),
+          ],
+          today: _today,
+        );
 
-      final issue = report.issues.singleWhere(
-        (item) =>
-            item.kind == AutomationReadinessKind.fefoExpiryUncertainty,
-      );
-      expect(issue.stockIds.toSet(), {'a', 'b'});
-      expect(issue.detail, contains('none has a recorded expiry'));
-      expect(issue.detail, contains('cannot be proven'));
-    });
+        final issue = report.issues.singleWhere(
+          (item) => item.kind == AutomationReadinessKind.fefoExpiryUncertainty,
+        );
+        expect(issue.stockIds.toSet(), {'a', 'b'});
+        expect(issue.detail, contains('none has a recorded expiry'));
+        expect(issue.detail, contains('cannot be proven'));
+      },
+    );
 
     test('unknown earliest-lot quantity blocks FEFO immediately', () {
       final report = PharmacyAutomationReadinessReport.build(
@@ -87,8 +88,7 @@ void main() {
       );
 
       final issue = report.issues.singleWhere(
-        (item) =>
-            item.kind == AutomationReadinessKind.fefoQuantityBlocker,
+        (item) => item.kind == AutomationReadinessKind.fefoQuantityBlocker,
       );
       expect(issue.stockIds, ['unknown-first']);
       expect(issue.detail, contains('first reachable FEFO-priority'));
@@ -96,52 +96,47 @@ void main() {
       expect(issue.detail, contains('never skip'));
     });
 
-    test('quantifies the known safe prefix before a later unknown quantity', () {
-      final report = PharmacyAutomationReadinessReport.build(
-        medicines: [
-          _stock('early', expiry: '2026-09-20', batch: 'A', quantity: 6),
-          _stock(
-            'unknown',
-            expiry: '2026-10-01',
-            batch: 'B',
-            quantity: null,
-          ),
-          _stock('later', expiry: '2026-11', batch: 'C', quantity: 10),
-        ],
-        today: _today,
-      );
+    test(
+      'quantifies the known safe prefix before a later unknown quantity',
+      () {
+        final report = PharmacyAutomationReadinessReport.build(
+          medicines: [
+            _stock('early', expiry: '2026-09-20', batch: 'A', quantity: 6),
+            _stock('unknown', expiry: '2026-10-01', batch: 'B', quantity: null),
+            _stock('later', expiry: '2026-11', batch: 'C', quantity: 10),
+          ],
+          today: _today,
+        );
 
-      final issue = report.issues.singleWhere(
-        (item) =>
-            item.kind == AutomationReadinessKind.fefoQuantityBlocker,
-      );
-      expect(issue.detail, contains('up to 6 known units'));
-      expect(issue.stockIds, ['unknown']);
-    });
+        final issue = report.issues.singleWhere(
+          (item) => item.kind == AutomationReadinessKind.fefoQuantityBlocker,
+        );
+        expect(issue.detail, contains('up to 6 known units'));
+        expect(issue.stockIds, ['unknown']);
+      },
+    );
 
-    test('does not create multi-lot blockers from unusable or other products', () {
-      final report = PharmacyAutomationReadinessReport.build(
-        medicines: [
-          _stock('active', expiry: '', quantity: null),
-          _stock('sold', expiry: '', quantity: null, sold: true),
-          _stock(
-            'other-strength',
-            strength: '500mg',
-            expiry: '',
-            quantity: null,
-          ),
-          _stock(
-            'future-mfg',
-            expiry: '',
-            quantity: null,
-            mfg: '2026-10-01',
-          ),
-        ],
-        today: _today,
-      );
+    test(
+      'does not create multi-lot blockers from unusable or other products',
+      () {
+        final report = PharmacyAutomationReadinessReport.build(
+          medicines: [
+            _stock('active', expiry: '', quantity: null),
+            _stock('sold', expiry: '', quantity: null, sold: true),
+            _stock(
+              'other-strength',
+              strength: '500mg',
+              expiry: '',
+              quantity: null,
+            ),
+            _stock('future-mfg', expiry: '', quantity: null, mfg: '2026-10-01'),
+          ],
+          today: _today,
+        );
 
-      expect(report.isEmpty, isTrue);
-    });
+        expect(report.isEmpty, isTrue);
+      },
+    );
   });
 
   group('attention queue integration', () {
@@ -168,65 +163,71 @@ void main() {
       );
     });
 
-    test('elevates a multi-lot quantity blocker and suppresses duplicate noise', () {
-      final report = PharmacyAttentionReport.build(
-        medicines: [
-          _stock(
-            'unknown-first',
-            expiry: '2026-09-20',
-            batch: 'A',
-            quantity: null,
-          ),
-          _stock('later', expiry: '2026-10', batch: 'B', quantity: 20),
-        ],
-        settings: const WarningSettings(),
-        today: _today,
-        reorder: const [],
-      );
+    test(
+      'elevates a multi-lot quantity blocker and suppresses duplicate noise',
+      () {
+        final report = PharmacyAttentionReport.build(
+          medicines: [
+            _stock(
+              'unknown-first',
+              expiry: '2026-09-20',
+              batch: 'A',
+              quantity: null,
+            ),
+            _stock('later', expiry: '2026-10', batch: 'B', quantity: 20),
+          ],
+          settings: const WarningSettings(),
+          today: _today,
+          reorder: const [],
+        );
 
-      final grouped = report.items.singleWhere(
-        (item) => item.key.startsWith('fefo-quantity:'),
-      );
-      expect(grouped.kind, AttentionKind.unknownQuantity);
-      expect(grouped.severity, AttentionSeverity.high);
-      expect(grouped.stockIds, ['unknown-first']);
-      expect(
-        report.items.where(
-          (item) => item.key == 'quantity-unknown:unknown-first',
-        ),
-        isEmpty,
-      );
-    });
-
-    test('flags probable duplicate lot rows even when batch number is absent', () {
-      final report = PharmacyAttentionReport.build(
-        medicines: [
-          _stock(
-            'dup-a',
-            expiry: '2027-01',
-            barcode: '8901234567890',
-            location: 'Shelf 4',
+        final grouped = report.items.singleWhere(
+          (item) => item.key.startsWith('fefo-quantity:'),
+        );
+        expect(grouped.kind, AttentionKind.unknownQuantity);
+        expect(grouped.severity, AttentionSeverity.high);
+        expect(grouped.stockIds, ['unknown-first']);
+        expect(
+          report.items.where(
+            (item) => item.key == 'quantity-unknown:unknown-first',
           ),
-          _stock(
-            'dup-b',
-            expiry: '2027-01',
-            barcode: '8901234567890',
-            location: 'Shelf 4',
-          ),
-        ],
-        settings: const WarningSettings(),
-        today: _today,
-        reorder: const [],
-      );
+          isEmpty,
+        );
+      },
+    );
 
-      final duplicate = report.items.where(
-        (item) => item.kind == AttentionKind.possibleDuplicateBatch,
-      );
-      expect(duplicate, hasLength(1));
-      expect(duplicate.single.stockIds.toSet(), {'dup-a', 'dup-b'});
-      expect(duplicate.single.detail, contains('no batch number'));
-      expect(duplicate.single.severity, AttentionSeverity.medium);
-    });
+    test(
+      'flags probable duplicate lot rows even when batch number is absent',
+      () {
+        final report = PharmacyAttentionReport.build(
+          medicines: [
+            _stock(
+              'dup-a',
+              expiry: '2027-01',
+              barcode: '8901234567890',
+              location: 'Shelf 4',
+            ),
+            _stock(
+              'dup-b',
+              expiry: '2027-01',
+              barcode: '8901234567890',
+              location: 'Shelf 4',
+            ),
+          ],
+          settings: const WarningSettings(),
+          today: _today,
+          reorder: const [],
+        );
+
+        final duplicate = report.items.where(
+          (item) => item.kind == AttentionKind.possibleDuplicateBatch,
+        );
+        expect(duplicate, hasLength(1));
+        expect(duplicate.single.stockIds.toSet(), {'dup-a', 'dup-b'});
+        expect(duplicate.single.detail, contains('no batch number'));
+        expect(duplicate.single.severity, AttentionSeverity.medium);
+      },
+    );
 
     test('does not flag no-batch rows without a shared physical locator', () {
       final report = PharmacyAttentionReport.build(

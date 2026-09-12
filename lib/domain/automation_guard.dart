@@ -14,14 +14,11 @@ class InventoryIntegrityMutationBlock {
 List<InventoryIntegrityIssue> _lotConflicts(
   Iterable<Medicine> records,
   DateTime today,
-) => InventoryIntegrityReport.build(medicines: records, today: today)
-    .issues
+) => InventoryIntegrityReport.build(medicines: records, today: today).issues
     .where((issue) => issue.kind == InventoryIntegrityKind.conflictingLotFacts)
     .toList(growable: false);
 
-Map<String, Set<String>> _barcodeIdentityConflicts(
-  Iterable<Medicine> records,
-) {
+Map<String, Set<String>> _barcodeIdentityConflicts(Iterable<Medicine> records) {
   final groups = <String, List<Medicine>>{};
   for (final medicine in records.where((medicine) => !medicine.archived)) {
     final barcode = medicine.barcode.trim();
@@ -39,10 +36,7 @@ Map<String, Set<String>> _barcodeIdentityConflicts(
   return conflicts;
 }
 
-Set<String> _futureManufactureIds(
-  Iterable<Medicine> records,
-  DateTime today,
-) {
+Set<String> _futureManufactureIds(Iterable<Medicine> records, DateTime today) {
   final day = civilDay(today);
   return records
       .where(
@@ -67,13 +61,15 @@ List<InventoryIntegrityIssue> newlyIntroducedLotConflicts({
 }) {
   final existing = _lotConflicts(before, today);
   final proposed = _lotConflicts(after, today);
-  return proposed.where((issue) {
-    final proposedIds = issue.stockIds.toSet();
-    return !existing.any((old) {
-      final oldIds = old.stockIds.toSet();
-      return proposedIds.every(oldIds.contains);
-    });
-  }).toList(growable: false);
+  return proposed
+      .where((issue) {
+        final proposedIds = issue.stockIds.toSet();
+        return !existing.any((old) {
+          final oldIds = old.stockIds.toSet();
+          return proposedIds.every(oldIds.contains);
+        });
+      })
+      .toList(growable: false);
 }
 
 Map<String, Set<String>> _newBarcodeIdentityConflicts({
@@ -135,12 +131,12 @@ InventoryIntegrityMutationBlock? inventoryIntegrityMutationBlock({
     today: today,
   );
   if (introducedLots.isNotEmpty) {
-    final ids = introducedLots.expand((issue) => issue.stockIds).toSet().toList()
-      ..sort();
+    final ids =
+        introducedLots.expand((issue) => issue.stockIds).toSet().toList()
+          ..sort();
     return InventoryIntegrityMutationBlock(
       stockIds: List.unmodifiable(ids),
-      message:
-          'Aaris blocked this change because it would create conflicting saved facts for a strongly matched physical batch. Verify the batch, barcode, expiry and manufacturing date instead of saving two contradictory versions of the same lot. Nothing was changed.',
+      message: 'Aaris blocked this change because it would create conflicting saved facts for a strongly matched physical batch. Verify the batch, barcode, expiry and manufacturing date instead of saving two contradictory versions of the same lot. Nothing was changed.',
     );
   }
 
@@ -169,8 +165,7 @@ InventoryIntegrityMutationBlock? inventoryIntegrityMutationBlock({
     )) {
       return InventoryIntegrityMutationBlock(
         stockIds: List.unmodifiable(<String>[id]),
-        message:
-            'Aaris blocked this change because it would save active stock with a manufacturing date in the future. Verify the printed MFG date before saving; nothing was changed.',
+        message: 'Aaris blocked this change because it would save active stock with a manufacturing date in the future. Verify the printed MFG date before saving; nothing was changed.',
       );
     }
   }
@@ -179,13 +174,18 @@ InventoryIntegrityMutationBlock? inventoryIntegrityMutationBlock({
   final beforeLotIds = beforeLotIssues
       .expand((issue) => issue.stockIds)
       .toSet();
-  final afterLotIds = _lotConflicts(after.values, today)
-      .expand((issue) => issue.stockIds)
-      .toSet();
+  final afterLotIds = _lotConflicts(
+    after.values,
+    today,
+  ).expand((issue) => issue.stockIds).toSet();
   final beforeBarcodeGroups = _barcodeIdentityConflicts(before.values);
   final afterBarcodeGroups = _barcodeIdentityConflicts(after.values);
-  final beforeBarcodeIds = beforeBarcodeGroups.values.expand((ids) => ids).toSet();
-  final afterBarcodeIds = afterBarcodeGroups.values.expand((ids) => ids).toSet();
+  final beforeBarcodeIds = beforeBarcodeGroups.values
+      .expand((ids) => ids)
+      .toSet();
+  final afterBarcodeIds = afterBarcodeGroups.values
+      .expand((ids) => ids)
+      .toSet();
   final beforeFutureIds = _futureManufactureIds(before.values, today);
   final afterFutureIds = _futureManufactureIds(after.values, today);
 

@@ -56,17 +56,14 @@ void main() {
   });
 
   test('RxNorm concept is split into brand salt strength and form', () {
-    final hits = RxNormProvider.parseResults(
-      [
-        {
-          'rxcui': '123',
-          'rank': '1',
-          'score': '12.5',
-          'name': 'paracetamol 650 MG Oral Tablet [Dolo]',
-        },
-      ],
-      queryText: 'Dolo 650 tablet',
-    );
+    final hits = RxNormProvider.parseResults([
+      {
+        'rxcui': '123',
+        'rank': '1',
+        'score': '12.5',
+        'name': 'paracetamol 650 MG Oral Tablet [Dolo]',
+      },
+    ], queryText: 'Dolo 650 tablet');
 
     expect(hits, hasLength(1));
     final seed = hits.single.seed;
@@ -78,41 +75,44 @@ void main() {
     expect(seed.source, 'RxNorm');
   });
 
-  test('catalog service deduplicates identity and keeps stronger result', () async {
-    final weak = _FakeProvider([
-      const MedicineCatalogCandidate(
-        seed: MedicineDraftSeed(
-          name: 'Dolo',
-          brand: 'Dolo',
-          salt: 'Paracetamol',
-          strength: '650 mg',
-          form: 'Tablet',
+  test(
+    'catalog service deduplicates identity and keeps stronger result',
+    () async {
+      final weak = _FakeProvider([
+        const MedicineCatalogCandidate(
+          seed: MedicineDraftSeed(
+            name: 'Dolo',
+            brand: 'Dolo',
+            salt: 'Paracetamol',
+            strength: '650 mg',
+            form: 'Tablet',
+          ),
+          score: .72,
+          provider: 'weak',
         ),
-        score: .72,
-        provider: 'weak',
-      ),
-    ]);
-    final strong = _FakeProvider([
-      const MedicineCatalogCandidate(
-        seed: MedicineDraftSeed(
-          name: 'Dolo',
-          brand: 'Dolo',
-          salt: 'Paracetamol',
-          strength: '650 mg',
-          form: 'Tablet',
+      ]);
+      final strong = _FakeProvider([
+        const MedicineCatalogCandidate(
+          seed: MedicineDraftSeed(
+            name: 'Dolo',
+            brand: 'Dolo',
+            salt: 'Paracetamol',
+            strength: '650 mg',
+            form: 'Tablet',
+          ),
+          score: .94,
+          provider: 'strong',
         ),
-        score: .94,
-        provider: 'strong',
-      ),
-    ]);
-    final service = MedicineCatalogService(providers: [weak, strong]);
-    addTearDown(service.close);
+      ]);
+      final service = MedicineCatalogService(providers: [weak, strong]);
+      addTearDown(service.close);
 
-    final results = await service.search(text: 'Dolo 650');
-    expect(results, hasLength(1));
-    expect(results.single.provider, 'strong');
-    expect(results.single.score, .94);
-  });
+      final results = await service.search(text: 'Dolo 650');
+      expect(results, hasLength(1));
+      expect(results.single.provider, 'strong');
+      expect(results.single.score, .94);
+    },
+  );
 
   test('catalog service coalesces and caches repeated scan lookups', () async {
     final provider = _FakeProvider([

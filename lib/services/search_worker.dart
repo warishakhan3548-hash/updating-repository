@@ -124,11 +124,7 @@ class SearchWorker {
   Future<void> _ensureIndex(List<Medicine> records, int revision) async {
     await _start;
     if (_revision == revision) return;
-    await _request({
-      'kind': 'index',
-      'records': records,
-      'revision': revision,
-    });
+    await _request({'kind': 'index', 'records': records, 'revision': revision});
     _revision = revision;
   }
 

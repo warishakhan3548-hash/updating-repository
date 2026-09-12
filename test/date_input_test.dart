@@ -70,9 +70,9 @@ void main() {
       );
     }
     expect(
-      const DateInputFormatter(
-        monthOnly: true,
-      ).formatEditUpdate(_value(''), _value('2026-04')).text,
+      const DateInputFormatter(monthOnly: true)
+          .formatEditUpdate(_value(''), _value('2026-04'))
+          .text,
       '04/2026',
     );
   });

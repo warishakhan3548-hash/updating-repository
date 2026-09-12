@@ -88,9 +88,7 @@ extension PharmacyOperationalContext on PharmacyController {
   void rememberOperationalTarget(String id) {
     final record = snapshot.records[id];
     if (record == null || record.archived) {
-      throw StateError(
-        'Aaris can remember only an exact active stock entry.',
-      );
+      throw StateError('Aaris can remember only an exact active stock entry.');
     }
     _operationalTargets[this] = _OperationalTargetRef(
       id: record.id,

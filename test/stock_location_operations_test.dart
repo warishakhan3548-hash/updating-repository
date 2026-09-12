@@ -123,28 +123,25 @@ void main() {
       },
     );
 
-    test(
-      'same-row change after review still fails closed',
-      () async {
-        final controller = await controllerWithClock();
-        addTearDown(controller.dispose);
-        await controller.save(stock('a'), expectedRevision: 0);
-        final review = controller.reviewStockLocationUpdate(
-          'a',
-          const StockLocationPatch(location: 'Back shelf'),
-        );
-        final changed = controller.snapshot.records['a']!.patch({
-          'location': 'Cold cabinet',
-        });
-        await controller.save(changed, expectedRevision: 1);
+    test('same-row change after review still fails closed', () async {
+      final controller = await controllerWithClock();
+      addTearDown(controller.dispose);
+      await controller.save(stock('a'), expectedRevision: 0);
+      final review = controller.reviewStockLocationUpdate(
+        'a',
+        const StockLocationPatch(location: 'Back shelf'),
+      );
+      final changed = controller.snapshot.records['a']!.patch({
+        'location': 'Cold cabinet',
+      });
+      await controller.save(changed, expectedRevision: 1);
 
-        await expectLater(
-          controller.applyStockLocationUpdate(review),
-          throwsStateError,
-        );
-        expect(controller.snapshot.records['a']!.location, 'Cold cabinet');
-      },
-    );
+      await expectLater(
+        controller.applyStockLocationUpdate(review),
+        throwsStateError,
+      );
+      expect(controller.snapshot.records['a']!.location, 'Cold cabinet');
+    });
 
     test(
       'SOLD entries cannot be relocated as if physical stock exists',

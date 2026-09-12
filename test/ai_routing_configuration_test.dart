@@ -13,26 +13,32 @@ void main() {
     final restored = AiConfiguration.fromJson(config.toJson());
     expect(restored.localBrainEnabled, isTrue);
     expect(restored.key, 'secret');
-    expect(restored.copyWith(localBrainEnabled: false).localBrainEnabled, isFalse);
+    expect(
+      restored.copyWith(localBrainEnabled: false).localBrainEnabled,
+      isFalse,
+    );
   });
 
-  test('Plain local chat fallback cannot bypass inventory review authority', () {
-    expect(
-      localChatObject('Hello, kaise ho?'),
-      {'reply': 'Hello, kaise ho?', 'actions': <Object?>[]},
-    );
+  test(
+    'Plain local chat fallback cannot bypass inventory review authority',
+    () {
+      expect(localChatObject('Hello, kaise ho?'), {
+        'reply': 'Hello, kaise ho?',
+        'actions': <Object?>[],
+      });
 
-    final context = LocalInventoryContext(
-      records: const [],
-      sales: const [],
-      revision: 0,
-      today: DateTime.utc(2026, 9, 9),
-    );
-    expect(
-      () => context.finish(
-        localChatObject('{"actions":[{"op":"remove"}]} broken'),
-      ),
-      throwsFormatException,
-    );
-  });
+      final context = LocalInventoryContext(
+        records: const [],
+        sales: const [],
+        revision: 0,
+        today: DateTime.utc(2026, 9, 9),
+      );
+      expect(
+        () => context.finish(
+          localChatObject('{"actions":[{"op":"remove"}]} broken'),
+        ),
+        throwsFormatException,
+      );
+    },
+  );
 }
