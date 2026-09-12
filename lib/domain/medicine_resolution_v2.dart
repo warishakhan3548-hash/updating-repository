@@ -217,6 +217,9 @@ Map<String, Object?> understandMedicineEvidenceV2Message(
   return MedicineProductResolverV2(
     localKnowledge: localKnowledge,
     catalogue: catalogue,
+    referenceDate: message['referenceDate'] is String
+        ? DateTime.tryParse(message['referenceDate']! as String)
+        : null,
   ).reconcile(baseline, evidence).toMessage();
 }
 
@@ -224,12 +227,15 @@ class MedicineProductResolverV2 {
   MedicineProductResolverV2({
     required Iterable<MedicineKnowledgeEntry> localKnowledge,
     required Iterable<CanonicalMedicineProduct> catalogue,
-  }) : _index = _ProductIndex(<CanonicalMedicineProduct>[
+    DateTime? referenceDate,
+  }) : _referenceDate = referenceDate ?? DateTime.now(),
+       _index = _ProductIndex(<CanonicalMedicineProduct>[
          ..._collapseLocalKnowledge(localKnowledge),
          ...catalogue.where((value) => value.active),
        ]);
 
   final _ProductIndex _index;
+  final DateTime _referenceDate;
 
   MedicineUnderstandingResult reconcile(
     MedicineUnderstandingResult baseline,
@@ -247,7 +253,11 @@ class MedicineProductResolverV2 {
           .toList(growable: false);
       final spatialSafe = _applySpatialTraceability(draft, frames);
       final regulatorySafe = _applyRegulatoryTraceability(spatialSafe, frames);
-      final temporalSafe = _applyDateIntelligence(regulatorySafe, frames);
+      final temporalSafe = _applyDateIntelligence(
+        regulatorySafe,
+        frames,
+        _referenceDate,
+      );
       final semanticSafe = _applySemanticMedicineRoles(temporalSafe, frames);
       drafts.add(_resolveProduct(semanticSafe, frames));
     }
@@ -1750,10 +1760,11 @@ MedicineScanDraft _applySemanticMedicineRoles(
 MedicineScanDraft _applyDateIntelligence(
   MedicineScanDraft draft,
   List<MedicineFrameEvidence> frames,
+  DateTime referenceDate,
 ) {
   final intelligence = inferMedicineDateIntelligence(
     frames: frames,
-    referenceDate: DateTime.now(),
+    referenceDate: referenceDate,
     existingMfg: draft.mfg,
     existingExpiry: draft.expiry,
     existingMfgConfidence: draft.field('mfg').confidence,

@@ -1,27 +1,13 @@
 import 'dart:math';
 
+import 'medicine_date_parser.dart';
 import 'medicine_understanding.dart';
 import 'offline_evidence_graph.dart';
 
+export 'medicine_date_parser.dart'
+    show ParsedMedicineDate, parseMedicineDateText;
+
 enum MedicineDateRole { manufacturing, expiry, unknown }
-
-class ParsedMedicineDate {
-  const ParsedMedicineDate({required this.value, required this.monthOnly});
-
-  final String value;
-  final bool monthOnly;
-
-  DateTime get start {
-    final parts = value.split('-').map(int.parse).toList(growable: false);
-    return DateTime.utc(parts[0], parts[1], parts.length > 2 ? parts[2] : 1);
-  }
-
-  DateTime get end {
-    if (!monthOnly) return start;
-    final parts = value.split('-').map(int.parse).toList(growable: false);
-    return DateTime.utc(parts[0], parts[1] + 1, 0);
-  }
-}
 
 class MedicineDateEvidence {
   const MedicineDateEvidence({
@@ -53,14 +39,6 @@ class MedicineDateResolution {
   final bool expired;
 
   bool get isEmpty => manufacturing == null && expiry == null;
-}
-
-/// Normalizes one date-like medicine-pack string. Space-separated OCR such as
-/// `04 05 2028` is intentionally supported alongside slash, dash and dot forms.
-/// Common numeric OCR confusions are repaired only inside date-shaped tokens.
-ParsedMedicineDate? parseMedicineDateText(String raw) {
-  final matches = _extractDateMatches(raw);
-  return matches.isEmpty ? null : matches.first.date;
 }
 
 /// V10 deterministic temporal reasoning. Current time is supporting evidence,
@@ -129,13 +107,41 @@ MedicineDateResolution inferMedicineDateIntelligence({
       ...frame.text.split(RegExp(r'[\r\n]+')),
       ...frame.layoutLines.map((line) => line.text),
     };
-    for (final line in lines.take(160)) {
-      final matches = _extractDateMatches(line);
+    final orderedLines = lines
+        .where((line) => line.trim().isNotEmpty)
+        .take(160)
+        .toList();
+    final observed = <String>{};
+    for (var index = 0; index < orderedLines.length; index++) {
+      final line = orderedLines[index];
+      final matches = extractMedicineDateMatches(line, allowCompact: true);
       if (matches.isEmpty) continue;
       final labels = _dateLabels(line);
       for (final match in matches.take(6)) {
-        final labelled = _nearestRole(match.start, match.end, labels);
+        var labelled = _nearestRole(match.start, match.end, labels);
+        // A line break in OCR must not destroy a label/value association. Only
+        // a label-only immediately preceding line may lend its role; competing
+        // labels, batch/MRP fields and multi-date rows require spatial review.
+        if (labelled == null &&
+            labels.isEmpty &&
+            matches.length == 1 &&
+            index > 0) {
+          final previous = orderedLines[index - 1];
+          final previousLabels = _dateLabels(previous);
+          if (previousLabels.length == 1 &&
+              previousLabels.single.$1 != MedicineDateRole.unknown &&
+              !RegExp(r'[0-9०-९٠-٩۰-۹]').hasMatch(previous) &&
+              line.substring(0, match.start).trim().isEmpty &&
+              line.substring(match.end).trim().isEmpty) {
+            labelled = (previousLabels.single.$1, 24);
+          }
+        }
         final role = labelled?.$1 ?? MedicineDateRole.unknown;
+        if (labelled != null && role == MedicineDateRole.unknown) continue;
+        // Bare compact digits are indistinguishable from lot/serial identifiers.
+        // They need a date label (inline/adjacent or supplied by spatial OCR).
+        if (match.compact && labelled == null) continue;
+        if (!observed.add('${role.name}|${match.date.value}')) continue;
         final distance = labelled?.$2 ?? 999;
         final explicit = labelled != null;
         final base = explicit ? (distance <= 20 ? .955 : .91) : .61;
@@ -165,7 +171,25 @@ MedicineDateResolution inferMedicineDateIntelligence({
 
   var manufacturing = bestFor(MedicineDateRole.manufacturing);
   var expiry = bestFor(MedicineDateRole.expiry);
-  var conflicted = false;
+  final labelConflict =
+      <MedicineDateRole>[
+        MedicineDateRole.manufacturing,
+        MedicineDateRole.expiry,
+      ].any(
+        (role) =>
+            evidence
+                .where(
+                  (item) =>
+                      item.role == role &&
+                      item.explicitLabel &&
+                      item.confidence >= .84,
+                )
+                .map((item) => item.date.value)
+                .toSet()
+                .length >
+            1,
+      );
+  var conflicted = labelConflict;
   final today = DateTime.utc(
     referenceDate.year,
     referenceDate.month,
@@ -246,13 +270,12 @@ MedicineDateResolution inferMedicineDateIntelligence({
           explicitLabel: best.later.explicitLabel,
         );
       }
-      conflicted = false;
+      conflicted = labelConflict;
     }
   }
 
-  // One unlabeled future date can safely be a strong expiry candidate because
-  // manufacturing in the future is temporally impossible. A single past date is
-  // deliberately NOT classified: it could be MFG or an already-expired EXP.
+  // A future date is only a review hint. A missing label or OCR error does not
+  // prove EXP; this must stay below the .78 field-application threshold.
   if (expiry == null && unique.length == 1) {
     final only = unique.single;
     final future = only.date.end.isAfter(today);
@@ -261,7 +284,7 @@ MedicineDateResolution inferMedicineDateIntelligence({
       expiry = MedicineDateEvidence(
         date: only.date,
         role: MedicineDateRole.expiry,
-        confidence: max(.84, min(.90, only.confidence + .24)),
+        confidence: .70,
         support: only.support,
       );
     }
@@ -273,6 +296,12 @@ MedicineDateResolution inferMedicineDateIntelligence({
     if (gap < 21 || gap > 8 * 366) conflicted = true;
   }
 
+  // Preserve an explicitly printed future MFG as MFG, but require review of the
+  // pack/clock. Never silently rename it EXP because it lies in the future.
+  if (manufacturing != null && manufacturing.date.start.isAfter(today)) {
+    conflicted = true;
+  }
+
   final expired = expiry != null && expiry.date.end.isBefore(today);
   return MedicineDateResolution(
     manufacturing: manufacturing,
@@ -280,13 +309,6 @@ MedicineDateResolution inferMedicineDateIntelligence({
     conflicted: conflicted,
     expired: expired,
   );
-}
-
-class _DateMatch {
-  const _DateMatch(this.start, this.end, this.date);
-  final int start;
-  final int end;
-  final ParsedMedicineDate date;
 }
 
 class _DatePair {
@@ -304,139 +326,18 @@ int _compareEvidence(MedicineDateEvidence a, MedicineDateEvidence b) {
   return b.support.compareTo(a.support);
 }
 
-List<_DateMatch> _extractDateMatches(String raw) {
-  final text = _repairNumericOcr(raw);
-  if (text.trim().isEmpty) return const <_DateMatch>[];
-  final result = <_DateMatch>[];
-  final occupied = <(int, int)>[];
-
-  bool free(int start, int end) =>
-      !occupied.any((span) => start < span.$2 && end > span.$1);
-
-  void add(RegExp pattern, ParsedMedicineDate? Function(RegExpMatch) parse) {
-    for (final match in pattern.allMatches(text)) {
-      if (!free(match.start, match.end)) continue;
-      final date = parse(match);
-      if (date == null) {
-        // A specific full-date pattern matched but validation failed (for
-        // example 31 02 2028). Reserve the whole span so a later, looser
-        // month-year pattern cannot reinterpret its tail as 02 2028.
-        occupied.add((match.start, match.end));
-        continue;
-      }
-      result.add(_DateMatch(match.start, match.end, date));
-      occupied.add((match.start, match.end));
-    }
-  }
-
-  const sep = r'[\s./-]+';
-  add(
-    RegExp(
-      '(?<!\\d)(20\\d{2})$sep(0?[1-9]|1[0-2])$sep([0-2]?\\d|3[01])(?!\\d)',
-    ),
-    (m) => _date(int.parse(m[1]!), int.parse(m[2]!), int.parse(m[3]!)),
-  );
-  add(
-    RegExp(
-      '(?<!\\d)([0-2]?\\d|3[01])$sep(0?[1-9]|1[0-2])$sep(\\d{2}|20\\d{2})(?!\\d)',
-    ),
-    (m) => _date(_year(m[3]!), int.parse(m[2]!), int.parse(m[1]!)),
-  );
-  add(
-    RegExp(
-      r'(?<![A-Za-z0-9])([0-2]?\d|3[01])[\s./-]+(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)[\s,./-]+(\d{2}|20\d{2})(?!\d)',
-      caseSensitive: false,
-    ),
-    (m) => _date(_year(m[3]!), _month(m[2]!), int.parse(m[1]!)),
-  );
-  add(
-    RegExp(
-      r'(?<![A-Za-z0-9])(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)[\s,./-]+(\d{2}|20\d{2})(?!\d)',
-      caseSensitive: false,
-    ),
-    (m) => _date(_year(m[2]!), _month(m[1]!), 0),
-  );
-  add(
-    RegExp('(?<!\\d)(0?[1-9]|1[0-2])$sep(\\d{2}|20\\d{2})(?!\\d)'),
-    (m) => _date(_year(m[2]!), int.parse(m[1]!), 0),
-  );
-
-  result.sort((a, b) => a.start.compareTo(b.start));
-  return result;
-}
-
-ParsedMedicineDate? _date(int year, int month, int day) {
-  if (year < 2000 || year > 2099 || month < 1 || month > 12) return null;
-  if (day == 0) {
-    return ParsedMedicineDate(
-      value:
-          '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}',
-      monthOnly: true,
-    );
-  }
-  if (day < 1 || day > 31) return null;
-  final value = DateTime.utc(year, month, day);
-  if (value.year != year || value.month != month || value.day != day) {
-    return null;
-  }
-  return ParsedMedicineDate(
-    value:
-        '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}',
-    monthOnly: false,
-  );
-}
-
-int _year(String raw) {
-  final value = int.parse(raw);
-  return raw.length == 2 ? 2000 + value : value;
-}
-
-int _month(String raw) {
-  final key = raw.substring(0, 3).toLowerCase();
-  const months = <String, int>{
-    'jan': 1,
-    'feb': 2,
-    'mar': 3,
-    'apr': 4,
-    'may': 5,
-    'jun': 6,
-    'jul': 7,
-    'aug': 8,
-    'sep': 9,
-    'oct': 10,
-    'nov': 11,
-    'dec': 12,
-  };
-  return months[key] ?? 0;
-}
-
-String _repairNumericOcr(String input) => input.replaceAllMapped(
-  RegExp(r'(?<![A-Za-z0-9])([0-9OoIl]{1,4})(?![A-Za-z0-9])'),
-  (match) {
-    final token = match.group(1)!;
-    if (!RegExp(r'[0-9]').hasMatch(token) && token.length == 1) return token;
-    return token
-        .replaceAll(RegExp('[Oo]'), '0')
-        .replaceAll(RegExp('[Il]'), '1');
-  },
-);
-
 List<(MedicineDateRole, int, int)> _dateLabels(String line) {
   final result = <(MedicineDateRole, int, int)>[];
-  final expiry = RegExp(
-    r'\b(?:exp|expiry|expires|expiration|use\s*before|best\s*before)\b',
-    caseSensitive: false,
-  );
-  final mfg = RegExp(
-    r'\b(?:mfg|mfd|manufactured|manufacturing(?:\s*date)?)\b',
-    caseSensitive: false,
-  );
-  for (final match in expiry.allMatches(line)) {
+  for (final match in medicineExpiryLabel.allMatches(line)) {
     result.add((MedicineDateRole.expiry, match.start, match.end));
   }
-  for (final match in mfg.allMatches(line)) {
+  for (final match in medicineManufacturingLabel.allMatches(line)) {
     result.add((MedicineDateRole.manufacturing, match.start, match.end));
   }
+  for (final match in medicineNonDateLabel.allMatches(line)) {
+    result.add((MedicineDateRole.unknown, match.start, match.end));
+  }
+  result.sort((a, b) => a.$2.compareTo(b.$2));
   return result;
 }
 
@@ -446,6 +347,13 @@ List<(MedicineDateRole, int, int)> _dateLabels(String line) {
   List<(MedicineDateRole, int, int)> labels,
 ) {
   (MedicineDateRole, int)? best;
+  // Preceding field labels delimit the value. A following EXP must not steal
+  // the MFG value just because its text happens to be a few characters closer.
+  final preceding = labels.where((label) => label.$3 <= start).lastOrNull;
+  if (preceding != null) {
+    final distance = start - preceding.$3;
+    return distance <= 56 ? (preceding.$1, distance) : null;
+  }
   for (final label in labels) {
     final distance = start >= label.$3
         ? start - label.$3

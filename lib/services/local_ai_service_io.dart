@@ -20,6 +20,7 @@ import 'gguf_inspector.dart';
 import 'model_catalogue_service.dart';
 import '../domain/medicine_understanding.dart';
 import 'local_ai_runtime.dart';
+import 'local_chat_turn.dart';
 
 class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
   static final instance = LocalAiService();
@@ -842,6 +843,8 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     LocalInventoryContext context,
     String instruction, {
     String conversation = '',
+    void Function()? onContextReset,
+    void Function()? onStreamReset,
     void Function(String token)? onToken,
     void Function()? onLeaseAcquired,
   }) => _exclusive((generation) async {
@@ -850,54 +853,33 @@ class LocalAiService extends ChangeNotifier with WidgetsBindingObserver {
     }
     await _loadSelected(requestGeneration: generation);
     _checkRequest(generation);
-    final conversationLimit = _executionPlan!.conversationCharacters;
-    final recentConversation = conversation.length > conversationLimit
-        ? conversation.substring(conversation.length - conversationLimit)
-        : conversation;
-    var input = jsonEncode({
-      'ownerRequest': instruction,
-      'recentConversation': recentConversation,
-    });
-    final results = <Map<String, Object?>>[];
-    for (var round = 0; round <= 4; round++) {
-      _status = round == 0
-          ? 'Local AI · thinking…'
-          : 'Local AI · reading verified local inventory…';
-      notifyListeners();
-      final raw = await _runtime!.generate(
+    final result = await runLocalChatTurn(
+      context: context,
+      instruction: instruction,
+      conversation: conversation,
+      conversationLimit: _executionPlan!.conversationCharacters,
+      outputTokens: _chatOutputBudget(instruction),
+      inventoryRows: _executionPlan!.inventoryRows,
+      checkCurrent: () => _checkRequest(generation),
+      onContextReset: onContextReset,
+      onStreamReset: onStreamReset,
+      onRound: (round) {
+        _status = round == 0
+            ? 'Local AI · thinking…'
+            : 'Local AI · reading verified local inventory…';
+        notifyListeners();
+      },
+      generate: (input, budget) => _runtime!.generate(
         context.instructions,
         input,
-        maxTokens: _chatOutputBudget(instruction),
+        maxTokens: budget,
         onToken: onToken,
-      );
-      _checkRequest(generation);
-      final answer = localChatObject(raw);
-      if (!answer.containsKey('tool')) {
-        _status = 'Local answer ready · proposed changes require review';
-        notifyListeners();
-        return context.finish(answer);
-      }
-      if (round == 4)
-        throw StateError(
-          'Local AI reached the read-tool limit. Ask a narrower question.',
-        );
-      final facts = context.read(
-        answer,
-        rowLimit: _executionPlan!.inventoryRows,
-      );
-      results.add({'call': answer, 'result': facts});
-      if (results.length > 2) results.removeAt(0);
-      input = jsonEncode({
-        'ownerRequest': instruction,
-        'recentConversation': recentConversation,
-        'toolResults': results,
-        'remainingReadCalls': 3 - round,
-        'next': 'Answer or request one more page. Never invent omitted facts.',
-      });
-      if (input.length > 15000)
-        throw StateError('Tool result too large; ask a narrower question.');
-    }
-    throw StateError('No local answer.');
+      ),
+    );
+    _checkRequest(generation);
+    _status = 'Local answer ready · proposed changes require review';
+    notifyListeners();
+    return result;
   }, onLeaseAcquired: onLeaseAcquired);
 
   Future<MedicineScanDraft> understand(MedicineScanDraft draft) async {

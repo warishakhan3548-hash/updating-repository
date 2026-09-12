@@ -47,6 +47,8 @@ class _AiScreenState extends State<AiScreen> {
   final _scroll = ScrollController();
 
   final List<_AiChatMessage> _messages = [];
+  int _localHistoryStart = 0;
+  String _localSessionNotice = '';
 
   AiConfiguration _configuration = const AiConfiguration();
   AiPlan? _plan;
@@ -317,8 +319,7 @@ class _AiScreenState extends State<AiScreen> {
         if (!mounted) return;
         if (!_hasAiRoute) {
           setState(
-            () => _error =
-                'Connect a Local AI model or API for reasoning requests. Add, Open, Delete, stock search and other deterministic Aaris Brain commands still work without AI.',
+            () => _error = 'Connect a Local AI model or API for reasoning requests. Add, Open, Delete, stock search and other deterministic Aaris Brain commands still work without AI.',
           );
           return;
         }
@@ -334,6 +335,7 @@ class _AiScreenState extends State<AiScreen> {
 
     if (!mounted || !_hasAiRoute) return;
     final generation = ++_generation;
+    final ownerMessageIndex = _messages.length;
     final rawStream = StringBuffer();
     var structuredStream = false;
     setState(() {
@@ -347,6 +349,11 @@ class _AiScreenState extends State<AiScreen> {
     _scrollToEnd();
 
     try {
+      final recentStart = _messages.length > 6 ? _messages.length - 6 : 0;
+      final historyStart =
+          _configuration.localBrainEnabled && _localHistoryStart > recentStart
+          ? _localHistoryStart
+          : recentStart;
       final result = await _service.ask(
         _configuration,
         widget.controller.export,
@@ -358,9 +365,16 @@ class _AiScreenState extends State<AiScreen> {
           today: widget.controller.today,
         ),
         conversation: _messages
-            .skip(_messages.length > 6 ? _messages.length - 6 : 0)
+            .skip(historyStart)
             .map((m) => '${m.user ? 'Owner' : 'Assistant'}: ${m.text}')
             .join('\n'),
+        onContextReset: () {
+          if (!mounted || generation != _generation) return;
+          setState(() {
+            _localHistoryStart = ownerMessageIndex;
+            _localSessionNotice = 'New local chat started automatically · your current question is kept. Earlier messages stay visible but are no longer sent to the local model.';
+          });
+        },
         onStreamStarted: () {
           if (!mounted || generation != _generation) return;
           if (_journey == _AiJourneyState.thinking) {
@@ -384,7 +398,8 @@ class _AiScreenState extends State<AiScreen> {
           final snapshot = rawStream.toString();
           final lead = snapshot.trimLeft();
           if (lead.isEmpty) return;
-          structuredStream = structuredStream ||
+          structuredStream =
+              structuredStream ||
               lead.startsWith('{') ||
               lead.startsWith('```') ||
               (lead.contains('aaris.pharmacy.v1') && lead.contains('actions'));
@@ -416,8 +431,7 @@ class _AiScreenState extends State<AiScreen> {
       if (plan == null) {
         if (_error.isEmpty) {
           setState(
-            () => _error =
-                'The AI response arrived but could not be validated. Nothing was changed.',
+            () => _error = 'The AI response arrived but could not be validated. Nothing was changed.',
           );
         }
         return;
@@ -861,10 +875,7 @@ class _AiScreenState extends State<AiScreen> {
           widget.controller.aiPreparing;
       return Column(
         children: [
-          _AiHubHeader(
-            configured: _hasAiRoute,
-            onSettings: _openConnections,
-          ),
+          _AiHubHeader(configured: _hasAiRoute, onSettings: _openConnections),
           _AiComposer(
             controller: _request,
             busy: busy,
@@ -920,6 +931,15 @@ class _AiScreenState extends State<AiScreen> {
               onPaste: _pasteExternalResponse,
               onDismiss: () => setState(() => _externalReady = false),
             ),
+          if (_configuration.localBrainEnabled &&
+              _localSessionNotice.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+              child: Text(
+                _localSessionNotice,
+                style: const TextStyle(fontSize: 11, color: muted),
+              ),
+            ),
           if (_cancellableRequest)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
@@ -942,7 +962,8 @@ class _AiScreenState extends State<AiScreen> {
                   _AiMessageBubble(message: message),
                 if (_journey == _AiJourneyState.thinking)
                   _AiThinkingBubble(
-                    detail: _configuration.localBrainEnabled && _local.hasSelection
+                    detail:
+                        _configuration.localBrainEnabled && _local.hasSelection
                         ? _local.status
                         : 'AI route connected · preparing answer',
                   ),
@@ -958,8 +979,7 @@ class _AiScreenState extends State<AiScreen> {
                   ),
                 if (_journey == _AiJourneyState.stopping)
                   const _AiThinkingBubble(
-                    detail:
-                        'Stopping local inference safely · next Send unlocks when the native lease is free',
+                    detail: 'Stopping local inference safely · next Send unlocks when the native lease is free',
                   ),
                 if (_error.isNotEmpty)
                   Padding(
@@ -1161,7 +1181,10 @@ class _AiThinkingBubble extends StatelessWidget {
                 children: [
                   const Text(
                     'Thinking…',
-                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(

@@ -72,7 +72,11 @@ void main() {
     expect(capture, contains('Scan with cloud AI'));
     expect(
       capture,
-      contains("Only this scan’s bounded OCR may leave the device."),
+      contains('Only bounded scan evidence may be sent; inventory stays local'),
+    );
+    expect(
+      capture,
+      contains('every AI field remains review-only until Confirm/Add.'),
     );
   });
 }

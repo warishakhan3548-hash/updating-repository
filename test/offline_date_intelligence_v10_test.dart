@@ -14,7 +14,7 @@ void main() {
       expect(parseMedicineDateText('O4 O5 2O28')?.value, '2028-05-04');
     });
 
-    test('future unlabeled singleton becomes expiry, not manufacturing', () {
+    test('future unlabeled singleton is only an expiry review hint', () {
       final result = inferMedicineDateIntelligence(
         frames: const <MedicineFrameEvidence>[
           MedicineFrameEvidence(text: '04 05 2028'),
@@ -23,7 +23,7 @@ void main() {
       );
       expect(result.manufacturing, isNull);
       expect(result.expiry?.date.value, '2028-05-04');
-      expect(result.expiry!.confidence, greaterThanOrEqualTo(.84));
+      expect(result.expiry!.confidence, lessThan(.78));
       expect(result.expired, isFalse);
     });
 

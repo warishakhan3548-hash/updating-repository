@@ -1,6 +1,6 @@
 import 'dart:math';
 
-import 'medicine_date_intelligence.dart';
+import 'medicine_date_parser.dart';
 import 'medicine_understanding.dart';
 import 'offline_evidence_graph.dart';
 import 'search.dart';
@@ -64,7 +64,7 @@ class _SpatialObservation {
 }
 
 final _labelPattern = RegExp(
-  r'\b(batch(?:\s*(?:no|number))?|b\s*no|lot(?:\s*no)?|mfg|mfd|manufacturing(?:\s*date)?|exp|expiry|expires|expiration(?:\s*date)?)\b',
+  '${medicineManufacturingLabel.pattern}|${medicineExpiryLabel.pattern}|${medicineNonDateLabel.pattern}',
   caseSensitive: false,
 );
 
@@ -90,7 +90,7 @@ List<_SpatialObservation> _frameObservations(MedicineFrameEvidence frame) {
     if (matches.isEmpty) continue;
     for (var markerIndex = 0; markerIndex < matches.length; markerIndex++) {
       final match = matches[markerIndex];
-      final kind = _kind(match.group(1) ?? '');
+      final kind = _kind(match.group(0) ?? '');
       if (kind == null) continue;
       final segmentEnd = markerIndex + 1 < matches.length
           ? matches[markerIndex + 1].start
@@ -140,18 +140,11 @@ List<_SpatialObservation> _frameObservations(MedicineFrameEvidence frame) {
 }
 
 _TraceKind? _kind(String raw) {
+  if (medicineManufacturingLabel.hasMatch(raw)) return _TraceKind.mfg;
+  if (medicineExpiryLabel.hasMatch(raw)) return _TraceKind.expiry;
   final key = searchText(raw).replaceAll(' ', '');
   if (key.startsWith('batch') || key == 'bno' || key.startsWith('lot')) {
     return _TraceKind.batch;
-  }
-  if (key == 'mfg' || key == 'mfd' || key.startsWith('manufacturing')) {
-    return _TraceKind.mfg;
-  }
-  if (key == 'exp' ||
-      key.startsWith('expiry') ||
-      key.startsWith('expires') ||
-      key.startsWith('expiration')) {
-    return _TraceKind.expiry;
   }
   return null;
 }

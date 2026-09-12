@@ -20,7 +20,9 @@ import 'ai_service.dart';
 /// existing review/Confirm boundary. One instance belongs to one review session,
 /// so cancellation cannot cross navigation sessions.
 class CloudScanAiService {
-  CloudScanAiService();
+  CloudScanAiService({http.Client Function()? clientFactory})
+    : _clientFactory = clientFactory ?? http.Client.new;
+  final http.Client Function() _clientFactory;
 
   static const _storage = FlutterSecureStorage();
   static const _configurationKey = 'pharmacy.ai.configuration';
@@ -43,9 +45,10 @@ class CloudScanAiService {
   };
 
   http.Client? _client;
+  bool _requestActive = false;
   int _requestEpoch = 0;
 
-  bool get busy => _client != null;
+  bool get busy => _requestActive;
 
   /// Cancels only the currently owned cloud-scan transport. The provider never
   /// owns an inventory mutation, so abandoning a preview is always safe.
@@ -90,77 +93,82 @@ class CloudScanAiService {
     AiConfiguration config,
     MedicineScanDraft draft,
   ) async {
-    if (_client != null) {
+    if (busy) {
       throw StateError(
         'Cloud scan AI is already reviewing another draft. Finish or cancel it first.',
       );
     }
     final epoch = _requestEpoch;
-    final handoff = LocalScanHandoff.fromDraft(
-      draft,
-      sourceLimit: _sourceLimit,
-    );
-    final endpoint = config.uri;
-    Object? lastTransient;
+    _requestActive = true;
+    try {
+      final handoff = LocalScanHandoff.fromDraft(
+        draft,
+        sourceLimit: _sourceLimit,
+      );
+      final endpoint = config.uri;
+      Object? lastTransient;
 
-    for (var attempt = 0; attempt < 2; attempt++) {
-      _checkEpoch(epoch);
-      final client = http.Client();
-      _client = client;
-      try {
-        final response = await client
-            .send(_request(config, endpoint, handoff))
-            .timeout(const Duration(seconds: 50));
+      for (var attempt = 0; attempt < 2; attempt++) {
         _checkEpoch(epoch);
-        final bytes = await _readBounded(response, epoch);
-        _checkEpoch(epoch);
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          final detail = _providerError(bytes);
-          final message = detail.isEmpty
-              ? 'Cloud scan provider returned HTTP ${response.statusCode}.'
-              : 'Cloud scan provider returned HTTP ${response.statusCode}: $detail';
-          if (attempt == 0 &&
-              _transientStatuses.contains(response.statusCode)) {
-            lastTransient = StateError(message);
+        final client = _clientFactory();
+        _client = client;
+        try {
+          final response = await client
+              .send(_request(config, endpoint, handoff))
+              .timeout(const Duration(seconds: 50));
+          _checkEpoch(epoch);
+          final bytes = await _readBounded(response, epoch);
+          _checkEpoch(epoch);
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            final detail = _providerError(bytes);
+            final message = detail.isEmpty
+                ? 'Cloud scan provider returned HTTP ${response.statusCode}.'
+                : 'Cloud scan provider returned HTTP ${response.statusCode}: $detail';
+            if (attempt == 0 &&
+                _transientStatuses.contains(response.statusCode)) {
+              lastTransient = StateError(message);
+            } else {
+              throw StateError('$message No inventory changes were made.');
+            }
           } else {
-            throw StateError('$message No inventory changes were made.');
+            final modelText = _decodeAssistantText(config, bytes);
+            final object = localJsonObject(modelText);
+            return validateLocalScan(draft, object, sourceLimit: _sourceLimit);
           }
-        } else {
-          final modelText = _decodeAssistantText(config, bytes);
-          final object = localJsonObject(modelText);
-          return validateLocalScan(draft, object, sourceLimit: _sourceLimit);
+        } on TimeoutException catch (error) {
+          _checkEpoch(epoch);
+          lastTransient = error;
+          if (attempt == 1) {
+            throw TimeoutException(
+              'Cloud scan AI timed out twice. Deterministic OCR is still available and no inventory changes were made.',
+            );
+          }
+        } on http.ClientException catch (error) {
+          _checkEpoch(epoch);
+          lastTransient = error;
+          if (attempt == 1) {
+            throw StateError(
+              'Cloud scan connection was interrupted twice. Deterministic OCR is still available and no inventory changes were made.',
+            );
+          }
+        } finally {
+          client.close();
+          if (identical(_client, client)) _client = null;
         }
-      } on TimeoutException catch (error) {
+
         _checkEpoch(epoch);
-        lastTransient = error;
-        if (attempt == 1) {
-          throw TimeoutException(
-            'Cloud scan AI timed out twice. Deterministic OCR is still available and no inventory changes were made.',
-          );
+        if (attempt == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          _checkEpoch(epoch);
         }
-      } on http.ClientException catch (error) {
-        _checkEpoch(epoch);
-        lastTransient = error;
-        if (attempt == 1) {
-          throw StateError(
-            'Cloud scan connection was interrupted twice. Deterministic OCR is still available and no inventory changes were made.',
-          );
-        }
-      } finally {
-        client.close();
-        if (identical(_client, client)) _client = null;
       }
 
-      _checkEpoch(epoch);
-      if (attempt == 0) {
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-        _checkEpoch(epoch);
-      }
+      throw StateError(
+        'Cloud scan AI could not finish: ${lastTransient ?? 'unknown transport error'}. No inventory changes were made.',
+      );
+    } finally {
+      _requestActive = false;
     }
-
-    throw StateError(
-      'Cloud scan AI could not finish: ${lastTransient ?? 'unknown transport error'}. No inventory changes were made.',
-    );
   }
 
   http.Request _request(

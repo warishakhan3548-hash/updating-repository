@@ -82,6 +82,9 @@ class AiConfiguration {
 }
 
 class AiService {
+  AiService({http.Client Function()? clientFactory})
+    : _clientFactory = clientFactory ?? http.Client.new;
+  final http.Client Function() _clientFactory;
   static const _storage = FlutterSecureStorage();
   static const _maxResponseBytes = 1500000;
   static const _maxConversationCharacters = 6000;
@@ -101,6 +104,7 @@ class AiService {
     524,
   };
   http.Client? _client;
+  bool _cloudRequestActive = false;
   bool _localRequest = false;
   bool _ownsLocalLease = false;
   Completer<void>? _localLeaseWaitCancel;
@@ -211,10 +215,7 @@ class AiService {
   /// release notification, with a lost-wakeup check, while keeping Stop instantly
   /// cancellable. Model transfers remain explicit setup work and are never hidden
   /// behind an unbounded Send wait.
-  Future<void> _waitForLocalLease(
-    LocalAiService local,
-    int cancelEpoch,
-  ) async {
+  Future<void> _waitForLocalLease(LocalAiService local, int cancelEpoch) async {
     _throwIfCancelled(cancelEpoch);
     if (local.transferring) {
       throw StateError(
@@ -258,9 +259,19 @@ class AiService {
     void Function(String delta)? onDelta,
     void Function()? onStreamStarted,
     void Function()? onStreamReset,
+    void Function()? onContextReset,
   }) async {
+    // Ownership lasts through backoff and cancellation cleanup, not only while
+    // a socket is open. A second turn must not steal this turn's transport.
+    if (_localRequest || _cloudRequestActive) {
+      throw StateError('An AI request is already running.');
+    }
     final local = LocalAiService.instance;
-    final priorConversation = _priorConversation(conversation, instruction);
+    final priorConversation = _priorConversation(
+      conversation,
+      instruction,
+      boundHistory: !config.localBrainEnabled,
+    );
 
     // Exactly one route owns a turn. Local mode never falls through to cloud;
     // cloud mode never wakes the local model. The deterministic App Brain stays
@@ -289,6 +300,7 @@ class AiService {
           onDelta: onDelta,
           onStreamStarted: onStreamStarted,
           onStreamReset: onStreamReset,
+          onContextReset: onContextReset,
         );
       } finally {
         _ownsLocalLease = false;
@@ -299,9 +311,6 @@ class AiService {
       }
     }
 
-    if (_client != null) {
-      throw StateError('An AI request is already running.');
-    }
     if (instruction.trim().isEmpty) {
       throw const FormatException('Describe what you want the AI to do.');
     }
@@ -316,65 +325,73 @@ class AiService {
 
     final cancelEpoch = _cancelEpoch;
     Object? lastTransientError;
-
-    // Generation is read-only until the returned contract is explicitly
-    // reviewed and applied, so one bounded retry is safe for transport failures
-    // and explicitly transient upstream HTTP statuses. Auth, quota, model and
-    // schema failures still fail fast because another identical request cannot
-    // safely repair them.
-    for (var attempt = 0; attempt < 2; attempt++) {
-      _throwIfCancelled(cancelEpoch);
-      final client = http.Client();
-      _client = client;
-      try {
-        return await _askCloudOnce(
-          client: client,
-          config: config,
-          endpoint: endpoint,
-          data: data,
-          instruction: instruction,
-          conversation: priorConversation,
-          cancelEpoch: cancelEpoch,
-          onDelta: onDelta,
-          onStreamStarted: onStreamStarted,
-        );
-      } on TimeoutException catch (error) {
-        lastTransientError = error;
-        if (attempt == 1 || cancelEpoch != _cancelEpoch) {
-          _throwIfCancelled(cancelEpoch);
-          throw TimeoutException(
-            'The AI connection timed out twice. No inventory changes were made.',
-          );
-        }
-      } on http.ClientException catch (error) {
-        lastTransientError = error;
-        if (attempt == 1 || cancelEpoch != _cancelEpoch) {
-          _throwIfCancelled(cancelEpoch);
-          throw StateError(
-            'The AI connection was interrupted twice. Check your network and try again; no inventory changes were made.',
-          );
-        }
-      } catch (error, stack) {
+    _cloudRequestActive = true;
+    try {
+      // Generation is read-only until the returned contract is explicitly
+      // reviewed and applied, so one bounded retry is safe for transport failures
+      // and explicitly transient upstream HTTP statuses. Auth, quota, model and
+      // schema failures still fail fast because another identical request cannot
+      // safely repair them.
+      for (var attempt = 0; attempt < 2; attempt++) {
         _throwIfCancelled(cancelEpoch);
-        if (attempt == 1 || !_isRecoverableCloudTransportFailure(error)) {
-          Error.throwWithStackTrace(error, stack);
+        final client = _clientFactory();
+        _client = client;
+        try {
+          return await _askCloudOnce(
+            client: client,
+            config: config,
+            endpoint: endpoint,
+            data: data,
+            instruction: instruction,
+            conversation: priorConversation,
+            cancelEpoch: cancelEpoch,
+            onDelta: onDelta,
+            onStreamStarted: onStreamStarted,
+          );
+        } on TimeoutException catch (error) {
+          lastTransientError = error;
+          if (attempt == 1 || cancelEpoch != _cancelEpoch) {
+            _throwIfCancelled(cancelEpoch);
+            throw TimeoutException(
+              'The AI connection timed out twice. No inventory changes were made.',
+            );
+          }
+        } on http.ClientException catch (error) {
+          lastTransientError = error;
+          if (attempt == 1 || cancelEpoch != _cancelEpoch) {
+            _throwIfCancelled(cancelEpoch);
+            throw StateError(
+              'The AI connection was interrupted twice. Check your network and try again; no inventory changes were made.',
+            );
+          }
+        } catch (error, stack) {
+          _throwIfCancelled(cancelEpoch);
+          if (attempt == 1 || !_isRecoverableCloudTransportFailure(error)) {
+            Error.throwWithStackTrace(error, stack);
+          }
+          lastTransientError = error;
+        } finally {
+          client.close();
+          if (identical(_client, client)) _client = null;
         }
-        lastTransientError = error;
-      } finally {
-        client.close();
-        if (identical(_client, client)) _client = null;
+
+        _safeReset(onStreamReset);
+        await Future<void>.delayed(const Duration(milliseconds: 350));
       }
 
-      _safeReset(onStreamReset);
-      await Future<void>.delayed(const Duration(milliseconds: 350));
+      throw StateError(
+        'AI request could not finish: ${lastTransientError ?? 'unknown transport error'}. No inventory changes were made.',
+      );
+    } finally {
+      _cloudRequestActive = false;
     }
-
-    throw StateError(
-      'AI request could not finish: ${lastTransientError ?? 'unknown transport error'}. No inventory changes were made.',
-    );
   }
 
-  String _priorConversation(String conversation, String instruction) {
+  String _priorConversation(
+    String conversation,
+    String instruction, {
+    bool boundHistory = true,
+  }) {
     var history = conversation.trim();
     if (history.isEmpty) return '';
 
@@ -388,7 +405,7 @@ class AiService {
           .substring(0, history.length - currentOwnerTurn.length)
           .trimRight();
     }
-    if (history.length > _maxConversationCharacters) {
+    if (boundHistory && history.length > _maxConversationCharacters) {
       history = history.substring(history.length - _maxConversationCharacters);
       final firstLineBreak = history.indexOf('\n');
       if (firstLineBreak >= 0 && firstLineBreak < 400) {
@@ -407,12 +424,14 @@ class AiService {
     void Function(String delta)? onDelta,
     void Function()? onStreamStarted,
     void Function()? onStreamReset,
+    void Function()? onContextReset,
   }) async {
     if (instruction.trim().isEmpty) {
       throw const FormatException('Describe what you want the AI to do.');
     }
 
     var recoveredTransport = false;
+    var effectiveConversation = conversation;
     DateTime? contentionSince;
     while (true) {
       _throwIfCancelled(cancelEpoch);
@@ -423,7 +442,15 @@ class AiService {
         return await local.ask(
           context,
           instruction,
-          conversation: conversation,
+          conversation: effectiveConversation,
+          onContextReset: () {
+            effectiveConversation = '';
+            _safeStart(onContextReset);
+          },
+          onStreamReset: () {
+            streamStarted = false;
+            _safeReset(onStreamReset);
+          },
           onLeaseAcquired: () {
             _ownsLocalLease = true;
             // A real lease acquisition ends any prior scheduling-race window.
@@ -531,9 +558,8 @@ class AiService {
   bool _isRecoverableCloudTransportFailure(Object error) {
     if (error is FormatException || error is ArgumentError) return false;
     final lower = error.toString().toLowerCase();
-    final providerStatus = RegExp(
-      r'ai provider returned http (\d{3})\b',
-    ).firstMatch(lower);
+    final providerStatus = RegExp(r'ai provider returned http (\d{3})\b')
+        .firstMatch(lower);
     if (providerStatus != null) {
       final status = int.tryParse(providerStatus.group(1)!);
       return status != null && _transientProviderStatuses.contains(status);
@@ -673,10 +699,7 @@ class AiService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final errorBytes = await _readBoundedBytes(response, cancelEpoch);
       throw StateError(
-        _providerFailure(
-          response.statusCode,
-          _providerErrorDetail(errorBytes),
-        ),
+        _providerFailure(response.statusCode, _providerErrorDetail(errorBytes)),
       );
     }
     final bytes = await _readBoundedBytes(response, cancelEpoch);
@@ -943,10 +966,11 @@ class AiService {
       if (terminalSseEvent(eventName)) terminal = true;
     }
 
-    await for (final line in utf8.decoder
-        .bind(response.stream)
-        .transform(const LineSplitter())
-        .timeout(const Duration(seconds: 60))) {
+    await for (final line
+        in utf8.decoder
+            .bind(response.stream)
+            .transform(const LineSplitter())
+            .timeout(const Duration(seconds: 60))) {
       _throwIfCancelled(cancelEpoch);
       wireCharacters += line.length + 1;
       if (wireCharacters > _maxResponseBytes) {
@@ -1257,8 +1281,7 @@ Future<void> sharePharmacy(PharmacyExport data) async {
       files: [file],
       fileNameOverrides: [data.fileName],
       subject: data.fileName,
-      text:
-          'Aaris Pharmacy inventory export. The matching AI instructions are copied to your clipboard.',
+      text: 'Aaris Pharmacy inventory export. The matching AI instructions are copied to your clipboard.',
     ),
   );
 }

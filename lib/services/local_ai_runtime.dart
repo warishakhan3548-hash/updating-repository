@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:lib_llama_cpp/lib_llama_cpp.dart';
 
+import '../domain/local_context_budget.dart';
+
 /// One long-lived local-AI lease with a restartable llama.cpp transport.
 ///
 /// Calls remain exclusive. Explicit user cancellation retires the current
@@ -65,84 +67,82 @@ class LocalAiRuntime {
     final commands = StreamController<LlamaCommand>();
     _commands = commands;
     late final StreamSubscription<LlamaResponse> subscription;
-    subscription = _engine.transform(commands.stream).listen(
-      (response) {
-        if (_closed || epoch != _transportEpoch) return;
-        if (response is LlamaErrorResponse) {
-          // Keep the command lease until Done/onDone so a trailing completion can
-          // never complete a later command. Once native has already declared an
-          // error, however, waiting the normal multi-minute generation stall
-          // budget for a missing Done only creates a false "connection stuck"
-          // state. Give the native actor a short bounded drain window, then retire
-          // the transport through the same epoch-safe recovery path.
-          _commandError ??= StateError(response.message);
-          _armStallWatchdog(epoch, _terminalErrorDrainBudget);
-        } else if (response is LlamaTokenResponse) {
-          _touchStallWatchdog(epoch);
-          // Once native inference has failed, trailing tokens belong to the
-          // failed command. Never flash them in the UI or retain them in the
-          // response buffer while waiting for Done to close the lease.
-          if (_commandError != null) return;
-          _rawResponseCharacters += response.text.length;
-          if (_rawResponseCharacters > _maxRawResponseCharacters) {
-            _commandError ??= StateError(
-              'Local model emitted too much raw output before completing the answer.',
-            );
-            _armStallWatchdog(epoch, _terminalErrorDrainBudget);
-          } else {
-            // Reasoning-capable GGUF models can emit a private <think>,
-            // <analysis> or <reasoning> envelope before their actual answer.
-            // Strip that envelope incrementally, including tags split across
-            // native token boundaries. Hidden reasoning has its own larger raw
-            // guard, while the user-visible answer keeps the strict 32K bound.
-            // This lets reasoning-heavy models finish without exposing or
-            // counting their private envelope as visible response text.
-            _emitVisible(_reasoningFilter.add(response.text));
-            if (_commandError != null) {
+    subscription = _engine
+        .transform(commands.stream)
+        .listen(
+          (response) {
+            if (_closed || epoch != _transportEpoch) return;
+            if (response is LlamaErrorResponse) {
+              // Keep the command lease until Done/onDone so a trailing completion can
+              // never complete a later command. Once native has already declared an
+              // error, however, waiting the normal multi-minute generation stall
+              // budget for a missing Done only creates a false "connection stuck"
+              // state. Give the native actor a short bounded drain window, then retire
+              // the transport through the same epoch-safe recovery path.
+              _commandError ??=
+                  LocalContextBudgetFailure.fromMessage(response.message) ??
+                  StateError(response.message);
               _armStallWatchdog(epoch, _terminalErrorDrainBudget);
+            } else if (response is LlamaTokenResponse) {
+              _touchStallWatchdog(epoch);
+              // Once native inference has failed, trailing tokens belong to the
+              // failed command. Never flash them in the UI or retain them in the
+              // response buffer while waiting for Done to close the lease.
+              if (_commandError != null) return;
+              _rawResponseCharacters += response.text.length;
+              if (_rawResponseCharacters > _maxRawResponseCharacters) {
+                _commandError ??= StateError(
+                  'Local model emitted too much raw output before completing the answer.',
+                );
+                _armStallWatchdog(epoch, _terminalErrorDrainBudget);
+              } else {
+                // Reasoning-capable GGUF models can emit a private <think>,
+                // <analysis> or <reasoning> envelope before their actual answer.
+                // Strip that envelope incrementally, including tags split across
+                // native token boundaries. Hidden reasoning has its own larger raw
+                // guard, while the user-visible answer keeps the strict 32K bound.
+                // This lets reasoning-heavy models finish without exposing or
+                // counting their private envelope as visible response text.
+                _emitVisible(_reasoningFilter.add(response.text));
+                if (_commandError != null) {
+                  _armStallWatchdog(epoch, _terminalErrorDrainBudget);
+                }
+              }
+            } else if (response is LlamaStateChangedResponse) {
+              _touchStallWatchdog(epoch);
+              if (_loading) {
+                _loading = false;
+                modelPath = response.state.isModelLoaded
+                    ? response.state.modelPath
+                    : null;
+              }
+            } else if (response is LlamaToolCallResponse) {
+              _commandError ??= StateError(
+                'Return the app JSON contract, not native function calls.',
+              );
+              _armStallWatchdog(epoch, _terminalErrorDrainBudget);
+            } else if (response is LlamaDoneResponse) {
+              _complete();
             }
-          }
-        } else if (response is LlamaStateChangedResponse) {
-          _touchStallWatchdog(epoch);
-          if (_loading) {
-            _loading = false;
-            modelPath = response.state.isModelLoaded
-                ? response.state.modelPath
-                : null;
-          }
-        } else if (response is LlamaToolCallResponse) {
-          _commandError ??= StateError(
-            'Return the app JSON contract, not native function calls.',
-          );
-          _armStallWatchdog(epoch, _terminalErrorDrainBudget);
-        } else if (response is LlamaDoneResponse) {
-          _complete();
-        }
-      },
-      onError: (Object error, StackTrace stack) {
-        _invalidateTransport(
-          epoch,
-          commands,
-          subscription,
-          error,
-          stack,
+          },
+          onError: (Object error, StackTrace stack) {
+            _invalidateTransport(epoch, commands, subscription, error, stack);
+          },
+          onDone: () {
+            if (_closed || epoch != _transportEpoch) return;
+            _invalidateTransport(
+              epoch,
+              commands,
+              subscription,
+              _commandError ??
+                  StateError(
+                    'Local runtime transport closed unexpectedly. Retrying is safe.',
+                  ),
+              StackTrace.current,
+            );
+          },
+          cancelOnError: false,
         );
-      },
-      onDone: () {
-        if (_closed || epoch != _transportEpoch) return;
-        _invalidateTransport(
-          epoch,
-          commands,
-          subscription,
-          _commandError ??
-              StateError(
-                'Local runtime transport closed unexpectedly. Retrying is safe.',
-              ),
-          StackTrace.current,
-        );
-      },
-      cancelOnError: false,
-    );
     _subscription = subscription;
   }
 
@@ -305,7 +305,9 @@ class LocalAiRuntime {
   /// late callback. The model file itself is untouched.
   Future<void> _restartTransportAfterLoadFailure() async {
     if (busy) {
-      throw StateError('Local runtime is still processing a failed model load.');
+      throw StateError(
+        'Local runtime is still processing a failed model load.',
+      );
     }
     _clearStallWatchdog();
     _clearGenerationDeadline();

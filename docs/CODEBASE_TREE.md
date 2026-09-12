@@ -11,10 +11,13 @@ become a second inventory authority.
 | `lib/data/` | `inventory_database.dart` | Serialized atomic inventory transactions |
 | `lib/domain/` | `medicine.dart`, `inventory.dart`, `tracking.dart`, `sales_overview.dart` | Validated facts, civil dates, stock projections and sales |
 | `lib/domain/` | `medicine_understanding.dart`, `search.dart` | Layout, identity memory, evidence grouping and scoped matching |
+| `lib/domain/` | `medicine_date_parser.dart`, `medicine_date_intelligence.dart`, `spatial_traceability.dart` | Shared validated calendar parsing; MFG/EXP roles and OCR label/value geometry |
+| `lib/domain/` | `medicine_resolution_v2.dart`, `medicine_semantic_roles.dart`, `offline_evidence_graph.dart`, `offline_decision_reliability.dart` | Product-level recognition, independent evidence, ingredient roles and contradiction gates |
 | `lib/domain/` | `ai_protocol.dart`, `local_ai_protocol.dart` | Reviewed mutations, paged read tools, exact IDs and evidence quotes |
 | `lib/domain/` | `local_scan_handoff.dart`, `medicine_scan_commit.dart` | Evidence-only scan handoff and authoritative scan-to-stock commit gates |
 | `lib/domain/` | `local_model.dart`, `medicine_intake.dart` | Model manifests, persistent job state and video carry/scheduling |
 | `lib/services/` | `ai_service.dart`, `local_ai_service.dart`, `local_ai_service_io.dart`, `local_ai_runtime.dart` | Explicit chat routing, model store and exclusive in-process inference |
+| `lib/services/` + `lib/domain/` | `local_chat_turn.dart`, `local_context_budget.dart` | Bounded read-tool loop and fresh-chat recovery from exact native token counts |
 | `lib/services/` | `cloud_scan_ai_service.dart` | Explicit bounded OCR handoff to the configured Gemini/OpenAI-compatible API; no inventory export/write |
 | `lib/services/` | `scan_service.dart`, `media_import_service.dart`, `medicine_intake_service.dart` | Shared OCR, bounded video windows and durable local draft queue |
 | `lib/services/` | `search_worker.dart`, `backup_service.dart` | Background search and explicit backup/import |
@@ -23,6 +26,7 @@ become a second inventory authority.
 | `lib/ui/` | `medicine_capture.dart`, `cloud_scan_review_screen.dart`, `medicine_intake_panel.dart`, `scanner_screen.dart`, `import_screen.dart`, `editor_screen.dart` | Shared capture, explicit local/cloud lanes, draft review and explicit save |
 | `android/.../` | `MainActivity.kt`, `LocalAiPlatform.kt` | Private media/file operations, window sampling, large-model import and on-device speech |
 | `third_party/lib_llama_cpp/` | MIT-licensed in-process core | Audited command completion and prompt-memory reset; no server facade |
+| `assets/`, `docs/`, `.github/workflows/` | Fonts, architecture/operating notes and Flutter checks/release APK gates | Bundled UI resources, maintenance map and verification before build artifacts |
 | `tool/`, `test/` | Contract checks and test suites | Domain, runtime lifecycle, persistence and UI safety regressions |
 
 ## Dependency tree — authoritative write path
@@ -127,6 +131,14 @@ For conversational inventory control:
 
 ## Surgical intersection points
 
+- `medicine_date_parser.dart` is the single printed-date grammar used by the
+  baseline extractor, temporal resolver and spatial OCR. Calendar validity does
+  not establish the role: compact digits need MFG/EXP context before field use.
+- `local_chat_turn.dart` owns history rollover; `LocalAiRuntime` owns native
+  command completion. The UI only advances its history boundary after a reset
+  notification, preserving the current question and already-visible messages.
+- Cloud chat and scan services own requests across socket retries/backoff, not
+  only while `_client` is non-null. Cancelled work drains before a new turn enters.
 - `brain_screen.dart` is the deterministic-vs-LLM intent intersection. Keep it the
   single app-command firewall; do not add a parallel mutation router.
 - `ai_protocol.dart` / `local_ai_protocol.dart` are the LLM-to-inventory contract.
@@ -138,6 +150,9 @@ For conversational inventory control:
   provider-specific schema directly.
 - `medicine_scan_commit.dart` + `PharmacyController` are the final scan-to-stock
   boundary. AI previews cannot bypass duplicate/date/revision checks.
+
+The [September 12 date/context audit](OFFLINE_CAPTURE_CONTEXT_2026_09_12.md)
+records the root causes, exact changed paths, safety cases and verification limits.
 
 ## Safety invariants
 

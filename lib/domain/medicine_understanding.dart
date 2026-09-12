@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'medicine.dart';
+import 'medicine_date_parser.dart';
 import 'medicine_discovery.dart';
 import 'search.dart';
 
@@ -2023,14 +2024,8 @@ const _embeddedActiveIngredientAliases = <String, String>{
   'Acetaminophen': 'Paracetamol',
 };
 
-final _mfgLabel = RegExp(
-  r'\b(?:mfg|mfd|manufactured|manufacturing|date\s+of\s+mfg)\b(?:\s*date)?',
-  caseSensitive: false,
-);
-final _expiryLabel = RegExp(
-  r'\b(?:exp|expiry|expires|use\s*before|use\s*by|best\s*before)\b(?:\s*date)?',
-  caseSensitive: false,
-);
+final _mfgLabel = medicineManufacturingLabel;
+final _expiryLabel = medicineExpiryLabel;
 final _compositionLabel = RegExp(
   r'\b(?:composition|compositions|generic|salt|active\s+ingredient|each\s+(?:film\s+coated\s+|uncoated\s+)?(?:tablet|capsule|\d+\s*ml)\s+contains)\b',
   caseSensitive: false,
@@ -2081,8 +2076,10 @@ _ParsedDate? _labelledDate(String line, RegExp label, {required bool expiry}) {
   var tail = line.substring(match.end);
   final other = (expiry ? _mfgLabel : _expiryLabel).firstMatch(tail);
   if (other != null) tail = tail.substring(0, other.start);
+  final nonDate = medicineNonDateLabel.firstMatch(tail);
+  if (nonDate != null) tail = tail.substring(0, nonDate.start);
   tail = tail.replaceFirst(RegExp(r'^[\s:;,.#-]+'), '');
-  final value = _canonicalPrintedDate(tail, expiry: expiry);
+  final value = parseMedicineDateText(tail)?.value;
   if (value == null) return null;
   return _ParsedDate(value, value.length == 7 ? .91 : .94);
 }
@@ -2105,101 +2102,17 @@ _ParsedDate? _dateNearLabel(
     final next = lines[nextIndex];
     final normalized = searchText(next);
     if (otherLabel.hasMatch(normalized) ||
+        medicineNonDateLabel.hasMatch(normalized) ||
         _compositionStop.hasMatch(normalized)) {
       break;
     }
-    final value = _canonicalPrintedDate(next, expiry: expiry);
+    final value = parseMedicineDateText(next)?.value;
     if (value != null) {
       final base = nextIndex == index + 1 ? .89 : .84;
       return _ParsedDate(value, value.length == 7 ? base : base + .02);
     }
   }
   return null;
-}
-
-String? _canonicalPrintedDate(String raw, {required bool expiry}) {
-  var value = raw
-      .toLowerCase()
-      .replaceAllMapped(
-        RegExp(r'(?<=\d)[oO](?=\d|\b)|(?<=\b)[oO](?=\d)'),
-        (_) => '0',
-      )
-      .replaceAll(',', '.')
-      .trim();
-  const months = <String, int>{
-    'jan': 1,
-    'january': 1,
-    'feb': 2,
-    'february': 2,
-    'mar': 3,
-    'march': 3,
-    'apr': 4,
-    'april': 4,
-    'may': 5,
-    'jun': 6,
-    'june': 6,
-    'jul': 7,
-    'july': 7,
-    'aug': 8,
-    'august': 8,
-    'sep': 9,
-    'sept': 9,
-    'september': 9,
-    'oct': 10,
-    'october': 10,
-    'nov': 11,
-    'november': 11,
-    'dec': 12,
-    'december': 12,
-  };
-  final word = RegExp(r'(?:(\d{1,2})[\s./-]+)?([a-z]{3,9})[\s./-]+(\d{2,4})')
-      .firstMatch(value);
-  if (word != null && months.containsKey(word[2])) {
-    final year = _fullYear(int.parse(word[3]!));
-    final month = months[word[2]]!;
-    final day = word[1] == null ? null : int.tryParse(word[1]!);
-    return _validatedIso(year, month, day, expiry: expiry);
-  }
-  final full = RegExp(
-    r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{1,4})(?!\d)',
-  ).firstMatch(value);
-  if (full != null) {
-    final a = int.parse(full[1]!);
-    final b = int.parse(full[2]!);
-    final c = int.parse(full[3]!);
-    if (a > 99) return _validatedIso(a, b, c, expiry: expiry);
-    return _validatedIso(_fullYear(c), b, a, expiry: expiry);
-  }
-  final spacedFull = RegExp(r'(?<!\d)(\d{1,2})\s+(\d{1,2})\s+(\d{2,4})(?!\d)')
-      .firstMatch(value);
-  if (spacedFull != null) {
-    return _validatedIso(
-      _fullYear(int.parse(spacedFull[3]!)),
-      int.parse(spacedFull[2]!),
-      int.parse(spacedFull[1]!),
-      expiry: expiry,
-    );
-  }
-  final month = RegExp(r'(?<!\d)(\d{1,4})\s*[./-]\s*(\d{2,4})(?!\s*[./-]\s*\d)')
-      .firstMatch(value);
-  if (month == null) return null;
-  final a = int.parse(month[1]!);
-  final b = int.parse(month[2]!);
-  if (a > 99) return _validatedIso(a, b, null, expiry: expiry);
-  return _validatedIso(_fullYear(b), a, null, expiry: expiry);
-}
-
-int _fullYear(int value) =>
-    value >= 100 ? value : (value <= 79 ? 2000 + value : 1900 + value);
-
-String? _validatedIso(int year, int month, int? day, {required bool expiry}) {
-  if (year < 2000 || year > 2200 || month < 1 || month > 12) return null;
-  if (day == null) {
-    return '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}';
-  }
-  final date = DateTime.utc(year, month, day);
-  if (date.year != year || date.month != month || date.day != day) return null;
-  return dateText(date);
 }
 
 DateTime? _dateForComparison(String value, {required bool monthEnd}) {
