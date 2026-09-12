@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
+import '../domain/medicine_resolution_v2.dart';
 import '../domain/medicine_understanding.dart';
 import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
@@ -190,11 +191,18 @@ class _ScannerScreenState extends State<ScannerScreen>
           evidence.removeRange(0, evidence.length - 18);
         }
         final payload = await compute(
-          understandMedicineEvidenceMessage,
+          // Keep live preview on the same evidence-safety pipeline as photo,
+          // video, import-inbox and explicit cloud review. No catalogue or
+          // private stock memory is supplied here: the scanner only applies
+          // V2's spatial, regulatory, date and cross-field contradiction gates
+          // to facts observed in this bounded capture window.
+          understandMedicineEvidenceV2Message,
           <String, Object?>{
             'evidence': evidence
                 .map((item) => item.toMessage())
                 .toList(growable: false),
+            'knowledge': const <Object?>[],
+            'catalog': const <Object?>[],
           },
         );
         if (_closed || !mounted || generation != _generation) return;

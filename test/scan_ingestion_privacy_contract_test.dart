@@ -8,6 +8,7 @@ void main() {
     final explicitCloud = File('lib/ui/cloud_scan_review_screen.dart')
         .readAsStringSync();
     final capture = File('lib/ui/medicine_capture.dart').readAsStringSync();
+    final scanner = File('lib/ui/scanner_screen.dart').readAsStringSync();
     final commitPolicy = File('lib/domain/medicine_scan_commit.dart')
         .readAsStringSync();
 
@@ -19,6 +20,11 @@ void main() {
     expect(explicitCloud, contains('CloudScanAiService'));
     expect(capture, contains('Scan with cloud AI'));
     expect(capture, contains('CloudScanReviewScreen'));
+    expect(scanner, contains('understandMedicineEvidenceV2Message'));
+    expect(scanner, contains("'knowledge': const <Object?>[]"));
+    expect(scanner, contains("'catalog': const <Object?>[]"));
+    expect(scanner, isNot(contains('CloudScanAiService')));
+    expect(scanner, isNot(contains('CanonicalMedicineCatalogService')));
     expect(commitPolicy, isNot(contains('cloudAi')));
   });
 

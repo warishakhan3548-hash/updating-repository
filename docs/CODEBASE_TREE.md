@@ -87,6 +87,12 @@ No Local LLM is required for this lane. If Local AI is absent, disabled, busy wi
 setup, or fails validation, deterministic OCR/understanding remains a reviewable
 fallback and no external provider is contacted.
 
+The live camera preview, captured stills, photo/video inbox and explicit cloud
+review all enter the same Resolver V2 safety stages. The live preview supplies
+empty catalogue/private-memory inputs, so it gains spatial, regulatory, date and
+cross-field contradiction checks without creating an implicit lookup or network
+route.
+
 ## Explicit cloud-assisted scan flow
 
 ```mermaid
