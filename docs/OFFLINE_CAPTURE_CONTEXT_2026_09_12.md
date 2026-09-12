@@ -54,8 +54,10 @@ separators remain supported. Compact values require a four-digit year in
 2000–2099; ambiguous DDMMYY is not guessed. GS1 YYMMDD remains the responsibility
 of the existing GS1 Application Identifier decoder, not this printed-date parser.
 
-Competing explicit dates remain conflicted even if a plausible chronological
-pair exists. Duplicate text/layout observations in one frame do not manufacture
+Competing explicit dates with no common calendar interval remain conflicted even
+if a plausible chronological pair exists. A GS1 full day and a printed month
+containing it are consistent, not a false conflict; two different full days are
+still a conflict even if a broad month overlaps both. Duplicate text/layout observations in one frame do not manufacture
 extra support. A single unlabelled future date is a low-confidence review hint,
 not auto-filled expiry. With a reference date of 2026-09-12, the reported
 `MFG 05042027` is recognized correctly but marked for review because manufacture

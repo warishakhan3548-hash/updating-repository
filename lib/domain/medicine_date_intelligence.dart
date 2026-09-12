@@ -175,20 +175,23 @@ MedicineDateResolution inferMedicineDateIntelligence({
       <MedicineDateRole>[
         MedicineDateRole.manufacturing,
         MedicineDateRole.expiry,
-      ].any(
-        (role) =>
-            evidence
-                .where(
-                  (item) =>
-                      item.role == role &&
-                      item.explicitLabel &&
-                      item.confidence >= .84,
-                )
-                .map((item) => item.date.value)
-                .toSet()
-                .length >
-            1,
-      );
+      ].any((role) {
+        DateTime? latestStart, earliestEnd;
+        for (final item in evidence.where(
+          (item) =>
+              item.role == role && item.explicitLabel && item.confidence >= .84,
+        )) {
+          final start = item.date.start, end = item.date.end;
+          if (latestStart == null || start.isAfter(latestStart))
+            latestStart = start;
+          if (earliestEnd == null || end.isBefore(earliestEnd))
+            earliestEnd = end;
+        }
+        // Printed month precision and a GS1 full day in that same month agree.
+        // Require a common calendar interval, not identical formatted strings.
+        // Two different full days still conflict even alongside a broad month.
+        return latestStart != null && latestStart.isAfter(earliestEnd!);
+      });
   var conflicted = labelConflict;
   final today = DateTime.utc(
     referenceDate.year,

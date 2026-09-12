@@ -20,6 +20,43 @@ MedicineDateResolution _dates(String text) => inferMedicineDateIntelligence(
 );
 
 Map<String, FutureOr<void> Function()> offlineCaptureContextContract() => {
+  'GS1 full dates and matching printed months are not contradictions': () {
+    final payload = understandMedicineEvidenceV2Message({
+      'referenceDate': '2026-09-12',
+      'knowledge': <Object?>[],
+      'catalog': <Object?>[],
+      'evidence': [
+        const MedicineFrameEvidence(
+          barcode: ']d2010890123456789010LOT7\u001d1126081517280731',
+          text: 'TESTMED\nParacetamol Tablets IP 650 mg\nTABLETS\nMFG 08/2026 EXP 07/2028',
+        ).toMessage(),
+      ],
+    });
+    final draft = MedicineUnderstandingResult.fromMessage(payload)
+        .drafts
+        .single;
+    _check(
+      draft.mfg == '2026-08-15' && draft.expiry == '2028-07-31',
+      'GS1 precision lost',
+    );
+    _check(
+      draft.field('expiry').confidence > .99 && !draft.field('mfg').conflicted,
+      'Compatible month/day evidence became a conflict',
+    );
+  },
+  'matching labelled month and full day share a valid interval': () {
+    final result = _dates('MFG 08/2025\nMFG 15082025\nEXP 07/2028');
+    _check(!result.conflicted, 'Same-period dates conflict');
+  },
+  'a broad month cannot reconcile two different printed full days': () {
+    final result = _dates(
+      'MFG 08/2025\nMFG 15082025\nMFG 16082025\nEXP 07/2028',
+    );
+    _check(
+      result.conflicted,
+      'Two distinct full days were hidden by month precision',
+    );
+  },
   'calendar matrix validates every month boundary and both compact orders': () {
     for (final year in [2000, 2024, 2025, 2026, 2027, 2028, 2099]) {
       for (var month = 1; month <= 12; month++) {
