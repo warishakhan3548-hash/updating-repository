@@ -23,19 +23,8 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
-      - name: Execute source surgeon
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          source = Path('.github/workflows/aaris-offline-v8-level5-upgrade.yml').read_text()
-          marker = "          python3 <<'PY'\n"
-          start = source.index(marker) + len(marker)
-          end = source.index("\n          PY\n", start)
-          body = source[start:end]
-          body = '\n'.join(line[10:] if line.startswith('          ') else line for line in body.splitlines())
-          exec(compile(body, 'level5_source_surgeon.py', 'exec'))
-          PY
+      - name: Execute robust source surgeon
+        run: python3 tool/apply_v8_level5.py
       - name: Format
         run: dart format lib test
       - name: Dependencies
@@ -51,7 +40,7 @@ jobs:
       - name: Commit verified patch
         shell: bash
         run: |
-          rm -f .github/workflows/aaris-offline-v8-level5-upgrade.yml .github/workflows/aaris-offline-v8-runner.yml
+          rm -f .github/workflows/aaris-offline-v8-level5-upgrade.yml .github/workflows/aaris-offline-v8-runner.yml tool/apply_v8_level5.py
           git config user.name "Aaris Upgrade Bot"
           git config user.email "actions@users.noreply.github.com"
           git add -A
