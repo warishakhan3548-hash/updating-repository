@@ -133,9 +133,7 @@ MedicineDateResolution inferMedicineDateIntelligence({
         final role = labelled?.$1 ?? MedicineDateRole.unknown;
         final distance = labelled?.$2 ?? 999;
         final explicit = labelled != null;
-        final base = explicit
-            ? (distance <= 20 ? .955 : .91)
-            : .61;
+        final base = explicit ? (distance <= 20 ? .955 : .91) : .61;
         remember(
           MedicineDateEvidence(
             date: match.date,
@@ -254,9 +252,7 @@ MedicineDateResolution inferMedicineDateIntelligence({
     final only = unique.single;
     final future = only.date.end.isAfter(today);
     final horizon = only.date.end.difference(today).inDays;
-    if (only.role == MedicineDateRole.unknown &&
-        future &&
-        horizon <= 8 * 366) {
+    if (only.role == MedicineDateRole.unknown && future && horizon <= 8 * 366) {
       expiry = MedicineDateEvidence(
         date: only.date,
         role: MedicineDateRole.expiry,
@@ -309,15 +305,20 @@ List<_DateMatch> _extractDateMatches(String raw) {
   final result = <_DateMatch>[];
   final occupied = <(int, int)>[];
 
-  bool free(int start, int end) => !occupied.any(
-    (span) => start < span.$2 && end > span.$1,
-  );
+  bool free(int start, int end) =>
+      !occupied.any((span) => start < span.$2 && end > span.$1);
 
   void add(RegExp pattern, ParsedMedicineDate? Function(RegExpMatch) parse) {
     for (final match in pattern.allMatches(text)) {
       if (!free(match.start, match.end)) continue;
       final date = parse(match);
-      if (date == null) continue;
+      if (date == null) {
+        // A specific full-date pattern matched but validation failed (for
+        // example 31 02 2028). Reserve the whole span so a later, looser
+        // month-year pattern cannot reinterpret its tail as 02 2028.
+        occupied.add((match.start, match.end));
+        continue;
+      }
       result.add(_DateMatch(match.start, match.end, date));
       occupied.add((match.start, match.end));
     }
@@ -325,11 +326,15 @@ List<_DateMatch> _extractDateMatches(String raw) {
 
   const sep = r'[\s./-]+';
   add(
-    RegExp('(?<!\\d)(20\\d{2})$sep(0?[1-9]|1[0-2])$sep([0-2]?\\d|3[01])(?!\\d)'),
+    RegExp(
+      '(?<!\\d)(20\\d{2})$sep(0?[1-9]|1[0-2])$sep([0-2]?\\d|3[01])(?!\\d)',
+    ),
     (m) => _date(int.parse(m[1]!), int.parse(m[2]!), int.parse(m[3]!)),
   );
   add(
-    RegExp('(?<!\\d)([0-2]?\\d|3[01])$sep(0?[1-9]|1[0-2])$sep(\\d{2}|20\\d{2})(?!\\d)'),
+    RegExp(
+      '(?<!\\d)([0-2]?\\d|3[01])$sep(0?[1-9]|1[0-2])$sep(\\d{2}|20\\d{2})(?!\\d)',
+    ),
     (m) => _date(_year(m[3]!), int.parse(m[2]!), int.parse(m[1]!)),
   );
   add(
@@ -359,7 +364,8 @@ ParsedMedicineDate? _date(int year, int month, int day) {
   if (year < 2000 || year > 2099 || month < 1 || month > 12) return null;
   if (day == 0) {
     return ParsedMedicineDate(
-      value: '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}',
+      value:
+          '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}',
       monthOnly: true,
     );
   }
@@ -369,7 +375,8 @@ ParsedMedicineDate? _date(int year, int month, int day) {
     return null;
   }
   return ParsedMedicineDate(
-    value: '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}',
+    value:
+        '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}',
     monthOnly: false,
   );
 }
