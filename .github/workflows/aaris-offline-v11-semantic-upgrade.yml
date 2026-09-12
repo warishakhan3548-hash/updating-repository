@@ -26,9 +26,11 @@ jobs:
           channel: stable
           cache: true
       - name: Apply V11 integration surgery
-        run: python3 .github/scripts/apply_v11_semantic_brain.py
+        run: |
+          python3 .github/scripts/apply_v11_semantic_brain.py
+          python3 .github/scripts/fix_v11_semantic_overlap.py
       - name: Remove temporary upgrade tooling
-        run: rm -f .github/scripts/apply_v11_semantic_brain.py .github/workflows/aaris-offline-v11-semantic-upgrade.yml
+        run: rm -f .github/scripts/apply_v11_semantic_brain.py .github/scripts/fix_v11_semantic_overlap.py .github/workflows/aaris-offline-v11-semantic-upgrade.yml
       - name: Format intended files only
         run: >-
           dart format
