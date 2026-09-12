@@ -1,0 +1,60 @@
+name: Aaris V11 Semantic Dedupe Verification
+
+on:
+  push:
+    branches:
+      - upgrade/offline-engine-v11-semantic-brain
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: upgrade/offline-engine-v11-semantic-brain
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Apply semantic dedupe hardening
+        run: python3 .github/scripts/fix_v11_semantic_dedupe.py
+      - name: Format intended source
+        run: dart format lib/domain/medicine_semantic_roles.dart
+      - name: Resolve pinned dependencies
+        run: flutter pub get
+      - name: Static checks
+        run: flutter analyze --no-fatal-infos
+      - name: Focused V11 regressions
+        run: >-
+          flutter test
+          test/offline_semantic_brain_v11_test.dart
+          test/offline_date_intelligence_v10_test.dart
+          test/offline_level6_reasoning_test.dart
+          test/offline_level5_reasoning_test.dart
+          test/medicine_resolution_v2_test.dart
+          test/medicine_understanding_test.dart
+          test/retrieval_fusion_test.dart
+      - name: Full regression suite
+        run: flutter test
+      - name: Android debug integration build
+        run: flutter build apk --debug
+      - name: Commit verified dedupe hardening and remove temporary tooling
+        run: |
+          rm -f .github/scripts/fix_v11_semantic_dedupe.py .github/workflows/aaris-v11-semantic-dedupe-verify.yml
+          git config user.name 'Aaris Upgrade Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'Harden V11 semantic component deduplication'
+          git push origin HEAD:upgrade/offline-engine-v11-semantic-brain
