@@ -1,0 +1,343 @@
+name: Aaris offline engine V7 surgical upgrade
+on:
+  push:
+    branches: [upgrade/offline-engine-v7-retrieval-fusion]
+    paths:
+      - .github/workflows/aaris-offline-engine-v7-upgrade.yml
+permissions:
+  contents: write
+concurrency:
+  group: aaris-offline-engine-v7-upgrade
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    if: github.event.head_commit.message == 'Start Aaris offline engine V7 upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Apply V7 first-stage retrieval surgery
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          path = Path('lib/services/canonical_medicine_catalog_service.dart')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one patch anchor, found {count}: {old[:80]!r}')
+              text = text.replace(old, new)
+
+          def replace_between(start: str, end: str, replacement: str) -> None:
+              global text
+              start_index = text.find(start)
+              if start_index < 0:
+                  raise SystemExit(f'missing start marker: {start!r}')
+              end_index = text.find(end, start_index)
+              if end_index < 0:
+                  raise SystemExit(f'missing end marker: {end!r}')
+              if text.find(start, start_index + len(start)) >= 0:
+                  raise SystemExit(f'non-unique start marker: {start!r}')
+              text = text[:start_index] + replacement + text[end_index:]
+
+          replace_once(
+              "import '../domain/medicine_understanding.dart';\nimport '../domain/search.dart';",
+              "import '../domain/medicine_understanding.dart';\nimport '../domain/retrieval_fusion.dart';\nimport '../domain/search.dart';",
+          )
+
+          replacement = dedent('''\
+            /// Returns only a tiny scan-targeted candidate set. A 300k+ catalogue never
+            /// gets copied into Dart memory or the medicine-understanding isolate.
+            ///
+            /// V7 treats this as a true first-stage retrieval problem instead of mixing
+            /// incomparable raw scores. Exact verified barcodes are pinned. Lexical and
+            /// typo-recovery retrievers remain independent, use information-rich terms,
+            /// and are fused by reciprocal rank before the downstream safety resolver.
+            Future<List<CanonicalMedicineProduct>> candidatesForEvidence(
+              List<MedicineFrameEvidence> evidence, {
+              int limit = _maxCandidateRows,
+            }) async {
+              if (evidence.isEmpty) return const <CanonicalMedicineProduct>[];
+              try {
+                await initialize();
+                final boundedLimit = min(max(1, limit), _maxCandidateRows);
+                final pinned = <String>{};
+                final barcodeKeys = <String>{};
+                for (final frame in evidence.take(maxMedicineEvidenceFrames)) {
+                  for (final value in frame.allBarcodes) {
+                    final key = _barcodeKey(value);
+                    if (key.isNotEmpty) barcodeKeys.add(key);
+                  }
+                }
+                if (barcodeKeys.isNotEmpty) {
+                  final placeholders = List.filled(barcodeKeys.length, '?').join(',');
+                  final rows = await _database!.rawQuery(
+                    '''SELECT cb.product_id
+                       FROM catalog_barcodes cb
+                       INNER JOIN catalog_products p ON p.product_id = cb.product_id
+                       WHERE cb.normalized IN ($placeholders)
+                         AND p.status = 'active'
+                         AND p.verified = 1''',
+                    barcodeKeys.toList(growable: false),
+                  );
+                  for (final row in rows) {
+                    final id = row['product_id'];
+                    if (id is String) pinned.add(id);
+                  }
+                }
+
+                // One indexed document-frequency probe turns raw OCR into an
+                // information-gain query plan. Short but rare brand terms are not
+                // discarded merely because longer packaging text exists.
+                final rawTerms = _evidenceTerms(evidence).take(72).toList(growable: false);
+                final lexicalIds = <String>[];
+                final recoveryIds = <String>[];
+                if (rawTerms.isNotEmpty) {
+                  final frequencyPlaceholders = List.filled(rawTerms.length, '?').join(',');
+                  final frequencyRows = await _database!.rawQuery(
+                    '''SELECT ct.term, COUNT(*) AS df
+                       FROM catalog_terms ct
+                       INNER JOIN catalog_products p ON p.product_id = ct.product_id
+                       WHERE ct.term IN ($frequencyPlaceholders)
+                         AND p.status = 'active'
+                         AND p.verified = 1
+                       GROUP BY ct.term''',
+                    rawTerms,
+                  );
+                  final documentFrequency = <String, int>{};
+                  for (final row in frequencyRows) {
+                    final term = row['term'];
+                    final frequency = row['df'];
+                    if (term is String && frequency is num) {
+                      documentFrequency[term] = frequency.toInt();
+                    }
+                  }
+
+                  final exactTerms = selectInformationRichTerms(
+                    rawTerms,
+                    documentFrequency,
+                    limit: 20,
+                  );
+                  if (exactTerms.isNotEmpty) {
+                    final placeholders = List.filled(exactTerms.length, '?').join(',');
+                    final rows = await _database!.rawQuery(
+                      '''SELECT ct.product_id, SUM(ct.weight) AS score
+                         FROM catalog_terms ct
+                         INNER JOIN catalog_products p ON p.product_id = ct.product_id
+                         WHERE ct.term IN ($placeholders)
+                           AND p.status = 'active'
+                           AND p.verified = 1
+                         GROUP BY ct.product_id
+                         ORDER BY score DESC, ct.product_id ASC
+                         LIMIT ${boundedLimit * 3}''',
+                      exactTerms,
+                    );
+                    for (final row in rows) {
+                      final id = row['product_id'];
+                      if (id is String) lexicalIds.add(id);
+                    }
+                  }
+
+                  final recoveryTerms = selectRecoveryTerms(
+                    rawTerms,
+                    documentFrequency,
+                    limit: 18,
+                  );
+                  final deleteKeys = <String>{};
+                  for (final term in recoveryTerms) {
+                    for (final value in _deleteKeys(_ocrFoldToken(term)).take(18)) {
+                      deleteKeys.add(value);
+                      if (deleteKeys.length >= 120) break;
+                    }
+                    if (deleteKeys.length >= 120) break;
+                  }
+                  if (deleteKeys.isNotEmpty) {
+                    final placeholders = List.filled(deleteKeys.length, '?').join(',');
+                    final rows = await _database!.rawQuery(
+                      '''SELECT cd.product_id, SUM(cd.weight) AS score
+                         FROM catalog_deletes cd
+                         INNER JOIN catalog_products p ON p.product_id = cd.product_id
+                         WHERE cd.delete_key IN ($placeholders)
+                           AND p.status = 'active'
+                           AND p.verified = 1
+                         GROUP BY cd.product_id
+                         ORDER BY score DESC, cd.product_id ASC
+                         LIMIT ${boundedLimit * 3}''',
+                      deleteKeys.toList(growable: false),
+                    );
+                    for (final row in rows) {
+                      final id = row['product_id'];
+                      if (id is String) recoveryIds.add(id);
+                    }
+                  }
+                }
+
+                final fused = reciprocalRankFuse(
+                  <RankedRetrievalChannel>[
+                    RankedRetrievalChannel(ids: lexicalIds),
+                    // Delete-neighbour recovery is noisier than exact-index retrieval,
+                    // so it gets lower authority while still gaining naturally from
+                    // cross-channel corroboration.
+                    RankedRetrievalChannel(ids: recoveryIds, weight: .62),
+                  ],
+                );
+                if (pinned.isEmpty && fused.isEmpty) {
+                  return const <CanonicalMedicineProduct>[];
+                }
+
+                final ranked = fused.entries.toList(growable: false)
+                  ..sort((a, b) {
+                    final score = b.value.compareTo(a.value);
+                    return score != 0 ? score : a.key.compareTo(b.key);
+                  });
+                final pinnedIds = pinned.toList(growable: false)..sort();
+                final ids = <String>[
+                  ...pinnedIds,
+                  for (final entry in ranked)
+                    if (!pinned.contains(entry.key)) entry.key,
+                ].take(boundedLimit).toList(growable: false);
+                return await _loadProducts(ids);
+              } catch (_) {
+                return const <CanonicalMedicineProduct>[];
+              }
+            }
+
+          ''')
+          replace_between(
+              '  /// Returns only a tiny scan-targeted candidate set.',
+              '  Future<List<CanonicalMedicineProduct>> _loadProducts(',
+              replacement,
+          )
+
+          replace_once(
+              "WHERE product_id IN ($placeholders) AND status = 'active' ''',",
+              "WHERE product_id IN ($placeholders) AND status = 'active' AND verified = 1 ''',",
+          )
+
+          evidence_replacement = dedent('''\
+          Set<String> _evidenceTerms(List<MedicineFrameEvidence> evidence) {
+            final result = <String>{};
+            for (final frame in evidence.take(maxMedicineEvidenceFrames)) {
+              final normalized = searchText(frame.text);
+              final tokens = normalized
+                  .split(' ')
+                  .where((value) => value.isNotEmpty)
+                  .toList();
+              for (final token in tokens.take(180)) {
+                if (token.length < 3 || _catalogNoise.contains(token)) continue;
+                result.add(token);
+                result.add(_ocrFoldToken(token));
+              }
+
+              // Preserve line-local identities such as "MONTEK LC" or "DOLO 650".
+              // Catalogue compact aliases already exist, so this raises recall without
+              // adding a model, scanning the full catalogue, or joining across lines.
+              for (final rawLine in frame.text.split(RegExp(r'[\\r\\n]+')).take(48)) {
+                final line = searchText(rawLine);
+                if (line.isEmpty) continue;
+                final useful = line
+                    .split(' ')
+                    .where(
+                      (value) => value.length >= 2 && !_catalogNoise.contains(value),
+                    )
+                    .take(8)
+                    .toList(growable: false);
+                for (var width = 2; width <= min(3, useful.length); width++) {
+                  for (var start = 0; start + width <= useful.length; start++) {
+                    final phrase = useful.sublist(start, start + width).join();
+                    if (phrase.length < 4 || phrase.length > 28) continue;
+                    result.add(phrase);
+                    result.add(_ocrFoldToken(phrase));
+                    if (result.length >= 192) break;
+                  }
+                  if (result.length >= 192) break;
+                }
+                if (result.length >= 192) break;
+              }
+
+              // OCR occasionally spaces a brand as D O L O. Reconstruct only
+              // bounded alphabetic single-character runs.
+              for (var start = 0; start < tokens.length;) {
+                if (tokens[start].length != 1 ||
+                    !RegExp(r'^[a-z]$').hasMatch(tokens[start])) {
+                  start++;
+                  continue;
+                }
+                var end = start;
+                final buffer = StringBuffer();
+                while (end < tokens.length &&
+                    tokens[end].length == 1 &&
+                    RegExp(r'^[a-z]$').hasMatch(tokens[end]) &&
+                    buffer.length < 16) {
+                  buffer.write(tokens[end]);
+                  end++;
+                }
+                if (buffer.length >= 3) result.add(buffer.toString());
+                start = max(start + 1, end);
+              }
+              if (result.length >= 192) break;
+            }
+            // Keep OCR order. The next stage has real catalogue document-frequency
+            // data and is therefore better qualified to decide which terms matter.
+            return result.take(96).toSet();
+          }
+
+          ''')
+          replace_between(
+              'Set<String> _evidenceTerms(List<MedicineFrameEvidence> evidence) {',
+              'Iterable<String> _deleteKeys(String value) sync* {',
+              evidence_replacement,
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Format and static analysis
+        run: |
+          dart format lib/domain/retrieval_fusion.dart lib/services/canonical_medicine_catalog_service.dart test/retrieval_fusion_test.dart
+          flutter pub get
+          flutter analyze
+
+      - name: Focused V7 regressions
+        run: |
+          flutter test test/retrieval_fusion_test.dart
+          flutter test test/medicine_resolution_v2_test.dart
+          flutter test test/offline_decision_engine_test.dart
+          flutter test test/offline_search_evidence_v5_test.dart
+
+      - name: Full regression suite
+        run: flutter test
+
+      - name: Android debug build
+        run: flutter build apk --debug
+
+      - name: Commit clean V7 production patch
+        shell: bash
+        run: |
+          git diff --check
+          rm .github/workflows/aaris-offline-engine-v7-upgrade.yml
+          git config user.name 'Aaris Upgrade Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'Upgrade offline catalog retrieval to V7'
+          git push origin HEAD:${GITHUB_REF_NAME}
