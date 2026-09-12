@@ -86,8 +86,23 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
   var order = 0;
 
   void rememberComponent(_ComponentCandidate candidate) {
-    final key = searchText(candidate.ingredient);
-    if (key.length < 3) return;
+    final rawKey = searchText(candidate.ingredient);
+    if (rawKey.length < 3) return;
+    String key = rawKey;
+    for (final existing in componentVotes.entries) {
+      final sameStrength =
+          _strengthKey(existing.value.strength) ==
+          _strengthKey(candidate.strength);
+      if (!sameStrength &&
+          existing.value.strength.isNotEmpty &&
+          candidate.strength.isNotEmpty) {
+        continue;
+      }
+      if (_semanticSimilarity(existing.key, rawKey) >= .955) {
+        key = existing.key;
+        break;
+      }
+    }
     final old = componentVotes[key];
     if (old == null) {
       componentVotes[key] = _ComponentVote(
@@ -101,8 +116,15 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
     }
     final sameStrength =
         _strengthKey(old.strength) == _strengthKey(candidate.strength);
+    final preferCandidateIngredient =
+        candidate.ingredient.length < old.ingredient.length &&
+        _semanticSimilarity(
+              searchText(old.ingredient),
+              searchText(candidate.ingredient),
+            ) >=
+            .955;
     componentVotes[key] = _ComponentVote(
-      old.ingredient,
+      preferCandidateIngredient ? candidate.ingredient : old.ingredient,
       sameStrength || old.strength.isNotEmpty
           ? old.strength
           : candidate.strength,
@@ -144,10 +166,34 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
     final frameComponents = <String, _ComponentCandidate>{};
     for (final window in windows) {
       for (final component in _parseComposition(window, quality)) {
-        final key = searchText(component.ingredient);
-        if (key.length < 3) continue;
+        final rawKey = searchText(component.ingredient);
+        if (rawKey.length < 3) continue;
+        String key = rawKey;
+        for (final existing in frameComponents.entries) {
+          final sameStrength =
+              _strengthKey(existing.value.strength) ==
+              _strengthKey(component.strength);
+          if (!sameStrength) continue;
+          if (_semanticSimilarity(existing.key, rawKey) >= .955) {
+            key = existing.key;
+            break;
+          }
+        }
         final old = frameComponents[key];
-        if (old == null || component.confidence > old.confidence) {
+        if (old == null) {
+          frameComponents[key] = component;
+          continue;
+        }
+        final semanticallySame =
+            _semanticSimilarity(
+              searchText(old.ingredient),
+              searchText(component.ingredient),
+            ) >=
+            .955;
+        final cleanerIngredient =
+            semanticallySame &&
+            component.ingredient.length < old.ingredient.length;
+        if (cleanerIngredient || component.confidence > old.confidence + .03) {
           frameComponents[key] = component;
         }
       }
