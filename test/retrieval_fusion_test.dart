@@ -7,11 +7,7 @@ void main() {
     test('rare exact terms outrank common catalogue terms', () {
       final ranked = selectInformationRichTerms(
         const <String>['paracetamol', 'dolo650', 'micro'],
-        const <String, int>{
-          'paracetamol': 24000,
-          'dolo650': 2,
-          'micro': 320,
-        },
+        const <String, int>{'paracetamol': 24000, 'dolo650': 2, 'micro': 320},
       );
 
       expect(ranked, const <String>['dolo650', 'micro', 'paracetamol']);
@@ -34,12 +30,10 @@ void main() {
     });
 
     test('RRF rewards independent corroboration across retrievers', () {
-      final fused = reciprocalRankFuse(
-        const <RankedRetrievalChannel>[
-          RankedRetrievalChannel(ids: <String>['a', 'b', 'c']),
-          RankedRetrievalChannel(ids: <String>['b', 'd', 'a']),
-        ],
-      );
+      final fused = reciprocalRankFuse(const <RankedRetrievalChannel>[
+        RankedRetrievalChannel(ids: <String>['a', 'b', 'c']),
+        RankedRetrievalChannel(ids: <String>['b', 'd', 'a']),
+      ]);
       final ranked = fused.entries.toList(growable: false)
         ..sort((a, b) => b.value.compareTo(a.value));
 
@@ -49,12 +43,10 @@ void main() {
     });
 
     test('recovery channel can be reliability weighted', () {
-      final fused = reciprocalRankFuse(
-        const <RankedRetrievalChannel>[
-          RankedRetrievalChannel(ids: <String>['exact']),
-          RankedRetrievalChannel(ids: <String>['typo'], weight: .62),
-        ],
-      );
+      final fused = reciprocalRankFuse(const <RankedRetrievalChannel>[
+        RankedRetrievalChannel(ids: <String>['exact']),
+        RankedRetrievalChannel(ids: <String>['typo'], weight: .62),
+      ]);
 
       expect(fused['exact']!, greaterThan(fused['typo']!));
     });

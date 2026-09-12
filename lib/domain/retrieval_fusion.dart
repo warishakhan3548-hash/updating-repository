@@ -5,10 +5,7 @@
 /// or local LLMs. Product safety and canonicalization remain the responsibility
 /// of the downstream medicine resolver.
 class RankedRetrievalChannel {
-  const RankedRetrievalChannel({
-    required this.ids,
-    this.weight = 1.0,
-  });
+  const RankedRetrievalChannel({required this.ids, this.weight = 1.0});
 
   final List<String> ids;
   final double weight;
