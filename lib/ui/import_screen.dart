@@ -18,6 +18,7 @@ import '../services/local_ai_service.dart';
 import '../services/local_brain_route_policy.dart';
 import '../services/media_import_service.dart';
 import '../services/medicine_intake_service.dart';
+import '../services/offline_recognition_memory_service.dart';
 import '../services/scan_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
@@ -492,7 +493,15 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
         }
       }
 
-      final knowledge = medicineKnowledgeFromRecords(widget.controller.records);
+      final baseKnowledge = medicineKnowledgeFromRecords(
+        widget.controller.records,
+      );
+      final knowledge = widget.preparedDrafts == null
+          ? await OfflineRecognitionMemoryService.instance.enrichKnowledge(
+              baseKnowledge,
+              widget.evidence,
+            )
+          : baseKnowledge;
       final catalogue = widget.preparedDrafts == null
           ? await CanonicalMedicineCatalogService.instance
                 .candidatesForEvidence(widget.evidence)
@@ -748,6 +757,10 @@ class _ImportInboxScreenState extends State<ImportInboxScreen> {
       await widget.controller.save(
         medicine,
         expectedRevision: expectedRevision,
+      );
+      await OfflineRecognitionMemoryService.instance.learnFromConfirmedScan(
+        review.draft,
+        medicine,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
