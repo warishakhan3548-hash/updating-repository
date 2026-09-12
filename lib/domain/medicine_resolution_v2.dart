@@ -2,10 +2,13 @@ import 'dart:math';
 
 import 'gs1_healthcare.dart';
 import 'medicine.dart';
+import 'medicine_confusion_firewall.dart';
 import 'medicine_understanding.dart';
 import 'offline_decision_reliability.dart';
 import 'offline_evidence_graph.dart';
+import 'regulatory_medicine_code.dart';
 import 'search.dart';
+import 'spatial_traceability.dart';
 
 const int maxCanonicalMedicineCandidates = 96;
 const double _resolverMinimumDecisionMass = .50;
@@ -240,8 +243,9 @@ class MedicineProductResolverV2 {
           .map((sequence) => bySequence[sequence])
           .whereType<MedicineFrameEvidence>()
           .toList(growable: false);
-      final gs1Safe = _applyGs1Traceability(draft, frames);
-      drafts.add(_resolveProduct(gs1Safe, frames));
+      final spatialSafe = _applySpatialTraceability(draft, frames);
+      final regulatorySafe = _applyRegulatoryTraceability(spatialSafe, frames);
+      drafts.add(_resolveProduct(regulatorySafe, frames));
     }
     return MedicineUnderstandingResult(
       drafts: List<MedicineScanDraft>.unmodifiable(drafts),
@@ -294,6 +298,24 @@ class MedicineProductResolverV2 {
       }
     }
     final margin = runnerUp == null ? 1.0 : winner.score - runnerUp.score;
+    final confusion = runnerUp == null
+        ? null
+        : assessMedicineConfusion(
+            MedicineConfusionIdentity(
+              name: winner.product.displayName,
+              brand: winner.product.brand,
+              salt: winner.product.salt,
+              strength: winner.product.strength,
+              form: winner.product.form,
+            ),
+            MedicineConfusionIdentity(
+              name: runnerUp.product.displayName,
+              brand: runnerUp.product.brand,
+              salt: runnerUp.product.salt,
+              strength: runnerUp.product.strength,
+              form: runnerUp.product.form,
+            ),
+          );
 
     if (winner.hardConflicts > 0) {
       return _markConflictAgainstProduct(draft, winner.product);
@@ -307,6 +329,18 @@ class MedicineProductResolverV2 {
     final requiredScore = _resolverRequiredLockScore(winner, evidenceQuality);
     final requiredMargin = _resolverRequiredLockMargin(winner, evidenceQuality);
     final requiredDecisionMass = _resolverRequiredDecisionMass(evidenceQuality);
+    final confusionSafe =
+        confusion == null ||
+        !confusion.highRisk ||
+        exactBarcodeLock ||
+        _confusionResolvedByEvidence(
+          draft,
+          winner.product,
+          runnerUp!.product,
+          confusion,
+          winner,
+          margin,
+        );
     final selectiveReliability = assessOfflineDecisionReliability(
       winnerScore: winner.score,
       margin: margin,
@@ -324,7 +358,8 @@ class MedicineProductResolverV2 {
         winner.decisionMass >= requiredDecisionMass &&
         margin >= requiredMargin &&
         winner.hardConflicts == 0 &&
-        selectiveReliability.acceptCanonicalLock;
+        selectiveReliability.acceptCanonicalLock &&
+        confusionSafe;
 
     if (exactBarcodeLock || calibratedLock) {
       return _inheritCanonicalIdentity(
@@ -332,6 +367,13 @@ class MedicineProductResolverV2 {
         winner,
         decisionReliability: selectiveReliability.score,
       );
+    }
+
+    if (runnerUp != null &&
+        confusion != null &&
+        confusion.highRisk &&
+        !confusionSafe) {
+      return _markProductAmbiguity(draft, winner.product, runnerUp.product);
     }
 
     // Low-quality evidence requires a wider separation before automation. High
@@ -1149,6 +1191,56 @@ double _resolverRequiredDecisionMass(double evidenceQuality) {
       .toDouble();
 }
 
+bool _confusionResolvedByEvidence(
+  MedicineScanDraft draft,
+  CanonicalMedicineProduct winner,
+  CanonicalMedicineProduct alternative,
+  MedicineConfusionAssessment assessment,
+  _ProductHypothesis hypothesis,
+  double margin,
+) {
+  if (assessment.criticalFields.isEmpty ||
+      margin < .10 ||
+      hypothesis.channels < 3 ||
+      hypothesis.decisionMass < .52) {
+    return false;
+  }
+
+  var confirmations = 0;
+  for (final field in assessment.criticalFields) {
+    final observed = draft.field(field);
+    if (observed.isEmpty || observed.conflicted) continue;
+    final minimumConfidence = field == 'strength' ? .65 : .78;
+    if (observed.confidence < minimumConfidence) continue;
+
+    bool winnerMatch;
+    bool alternativeMatch;
+    if (field == 'strength') {
+      final key = _strengthIdentity(observed.value);
+      winnerMatch = key.isNotEmpty && key == _strengthIdentity(winner.strength);
+      alternativeMatch =
+          key.isNotEmpty && key == _strengthIdentity(alternative.strength);
+    } else if (field == 'form') {
+      final key = normalizeForm(observed.value);
+      winnerMatch = key.isNotEmpty && key == normalizeForm(winner.form);
+      alternativeMatch =
+          key.isNotEmpty && key == normalizeForm(alternative.form);
+    } else {
+      winnerMatch = _weightedTextSimilarity(observed.value, winner.salt) >= .88;
+      alternativeMatch =
+          _weightedTextSimilarity(observed.value, alternative.salt) >= .88;
+    }
+    if (alternativeMatch && !winnerMatch) return false;
+    if (winnerMatch && !alternativeMatch) confirmations++;
+  }
+
+  final required =
+      assessment.riskScore >= .88 && assessment.criticalFields.length >= 2
+      ? 2
+      : 1;
+  return confirmations >= min(required, assessment.criticalFields.length);
+}
+
 bool _sameResolvedProductIdentity(
   CanonicalMedicineProduct left,
   CanonicalMedicineProduct right,
@@ -1322,7 +1414,96 @@ MedicineScanDraft _markProductAmbiguity(
   );
 }
 
-MedicineScanDraft _applyGs1Traceability(
+MedicineScanDraft _applySpatialTraceability(
+  MedicineScanDraft draft,
+  List<MedicineFrameEvidence> frames,
+) {
+  final hints = inferSpatialTraceability(frames);
+  if (hints.isEmpty) return draft;
+  final fields = Map<String, ExtractedMedicineField>.of(draft.fields);
+
+  void apply(String key, SpatialTraceabilityField? hint) {
+    if (hint == null || hint.value.trim().isEmpty || hint.confidence < .80) {
+      return;
+    }
+    final current = fields[key];
+    final currentIdentity = current == null
+        ? ''
+        : _fieldIdentity(key, current.value);
+    final hintIdentity = _fieldIdentity(key, hint.value);
+    final strongConflict =
+        current != null &&
+        !current.isEmpty &&
+        current.confidence >= .90 &&
+        currentIdentity.isNotEmpty &&
+        hintIdentity.isNotEmpty &&
+        currentIdentity != hintIdentity;
+    if (strongConflict) {
+      fields[key] = ExtractedMedicineField(
+        value: current.value,
+        confidence: min(current.confidence, .84),
+        support: max(current.support, hint.support),
+        conflicted: true,
+      );
+      return;
+    }
+    if (hint.conflicted) {
+      fields[key] = ExtractedMedicineField(
+        value: current?.value.trim().isNotEmpty == true
+            ? current!.value
+            : hint.value,
+        confidence: min(max(current?.confidence ?? 0, hint.confidence), .82),
+        support: max(current?.support ?? 0, hint.support),
+        conflicted: true,
+      );
+      return;
+    }
+    if (current == null ||
+        current.isEmpty ||
+        hint.confidence > current.confidence + .025) {
+      fields[key] = ExtractedMedicineField(
+        value: hint.value,
+        confidence: hint.confidence.clamp(.80, .96).toDouble(),
+        support: max(current?.support ?? 0, hint.support),
+        conflicted: false,
+      );
+    }
+  }
+
+  apply('batchNumber', hints.batch);
+  apply('mfg', hints.mfg);
+  apply('expiry', hints.expiry);
+
+  final mfg = fields['mfg'];
+  final expiry = fields['expiry'];
+  if (mfg != null && expiry != null && !mfg.isEmpty && !expiry.isEmpty) {
+    try {
+      final mfgDate = parseDate(mfg.value, monthStart: true);
+      final expiryDate = parseDate(expiry.value, monthEnd: true);
+      if (mfgDate != null &&
+          expiryDate != null &&
+          mfgDate.isAfter(expiryDate)) {
+        fields['mfg'] = ExtractedMedicineField(
+          value: mfg.value,
+          confidence: min(mfg.confidence, .80),
+          support: mfg.support,
+          conflicted: true,
+        );
+        fields['expiry'] = ExtractedMedicineField(
+          value: expiry.value,
+          confidence: min(expiry.confidence, .80),
+          support: expiry.support,
+          conflicted: true,
+        );
+      }
+    } on FormatException {
+      // Invalid spatial candidates remain non-authoritative and reviewable.
+    }
+  }
+  return _copyDraft(draft, fields: fields);
+}
+
+MedicineScanDraft _applyRegulatoryTraceability(
   MedicineScanDraft draft,
   List<MedicineFrameEvidence> frames,
 ) {
@@ -1332,16 +1513,17 @@ MedicineScanDraft _applyGs1Traceability(
   final expiries = <String>{};
   for (final frame in frames) {
     for (final raw in frame.allBarcodes) {
-      final gs1 = parseGs1HealthcareBarcode(raw);
-      if (gs1 == null) continue;
-      if (gs1.gtin.isNotEmpty) gtins.add(gs1.gtin);
-      if (gs1.batchLot.isNotEmpty) batches.add(gs1.batchLot.trim());
-      if (gs1.manufacturingYyMmDd.isNotEmpty) {
-        final value = _gs1Date(gs1.manufacturingYyMmDd);
+      final structured = parseRegulatoryMedicineCode(raw);
+      if (structured == null) continue;
+      if (structured.gtin.isNotEmpty) gtins.add(structured.gtin);
+      if (structured.batchLot.isNotEmpty)
+        batches.add(structured.batchLot.trim());
+      if (structured.manufacturingYyMmDd.isNotEmpty) {
+        final value = _gs1Date(structured.manufacturingYyMmDd);
         if (value.isNotEmpty) mfgs.add(value);
       }
-      if (gs1.expiryYyMmDd.isNotEmpty) {
-        final value = _gs1Date(gs1.expiryYyMmDd);
+      if (structured.expiryYyMmDd.isNotEmpty) {
+        final value = _gs1Date(structured.expiryYyMmDd);
         if (value.isNotEmpty) expiries.add(value);
       }
     }
@@ -1417,8 +1599,10 @@ String _fieldIdentity(String field, String value) {
 String _canonicalBarcode(String value) {
   final raw = value.trim();
   if (raw.isEmpty) return '';
-  final gs1 = parseGs1HealthcareBarcode(raw);
-  final candidate = gs1 != null && gs1.gtin.isNotEmpty ? gs1.gtin : raw;
+  final structured = parseRegulatoryMedicineCode(raw);
+  final candidate = structured != null && structured.gtin.isNotEmpty
+      ? structured.gtin
+      : raw;
   if (RegExp(r'^\d+$').hasMatch(candidate) &&
       const <int>{8, 12, 13, 14}.contains(candidate.length)) {
     return candidate.padLeft(14, '0');
@@ -1477,10 +1661,11 @@ double _weightedEditSimilarity(String left, String right) {
   if (left.isEmpty || right.isEmpty) return 0;
   if (left.length > 80) left = left.substring(0, 80);
   if (right.length > 80) right = right.substring(0, 80);
-  var previous = List<double>.generate(
+  var previousPrevious = List<double>.generate(
     right.length + 1,
     (index) => index * .82,
   );
+  var previous = List<double>.from(previousPrevious);
   for (var i = 0; i < left.length; i++) {
     final current = List<double>.filled(right.length + 1, 0)
       ..[0] = (i + 1) * .82;
@@ -1489,8 +1674,16 @@ double _weightedEditSimilarity(String left, String right) {
           previous[j] + _ocrSubstitutionCost(left[i], right[j]);
       final deletion = previous[j + 1] + .82;
       final insertion = current[j] + .82;
-      current[j + 1] = min(substitution, min(deletion, insertion));
+      var best = min(substitution, min(deletion, insertion));
+      if (i > 0 &&
+          j > 0 &&
+          left[i] == right[j - 1] &&
+          left[i - 1] == right[j]) {
+        best = min(best, previousPrevious[j - 1] + .44);
+      }
+      current[j + 1] = best;
     }
+    previousPrevious = previous;
     previous = current;
   }
   final scale = max(left.length, right.length).toDouble();
