@@ -4,6 +4,7 @@ import 'gs1_healthcare.dart';
 import 'medicine.dart';
 import 'medicine_confusion_firewall.dart';
 import 'medicine_date_intelligence.dart';
+import 'medicine_semantic_roles.dart';
 import 'medicine_understanding.dart';
 import 'offline_decision_reliability.dart';
 import 'offline_evidence_graph.dart';
@@ -247,7 +248,8 @@ class MedicineProductResolverV2 {
       final spatialSafe = _applySpatialTraceability(draft, frames);
       final regulatorySafe = _applyRegulatoryTraceability(spatialSafe, frames);
       final temporalSafe = _applyDateIntelligence(regulatorySafe, frames);
-      drafts.add(_resolveProduct(temporalSafe, frames));
+      final semanticSafe = _applySemanticMedicineRoles(temporalSafe, frames);
+      drafts.add(_resolveProduct(semanticSafe, frames));
     }
     return MedicineUnderstandingResult(
       drafts: List<MedicineScanDraft>.unmodifiable(drafts),
@@ -1413,6 +1415,142 @@ MedicineScanDraft _markProductAmbiguity(
     draft,
     fields: fields,
     overallConfidence: min(draft.overallConfidence, .77),
+  );
+}
+
+MedicineScanDraft _applySemanticMedicineRoles(
+  MedicineScanDraft draft,
+  List<MedicineFrameEvidence> frames,
+) {
+  final semantic = inferMedicineSemanticRoles(frames);
+  if (semantic.isEmpty) return draft;
+  final fields = Map<String, ExtractedMedicineField>.of(draft.fields);
+
+  bool sameValue(String key, String left, String right) {
+    if (left.trim().isEmpty || right.trim().isEmpty) return false;
+    if (key == 'strength') {
+      return _strengthIdentity(left) == _strengthIdentity(right);
+    }
+    return _weightedTextSimilarity(left, right) >= .91;
+  }
+
+  void apply(
+    String key,
+    String value,
+    double confidence, {
+    double minimum = .82,
+  }) {
+    final clean = value.trim();
+    if (clean.isEmpty || confidence < minimum) return;
+    final current = fields[key];
+    if (current != null &&
+        !current.isEmpty &&
+        sameValue(key, current.value, clean)) {
+      fields[key] = ExtractedMedicineField(
+        value: current.value,
+        confidence: max(current.confidence, confidence),
+        support: max(current.support, 1),
+        conflicted: current.conflicted,
+      );
+      return;
+    }
+    if (current != null && !current.isEmpty && current.confidence >= .88) {
+      fields[key] = ExtractedMedicineField(
+        value: current.value,
+        confidence: min(current.confidence, .84),
+        support: max(current.support, 1),
+        conflicted: true,
+      );
+      return;
+    }
+    if (current == null || current.isEmpty || current.confidence < .78) {
+      fields[key] = ExtractedMedicineField(
+        value: clean,
+        confidence: confidence.clamp(minimum, .97).toDouble(),
+        support: max(current?.support ?? 0, 1),
+        conflicted: false,
+      );
+    }
+  }
+
+  apply('salt', semantic.salt, semantic.compositionConfidence, minimum: .80);
+  if (semantic.strength.trim().isNotEmpty &&
+      semantic.components.every((component) => component.strength.isNotEmpty)) {
+    apply(
+      'strength',
+      semantic.strength,
+      semantic.compositionConfidence,
+      minimum: .82,
+    );
+  }
+
+  if (!semantic.conflicted &&
+      semantic.brand.trim().isNotEmpty &&
+      semantic.brandConfidence >= .82) {
+    apply('brand', semantic.brand, semantic.brandConfidence, minimum: .82);
+    final name = fields['name'];
+    final salt = fields['salt']?.value ?? semantic.salt;
+    final nameLooksGeneric =
+        name != null &&
+        !name.isEmpty &&
+        salt.trim().isNotEmpty &&
+        _weightedTextSimilarity(name.value, salt) >= .88;
+    if (name == null ||
+        name.isEmpty ||
+        name.confidence < .76 ||
+        nameLooksGeneric) {
+      fields['name'] = ExtractedMedicineField(
+        value: semantic.brand,
+        confidence: semantic.brandConfidence.clamp(.82, .97).toDouble(),
+        support: max(name?.support ?? 0, 1),
+        conflicted: false,
+      );
+    }
+  } else if (semantic.genericOnly &&
+      semantic.genericName.trim().isNotEmpty &&
+      semantic.genericConfidence >= .86) {
+    final name = fields['name'];
+    if (name == null || name.isEmpty || name.confidence < .76) {
+      fields['name'] = ExtractedMedicineField(
+        value: semantic.genericName,
+        confidence: semantic.genericConfidence.clamp(.86, .96).toDouble(),
+        support: max(name?.support ?? 0, 1),
+        conflicted: false,
+      );
+    }
+    final brand = fields['brand'];
+    final salt = fields['salt']?.value ?? semantic.salt;
+    if (brand != null &&
+        !brand.isEmpty &&
+        salt.trim().isNotEmpty &&
+        _weightedTextSimilarity(brand.value, salt) >= .90 &&
+        brand.confidence < .92) {
+      // The legacy parser intentionally mirrored a confident Name into Brand.
+      // Once composition proves this is a generic-only pack, remove that weak
+      // synthetic brand instead of persisting a false trade-name distinction.
+      fields.remove('brand');
+    }
+  }
+
+  if (semantic.conflicted) {
+    for (final key in const <String>['name', 'brand', 'salt', 'strength']) {
+      final field = fields[key];
+      if (field == null || field.isEmpty || field.confidence < .78) continue;
+      fields[key] = ExtractedMedicineField(
+        value: field.value,
+        confidence: min(field.confidence, .82),
+        support: field.support,
+        conflicted: true,
+      );
+    }
+  }
+
+  return _copyDraft(
+    draft,
+    fields: fields,
+    overallConfidence: semantic.conflicted
+        ? min(draft.overallConfidence, .77)
+        : draft.overallConfidence,
   );
 }
 

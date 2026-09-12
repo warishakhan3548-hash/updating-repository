@@ -136,7 +136,7 @@ CREATE TABLE recognition_aliases (
       if (keys.isEmpty) return knowledge;
       final placeholders = List.filled(keys.length, '?').join(',');
       final rows = await db.rawQuery(
-        '''SELECT identity_key, alias, support, last_confirmed
+        '''SELECT identity_key, alias, normalized_alias, support, last_confirmed
            FROM recognition_aliases
            WHERE normalized_alias IN ($placeholders)
            ORDER BY support DESC, last_confirmed DESC
@@ -145,15 +145,50 @@ CREATE TABLE recognition_aliases (
       );
       if (rows.isEmpty) return knowledge;
 
-      final learned = <String, List<String>>{};
+      final byAlias = <String, List<Map<String, Object?>>>{};
       for (final row in rows) {
-        final identity = row['identity_key'];
-        final alias = row['alias'];
-        if (identity is! String || alias is! String || alias.trim().isEmpty) {
-          continue;
+        final normalized = row['normalized_alias'];
+        if (normalized is! String || normalized.isEmpty) continue;
+        byAlias
+            .putIfAbsent(normalized, () => <Map<String, Object?>>[])
+            .add(row);
+      }
+
+      final learned = <String, List<String>>{};
+      for (final collision in byAlias.values) {
+        final supportByIdentity = <String, int>{};
+        for (final row in collision) {
+          final identity = row['identity_key'];
+          final support = row['support'];
+          if (identity is! String || support is! num) continue;
+          supportByIdentity.update(
+            identity,
+            (value) => value + support.toInt(),
+            ifAbsent: () => support.toInt(),
+          );
         }
-        final values = learned.putIfAbsent(identity, () => <String>[]);
-        if (!values.contains(alias) && values.length < 12) values.add(alias);
+        if (supportByIdentity.isEmpty) continue;
+        final ranked = supportByIdentity.entries.toList(growable: false)
+          ..sort((a, b) {
+            final support = b.value.compareTo(a.value);
+            return support != 0 ? support : a.key.compareTo(b.key);
+          });
+        final winner = ranked.first;
+        if (ranked.length > 1) {
+          final runner = ranked[1];
+          final dominant =
+              winner.value >= 3 && winner.value >= runner.value * 2;
+          if (!dominant) continue;
+        }
+
+        for (final row in collision) {
+          if (row['identity_key'] != winner.key) continue;
+          final alias = row['alias'];
+          if (alias is! String || alias.trim().isEmpty) continue;
+          final values = learned.putIfAbsent(winner.key, () => <String>[]);
+          if (!values.contains(alias) && values.length < 12) values.add(alias);
+          break;
+        }
       }
       if (learned.isEmpty) return knowledge;
 
