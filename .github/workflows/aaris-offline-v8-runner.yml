@@ -1,0 +1,59 @@
+name: Aaris Offline V8 Runner
+on:
+  push:
+    branches:
+      - upgrade/offline-engine-v8-level5
+permissions:
+  contents: write
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: upgrade/offline-engine-v8-level5
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Execute source surgeon
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/aaris-offline-v8-level5-upgrade.yml').read_text()
+          marker = "          python3 <<'PY'\n"
+          start = source.index(marker) + len(marker)
+          end = source.index("\n          PY\n", start)
+          body = source[start:end]
+          body = '\n'.join(line[10:] if line.startswith('          ') else line for line in body.splitlines())
+          exec(compile(body, 'level5_source_surgeon.py', 'exec'))
+          PY
+      - name: Format
+        run: dart format lib test
+      - name: Dependencies
+        run: flutter pub get
+      - name: Analyze
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+      - name: Focused tests
+        run: flutter test --reporter expanded test/offline_level5_reasoning_test.dart test/medicine_resolution_v2_test.dart test/offline_decision_engine_test.dart test/retrieval_fusion_test.dart
+      - name: Full tests
+        run: flutter test --reporter expanded
+      - name: Android build
+        run: flutter build apk --debug --no-pub
+      - name: Commit verified patch
+        shell: bash
+        run: |
+          rm -f .github/workflows/aaris-offline-v8-level5-upgrade.yml .github/workflows/aaris-offline-v8-runner.yml
+          git config user.name "Aaris Upgrade Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Upgrade offline medicine reasoning to V8 Level 5"
+          git push origin HEAD:upgrade/offline-engine-v8-level5
