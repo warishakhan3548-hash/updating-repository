@@ -13,6 +13,7 @@ import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
 import 'default_ai_prompt.dart';
 import 'design.dart';
+import 'scanner_view.dart';
 
 class ScanResult {
   const ScanResult({
@@ -44,10 +45,13 @@ class _ScannerScreenState extends State<ScannerScreen>
   final _media = MediaImportService();
   CameraController? _camera;
   CameraDescription? _description;
-  Future<void>? _frameWork;
+  Future<bool>? _frameWork;
+  Future<void>? _captureWork;
   Future<void> _lifecycle = Future.value();
   DateTime _lastFrame = DateTime.fromMillisecondsSinceEpoch(0);
   bool _busy = false, _closed = false, _capturing = false;
+  bool _starting = false, _bootstrapped = false, _leaving = false;
+  bool _foreground = true;
   int _generation = 0;
   int _scanSequence = 0;
   String _text = '', _barcode = '', _error = '';
@@ -57,6 +61,8 @@ class _ScannerScreenState extends State<ScannerScreen>
   @override
   void initState() {
     super.initState();
+    final state = WidgetsBinding.instance.lifecycleState;
+    _foreground = state == null || state == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_closed) unawaited(_bootstrap());
@@ -68,20 +74,49 @@ class _ScannerScreenState extends State<ScannerScreen>
     // owner declines or setup fails, offerAarisDefaultAi returns normally and
     // the existing deterministic scanner starts unchanged.
     await offerAarisDefaultAi(context);
-    if (!_closed && mounted) await _start();
+    if (_closed || !mounted) return;
+    _bootstrapped = true;
+    if (_foreground) await _restartCamera();
   }
 
-  Future<void> _start() async {
+  bool _current(int generation) =>
+      mounted &&
+      !_closed &&
+      !_leaving &&
+      _foreground &&
+      generation == _generation;
+
+  Future<void> _restartCamera() {
+    if (_closed || _leaving || !_foreground || !_bootstrapped || _starting) {
+      return Future.value();
+    }
     final generation = ++_generation;
+    setState(() => _starting = true);
+    // Bootstrap, retry and resume share the same camera owner. Invalidation is
+    // synchronous; native teardown/opening is serialized after existing work.
+    return _lifecycle = _lifecycle
+        .then((_) async {
+          await _stopCamera();
+          if (_current(generation)) await _start(generation);
+        })
+        .whenComplete(() {
+          if (_current(generation)) setState(() => _starting = false);
+        });
+  }
+
+  Future<void> _start(int generation) async {
+    if (!_current(generation)) return;
     if (kIsWeb) {
       setState(
-        () => _error = 'Live camera OCR is available in the Android app. You can paste text into search.',
+        () => _error =
+            'Live camera OCR is available in the Android app. You can paste text into search.',
       );
       return;
     }
     CameraController? openingCamera;
     try {
       final cameras = await availableCameras();
+      if (!_current(generation)) return;
       if (cameras.isEmpty) throw StateError('No camera is available.');
       final description = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.back,
@@ -97,17 +132,18 @@ class _ScannerScreenState extends State<ScannerScreen>
       );
       openingCamera = camera;
       await camera.initialize();
-      if (_closed || generation != _generation) {
+      if (!_current(generation)) {
         await camera.dispose();
         openingCamera = null;
         return;
       }
       _description = description;
       _camera = camera;
+      _manualOnly = false;
       if (widget.onCaptureQueued == null)
-        await camera.startImageStream(_onFrame);
+        await camera.startImageStream((image) => _onFrame(image, generation));
       openingCamera = null;
-      if (mounted) setState(() => _error = '');
+      if (_current(generation)) setState(() => _error = '');
     } catch (e) {
       if (identical(_camera, openingCamera)) {
         _camera = null;
@@ -116,16 +152,21 @@ class _ScannerScreenState extends State<ScannerScreen>
       try {
         await openingCamera?.dispose();
       } catch (_) {}
-      if (mounted && !_closed)
+      if (_current(generation))
         setState(
-          () => _error = 'Camera unavailable. Allow camera access in your phone settings, then retry.',
+          () => _error =
+              'Camera unavailable. Allow camera access in your phone settings, then retry.',
         );
     }
   }
 
-  void _onFrame(CameraImage image) {
+  void _onFrame(CameraImage image, int generation) {
+    if (!_current(generation)) return;
     if (widget.onCaptureQueued != null) return;
     if (_closed ||
+        _leaving ||
+        !_foreground ||
+        _camera == null ||
         _busy ||
         _capturing ||
         DateTime.now().difference(_lastFrame).inMilliseconds < 450)
@@ -183,13 +224,13 @@ class _ScannerScreenState extends State<ScannerScreen>
     );
   }
 
-  Future<void> _recognize(
+  Future<bool> _recognize(
     InputImage input, {
     String? source,
     CaptureQuality? quality,
     String? qualityPath,
   }) async {
-    if (_busy || _closed) return;
+    if (_busy || _closed || _leaving || !_foreground) return false;
     _busy = true;
     final generation = _generation;
     try {
@@ -202,7 +243,7 @@ class _ScannerScreenState extends State<ScannerScreen>
         quality: quality?.score,
         qualityPath: qualityPath,
       );
-      if (_closed || !mounted || generation != _generation) return;
+      if (!_current(generation)) return false;
       final hint =
           quality?.guidance ??
           (result.quality < .28
@@ -228,7 +269,7 @@ class _ScannerScreenState extends State<ScannerScreen>
             'catalog': const <Object?>[],
           },
         );
-        if (_closed || !mounted || generation != _generation) return;
+        if (!_current(generation)) return false;
         final understood = MedicineUnderstandingResult.fromMessage(payload);
         setState(() {
           _evidence
@@ -242,85 +283,145 @@ class _ScannerScreenState extends State<ScannerScreen>
           _error = '';
           _qualityHint = hint;
         });
+        return true;
       } else if (_qualityHint != hint) {
         setState(() => _qualityHint = hint);
       }
+      if (_capturing) {
+        setState(
+          () => _error =
+              'No text or barcode was read in this photo. Hold steady and capture again.',
+        );
+      }
+      return false;
     } catch (e) {
-      if (mounted && !_closed && _capturing)
+      if (_current(generation) && _capturing)
         setState(
           () => _error =
               'Text could not be read. Move closer, add light and try again.',
         );
+      return false;
     } finally {
       _busy = false;
     }
   }
 
-  Future<void> _capture() async {
+  Future<void> _capture() {
     final camera = _camera;
-    if (camera == null || _capturing || _closed) return;
+    final generation = _generation;
+    if (camera == null ||
+        !camera.value.isInitialized ||
+        _starting ||
+        _capturing ||
+        !_current(generation))
+      return Future.value();
     setState(() => _capturing = true);
+    return _captureWork = _captureStill(camera, generation);
+  }
+
+  Future<void> _captureStill(CameraController camera, int generation) async {
+    bool current() => _current(generation) && identical(camera, _camera);
     String? capturePath;
     try {
       if (camera.value.isStreamingImages) await camera.stopImageStream();
       await _frameWork;
+      if (!current()) return;
       final photo = await camera.takePicture();
       capturePath = photo.path;
+      if (!current()) return;
       if (widget.onCaptureQueued != null) {
         await widget.onCaptureQueued!(photo.path);
-        if (mounted)
-          setState(
-            () => _text =
-                '${++_scanSequence} photos queued. Capture the next pack. Review in AI Hub.',
-          );
+        // A durable queue acknowledgement remains valid across app pause; only
+        // the camera session was retired, not the already-saved photo.
+        if (mounted && !_closed && !_leaving) {
+          setState(() {
+            _text =
+                '${++_scanSequence} photos queued. Capture the next pack. Review in AI Hub.';
+            _error = '';
+          });
+        }
       } else {
-        // The live stream is useful evidence, not disposable preview state. It
-        // often sees a barcode/front label while the high-resolution still sees
-        // the composition/expiry panel (or vice versa). Keep the existing
-        // bounded evidence window and add the captured still as the final frame
-        // so deterministic understanding and Local AI receive the fused pack,
-        // instead of throwing away everything observed immediately before tap.
-        await _recognize(
+        // Keep complementary live evidence, but require this still to succeed
+        // before automatic handoff. A failed/empty still must not submit an
+        // older preview simply because _text or _barcode was already populated.
+        final recognized = await (_frameWork = _recognize(
           InputImage.fromFilePath(photo.path),
           source: 'Captured still photo',
           qualityPath: photo.path,
-        );
-        if (widget.autoSubmit &&
-            mounted &&
+        ));
+        if (current() &&
+            widget.autoSubmit &&
+            recognized &&
             (_text.isNotEmpty || _barcode.isNotEmpty)) {
-          Navigator.pop(
-            context,
-            ScanResult(
-              barcode: _barcode,
-              text: _text,
-              evidence: List.of(_evidence),
-            ),
-          );
-          return;
+          _finishScan();
         }
       }
-      if (!_closed && camera == _camera && widget.onCaptureQueued == null)
-        await camera.startImageStream(_onFrame);
-    } catch (e) {
-      if (mounted)
-        showError(context, 'Capture was not queued/read. Please retry. $e');
+    } catch (_) {
+      if (current()) {
+        setState(() => _error = 'Capture was not queued/read. Please retry.');
+      }
     } finally {
       if (capturePath != null) {
         try {
           await _media.cleanupCameraCapture(capturePath);
         } catch (_) {
-          // Cache cleanup must not hide a successfully recognized scan.
+          // Housekeeping cannot turn a saved/read capture into a false failure.
         }
       }
-      if (mounted) setState(() => _capturing = false);
+      // Restore live scanning after BOTH success and failure. The session check
+      // stops a cancelled capture from restarting a retired camera or route.
+      if (current() &&
+          widget.onCaptureQueued == null &&
+          !camera.value.isStreamingImages) {
+        try {
+          await camera.startImageStream((image) => _onFrame(image, generation));
+        } catch (_) {
+          if (current()) setState(() => _manualOnly = true);
+        }
+      }
+      if (mounted && !_closed) setState(() => _capturing = false);
+    }
+  }
+
+  void _finishScan() {
+    if (_closed || _leaving || !mounted) return;
+    final result = widget.onCaptureQueued != null
+        ? null
+        : ScanResult(
+            barcode: _barcode,
+            text: _text,
+            evidence: List<ScanEvidence>.unmodifiable(_evidence),
+          );
+    _leaving = true;
+    ++_generation;
+    Navigator.pop(context, result);
+  }
+
+  Future<void> _toggleTorch() async {
+    final camera = _camera;
+    final generation = _generation;
+    if (camera == null || !_current(generation)) return;
+    try {
+      await camera.setFlashMode(
+        camera.value.flashMode == FlashMode.torch
+            ? FlashMode.off
+            : FlashMode.torch,
+      );
+      if (_current(generation)) setState(() {});
+    } catch (_) {
+      if (_current(generation)) showError(context, 'Torch is unavailable.');
     }
   }
 
   Future<void> _stopCamera() async {
-    ++_generation;
     final camera = _camera;
     _camera = null;
     _description = null;
+    if (mounted && !_closed) setState(() {});
+    // takePicture and still OCR are part of the same lease as stream OCR.
+    // Detach first to reject new frames, then drain before native disposal.
+    await _captureWork;
+    await _frameWork;
     if (camera != null) {
       try {
         await camera.dispose();
@@ -330,277 +431,60 @@ class _ScannerScreenState extends State<ScannerScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed &&
-        state != AppLifecycleState.inactive &&
-        state != AppLifecycleState.paused)
-      return;
-    _lifecycle = _lifecycle
-        .then((_) async {
-          if (_closed) return;
-          await _stopCamera();
-          if (state == AppLifecycleState.resumed && !_closed) await _start();
-        })
-        .catchError((Object _) {});
+    if (_closed || _leaving) return;
+    _foreground = state == AppLifecycleState.resumed;
+    ++_generation;
+    setState(() => _starting = false);
+    _lifecycle = _lifecycle.then((_) => _stopCamera());
+    if (_foreground && _bootstrapped) unawaited(_restartCamera());
   }
 
   @override
   void dispose() {
     _closed = true;
+    ++_generation;
     WidgetsBinding.instance.removeObserver(this);
     unawaited(
-      _stopCamera().then((_) async {
-        await _frameWork;
-        await _vision.close();
-      }),
+      _lifecycle
+          .then((_) => _stopCamera())
+          .then((_) => _vision.close())
+          .catchError((Object _) {}),
     );
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: ink,
-    appBar: AppBar(
-      title: const Text('Scan medicine', style: TextStyle(color: Colors.white)),
-      backgroundColor: ink,
-      foregroundColor: Colors.white,
-      actions: [
-        IconButton(
-          style: IconButton.styleFrom(foregroundColor: Colors.white),
-          tooltip: _camera?.value.flashMode == FlashMode.torch
-              ? 'Turn torch off'
-              : 'Turn torch on',
-          onPressed: _camera?.value.isInitialized != true
-              ? null
-              : () async {
-                  final camera = _camera;
-                  if (camera == null) return;
-                  try {
-                    await camera.setFlashMode(
-                      camera.value.flashMode == FlashMode.torch
-                          ? FlashMode.off
-                          : FlashMode.torch,
-                    );
-                    if (mounted) setState(() {});
-                  } catch (e) {
-                    if (context.mounted)
-                      showError(context, 'Torch is unavailable.');
-                  }
-                },
-          icon: Icon(
-            _camera?.value.flashMode == FlashMode.torch
-                ? Icons.flashlight_on_rounded
-                : Icons.flashlight_off_outlined,
-          ),
-        ),
-      ],
-    ),
-    body: SafeArea(
-      child: LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
-                child: Text(
-                  _manualOnly
-                      ? '1. Point at the pack   2. Capture   3. Review'
-                      : '1. Point at the pack   2. Hold steady   3. Review',
-                  style: const TextStyle(color: inverseMuted, fontSize: 12),
-                ),
-              ),
-              Container(
-                height: (constraints.maxHeight * .48).clamp(210.0, 440.0),
-                margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                decoration: depthDecoration(ink),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (_camera?.value.isInitialized == true)
-                        Center(child: CameraPreview(_camera!))
-                      else
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(22),
-                            child: Text(
-                              _error.isEmpty ? 'Opening camera…' : _error,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      IgnorePointer(
-                        child: Center(
-                          child: FractionallySizedBox(
-                            widthFactor: .88,
-                            heightFactor: .68,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                  color: primarySoft,
-                                  width: 2,
-                                ),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        left: 14,
-                        right: 14,
-                        bottom: 14,
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xE6182A44),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            _qualityHint.isNotEmpty
-                                ? _qualityHint
-                                : _manualOnly
-                                ? 'Tap Capture text to read the label.'
-                                : 'Barcode and label text are read together.',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              GlassPanel(
-                tint: canvas,
-                radius: 28,
-                blurSigma: 0,
-                elevation: 1.1,
-                padding: const EdgeInsets.all(22),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        DepthIcon(
-                          _barcode.isNotEmpty || _text.isNotEmpty
-                              ? Icons.check_rounded
-                              : Icons.document_scanner_outlined,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _barcode.isNotEmpty
-                                    ? 'Barcode detected'
-                                    : _text.isNotEmpty
-                                    ? 'Text captured'
-                                    : 'Ready to scan',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              Text(
-                                widget.onCaptureQueued != null
-                                    ? 'Keep capturing. Processing continues in the saved inbox.'
-                                    : widget.autoSubmit
-                                    ? 'Capture once. OCR will hand off automatically to Aaris Brain.'
-                                    : 'Check the result, then tap Use scan.',
-                                style: const TextStyle(
-                                  color: muted,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Surface(
-                      padding: const EdgeInsets.all(16),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 180),
-                        child: SingleChildScrollView(
-                          child: SelectableText(
-                            [
-                              if (_barcode.isNotEmpty) 'Barcode: $_barcode',
-                              if (_text.isNotEmpty) _text,
-                              if (_text.isEmpty && _barcode.isEmpty) 'Point at packaging or a printed medicine list.',
-                            ].join('\n\n'),
-                            style: const TextStyle(color: muted, fontSize: 13),
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (_error.isNotEmpty && _camera != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Text(
-                          _error,
-                          style: const TextStyle(color: red, fontSize: 12),
-                        ),
-                      ),
-                    const SizedBox(height: 18),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: _camera == null
-                              ? () => unawaited(_start())
-                              : _capturing
-                              ? null
-                              : _capture,
-                          icon: const Icon(Icons.camera_alt_outlined),
-                          label: Text(
-                            _camera == null
-                                ? 'Retry camera'
-                                : _capturing
-                                ? 'Reading…'
-                                : widget.autoSubmit
-                                ? 'Capture & automate'
-                                : 'Capture text',
-                          ),
-                        ),
-                        FilledButton.icon(
-                          onPressed: _capturing
-                              ? null
-                              : widget.onCaptureQueued != null
-                              ? () => Navigator.pop(context)
-                              : _text.isEmpty && _barcode.isEmpty
-                              ? null
-                              : () => Navigator.pop(
-                                  context,
-                                  ScanResult(
-                                    barcode: _barcode,
-                                    text: _text,
-                                    evidence: List<ScanEvidence>.unmodifiable(
-                                      _evidence,
-                                    ),
-                                  ),
-                                ),
-                          icon: const Icon(Icons.arrow_forward_rounded),
-                          label: Text(
-                            widget.onCaptureQueued != null
-                                ? 'Finish captures'
-                                : 'Use scan',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final cameraReady = _camera?.value.isInitialized == true;
+    final canCapture =
+        !_capturing && !_starting && _foreground && _bootstrapped && !_leaving;
+    return ScannerView(
+      preview: cameraReady ? CameraPreview(_camera!) : null,
+      cameraReady: cameraReady,
+      starting: _starting || !_bootstrapped,
+      capturing: _capturing,
+      autoSubmit: widget.autoSubmit,
+      rapidCapture: widget.onCaptureQueued != null,
+      manualOnly: _manualOnly,
+      torchOn: _camera?.value.flashMode == FlashMode.torch,
+      text: _text,
+      barcode: _barcode,
+      error: _error,
+      qualityHint: _qualityHint,
+      onCapture: !canCapture
+          ? null
+          : cameraReady
+          ? _capture
+          : _restartCamera,
+      onUseScan:
+          _capturing ||
+              _leaving ||
+              (widget.onCaptureQueued == null &&
+                  _text.isEmpty &&
+                  _barcode.isEmpty)
+          ? null
+          : _finishScan,
+      onTorch: cameraReady && canCapture ? _toggleTorch : null,
+    );
+  }
 }

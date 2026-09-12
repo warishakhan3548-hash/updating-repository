@@ -49,12 +49,27 @@ class _CloudScanReviewScreenState extends State<CloudScanReviewScreen> {
   @override
   void initState() {
     super.initState();
+    widget.controller.addListener(_inventoryChanged);
     _prepare();
+  }
+
+  void _inventoryChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant CloudScanReviewScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_inventoryChanged);
+      widget.controller.addListener(_inventoryChanged);
+    }
   }
 
   @override
   void dispose() {
     ++_generation;
+    widget.controller.removeListener(_inventoryChanged);
     // The preview owns the explicit cloud request. Leaving this screen retires
     // only that transport; no local scan/model lease or inventory write exists.
     _cloud.cancel();

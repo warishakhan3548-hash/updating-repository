@@ -199,7 +199,10 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _discoverOnline(ScanResult scan) async {
-    if (!widget.database || !_onlineMode || !mounted) return;
+    if (!widget.database ||
+        !_onlineMode ||
+        !mounted ||
+        !identical(_scan, scan)) return;
     final generation = ++_catalogGeneration;
     setState(() {
       _catalogLoading = true;
@@ -211,7 +214,10 @@ class _SearchScreenState extends State<SearchScreen> {
         barcode: scan.barcode,
         text: scan.text,
       );
-      if (!mounted || generation != _catalogGeneration || !_onlineMode) return;
+      if (!mounted ||
+          generation != _catalogGeneration ||
+          !_onlineMode ||
+          !identical(_scan, scan)) return;
       setState(() {
         _catalogHits = candidates;
         _catalogLoading = false;
@@ -246,6 +252,7 @@ class _SearchScreenState extends State<SearchScreen> {
     });
     await _search();
     if (!mounted ||
+        !identical(_scan, result) ||
         !widget.database ||
         !_onlineMode ||
         _scanHasConfidentLocalMatch(result)) {
