@@ -75,7 +75,9 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
   final graph = buildOfflineEvidenceGraph(source, maxFrames: 12);
   final frames = graph.groups.isEmpty
       ? source.take(12).toList(growable: false)
-      : graph.groups.map((group) => group.representative).toList(growable: false);
+      : graph.groups
+            .map((group) => group.representative)
+            .toList(growable: false);
   if (frames.isEmpty) return const MedicineSemanticResolution();
 
   final componentVotes = <String, _ComponentVote>{};
@@ -97,26 +99,40 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
       );
       return;
     }
-    final sameStrength = _strengthKey(old.strength) == _strengthKey(candidate.strength);
+    final sameStrength =
+        _strengthKey(old.strength) == _strengthKey(candidate.strength);
     componentVotes[key] = _ComponentVote(
       old.ingredient,
-      sameStrength || old.strength.isNotEmpty ? old.strength : candidate.strength,
+      sameStrength || old.strength.isNotEmpty
+          ? old.strength
+          : candidate.strength,
       max(old.confidence, candidate.confidence),
       old.support + 1,
       old.order,
-      conflicted: old.conflicted ||
-          (!sameStrength && old.strength.isNotEmpty && candidate.strength.isNotEmpty),
+      conflicted:
+          old.conflicted ||
+          (!sameStrength &&
+              old.strength.isNotEmpty &&
+              candidate.strength.isNotEmpty),
     );
   }
 
-  void rememberText(Map<String, _TextVote> target, String value, double confidence) {
+  void rememberText(
+    Map<String, _TextVote> target,
+    String value,
+    double confidence,
+  ) {
     final clean = _cleanSemanticText(value);
     final key = searchText(clean);
     if (key.length < 3 || _semanticNoiseOnly(key)) return;
     final old = target[key];
     target[key] = old == null
         ? _TextVote(clean, confidence, 1)
-        : _TextVote(old.value, max(old.confidence, confidence), old.support + 1);
+        : _TextVote(
+            old.value,
+            max(old.confidence, confidence),
+            old.support + 1,
+          );
   }
 
   for (final frame in frames) {
@@ -125,10 +141,19 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
     if (lines.isEmpty) continue;
 
     final windows = _compositionWindows(lines);
+    final frameComponents = <String, _ComponentCandidate>{};
     for (final window in windows) {
       for (final component in _parseComposition(window, quality)) {
-        rememberComponent(component);
+        final key = searchText(component.ingredient);
+        if (key.length < 3) continue;
+        final old = frameComponents[key];
+        if (old == null || component.confidence > old.confidence) {
+          frameComponents[key] = component;
+        }
       }
+    }
+    for (final component in frameComponents.values) {
+      rememberComponent(component);
     }
 
     for (var index = 0; index < lines.length; index++) {
@@ -146,6 +171,8 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
       }
 
       if (_compositionCue.hasMatch(normalized) ||
+          _brandLabel.hasMatch(normalized) ||
+          _genericLabel.hasMatch(normalized) ||
           _semanticLegalNoise.hasMatch(normalized) ||
           _semanticDateNoise.hasMatch(normalized) ||
           _manufacturerNoise.hasMatch(normalized)) {
@@ -154,17 +181,25 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
       if (raw.length < 3 || raw.length > 72) continue;
 
       var candidate = _stripPresentation(raw);
-      if (candidate.length < 3 || _semanticNoiseOnly(searchText(candidate))) continue;
+      if (candidate.length < 3 || _semanticNoiseOnly(searchText(candidate)))
+        continue;
       if (_strengthPattern.hasMatch(candidate) &&
           candidate.replaceAll(_strengthPattern, '').trim().length < 3) {
         continue;
       }
-      candidate = candidate.replaceAll(_strengthPattern, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+      candidate = candidate
+          .replaceAll(_strengthPattern, ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
       if (candidate.length < 3) continue;
 
       final componentLike = componentVotes.values.any(
         (component) =>
-            _semanticSimilarity(searchText(candidate), searchText(component.ingredient)) >= .90,
+            _semanticSimilarity(
+              searchText(candidate),
+              searchText(component.ingredient),
+            ) >=
+            .90,
       );
       if (componentLike) {
         rememberText(genericVotes, candidate, .82 + quality * .05);
@@ -177,7 +212,8 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
       final uppercase = _uppercaseRatio(raw);
       score += min(.07, uppercase * .08);
       score += lines[index].prominence.clamp(0, .12);
-      if (score >= .72) rememberText(brandVotes, candidate, score.clamp(0, .94));
+      if (score >= .72)
+        rememberText(brandVotes, candidate, score.clamp(0, .94));
     }
   }
 
@@ -235,7 +271,8 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
     if (ranked.length > 1) {
       final first = ranked[0];
       final second = ranked[1];
-      final distinct = _semanticSimilarity(
+      final distinct =
+          _semanticSimilarity(
             searchText(first.value),
             searchText(second.value),
           ) <
@@ -260,7 +297,9 @@ MedicineSemanticResolution inferMedicineSemanticRoles(
     brandConfidence: conflicted ? 0 : effectiveTextConfidence(brand),
     genericName: generic?.value ?? '',
     genericConfidence: effectiveTextConfidence(generic),
-    components: List<MedicineIngredientComponent>.unmodifiable(resolvedComponents),
+    components: List<MedicineIngredientComponent>.unmodifiable(
+      resolvedComponents,
+    ),
     conflicted: conflicted,
   );
 }
@@ -305,11 +344,12 @@ class _ComponentVote {
 List<_SemanticLine> _orderedFrameLines(MedicineFrameEvidence frame) {
   final result = <_SemanticLine>[];
   final seen = <String>{};
-  final heights = frame.layoutLines
-      .where((line) => line.height > 0)
-      .map((line) => line.height)
-      .toList(growable: false)
-    ..sort();
+  final heights =
+      frame.layoutLines
+          .where((line) => line.height > 0)
+          .map((line) => line.height)
+          .toList(growable: false)
+        ..sort();
   final median = heights.isEmpty ? 0.0 : heights[heights.length ~/ 2];
 
   for (final line in frame.layoutLines.take(160)) {
@@ -335,20 +375,31 @@ List<String> _compositionWindows(List<_SemanticLine> lines) {
     final normalized = searchText(lines[index].text);
     if (!_compositionCue.hasMatch(normalized)) continue;
     final parts = <String>[lines[index].text];
-    for (var next = index + 1; next < lines.length && next <= index + 7; next++) {
+    var consumedThrough = index;
+    for (
+      var next = index + 1;
+      next < lines.length && next <= index + 7;
+      next++
+    ) {
       final value = searchText(lines[next].text);
       if (_compositionStop.hasMatch(value)) break;
       parts.add(lines[next].text);
+      consumedThrough = next;
       if (parts.fold<int>(0, (sum, value) => sum + value.length) > 420) break;
     }
-    result.add(parts.join('\n'));
+    final window = parts.join('\n');
+    if (_strengthPattern.hasMatch(window)) result.add(window);
+    index = consumedThrough;
   }
   return result;
 }
 
 List<_ComponentCandidate> _parseComposition(String raw, double quality) {
   final source = raw.replaceAll('\r', '\n');
-  final matches = _strengthPattern.allMatches(source).take(8).toList(growable: false);
+  final matches = _strengthPattern
+      .allMatches(source)
+      .take(8)
+      .toList(growable: false);
   if (matches.isEmpty) return const <_ComponentCandidate>[];
   final result = <_ComponentCandidate>[];
   var previousEnd = 0;
@@ -378,19 +429,28 @@ String _cleanIngredient(String raw) {
     ' ',
   );
   value = value.replaceAll(
-    RegExp(r'\b(?:I\.?P\.?|B\.?P\.?|U\.?S\.?P\.?|Ph\.?\s*Eur\.?)\b', caseSensitive: false),
+    RegExp(
+      r'\b(?:I\.?P\.?|B\.?P\.?|U\.?S\.?P\.?|Ph\.?\s*Eur\.?)\b',
+      caseSensitive: false,
+    ),
     ' ',
   );
-  value = value.replaceAll(RegExp(r'^\s*(?:and|plus|with|as)\s+', caseSensitive: false), ' ');
+  value = value.replaceAll(
+    RegExp(r'^\s*(?:and|plus|with|as)\s+', caseSensitive: false),
+    ' ',
+  );
   value = value.replaceAll(RegExp(r'[^A-Za-z0-9()\-/ ]+'), ' ');
   value = value.replaceAll(RegExp(r'\s+'), ' ').trim();
   if (value.length < 3 || !RegExp(r'[A-Za-z]').hasMatch(value)) return '';
   final tokens = value.split(' ').where((token) => token.isNotEmpty).toList();
-  while (tokens.isNotEmpty && _ingredientNoise.contains(tokens.first.toLowerCase())) {
+  while (tokens.isNotEmpty &&
+      _ingredientNoise.contains(tokens.first.toLowerCase())) {
     tokens.removeAt(0);
   }
   if (tokens.isEmpty) return '';
-  final bounded = tokens.length > 8 ? tokens.sublist(tokens.length - 8) : tokens;
+  final bounded = tokens.length > 8
+      ? tokens.sublist(tokens.length - 8)
+      : tokens;
   final result = bounded.join(' ').trim();
   if (result.length < 3 || _semanticNoiseOnly(searchText(result))) return '';
   return result;
@@ -399,7 +459,10 @@ String _cleanIngredient(String raw) {
 String _afterSemanticLabel(String raw, RegExp pattern) {
   final match = pattern.firstMatch(raw);
   if (match == null) return '';
-  return raw.substring(match.end).replaceFirst(RegExp(r'^\s*[:#.-]+\s*'), '').trim();
+  return raw
+      .substring(match.end)
+      .replaceFirst(RegExp(r'^\s*[:#.-]+\s*'), '')
+      .trim();
 }
 
 String _stripPresentation(String raw) {
@@ -452,14 +515,19 @@ double _semanticSimilarity(String left, String right) {
   if (left == right) return 1;
   if (left.isEmpty || right.isEmpty) return 0;
   final leftTokens = left.split(' ').where((value) => value.isNotEmpty).toSet();
-  final rightTokens = right.split(' ').where((value) => value.isNotEmpty).toSet();
+  final rightTokens = right
+      .split(' ')
+      .where((value) => value.isNotEmpty)
+      .toSet();
   final union = leftTokens.union(rightTokens).length;
-  final token = union == 0 ? 0.0 : leftTokens.intersection(rightTokens).length / union;
+  final token = union == 0
+      ? 0.0
+      : leftTokens.intersection(rightTokens).length / union;
   return max(token, orderedSimilarity(left, right));
 }
 
 final _compositionCue = RegExp(
-  r'\b(?:composition|active\s+ingredients?|generic\s+name|each\s+(?:film\s*coated\s+)?(?:tablet|capsule|5\s*ml)[^\n]{0,32}\bcontains?)\b',
+  r'\b(?:composition|active\s+ingredients?|each\s+(?:film\s*coated\s+)?(?:tablet|capsule|5\s*ml)[^\n]{0,32}\bcontains?)\b',
   caseSensitive: false,
 );
 final _compositionStop = RegExp(

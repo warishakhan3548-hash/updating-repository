@@ -5,20 +5,18 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('V11 semantic medicine brain', () {
     test('separates trade name from two-ingredient FDC composition', () {
-      final result = inferMedicineSemanticRoles(
-        const <MedicineFrameEvidence>[
-          MedicineFrameEvidence(
-            text: '''GLYCOMET GP 2
+      final result = inferMedicineSemanticRoles(const <MedicineFrameEvidence>[
+        MedicineFrameEvidence(
+          text: '''GLYCOMET GP 2
 Tablets
 Composition
 Each tablet contains
 Glimepiride IP 2 mg
 Metformin Hydrochloride IP 500 mg
 EXP 05 2028''',
-            quality: .95,
-          ),
-        ],
-      );
+          quality: .95,
+        ),
+      ]);
 
       expect(result.brand.toLowerCase(), contains('glycomet'));
       expect(result.salt.toLowerCase(), contains('glimepiride'));
@@ -29,18 +27,16 @@ EXP 05 2028''',
     });
 
     test('generic-only pack does not invent a trade brand', () {
-      final result = inferMedicineSemanticRoles(
-        const <MedicineFrameEvidence>[
-          MedicineFrameEvidence(
-            text: '''PARACETAMOL TABLETS
+      final result = inferMedicineSemanticRoles(const <MedicineFrameEvidence>[
+        MedicineFrameEvidence(
+          text: '''PARACETAMOL TABLETS
 Generic Name: Paracetamol
 Composition
 Each tablet contains
 Paracetamol IP 500 mg''',
-            quality: .96,
-          ),
-        ],
-      );
+          quality: .96,
+        ),
+      ]);
 
       expect(result.salt.toLowerCase(), 'paracetamol');
       expect(result.genericName.toLowerCase(), 'paracetamol');
@@ -49,15 +45,13 @@ Paracetamol IP 500 mg''',
     });
 
     test('equivalent-to grammar keeps the clinically named ingredient', () {
-      final result = inferMedicineSemanticRoles(
-        const <MedicineFrameEvidence>[
-          MedicineFrameEvidence(
-            text: '''Composition
+      final result = inferMedicineSemanticRoles(const <MedicineFrameEvidence>[
+        MedicineFrameEvidence(
+          text: '''Composition
 Each tablet contains
 Metformin Hydrochloride IP equivalent to Metformin 500 mg''',
-          ),
-        ],
-      );
+        ),
+      ]);
 
       expect(result.components, hasLength(1));
       expect(result.components.single.ingredient.toLowerCase(), 'metformin');
@@ -89,20 +83,21 @@ Paracetamol IP 650 mg''',
     });
 
     test('pharmacist aliases participate in first-stage local recognition', () {
-      final result = const MedicineUnderstandingEngine(
-        knowledge: <MedicineKnowledgeEntry>[
-          MedicineKnowledgeEntry(
-            name: 'Metformin XR',
-            brand: 'Glyco XR',
-            salt: 'Metformin Hydrochloride',
-            strength: '500 mg',
-            form: 'Tablet',
-            aliases: <String>['SugarFix XR'],
-          ),
-        ],
-      ).understand(const <MedicineFrameEvidence>[
-        MedicineFrameEvidence(text: 'SUGARFIX XR 500 mg\nTablets'),
-      ]);
+      final result =
+          const MedicineUnderstandingEngine(
+            knowledge: <MedicineKnowledgeEntry>[
+              MedicineKnowledgeEntry(
+                name: 'Metformin XR',
+                brand: 'Glyco XR',
+                salt: 'Metformin Hydrochloride',
+                strength: '500 mg',
+                form: 'Tablet',
+                aliases: <String>['SugarFix XR'],
+              ),
+            ],
+          ).understand(const <MedicineFrameEvidence>[
+            MedicineFrameEvidence(text: 'SUGARFIX XR 500 mg\nTablets'),
+          ]);
 
       expect(result.drafts, isNotEmpty);
       expect(result.drafts.single.name.toLowerCase(), contains('metformin'));

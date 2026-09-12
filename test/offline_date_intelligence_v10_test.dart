@@ -80,6 +80,18 @@ void main() {
       expect(parseMedicineDateText('MFG 06/26')?.value, '2026-06');
     });
 
+    test('duplicate video frames do not manufacture date support', () {
+      final result = inferMedicineDateIntelligence(
+        frames: const <MedicineFrameEvidence>[
+          MedicineFrameEvidence(text: 'EXP 05 2028', sequence: 1),
+          MedicineFrameEvidence(text: 'EXP 05 2028', sequence: 2),
+          MedicineFrameEvidence(text: 'EXP 05 2028', sequence: 3),
+        ],
+        referenceDate: DateTime.utc(2026, 9, 12),
+      );
+      expect(result.expiry?.support, 1);
+    });
+
     test('impossible dates are rejected', () {
       expect(parseMedicineDateText('32 19 2028'), isNull);
       expect(parseMedicineDateText('31 02 2028'), isNull);

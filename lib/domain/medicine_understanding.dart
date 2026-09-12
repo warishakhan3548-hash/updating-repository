@@ -1391,6 +1391,72 @@ class _OfflineMedicineKnowledge {
 
     _addIdentity('name', entry.name, entry.strength);
     _addIdentity('brand', entry.brand, entry.strength);
+    for (final alias in entry.aliases.take(24)) {
+      _addGeneralIdentityAlias(alias, entry);
+    }
+    for (final alias in entry.ocrAliases.take(24)) {
+      _addOcrIdentityAlias(alias, entry);
+    }
+  }
+
+  void _addGeneralIdentityAlias(String alias, MedicineKnowledgeEntry entry) {
+    final cleanAlias = _cleanValue(alias);
+    if (cleanAlias.isEmpty) return;
+    final name = _cleanValue(entry.name);
+    final brand = _cleanValue(entry.brand);
+    if (name.isNotEmpty) {
+      _addPhrase(
+        indexField: 'name',
+        outputField: 'name',
+        alias: cleanAlias,
+        value: name,
+        verifiedLocal: true,
+      );
+      return;
+    }
+    if (brand.isNotEmpty) {
+      _addPhrase(
+        indexField: 'brand',
+        outputField: 'brand',
+        alias: cleanAlias,
+        value: brand,
+        verifiedLocal: true,
+      );
+    }
+  }
+
+  void _addOcrIdentityAlias(String alias, MedicineKnowledgeEntry entry) {
+    final cleanAlias = _cleanValue(alias);
+    final aliasKey = _knowledgeKey(cleanAlias);
+    if (aliasKey.length < 2) return;
+    final name = _cleanValue(entry.name);
+    final brand = _cleanValue(entry.brand);
+    final nameScore = name.isEmpty
+        ? 0.0
+        : orderedSimilarity(aliasKey, _knowledgeKey(name));
+    final brandScore = brand.isEmpty
+        ? 0.0
+        : orderedSimilarity(aliasKey, _knowledgeKey(brand));
+    if (max(nameScore, brandScore) < .52) return;
+    if (brand.isNotEmpty && brandScore > nameScore + .025) {
+      _addPhrase(
+        indexField: 'brand',
+        outputField: 'brand',
+        alias: cleanAlias,
+        value: brand,
+        verifiedLocal: true,
+      );
+      return;
+    }
+    if (name.isNotEmpty) {
+      _addPhrase(
+        indexField: 'name',
+        outputField: 'name',
+        alias: cleanAlias,
+        value: name,
+        verifiedLocal: true,
+      );
+    }
   }
 
   void _addIdentity(String field, String value, String strength) {

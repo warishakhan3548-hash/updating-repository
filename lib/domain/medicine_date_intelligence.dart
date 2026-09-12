@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'medicine_understanding.dart';
+import 'offline_evidence_graph.dart';
 
 enum MedicineDateRole { manufacturing, expiry, unknown }
 
@@ -118,7 +119,11 @@ MedicineDateResolution inferMedicineDateIntelligence({
     );
   }
 
-  for (final frame in frames.take(16)) {
+  final graph = buildOfflineEvidenceGraph(frames, maxFrames: 16);
+  final independentFrames = graph.groups.isEmpty
+      ? frames.take(16)
+      : graph.groups.map((group) => group.representative);
+  for (final frame in independentFrames) {
     final quality = frame.quality.clamp(0, 1).toDouble();
     final lines = <String>{
       ...frame.text.split(RegExp(r'[\r\n]+')),
