@@ -31,7 +31,7 @@ Camera / Photo / Video / Typed or Voice Query
 │  ├─ local barcode consensus
 │  └─ field confidence + conflict detection
 │
-├─ MedicineProductResolverV2 (Tier 1 coherent product resolver, V5 policy)
+├─ MedicineProductResolverV2 (Tier 1 coherent product resolver, V6 policy)
 │  ├─ exact barcode candidate path
 │  ├─ rare lexical candidate retrieval
 │  ├─ bounded delete-neighbour recovery
@@ -139,6 +139,47 @@ verified exact barcode                                   -> separate exact lock 
 ```
 
 Eligibility is not the same as acceptance: score, product verification, runner-up separation, contradictions and downstream review/write guards still apply.
+
+## V6 reliability-calibrated decision authority
+
+V5 separated normalized similarity from decision-grade evidence mass. V6 makes
+that authority continuous: a clue may be good enough to retrieve/rank a product
+without automatically receiving full permission to canonicalize identity.
+
+The original `MedicineProductResolverV2` core now calibrates authority from both
+agreement and parser confidence:
+
+1. verified exact barcode/GTIN remains the separate highest-authority lock path;
+2. name/brand identity, salt, strength and manufacturer keep their existing
+   similarity/contradiction rules, but their decision-mass contribution is now
+   multiplied by bounded evidence reliability;
+3. field confidence below `0.35` contributes zero automation authority while
+   remaining available for search, ranking and human review;
+4. confidence above the floor increases authority smoothly rather than through a
+   binary jump;
+5. near-threshold fuzzy agreements receive slightly less authority than
+   near-exact agreements;
+6. strength/form/GS1 contradictions retain the existing hard veto behavior;
+   an exactly matching normalized strength at the same `>=0.65` trust level used
+   for contradiction veto receives symmetric high authority instead of being
+   penalized merely for having only one OCR observation;
+7. decision-mass remains centered on the historical `0.50` target, but V6
+   calibrates the final gate within a narrow `0.475..0.515` range from evidence
+   quality; winner score and runner-up separation remain independent gates, so a
+   weak identity/form-only hypothesis cannot auto-lock merely from this relief.
+
+Example consequence:
+
+```text
+high-confidence identity + very-low-confidence salt -> rank candidate, REVIEW
+high-confidence identity + high-confidence salt     -> eligible if score/margin pass
+medium identity + salt + exact strength             -> eligible if combined mass passes
+verified exact GTIN                                 -> exact lock path
+```
+
+This closes a specific failure mode where a low-confidence OCR field could cross
+a similarity threshold and previously receive the same automation authority as a
+high-confidence field.
 
 ## Performance model
 
