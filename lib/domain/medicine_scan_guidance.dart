@@ -1,3 +1,4 @@
+import 'medicine_machine_code_safety.dart';
 import 'medicine_scan_commit.dart';
 import 'medicine_understanding.dart';
 import 'regulatory_medicine_code.dart';
@@ -309,7 +310,7 @@ bool _trustedField(MedicineScanDraft draft, String key, double minimum) {
 }
 
 bool _trustedMachineReadableIdentity(String raw) =>
-    _canonicalTrustedGtin(raw).isNotEmpty;
+    canonicalTrustedMedicineProductKey(raw).isNotEmpty;
 
 class _ScanMachineAnchor {
   const _ScanMachineAnchor({
@@ -326,24 +327,20 @@ class _ScanMachineAnchor {
 }
 
 _ScanMachineAnchor _machineAnchor(MedicineFrameEvidence frame) {
-  final gtins = <String>{};
+  final gtins = assessMedicineMachineCodes(frame.allBarcodes).trustedProductKeys;
   final lots = <String>{};
   final serials = <String>{};
   for (final raw in frame.allBarcodes.take(8)) {
     final structured = parseRegulatoryMedicineCode(raw);
-    if (structured != null) {
-      if (structured.gtin.isNotEmpty) gtins.add(structured.gtin);
-      if (structured.batchLot.isNotEmpty) {
-        final lot = searchText(structured.batchLot);
-        if (lot.isNotEmpty) lots.add(lot);
-      }
-      if (structured.serial.isNotEmpty) {
-        final serial = searchText(structured.serial);
-        if (serial.isNotEmpty) serials.add(serial);
-      }
+    if (structured == null) continue;
+    if (structured.batchLot.isNotEmpty) {
+      final lot = searchText(structured.batchLot);
+      if (lot.isNotEmpty) lots.add(lot);
     }
-    final gtin = _canonicalTrustedGtin(raw);
-    if (gtin.isNotEmpty) gtins.add(gtin);
+    if (structured.serial.isNotEmpty) {
+      final serial = searchText(structured.serial);
+      if (serial.isNotEmpty) serials.add(serial);
+    }
   }
 
   final ambiguous = gtins.length > 1 || lots.length > 1 || serials.length > 1;
@@ -396,28 +393,4 @@ bool _preferIncomingDuplicate(
     return incoming.allBarcodes.length > existing.allBarcodes.length;
   }
   return incoming.sequence > existing.sequence;
-}
-
-String _canonicalTrustedGtin(String raw) {
-  final value = raw.trim();
-  if (value.isEmpty) return '';
-  final structured = parseRegulatoryMedicineCode(value);
-  if (structured != null && structured.gtin.isNotEmpty) return structured.gtin;
-
-  final digits = value.replaceAll(RegExp(r'\D'), '');
-  if (digits != value || !const {8, 12, 13, 14}.contains(digits.length)) {
-    return '';
-  }
-  var sum = 0;
-  for (
-    var index = digits.length - 2, position = 1;
-    index >= 0;
-    index--, position++
-  ) {
-    sum += int.parse(digits[index]) * (position.isOdd ? 3 : 1);
-  }
-  if ((10 - sum % 10) % 10 != int.parse(digits[digits.length - 1])) {
-    return '';
-  }
-  return digits.padLeft(14, '0');
 }
