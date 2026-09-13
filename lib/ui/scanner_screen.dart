@@ -8,6 +8,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 
 import '../domain/medicine_resolution_v2.dart';
 import '../domain/capture_quality.dart';
+import '../domain/medicine_scan_guidance.dart';
 import '../domain/medicine_understanding.dart';
 import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
@@ -271,17 +272,20 @@ class _ScannerScreenState extends State<ScannerScreen>
         );
         if (!_current(generation)) return false;
         final understood = MedicineUnderstandingResult.fromMessage(payload);
+        final current = understood.drafts.isEmpty
+            ? null
+            : understood.drafts.last;
+        final advice = current == null
+            ? null
+            : nextBestMedicineScanAdvice(current);
         setState(() {
           _evidence
             ..clear()
             ..addAll(evidence);
-          final current = understood.drafts.isEmpty
-              ? null
-              : understood.drafts.last;
           _text = current?.rawText ?? result.text;
           _barcode = current?.barcode ?? result.barcode;
           _error = '';
-          _qualityHint = hint;
+          _qualityHint = hint.isNotEmpty ? hint : advice?.message ?? '';
         });
         return true;
       } else if (_qualityHint != hint) {
