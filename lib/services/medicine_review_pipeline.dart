@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../domain/medicine.dart';
+import '../domain/medicine_machine_code_safety.dart';
 import '../domain/medicine_resolution_v2.dart';
 import '../domain/medicine_review_cardinality.dart';
 import '../domain/medicine_scan_commit.dart';
@@ -141,7 +142,7 @@ class MedicineReviewPipeline {
   void _validateEvidence(List<MedicineFrameEvidence> evidence) {
     if (evidence.isEmpty ||
         evidence.every(
-          (item) => item.text.trim().isEmpty && item.barcode.trim().isEmpty,
+          (item) => item.text.trim().isEmpty && item.allBarcodes.isEmpty,
         )) {
       throw const FormatException('No barcode or medicine text was captured.');
     }
@@ -152,8 +153,13 @@ class MedicineReviewPipeline {
     Iterable<Medicine> records,
   ) async {
     final evidence = input.evidence;
+    final ambiguousMachineCodes = evidence.any(
+      (item) => medicineMachineCodeSourceIsAmbiguous(item.source),
+    );
     final local = LocalAiService.instance;
-    var warning = '';
+    var warning = ambiguousMachineCodes
+        ? 'More than one medicine barcode was seen in one image. Review this scan; automatic save is disabled.'
+        : '';
     String? scanModelId;
 
     try {
@@ -245,7 +251,8 @@ class MedicineReviewPipeline {
                 draft = candidate;
                 _semanticCache[key] = candidate;
                 localBrainUsed = true;
-                if (local.isModelScanVerified(routedModelId)) {
+                if (!ambiguousMachineCodes &&
+                    local.isModelScanVerified(routedModelId)) {
                   autoSaveVerifier = ScanAutoSaveVerifier.localAi;
                 }
                 scanModelId = routedModelId;
@@ -267,6 +274,13 @@ class MedicineReviewPipeline {
           autoSaveVerifier: autoSaveVerifier,
         ),
       );
+    }
+
+    if (ambiguousMachineCodes &&
+        !warning.toLowerCase().contains('more than one medicine barcode')) {
+      warning = warning.trim().isEmpty
+          ? 'More than one medicine barcode was seen in one image. Review this scan; automatic save is disabled.'
+          : '$warning More than one medicine barcode was seen in one image, so automatic save is disabled.';
     }
 
     return MedicineReviewPreparation(
