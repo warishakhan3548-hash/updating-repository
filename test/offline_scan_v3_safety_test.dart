@@ -72,6 +72,16 @@ void main() {
       expect(assessment.singleTrustedProduct, '09504000059118');
     });
 
+    test('safe selection keeps canonical GTIN beside equivalent linear code', () {
+      final selection = selectSafeMedicineMachineCodes(const <String>[
+        '9504000059118',
+      ]);
+
+      expect(selection.ambiguousTrustedProductCodes, isFalse);
+      expect(selection.payloads, contains('9504000059118'));
+      expect(selection.payloads, contains('09504000059118'));
+    });
+
     test('two independently valid GTINs are ambiguous', () {
       final assessment = assessMedicineMachineCodes(const <String>[
         '09504000059118',
@@ -80,6 +90,16 @@ void main() {
 
       expect(assessment.ambiguous, isTrue);
       expect(assessment.trustedProductKeys, hasLength(2));
+    });
+
+    test('ambiguous source marker survives as explicit safety evidence', () {
+      expect(
+        medicineMachineCodeSourceIsAmbiguous(
+          'Captured still $ambiguousMedicineMachineCodesMarker',
+        ),
+        isTrue,
+      );
+      expect(medicineMachineCodeSourceIsAmbiguous('Captured still'), isFalse);
     });
 
     test('marketing QR and invalid numeric payload gain no product authority', () {
@@ -210,6 +230,18 @@ void main() {
       expect(guidance.focus, MedicineScanFocus.machineCode);
       expect(guidance.readyForAutomaticHandoff, isFalse);
       expect(guidance.message, contains('More than one'));
+    });
+
+    test('multi-product camera frame never auto-handoffs even after recapture budget', () {
+      final guidance = nextBestMedicineScanGuidance(
+        _draft(barcode: '09504000059118'),
+        captureAttempts: 2,
+        ambiguousMachineCodes: true,
+      );
+
+      expect(guidance.focus, MedicineScanFocus.machineCode);
+      expect(guidance.readyForAutomaticHandoff, isFalse);
+      expect(guidance.message, contains('one pack'));
     });
   });
 }
