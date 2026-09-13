@@ -14,6 +14,16 @@ import '../domain/regulatory_medicine_code.dart';
 
 typedef ScanEvidence = MedicineFrameEvidence;
 
+const String _ambiguousMedicineCodesMarker =
+    '[aaris:ambiguous-medicine-machine-codes]';
+
+/// True only when one immutable image contained more than one independently
+/// checksum-valid medicine product identity. Such a frame is still useful OCR
+/// evidence, but its machine codes are deliberately quarantined so no resolver
+/// can exact-lock an arbitrary product from a multi-pack image.
+bool scanEvidenceHasAmbiguousMedicineCodes(MedicineFrameEvidence evidence) =>
+    evidence.source.contains(_ambiguousMedicineCodesMarker);
+
 class MedicineVisionService {
   static const _channel = MethodChannel('com.aaris.pharmacy/documents');
   final _latin = TextRecognizer(script: TextRecognitionScript.latin);
@@ -110,13 +120,17 @@ class MedicineVisionService {
         if (hindi is RecognizedText)
           ..._layoutEvidence(hindi as RecognizedText),
       ]);
-      final barcodes = barcodeResult is List<Barcode>
+      final barcodeRanking = barcodeResult is List<Barcode>
           ? _rankBarcodes(
               (barcodeResult as List<Barcode>)
                   .map((barcode) => barcode.rawValue ?? '')
                   .where((value) => value.trim().isNotEmpty),
             )
-          : const <String>[];
+          : const _BarcodeRanking(<String>[]);
+      final barcodes = barcodeRanking.values;
+      final evidenceSource = barcodeRanking.ambiguousTrustedProductCodes
+          ? '${source.trim()} $_ambiguousMedicineCodesMarker'.trim()
+          : source;
 
       // Keep physical camera quality semantically pure. Detector confidence is
       // used only to choose among duplicate OCR layout lines. Downstream capture,
@@ -127,7 +141,7 @@ class MedicineVisionService {
         barcodes: barcodes,
         layoutLines: layoutLines,
         text: lines.join('\n'),
-        source: source,
+        source: evidenceSource,
         sequence: sequence,
         timestampMs: timestampMs,
         quality: measuredQuality,
@@ -243,12 +257,26 @@ double _layoutPreference(_OcrLayoutLine item) {
   return lexical + size + detector;
 }
 
-List<String> _rankBarcodes(Iterable<String> input) {
+class _BarcodeRanking {
+  const _BarcodeRanking(
+    this.values, {
+    this.ambiguousTrustedProductCodes = false,
+  });
+
+  final List<String> values;
+  final bool ambiguousTrustedProductCodes;
+}
+
+_BarcodeRanking _rankBarcodes(Iterable<String> input) {
   final values = <String>{};
+  final trustedProductKeys = <String>{};
   for (final candidate in input.take(24)) {
     final raw = candidate.trim();
     if (raw.isEmpty) continue;
     values.add(raw);
+
+    final trustedKey = _trustedProductKey(raw);
+    if (trustedKey.isNotEmpty) trustedProductKeys.add(trustedKey);
 
     // GS1 healthcare DataMatrix commonly carries a GTIN plus batch/expiry in one
     // element string. Preserve the complete raw payload for future traceability,
@@ -258,14 +286,41 @@ List<String> _rankBarcodes(Iterable<String> input) {
     final structured = parseRegulatoryMedicineCode(raw);
     if (structured != null && structured.gtin.isNotEmpty) {
       values.add(structured.gtin);
+      trustedProductKeys.add(structured.gtin);
     }
   }
+
+  // One image containing two different checksum-valid product identities is a
+  // multi-pack/ambiguous observation. Never hand an arbitrary one to the exact
+  // barcode resolver. OCR from the image remains available for safe review, and
+  // a subsequent single-pack image can recover full machine-code authority.
+  if (trustedProductKeys.length > 1) {
+    return const _BarcodeRanking(
+      <String>[],
+      ambiguousTrustedProductCodes: true,
+    );
+  }
+
   final ranked = values.toList(growable: false)
     ..sort((a, b) {
       final score = _barcodeScore(b).compareTo(_barcodeScore(a));
       return score != 0 ? score : a.compareTo(b);
     });
-  return ranked.take(8).toList(growable: false);
+  return _BarcodeRanking(ranked.take(8).toList(growable: false));
+}
+
+String _trustedProductKey(String value) {
+  final structured = parseRegulatoryMedicineCode(value);
+  if (structured != null && structured.gtin.isNotEmpty) {
+    return structured.gtin;
+  }
+  final digits = value.trim();
+  if (!RegExp(r'^\d+$').hasMatch(digits) ||
+      !const <int>{8, 12, 13, 14}.contains(digits.length) ||
+      !_validGtin(digits)) {
+    return '';
+  }
+  return digits.padLeft(14, '0');
 }
 
 int _barcodeScore(String value) {
