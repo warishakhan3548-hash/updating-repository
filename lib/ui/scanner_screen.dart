@@ -257,7 +257,10 @@ class _ScannerScreenState extends State<ScannerScreen>
           (result.quality < .28
               ? 'Try a closer, steadier photo with even light.'
               : '');
-      if (result.text.isNotEmpty || result.barcode.isNotEmpty) {
+      final ambiguousMachineCodes = scanEvidenceHasAmbiguousMedicineCodes(result);
+      if (result.text.isNotEmpty ||
+          result.barcode.isNotEmpty ||
+          ambiguousMachineCodes) {
         final window = mergeSinglePackMedicineEvidence(
           _evidence,
           result,
@@ -295,6 +298,7 @@ class _ScannerScreenState extends State<ScannerScreen>
           evidenceQuality: result.quality,
           physicalGuidance: physicalHint,
           captureAttempts: _captureAttempts,
+          ambiguousMachineCodes: ambiguousMachineCodes,
         );
         setState(() {
           _evidence
