@@ -53,36 +53,37 @@ MedicineMachineCodeAssessment assessMedicineMachineCodes(
   );
 }
 
-/// Selects machine-code evidence that is safe to expose to exact product
-/// resolution. Raw structured GS1 payloads are preserved alongside their
-/// canonical GTIN because the former carries lot/expiry while the latter is an
-/// efficient product key.
+/// Selects machine-code evidence that is safe to expose to medicine resolution.
 ///
-/// Equivalent EAN/UPC/GTIN encodings are also accompanied by the same GTIN-14
-/// key. Downstream frame grouping can therefore recognize the same medicine when
-/// one side exposes EAN-13 and another scanner path exposes GTIN-14/DataMatrix,
-/// instead of splitting one physical pack because the raw strings differ.
+/// When one checksum/GS1-valid product identity exists, equivalent EAN/UPC/GTIN
+/// representations are collapsed to ONE payload. A structured GS1/Digital-Link
+/// representation wins over a plain linear code when it carries lot/expiry,
+/// because keeping both equivalent strings would make the generic barcode field
+/// look falsely conflicted even though both prove the same product.
+///
+/// Non-authoritative marketing/proprietary codes are not mixed into that trusted
+/// identity lane. When no trusted GTIN exists at all, they are retained as bounded
+/// review/local-search clues so existing proprietary barcode workflows keep
+/// working, but they never gain exact product authority.
 ///
 /// If one immutable image contains two different checksum-valid product keys,
-/// no machine code from that image is forwarded as exact identity evidence.
-/// OCR remains usable and the caller can request a single-pack recapture. This
-/// avoids arbitrary sorting deciding which medicine wins in a multi-pack image.
+/// every machine code from that image is quarantined. OCR remains usable and the
+/// caller requests a single-pack recapture rather than picking one code by order.
 MedicineMachineCodeSelection selectSafeMedicineMachineCodes(
   Iterable<String> rawCodes, {
   int inputLimit = 24,
   int outputLimit = 8,
 }) {
-  final values = <String>{};
   final boundedInput = inputLimit < 1 ? 1 : inputLimit;
+  final values = <String>[];
+  final seen = <String>{};
   for (final candidate in rawCodes.take(boundedInput)) {
     final raw = candidate.trim();
-    if (raw.isEmpty) continue;
+    if (raw.isEmpty || !seen.add(raw)) continue;
     values.add(raw);
-    final canonical = canonicalTrustedMedicineProductKey(raw);
-    if (canonical.isNotEmpty) values.add(canonical);
   }
 
-  final assessment = assessMedicineMachineCodes(values, limit: boundedInput * 2);
+  final assessment = assessMedicineMachineCodes(values, limit: boundedInput);
   if (assessment.ambiguous) {
     return MedicineMachineCodeSelection(
       payloads: const <String>[],
@@ -90,10 +91,28 @@ MedicineMachineCodeSelection selectSafeMedicineMachineCodes(
     );
   }
 
+  final trustedKey = assessment.singleTrustedProduct;
+  if (trustedKey.isNotEmpty) {
+    final equivalent = values
+        .where(
+          (value) => canonicalTrustedMedicineProductKey(value) == trustedKey,
+        )
+        .toList(growable: false)
+      ..sort((left, right) {
+        final rank = _machineCodeRank(right).compareTo(_machineCodeRank(left));
+        return rank != 0 ? rank : left.compareTo(right);
+      });
+    final selected = equivalent.isEmpty ? trustedKey : equivalent.first;
+    return MedicineMachineCodeSelection(
+      payloads: List<String>.unmodifiable(<String>[selected]),
+      assessment: assessment,
+    );
+  }
+
   final ranked = values.toList(growable: false)
     ..sort((left, right) {
-      final score = _machineCodeRank(right).compareTo(_machineCodeRank(left));
-      return score != 0 ? score : left.compareTo(right);
+      final rank = _machineCodeRank(right).compareTo(_machineCodeRank(left));
+      return rank != 0 ? rank : left.compareTo(right);
     });
   final boundedOutput = outputLimit < 1 ? 1 : outputLimit;
   return MedicineMachineCodeSelection(
@@ -128,13 +147,25 @@ String canonicalTrustedMedicineProductKey(String raw) {
 }
 
 int _machineCodeRank(String value) {
-  final digits = value.replaceAll(RegExp(r'\D'), '');
-  if (digits == value && const <int>{8, 12, 13, 14}.contains(digits.length)) {
-    return canonicalTrustedMedicineProductKey(value).isNotEmpty ? 6 : 3;
-  }
   final structured = parseRegulatoryMedicineCode(value);
-  if (structured != null && structured.gtin.isNotEmpty) return 5;
-  if (digits == value && digits.length >= 6) return 3;
+  if (structured != null && structured.gtin.isNotEmpty) {
+    // Prefer one GS1 payload carrying physical traceability over an equivalent
+    // plain GTIN; the resolver can still derive the canonical product key from it.
+    return structured.batchLot.isNotEmpty ||
+            structured.expiryYyMmDd.isNotEmpty ||
+            structured.manufacturingYyMmDd.isNotEmpty ||
+            structured.serial.isNotEmpty
+        ? 8
+        : 6;
+  }
+
+  final digits = value.trim();
+  if (RegExp(r'^\d+$').hasMatch(digits) &&
+      const <int>{8, 12, 13, 14}.contains(digits.length) &&
+      canonicalTrustedMedicineProductKey(digits).isNotEmpty) {
+    return 7;
+  }
+  if (RegExp(r'^\d{6,}$').hasMatch(digits)) return 3;
   if (structured != null && structured.hasTraceability) return 2;
   return 1;
 }
