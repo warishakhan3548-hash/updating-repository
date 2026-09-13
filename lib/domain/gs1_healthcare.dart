@@ -41,10 +41,23 @@ Gs1HealthcareData? parseGs1HealthcareBarcode(String input) {
     if (identifier == ']d2' || identifier == ']c1') raw = raw.substring(3);
   }
 
+  // Barcode SDKs normally expose FNC1 separators as ASCII GS (0x1D), but log,
+  // clipboard and file-import bridges sometimes preserve a visible/control-token
+  // representation instead. Normalize only explicit GS spellings; never treat a
+  // generic punctuation character such as '~' as a separator because it may be
+  // legal batch text. The parser remains fail-closed for unknown encodings.
+  raw = _normalizeGs1TransportSeparators(raw);
+
   final humanReadable = _parseParenthesized(raw);
   if (humanReadable != null) return humanReadable;
   return _parseElementString(raw);
 }
+
+String _normalizeGs1TransportSeparators(String raw) => raw
+    .replaceAll('\u241d', '\u001d')
+    .replaceAll(RegExp(r'<\s*GS\s*>', caseSensitive: false), '\u001d')
+    .replaceAll(r'\u001d', '\u001d')
+    .replaceAll(r'\x1d', '\u001d');
 
 Gs1HealthcareData? _parseParenthesized(String raw) {
   final marker = RegExp(r'\((01|10|11|17|21)\)');
