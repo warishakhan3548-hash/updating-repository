@@ -15,6 +15,18 @@ class MedicineMachineCodeAssessment {
       : '';
 }
 
+class MedicineMachineCodeSelection {
+  const MedicineMachineCodeSelection({
+    required this.payloads,
+    required this.assessment,
+  });
+
+  final List<String> payloads;
+  final MedicineMachineCodeAssessment assessment;
+
+  bool get ambiguousTrustedProductCodes => assessment.ambiguous;
+}
+
 MedicineMachineCodeAssessment assessMedicineMachineCodes(
   Iterable<String> rawCodes, {
   int limit = 24,
@@ -28,6 +40,52 @@ MedicineMachineCodeAssessment assessMedicineMachineCodes(
   final ordered = keys.toList(growable: false)..sort();
   return MedicineMachineCodeAssessment(
     List<String>.unmodifiable(ordered),
+  );
+}
+
+/// Selects machine-code evidence that is safe to expose to exact product
+/// resolution. Raw structured GS1 payloads are preserved alongside their
+/// canonical GTIN because the former carries lot/expiry while the latter is an
+/// efficient product key.
+///
+/// If one immutable image contains two different checksum-valid product keys,
+/// no machine code from that image is forwarded as exact identity evidence.
+/// OCR remains usable and the caller can request a single-pack recapture. This
+/// avoids arbitrary sorting deciding which medicine wins in a multi-pack image.
+MedicineMachineCodeSelection selectSafeMedicineMachineCodes(
+  Iterable<String> rawCodes, {
+  int inputLimit = 24,
+  int outputLimit = 8,
+}) {
+  final values = <String>{};
+  final boundedInput = inputLimit < 1 ? 1 : inputLimit;
+  for (final candidate in rawCodes.take(boundedInput)) {
+    final raw = candidate.trim();
+    if (raw.isEmpty) continue;
+    values.add(raw);
+    final structured = parseRegulatoryMedicineCode(raw);
+    if (structured != null && structured.gtin.isNotEmpty) {
+      values.add(structured.gtin);
+    }
+  }
+
+  final assessment = assessMedicineMachineCodes(values, limit: boundedInput * 2);
+  if (assessment.ambiguous) {
+    return MedicineMachineCodeSelection(
+      payloads: const <String>[],
+      assessment: assessment,
+    );
+  }
+
+  final ranked = values.toList(growable: false)
+    ..sort((left, right) {
+      final score = _machineCodeRank(right).compareTo(_machineCodeRank(left));
+      return score != 0 ? score : left.compareTo(right);
+    });
+  final boundedOutput = outputLimit < 1 ? 1 : outputLimit;
+  return MedicineMachineCodeSelection(
+    payloads: List<String>.unmodifiable(ranked.take(boundedOutput)),
+    assessment: assessment,
   );
 }
 
@@ -54,6 +112,18 @@ String canonicalTrustedMedicineProductKey(String raw) {
     return '';
   }
   return value.padLeft(14, '0');
+}
+
+int _machineCodeRank(String value) {
+  final digits = value.replaceAll(RegExp(r'\D'), '');
+  if (digits == value && const <int>{8, 12, 13, 14}.contains(digits.length)) {
+    return canonicalTrustedMedicineProductKey(value).isNotEmpty ? 6 : 3;
+  }
+  final structured = parseRegulatoryMedicineCode(value);
+  if (structured != null && structured.gtin.isNotEmpty) return 5;
+  if (digits == value && digits.length >= 6) return 3;
+  if (structured != null && structured.hasTraceability) return 2;
+  return 1;
 }
 
 bool _validGtin(String digits) {
