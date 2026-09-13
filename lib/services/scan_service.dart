@@ -14,15 +14,12 @@ import '../domain/medicine_understanding.dart';
 
 typedef ScanEvidence = MedicineFrameEvidence;
 
-const String _ambiguousMedicineCodesMarker =
-    '[aaris:ambiguous-medicine-machine-codes]';
-
 /// True only when one immutable image contained more than one independently
 /// checksum-valid medicine product identity. Such a frame is still useful OCR
 /// evidence, but its machine codes are deliberately quarantined so no resolver
 /// can exact-lock an arbitrary product from a multi-pack image.
 bool scanEvidenceHasAmbiguousMedicineCodes(MedicineFrameEvidence evidence) =>
-    evidence.source.contains(_ambiguousMedicineCodesMarker);
+    medicineMachineCodeSourceIsAmbiguous(evidence.source);
 
 class MedicineVisionService {
   static const _channel = MethodChannel('com.aaris.pharmacy/documents');
@@ -128,7 +125,7 @@ class MedicineVisionService {
       final barcodeSelection = selectSafeMedicineMachineCodes(decodedBarcodes);
       final barcodes = barcodeSelection.payloads;
       final evidenceSource = barcodeSelection.ambiguousTrustedProductCodes
-          ? '${source.trim()} $_ambiguousMedicineCodesMarker'.trim()
+          ? '${source.trim()} $ambiguousMedicineMachineCodesMarker'.trim()
           : source;
 
       // Keep physical camera quality semantically pure. Detector confidence is
