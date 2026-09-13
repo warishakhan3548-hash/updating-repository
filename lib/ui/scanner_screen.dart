@@ -6,8 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
-import '../domain/medicine_resolution_v2.dart';
 import '../domain/capture_quality.dart';
+import '../domain/medicine_resolution_v2.dart';
+import '../domain/medicine_scan_guidance.dart';
 import '../domain/medicine_understanding.dart';
 import '../services/media_import_service.dart';
 import '../services/scan_service.dart';
@@ -52,8 +53,10 @@ class _ScannerScreenState extends State<ScannerScreen>
   bool _busy = false, _closed = false, _capturing = false;
   bool _starting = false, _bootstrapped = false, _leaving = false;
   bool _foreground = true;
+  bool _autoHandoffReady = false;
   int _generation = 0;
   int _scanSequence = 0;
+  int _captureAttempts = 0;
   String _text = '', _barcode = '', _error = '';
   String _qualityHint = '';
   final List<ScanEvidence> _evidence = <ScanEvidence>[];
@@ -140,8 +143,9 @@ class _ScannerScreenState extends State<ScannerScreen>
       _description = description;
       _camera = camera;
       _manualOnly = false;
-      if (widget.onCaptureQueued == null)
+      if (widget.onCaptureQueued == null) {
         await camera.startImageStream((image) => _onFrame(image, generation));
+      }
       openingCamera = null;
       if (_current(generation)) setState(() => _error = '');
     } catch (e) {
@@ -152,11 +156,12 @@ class _ScannerScreenState extends State<ScannerScreen>
       try {
         await openingCamera?.dispose();
       } catch (_) {}
-      if (_current(generation))
+      if (_current(generation)) {
         setState(
           () => _error =
               'Camera unavailable. Allow camera access in your phone settings, then retry.',
         );
+      }
     }
   }
 
@@ -169,8 +174,9 @@ class _ScannerScreenState extends State<ScannerScreen>
         _camera == null ||
         _busy ||
         _capturing ||
-        DateTime.now().difference(_lastFrame).inMilliseconds < 450)
+        DateTime.now().difference(_lastFrame).inMilliseconds < 450) {
       return;
+    }
     final input = _inputImage(image);
     if (input == null) {
       if (!_manualOnly && mounted) setState(() => _manualOnly = true);
@@ -192,8 +198,9 @@ class _ScannerScreenState extends State<ScannerScreen>
   InputImage? _inputImage(CameraImage image) {
     final description = _description;
     final camera = _camera;
-    if (description == null || camera == null || image.planes.length != 1)
+    if (description == null || camera == null || image.planes.length != 1) {
       return null;
+    }
     var rotation = description.sensorOrientation;
     if (defaultTargetPlatform == TargetPlatform.android) {
       const orientation = {
@@ -211,8 +218,9 @@ class _ScannerScreenState extends State<ScannerScreen>
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
     if (converted == null || format == null) return null;
     if (defaultTargetPlatform == TargetPlatform.android &&
-        format != InputImageFormat.nv21)
+        format != InputImageFormat.nv21) {
       return null;
+    }
     return InputImage.fromBytes(
       bytes: image.planes.first.bytes,
       metadata: InputImageMetadata(
@@ -244,7 +252,7 @@ class _ScannerScreenState extends State<ScannerScreen>
         qualityPath: qualityPath,
       );
       if (!_current(generation)) return false;
-      final hint =
+      final physicalHint =
           quality?.guidance ??
           (result.quality < .28
               ? 'Try a closer, steadier photo with even light.'
@@ -271,21 +279,33 @@ class _ScannerScreenState extends State<ScannerScreen>
         );
         if (!_current(generation)) return false;
         final understood = MedicineUnderstandingResult.fromMessage(payload);
+        final current = understood.drafts.isEmpty
+            ? null
+            : understood.drafts.last;
+        final guidance = nextBestMedicineScanGuidance(
+          current,
+          evidenceQuality: result.quality,
+          physicalGuidance: physicalHint,
+          captureAttempts: _captureAttempts,
+        );
         setState(() {
           _evidence
             ..clear()
             ..addAll(evidence);
-          final current = understood.drafts.isEmpty
-              ? null
-              : understood.drafts.last;
           _text = current?.rawText ?? result.text;
           _barcode = current?.barcode ?? result.barcode;
           _error = '';
-          _qualityHint = hint;
+          _qualityHint = guidance.message;
+          _autoHandoffReady = guidance.readyForAutomaticHandoff;
         });
         return true;
-      } else if (_qualityHint != hint) {
-        setState(() => _qualityHint = hint);
+      } else {
+        if (_qualityHint != physicalHint || _autoHandoffReady) {
+          setState(() {
+            _qualityHint = physicalHint;
+            _autoHandoffReady = false;
+          });
+        }
       }
       if (_capturing) {
         setState(
@@ -295,11 +315,15 @@ class _ScannerScreenState extends State<ScannerScreen>
       }
       return false;
     } catch (e) {
-      if (_current(generation) && _capturing)
-        setState(
-          () => _error =
-              'Text could not be read. Move closer, add light and try again.',
-        );
+      if (_current(generation)) {
+        if (_autoHandoffReady) setState(() => _autoHandoffReady = false);
+        if (_capturing) {
+          setState(
+            () => _error =
+                'Text could not be read. Move closer, add light and try again.',
+          );
+        }
+      }
       return false;
     } finally {
       _busy = false;
@@ -313,8 +337,9 @@ class _ScannerScreenState extends State<ScannerScreen>
         !camera.value.isInitialized ||
         _starting ||
         _capturing ||
-        !_current(generation))
+        !_current(generation)) {
       return Future.value();
+    }
     setState(() => _capturing = true);
     return _captureWork = _captureStill(camera, generation);
   }
@@ -342,8 +367,9 @@ class _ScannerScreenState extends State<ScannerScreen>
         }
       } else {
         // Keep complementary live evidence, but require this still to succeed
-        // before automatic handoff. A failed/empty still must not submit an
-        // older preview simply because _text or _barcode was already populated.
+        // before automatic handoff. The first still may request one targeted
+        // follow-up view; the second still falls back to fail-closed review.
+        _captureAttempts++;
         final recognized = await (_frameWork = _recognize(
           InputImage.fromFilePath(photo.path),
           source: 'Captured still photo',
@@ -352,6 +378,7 @@ class _ScannerScreenState extends State<ScannerScreen>
         if (current() &&
             widget.autoSubmit &&
             recognized &&
+            _autoHandoffReady &&
             (_text.isNotEmpty || _barcode.isNotEmpty)) {
           _finishScan();
         }
