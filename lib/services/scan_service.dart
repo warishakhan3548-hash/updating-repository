@@ -7,6 +7,7 @@ import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 import '../domain/capture_quality.dart';
+import '../domain/medicine_machine_code_safety.dart';
 import '../domain/medicine_ocr_reliability.dart';
 import '../domain/medicine_ocr_text.dart';
 import '../domain/medicine_understanding.dart';
@@ -269,14 +270,10 @@ class _BarcodeRanking {
 
 _BarcodeRanking _rankBarcodes(Iterable<String> input) {
   final values = <String>{};
-  final trustedProductKeys = <String>{};
   for (final candidate in input.take(24)) {
     final raw = candidate.trim();
     if (raw.isEmpty) continue;
     values.add(raw);
-
-    final trustedKey = _trustedProductKey(raw);
-    if (trustedKey.isNotEmpty) trustedProductKeys.add(trustedKey);
 
     // GS1 healthcare DataMatrix commonly carries a GTIN plus batch/expiry in one
     // element string. Preserve the complete raw payload for future traceability,
@@ -286,15 +283,15 @@ _BarcodeRanking _rankBarcodes(Iterable<String> input) {
     final structured = parseRegulatoryMedicineCode(raw);
     if (structured != null && structured.gtin.isNotEmpty) {
       values.add(structured.gtin);
-      trustedProductKeys.add(structured.gtin);
     }
   }
 
+  final machineAssessment = assessMedicineMachineCodes(values);
   // One image containing two different checksum-valid product identities is a
   // multi-pack/ambiguous observation. Never hand an arbitrary one to the exact
   // barcode resolver. OCR from the image remains available for safe review, and
   // a subsequent single-pack image can recover full machine-code authority.
-  if (trustedProductKeys.length > 1) {
+  if (machineAssessment.ambiguous) {
     return const _BarcodeRanking(
       <String>[],
       ambiguousTrustedProductCodes: true,
@@ -309,42 +306,14 @@ _BarcodeRanking _rankBarcodes(Iterable<String> input) {
   return _BarcodeRanking(ranked.take(8).toList(growable: false));
 }
 
-String _trustedProductKey(String value) {
-  final structured = parseRegulatoryMedicineCode(value);
-  if (structured != null && structured.gtin.isNotEmpty) {
-    return structured.gtin;
-  }
-  final digits = value.trim();
-  if (!RegExp(r'^\d+$').hasMatch(digits) ||
-      !const <int>{8, 12, 13, 14}.contains(digits.length) ||
-      !_validGtin(digits)) {
-    return '';
-  }
-  return digits.padLeft(14, '0');
-}
-
 int _barcodeScore(String value) {
   final digits = value.replaceAll(RegExp(r'\D'), '');
   if (digits == value && const {8, 12, 13, 14}.contains(digits.length)) {
-    return _validGtin(digits) ? 6 : 3;
+    return canonicalTrustedMedicineProductKey(value).isNotEmpty ? 6 : 3;
   }
   final structured = parseRegulatoryMedicineCode(value);
   if (structured != null && structured.gtin.isNotEmpty) return 5;
   if (digits == value && digits.length >= 6) return 3;
   if (structured != null && structured.hasTraceability) return 2;
   return 1;
-}
-
-bool _validGtin(String digits) {
-  if (!const {8, 12, 13, 14}.contains(digits.length)) return false;
-  var sum = 0;
-  for (
-    var index = digits.length - 2, position = 1;
-    index >= 0;
-    index--, position++
-  ) {
-    final digit = int.parse(digits[index]);
-    sum += digit * (position.isOdd ? 3 : 1);
-  }
-  return (10 - sum % 10) % 10 == int.parse(digits[digits.length - 1]);
 }
