@@ -186,11 +186,16 @@ String _labelKey(String raw) {
 }
 
 String _normalizeGtin(String raw) {
-  final digits = raw.replaceAll(RegExp(r'\D'), '');
-  if (!const {8, 12, 13, 14}.contains(digits.length) || !_validGtin(digits)) {
+  final value = raw.trim();
+  // AI (01) is numeric by definition. Never strip letters or punctuation from a
+  // decorated payload to manufacture a valid GTIN: that would let a marketing
+  // string containing 14 valid digits acquire exact product-identity authority.
+  if (!RegExp(r'^\d+$').hasMatch(value) ||
+      !const {8, 12, 13, 14}.contains(value.length) ||
+      !_validGtin(value)) {
     return '';
   }
-  return digits.padLeft(14, '0');
+  return value.padLeft(14, '0');
 }
 
 bool _validGtin(String digits) {
