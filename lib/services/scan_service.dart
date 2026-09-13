@@ -132,9 +132,9 @@ class MedicineVisionService {
           : source;
 
       // Keep physical camera quality semantically pure. Detector confidence is
-      // used only to choose among duplicate OCR layout lines. Downstream capture,
-      // date and evidence-graph logic therefore continues to read `quality` as
-      // focus/contrast/exposure, never as a model correctness probability.
+      // used only to choose trustworthy OCR geometry and duplicate layout lines.
+      // Raw OCR text remains untouched, so a low-confidence line can still be
+      // reviewed without being promoted into a high-confidence spatial fact.
       return ScanEvidence(
         barcode: barcodes.isEmpty ? '' : barcodes.first,
         barcodes: barcodes,
@@ -207,6 +207,14 @@ Iterable<_OcrLayoutLine> _layoutEvidence(RecognizedText result) sync* {
       final text = line.text.replaceAll(RegExp(r'\s+'), ' ').trim();
       final box = line.boundingBox;
       if (text.isEmpty || box.width <= 0 || box.height <= 0) continue;
+      final confidence = usableMedicineOcrConfidence(line.confidence);
+
+      // Geometry can create very strong MFG/EXP/BATCH bindings downstream.
+      // Known extremely weak OCR must therefore stay out of the geometry lane;
+      // the raw recognizer text is still retained above for ordinary review and
+      // deterministic parsing, so this never destroys the captured evidence.
+      if (confidence != null && confidence < .32) continue;
+
       yield _OcrLayoutLine(
         evidence: MedicineTextLineEvidence(
           text: text,
@@ -215,9 +223,7 @@ Iterable<_OcrLayoutLine> _layoutEvidence(RecognizedText result) sync* {
           width: box.width,
           height: box.height,
         ),
-        // ML Kit may use zero as an unavailable-confidence sentinel. The domain
-        // helper converts it to null so older detector paths remain neutral.
-        confidence: usableMedicineOcrConfidence(line.confidence),
+        confidence: confidence,
       );
     }
   }
@@ -227,16 +233,29 @@ List<MedicineTextLineEvidence> _mergeLayoutLines(
   Iterable<_OcrLayoutLine> raw,
 ) {
   final values = <_OcrLayoutLine>[];
-  final positions = <String, int>{};
+  final positions = <String, List<int>>{};
   for (final item in raw.take(500)) {
     final key = medicineOcrLineKey(item.evidence.text);
     if (key.length < 2) continue;
-    final existing = positions[key];
+
+    // Latin and Devanagari recognizers can report the same visual line twice.
+    // Deduplicate only when the text AND its physical region agree. Repeated
+    // labels such as EXP/BATCH at different positions are intentionally kept so
+    // spatial traceability can bind each label to its own nearby value.
+    final candidates = positions[key] ?? const <int>[];
+    int? existing;
+    for (final index in candidates) {
+      if (_sameLayoutObservation(values[index].evidence, item.evidence)) {
+        existing = index;
+        break;
+      }
+    }
     if (existing == null) {
-      positions[key] = values.length;
+      positions.putIfAbsent(key, () => <int>[]).add(values.length);
       values.add(item);
       continue;
     }
+
     final current = values[existing];
     if (_layoutPreference(item) > _layoutPreference(current)) {
       values[existing] = item;
@@ -246,6 +265,30 @@ List<MedicineTextLineEvidence> _mergeLayoutLines(
       .take(240)
       .map((value) => value.evidence)
       .toList(growable: false);
+}
+
+bool _sameLayoutObservation(
+  MedicineTextLineEvidence left,
+  MedicineTextLineEvidence right,
+) {
+  final leftRight = left.left + left.width;
+  final rightRight = right.left + right.width;
+  final leftBottom = left.top + left.height;
+  final rightBottom = right.top + right.height;
+  final overlapX = max(0.0, min(leftRight, rightRight) - max(left.left, right.left));
+  final overlapY = max(0.0, min(leftBottom, rightBottom) - max(left.top, right.top));
+  final overlapRatioX = overlapX / max(1.0, min(left.width, right.width));
+  final overlapRatioY = overlapY / max(1.0, min(left.height, right.height));
+  if (overlapRatioX >= .55 && overlapRatioY >= .50) return true;
+
+  final height = max(1.0, max(left.height, right.height));
+  final leftCenterX = left.left + left.width / 2;
+  final rightCenterX = right.left + right.width / 2;
+  final leftCenterY = left.top + left.height / 2;
+  final rightCenterY = right.top + right.height / 2;
+  final horizontalScale = max(height, max(left.width, right.width));
+  return (leftCenterY - rightCenterY).abs() / height <= .42 &&
+      (leftCenterX - rightCenterX).abs() / horizontalScale <= .32;
 }
 
 double _layoutPreference(_OcrLayoutLine item) {
