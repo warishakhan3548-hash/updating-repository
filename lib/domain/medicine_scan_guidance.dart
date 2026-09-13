@@ -48,7 +48,7 @@ MedicineScanAdvice? nextBestMedicineScanAdvice(MedicineScanDraft draft) {
     candidates.add(
       MedicineScanAdvice(
         focus: MedicineScanFocus.frontIdentity,
-        priority: (1.00 + conflictBoost('name')).clamp(0, 1),
+        priority: (1.00 + conflictBoost('name')).clamp(0, 1).toDouble(),
         message: 'Show the front clearly with the medicine name and brand.',
       ),
     );
@@ -58,7 +58,7 @@ MedicineScanAdvice? nextBestMedicineScanAdvice(MedicineScanDraft draft) {
     candidates.add(
       MedicineScanAdvice(
         focus: MedicineScanFocus.strength,
-        priority: (.94 + conflictBoost('strength')).clamp(0, 1),
+        priority: (.94 + conflictBoost('strength')).clamp(0, 1).toDouble(),
         message: 'Show the strength clearly, for example 500 mg or 5 mg/ml.',
       ),
     );
@@ -72,7 +72,7 @@ MedicineScanAdvice? nextBestMedicineScanAdvice(MedicineScanDraft draft) {
     candidates.add(
       MedicineScanAdvice(
         focus: MedicineScanFocus.composition,
-        priority: (.90 + conflictBoost('salt')).clamp(0, 1),
+        priority: (.90 + conflictBoost('salt')).clamp(0, 1).toDouble(),
         message: 'Show the composition or salt side clearly.',
       ),
     );
@@ -97,7 +97,7 @@ MedicineScanAdvice? nextBestMedicineScanAdvice(MedicineScanDraft draft) {
     candidates.add(
       MedicineScanAdvice(
         focus: MedicineScanFocus.dataMatrix,
-        priority: (expiryWeak && batchWeak ? .92 : .86),
+        priority: expiryWeak && batchWeak ? .92 : .86,
         message: 'Show the square DataMatrix/barcode side clearly.',
       ),
     );
@@ -118,7 +118,7 @@ MedicineScanAdvice? nextBestMedicineScanAdvice(MedicineScanDraft draft) {
     candidates.add(
       MedicineScanAdvice(
         focus: MedicineScanFocus.lotDates,
-        priority: (.93 + conflictBoost('expiry')).clamp(0, 1),
+        priority: (.93 + conflictBoost('expiry')).clamp(0, 1).toDouble(),
         message: 'Show Batch and EXP/MFG together in one clear view.',
       ),
     );
@@ -136,7 +136,7 @@ MedicineScanAdvice? nextBestMedicineScanAdvice(MedicineScanDraft draft) {
     candidates.add(
       MedicineScanAdvice(
         focus: MedicineScanFocus.dosageForm,
-        priority: (.64 + conflictBoost('form')).clamp(0, 1),
+        priority: (.64 + conflictBoost('form')).clamp(0, 1).toDouble(),
         message: 'Show where Tablet, Capsule, Syrup or the dosage form is printed.',
       ),
     );
