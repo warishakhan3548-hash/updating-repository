@@ -72,14 +72,29 @@ void main() {
       expect(assessment.singleTrustedProduct, '09504000059118');
     });
 
-    test('safe selection keeps canonical GTIN beside equivalent linear code', () {
+    test('equivalent linear GTIN representations collapse to one payload', () {
       final selection = selectSafeMedicineMachineCodes(const <String>[
         '9504000059118',
+        '09504000059118',
       ]);
 
       expect(selection.ambiguousTrustedProductCodes, isFalse);
-      expect(selection.payloads, contains('9504000059118'));
-      expect(selection.payloads, contains('09504000059118'));
+      expect(selection.payloads, hasLength(1));
+      expect(
+        canonicalTrustedMedicineProductKey(selection.payloads.single),
+        '09504000059118',
+      );
+    });
+
+    test('traceability-rich GS1 wins over equivalent plain GTIN', () {
+      const gs1 = ']d201095040000591181727103110LOT7';
+      final selection = selectSafeMedicineMachineCodes(const <String>[
+        '09504000059118',
+        gs1,
+      ]);
+
+      expect(selection.ambiguousTrustedProductCodes, isFalse);
+      expect(selection.payloads, <String>[gs1]);
     });
 
     test('two independently valid GTINs are ambiguous', () {
