@@ -128,7 +128,22 @@ MedicineScanGuidance nextBestMedicineScanGuidance(
   double evidenceQuality = 1,
   String physicalGuidance = '',
   int captureAttempts = 0,
+  bool ambiguousMachineCodes = false,
 }) {
+  // Two independently checksum-valid product identities in one immutable frame
+  // are stronger evidence of a multi-pack view than any OCR hypothesis. Never
+  // auto-handoff such a frame: ask for one pack only. Manual review remains
+  // available when earlier clean OCR exists, but ambiguity cannot become exact
+  // identity authority merely because the recapture budget was exhausted.
+  if (ambiguousMachineCodes) {
+    return const MedicineScanGuidance(
+      focus: MedicineScanFocus.machineCode,
+      message:
+          'More than one medicine barcode was seen. Keep only one pack in view and scan again.',
+      readyForAutomaticHandoff: false,
+    );
+  }
+
   if (draft == null) {
     return const MedicineScanGuidance(
       focus: MedicineScanFocus.medicineIdentity,
@@ -355,7 +370,11 @@ _ScanMachineAnchor _machineAnchor(MedicineFrameEvidence frame) {
     }
   }
 
-  final ambiguous = gtins.length > 1 || lots.length > 1 || serials.length > 1;
+  final ambiguous =
+      medicineMachineCodeSourceIsAmbiguous(frame.source) ||
+      gtins.length > 1 ||
+      lots.length > 1 ||
+      serials.length > 1;
   return _ScanMachineAnchor(
     gtin: gtins.length == 1 ? gtins.single : '',
     lot: lots.length == 1 ? lots.single : '',
