@@ -1,5 +1,15 @@
 import 'regulatory_medicine_code.dart';
 
+/// Durable evidence marker for one immutable image that contained more than one
+/// independently valid medicine product identity. It is carried in `source`
+/// because legacy persisted evidence already serializes that field, so this
+/// safety signal survives queue/review handoff without a migration.
+const String ambiguousMedicineMachineCodesMarker =
+    '[aaris:ambiguous-medicine-machine-codes]';
+
+bool medicineMachineCodeSourceIsAmbiguous(String source) =>
+    source.contains(ambiguousMedicineMachineCodesMarker);
+
 /// Bounded deterministic assessment of machine-readable product identities seen
 /// in one physical observation. This is deliberately smaller than a full GS1
 /// parser: it answers only whether a code proves one canonical GTIN product key.
