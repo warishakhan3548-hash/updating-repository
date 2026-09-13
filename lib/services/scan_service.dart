@@ -11,7 +11,6 @@ import '../domain/medicine_machine_code_safety.dart';
 import '../domain/medicine_ocr_reliability.dart';
 import '../domain/medicine_ocr_text.dart';
 import '../domain/medicine_understanding.dart';
-import '../domain/regulatory_medicine_code.dart';
 
 typedef ScanEvidence = MedicineFrameEvidence;
 
@@ -121,15 +120,14 @@ class MedicineVisionService {
         if (hindi is RecognizedText)
           ..._layoutEvidence(hindi as RecognizedText),
       ]);
-      final barcodeRanking = barcodeResult is List<Barcode>
-          ? _rankBarcodes(
-              (barcodeResult as List<Barcode>)
-                  .map((barcode) => barcode.rawValue ?? '')
-                  .where((value) => value.trim().isNotEmpty),
-            )
-          : const _BarcodeRanking(<String>[]);
-      final barcodes = barcodeRanking.values;
-      final evidenceSource = barcodeRanking.ambiguousTrustedProductCodes
+      final decodedBarcodes = barcodeResult is List<Barcode>
+          ? (barcodeResult as List<Barcode>)
+                .map((barcode) => barcode.rawValue ?? '')
+                .where((value) => value.trim().isNotEmpty)
+          : const <String>[];
+      final barcodeSelection = selectSafeMedicineMachineCodes(decodedBarcodes);
+      final barcodes = barcodeSelection.payloads;
+      final evidenceSource = barcodeSelection.ambiguousTrustedProductCodes
           ? '${source.trim()} $_ambiguousMedicineCodesMarker'.trim()
           : source;
 
@@ -256,64 +254,4 @@ double _layoutPreference(_OcrLayoutLine item) {
   final size = min(evidence.height / 1000, .08);
   final detector = item.confidence == null ? 0.0 : item.confidence! * .32;
   return lexical + size + detector;
-}
-
-class _BarcodeRanking {
-  const _BarcodeRanking(
-    this.values, {
-    this.ambiguousTrustedProductCodes = false,
-  });
-
-  final List<String> values;
-  final bool ambiguousTrustedProductCodes;
-}
-
-_BarcodeRanking _rankBarcodes(Iterable<String> input) {
-  final values = <String>{};
-  for (final candidate in input.take(24)) {
-    final raw = candidate.trim();
-    if (raw.isEmpty) continue;
-    values.add(raw);
-
-    // GS1 healthcare DataMatrix commonly carries a GTIN plus batch/expiry in one
-    // element string. Preserve the complete raw payload for future traceability,
-    // but also expose its verified GTIN as a canonical barcode candidate. That
-    // lets the existing private inventory knowledge index hit the exact product
-    // instead of treating a structured GS1 payload as an unrelated long string.
-    final structured = parseRegulatoryMedicineCode(raw);
-    if (structured != null && structured.gtin.isNotEmpty) {
-      values.add(structured.gtin);
-    }
-  }
-
-  final machineAssessment = assessMedicineMachineCodes(values);
-  // One image containing two different checksum-valid product identities is a
-  // multi-pack/ambiguous observation. Never hand an arbitrary one to the exact
-  // barcode resolver. OCR from the image remains available for safe review, and
-  // a subsequent single-pack image can recover full machine-code authority.
-  if (machineAssessment.ambiguous) {
-    return const _BarcodeRanking(
-      <String>[],
-      ambiguousTrustedProductCodes: true,
-    );
-  }
-
-  final ranked = values.toList(growable: false)
-    ..sort((a, b) {
-      final score = _barcodeScore(b).compareTo(_barcodeScore(a));
-      return score != 0 ? score : a.compareTo(b);
-    });
-  return _BarcodeRanking(ranked.take(8).toList(growable: false));
-}
-
-int _barcodeScore(String value) {
-  final digits = value.replaceAll(RegExp(r'\D'), '');
-  if (digits == value && const {8, 12, 13, 14}.contains(digits.length)) {
-    return canonicalTrustedMedicineProductKey(value).isNotEmpty ? 6 : 3;
-  }
-  final structured = parseRegulatoryMedicineCode(value);
-  if (structured != null && structured.gtin.isNotEmpty) return 5;
-  if (digits == value && digits.length >= 6) return 3;
-  if (structured != null && structured.hasTraceability) return 2;
-  return 1;
 }
