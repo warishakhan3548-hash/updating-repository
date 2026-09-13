@@ -48,6 +48,11 @@ MedicineMachineCodeAssessment assessMedicineMachineCodes(
 /// canonical GTIN because the former carries lot/expiry while the latter is an
 /// efficient product key.
 ///
+/// Equivalent EAN/UPC/GTIN encodings are also accompanied by the same GTIN-14
+/// key. Downstream frame grouping can therefore recognize the same medicine when
+/// one side exposes EAN-13 and another scanner path exposes GTIN-14/DataMatrix,
+/// instead of splitting one physical pack because the raw strings differ.
+///
 /// If one immutable image contains two different checksum-valid product keys,
 /// no machine code from that image is forwarded as exact identity evidence.
 /// OCR remains usable and the caller can request a single-pack recapture. This
@@ -63,10 +68,8 @@ MedicineMachineCodeSelection selectSafeMedicineMachineCodes(
     final raw = candidate.trim();
     if (raw.isEmpty) continue;
     values.add(raw);
-    final structured = parseRegulatoryMedicineCode(raw);
-    if (structured != null && structured.gtin.isNotEmpty) {
-      values.add(structured.gtin);
-    }
+    final canonical = canonicalTrustedMedicineProductKey(raw);
+    if (canonical.isNotEmpty) values.add(canonical);
   }
 
   final assessment = assessMedicineMachineCodes(values, limit: boundedInput * 2);
