@@ -170,7 +170,8 @@ class MedicineVisionService {
                   .where((value) => value.trim().isNotEmpty),
             )
           : const <String>[];
-      final temporal = timestampMs != null || source.startsWith('Live camera frame');
+      final temporal =
+          timestampMs != null || source.startsWith('Live camera frame');
       final barcodes = temporal
           ? _barcodeConsensus.accept(detectedBarcodes)
           : detectedBarcodes;
@@ -247,7 +248,7 @@ double? _recognizedOcrConfidence(Iterable<RecognizedText> results) {
         if (key.length < 2) continue;
         final confidence = _lineConfidence(line);
         if (confidence == null) continue;
-        final weight = line.text.trim().length.clamp(1, 64);
+        final weight = line.text.trim().length.clamp(1, 64).toInt();
         final previous = best[key];
         if (previous == null || confidence > previous.$1) {
           best[key] = (confidence, weight);
@@ -277,7 +278,7 @@ double? _lineConfidence(TextLine line) {
     final confidence = element.confidence;
     if (confidence == null || !confidence.isFinite || confidence <= 0) continue;
     final weight = sqrt(element.text.trim().length.clamp(1, 32).toDouble());
-    weighted += confidence.clamp(0, 1) * weight;
+    weighted += confidence.clamp(0, 1).toDouble() * weight;
     total += weight;
   }
   return total <= 0 ? null : (weighted / total).clamp(0, 1).toDouble();
