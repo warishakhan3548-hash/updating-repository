@@ -13,6 +13,62 @@ import '../domain/regulatory_medicine_code.dart';
 
 typedef ScanEvidence = MedicineFrameEvidence;
 
+/// Conservative fusion of physical capture quality with native OCR confidence.
+/// This is an evidence-reliability hint, not a calibrated correctness
+/// probability. The geometric/weakest-dimension blend prevents a sharp photo
+/// from hiding very uncertain OCR (and vice versa). If ML Kit confidence is not
+/// available, historical capture-quality behavior is preserved exactly.
+double visionEvidenceQuality(double captureQuality, double? ocrConfidence) {
+  final capture = CaptureQuality.safeScore(captureQuality);
+  if (ocrConfidence == null ||
+      !ocrConfidence.isFinite ||
+      ocrConfidence <= 0) {
+    return capture;
+  }
+  final ocr = ocrConfidence.clamp(0, 1).toDouble();
+  final geometric = sqrt(max(.0001, capture) * max(.0001, ocr));
+  final weakest = min(capture, ocr);
+  return (geometric * .78 + weakest * .22).clamp(.12, 1).toDouble();
+}
+
+/// Streaming barcode hysteresis. One isolated camera/video decode remains a
+/// clue, but it does not enter medicine evidence until the same canonical value
+/// is observed again. This follows ML Kit's recommendation to require a
+/// consecutive series before trusting streaming barcode output. Still photos do
+/// not use this gate.
+class MedicineBarcodeConsensus {
+  String _key = '';
+  int _streak = 0;
+
+  void reset() {
+    _key = '';
+    _streak = 0;
+  }
+
+  List<String> accept(List<String> rankedBarcodes) {
+    if (rankedBarcodes.isEmpty) {
+      reset();
+      return const <String>[];
+    }
+    final firstKey = _barcodeConsensusKey(rankedBarcodes.first);
+    if (firstKey.isEmpty) {
+      reset();
+      return const <String>[];
+    }
+    if (firstKey == _key) {
+      _streak++;
+    } else {
+      _key = firstKey;
+      _streak = 1;
+    }
+    if (_streak < 2) return const <String>[];
+    return rankedBarcodes
+        .where((value) => _barcodeConsensusKey(value) == firstKey)
+        .take(8)
+        .toList(growable: false);
+  }
+}
+
 class MedicineVisionService {
   static const _channel = MethodChannel('com.aaris.pharmacy/documents');
   final _latin = TextRecognizer(script: TextRecognitionScript.latin);
@@ -29,6 +85,7 @@ class MedicineVisionService {
       BarcodeFormat.itf,
     ],
   );
+  final _barcodeConsensus = MedicineBarcodeConsensus();
   bool _closing = false, _closed = false;
   int _inFlight = 0;
   Completer<void>? _drained;
@@ -96,25 +153,32 @@ class MedicineVisionService {
               : 'Medicine recognition is temporarily unavailable.',
         );
       }
+      final recognized = <RecognizedText>[
+        if (latin is RecognizedText) latin as RecognizedText,
+        if (hindi is RecognizedText) hindi as RecognizedText,
+      ];
       final lines = mergeMedicineOcrLines([
-        if (latin is RecognizedText)
-          ...(latin as RecognizedText).text.split('\n'),
-        if (hindi is RecognizedText)
-          ...(hindi as RecognizedText).text.split('\n'),
+        for (final result in recognized) ...result.text.split('\n'),
       ]);
       final layoutLines = _mergeLayoutLines([
-        if (latin is RecognizedText)
-          ..._layoutEvidence(latin as RecognizedText),
-        if (hindi is RecognizedText)
-          ..._layoutEvidence(hindi as RecognizedText),
+        for (final result in recognized) ..._layoutEvidence(result),
       ]);
-      final barcodes = barcodeResult is List<Barcode>
+      final detectedBarcodes = barcodeResult is List<Barcode>
           ? _rankBarcodes(
               (barcodeResult as List<Barcode>)
                   .map((barcode) => barcode.rawValue ?? '')
                   .where((value) => value.trim().isNotEmpty),
             )
           : const <String>[];
+      final temporal = timestampMs != null || source.startsWith('Live camera frame');
+      final barcodes = temporal
+          ? _barcodeConsensus.accept(detectedBarcodes)
+          : detectedBarcodes;
+      if (!temporal) _barcodeConsensus.reset();
+      final evidenceQuality = visionEvidenceQuality(
+        measuredQuality,
+        _recognizedOcrConfidence(recognized),
+      );
       return ScanEvidence(
         barcode: barcodes.isEmpty ? '' : barcodes.first,
         barcodes: barcodes,
@@ -123,7 +187,7 @@ class MedicineVisionService {
         source: source,
         sequence: sequence,
         timestampMs: timestampMs,
-        quality: measuredQuality,
+        quality: evidenceQuality,
       );
     } finally {
       _inFlight--;
@@ -172,6 +236,51 @@ class MedicineVisionService {
       _closed = true;
     }
   }
+}
+
+double? _recognizedOcrConfidence(Iterable<RecognizedText> results) {
+  final best = <String, (double, int)>{};
+  for (final result in results) {
+    for (final block in result.blocks) {
+      for (final line in block.lines) {
+        final key = medicineOcrLineKey(line.text);
+        if (key.length < 2) continue;
+        final confidence = _lineConfidence(line);
+        if (confidence == null) continue;
+        final weight = line.text.trim().length.clamp(1, 64);
+        final previous = best[key];
+        if (previous == null || confidence > previous.$1) {
+          best[key] = (confidence, weight);
+        }
+      }
+    }
+  }
+  if (best.isEmpty) return null;
+  var weighted = 0.0;
+  var total = 0.0;
+  for (final value in best.values) {
+    final weight = sqrt(value.$2.toDouble()).clamp(1, 8).toDouble();
+    weighted += value.$1 * weight;
+    total += weight;
+  }
+  return total <= 0 ? null : (weighted / total).clamp(0, 1).toDouble();
+}
+
+double? _lineConfidence(TextLine line) {
+  final direct = line.confidence;
+  if (direct != null && direct.isFinite && direct > 0) {
+    return direct.clamp(0, 1).toDouble();
+  }
+  var weighted = 0.0;
+  var total = 0.0;
+  for (final element in line.elements) {
+    final confidence = element.confidence;
+    if (confidence == null || !confidence.isFinite || confidence <= 0) continue;
+    final weight = sqrt(element.text.trim().length.clamp(1, 32).toDouble());
+    weighted += confidence.clamp(0, 1) * weight;
+    total += weight;
+  }
+  return total <= 0 ? null : (weighted / total).clamp(0, 1).toDouble();
 }
 
 Iterable<MedicineTextLineEvidence> _layoutEvidence(
@@ -240,6 +349,20 @@ List<String> _rankBarcodes(Iterable<String> input) {
       return score != 0 ? score : a.compareTo(b);
     });
   return ranked.take(8).toList(growable: false);
+}
+
+String _barcodeConsensusKey(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty) return '';
+  final structured = parseRegulatoryMedicineCode(raw);
+  if (structured != null && structured.gtin.isNotEmpty) {
+    return 'gtin:${structured.gtin}';
+  }
+  final digits = raw.replaceAll(RegExp(r'\D'), '');
+  if (digits == raw && const {8, 12, 13, 14}.contains(digits.length)) {
+    if (_validGtin(digits)) return 'gtin:${digits.padLeft(14, '0')}';
+  }
+  return 'raw:$raw';
 }
 
 int _barcodeScore(String value) {
