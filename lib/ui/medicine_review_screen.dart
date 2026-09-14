@@ -131,13 +131,23 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
   /// A nested editor is not allowed to use the inventory's global revision as
   /// its completion signal. Any unrelated stock write may advance that revision
   /// while this route is open. Existing-stock completion is therefore bound to
-  /// the exact row that this review handed to the editor.
-  Future<bool> _editExistingForScan(Medicine record) async {
+  /// the exact row that this review handed to the editor. The current immutable
+  /// scan draft is carried only as post-save learning provenance; the saved row
+  /// remains the editor's field authority.
+  Future<bool> _editExistingForScan(
+    Medicine record,
+    MedicineScanDraft scanDraft,
+  ) async {
     if (_busy) return false;
     final beforeRevision = record.revision;
     setState(() => _busy = true);
     try {
-      await openEditor(context, widget.controller, record: record);
+      await openEditor(
+        context,
+        widget.controller,
+        record: record,
+        scanDraft: scanDraft,
+      );
       if (!mounted) return false;
       final current = widget.controller.snapshot.records[record.id];
       return current != null &&
@@ -314,7 +324,7 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
           await _prepareMatches();
           return;
         }
-        final saved = await _editExistingForScan(record);
+        final saved = await _editExistingForScan(record, review.draft);
         if (!mounted) return;
         if (saved) {
           await _advanceOrFinish();
@@ -947,6 +957,7 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
             _matchCard(
               visibleMatches[i].$1,
               visibleMatches[i].$2,
+              scanDraft: review.draft,
               best: i == 0,
             ),
           if (visibleMatches.length > 5)
@@ -966,6 +977,7 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
   Widget _matchCard(
     IntakeMatchCandidate match,
     Medicine record, {
+    required MedicineScanDraft scanDraft,
     required bool best,
   }) {
     final (badge, tone) = switch (match.kind) {
@@ -990,7 +1002,12 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => openEditor(context, widget.controller, record: record),
+          onTap: () => openEditor(
+            context,
+            widget.controller,
+            record: record,
+            scanDraft: scanDraft,
+          ),
           borderRadius: BorderRadius.circular(16),
           child: Ink(
             padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
