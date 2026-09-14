@@ -11,6 +11,7 @@ import '../domain/medicine_understanding.dart';
 import '../domain/search.dart';
 import '../services/medicine_review_pipeline.dart';
 import '../services/offline_recognition_memory_service.dart';
+import '../state/operational_context.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'editor_screen.dart';
@@ -126,6 +127,61 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
         records: widget.controller.records,
         today: widget.controller.today,
       );
+
+  /// A nested editor is not allowed to use the inventory's global revision as
+  /// its completion signal. Any unrelated stock write may advance that revision
+  /// while this route is open. Existing-stock completion is therefore bound to
+  /// the exact row that this review handed to the editor.
+  Future<bool> _editExistingForScan(Medicine record) async {
+    if (_busy) return false;
+    final beforeRevision = record.revision;
+    setState(() => _busy = true);
+    try {
+      await openEditor(context, widget.controller, record: record);
+      if (!mounted) return false;
+      final current = widget.controller.snapshot.records[record.id];
+      return current != null &&
+          !current.archived &&
+          !current.sold &&
+          current.revision > beforeRevision &&
+          widget.controller.operationalTargetId == record.id;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// A new scan has no stock ID before the editor opens. The editor remembers
+  /// the exact row only after a successful save, and scan OCR is hidden immutable
+  /// provenance in that editor. Requiring both prevents an unrelated inventory
+  /// write from being mistaken for this scan's save.
+  Future<bool> _editNewScanForResult(MedicineScanDraft draft) async {
+    if (_busy) return false;
+    final knownIds = widget.controller.snapshot.records.keys.toSet();
+    final previousTargetId = widget.controller.operationalTargetId;
+    setState(() => _busy = true);
+    try {
+      await openEditor(context, widget.controller, scanDraft: draft);
+      if (!mounted) return false;
+      final targetId = widget.controller.operationalTargetId;
+      if (targetId == null ||
+          targetId == previousTargetId ||
+          knownIds.contains(targetId)) {
+        return false;
+      }
+      final saved = widget.controller.snapshot.records[targetId];
+      if (saved == null || saved.archived || saved.sold) return false;
+
+      final expectedOcr = draft.searchableOcrText.trim();
+      if (expectedOcr.isNotEmpty) {
+        return saved.ocrText == expectedOcr;
+      }
+      final expectedBarcode = normalize(draft.barcode);
+      return expectedBarcode.isNotEmpty &&
+          normalize(saved.barcode) == expectedBarcode;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _prepareMatches() async {
     if (_drafts.isEmpty || _index >= _drafts.length) return;
@@ -258,10 +314,9 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
           await _prepareMatches();
           return;
         }
-        final before = widget.controller.snapshot.revision;
-        await openEditor(context, widget.controller, record: record);
+        final saved = await _editExistingForScan(record);
         if (!mounted) return;
-        if (widget.controller.snapshot.revision != before) {
+        if (saved) {
           await _advanceOrFinish();
         } else {
           await _prepareMatches();
@@ -323,10 +378,9 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
   }
 
   Future<void> _editScannedDraft(MedicineScanDraft draft) async {
-    final before = widget.controller.snapshot.revision;
-    await openEditor(context, widget.controller, scanDraft: draft);
+    final saved = await _editNewScanForResult(draft);
     if (!mounted) return;
-    if (widget.controller.snapshot.revision != before) {
+    if (saved) {
       await _advanceOrFinish();
     } else {
       await _prepareMatches();
