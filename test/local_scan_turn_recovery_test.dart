@@ -34,6 +34,40 @@ const _draft = MedicineScanDraft(
   overallConfidence: .86,
 );
 
+const _machineReadyDraft = MedicineScanDraft(
+  fields: <String, ExtractedMedicineField>{
+    'name': ExtractedMedicineField(
+      value: 'DOLO 650',
+      confidence: .95,
+      support: 2,
+    ),
+    'brand': ExtractedMedicineField(
+      value: 'DOLO 650',
+      confidence: .95,
+      support: 2,
+    ),
+    'salt': ExtractedMedicineField(
+      value: 'Paracetamol',
+      confidence: .95,
+      support: 2,
+    ),
+    'strength': ExtractedMedicineField(
+      value: '650 mg',
+      confidence: .95,
+      support: 2,
+    ),
+    'form': ExtractedMedicineField(
+      value: 'Tablets',
+      confidence: .95,
+      support: 2,
+    ),
+  },
+  rawText: 'DOLO 650 TABLETS\nParacetamol IP 650 mg\nMFG 01/2026 EXP 12/2027',
+  searchKeywords: 'dolo 650 paracetamol tablets',
+  frameSequences: <int>[0],
+  overallConfidence: .95,
+);
+
 void main() {
   test('empty local-model output never reaches JSON decode or breaks preview', () async {
     var calls = 0;
@@ -89,5 +123,53 @@ void main() {
     );
 
     expect(identical(result, _draft), isTrue);
+  });
+
+  test('failed Local AI turn cannot authorize a high-confidence machine save', () async {
+    final result = await runLocalScanTurn(
+      draft: _machineReadyDraft,
+      sourceLimit: 5000,
+      outputTokens: 512,
+      checkCurrent: () {},
+      generate: (handoff, outputTokens) async => '',
+    );
+
+    expect(result.overallConfidence, lessThan(.88));
+    expect(result.brand, _machineReadyDraft.brand);
+    expect(result.salt, _machineReadyDraft.salt);
+    expect(result.strength, _machineReadyDraft.strength);
+    expect(result.form, _machineReadyDraft.form);
+  });
+
+  test('partial valid AI evidence remains review-only', () async {
+    final result = await runLocalScanTurn(
+      draft: _machineReadyDraft,
+      sourceLimit: 5000,
+      outputTokens: 512,
+      checkCurrent: () {},
+      generate: (handoff, outputTokens) async => '''
+{"fields":{"brand":{"value":"DOLO 650","quote":"DOLO 650"},"form":{"value":"Tablets","quote":"TABLETS"}}}
+''',
+    );
+
+    expect(result.overallConfidence, lessThan(.88));
+  });
+
+  test('complete source-grounded identity witness preserves machine-save confidence', () async {
+    final result = await runLocalScanTurn(
+      draft: _machineReadyDraft,
+      sourceLimit: 5000,
+      outputTokens: 512,
+      checkCurrent: () {},
+      generate: (handoff, outputTokens) async => '''
+{"fields":{"brand":{"value":"DOLO 650","quote":"DOLO 650"},"salt":{"value":"Paracetamol","quote":"Paracetamol IP 650 mg"},"strength":{"value":"650 mg","quote":"Paracetamol IP 650 mg"},"form":{"value":"Tablets","quote":"TABLETS"}},"ingredients":[{"salt":"Paracetamol","strength":"650 mg","quote":"Paracetamol IP 650 mg"}]}
+''',
+    );
+
+    expect(result.overallConfidence, greaterThanOrEqualTo(.88));
+    expect(result.brand, 'DOLO 650');
+    expect(result.salt, 'Paracetamol');
+    expect(result.strength, '650 mg');
+    expect(result.form, 'Tablets');
   });
 }
