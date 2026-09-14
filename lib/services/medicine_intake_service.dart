@@ -30,6 +30,8 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   static const capacity = 250;
   static const _waitingForLocalAi =
       'Local AI is finishing another request. OCR is saved and AI refinement will resume automatically.';
+  static const _retryLocalAiWhenIdle =
+      'Local AI is busy. Saved scan will retry when the local lease is idle.';
   final _jobs = <MedicineIntakeJob>[];
   final _media = MediaImportService();
   Database? _database;
@@ -584,15 +586,22 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<MedicineScanDraft> _understandWithRecovery(
     LocalAiService local,
-    MedicineIntakeJob job,
     String routedModelId,
     MedicineScanDraft draft,
   ) async {
     try {
       return await local.understand(draft);
     } catch (error, stack) {
-      if (local.busy || !_recoverableLocalTransportFailure(error)) {
+      if (!_recoverableLocalTransportFailure(error)) {
         Error.throwWithStackTrace(error, stack);
+      }
+
+      // The failed inference lease has already been released by LocalAiService,
+      // so foreground chat/model work may acquire the shared runtime before this
+      // catch block runs. That is queue contention, not evidence that the saved
+      // scan should permanently lose its AI refinement turn.
+      if (local.busy || local.transferring) {
+        throw StateError(_retryLocalAiWhenIdle);
       }
 
       // Chat already gets one clean-runtime retry. Scan refinement must have the
@@ -603,16 +612,27 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
       // resurrect a stale result under a different Local AI identity.
       try {
         await local.suspend();
-      } catch (_) {
+      } catch (suspendError) {
+        // Another caller can win the exclusive lease in the event-loop gap
+        // between the availability snapshot above and suspend(). Preserve this
+        // durable job in `reasoning` so it retries after that lease is released.
+        if (local.busy ||
+            local.transferring ||
+            _localLeaseContention(suspendError)) {
+          throw StateError(_retryLocalAiWhenIdle);
+        }
         Error.throwWithStackTrace(error, stack);
       }
       if (!await _routeStillOwnsResult(local, routedModelId) ||
-          !await LocalBrainRoutePolicy.mayReasonWith(local, job.modelId) ||
           local.activeId != routedModelId) {
         throw StateError(
           'Aaris Brain route changed while recovering this scan. Deterministic OCR draft retained for review.',
         );
       }
+
+      // Durable intake never uses the instant-review mayReasonWith timeout here.
+      // If a caller races into the lease after this route check, understand()
+      // throws the normal busy signal and _reason keeps the same AI index queued.
       return local.understand(draft);
     }
   }
@@ -656,7 +676,6 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
     try {
       final candidate = await _understandWithRecovery(
         local,
-        job,
         routedModelId,
         original,
       );
