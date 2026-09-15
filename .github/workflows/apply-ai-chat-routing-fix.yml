@@ -1,0 +1,118 @@
+name: Apply AI chat routing fix
+
+on:
+  push:
+    branches: [fix/ai-chat-local-routing]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ai-chat-local-routing
+      - name: Apply surgical routing patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          ai = Path('lib/ui/ai_screen.dart')
+          text = ai.read_text()
+
+          replacements = [
+              ("  bool _aiConversationActive = false;\n", ""),
+              ("      _aiConversationActive = true;\n", ""),
+              ("          _aiConversationActive = false;\n", ""),
+              ("      _aiConversationActive = false;\n", ""),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one occurrence of {old!r}, found {count}')
+              text = text.replace(old, new, 1)
+
+          old_route = """    if (_aiConversationActive && _hasAiRoute && isAiConversationFollowUp(text)) {
+      await _ask();
+      return;
+    }
+
+    final localHandler = widget.onLocalCommand;
+"""
+          new_route = """    // A configured AI route owns every typed natural-language message. Do not
+    // let deterministic App Brain verbs such as add/edit/delete intercept the
+    // owner's conversation before Local AI or the selected cloud provider sees
+    // it. Quick-action tiles remain explicit deterministic controls, and the
+    // local command parser remains the offline fallback when no AI route exists.
+    if (_hasAiRoute) {
+      await _ask();
+      return;
+    }
+
+    final localHandler = widget.onLocalCommand;
+"""
+          if text.count(old_route) != 1:
+              raise SystemExit('AI composer routing block changed; refusing a fuzzy patch')
+          text = text.replace(old_route, new_route, 1)
+          ai.write_text(text)
+
+          conversation = Path('lib/domain/ai_conversation.dart')
+          text = conversation.read_text()
+          import_line = "import 'app_brain.dart';\n"
+          if text.count(import_line) != 1:
+              raise SystemExit('Expected app_brain import once')
+          text = text.replace(import_line, '', 1)
+          marker = "/// Reuse an AI-discussed item for \"okay, add it\" instead of opening a blank\n"
+          pos = text.find(marker)
+          if pos < 0:
+              raise SystemExit('Legacy follow-up router not found')
+          text = text[:pos].rstrip() + '\n'
+          conversation.write_text(text)
+
+          test = Path('test/ai_chat_routing_contract_test.dart')
+          test.write_text(r'''import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('configured AI route owns typed composer before deterministic commands', () {
+    final source = File('lib/ui/ai_screen.dart').readAsStringSync();
+    final start = source.indexOf('Future<void> _sendComposer() async');
+    final end = source.indexOf('Future<void> _runQuickAction', start);
+    expect(start, greaterThanOrEqualTo(0));
+    expect(end, greaterThan(start));
+
+    final sendComposer = source.substring(start, end);
+    final aiGate = sendComposer.indexOf('if (_hasAiRoute)');
+    final deterministic = sendComposer.indexOf(
+      'final localHandler = widget.onLocalCommand;',
+    );
+    expect(aiGate, greaterThanOrEqualTo(0));
+    expect(deterministic, greaterThan(aiGate));
+    expect(sendComposer, isNot(contains('isAiConversationFollowUp')));
+  });
+
+  test('legacy mutation follow-up parser is not part of conversation parsing', () {
+    final source = File('lib/domain/ai_conversation.dart').readAsStringSync();
+    expect(source, isNot(contains("import 'app_brain.dart';")));
+    expect(source, isNot(contains('isAiConversationFollowUp')));
+  });
+}
+''')
+          PY
+          dart format lib/ui/ai_screen.dart lib/domain/ai_conversation.dart test/ai_chat_routing_contract_test.dart || true
+          git diff --check
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/ui/ai_screen.dart lib/domain/ai_conversation.dart test/ai_chat_routing_contract_test.dart
+          git diff --cached --quiet && exit 0
+          git commit -m "Route configured AI chat before deterministic commands"
+          git push origin HEAD:fix/ai-chat-local-routing
