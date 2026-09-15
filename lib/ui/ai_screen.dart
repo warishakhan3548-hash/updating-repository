@@ -51,7 +51,6 @@ class _AiScreenState extends State<AiScreen> {
   final _scroll = ScrollController();
 
   final List<_AiChatMessage> _messages = [];
-  bool _aiConversationActive = false;
   int _localHistoryStart = 0;
   String _localSessionNotice = '';
 
@@ -174,7 +173,6 @@ class _AiScreenState extends State<AiScreen> {
     if (!mounted || generation != _generation || clean.isEmpty) return;
     setState(() {
       _messages.add(_AiChatMessage(clean, false));
-      _aiConversationActive = true;
       _streamingText = '';
       _journey = _AiJourneyState.idle;
     });
@@ -484,7 +482,12 @@ class _AiScreenState extends State<AiScreen> {
       return;
     }
 
-    if (_aiConversationActive && _hasAiRoute && isAiConversationFollowUp(text)) {
+    // A configured AI route owns every typed natural-language message. Do not
+    // let deterministic App Brain verbs such as add/edit/delete intercept the
+    // owner's conversation before Local AI or the selected cloud provider sees
+    // it. Quick-action tiles remain explicit deterministic controls, and the
+    // local command parser remains the offline fallback when no AI route exists.
+    if (_hasAiRoute) {
       await _ask();
       return;
     }
@@ -510,7 +513,6 @@ class _AiScreenState extends State<AiScreen> {
       if (localReply != null) {
         final reply = localReply.trim();
         setState(() {
-          _aiConversationActive = false;
           _request.clear();
           _messages.add(_AiChatMessage(text, true));
           if (reply.isNotEmpty) _messages.add(_AiChatMessage(reply, false));
@@ -540,7 +542,6 @@ class _AiScreenState extends State<AiScreen> {
     try {
       final reply = await handler(action);
       if (!mounted || reply == null || reply.trim().isEmpty) return;
-      _aiConversationActive = false;
       _appendMessage(reply.trim(), false);
     } catch (error) {
       if (mounted) {
