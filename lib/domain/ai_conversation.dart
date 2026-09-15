@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'ai_protocol.dart';
-import 'app_brain.dart';
 
 /// The conversational boundary does not authorize or repair inventory actions.
 /// Every non-empty plan still goes through parseAiPlan and the save preview.
@@ -106,23 +105,4 @@ String aiConversationPreview(String text) {
     if (position >= 0 && position < end) end = position;
   }
   return text.substring(0, end);
-}
-
-/// Reuse an AI-discussed item for "okay, add it" instead of opening a blank
-/// deterministic editor or using an unrelated local stock-row context.
-/// Explicitly named commands and quick actions retain their normal routing.
-bool isAiConversationFollowUp(String input) {
-  final text = input.trim().replaceFirst(
-    RegExp(
-      r'^(?:(?:okay|ok|yes|haan|han|bhai|please|theek hai|ठीक है|हाँ|हां|ओके|भाई)[\s,!.।]+)+',
-      caseSensitive: false,
-    ),
-    '',
-  );
-  final intent = parseAppBrainIntent(text);
-  if (intent.action != AppBrainAction.addMedicine &&
-      !intent.needsMedicineTarget) {
-    return false;
-  }
-  return intent.query.isEmpty || isAppBrainContextReference(intent.query);
 }
