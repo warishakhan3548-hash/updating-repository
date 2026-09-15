@@ -4,7 +4,6 @@ import 'dart:convert';
 import '../lib/domain/ai_configuration.dart';
 import '../lib/domain/ai_conversation.dart';
 import '../lib/domain/ai_protocol.dart';
-import '../lib/domain/app_brain.dart';
 import '../lib/domain/medicine.dart';
 import '../lib/services/ai_provider_adapter.dart';
 
@@ -235,34 +234,15 @@ void main() {
     'Normal text streams immediately',
   );
 
-  for (final followUp in [
-    'okay, add it',
-    'theek hai, isko add kar do',
-    'हाँ, इसको add करो',
-    'add',
-    'update it',
-    'iski expiry batao',
-  ]) {
-    final intent = parseAppBrainIntent(followUp);
-    check(
-      isAiConversationFollowUp(followUp) ||
-          intent.action == AppBrainAction.unknown ||
-          intent.confidence < .90,
-      'AI context retained for: $followUp',
-    );
-  }
-  for (final command in [
-    'Add Cefixime 200mg',
-    'stock summary',
-    'open calculator',
-    'okay',
-    'thanks',
-  ]) {
-    check(
-      !isAiConversationFollowUp(command),
-      'Normal routing retained for: $command',
-    );
-  }
+  // Typed chat routing now belongs to AiScreen rather than this response
+  // parser. The response layer must stay free of App Brain intent coupling so
+  // words like add/edit/delete can reach the configured AI unchanged.
+  final conversationSource = File('lib/domain/ai_conversation.dart').readAsStringSync();
+  check(
+    !conversationSource.contains('isAiConversationFollowUp') &&
+        !conversationSource.contains("import 'app_brain.dart';"),
+    'Conversation parser is independent from deterministic command intents',
+  );
 
   for (final provider in ['Gemini', 'OpenAI', 'Anthropic', 'xAI', 'Groq']) {
     final stored = AiConfiguration(
