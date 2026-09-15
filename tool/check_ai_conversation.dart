@@ -1,5 +1,6 @@
 // Offline conversational protocol checks: no Flutter, APK, network or API keys.
 import 'dart:convert';
+import 'dart:io';
 
 import '../lib/domain/ai_configuration.dart';
 import '../lib/domain/ai_conversation.dart';
@@ -237,7 +238,9 @@ void main() {
   // Typed chat routing now belongs to AiScreen rather than this response
   // parser. The response layer must stay free of App Brain intent coupling so
   // words like add/edit/delete can reach the configured AI unchanged.
-  final conversationSource = File('lib/domain/ai_conversation.dart').readAsStringSync();
+  final conversationSource = File(
+    'lib/domain/ai_conversation.dart',
+  ).readAsStringSync();
   check(
     !conversationSource.contains('isAiConversationFollowUp') &&
         !conversationSource.contains("import 'app_brain.dart';"),
