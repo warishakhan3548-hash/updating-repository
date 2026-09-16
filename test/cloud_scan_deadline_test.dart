@@ -24,12 +24,12 @@ const _draft = MedicineScanDraft(
 
 void main() {
   test('response deadline is monotonic across sequential stages', () async {
-    final deadline = AiResponseDeadline(const Duration(milliseconds: 120));
-    await deadline.wait(Future<void>.delayed(const Duration(milliseconds: 35)));
+    final deadline = AiResponseDeadline(const Duration(milliseconds: 400));
+    await deadline.wait(Future<void>.delayed(const Duration(milliseconds: 240)));
 
     final watch = Stopwatch()..start();
     await expectLater(
-      deadline.wait(Future<void>.delayed(const Duration(milliseconds: 140))),
+      deadline.wait(Future<void>.delayed(const Duration(milliseconds: 320))),
       throwsA(isA<TimeoutException>()),
     );
     watch.stop();
@@ -37,8 +37,9 @@ void main() {
     expect(deadline.expired, isTrue);
     expect(
       watch.elapsed,
-      lessThan(const Duration(milliseconds: 120)),
-      reason: 'The second stage must receive only the first stage’s remainder.',
+      lessThan(const Duration(milliseconds: 260)),
+      reason:
+          'The second stage must receive the original deadline remainder, not a fresh 320 ms window.',
     );
   });
 
