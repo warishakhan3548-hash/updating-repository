@@ -68,8 +68,10 @@ void main() {
       service.refine(_config, _draft),
       throwsA(isA<TimeoutException>()),
     );
-    expect(calls, 2);
-    expect(cancelled, 2);
+    // A retry is allowed only while the original response budget still has
+    // time left. A slow first response may legitimately consume it all.
+    expect(calls, inInclusiveRange(1, 2));
+    expect(cancelled, calls);
     expect(elapsed.elapsed, lessThan(const Duration(seconds: 3)));
     expect(service.busy, isFalse);
     expect(_draft.fields, isEmpty);

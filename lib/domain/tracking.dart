@@ -444,10 +444,10 @@ class TrackingStats {
               ? needsReplacement
                     ? 'Out of stock · recorded sales identity needs review'
                     : 'Recorded sales identity needs review before reorder'
-              : profile.historyNeedsReview
-              ? 'Recorded sale dates need review before reorder'
               : hasFutureManufacture && active.isEmpty
               ? 'Manufacturing date needs review before reorder'
+              : profile.historyNeedsReview
+              ? 'Recorded sale dates need review before reorder'
               : expiredOnly
               ? 'Only expired stock remains'
               : outOfStock

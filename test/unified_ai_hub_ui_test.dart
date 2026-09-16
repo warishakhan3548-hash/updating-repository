@@ -53,9 +53,14 @@ void main() {
       final ai = File('lib/ui/ai_screen.dart').readAsStringSync();
       final routing = File('lib/services/ai_service.dart').readAsStringSync();
 
+      expect(panel, contains('await queue.continueWithDraft(job);'));
       expect(
         panel,
-        contains('onPressed: () => widget.onAsk!(draft.rawText)'),
+        contains('if (mounted) widget.onAsk?.call(draft.rawText);'),
+      );
+      expect(
+        panel,
+        isNot(contains('onPressed: () => widget.onAsk!(draft.rawText)')),
       );
       expect(
         panel,
