@@ -251,4 +251,36 @@ void main() {
       throwsFormatException,
     );
   });
+
+  test('add with match fails closed instead of creating duplicate stock', () {
+    const session = 'session_addmatch7';
+    final current = stock('existing_para500');
+
+    expect(
+      () => parseAiPlan(
+        envelope(
+          requestId: session,
+          changeId: 'change_addmatch7',
+          baseRevision: 1,
+          actions: [
+            {
+              'op': 'add',
+              'match': {'name': 'Paracetamol', 'strength': '500mg'},
+              'fields': {
+                'name': 'Paracetamol',
+                'strength': '500mg',
+                'expiry': '2027-04',
+              },
+            },
+          ],
+        ),
+        {current.id: current},
+        1,
+        const {},
+        now,
+      ),
+      throwsFormatException,
+    );
+  });
+
 }

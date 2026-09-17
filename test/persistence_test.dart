@@ -156,7 +156,7 @@ void main() {
       final plan = controller.review(response);
       await controller.applyAi(plan, {0});
       expect(controller.records.single.name, 'First');
-      expect(controller.snapshot.receipts, contains(export.requestId));
+      expect(controller.snapshot.receipts, contains(plan.requestId));
       await controller.undo();
       expect(controller.records, isEmpty);
       final retry = jsonDecode(response) as Map<String, dynamic>;

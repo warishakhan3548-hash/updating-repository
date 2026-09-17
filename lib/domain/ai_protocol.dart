@@ -385,6 +385,11 @@ AiPlan parseAiPlan(
       final duplicates = <String>[];
 
       if (op == 'add') {
+        if (match != null) {
+          throw const FormatException(
+            'Add cannot use match. Use update with a unique match for an existing item, or omit match when adding new stock.',
+          );
+        }
         final suppliedId = rawId;
         Medicine? mistakenExisting;
         if (suppliedId is String &&
