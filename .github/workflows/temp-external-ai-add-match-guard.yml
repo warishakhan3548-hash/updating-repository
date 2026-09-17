@@ -40,17 +40,8 @@ jobs:
 
           source_path = Path('lib/domain/ai_protocol.dart')
           source = source_path.read_text()
-          old = """      if (op == 'add') {
-                final suppliedId = rawId;
-          """.replace("                final", "        final").replace("          \"\"\"", "\"\"\"")
-          new = """      if (op == 'add') {
-        if (match != null) {
-          throw const FormatException(
-            'Add cannot use match. Use update with a unique match for an existing item, or omit match when adding new stock.',
-          );
-        }
-        final suppliedId = rawId;
-"""
+          old = "      if (op == 'add') {\n        final suppliedId = rawId;\n"
+          new = "      if (op == 'add') {\n        if (match != null) {\n          throw const FormatException(\n            'Add cannot use match. Use update with a unique match for an existing item, or omit match when adding new stock.',\n          );\n        }\n        final suppliedId = rawId;\n"
           if source.count(old) != 1:
               raise SystemExit(f'expected exactly one add-branch anchor, found {source.count(old)}')
           source_path.write_text(source.replace(old, new, 1))
