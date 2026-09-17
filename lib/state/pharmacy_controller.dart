@@ -1168,6 +1168,59 @@ class PharmacyController extends ChangeNotifier {
     _cancelAi = true;
   }
 
+  Medicine _materializeAiChangeAtCommit(
+    AiChange change,
+    DateTime operationTime,
+  ) {
+    if (change.operation != 'mark_sold' && change.operation != 'remove') {
+      return Medicine.fromJson(change.after.toJson());
+    }
+
+    final reviewed = change.before;
+    if (reviewed == null) {
+      throw StateError(
+        'A reviewed AI lifecycle change is missing its original stock entry. Review the AI result again.',
+      );
+    }
+    final live = snapshot.records[reviewed.id];
+    if (live == null || !_sameReviewedMedicine(live, reviewed)) {
+      throw StateError(
+        'A reviewed AI stock entry changed before apply. Review the AI result again.',
+      );
+    }
+
+    if (change.operation == 'mark_sold') {
+      if (live.archived || live.sold) {
+        throw StateError(
+          'The reviewed stock entry is no longer active. Review SOLD again.',
+        );
+      }
+      if (isExpiredOn(live, operationTime)) {
+        throw const FormatException(
+          'This stock expired after the AI review was prepared. Remove it with reason Expired instead; nothing was changed.',
+        );
+      }
+      return live.patch({
+        'sold': true,
+        'quantity': 0,
+        'soldAt': operationTime.toIso8601String(),
+        'soldQuantity': live.quantity,
+        'soldUnitPricePaise': live.unitPricePaise,
+      });
+    }
+
+    if (live.archived) {
+      throw StateError(
+        'The reviewed stock entry is already removed. Review the AI result again.',
+      );
+    }
+    return archiveMedicine(
+      live,
+      reason: 'AI reviewed removal',
+      at: operationTime,
+    );
+  }
+
   Future<void> applyAi(AiPlan plan, Set<int> selected) async {
     if (aiPreparing) throw StateError('Another AI plan is preparing.');
     if (plan.baseRevision != snapshot.revision) {
@@ -1185,14 +1238,14 @@ class PharmacyController extends ChangeNotifier {
     preparedActions = 0;
     _emit();
     try {
-      final changes = <Medicine>[];
+      final selectedChanges = <AiChange>[];
       for (var start = 0; start < plan.changes.length; start += 25) {
         if (_cancelAi || _disposed) {
           throw StateError('Cancelled. No inventory changes were saved.');
         }
         for (var i = start; i < plan.changes.length && i < start + 25; i++) {
           if (selection.contains(i)) {
-            changes.add(Medicine.fromJson(plan.changes[i].after.toJson()));
+            selectedChanges.add(plan.changes[i]);
           }
         }
         preparedActions = (start + 25).clamp(0, plan.changes.length);
@@ -1202,6 +1255,16 @@ class PharmacyController extends ChangeNotifier {
       if (_cancelAi || _disposed) {
         throw StateError('Cancelled. No inventory changes were saved.');
       }
+
+      // Lifecycle metadata belongs to the durable apply, not the earlier AI
+      // preview. Capture one authoritative instant after preparation/cancellation
+      // and rebuild SOLD/removal transitions from the unchanged reviewed row.
+      // This mirrors the manual review/apply flows: stock that expires while a
+      // review is open fails closed, and audit + lifecycle timestamps stay equal.
+      final operationTime = clock();
+      final changes = selectedChanges
+          .map((change) => _materializeAiChangeAtCommit(change, operationTime))
+          .toList(growable: false);
       await _commit(
         InventoryMutation(
           expectedRevision: plan.baseRevision,
@@ -1209,6 +1272,7 @@ class PharmacyController extends ChangeNotifier {
           upserts: changes,
           requestId: plan.requestId,
         ),
+        operationTime: operationTime,
       );
     } finally {
       aiPreparing = false;
