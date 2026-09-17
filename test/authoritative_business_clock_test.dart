@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:aaris_pharmacy/data/inventory_database.dart';
+import 'package:aaris_pharmacy/domain/backup.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,6 +17,15 @@ Medicine _futureDatedStock(String id) => Medicine.fromJson({
   'barcode': 'clock-$id',
   'batchNumber': 'CLOCK-$id',
 });
+
+DateTime Function() _clockSequence(List<DateTime> values) {
+  var index = 0;
+  return () {
+    final value = values[index < values.length ? index : values.length - 1];
+    index++;
+    return value;
+  };
+}
 
 void main() {
   group('authoritative inventory business clock', () {
@@ -134,6 +144,71 @@ void main() {
           reason: 'The UTC audit instant must be allowed to fall on the previous UTC day while businessDay stays Jan 1.',
         );
       }
+    });
+
+    test('bulk removal keeps row and audit timestamps on one instant', () async {
+      final record = _futureDatedStock('bulk-midnight');
+      final removedAt = DateTime.utc(2027, 1, 1, 23, 59, 59);
+      final controller = PharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(records: {record.id: record}),
+        ),
+        clock: _clockSequence([
+          DateTime.utc(2027, 1, 1, 12),
+          removedAt,
+          DateTime.utc(2027, 1, 2, 0, 0, 1),
+        ]),
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      await controller.applyArchiveAll(controller.reviewArchiveAll());
+
+      final archived = controller.snapshot.records[record.id]!;
+      final event = controller.snapshot.events.first;
+      expect(archived.archivedAt, removedAt);
+      expect(event['time'], removedAt.toIso8601String());
+      expect(event['businessDay'], '2027-01-01');
+    });
+
+    test('backup restore keeps removal and audit timestamps coherent', () async {
+      final record = _futureDatedStock('backup-midnight');
+      final restoreStartedAt = DateTime.utc(2027, 1, 1, 23, 59, 59);
+      final controller = PharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(records: {record.id: record}),
+        ),
+        clock: _clockSequence([
+          DateTime.utc(2027, 1, 1, 12),
+          restoreStartedAt,
+          DateTime.utc(2027, 1, 2, 0, 0, 1),
+        ]),
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      final review = BackupReview(
+        backup: PharmacyBackup(
+          createdAt: DateTime.utc(2027, 1, 1, 10),
+          sourceRevision: controller.snapshot.revision,
+          settings: const WarningSettings(),
+          records: const {},
+          sales: const {},
+          soldValue: 0,
+          unknownSold: 0,
+        ),
+        currentRevision: controller.snapshot.revision,
+      );
+      await controller.restoreBackup(review);
+
+      final archived = controller.snapshot.records[record.id]!;
+      final event = controller.snapshot.events.first;
+      expect(archived.archivedAt, restoreStartedAt);
+      expect(archived.archiveReason, 'Not present in restored backup');
+      expect(event['time'], restoreStartedAt.toIso8601String());
+      expect(event['businessDay'], '2027-01-01');
     });
 
     test('operation time validation fails closed before persistence', () async {
