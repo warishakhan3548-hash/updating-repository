@@ -1,0 +1,117 @@
+name: Temporary external AI add-match guard verification
+
+on:
+  push:
+    branches:
+      - audit/external-ai-add-match-guard-20260917
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temp-external-ai-add-match-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Apply narrowly scoped patch and regression test
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('lib/domain/ai_protocol.dart')
+          source = source_path.read_text()
+          old = """      if (op == 'add') {
+                final suppliedId = rawId;
+          """
+          new = """      if (op == 'add') {
+                if (match != null) {
+                  throw const FormatException(
+                    'Add cannot use match. Use update with a unique match for an existing item, or omit match when adding new stock.',
+                  );
+                }
+                final suppliedId = rawId;
+          """
+          if source.count(old) != 1:
+              raise SystemExit(f'expected exactly one add-branch anchor, found {source.count(old)}')
+          source_path.write_text(source.replace(old, new, 1))
+
+          test_path = Path('test/external_ai_followup_recovery_test.dart')
+          test = test_path.read_text()
+          if "add with match fails closed instead of creating duplicate stock" in test:
+              raise SystemExit('regression test already exists unexpectedly')
+          marker = "\n}\n"
+          if not test.endswith(marker):
+              raise SystemExit('unexpected test file ending')
+          addition = r'''
+
+            test('add with match fails closed instead of creating duplicate stock', () {
+              const session = 'session_addmatch7';
+              final current = stock('existing_para500');
+
+              expect(
+                () => parseAiPlan(
+                  envelope(
+                    requestId: session,
+                    changeId: 'change_addmatch7',
+                    baseRevision: 1,
+                    actions: [
+                      {
+                        'op': 'add',
+                        'match': {'name': 'Paracetamol', 'strength': '500mg'},
+                        'fields': {
+                          'name': 'Paracetamol',
+                          'strength': '500mg',
+                          'expiry': '2027-04',
+                        },
+                      },
+                    ],
+                  ),
+                  {current.id: current},
+                  1,
+                  const {},
+                  now,
+                ),
+                throwsFormatException,
+              );
+            });
+          '''
+          test_path.write_text(test[:-len(marker)] + addition + marker)
+          PY
+      - name: Resolve pinned dependencies
+        run: flutter pub get
+      - name: Static checks
+        run: dart analyze lib test tool third_party/lib_llama_cpp/lib
+      - name: Focused external AI tests
+        run: flutter test --reporter expanded test/external_ai_followup_recovery_test.dart test/external_ai_continuation_test.dart
+      - name: Full test suite
+        run: flutter test --reporter expanded
+      - name: Remove temporary workflow and commit verified patch
+        shell: bash
+        run: |
+          rm .github/workflows/temp-external-ai-add-match-guard.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/domain/ai_protocol.dart test/external_ai_followup_recovery_test.dart .github/workflows/temp-external-ai-add-match-guard.yml
+          git diff --cached --check
+          git commit -m "Reject matched external AI adds"
+          git push origin HEAD:${GITHUB_REF_NAME}
