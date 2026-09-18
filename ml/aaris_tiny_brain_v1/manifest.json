@@ -1,0 +1,25 @@
+{
+  "bundle": "aaris-tiny-brain-v1",
+  "created": "2026-09-18",
+  "purpose": "Aaris Pharmacy Hindi/Hinglish/English medicine command routing + OCR line-role assistance",
+  "models": [
+    {"file": "intent_hybrid_int8.json", "type": "hybrid linear classifier", "features": 192, "classes": 14},
+    {"file": "ocr_role_hybrid_int8.json", "type": "hybrid linear classifier", "features": 256, "classes": 11}
+  ],
+  "safety": [
+    "Models never write SQLite directly.",
+    "Existing deterministic intent firewall and reviewed action protocol remain authoritative.",
+    "OCR output is evidence only; date/identity/stock validators remain authoritative.",
+    "Unknown or low-confidence inputs must fail closed or fall through to reviewed AI."
+  ],
+  "evaluation": {
+    "intent_holdout_examples": 146,
+    "intent_holdout_accuracy": 1.0,
+    "intent_blind_challenge_examples": 183,
+    "intent_blind_challenge_accuracy": 1.0,
+    "ocr_holdout_examples": 44,
+    "ocr_hybrid_holdout_accuracy": 1.0,
+    "ocr_neural_teacher_holdout_accuracy": 0.9772727272727273
+  },
+  "disclaimer": "Synthetic/domain evaluation only. These numbers are not production, clinical, or real-world accuracy claims."
+}
