@@ -51,6 +51,9 @@ class _SearchScreenState extends State<SearchScreen> {
   int _browseLimit = _browsePageSize;
   Future<void> _searchTail = Future<void>.value();
 
+  MedicineCatalogService get _catalogService =>
+      _catalog ??= MedicineCatalogService();
+
   @override
   void initState() {
     super.initState();
