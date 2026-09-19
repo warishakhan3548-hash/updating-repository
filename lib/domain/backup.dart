@@ -560,6 +560,7 @@ bool _sameSupplierFacts(Supplier a, Supplier b) =>
     a.returnBeforeExpiryDays == b.returnBeforeExpiryDays &&
     a.address == b.address &&
     a.gstin == b.gstin &&
+    a.drugLicenceNo == b.drugLicenceNo &&
     _sameSupplierCustomFields(a.customFields, b.customFields);
 
 bool _sameSupplierCustomFields(
