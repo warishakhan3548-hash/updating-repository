@@ -186,6 +186,10 @@ class PharmacyController extends ChangeNotifier {
   HomeInventoryProjection? _homeProjectionCache;
   String _homeProjectionDayKey = '';
   SalesOverview? _salesOverviewCache;
+  TrackingStats? _trackingCache;
+  DateTime? _trackingCacheStart;
+  DateTime? _trackingCacheEnd;
+  String _trackingCacheDayKey = '';
   List<SupplierReturnCandidate>? _supplierReturnsCache;
   String _supplierReturnsDayKey = '';
   int _searchDatasetEpoch = 0;
@@ -209,6 +213,10 @@ class PharmacyController extends ChangeNotifier {
     _homeProjectionCache = null;
     _homeProjectionDayKey = '';
     _salesOverviewCache = null;
+    _trackingCache = null;
+    _trackingCacheStart = null;
+    _trackingCacheEnd = null;
+    _trackingCacheDayKey = '';
     _supplierReturnsCache = null;
     _supplierReturnsDayKey = '';
     _searchDatasetEpoch++;
@@ -254,12 +262,26 @@ class PharmacyController extends ChangeNotifier {
     );
   }
 
-  TrackingStats tracking(TrackingRange range) => TrackingStats(
-    medicines: _stableRecords,
-    sales: sales,
-    range: range,
-    today: today,
-  );
+  TrackingStats tracking(TrackingRange range) {
+    final date = today;
+    final dayKey = dateText(date);
+    _syncReadSnapshot();
+    if (_trackingCache == null ||
+        _trackingCacheStart != range.start ||
+        _trackingCacheEnd != range.end ||
+        _trackingCacheDayKey != dayKey) {
+      _trackingCache = TrackingStats(
+        medicines: _stableRecords,
+        sales: sales,
+        range: range,
+        today: date,
+      );
+      _trackingCacheStart = range.start;
+      _trackingCacheEnd = range.end;
+      _trackingCacheDayKey = dayKey;
+    }
+    return _trackingCache!;
+  }
 
   Future<void> initialize() {
     if (_disposed) return Future.error(StateError('App is closed.'));
