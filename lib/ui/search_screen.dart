@@ -481,7 +481,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_controllerListening) widget.controller.removeListener(_changed);
     _debounce?.cancel();
     _onlineDebounce?.cancel();
-    _catalog.close();
+    _catalog?.close();
     _query.dispose();
     super.dispose();
   }
