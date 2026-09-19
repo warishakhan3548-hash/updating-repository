@@ -184,7 +184,8 @@ class PharmacyController extends ChangeNotifier {
   List<Medicine>? _readRecords;
   InventoryStats? _statsCache;
   String _statsDayKey = '';
-  HomeInventoryProjection? _homeProjectionCache;
+  final Map<String, HomeInventoryProjection> _homeProjectionCache =
+      <String, HomeInventoryProjection>{};
   String _homeProjectionDayKey = '';
   SalesOverview? _salesOverviewCache;
   final Map<String, TrackingStats> _trackingCache = <String, TrackingStats>{};
@@ -208,8 +209,6 @@ class PharmacyController extends ChangeNotifier {
     final previous = _readSnapshot;
     final recordsChanged =
         previous == null || !identical(previous.records, snapshot.records);
-    final settingsChanged =
-        previous == null || !identical(previous.settings, snapshot.settings);
     final suppliersChanged =
         previous == null || !identical(previous.suppliers, snapshot.suppliers);
     final salesChanged =
@@ -231,8 +230,8 @@ class PharmacyController extends ChangeNotifier {
       _statsCache = null;
       _statsDayKey = '';
     }
-    if (recordsChanged || settingsChanged) {
-      _homeProjectionCache = null;
+    if (recordsChanged) {
+      _homeProjectionCache.clear();
       _homeProjectionDayKey = '';
     }
     if (recordsChanged || salesChanged || eventsChanged) {
@@ -276,19 +275,37 @@ class PharmacyController extends ChangeNotifier {
     return _statsCache!;
   }
 
-  HomeInventoryProjection get homeProjection {
+  HomeInventoryProjection get homeProjection => homeProjectionFor(settings);
+
+  /// Returns the Home read model for an explicit warning-window preview.
+  ///
+  /// Warning controls may publish an optimistic value before persistence
+  /// finishes. Keep that projection beside the authoritative one so the UI
+  /// never owns inventory projection rules or repeats a full stock scan when
+  /// the same settings become committed a moment later.
+  HomeInventoryProjection homeProjectionFor(WarningSettings selectedSettings) {
     final date = today;
     final dayKey = dateText(date);
     _syncReadSnapshot();
-    if (_homeProjectionCache == null || _homeProjectionDayKey != dayKey) {
-      _homeProjectionCache = HomeInventoryProjection.build(
-        medicines: _stableRecords,
-        settings: settings,
-        today: date,
-      );
+    if (_homeProjectionDayKey != dayKey) {
+      _homeProjectionCache.clear();
       _homeProjectionDayKey = dayKey;
     }
-    return _homeProjectionCache!;
+    final key =
+        '${selectedSettings.shortDays}:${selectedSettings.months}';
+    final cached = _homeProjectionCache[key];
+    if (cached != null) return cached;
+
+    if (_homeProjectionCache.length >= 8) {
+      _homeProjectionCache.remove(_homeProjectionCache.keys.first);
+    }
+    final projection = HomeInventoryProjection.build(
+      medicines: _stableRecords,
+      settings: selectedSettings,
+      today: date,
+    );
+    _homeProjectionCache[key] = projection;
+    return projection;
   }
 
   SalesOverview get salesOverview {
