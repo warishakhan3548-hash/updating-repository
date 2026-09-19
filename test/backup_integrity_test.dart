@@ -62,6 +62,35 @@ void main() {
     expect(parsed.legacyFormat, isFalse);
   });
 
+  test('v3 backup seals supplier profiles and exact stock links', () {
+    const supplier = Supplier(
+      id: 'supplier-backup',
+      name: 'ABC Distributor',
+      returnBeforeExpiryDays: 45,
+      address: 'Panipat',
+      drugLicenceNo: 'DL-123',
+    );
+    final linked = Medicine.fromJson({
+      ...stock('linked-stock', name: 'Amoxicillin', expiry: '2026-11-03').toJson(),
+      'supplierId': supplier.id,
+    });
+    final backup = PharmacyBackup(
+      createdAt: contractToday,
+      sourceRevision: 11,
+      settings: contractSettings,
+      records: <String, Medicine>{linked.id: linked},
+      suppliers: const <String, Supplier>{supplier.id: supplier},
+      sales: const <String, SaleEvent>{},
+      soldValue: 0,
+      unknownSold: 0,
+    );
+
+    final parsed = PharmacyBackup.parse(backup.encode());
+    expect(parsed.suppliers[supplier.id]!.returnBeforeExpiryDays, 45);
+    expect(parsed.records[linked.id]!.supplierId, supplier.id);
+    expect(parsed.integrityVerified, isTrue);
+  });
+
   test('valid-looking fact edits are rejected when integrity no longer matches', () {
     final encoded = _backup().encode();
     final tampered = encoded.replaceFirst('"quantity": 10', '"quantity": 9');
