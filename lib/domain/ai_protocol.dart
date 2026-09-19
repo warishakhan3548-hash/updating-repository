@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'inventory.dart';
 import 'medicine.dart';
+import 'supplier.dart';
 import 'tracking.dart';
 
 const pharmacySchema = 'aaris.pharmacy.v1';
@@ -180,6 +181,7 @@ class PharmacyExport {
   PharmacyExport({
     required this.revision,
     required Iterable<Medicine> records,
+    required Iterable<Supplier> suppliers,
     Iterable<SaleEvent> sales = const [],
     required this.today,
   }) {
@@ -194,6 +196,7 @@ class PharmacyExport {
           .where((m) => !m.archived)
           .map((m) => m.toJson())
           .toList(),
+      'suppliers': suppliers.map((supplier) => supplier.toJson()).toList(),
       'aggregateSales': sales.map((sale) => sale.toJson()).toList(),
     };
     content =
@@ -220,11 +223,13 @@ Allowed action shapes (example values are not facts about the owner's stock):
 {"op":"mark_sold","id":"EXACT_EXISTING_OR_SESSION_ID"}
 {"op":"restock","id":"EXACT_EXISTING_OR_SESSION_ID","fields":{"quantity":20,"expiry":"2028-01"}}
 {"op":"remove","id":"EXACT_EXISTING_OR_SESSION_ID"}
-All editable fields: name, brand, manufacturer, salt, strength, form, mfg, expiry, quantity, unitPricePaise, barcode, batchNumber, block, row, vertical, location, notes, ocrText.
+All editable fields: name, brand, manufacturer, salt, strength, form, mfg, expiry, quantity, unitPricePaise, barcode, batchNumber, supplierId, block, row, vertical, location, notes, ocrText.
 Dates: YYYY-MM-DD; printed MFG YYYY-MM means that exact month and printed expiry YYYY-MM means month end. Quantity is an integer in the owner's stock unit. unitPricePaise is the inventory/purchase cost in integer paise PER SAME UNIT (250 = Rs 2.50), not assumed sale revenue or printed MRP. Never confuse pack size with stock quantity or strip cost with tablet cost. Name is required; other fields may be missing. Never infer quantities or costs.
 Aggregate sales contain medicine movement only and no customer identity. Do not invent or modify sales events through this protocol.
 In action JSON do not emit daysLeft, status, expired, warning colors, totals, paths, diary data, API keys or credentials. The app computes expiry; you may discuss expiry and totals normally in chat from known facts. Sold means explicitly confirmed completely out of stock, not one unit sold. Remove means archive only and requires an explicit owner request.
-Existing stock changes require the exact inventory ID whenever it is known; never guess an ID by name. Multiple expiries/locations are distinct entries. Prefer updating a matching known ID over duplicate additions, but ask if ambiguous. Maximum 250 actions; at most one action per stock ID in one response. Omit unchanged fields in updates. If no change is needed, explain that in normal chat without JSON. Every mutation is reviewed in the app before it can be saved.''';
+Existing stock changes require the exact inventory ID whenever it is known; never guess an ID by name. Multiple expiries/locations are distinct entries. Prefer updating a matching known ID over duplicate additions, but ask if ambiguous.
+The attached supplier list is also authoritative. supplierId links one exact stock row to one existing supplier. Use only an exact supplier ID from the attached supplier list; never invent one from a supplier name. Batch numbers are useful lot evidence but are not globally unique supplier links. If an invoice names a supplier that is not in the attached supplier list, explain that the owner must first add that supplier in Aaris Supplier Details, then use a fresh export before linking stock. Supplier return days, GSTIN, address and custom supplier fields are supplier-profile facts, not medicine fields.
+Maximum 250 actions; at most one action per stock ID in one response. Omit unchanged fields in updates. If no change is needed, explain that in normal chat without JSON. Every mutation is reviewed in the app before it can be saved.''';
   }
   final int revision;
   final DateTime today;
@@ -235,6 +240,7 @@ Existing stock changes require the exact inventory ID whenever it is known; neve
 AiPlan parseAiPlan(
   String input,
   Map<String, Medicine> records,
+  Map<String, Supplier> suppliers,
   int revision,
   Set<String> appliedRequests,
   DateTime now,
@@ -377,6 +383,20 @@ AiPlan parseAiPlan(
           'Only stored pharmacy fields may be changed.',
         );
       final fields = Map<String, dynamic>.from(fieldValue);
+      if (fields.containsKey('supplierId')) {
+        final supplierId = fields['supplierId'];
+        if (supplierId is! String) {
+          throw const FormatException('supplierId must be a string.');
+        }
+        final cleanSupplierId = supplierId.trim();
+        if (cleanSupplierId.isNotEmpty &&
+            !suppliers.containsKey(cleanSupplierId)) {
+          throw const FormatException(
+            'supplierId must reference an existing supplier from the attached pharmacy snapshot.',
+          );
+        }
+        fields['supplierId'] = cleanSupplierId;
+      }
       final match = raw['match'] == null
           ? null
           : _validatedTargetMatch(raw['match']);
