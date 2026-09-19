@@ -75,7 +75,6 @@ Map<String, void Function()> domainContract() {
   }) => parseAiPlan(
     text,
     {'existing': current},
-    const <String, Supplier>{},
     revision,
     receipts,
     contractToday,
@@ -672,7 +671,6 @@ Map<String, void Function()> domainContract() {
             {'op': 'mark_sold', 'id': 'expired'},
           ]),
           {'expired': expired},
-          const <String, Supplier>{},
           0,
           const {},
           contractToday,
