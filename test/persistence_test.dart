@@ -463,6 +463,7 @@ void main() {
       expect(controller.list(SearchScope.all).map((m) => m.id), ['original']);
       expect(controller.snapshot.records['later']!.archived, true);
       expect(controller.sales.single.quantity, 2);
+      expect(controller.canUndo, isTrue);
       await controller.undo();
       expect(controller.snapshot.records['later']!.archived, false);
     },
