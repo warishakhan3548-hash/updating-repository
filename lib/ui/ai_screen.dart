@@ -2006,6 +2006,7 @@ String _fieldLabel(String key) =>
       'soldQuantity': 'Quantity when marked sold',
       'ocrText': 'Scanned text',
       'batchNumber': 'Batch / lot number',
+      'supplierId': 'Supplier link',
       'mfg': 'Manufacturing date',
       'soldAt': 'Marked sold at',
       'archiveReason': 'Removal reason',
