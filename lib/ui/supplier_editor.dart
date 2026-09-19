@@ -178,10 +178,17 @@ class _SupplierEditorScreenState extends State<SupplierEditorScreen> {
         ],
         'revision': (old?.revision ?? 0) + 1,
       });
-      await widget.controller.saveSupplier(
-        supplier,
-        expectedRevision: widget.controller.snapshot.revision,
-      );
+      if (old == null) {
+        await widget.controller.saveSupplier(
+          supplier,
+          expectedRevision: widget.controller.snapshot.revision,
+        );
+      } else {
+        await widget.controller.saveReviewedSupplier(
+          reviewed: old,
+          draft: supplier,
+        );
+      }
       if (!mounted) return;
       Navigator.pop(context, supplier.id);
       showSaved(context, old == null ? 'Supplier added.' : 'Supplier updated.');
