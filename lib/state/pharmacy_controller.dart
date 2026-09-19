@@ -552,22 +552,47 @@ class PharmacyController extends ChangeNotifier {
     Supplier supplier, {
     required int expectedRevision,
   }) async {
-    final live = snapshot.suppliers[supplier.id];
-    if (live != null && supplier.revision <= live.revision) {
+    if (expectedRevision != snapshot.revision) {
+      throw StateError(
+        'Inventory changed before this supplier save started. Reopen the live supplier before saving.',
+      );
+    }
+
+    // Supplier editors carry the next row revision. Capture that exact row here,
+    // then revalidate it only when this write reaches the serialized commit
+    // turn. Unrelated stock/settings writes may safely advance the global
+    // inventory revision without invalidating an unchanged supplier edit.
+    final reviewed = snapshot.suppliers[supplier.id];
+    final reviewedRevision = supplier.revision - 1;
+    if (reviewed == null ? reviewedRevision != 0 : reviewed.revision != reviewedRevision) {
       throw StateError(
         'This supplier changed while it was being edited. Reopen the live supplier before saving.',
       );
     }
-    await _commit(
-      InventoryMutation(
-        expectedRevision: expectedRevision,
-        label: live == null
+
+    await _queueReviewedCommit((_) {
+      final live = snapshot.suppliers[supplier.id];
+      if (reviewed == null) {
+        if (live != null) {
+          throw StateError(
+            'This supplier ID is already in use. Reopen the supplier list before saving.',
+          );
+        }
+      } else if (live == null || live.revision != reviewed.revision) {
+        throw StateError(
+          'This supplier changed while the save was waiting. Reopen the live supplier before saving.',
+        );
+      }
+
+      return InventoryMutation(
+        expectedRevision: snapshot.revision,
+        label: reviewed == null
             ? 'Added supplier · ${supplier.name}'
             : 'Updated supplier · ${supplier.name}',
         upserts: const <Medicine>[],
         upsertSuppliers: <Supplier>[supplier],
-      ),
-    );
+      );
+    });
   }
 
   List<SupplierReturnCandidate> get supplierReturns {
@@ -692,28 +717,57 @@ class PharmacyController extends ChangeNotifier {
   }
 
   Future<void> save(Medicine record, {required int expectedRevision}) async {
-    final existing = snapshot.records[record.id];
-    // Validation and persistence must describe one pharmacist action. Sampling
-    // the business clock twice can cross midnight between the expiry guard and
-    // the durable event, producing a contradictory SOLD audit day.
-    final operationTime = clock();
-    if (record.sold &&
-        existing?.sold != true &&
-        isExpiredOn(record, operationTime)) {
-      throw const FormatException(
-        'Expired stock cannot be marked SOLD. Remove it with reason Expired so it stays in the correct safety history.',
+    if (expectedRevision != snapshot.revision) {
+      throw StateError(
+        'Inventory changed before this medicine save started. Reopen the live entry before saving.',
       );
     }
-    await _commit(
-      InventoryMutation(
-        expectedRevision: expectedRevision,
-        label: existing == null
+
+    // A medicine editor is bound to one physical stock-row revision. Capture
+    // that dependency now, then revalidate it when this request reaches the
+    // serialized write turn. This lets unrelated inventory traffic complete
+    // first without turning an otherwise valid Save into a global-CAS error.
+    final reviewed = snapshot.records[record.id];
+    final reviewedRevision = record.revision - 1;
+    if (reviewed == null ? reviewedRevision != 0 : reviewed.revision != reviewedRevision) {
+      throw StateError(
+        'This medicine changed while it was being edited. Reopen the live entry before saving.',
+      );
+    }
+
+    await _queueReviewedCommit((operationTime) {
+      final live = snapshot.records[record.id];
+      if (reviewed == null) {
+        if (live != null) {
+          throw StateError(
+            'This stock ID is already in use. Reopen Medicine Database before saving.',
+          );
+        }
+      } else if (live == null || live.revision != reviewed.revision) {
+        throw StateError(
+          'This medicine changed while the save was waiting. Reopen the live entry before saving.',
+        );
+      }
+
+      // Validation and persistence describe the same authoritative commit turn.
+      // A queued Save that crosses midnight must not mark newly expired stock
+      // SOLD merely because the editor was opened on the previous day.
+      if (record.sold &&
+          live?.sold != true &&
+          isExpiredOn(record, operationTime)) {
+        throw const FormatException(
+          'Expired stock cannot be marked SOLD. Remove it with reason Expired so it stays in the correct safety history.',
+        );
+      }
+
+      return InventoryMutation(
+        expectedRevision: snapshot.revision,
+        label: reviewed == null
             ? 'Added ${record.name}'
             : 'Edited ${record.name}',
-        upserts: [record],
-      ),
-      operationTime: operationTime,
-    );
+        upserts: <Medicine>[record],
+      );
+    });
   }
 
   Future<void> _updateWarnings(
