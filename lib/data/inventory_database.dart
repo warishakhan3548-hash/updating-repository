@@ -612,26 +612,37 @@ class SqliteInventoryStorage implements InventoryStorage {
         throw StateError('This AI request has already been applied.');
       final event = makeEvent(before, mutation);
       final after = nextSnapshot(before, mutation, event);
+      final batch = tx.batch();
       for (final m in mutation.upserts) {
-        // Revalidate at the persistence boundary, including manual caller changes.
+        // Validate every row before it is queued. Batch execution keeps a
+        // full-phone restore inside one SQLite transaction without one platform
+        // round-trip per medicine.
         final valid = Medicine.fromJson(m.toJson());
-        await tx.insert('medicines', {
-          'id': valid.id,
-          'facts': jsonEncode(valid.toJson()),
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        batch.insert(
+          'medicines',
+          {'id': valid.id, 'facts': jsonEncode(valid.toJson())},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
       }
       for (final id in mutation.removeIds) {
-        await tx.delete('medicines', where: 'id=?', whereArgs: [id]);
+        batch.delete('medicines', where: 'id=?', whereArgs: [id]);
       }
       for (final sale in mutation.upsertSales) {
         final valid = SaleEvent.fromJson(sale.toJson());
-        await tx.insert('sales', {
-          'id': valid.id,
-          'facts': jsonEncode(valid.toJson()),
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        batch.insert(
+          'sales',
+          {'id': valid.id, 'facts': jsonEncode(valid.toJson())},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
       }
       for (final id in mutation.removeSaleIds) {
-        await tx.delete('sales', where: 'id=?', whereArgs: [id]);
+        batch.delete('sales', where: 'id=?', whereArgs: [id]);
+      }
+      if (mutation.upserts.isNotEmpty ||
+          mutation.removeIds.isNotEmpty ||
+          mutation.upsertSales.isNotEmpty ||
+          mutation.removeSaleIds.isNotEmpty) {
+        await batch.commit(noResult: true);
       }
       if (mutation.undoEventId != null) {
         final count = await tx.update(
