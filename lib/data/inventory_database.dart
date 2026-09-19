@@ -2,7 +2,10 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
+import '../domain/automation_guard.dart';
+import '../domain/sale_ledger_guard.dart';
 import '../domain/medicine.dart';
+import '../domain/supplier.dart';
 import '../domain/inventory.dart';
 import '../domain/tracking.dart';
 
@@ -11,18 +14,40 @@ class InventorySnapshot {
     this.revision = 0,
     this.settings = const WarningSettings(),
     Map<String, Medicine>? records,
+    Map<String, Supplier>? suppliers,
     Map<String, SaleEvent>? sales,
     Set<String>? receipts,
     List<Map<String, dynamic>>? events,
     this.soldValue = 0,
     this.unknownSold = 0,
   }) : records = Map.unmodifiable(records ?? {}),
+       suppliers = Map.unmodifiable(suppliers ?? {}),
        sales = Map.unmodifiable(sales ?? {}),
        receipts = Set.unmodifiable(receipts ?? {}),
        events = List.unmodifiable(events ?? []);
+
+  /// Internal copy-on-write constructor.
+  ///
+  /// Callers outside this file still enter through the defensive public
+  /// constructor above. Persistence transitions already own freshly frozen
+  /// collections, so reusing untouched immutable collections avoids copying
+  /// the complete pharmacy for a settings-only or unrelated write.
+  InventorySnapshot._trusted({
+    required this.revision,
+    required this.settings,
+    required this.records,
+    required this.suppliers,
+    required this.sales,
+    required this.receipts,
+    required this.events,
+    required this.soldValue,
+    required this.unknownSold,
+  });
+
   final int revision, soldValue, unknownSold;
   final WarningSettings settings;
   final Map<String, Medicine> records;
+  final Map<String, Supplier> suppliers;
   final Map<String, SaleEvent> sales;
   final Set<String> receipts;
   final List<Map<String, dynamic>> events;
@@ -33,8 +58,10 @@ class InventoryMutation {
     required this.expectedRevision,
     required this.label,
     required this.upserts,
+    this.upsertSuppliers = const [],
     this.upsertSales = const [],
     this.removeIds = const [],
+    this.removeSupplierIds = const [],
     this.removeSaleIds = const [],
     this.settings,
     this.requestId,
@@ -42,23 +69,214 @@ class InventoryMutation {
     this.undoable = true,
     this.soldValueOverride,
     this.unknownSoldOverride,
+    this.operationTime,
   });
   final int expectedRevision;
   final String label;
   final List<Medicine> upserts;
+  final List<Supplier> upsertSuppliers;
   final List<SaleEvent> upsertSales;
   final List<String> removeIds;
+  final List<String> removeSupplierIds;
   final List<String> removeSaleIds;
   final WarningSettings? settings;
   final String? requestId, undoEventId;
   final bool undoable;
   final int? soldValueOverride, unknownSoldOverride;
+  final DateTime? operationTime;
+
+  InventoryMutation withOperationTime(DateTime value) => InventoryMutation(
+    expectedRevision: expectedRevision,
+    label: label,
+    upserts: upserts,
+    upsertSuppliers: upsertSuppliers,
+    upsertSales: upsertSales,
+    removeIds: removeIds,
+    removeSupplierIds: removeSupplierIds,
+    removeSaleIds: removeSaleIds,
+    settings: settings,
+    requestId: requestId,
+    undoEventId: undoEventId,
+    undoable: undoable,
+    soldValueOverride: soldValueOverride,
+    unknownSoldOverride: unknownSoldOverride,
+    operationTime: value,
+  );
 }
 
 abstract class InventoryStorage {
   Future<InventorySnapshot> load();
   Future<InventorySnapshot> commit(InventoryMutation mutation);
   Future<void> close();
+}
+
+void _validateMutationShape(InventoryMutation mutation) {
+  if (mutation.expectedRevision < 0) {
+    throw const FormatException('Invalid inventory revision.');
+  }
+  final operationTime = mutation.operationTime;
+  if (operationTime != null &&
+      (operationTime.year < 2000 || operationTime.year > 2200)) {
+    throw const FormatException('Invalid inventory operation time.');
+  }
+  final label = mutation.label.trim();
+  if (label.isEmpty || label.length > 1200) {
+    throw const FormatException('Invalid inventory activity label.');
+  }
+
+  Set<String> uniqueIds(Iterable<String> values, String description) {
+    final list = values.toList(growable: false);
+    if (list.any((id) => id.trim().isEmpty || id.length > 300)) {
+      throw FormatException('Invalid $description ID.');
+    }
+    final ids = list.toSet();
+    if (ids.length != list.length) {
+      throw StateError(
+        'One inventory transaction cannot repeat a $description ID.',
+      );
+    }
+    return ids;
+  }
+
+  final upsertIds = uniqueIds(
+    mutation.upserts.map((record) => record.id),
+    'medicine upsert',
+  );
+  final removeIds = uniqueIds(mutation.removeIds, 'medicine removal');
+  if (upsertIds.intersection(removeIds).isNotEmpty) {
+    throw StateError(
+      'One inventory transaction cannot both upsert and remove the same medicine ID.',
+    );
+  }
+
+  final upsertSupplierIds = uniqueIds(
+    mutation.upsertSuppliers.map((supplier) => supplier.id),
+    'supplier upsert',
+  );
+  final removeSupplierIds = uniqueIds(
+    mutation.removeSupplierIds,
+    'supplier removal',
+  );
+  if (upsertSupplierIds.intersection(removeSupplierIds).isNotEmpty) {
+    throw StateError(
+      'One inventory transaction cannot both upsert and remove the same supplier ID.',
+    );
+  }
+
+  final upsertSaleIds = uniqueIds(
+    mutation.upsertSales.map((sale) => sale.id),
+    'sale upsert',
+  );
+  final removeSaleIds = uniqueIds(mutation.removeSaleIds, 'sale removal');
+  if (upsertSaleIds.intersection(removeSaleIds).isNotEmpty) {
+    throw StateError(
+      'One inventory transaction cannot both upsert and remove the same sale ID.',
+    );
+  }
+
+  for (final entry in <String, String?>{
+    'AI request': mutation.requestId,
+    'undo event': mutation.undoEventId,
+  }.entries) {
+    final value = entry.value;
+    if (value != null && (value.trim().isEmpty || value.length > 300)) {
+      throw FormatException('Invalid ${entry.key} ID.');
+    }
+  }
+}
+
+// The latest Undo is intentionally rich for normal pharmacist actions, but a
+// giant backup restore/bulk operation must never duplicate tens of thousands of
+// OCR-heavy Medicine JSON objects into one in-memory + SQLite audit event. The
+// audit row and transaction still commit; only the reversible before-image is
+// omitted once either bound is crossed, making that event explicitly non-undoable.
+const _maxUndoRows = 256;
+const _maxUndoTextCharacters = 1000000;
+
+int _medicineUndoTextWeight(Medicine record) =>
+    512 +
+    record.id.length +
+    record.name.length +
+    record.brand.length +
+    record.manufacturer.length +
+    record.salt.length +
+    record.strength.length +
+    record.form.length +
+    record.barcode.length +
+    record.batchNumber.length +
+    record.supplierId.length +
+    record.block.length +
+    record.row.length +
+    record.vertical.length +
+    record.location.length +
+    record.notes.length +
+    record.ocrText.length +
+    record.archiveReason.length +
+    (record.soldAt?.length ?? 0);
+
+int _supplierUndoTextWeight(Supplier supplier) =>
+    256 +
+    supplier.id.length +
+    supplier.name.length +
+    supplier.address.length +
+    supplier.gstin.length +
+    supplier.drugLicenceNo.length +
+    supplier.customFields.fold<int>(
+      0,
+      (total, field) =>
+          total + field.id.length + field.label.length + field.value.length,
+    );
+
+int _saleUndoTextWeight(SaleEvent sale) =>
+    192 +
+    sale.id.length +
+    sale.stockId.length +
+    sale.medicineName.length +
+    sale.strength.length +
+    sale.form.length +
+    sale.salt.length;
+
+bool _canCaptureUndoSnapshot(
+  InventorySnapshot before,
+  InventoryMutation mutation,
+) {
+  if (!mutation.undoable) return false;
+  final recordIds = <String>{
+    ...mutation.upserts.map((record) => record.id),
+    ...mutation.removeIds,
+  };
+  final supplierIds = <String>{
+    ...mutation.upsertSuppliers.map((supplier) => supplier.id),
+    ...mutation.removeSupplierIds,
+  };
+  final saleIds = <String>{
+    ...mutation.upsertSales.map((sale) => sale.id),
+    ...mutation.removeSaleIds,
+  };
+  if (recordIds.length + supplierIds.length + saleIds.length > _maxUndoRows) {
+    return false;
+  }
+
+  var textWeight = 0;
+  for (final id in recordIds) {
+    final record = before.records[id];
+    if (record == null) continue;
+    textWeight += _medicineUndoTextWeight(record);
+    if (textWeight > _maxUndoTextCharacters) return false;
+  }
+  for (final id in supplierIds) {
+    final supplier = before.suppliers[id];
+    if (supplier == null) continue;
+    textWeight += _supplierUndoTextWeight(supplier);
+    if (textWeight > _maxUndoTextCharacters) return false;
+  }
+  for (final id in saleIds) {
+    final sale = before.sales[id];
+    if (sale == null) continue;
+    textWeight += _saleUndoTextWeight(sale);
+    if (textWeight > _maxUndoTextCharacters) return false;
+  }
+  return true;
 }
 
 Map<String, dynamic> makeEvent(
@@ -81,27 +299,48 @@ Map<String, dynamic> makeEvent(
     }
   }
   checkedMoneySum(before.soldValue, soldValue);
+  // One immutable operation timestamp drives both the durable audit event and
+  // every date-sensitive persistence guard for this transaction. Controller
+  // writes stamp this from the controller's injected business clock; direct
+  // storage callers fall back to one wall-clock read here.
+  final operationTime = mutation.operationTime ?? DateTime.now();
+  final operationDay = civilDay(operationTime);
+  final captureUndo = _canCaptureUndoSnapshot(before, mutation);
   return {
     'id': newId(),
     'revision': before.revision + 1,
     'label': mutation.label,
-    'time': DateTime.now().toIso8601String(),
-    'undoable': mutation.undoable,
+    'time': operationTime.toUtc().toIso8601String(),
+    'businessDay': dateText(operationDay),
+    'undoable': captureUndo,
     'undone': false,
-    'before': {
-      for (final id in {
-        ...mutation.upserts.map((m) => m.id),
-        ...mutation.removeIds,
-      })
-        id: before.records[id]?.toJson(),
-    },
-    'salesBefore': {
-      for (final id in {
-        ...mutation.upsertSales.map((sale) => sale.id),
-        ...mutation.removeSaleIds,
-      })
-        id: before.sales[id]?.toJson(),
-    },
+    'before': captureUndo
+        ? {
+            for (final id in {
+              ...mutation.upserts.map((m) => m.id),
+              ...mutation.removeIds,
+            })
+              id: before.records[id]?.toJson(),
+          }
+        : <String, dynamic>{},
+    'supplierBefore': captureUndo
+        ? {
+            for (final id in {
+              ...mutation.upsertSuppliers.map((supplier) => supplier.id),
+              ...mutation.removeSupplierIds,
+            })
+              id: before.suppliers[id]?.toJson(),
+          }
+        : <String, dynamic>{},
+    'salesBefore': captureUndo
+        ? {
+            for (final id in {
+              ...mutation.upsertSales.map((sale) => sale.id),
+              ...mutation.removeSaleIds,
+            })
+              id: before.sales[id]?.toJson(),
+          }
+        : <String, dynamic>{},
     'settingsBefore': before.settings.toJson(),
     'soldValue': soldValue,
     'unknownSold': unknownSold,
@@ -115,22 +354,139 @@ InventorySnapshot nextSnapshot(
   InventoryMutation mutation,
   Map<String, dynamic> event,
 ) {
-  final records = {...before.records};
-  final sales = {...before.sales};
+  final recordsChanged =
+      mutation.upserts.isNotEmpty || mutation.removeIds.isNotEmpty;
+  final suppliersChanged =
+      mutation.upsertSuppliers.isNotEmpty ||
+      mutation.removeSupplierIds.isNotEmpty;
+  final salesChanged =
+      mutation.upsertSales.isNotEmpty || mutation.removeSaleIds.isNotEmpty;
+
+  // Copy only the collection a mutation can actually change. These maps are
+  // frozen again before publication; untouched collections are already
+  // immutable because every InventorySnapshot owns unmodifiable collections.
+  // This keeps a preference/supplier/sales write from cloning the full medicine
+  // database twice on the latency-sensitive commit path.
+  final records = recordsChanged
+      ? <String, Medicine>{...before.records}
+      : before.records;
+  final suppliers = suppliersChanged
+      ? <String, Supplier>{...before.suppliers}
+      : before.suppliers;
+  final sales = salesChanged
+      ? <String, SaleEvent>{...before.sales}
+      : before.sales;
+  final eventTimeRaw = event['time'];
+  if (eventTimeRaw is! String) {
+    throw const FormatException('Inventory event time is missing.');
+  }
+  final operationTime = DateTime.tryParse(eventTimeRaw);
+  if (operationTime == null ||
+      operationTime.year < 2000 ||
+      operationTime.year > 2200) {
+    throw const FormatException('Inventory event time is invalid.');
+  }
+  // The audit instant is normalized to UTC for durable ordering, but the
+  // pharmacist's business day must retain the controller/device local civil
+  // date. Re-deriving the day from the UTC instant would shift transactions
+  // around local midnight in positive/negative UTC offsets.
+  final operationDayRaw = event['businessDay'];
+  final parsedOperationDay = operationDayRaw is String
+      ? DateTime.tryParse(operationDayRaw)
+      : null;
+  if (parsedOperationDay == null ||
+      parsedOperationDay.year < 2000 ||
+      parsedOperationDay.year > 2200 ||
+      dateText(parsedOperationDay) != operationDayRaw) {
+    throw const FormatException('Inventory business day is invalid.');
+  }
+  final operationDay = civilDay(parsedOperationDay);
   for (final record in mutation.upserts) {
     records[record.id] = Medicine.fromJson(record.toJson());
   }
   for (final id in mutation.removeIds) {
     records.remove(id);
   }
+  for (final supplier in mutation.upsertSuppliers) {
+    suppliers[supplier.id] = Supplier.fromJson(supplier.toJson());
+  }
+  for (final id in mutation.removeSupplierIds) {
+    suppliers.remove(id);
+  }
+
+  void validateSupplierLink(Medicine record) {
+    final supplierId = record.supplierId.trim();
+    if (supplierId.isNotEmpty && !suppliers.containsKey(supplierId)) {
+      throw FormatException(
+        'Stock entry ${record.id} points to a supplier that does not exist.',
+      );
+    }
+  }
+
+  // Supplier integrity is incremental for ordinary stock/sale writes. Existing
+  // rows were already validated when their supplier link was created, so
+  // re-scanning the entire pharmacy after every quantity edit or sale adds
+  // avoidable O(N) work on the UI-critical commit path. Validate only touched
+  // medicine rows against the post-mutation supplier set. Removing a supplier
+  // is the one operation that can invalidate untouched rows, so that rare path
+  // still performs a complete reference scan before persistence.
+  for (final record in mutation.upserts) {
+    validateSupplierLink(records[record.id]!);
+  }
+  if (mutation.removeSupplierIds.isNotEmpty) {
+    final removedSupplierIds = mutation.removeSupplierIds.toSet();
+    for (final record in records.values) {
+      final supplierId = record.supplierId.trim();
+      if (supplierId.isNotEmpty && removedSupplierIds.contains(supplierId)) {
+        throw FormatException(
+          'Stock entry ${record.id} points to a supplier that does not exist.',
+        );
+      }
+    }
+  }
+
+  // Cross-row integrity is enforced at the same authoritative boundary as
+  // revision, money and schema validation. This closes the gap where Attention
+  // could correctly flag one physical lot with contradictory batch facts while
+  // a later sale/receive/SOLD path still mutated that row. Undo must faithfully
+  // restore the immediately previous state, and an explicitly reviewed backup
+  // restore must reproduce its source snapshot, so those two recovery paths are
+  // intentionally exempt from this prospective guard.
+  final recoveryRestore =
+      mutation.soldValueOverride != null ||
+      mutation.unknownSoldOverride != null;
+  if (mutation.undoEventId == null && !recoveryRestore) {
+    ensureIntegritySafeInventoryMutation(
+      before: before.records,
+      after: records,
+      touchedStockIds: {
+        ...mutation.upserts.map((record) => record.id),
+        ...mutation.removeIds,
+      },
+      today: operationDay,
+    );
+    ensureSafeSaleLedgerMutation(
+      beforeRecords: before.records,
+      afterRecords: records,
+      beforeSales: before.sales,
+      upsertSales: mutation.upsertSales,
+      removeSaleIds: mutation.removeSaleIds,
+    );
+  }
+
   for (final sale in mutation.upsertSales) {
     sales[sale.id] = SaleEvent.fromJson(sale.toJson());
   }
   for (final id in mutation.removeSaleIds) {
     sales.remove(id);
   }
-  // Validate aggregate money before committing, not while a statistics widget renders.
-  InventoryStats(records.values, DateTime.now());
+  // Aggregate inventory arithmetic can change only when medicine facts change.
+  // Keep the exact-accounting guard on every stock mutation, but do not rescan
+  // the entire pharmacy for warning settings, supplier metadata or sale-history
+  // writes that leave the medicine collection byte-for-byte unchanged.
+  if (recordsChanged) {
+    InventoryStats(records.values, operationDay);
+  }
   var total =
       mutation.soldValueOverride ??
       checkedMoneySum(before.soldValue, event['soldValue'] as int);
@@ -157,26 +513,118 @@ InventorySnapshot nextSnapshot(
         undone.single['unknownSoldBeforeTotal'] as int? ??
         missing - undone.single['unknownSold'] as int;
   }
-  return InventorySnapshot(
-    revision: before.revision + 1,
-    settings: WarningSettings.fromJson(
-      (mutation.settings ?? before.settings).toJson(),
-    ),
-    records: records,
-    sales: sales,
-    receipts: {
-      ...before.receipts,
-      if (mutation.requestId != null) mutation.requestId!,
-    },
-    events: [
+  final receipts = mutation.requestId == null
+      ? before.receipts
+      : Set<String>.unmodifiable(<String>{
+          ...before.receipts,
+          mutation.requestId!,
+        });
+  final events = List<Map<String, dynamic>>.unmodifiable(
+    <Map<String, dynamic>>[
       event,
       ...before.events.map(
         (e) => e['id'] == mutation.undoEventId ? {...e, 'undone': true} : e,
       ),
-    ].take(200).toList(),
+    ].take(200),
+  );
+  return InventorySnapshot._trusted(
+    revision: before.revision + 1,
+    settings: mutation.settings == null
+        ? before.settings
+        : WarningSettings.fromJson(mutation.settings!.toJson()),
+    records: recordsChanged
+        ? Map<String, Medicine>.unmodifiable(records)
+        : before.records,
+    suppliers: suppliersChanged
+        ? Map<String, Supplier>.unmodifiable(suppliers)
+        : before.suppliers,
+    sales: salesChanged
+        ? Map<String, SaleEvent>.unmodifiable(sales)
+        : before.sales,
+    receipts: receipts,
+    events: events,
     soldValue: total,
     unknownSold: missing,
   );
+}
+
+/// Converts one persisted Activity row into its safe runtime projection.
+///
+/// Audit history is useful but not authoritative stock. A single malformed
+/// legacy `detail` JSON must therefore never make otherwise-valid medicines,
+/// sales and settings impossible to open. SQL columns remain the witnesses for
+/// event identity/revision/SOLD aggregates, and malformed rows are left on disk
+/// untouched for forensic/manual recovery. Missing Undo payloads merely disable
+/// Undo for that row instead of inventing a before-image.
+Map<String, dynamic>? decodeStoredInventoryEvent(Map<String, Object?> row) {
+  try {
+    final rowId = row['id'];
+    final rowRevision = row['revision'];
+    final soldValue = row['sold_value'];
+    final unknownSold = row['unknown_sold'];
+    final undone = row['undone'];
+    final raw = row['detail'];
+    if (rowId is! String ||
+        rowId.trim().isEmpty ||
+        rowRevision is! int ||
+        rowRevision < 1 ||
+        soldValue is! int ||
+        soldValue < 0 ||
+        unknownSold is! int ||
+        unknownSold < 0 ||
+        undone is! int ||
+        (undone != 0 && undone != 1) ||
+        raw is! String) {
+      return null;
+    }
+
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return null;
+    final event = Map<String, dynamic>.from(decoded);
+    final label = event['label'];
+    final timeRaw = event['time'];
+    final time = timeRaw is String ? DateTime.tryParse(timeRaw) : null;
+    if (event['id'] != rowId ||
+        event['revision'] != rowRevision ||
+        label is! String ||
+        label.trim().isEmpty ||
+        label.length > 1200 ||
+        time == null ||
+        time.year < 2000 ||
+        time.year > 2200) {
+      return null;
+    }
+
+    final beforeRaw = event['before'];
+    final supplierBeforeRaw = event['supplierBefore'];
+    final salesBeforeRaw = event['salesBefore'];
+    final settingsBeforeRaw = event['settingsBefore'];
+    final canUndo =
+        event['undoable'] == true &&
+        beforeRaw is Map &&
+        settingsBeforeRaw is Map;
+
+    return <String, dynamic>{
+      ...event,
+      'soldValue': soldValue,
+      'unknownSold': unknownSold,
+      'undoable': canUndo,
+      'undone': undone == 1,
+      'before': beforeRaw is Map
+          ? Map<String, dynamic>.from(beforeRaw)
+          : <String, dynamic>{},
+      'supplierBefore': supplierBeforeRaw is Map
+          ? Map<String, dynamic>.from(supplierBeforeRaw)
+          : <String, dynamic>{},
+      'salesBefore': salesBeforeRaw is Map
+          ? Map<String, dynamic>.from(salesBeforeRaw)
+          : <String, dynamic>{},
+      if (settingsBeforeRaw is Map)
+        'settingsBefore': Map<String, dynamic>.from(settingsBeforeRaw),
+    };
+  } catch (_) {
+    return null;
+  }
 }
 
 class SqliteInventoryStorage implements InventoryStorage {
@@ -193,7 +641,7 @@ class SqliteInventoryStorage implements InventoryStorage {
     _db = await provider.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onConfigure: (db) async {
           await db.execute('PRAGMA foreign_keys = ON');
         },
@@ -209,6 +657,9 @@ class SqliteInventoryStorage implements InventoryStorage {
           );
           await db.execute(
             'CREATE TABLE sales (id TEXT PRIMARY KEY, facts TEXT NOT NULL)',
+          );
+          await db.execute(
+            'CREATE TABLE suppliers (id TEXT PRIMARY KEY, facts TEXT NOT NULL)',
           );
           await db.execute(
             'CREATE TABLE events (id TEXT PRIMARY KEY, revision INTEGER UNIQUE NOT NULL, detail TEXT NOT NULL, sold_value INTEGER NOT NULL, unknown_sold INTEGER NOT NULL, undone INTEGER NOT NULL DEFAULT 0)',
@@ -242,6 +693,11 @@ class SqliteInventoryStorage implements InventoryStorage {
               'unknown_sold': totals['missing'],
             }, where: 'id=1');
           }
+          if (oldVersion < 4) {
+            await db.execute(
+              'CREATE TABLE IF NOT EXISTS suppliers (id TEXT PRIMARY KEY, facts TEXT NOT NULL)',
+            );
+          }
         },
       ),
     );
@@ -251,13 +707,19 @@ class SqliteInventoryStorage implements InventoryStorage {
   Future<InventorySnapshot> _read(DatabaseExecutor db) async {
     final meta = (await db.query('meta', where: 'id=1')).single;
     final records = await db.query('medicines');
+    final suppliers = await db.query('suppliers');
     final sales = await db.query('sales');
-    final events = await db.query(
+    final eventRows = await db.query(
       'events',
       orderBy: 'revision DESC',
       limit: 200,
     );
     final receipts = await db.query('receipts');
+    final events = <Map<String, dynamic>>[];
+    for (final row in eventRows) {
+      final event = decodeStoredInventoryEvent(row);
+      if (event != null) events.add(event);
+    }
     return InventorySnapshot(
       revision: meta['revision'] as int,
       settings: WarningSettings.fromJson(
@@ -269,6 +731,12 @@ class SqliteInventoryStorage implements InventoryStorage {
             jsonDecode(row['facts'] as String) as Map<String, dynamic>,
           ),
       },
+      suppliers: {
+        for (final row in suppliers)
+          row['id'] as String: Supplier.fromJson(
+            jsonDecode(row['facts'] as String) as Map<String, dynamic>,
+          ),
+      },
       sales: {
         for (final row in sales)
           row['id'] as String: SaleEvent.fromJson(
@@ -276,22 +744,22 @@ class SqliteInventoryStorage implements InventoryStorage {
           ),
       },
       receipts: receipts.map((r) => r['request_id'] as String).toSet(),
-      events: events
-          .map(
-            (r) => {
-              ...jsonDecode(r['detail'] as String) as Map<String, dynamic>,
-              'undone': r['undone'] == 1,
-            },
-          )
-          .toList(),
+      events: events,
       soldValue: meta['sold_value'] as int,
       unknownSold: meta['unknown_sold'] as int,
     );
   }
 
   @override
-  Future<InventorySnapshot> load() async =>
-      _cached = await _read(await _open());
+  Future<InventorySnapshot> load() async {
+    final db = await _open();
+    // Metadata, medicines, sales and receipts describe one revision. Reading
+    // them in separate autocommit statements can mix revisions if another
+    // connection commits between queries (startup/restore/recovery).
+    final snapshot = await db.transaction((tx) => _read(tx));
+    _cached = snapshot;
+    return snapshot;
+  }
   @override
   Future<InventorySnapshot> commit(InventoryMutation mutation) async {
     final db = await _open();
@@ -310,32 +778,70 @@ class SqliteInventoryStorage implements InventoryStorage {
         throw StateError(
           'Inventory changed. Reopen this review before saving.',
         );
+      _validateMutationShape(mutation);
       if (mutation.requestId != null &&
           before.receipts.contains(mutation.requestId))
         throw StateError('This AI request has already been applied.');
       final event = makeEvent(before, mutation);
       final after = nextSnapshot(before, mutation, event);
+      var batch = tx.batch();
+      var queued = 0;
+      Future<void> flushBatch() async {
+        if (queued == 0) return;
+        await batch.commit(noResult: true);
+        batch = tx.batch();
+        queued = 0;
+      }
+
       for (final m in mutation.upserts) {
-        // Revalidate at the persistence boundary, including manual caller changes.
+        // Validate every row before it is queued. Chunked batches keep a
+        // full-phone restore inside one SQLite transaction without either one
+        // platform round-trip per row or one unbounded in-memory Batch.
         final valid = Medicine.fromJson(m.toJson());
-        await tx.insert('medicines', {
-          'id': valid.id,
-          'facts': jsonEncode(valid.toJson()),
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        batch.insert(
+          'medicines',
+          {'id': valid.id, 'facts': jsonEncode(valid.toJson())},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        queued++;
+        if (queued >= 500) await flushBatch();
       }
       for (final id in mutation.removeIds) {
-        await tx.delete('medicines', where: 'id=?', whereArgs: [id]);
+        batch.delete('medicines', where: 'id=?', whereArgs: [id]);
+        queued++;
+        if (queued >= 500) await flushBatch();
+      }
+      for (final supplier in mutation.upsertSuppliers) {
+        final valid = Supplier.fromJson(supplier.toJson());
+        batch.insert(
+          'suppliers',
+          {'id': valid.id, 'facts': jsonEncode(valid.toJson())},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        queued++;
+        if (queued >= 500) await flushBatch();
+      }
+      for (final id in mutation.removeSupplierIds) {
+        batch.delete('suppliers', where: 'id=?', whereArgs: [id]);
+        queued++;
+        if (queued >= 500) await flushBatch();
       }
       for (final sale in mutation.upsertSales) {
         final valid = SaleEvent.fromJson(sale.toJson());
-        await tx.insert('sales', {
-          'id': valid.id,
-          'facts': jsonEncode(valid.toJson()),
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        batch.insert(
+          'sales',
+          {'id': valid.id, 'facts': jsonEncode(valid.toJson())},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        queued++;
+        if (queued >= 500) await flushBatch();
       }
       for (final id in mutation.removeSaleIds) {
-        await tx.delete('sales', where: 'id=?', whereArgs: [id]);
+        batch.delete('sales', where: 'id=?', whereArgs: [id]);
+        queued++;
+        if (queued >= 500) await flushBatch();
       }
+      await flushBatch();
       if (mutation.undoEventId != null) {
         final count = await tx.update(
           'events',
@@ -391,6 +897,7 @@ class MemoryInventoryStorage implements InventoryStorage {
   Future<InventorySnapshot> commit(InventoryMutation mutation) async {
     if (_state.revision != mutation.expectedRevision)
       throw StateError('Inventory changed. Reopen this review.');
+    _validateMutationShape(mutation);
     if (mutation.requestId != null &&
         _state.receipts.contains(mutation.requestId))
       throw StateError('Request already applied.');

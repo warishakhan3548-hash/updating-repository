@@ -1,523 +1,167 @@
 import 'package:flutter/material.dart';
 
-import '../domain/medicine.dart';
-import '../domain/tracking.dart';
+import '../domain/sales_overview.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
-import 'order_screen.dart';
 
-class StatsScreen extends StatefulWidget {
+class StatsScreen extends StatelessWidget {
   const StatsScreen({super.key, required this.controller});
 
   final PharmacyController controller;
 
-  @override
-  State<StatsScreen> createState() => _StatsScreenState();
-}
-
-class _StatsScreenState extends State<StatsScreen> {
-  late TrackingRange _range = TrackingRange.lastDays(
-    widget.controller.today,
-    30,
-  );
-  int? _preset = 30;
-
-  Future<void> _customRange() async {
-    final today = widget.controller.today;
-    final selected = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(today.year - 10, today.month, today.day),
-      lastDate: today,
-      initialDateRange: DateTimeRange(start: _range.start, end: _range.end),
-      helpText: 'Choose tracking period',
-    );
-    if (selected != null && mounted) {
-      setState(() {
-        _range = TrackingRange(start: selected.start, end: selected.end);
-        _preset = null;
-      });
-    }
-  }
-
-  void _usePreset(int days) => setState(() {
-    _preset = days;
-    _range = TrackingRange.lastDays(widget.controller.today, days);
-  });
+  String _money(int paise) => '₹${(paise / 100).toStringAsFixed(2)}';
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.controller,
+  Widget build(BuildContext context) => ActiveListenableBuilder(
+    listenable: controller,
+    rebuildToken: () => (
+      controller.snapshot.records,
+      controller.snapshot.sales,
+      controller.snapshot.events,
+      controller.today,
+    ),
     builder: (context, _) {
-      final effectiveRange = _preset == null
-          ? _range
-          : TrackingRange.lastDays(widget.controller.today, _preset!);
-      final inventory = widget.controller.stats;
-      final tracking = widget.controller.tracking(effectiveRange);
-      final recentSales =
-          widget.controller.sales
-              .where((sale) => effectiveRange.contains(sale.occurredAt))
-              .toList()
-            ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+      final inventory = controller.stats;
+      final sales = controller.salesOverview;
+      // The snapshot card needs only one winner. Avoid sorting the complete
+      // demand ranking until the pharmacist actually opens the tracker.
+      final top = sales.topDemand;
+      final topShare = top?.demandShare(sales.totalUnitsSold) ?? 0;
+      final cards = [
+        _SnapshotMetric(
+          label: 'Medicines',
+          value: '${inventory.uniqueMedicines}',
+          detail: 'Unique name + strength + form',
+          icon: Icons.medication_outlined,
+        ),
+        _SnapshotMetric(
+          label: 'Stock units',
+          value: '${inventory.knownUnits}',
+          detail: '${inventory.unknownQuantity} unknown quantities',
+          icon: Icons.widgets_outlined,
+        ),
+        _SnapshotMetric(
+          label: 'Unique salts',
+          value: '${inventory.uniqueSalts}',
+          detail: '${inventory.missingSalt} entries without salt',
+          icon: Icons.science_outlined,
+        ),
+        _SnapshotMetric(
+          label: 'Sold entries',
+          value: '${inventory.soldEntries}',
+          detail: 'Manual out-of-stock confirmations',
+          icon: Icons.check_circle_outline_rounded,
+        ),
+        _SnapshotMetric(
+          label: 'Total amount',
+          value: _money(inventory.totalEnteredAmountPaise),
+          detail: 'Sum of amounts entered for medicines',
+          icon: Icons.currency_rupee_rounded,
+        ),
+        _SnapshotMetric(
+          label: 'Number of medicines',
+          value: '${inventory.uniqueMedicineNames}',
+          detail: 'Distinct medicine names, not stock units',
+          icon: Icons.format_list_numbered_rounded,
+        ),
+        _SnapshotMetric(
+          label: 'Sales Value',
+          value: _money(sales.salesValuePaise),
+          detail: sales.unknownValueSales == 0
+              ? 'From recorded medicine sales'
+              : '${sales.unknownValueSales} sales without a known value',
+          icon: Icons.payments_outlined,
+        ),
+        _SnapshotMetric(
+          label: 'Sold Medicine Tracker',
+          value: top == null ? '—' : '${(topShare * 100).round()}%',
+          detail: top == null
+              ? 'No recorded sales yet'
+              : '${top.name} · ${top.unitsSold} units sold',
+          icon: Icons.bar_chart_rounded,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => _SoldMedicineTrackerScreen(controller: controller),
+            ),
+          ),
+        ),
+      ];
+
       return ListView(
-        padding: const EdgeInsets.fromLTRB(22, 26, 22, 30),
+        key: const PageStorageKey('pharmacy-snapshot-scroll'),
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 30),
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Calculator',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Inventory, movement and reorder intelligence.',
-                      style: TextStyle(color: muted, fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: lime,
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: const Icon(Icons.calculate_rounded, color: ink),
-              ),
-            ],
+          Text(
+            'Pharmacy snapshot',
+            style: Theme.of(context).textTheme.headlineMedium,
           ),
           const SizedBox(height: 20),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final days in [7, 30, 90]) ...[
-                  ChoiceChip(
-                    label: Text('$days days'),
-                    selected: _preset == days,
-                    onSelected: (_) => _usePreset(days),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                ActionChip(
-                  avatar: const Icon(Icons.date_range_outlined, size: 18),
-                  label: Text(
-                    _preset == null
-                        ? '${dateText(_range.start)} → ${dateText(_range.end)}'
-                        : 'Custom',
-                  ),
-                  onPressed: _customRange,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Surface(
-            color: ink,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'ON-HAND INVENTORY VALUE',
-                  style: TextStyle(
-                    fontSize: 10,
-                    letterSpacing: 1.5,
-                    color: Color(0xFFBDD0C4),
-                  ),
-                ),
-                const SizedBox(height: 15),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    inventory.valuedEntries == 0 && inventory.unvaluedEntries > 0
-                        ? '—'
-                        : money(inventory.onHandValue),
-                    style: const TextStyle(
-                      fontSize: 38,
-                      letterSpacing: -1,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  '${inventory.valuedEntries} valued · ${inventory.unvaluedEntries} missing quantity or price',
-                  style: const TextStyle(
-                    color: Color(0xFFC5D8CC),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SectionHeading('Pharmacy snapshot'),
           LayoutBuilder(
             builder: (context, constraints) {
-              final columns = constraints.maxWidth > 620
-                  ? 4
-                  : MediaQuery.textScalerOf(context).scale(14) > 22
+              final scaler = MediaQuery.textScalerOf(context);
+              final columns =
+                  constraints.maxWidth < 290 || scaler.scale(14) > 21
                   ? 1
+                  : constraints.maxWidth > 700
+                  ? 4
                   : 2;
-              final cards = [
-                _Metric(
-                  'Medicines',
-                  '${inventory.uniqueMedicines}',
-                  'Unique name + strength + form',
-                  Icons.medication_outlined,
-                ),
-                _Metric(
-                  'Stock units',
-                  '${inventory.knownUnits}',
-                  '${inventory.unknownQuantity} unknown quantities',
-                  Icons.widgets_outlined,
-                ),
-                _Metric(
-                  'Unique salts',
-                  '${inventory.uniqueSalts}',
-                  '${inventory.missingSalt} entries without salt',
-                  Icons.science_outlined,
-                ),
-                _Metric(
-                  'Sold entries',
-                  '${inventory.soldEntries}',
-                  'Manual out-of-stock confirmations',
-                  Icons.check_circle_outline_rounded,
-                ),
-              ];
-              return Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: cards
-                    .map(
-                      (metric) => SizedBox(
-                        width:
-                            (constraints.maxWidth - 12 * (columns - 1)) /
-                            columns,
-                        child: _MetricCard(metric: metric),
-                      ),
-                    )
-                    .toList(),
+              final spacing = 14.0;
+              final cardWidth =
+                  (constraints.maxWidth - spacing * (columns - 1)) / columns;
+
+              double maxTextHeight(
+                String Function(_SnapshotMetric metric) text,
+                TextStyle style,
+              ) {
+                var maxHeight = 0.0;
+                for (final metric in cards) {
+                  final painter = TextPainter(
+                    text: TextSpan(text: text(metric), style: style),
+                    textDirection: Directionality.of(context),
+                    textScaler: scaler,
+                    maxLines: 3,
+                  )..layout(maxWidth: cardWidth - 32);
+                  if (painter.height > maxHeight) maxHeight = painter.height;
+                  painter.dispose();
+                }
+                return maxHeight;
+              }
+
+              const labelStyle = TextStyle(
+                fontSize: 14,
+                height: 1.3,
+                fontWeight: FontWeight.w800,
+                color: ink,
+              );
+              const detailStyle = TextStyle(
+                fontSize: 11,
+                height: 1.35,
+                color: muted,
+              );
+              final labelHeight = maxTextHeight((metric) => metric.label, labelStyle);
+              final detailHeight = maxTextHeight((metric) => metric.detail, detailStyle);
+              final cardHeight =
+                  32 +
+                  40 +
+                  13 +
+                  scaler.scale(36) * 1.2 +
+                  8 +
+                  labelHeight +
+                  5 +
+                  detailHeight;
+
+              return GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: columns,
+                mainAxisSpacing: spacing,
+                crossAxisSpacing: spacing,
+                childAspectRatio: cardWidth / cardHeight,
+                children: [
+                  for (final metric in cards) _SnapshotCard(metric: metric),
+                ],
               );
             },
-          ),
-          SectionHeading(
-            'Reorder intelligence',
-            action: StatusPill(
-              '${tracking.reorder.length} suggestions',
-              color:
-                  tracking.reorder.any(
-                    (item) => item.priority == ReorderPriority.urgent,
-                  )
-                  ? red
-                  : amber,
-            ),
-          ),
-          if (tracking.reorder.isEmpty)
-            const Surface(
-              child: Row(
-                children: [
-                  Icon(Icons.check_circle_outline_rounded, color: green),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'No sold-out or low-stock medicine needs an order right now.',
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else ...[
-            for (final suggestion in tracking.reorder.take(4))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Surface(
-                  padding: const EdgeInsets.all(17),
-                  color: suggestion.priority == ReorderPriority.urgent
-                      ? const Color(0xFFFFECE8)
-                      : const Color(0xFFFFF4DC),
-                  child: Row(
-                    children: [
-                      Icon(
-                        suggestion.priority == ReorderPriority.urgent
-                            ? Icons.priority_high_rounded
-                            : Icons.trending_down_rounded,
-                        color: suggestion.priority == ReorderPriority.urgent
-                            ? red
-                            : amber,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              suggestion.title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              '${suggestion.reason} · suggested ${suggestion.suggestedQuantity}',
-                              style: const TextStyle(
-                                color: muted,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            FilledButton.icon(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => OrderScreen(
-                    controller: widget.controller,
-                    range: effectiveRange,
-                  ),
-                ),
-              ),
-              icon: const Icon(Icons.shopping_cart_checkout_rounded),
-              label: Text('Order Now · ${tracking.reorder.length} medicines'),
-            ),
-          ],
-          const SectionHeading('Sales movement'),
-          Row(
-            children: [
-              Expanded(
-                child: _CompactMetric(
-                  label: 'Units sold',
-                  value: '${tracking.unitsSold}',
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _CompactMetric(
-                  label: 'Recorded sales',
-                  value: '${tracking.recordedSales}',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Surface(
-            child: Row(
-              children: [
-                const Icon(Icons.currency_rupee_rounded, color: green),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        money(tracking.revenuePaise),
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      Text(
-                        '${tracking.unknownRevenueSales} sales excluded because amount was not entered',
-                        style: const TextStyle(fontSize: 11, color: muted),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SectionHeading('Most sold & fast moving'),
-          if (tracking.fastestMoving.isEmpty)
-            const Surface(
-              child: Text(
-                'Record medicine sales to calculate demand and fast-moving stock.',
-              ),
-            )
-          else
-            for (final movement in tracking.fastestMoving.take(8))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Surface(
-                  padding: const EdgeInsets.all(17),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEAF1E3),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.trending_up_rounded,
-                          color: green,
-                        ),
-                      ),
-                      const SizedBox(width: 13),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              movement.title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              '${movement.recordedSales} sale events · ${movement.unitsPerDay.toStringAsFixed(1)} units/day',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        '${movement.unitsSold}',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          const SectionHeading('Slow moving'),
-          if (tracking.slowMoving.isEmpty)
-            const Surface(
-              child: Text(
-                'No on-hand medicine moved less than one unit per week in this period.',
-              ),
-            )
-          else
-            for (final movement in tracking.slowMoving.take(6))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Surface(
-                  padding: const EdgeInsets.all(17),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.hourglass_bottom_rounded, color: amber),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              movement.title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              '${movement.unitsSold} units moved in ${effectiveRange.days} days${movement.currentQuantity == null ? ' · stock unknown' : ' · ${movement.currentQuantity} in stock'}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          const SectionHeading('Stock by medicine form'),
-          if (inventory.byForm.isEmpty)
-            const Surface(child: Text('Form counts appear as you add stock.')),
-          for (final entry in inventory.byForm.entries)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Surface(
-                padding: const EdgeInsets.all(17),
-                child: Row(
-                  children: [
-                    const Icon(Icons.medication_outlined, color: green),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            entry.key,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          Text(
-                            '${entry.value.records} stock entries · ${entry.value.unknownQuantity} unknown quantities',
-                            style: const TextStyle(fontSize: 11, color: muted),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Text(
-                      '${entry.value.units}',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          const SectionHeading('Recent movement'),
-          if (recentSales.isEmpty)
-            const Surface(child: Text('No sales were recorded in this period.'))
-          else
-            for (final sale in recentSales.take(20))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Surface(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.point_of_sale_outlined, color: green),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              sale.title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              '${dateText(sale.occurredAt)} · ${sale.quantity} units',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        sale.totalAmountPaise == null
-                            ? '—'
-                            : money(sale.totalAmountPaise!),
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          const SectionHeading('Value checks'),
-          _ValueCheck(
-            title: 'Expired stock value',
-            value: money(inventory.expiredValue),
-            detail: 'Included in on-hand value; review this stock separately.',
-            color: red,
-          ),
-          const SizedBox(height: 12),
-          _ValueCheck(
-            title: 'Stock value when marked sold',
-            value: money(widget.controller.snapshot.soldValue),
-            detail:
-                'Historical estimate, not sales revenue. ${widget.controller.snapshot.unknownSold} events had missing values.',
-            color: amber,
           ),
         ],
       );
@@ -525,83 +169,284 @@ class _StatsScreenState extends State<StatsScreen> {
   );
 }
 
-class _Metric {
-  const _Metric(this.label, this.value, this.detail, this.icon);
+class _SnapshotMetric {
+  const _SnapshotMetric({
+    required this.label,
+    required this.value,
+    required this.detail,
+    required this.icon,
+    this.onTap,
+  });
+
   final String label;
   final String value;
   final String detail;
   final IconData icon;
+  final VoidCallback? onTap;
 }
 
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.metric});
-  final _Metric metric;
+class _SnapshotCard extends StatelessWidget {
+  const _SnapshotCard({required this.metric});
+
+  final _SnapshotMetric metric;
 
   @override
-  Widget build(BuildContext context) => Surface(
-    padding: const EdgeInsets.all(17),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(metric.icon, color: green),
-        const SizedBox(height: 13),
-        Text(metric.value, style: Theme.of(context).textTheme.headlineMedium),
-        Text(metric.label, style: const TextStyle(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 5),
-        Text(
-          metric.detail,
-          style: const TextStyle(fontSize: 10.5, color: muted),
-        ),
-      ],
+  Widget build(BuildContext context) {
+    final content = Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              DepthIcon(
+                metric.icon,
+                color: primary,
+                background: primarySoft,
+                size: 40,
+              ),
+              if (metric.onTap != null) ...[
+                const Spacer(),
+                const Icon(Icons.chevron_right_rounded, color: primary, size: 22),
+              ],
+            ],
+          ),
+          const SizedBox(height: 13),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              metric.value,
+              style: const TextStyle(
+                color: ink,
+                fontSize: 36,
+                height: 1.2,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -1.2,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            metric.label,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.3,
+              fontWeight: FontWeight.w800,
+              color: ink,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            metric.detail,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 11,
+              height: 1.35,
+              color: muted,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return Semantics(
+      button: metric.onTap != null,
+      label: metric.onTap == null
+          ? null
+          : '${metric.label}. ${metric.detail}. Open full tracker.',
+      child: GlassPanel(
+        radius: 22,
+        elevation: 1,
+        child: metric.onTap == null
+            ? content
+            : Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: metric.onTap,
+                  borderRadius: BorderRadius.circular(22),
+                  child: content,
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+class _SoldMedicineTrackerScreen extends StatelessWidget {
+  const _SoldMedicineTrackerScreen({required this.controller});
+
+  final PharmacyController controller;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Sold Medicine Tracker')),
+    body: ActiveListenableBuilder(
+      listenable: controller,
+      rebuildToken: () => (
+        controller.snapshot.records,
+        controller.snapshot.sales,
+        controller.snapshot.events,
+      ),
+      builder: (context, _) {
+        final overview = controller.salesOverview;
+        final ranked = overview.ranked;
+        if (ranked.isEmpty) {
+          return const EmptyState(
+            title: 'No recorded sales yet',
+            message: 'Record medicine sales to build the demand tracker.',
+          );
+        }
+
+        // A long sales history can contain hundreds or thousands of distinct
+        // medicine names. Only materialize ranking rows near the viewport so
+        // opening this route stays proportional to what the user can see.
+        return ListView.builder(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+          itemCount: ranked.length + 1,
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: GlassPanel(
+                  tint: primarySoft,
+                  accentColor: primary,
+                  radius: 22,
+                  elevation: .9,
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      const DepthIcon(
+                        Icons.bar_chart_rounded,
+                        color: primary,
+                        background: Colors.white,
+                        size: 44,
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${overview.totalUnitsSold} units sold',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${ranked.length} medicines ranked by recorded demand',
+                              style: const TextStyle(
+                                color: muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            final demand = ranked[index - 1];
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: index == ranked.length ? 0 : 12,
+              ),
+              child: _DemandRow(
+                rank: index,
+                demand: demand,
+                totalUnitsSold: overview.totalUnitsSold,
+              ),
+            );
+          },
+        );
+      },
     ),
   );
 }
 
-class _CompactMetric extends StatelessWidget {
-  const _CompactMetric({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Surface(
-    padding: const EdgeInsets.all(17),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(value, style: Theme.of(context).textTheme.headlineMedium),
-        Text(label, style: const TextStyle(color: muted, fontSize: 12)),
-      ],
-    ),
-  );
-}
-
-class _ValueCheck extends StatelessWidget {
-  const _ValueCheck({
-    required this.title,
-    required this.value,
-    required this.detail,
-    required this.color,
+class _DemandRow extends StatelessWidget {
+  const _DemandRow({
+    required this.rank,
+    required this.demand,
+    required this.totalUnitsSold,
   });
-  final String title;
-  final String value;
-  final String detail;
-  final Color color;
+
+  final int rank;
+  final SoldMedicineDemand demand;
+  final int totalUnitsSold;
 
   @override
-  Widget build(BuildContext context) => Surface(
-    color: color.withValues(alpha: .07),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: TextStyle(color: color, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 7),
-        Text(value, style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 6),
-        Text(detail, style: const TextStyle(fontSize: 11, color: muted)),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final share = demand.demandShare(totalUnitsSold);
+    final percentage = share * 100;
+    final percentText = percentage < 10 && percentage != percentage.roundToDouble()
+        ? '${percentage.toStringAsFixed(1)}%'
+        : '${percentage.round()}%';
+    return GlassPanel(
+      radius: 22,
+      elevation: .85,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: primarySoft,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$rank',
+                  style: const TextStyle(
+                    color: primaryDeep,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  demand.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                percentText,
+                style: const TextStyle(
+                  color: primaryDeep,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: share,
+              minHeight: 10,
+              backgroundColor: primarySoft,
+              color: primary,
+            ),
+          ),
+          const SizedBox(height: 9),
+          Text(
+            '${demand.unitsSold} units sold · ${demand.recordedSales} recorded ${demand.recordedSales == 1 ? 'sale' : 'sales'}',
+            style: const TextStyle(color: muted, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
 }

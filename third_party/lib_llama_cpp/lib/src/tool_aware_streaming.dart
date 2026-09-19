@@ -1,0 +1,178 @@
+import 'dart:convert';
+
+import 'llama_command.dart';
+import 'llama_response.dart';
+import 'llama_tool.dart';
+import 'tool_call_fallback.dart';
+
+typedef LlamaChatOutputParser =
+    Map<String, Object?> Function(String text, {required bool isPartial});
+
+Iterable<LlamaResponse> streamToolAwareMessageResponses({
+  required Iterable<LlamaResponse> sampled,
+  required LlamaGenerateMessagesCommand command,
+  required LlamaChatOutputParser parseChatOutput,
+}) sync* {
+  final generated = StringBuffer();
+  var emittedText = '';
+  final canStreamText =
+      command.toolChoice == LlamaToolChoice.auto ||
+      command.toolChoice == LlamaToolChoice.none;
+
+  for (final response in sampled) {
+    if (response is! LlamaTokenResponse) {
+      continue;
+    }
+
+    generated.write(response.text);
+    if (!canStreamText) {
+      // Preserve a scheduler yield for every sampled token even when tool-mode
+      // parsing intentionally withholds user-visible text. The inference worker
+      // uses these empty deltas as cooperative cancellation checkpoints; higher
+      // layers already ignore empty text.
+      yield LlamaTokenResponse(text: '', index: response.index);
+      continue;
+    }
+
+    final parsed = parseChatOutput(generated.toString(), isPartial: true);
+    if (toolCallsFromParsedMessage(parsed).isNotEmpty) {
+      yield LlamaTokenResponse(text: '', index: response.index);
+      continue;
+    }
+
+    final text = contentFromParsedMessage(parsed);
+    final delta = nextTextDelta(emittedText, text);
+    if (delta == null || delta.isEmpty) {
+      yield LlamaTokenResponse(text: '', index: response.index);
+      continue;
+    }
+
+    emittedText = text;
+    yield LlamaTokenResponse(text: delta, index: response.index);
+  }
+
+  final generatedText = generated.toString();
+  final parsed = parseChatOutput(generatedText, isPartial: false);
+  final parsedToolCalls = toolCallsFromParsedMessage(parsed);
+  if (parsedToolCalls.isEmpty) {
+    final fallbackToolCall = forcedToolCallFallback(
+      command,
+      generatedText: generatedText,
+    );
+    if (fallbackToolCall != null && emittedText.isEmpty) {
+      yield LlamaToolCallResponse(toolCall: fallbackToolCall);
+      return;
+    }
+
+    var text = contentFromParsedMessage(parsed);
+    // Some chat-template parsers (notably tiny/new model families) can consume
+    // real assistant text during final parsing and return an empty content field.
+    // When no tools were supplied there is no hidden tool payload to protect, so
+    // silently dropping non-empty sampled text is always worse than preserving
+    // the model's actual assistant bytes for the caller's own strict validator.
+    // Only recover when nothing has crossed the streaming boundary; this cannot
+    // rewrite an already-visible prefix.
+    if (canStreamText &&
+        command.tools.isEmpty &&
+        emittedText.isEmpty &&
+        text.trim().isEmpty &&
+        generatedText.trim().isNotEmpty) {
+      text = generatedText;
+    }
+
+    final delta = nextTextDelta(emittedText, text);
+    if (delta == null) {
+      // Partial chat-template parsers are allowed to withhold text while their
+      // envelope is incomplete, but they must never rewrite text that has
+      // already crossed the streaming boundary. Without this guard a parser
+      // correction at finalization silently leaves the UI with an earlier
+      // prefix while the native turn reports Done, which looks like a dropped
+      // or truncated response. Fail the turn explicitly so the higher-level
+      // clean-runtime recovery can retry it instead of accepting stale output.
+      yield const LlamaErrorResponse(
+        message:
+            'Local streaming parser changed text that was already emitted. The turn was retired safely and can be retried.',
+      );
+      return;
+    }
+    if (delta.isNotEmpty) {
+      yield LlamaTokenResponse(text: delta, index: emittedText.length);
+    }
+    return;
+  }
+
+  for (final toolCall in parsedToolCalls) {
+    yield LlamaToolCallResponse(toolCall: toolCall);
+  }
+}
+
+List<LlamaToolCall> toolCallsFromParsedMessage(Map<String, Object?> parsed) {
+  final message = parsed['message'];
+  if (message is! Map) {
+    return const [];
+  }
+  final rawToolCalls = message['tool_calls'];
+  if (rawToolCalls is! List) {
+    return const [];
+  }
+
+  final calls = <LlamaToolCall>[];
+  for (var index = 0; index < rawToolCalls.length; index += 1) {
+    final rawCall = rawToolCalls[index];
+    if (rawCall is! Map) {
+      continue;
+    }
+    final function = rawCall['function'];
+    if (function is! Map) {
+      continue;
+    }
+    final name = function['name'];
+    if (name is! String || name.isEmpty) {
+      continue;
+    }
+    final rawArguments = function['arguments'];
+    final arguments = rawArguments is String
+        ? rawArguments
+        : jsonEncode(rawArguments ?? const <String, Object?>{});
+    calls.add(
+      LlamaToolCall(
+        id: rawCall['id'] is String ? rawCall['id'] as String : 'call_$index',
+        index: index,
+        name: name,
+        arguments: arguments,
+      ),
+    );
+  }
+  return calls;
+}
+
+String contentFromParsedMessage(Map<String, Object?> parsed) {
+  final message = parsed['message'];
+  if (message is! Map) {
+    return '';
+  }
+  final content = message['content'];
+  if (content is String) {
+    return content;
+  }
+  if (content is List) {
+    final buffer = StringBuffer();
+    for (final part in content) {
+      if (part is Map && part['type'] == 'text' && part['text'] is String) {
+        buffer.write(part['text']);
+      }
+    }
+    return buffer.toString();
+  }
+  return '';
+}
+
+String? nextTextDelta(String emittedText, String parsedText) {
+  if (parsedText.length <= emittedText.length) {
+    return '';
+  }
+  if (!parsedText.startsWith(emittedText)) {
+    return null;
+  }
+  return parsedText.substring(emittedText.length);
+}

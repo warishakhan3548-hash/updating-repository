@@ -18,6 +18,9 @@ prescription product.
   demand-aware reorder suggestions and purchase-order PDF sharing on Android.
 - Pharmacy-only AI export/API flows with strict JSON validation, readable diffs,
   explicit approval, stale-review checks, replay protection and atomic apply.
+- Existing AI Hub local-model discovery, pinned/resumable GGUF downloads and
+  imports, device/context preflight, and evidence-grounded offline scan reasoning.
+  See the [Local AI upgrade and verification record](docs/LOCAL_AI_UPGRADE_2026_09_09.md).
 - Soft removal, recent activity/Undo, per-medicine version restore and full local
   backup/restore. API keys are stored separately and never enter exports.
 
@@ -26,6 +29,9 @@ Read [the architecture map](docs/ARCHITECTURE.md) and
 
 ## Verification policy
 
-`tool/bootstrap.sh` resolves packages and runs analysis/tests only. GitHub
-Actions also runs checks only. APK creation and release signing are deliberately
-left to the repository owner.
+`tool/bootstrap.sh` resolves packages and runs the same Dart analysis scope plus
+the full Flutter test suite used by CI; it intentionally does not build an APK.
+On pushes and pull requests to `main`, Pharmacy checks also compiles a debug
+Android APK. The release workflow analyzes/tests committed source and builds a
+release APK artifact. Release signing and distribution remain explicit
+owner-controlled steps.

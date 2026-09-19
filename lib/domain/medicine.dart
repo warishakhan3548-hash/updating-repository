@@ -27,7 +27,11 @@ String dateText(DateTime value) =>
     '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 
 /// Strict civil dates. A printed YYYY-MM expiry means the last day of that month.
-DateTime? parseDate(Object? raw, {bool monthEnd = false}) {
+DateTime? parseDate(
+  Object? raw, {
+  bool monthEnd = false,
+  bool monthStart = false,
+}) {
   if (raw == null || raw == '') return null;
   if (raw is! String) throw const FormatException('Date must be text.');
   final match = RegExp(r'^(\d{4})-(\d{2})(?:-(\d{2}))?$')
@@ -41,10 +45,15 @@ DateTime? parseDate(Object? raw, {bool monthEnd = false}) {
   if (year < 1900 || year > 2200 || month < 1 || month > 12) {
     throw const FormatException('Date is outside the supported range.');
   }
-  if (match[3] == null && !monthEnd)
+  if (monthEnd && monthStart) {
+    throw const FormatException('A date cannot use two month precisions.');
+  }
+  if (match[3] == null && !monthEnd && !monthStart)
     throw const FormatException('Enter the full manufacturing date.');
   final day = match[3] == null
-      ? DateTime.utc(year, month + 1, 0).day
+      ? monthEnd
+            ? DateTime.utc(year, month + 1, 0).day
+            : 1
       : int.parse(match[3]!);
   final date = DateTime.utc(year, month, day);
   if (date.month != month || date.year != year || date.day != day)
@@ -108,39 +117,102 @@ const forms = [
   'Tablet',
   'Capsule',
   'Syrup',
+  'Suspension',
+  'Solution',
   'Injection',
   'Cream',
   'Ointment',
+  'Gel',
+  'Lotion',
   'Drops',
+  'Spray',
+  'Inhaler',
+  'Powder',
   'Sachet',
   'Other',
 ];
+const medicineFormAliases = <String, String>{
+  'dispersible tablet': 'Tablet',
+  'dispersible tablets': 'Tablet',
+  'orodispersible tablet': 'Tablet',
+  'orodispersible tablets': 'Tablet',
+  'chewable tablet': 'Tablet',
+  'chewable tablets': 'Tablet',
+  'effervescent tablet': 'Tablet',
+  'effervescent tablets': 'Tablet',
+  'sublingual tablet': 'Tablet',
+  'sublingual tablets': 'Tablet',
+  'caplet': 'Tablet',
+  'caplets': 'Tablet',
+  'tab': 'Tablet',
+  'tabs': 'Tablet',
+  'tablet': 'Tablet',
+  'tablets': 'Tablet',
+  'soft gelatin capsule': 'Capsule',
+  'soft gelatin capsules': 'Capsule',
+  'soft gel capsule': 'Capsule',
+  'soft gel capsules': 'Capsule',
+  'softgel capsule': 'Capsule',
+  'softgel capsules': 'Capsule',
+  'softgel': 'Capsule',
+  'softgels': 'Capsule',
+  'cap': 'Capsule',
+  'caps': 'Capsule',
+  'capsule': 'Capsule',
+  'capsules': 'Capsule',
+  'oral syrup': 'Syrup',
+  'syp': 'Syrup',
+  'syr': 'Syrup',
+  'syrup': 'Syrup',
+  'syrups': 'Syrup',
+  'oral suspension': 'Suspension',
+  'susp': 'Suspension',
+  'suspension': 'Suspension',
+  'oral solution': 'Solution',
+  'soln': 'Solution',
+  'solution': 'Solution',
+  'inj': 'Injection',
+  'injectable': 'Injection',
+  'injection': 'Injection',
+  'injections': 'Injection',
+  'topical cream': 'Cream',
+  'cream': 'Cream',
+  'eye ointment': 'Ointment',
+  'ophthalmic ointment': 'Ointment',
+  'ointment': 'Ointment',
+  'topical gel': 'Gel',
+  'gel': 'Gel',
+  'lotion': 'Lotion',
+  'oral drops': 'Drops',
+  'eye drops': 'Drops',
+  'ear drops': 'Drops',
+  'nasal drops': 'Drops',
+  'drop': 'Drops',
+  'drops': 'Drops',
+  'nasal spray': 'Spray',
+  'spray': 'Spray',
+  'inhaler': 'Inhaler',
+  'inhalation': 'Inhaler',
+  'dry powder': 'Powder',
+  'powder': 'Powder',
+  'sachet': 'Sachet',
+  'sachets': 'Sachet',
+  'other': 'Other',
+};
+
+final medicineFormPresentationPattern = RegExp(
+  r'\b(?:' +
+      ((medicineFormAliases.keys.toList()
+            ..sort((left, right) => right.length.compareTo(left.length)))
+          .map(RegExp.escape)
+          .join('|')) +
+      r')\b',
+  caseSensitive: false,
+);
+
 String normalizeForm(String raw) {
   final key = normalize(raw);
-  const aliases = {
-    'tab': 'Tablet',
-    'tabs': 'Tablet',
-    'tablet': 'Tablet',
-    'tablets': 'Tablet',
-    'cap': 'Capsule',
-    'caps': 'Capsule',
-    'capsule': 'Capsule',
-    'capsules': 'Capsule',
-    'syp': 'Syrup',
-    'syr': 'Syrup',
-    'syrup': 'Syrup',
-    'syrups': 'Syrup',
-    'inj': 'Injection',
-    'injection': 'Injection',
-    'injections': 'Injection',
-    'cream': 'Cream',
-    'ointment': 'Ointment',
-    'drop': 'Drops',
-    'drops': 'Drops',
-    'sachet': 'Sachet',
-    'sachets': 'Sachet',
-  };
-  return aliases[key] ?? (key.isEmpty ? '' : 'Other');
+  return medicineFormAliases[key] ?? (key.isEmpty ? '' : 'Other');
 }
 
 class Medicine {
@@ -153,11 +225,14 @@ class Medicine {
     this.strength = '',
     this.form = '',
     this.mfg,
+    this.mfgMonthOnly = false,
     this.expiry,
     this.expiryMonthOnly = false,
     this.quantity,
     this.unitPricePaise,
     this.barcode = '',
+    this.batchNumber = '',
+    this.supplierId = '',
     this.block = '',
     this.row = '',
     this.vertical = '',
@@ -166,6 +241,8 @@ class Medicine {
     this.ocrText = '',
     this.sold = false,
     this.archived = false,
+    this.archivedAt,
+    this.archiveReason = '',
     this.soldAt,
     this.soldQuantity,
     this.soldUnitPricePaise,
@@ -180,6 +257,8 @@ class Medicine {
       strength,
       form,
       barcode,
+      batchNumber,
+      supplierId,
       block,
       row,
       vertical,
@@ -187,8 +266,10 @@ class Medicine {
       notes,
       ocrText;
   final DateTime? mfg, expiry;
-  final bool expiryMonthOnly, sold, archived;
+  final bool mfgMonthOnly, expiryMonthOnly, sold, archived;
   final int? quantity, unitPricePaise, soldQuantity, soldUnitPricePaise;
+  final DateTime? archivedAt;
+  final String archiveReason;
   final String? soldAt;
   final int revision;
 
@@ -214,6 +295,8 @@ class Medicine {
     'quantity',
     'unitPricePaise',
     'barcode',
+    'batchNumber',
+    'supplierId',
     'block',
     'row',
     'vertical',
@@ -227,6 +310,8 @@ class Medicine {
     ...editable,
     'sold',
     'archived',
+    'archivedAt',
+    'archiveReason',
     'soldAt',
     'soldQuantity',
     'soldUnitPricePaise',
@@ -241,7 +326,11 @@ class Medicine {
     'salt': salt,
     'strength': strength,
     'form': form,
-    'mfg': mfg == null ? null : dateText(mfg!),
+    'mfg': mfg == null
+        ? null
+        : mfgMonthOnly
+        ? dateText(mfg!).substring(0, 7)
+        : dateText(mfg!),
     'expiry': expiry == null
         ? null
         : expiryMonthOnly
@@ -250,6 +339,8 @@ class Medicine {
     'quantity': quantity,
     'unitPricePaise': unitPricePaise,
     'barcode': barcode,
+    'batchNumber': batchNumber,
+    'supplierId': supplierId,
     'block': block,
     'row': row,
     'vertical': vertical,
@@ -258,6 +349,8 @@ class Medicine {
     'ocrText': ocrText,
     'sold': sold,
     'archived': archived,
+    'archivedAt': archivedAt?.toIso8601String(),
+    'archiveReason': archiveReason,
     'soldAt': soldAt,
     'soldQuantity': soldQuantity,
     'soldUnitPricePaise': soldUnitPricePaise,
@@ -285,7 +378,7 @@ class Medicine {
     final id = text('id');
     if (name.isEmpty || id.isEmpty)
       throw const FormatException('Medicine name and record ID are required.');
-    final mfg = parseDate(json['mfg']);
+    final mfg = parseDate(json['mfg'], monthStart: true);
     final expiry = parseDate(json['expiry'], monthEnd: true);
     if (mfg != null && expiry != null && mfg.isAfter(expiry))
       throw const FormatException('Manufacturing date cannot be after expiry.');
@@ -294,6 +387,30 @@ class Medicine {
         throw FormatException('Invalid $key.');
     }
     final sold = json['sold'] == true;
+    final archived = json['archived'] == true;
+    final archiveReason = text('archiveReason');
+    final archivedAtRaw = json['archivedAt'];
+    DateTime? archivedAt;
+    if (archivedAtRaw != null && archivedAtRaw != '') {
+      if (archivedAtRaw is! String || archivedAtRaw.length > 80) {
+        throw const FormatException('Invalid archivedAt.');
+      }
+      final parsed = DateTime.tryParse(archivedAtRaw);
+      if (parsed == null || parsed.year < 2000 || parsed.year > 2200) {
+        throw const FormatException('Invalid archivedAt.');
+      }
+      archivedAt = parsed.toUtc();
+    }
+    if (!archived && (archivedAt != null || archiveReason.isNotEmpty)) {
+      throw const FormatException(
+        'Active stock cannot carry removed-stock audit facts.',
+      );
+    }
+    if (archived && ((archivedAt == null) != archiveReason.isEmpty)) {
+      throw const FormatException(
+        'Removed-stock audit reason and time must be recorded together.',
+      );
+    }
     final quantity = number('quantity', 100000000);
     if (sold && quantity != 0)
       throw const FormatException(
@@ -310,6 +427,8 @@ class Medicine {
       strength: text('strength'),
       form: normalizeForm(text('form')),
       mfg: mfg,
+      mfgMonthOnly:
+          json['mfg'] is String && (json['mfg'] as String).trim().length == 7,
       expiry: expiry,
       expiryMonthOnly:
           json['expiry'] is String &&
@@ -317,6 +436,8 @@ class Medicine {
       quantity: quantity,
       unitPricePaise: price,
       barcode: text('barcode'),
+      batchNumber: text('batchNumber'),
+      supplierId: text('supplierId'),
       block: text('block'),
       row: text('row'),
       vertical: text('vertical'),
@@ -324,7 +445,9 @@ class Medicine {
       notes: text('notes', 10000),
       ocrText: text('ocrText', 30000),
       sold: sold,
-      archived: json['archived'] == true,
+      archived: archived,
+      archivedAt: archivedAt,
+      archiveReason: archiveReason,
       soldAt: json['soldAt'] as String?,
       soldQuantity: number('soldQuantity', 100000000),
       soldUnitPricePaise: number('soldUnitPricePaise', 99999999999),
@@ -337,6 +460,42 @@ class Medicine {
     ...changes,
     'id': id,
     'revision': revision + 1,
+  });
+}
+
+/// The single authoritative transition into Removed stock.
+///
+/// Removal provenance is system-owned metadata, not an AI-editable medicine
+/// fact. Legacy archived rows may have no provenance; every new removal records
+/// a bounded reason and an unambiguous UTC timestamp.
+Medicine archiveMedicine(
+  Medicine record, {
+  required String reason,
+  required DateTime at,
+}) {
+  final cleanReason = reason.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (cleanReason.isEmpty || cleanReason.length > 300) {
+    throw const FormatException('Choose a valid removal reason.');
+  }
+  if (record.archived) {
+    throw StateError('This stock entry is already removed.');
+  }
+  return record.patch({
+    'archived': true,
+    'archivedAt': at.toUtc().toIso8601String(),
+    'archiveReason': cleanReason,
+  });
+}
+
+/// The single authoritative transition back from Removed stock.
+Medicine restoreArchivedMedicine(Medicine record) {
+  if (!record.archived) {
+    throw StateError('This stock entry is not removed.');
+  }
+  return record.patch({
+    'archived': false,
+    'archivedAt': null,
+    'archiveReason': '',
   });
 }
 

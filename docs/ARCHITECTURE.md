@@ -18,7 +18,7 @@ flowchart TD
   X --> H["Home and scoped lists"]
   S --> H
   A["Reviewed AI or import plan"] --> D
-  D --> B["Backup and future sync boundary"]
+  D --> B["Local backup and restore"]
 ```
 
 Bottom navigation is **Home / Database / AI / Calculator / Profile**. Results open
@@ -31,14 +31,24 @@ the exact invisible stock ID; they never repeat a name search to find an editor.
 | `domain/medicine.dart` | Strict stored medicine facts, civil dates, paise and normalized identity |
 | `domain/inventory.dart` | Status precedence, warning perimeter, scopes and inventory totals |
 | `domain/search.dart` | Medical normalization, bounded index, candidate retrieval, deep fuzzy ranking and confidence |
+| `domain/medicine_understanding.dart` | Layout-aware OCR fusion, private local knowledge and safe draft extraction |
+| `domain/model_catalogue.dart`, `services/model_catalogue_service.dart` | Live provider discovery, validated pagination, exact repository/file links and immutable download manifests |
+| `domain/gguf_metadata.dart`, `services/gguf_inspector.dart` | Bounded GGUF inspection and device-aware weight/KV/context budgets |
+| `services/local_ai_runtime.dart`, `third_party/lib_llama_cpp` | One inference lease, exact prompt token limits and continuous UTF-8 token decoding |
 | `domain/tracking.dart` | Privacy-safe sale events, period movement and reorder suggestions |
+| `domain/stock_risk.dart` | Read-only FEFO expiry-waste pressure from known stock plus recorded sales; uncertainty fails closed |
 | `domain/ai_protocol.dart` | Pharmacy-only export and strict reviewed mutation protocol |
 | `domain/backup.dart` | Versioned full-backup envelope and restore validation |
-| `data/inventory_database.dart` | SQLite v3, serialized atomic commits, events, receipts and Undo facts |
+| `data/inventory_database.dart` | SQLite v4, serialized atomic commits, events, receipts and Undo facts |
 | `state/pharmacy_controller.dart` | Reactive state, midnight rollover, commands and isolate search orchestration |
+| `state/stock_location_operations.dart` | Revision-bound reviewed physical-stock relocation; no clinical or sales write authority |
 | `services/` | OCR/barcode, media import, speech, AI transport, backup sharing and purchase orders |
 | `ui/` | Premium responsive views; no business-rule ownership |
 | Android `MainActivity.kt` | Sandboxed picker bridge, adaptive video frames and native multi-page PDF |
+
+Local model discovery, download resumption, runtime admission and the current
+verification boundaries are documented in the
+[9 September Local AI upgrade](LOCAL_AI_UPGRADE_2026_09_09.md).
 
 ## Medicine facts and lifecycle
 
@@ -59,9 +69,15 @@ the exact invisible stock ID; they never repeat a name search to find an editor.
   fully red, SOLD is amber, and every color has a text label.
 - Expired status is deterministic and never deletes stock. SOLD is a pharmacist’s
   explicit whole-entry out-of-stock confirmation and feeds reorder. Quantity zero
-  alone never silently marks an entry SOLD.
-- Remove is soft archive. Restore, latest-change Undo and bounded per-record
-  version history protect against accidental and bulk changes.
+  alone never silently marks an entry SOLD. Expired stock cannot be relabelled
+  SOLD or recorded as a current sale; a genuine backdated sale is accepted only
+  when its date is not before MFG and not after expiry.
+- Remove is soft archive. Every new removal carries system-owned durable
+  provenance (bounded reason + UTC removal timestamp) on the same medicine row,
+  so the reason survives the 200-event activity window and full backup/restore.
+  Legacy removed rows without provenance remain readable. Restore clears the
+  removal marker atomically; latest-change Undo and bounded per-record version
+  history still protect against accidental and bulk changes.
 
 ## Search and capture contract
 
@@ -75,16 +91,53 @@ internal ID, MFG/expiry, OCR text, block/row/vertical, free location and notes.
 Barcode exact match wins. Otherwise bounded n-gram candidates are ranked with
 exact/prefix/token, Jaro-Winkler, edit-distance and ordered-subsequence evidence.
 Strength conflicts are penalized, common OCR confusions are normalized narrowly,
-and notes/location cannot outrank a medicine-name match. Heavy ranking runs away
-from the Flutter UI isolate. High/medium/low confidence is visible; uncertain
-results never select or mutate a record automatically.
+and notes/location cannot outrank a medicine-name match. Per-document terms and
+individual token length are capped before n-gram creation, preventing unusually
+large OCR/notes or malformed queries from causing unbounded index memory. Heavy
+ranking runs away from the Flutter UI isolate. High/medium/low confidence is
+visible; uncertain results never select or mutate a record automatically.
 
 Photo and video imports are read locally. A long video is sampled approximately
-every three seconds with a frame cap, then blurry and perceptually duplicate
-frames are discarded before OCR. Evidence is clustered by repeated normalized
-lines and enters an Import Inbox. The user opens an existing record or creates a
-new draft; low-confidence OCR never fills authoritative medical fields. Temporary
-raw media/frame files are deleted after review and are never included in backup.
+every three seconds with a frame cap. Android decodes bounded 1600-pixel frames
+on supported devices, samples bucket midpoints, then discards blurry and
+perceptually duplicate frames before OCR. Evidence is clustered by repeated
+normalized lines and enters an Import Inbox. OCR line bounding boxes survive the
+service/domain boundary, so relative line height and page position can support a
+prominent product name without replacing textual evidence. The parser treats
+composition as a bounded multi-line semantic scope, excludes its ingredient
+lines from brand-name competition, removes dotted pharmacopoeia notation such as
+I.P./U.S.P., rejects Rx/supply/company/marketing/packaging noise, and binds
+MFG/EXP labels to adjacent OCR date lines.
+
+Before parsing, the inbox creates an identity-only snapshot of at most 12,000
+active, pharmacist-reviewed local records. A bounded field-scoped inverted index
+uses exact longest spans first and fuzzy candidates second. Name/brand matching
+never receives the whole OCR document; salt matching runs only against
+composition, generic or dose-supported spans. Mixed OCR tokens such as `D0L0`,
+`6SO`, `PARACETAM0L` and `CEF1XIME` are repaired only inside this candidate
+resolver. A bare brand never supplies a strength unless the same line contains
+matching numeric evidence. An exact barcode may supply only identity facts on
+which all local records for that barcode agree; duplicate barcode conflicts stay
+unresolved. Saved pharmacist corrections therefore improve the next scan without
+adding another database or sending a learning event anywhere.
+
+A conservative built-in ingredient vocabulary can canonicalize a medicine span
+that OCR already supports; it is not a treatment catalogue and cannot invent a
+brand, batch, stock count, price or date. Date chronology, valid months and field
+roles remain deterministic. A generic TFLite/NER package is not treated as a
+medical model: model-backed extraction may replace this stage only after a
+pharmacy-labelled model artifact, calibration set and device acceptance tests
+exist.
+
+Explicit uploaded/pasted list rows carry hard item boundaries and an oversized
+list is rejected instead of silently truncated. The Import Inbox performs no
+automatic online catalog lookup and does not transmit captured text or barcodes.
+The user opens an existing record or creates a new draft; low-confidence OCR
+never fills authoritative medical fields.
+Cancellation stops at the next safe boundary, keeps other imports locked until
+the active ML step drains, then closes recognizers and deletes temporary files.
+Temporary raw media, camera captures and sampled frames are never included in
+backup.
 
 ## Tracking, sales and ordering
 
@@ -95,11 +148,15 @@ quantity is shown as unavailable and is never converted to a fake zero.
 
 A sale event stores medicine snapshot, quantity, timestamp and optional aggregate
 amount—never customer/patient identity. It may reduce a known stock quantity and
-can explicitly mark the entry completely SOLD. Seven-, 30-, 90-day and custom
-periods drive velocity and fast-moving metrics. Reorder uses available stock,
-explicit SOLD state and recent units/day. Suggestions remain editable. Android
-creates a reviewed multi-page purchase-order PDF; rows without cost remain marked
-unavailable and are excluded from the known estimated total.
+can explicitly mark the entry completely SOLD. Same-identity physical entries use
+a deterministic first-expiry-first-out (FEFO) order: earliest valid known expiry
+first, unknown expiry last, with expired/SOLD/removed/known-zero stock excluded.
+The sale dialog surfaces an earlier batch/location before the pharmacist commits.
+Seven-, 30-, 90-day and custom periods drive velocity and fast-moving metrics.
+Reorder uses available stock, explicit SOLD state and recent units/day. Suggestions
+remain editable. Android creates a reviewed multi-page purchase-order PDF; rows
+without cost remain marked unavailable and are excluded from the known estimated
+total.
 
 ## AI safety contract
 
@@ -115,7 +172,31 @@ before/after facts; duplicate additions and removes are not preselected. Only th
 owner’s chosen actions commit atomically. AI supplies stored facts; the app alone
 calculates expiry, warning membership, borders, counts and totals.
 
-## Backup and cloud boundary
+Aaris Brain also applies a deterministic intent firewall before any natural-language
+write is routed. Negated commands, future/conditional writes and sentences containing
+multiple write families fail closed before target search, so the app cannot execute a
+command the pharmacist explicitly rejected, execute a scheduled instruction early, or
+silently run only the first half of a compound request. Conversational references are
+normalized through a closed deictic grammar and still resolve only to the session's
+exact ID/fingerprint; they never become fuzzy implicit mutation targets. The Brain's
+“next task” route uses the same dependency-aware local operations plan shown in Needs
+Attention, so its recommendation cannot jump ahead of known verification blockers.
+
+## Deterministic operational autopilot
+
+Aaris Brain's **Next task** command is an execution router over the existing local
+Needs Attention plan, not a second automation engine. The router rebuilds the
+attention report from the current Medicine Database, revalidates the exact task
+key immediately before navigation, and stops if that task disappeared or became
+blocked. Exact single-row work opens the authoritative editor; an expired row may
+open the existing protected Expired-removal review directly; grouped/conflicting
+rows require explicit pharmacist selection; purchasing opens Order Review. After
+the workflow closes, Aaris recalculates the queue and reports whether the task is
+resolved, still pending, or replaced by a new next-safe task. The router never
+prefills uncertain medical facts and never commits inventory by itself. Existing
+review, confirmation, revision/CAS, audit and Undo boundaries remain authoritative.
+
+## Backup and local-only boundary
 
 Full local backup contains medicines (including removed entries), warning
 settings, aggregate sales and sold-value metadata. It contains no API key, raw
@@ -123,11 +204,11 @@ media or search cache. Restore uses strict schema/field validation and a typed
 confirmation. Current active records missing from the backup move to Removed
 stock instead of being silently destroyed, and the restore itself is undoable.
 
-Firebase is intentionally not a runtime dependency without an owner Firebase
-project and credentials. The local database remains authoritative. A future
-Firebase adapter must consume committed structured facts through a durable sync
-queue, support backup/restore and conflict metadata, and must not upload raw video,
-temporary OCR frames, AI models, keys or search indexes.
+The application has no Firebase, cloud-sync or server-sync adapter. Local SQLite
+is the sole source of truth. No runtime path may silently mirror inventory,
+temporary OCR frames, raw media, API keys or search indexes to another device or
+service. Portability is handled only through an explicit, owner-reviewed local
+backup export and restore.
 
 ## Verification and release boundary
 
@@ -139,6 +220,8 @@ narrow screens and large text. Physical Android QA is still required for camera
 focus, vendor speech behavior, file pickers, long videos, PDF sharing and low-end
 device memory.
 
-GitHub Actions performs dependency resolution, static analysis and tests only.
-It does not build or publish an APK. Release signing and APK generation remain an
-explicit owner operation.
+Repository CI is part of this verification boundary. Pushes and pull requests
+to `main` run static analysis, the full Flutter regression suite and a debug
+Android compile. The release workflow repeats the safety gates before producing
+a release APK artifact. Physical-device QA, release signing and distribution
+remain explicit owner-controlled operations.

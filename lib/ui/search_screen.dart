@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../domain/inventory.dart';
+import '../domain/medicine_discovery.dart';
 import '../domain/search.dart';
+import '../services/medicine_catalog_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'editor_screen.dart';
@@ -27,58 +29,307 @@ class SearchScreen extends StatefulWidget {
 }
 
 class _SearchScreenState extends State<SearchScreen> {
+  static const _browsePageSize = 120;
+
   final _query = TextEditingController();
-  Timer? _debounce;
-  List<SearchHit> _hits = [];
-  bool _loading = true;
-  String _error = '';
-  int _generation = 0;
+  final _catalog = MedicineCatalogService();
+  Timer? _debounce, _onlineDebounce;
+  SearchHitPublication _publishedHits = SearchHitPublication.empty;
+  List<SearchHit> get _hits => _publishedHits.hits;
+  List<MedicineCatalogCandidate> _catalogHits = [];
+  bool _loading = true,
+      _catalogLoading = false,
+      _voiceOpening = false,
+      _onlineMode = false;
+  String _error = '', _catalogError = '';
+  int _generation = 0, _catalogGeneration = 0;
   ScanResult? _scan;
+  late Object _observedSnapshot;
+  late Object _observedRecords;
+  late DateTime _observedDay;
+  late (int, int) _observedWarnings;
+  bool _controllerListening = false;
+  bool _refreshWhenActive = false;
+  bool _browseExhausted = false;
+  int _browseLimit = _browsePageSize;
+  Future<void> _searchTail = Future<void>.value();
+
   @override
   void initState() {
     super.initState();
-    widget.controller.addListener(_changed);
+    _observedSnapshot = widget.controller.snapshot;
+    _observedRecords = widget.controller.snapshot.records;
+    _observedDay = widget.controller.today;
+    _observedWarnings = (
+      widget.controller.settings.shortDays,
+      widget.controller.settings.months,
+    );
     unawaited(_search());
   }
 
-  void _changed() {
-    _debounce?.cancel();
-    if (mounted) unawaited(_search());
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = TickerMode.valuesOf(context).enabled;
+    if (active == _controllerListening) return;
+    if (!active) {
+      widget.controller.removeListener(_changed);
+      _controllerListening = false;
+
+      // A retained or covered search page must become genuinely idle. Pending
+      // debounce timers otherwise start isolate search or public-catalog work
+      // after the user has already left this screen. Retire in-flight result
+      // generations too, then refresh the same query once on reactivation.
+      final localWorkPending = _loading || (_debounce?.isActive ?? false);
+      final catalogWorkPending =
+          _catalogLoading || (_onlineDebounce?.isActive ?? false);
+      _debounce?.cancel();
+      _onlineDebounce?.cancel();
+      if (localWorkPending || catalogWorkPending) {
+        ++_generation;
+        ++_catalogGeneration;
+        _refreshWhenActive = true;
+      }
+      return;
+    }
+
+    widget.controller.addListener(_changed);
+    _controllerListening = true;
+    final currentSnapshot = widget.controller.snapshot;
+    final currentDay = widget.controller.today;
+    if (_refreshWhenActive ||
+        !identical(currentSnapshot, _observedSnapshot) ||
+        currentDay != _observedDay) {
+      final currentWarnings = (
+        widget.controller.settings.shortDays,
+        widget.controller.settings.months,
+      );
+      final searchInputsUnchanged =
+          currentDay == _observedDay &&
+          currentWarnings == _observedWarnings &&
+          identical(currentSnapshot.records, _observedRecords);
+      final preserveResults =
+          searchInputsUnchanged ||
+          (currentDay == _observedDay &&
+              currentWarnings == _observedWarnings &&
+              _publishedHits.canPreserveAgainst(currentSnapshot.records));
+      final refreshWasPending = _refreshWhenActive;
+      _observedSnapshot = currentSnapshot;
+      _observedRecords = currentSnapshot.records;
+      _observedDay = currentDay;
+      _observedWarnings = currentWarnings;
+      _refreshWhenActive = false;
+
+      // A retained tab can miss supplier, sales-history or audit-only commits.
+      // Those publish a new authoritative snapshot but preserve the exact
+      // immutable medicine map. Search membership/order depends only on that
+      // medicine dataset, warning scope and civil day, so do not restart an
+      // already-valid query merely because unrelated metadata changed.
+      if (searchInputsUnchanged && !refreshWasPending) return;
+
+      _debounce?.cancel();
+      _onlineDebounce?.cancel();
+      unawaited(_search(preserveResults: preserveResults));
+    }
   }
 
-  Future<void> _search() async {
-    final generation = ++_generation;
+  @override
+  void didUpdateWidget(covariant SearchScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final controllerChanged = oldWidget.controller != widget.controller;
+    final searchContextChanged =
+        oldWidget.scope != widget.scope || oldWidget.database != widget.database;
+    if (controllerChanged) {
+      if (_controllerListening) {
+        oldWidget.controller.removeListener(_changed);
+        widget.controller.addListener(_changed);
+      }
+      _observedSnapshot = widget.controller.snapshot;
+      _observedRecords = widget.controller.snapshot.records;
+      _observedDay = widget.controller.today;
+      _observedWarnings = (
+        widget.controller.settings.shortDays,
+        widget.controller.settings.months,
+      );
+    }
+    if (!controllerChanged && !searchContextChanged) return;
+
+    ++_generation;
+    ++_catalogGeneration;
+    _debounce?.cancel();
+    _onlineDebounce?.cancel();
+    _publishedHits = SearchHitPublication.empty;
+    _scan = null;
+    _resetBrowseWindow();
+    _catalogHits = [];
+    _catalogLoading = false;
+    _catalogError = '';
+    if (_controllerListening) {
+      _refreshWhenActive = false;
+      unawaited(_search());
+    } else {
+      _refreshWhenActive = true;
+    }
+  }
+
+  void _changed() {
     if (!mounted) return;
+    final currentSnapshot = widget.controller.snapshot;
+    final currentDay = widget.controller.today;
+    if (identical(currentSnapshot, _observedSnapshot) &&
+        currentDay == _observedDay) {
+      return;
+    }
+    final currentWarnings = (
+      widget.controller.settings.shortDays,
+      widget.controller.settings.months,
+    );
+    final searchInputsUnchanged =
+        currentDay == _observedDay &&
+        currentWarnings == _observedWarnings &&
+        identical(currentSnapshot.records, _observedRecords);
+    final preserveResults =
+        searchInputsUnchanged ||
+        (currentDay == _observedDay &&
+            currentWarnings == _observedWarnings &&
+            _publishedHits.canPreserveAgainst(currentSnapshot.records));
+    _observedSnapshot = currentSnapshot;
+    _observedRecords = currentSnapshot.records;
+    _observedDay = currentDay;
+    _observedWarnings = currentWarnings;
+    if (searchInputsUnchanged) return;
+
+    _debounce?.cancel();
+    _onlineDebounce?.cancel();
+    unawaited(_search(preserveResults: preserveResults));
+  }
+
+  Future<void> _search({bool preserveResults = false}) {
+    final generation = ++_generation;
+    final typedQuery = _query.text;
+    if (!mounted) return Future<void>.value();
     setState(() {
+      // Snapshot/day refreshes keep the last valid cards on screen while the
+      // same query is recomputed. A new query clears them immediately so stale
+      // results can never remain tappable under different search text.
       _loading = true;
-      _hits = [];
+      if (!preserveResults) _publishedHits = SearchHitPublication.empty;
       _error = '';
     });
+
+    // SearchWorker intentionally serializes expensive isolate work. Serialize
+    // requests here as well so a newer query can invalidate queued predecessors
+    // before they ever reach that worker. One already-running search may finish;
+    // after it settles, only the newest queued generation performs another one.
+    final operation = _searchTail.then<void>(
+      (_) => _runSearch(generation: generation, typedQuery: typedQuery),
+    );
+    _searchTail = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return operation;
+  }
+
+  Future<void> _runSearch({
+    required int generation,
+    required String typedQuery,
+  }) async {
+    if (!mounted || generation != _generation) return;
     try {
-      final hits = await widget.controller.search(_query.text, widget.scope);
-      if (mounted && generation == _generation)
-        setState(() {
-          _hits = hits;
-          _error = '';
-          _loading = false;
-        });
-    } catch (e) {
-      if (mounted && generation == _generation)
+      final browsing = typedQuery.trim().isEmpty;
+      final requestedBrowseLimit = _browseLimit;
+      final probeLimit = browsing
+          ? requestedBrowseLimit >= 100000
+                ? 100000
+                : requestedBrowseLimit + 1
+          : requestedBrowseLimit;
+      final hits = browsing
+          ? await widget.controller.browse(
+              widget.scope,
+              limit: probeLimit,
+            )
+          : await widget.controller.search(typedQuery, widget.scope);
+      if (!mounted || generation != _generation) return;
+      final hasMoreBrowseRows =
+          browsing && hits.length > requestedBrowseLimit;
+      final visibleHits = hasMoreBrowseRows
+          ? hits.take(requestedBrowseLimit).toList(growable: false)
+          : hits;
+      setState(() {
+        _publishedHits = SearchHitPublication.capture(
+          visibleHits,
+          widget.controller.snapshot.records,
+        );
+        _browseExhausted = browsing && !hasMoreBrowseRows;
+        _error = '';
+        _loading = false;
+      });
+      _scheduleTypedOnlineLookup(typedQuery);
+    } catch (_) {
+      if (mounted && generation == _generation) {
         setState(() {
           _error = 'Search could not finish. Please try again.';
           _loading = false;
         });
+      }
     }
+  }
+
+  void _resetBrowseWindow() {
+    _browseLimit = _browsePageSize;
+    _browseExhausted = false;
+  }
+
+  void _expandBrowse() {
+    if (_loading || _browseExhausted) return;
+    _browseLimit += _browsePageSize;
+    unawaited(_search(preserveResults: true));
+  }
+
+  bool _catalogEligibleText(String value) {
+    final text = value.trim();
+    return text.length >= 3 &&
+        text.length <= 120 &&
+        !text.contains('\n') &&
+        !text.contains('\r');
+  }
+
+  void _scheduleTypedOnlineLookup(String value) {
+    _onlineDebounce?.cancel();
+    if (!widget.database ||
+        !_onlineMode ||
+        _scan != null ||
+        !_catalogEligibleText(value)) {
+      return;
+    }
+    final expected = value.trim();
+    _onlineDebounce = Timer(const Duration(milliseconds: 420), () {
+      if (!mounted || !_onlineMode || _query.text.trim() != expected) return;
+      unawaited(_discoverTextOnline(expected));
+    });
+  }
+
+  void _clearCatalog() {
+    ++_catalogGeneration;
+    _catalogHits = [];
+    _catalogLoading = false;
+    _catalogError = '';
   }
 
   void _typed(String value) {
     ++_generation;
     _debounce?.cancel();
+    _onlineDebounce?.cancel();
+    _resetBrowseWindow();
     setState(() {
-      _hits = [];
+      // Query meaning changed. Remove old cards immediately rather than leaving
+      // a stale medicine tappable during the short debounce.
+      _publishedHits = SearchHitPublication.empty;
       _loading = true;
       _error = '';
       _scan = null;
+      _clearCatalog();
     });
     _debounce = Timer(
       const Duration(milliseconds: 150),
@@ -88,8 +339,107 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _setQuery(String value) {
     _debounce?.cancel();
-    _query.text = value;
+    _onlineDebounce?.cancel();
+    _resetBrowseWindow();
+    setState(() {
+      _query.text = value;
+      _scan = null;
+      _clearCatalog();
+    });
     unawaited(_search());
+  }
+
+  void _toggleOnlineMode(bool enabled) {
+    _onlineDebounce?.cancel();
+    setState(() {
+      _onlineMode = enabled;
+      _clearCatalog();
+    });
+    if (enabled && _catalogEligibleText(_query.text)) {
+      _scheduleTypedOnlineLookup(_query.text);
+    }
+  }
+
+  bool _scanHasConfidentLocalMatch(ScanResult scan) {
+    if (scan.barcode.isNotEmpty) {
+      final exactBarcode = widget.controller.records.any(
+        (medicine) =>
+            !medicine.archived &&
+            medicine.barcode.trim() == scan.barcode.trim(),
+      );
+      if (exactBarcode) return true;
+    }
+    return _hits.any((hit) => hit.score >= .90);
+  }
+
+  Future<void> _discoverTextOnline(String text) async {
+    if (!widget.database || !_onlineMode || !mounted) return;
+    final clean = text.trim();
+    if (!_catalogEligibleText(clean) || _query.text.trim() != clean) return;
+    final generation = ++_catalogGeneration;
+    setState(() {
+      _catalogLoading = true;
+      _catalogHits = [];
+      _catalogError = '';
+    });
+    try {
+      final candidates = await _catalog.search(text: clean);
+      if (!mounted ||
+          generation != _catalogGeneration ||
+          !_onlineMode ||
+          _query.text.trim() != clean) {
+        return;
+      }
+      setState(() {
+        _catalogHits = candidates;
+        _catalogLoading = false;
+        _catalogError = candidates.isEmpty
+            ? 'No matching medicine identity was found in the free public catalogs.'
+            : '';
+      });
+    } catch (_) {
+      if (!mounted || generation != _catalogGeneration) return;
+      setState(() {
+        _catalogLoading = false;
+        _catalogError = 'Online medicine lookup is unavailable right now.';
+      });
+    }
+  }
+
+  Future<void> _discoverOnline(ScanResult scan) async {
+    if (!widget.database ||
+        !_onlineMode ||
+        !mounted ||
+        !identical(_scan, scan)) return;
+    final generation = ++_catalogGeneration;
+    setState(() {
+      _catalogLoading = true;
+      _catalogHits = [];
+      _catalogError = '';
+    });
+    try {
+      final candidates = await _catalog.search(
+        barcode: scan.barcode,
+        text: scan.text,
+      );
+      if (!mounted ||
+          generation != _catalogGeneration ||
+          !_onlineMode ||
+          !identical(_scan, scan)) return;
+      setState(() {
+        _catalogHits = candidates;
+        _catalogLoading = false;
+        _catalogError = candidates.isEmpty
+            ? 'No reliable public-catalog identity was found for this scan.'
+            : '';
+      });
+    } catch (_) {
+      if (!mounted || generation != _catalogGeneration) return;
+      setState(() {
+        _catalogLoading = false;
+        _catalogError = 'Online medicine lookup is unavailable right now.';
+      });
+    }
   }
 
   Future<void> _scanner() async {
@@ -98,30 +448,56 @@ class _SearchScreenState extends State<SearchScreen> {
       MaterialPageRoute(builder: (_) => const ScannerScreen()),
     );
     if (result == null || !mounted) return;
-    setState(() => _scan = result);
-    _setQuery(result.barcode.isNotEmpty ? result.barcode : result.text);
+    _debounce?.cancel();
+    _onlineDebounce?.cancel();
+    ++_catalogGeneration;
+    _resetBrowseWindow();
+    setState(() {
+      _scan = result;
+      _query.text = result.barcode.isNotEmpty ? result.barcode : result.text;
+      _catalogHits = [];
+      _catalogError = '';
+      _catalogLoading = false;
+    });
+    await _search();
+    if (!mounted ||
+        !identical(_scan, result) ||
+        !widget.database ||
+        !_onlineMode ||
+        _scanHasConfidentLocalMatch(result)) {
+      return;
+    }
+    await _discoverOnline(result);
   }
 
   Future<void> _mic() async {
-    final result = await voiceSearch(context);
-    if (result != null && mounted) _setQuery(result);
+    if (_voiceOpening) return;
+    setState(() => _voiceOpening = true);
+    try {
+      final result = await voiceSearch(context);
+      if (result != null && mounted) _setQuery(result);
+    } finally {
+      if (mounted) setState(() => _voiceOpening = false);
+    }
   }
 
   Future<void> _bulk() async {
-    final text = TextEditingController(text: _query.text);
+    var draft = _query.text;
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Search a medicine list'),
         content: SizedBox(
           width: 500,
-          child: TextField(
-            controller: text,
+          child: TextFormField(
+            initialValue: draft,
+            onChanged: (value) => draft = value,
             minLines: 6,
             maxLines: 12,
             maxLength: 30000,
             decoration: const InputDecoration(
-              hintText: 'Paste text from an invoice or a medicine list. Put each medicine on its own line.',
+              hintText:
+                  'Paste text from an invoice or a medicine list. Put each medicine on its own line.',
             ),
           ),
         ),
@@ -131,23 +507,35 @@ class _SearchScreenState extends State<SearchScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, text.text),
+            onPressed: () => Navigator.pop(ctx, draft),
             child: const Text('Find medicines'),
           ),
         ],
       ),
     );
-    unawaited(
-      Future<void>.delayed(const Duration(milliseconds: 300), text.dispose),
-    );
     if (result != null && mounted) _setQuery(result);
+  }
+
+  void _openCatalogCandidate(MedicineCatalogCandidate candidate) {
+    final scan = _scan;
+    final seed = candidate.seed.withScanBarcode(scan?.barcode ?? '');
+    openEditor(
+      context,
+      widget.controller,
+      seed: seed,
+      barcode: scan?.barcode ?? '',
+      ocrText: scan?.text ?? '',
+    );
   }
 
   @override
   void dispose() {
     ++_generation;
-    widget.controller.removeListener(_changed);
+    ++_catalogGeneration;
+    if (_controllerListening) widget.controller.removeListener(_changed);
     _debounce?.cancel();
+    _onlineDebounce?.cancel();
+    _catalog.close();
     _query.dispose();
     super.dispose();
   }
@@ -155,219 +543,414 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
+    final settings = controller.settings;
+    final today = controller.today;
     final title = widget.database
         ? 'Medicine Database'
         : widget.scope == SearchScope.all
         ? 'Scan & Search'
-        : scopeTitle(widget.scope, controller.settings);
-    final body = Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(22, widget.embedded ? 24 : 8, 22, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (widget.embedded)
+        : scopeTitle(widget.scope, settings);
+
+    Widget blueAction({
+      required IconData icon,
+      required String label,
+      required VoidCallback? onPressed,
+    }) => RaisedActionButton(
+      icon: icon,
+      label: label,
+      onPressed: onPressed,
+    );
+
+    final body = CustomScrollView(
+      key: PageStorageKey('search-${widget.scope}-${widget.database}'),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(22, widget.embedded ? 24 : 8, 22, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (widget.embedded)
+                  ScreenIntro(
+                    title: title,
+                    message:
+                        'Find a medicine to edit, record a sale or remove stock.',
+                    icon: Icons.inventory_2_outlined,
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Text(
+                      widget.scope == SearchScope.all
+                          ? 'Search your whole inventory by name, salt, location or notes.'
+                          : 'Browse this category, or scan to find a medicine inside it.',
+                      style: const TextStyle(color: muted, fontSize: 13),
+                    ),
+                  ),
+                if (widget.database) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: blueAction(
+                          icon: Icons.add_rounded,
+                          label: 'Add medicine',
+                          onPressed: () => openEditor(context, controller),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Tooltip(
+                          message: 'Add / Import medicines',
+                          child: blueAction(
+                            icon: Icons.file_upload_outlined,
+                            label: 'Import stock',
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    ImportCenterScreen(controller: controller),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                GlassPanel(
+                  tint: Colors.white,
+                  radius: 18,
+                  elevation: 1.12,
+                  child: TextField(
+                    controller: _query,
+                    onChanged: _typed,
+                    maxLength: 30000,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: _setQuery,
+                    onTapOutside: (_) =>
+                        FocusManager.instance.primaryFocus?.unfocus(),
+                    decoration: InputDecoration(
+                      filled: false,
+                      counterText: '',
+                      hintText: 'Search medicines…',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide(
+                          color: primary.withValues(alpha: .08),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(
+                          color: primary,
+                          width: 1.5,
+                        ),
+                      ),
+                      suffixIcon: _query.text.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              onPressed: () => _setQuery(''),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        title,
-                        style: Theme.of(context).textTheme.headlineMedium,
+                      child: blueAction(
+                        icon: Icons.qr_code_scanner_rounded,
+                        label: 'Scan',
+                        onPressed: _scanner,
                       ),
                     ),
-                    IconButton.filled(
-                      tooltip: 'Add / Import medicines',
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: blueAction(
+                        icon: Icons.mic_none_rounded,
+                        label: 'Voice',
+                        onPressed: _voiceOpening ? null : _mic,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: blueAction(
+                        icon: Icons.playlist_add_rounded,
+                        label: 'Paste list',
+                        onPressed: _bulk,
+                      ),
+                    ),
+                  ],
+                ),
+                if (widget.database)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Tooltip(
+                      message:
+                          'When enabled, a short single-medicine query can also search free public medicine catalogs. Stock dates and pharmacy-specific values are never taken from the internet.',
+                      child: FilterChip(
+                        avatar: Icon(
+                          Icons.public_rounded,
+                          size: 18,
+                          color: _onlineMode ? primary : muted,
+                        ),
+                        label: Text(_onlineMode ? 'Online search on' : 'Online search'),
+                        selected: _onlineMode,
+                        onSelected: _toggleOnlineMode,
+                      ),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Searching: ${scopeTitle(widget.scope, settings)}${widget.scope == SearchScope.all ? '' : ' only'}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: muted,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (_loading)
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
+                  ),
+                ),
+                if (_scan != null &&
+                    widget.database &&
+                    !_catalogLoading &&
+                    _catalogHits.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: OutlinedButton.icon(
+                      onPressed: () => openEditor(
+                        context,
+                        controller,
+                        barcode: _scan!.barcode,
+                        ocrText: _scan!.text,
+                      ),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add manually from this scan'),
+                    ),
+                  ),
+                if (_scan != null &&
+                    _scan!.barcode.isNotEmpty &&
+                    _scan!.text.isNotEmpty)
+                  TextButton(
+                    onPressed: () => _setQuery(_scan!.text),
+                    child: const Text('Search the scanned text instead'),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (_catalogLoading)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 2, 22, 14),
+              child: Surface(
+                color: accentSoft,
+                padding: const EdgeInsets.all(16),
+                child: const Row(
+                  children: [
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Searching free public medicine catalogs for matching identity and strength options…',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        if (_catalogHits.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 2, 22, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Online medicine options',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Tap the matching strength or form to prefill medicine name, salt, strength, brand and other identity data. MFG, EXP and your pharmacy stock values stay for you to enter.',
+                    style: TextStyle(color: muted, fontSize: 12, height: 1.45),
+                  ),
+                  const SizedBox(height: 14),
+                  for (final candidate in _catalogHits)
+                    _CatalogCandidateCard(
+                      candidate: candidate,
+                      onTap: () => _openCatalogCandidate(candidate),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        if (_catalogError.isNotEmpty && widget.database && _onlineMode)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 0, 22, 12),
+              child: Text(
+                _catalogError,
+                style: const TextStyle(color: muted, fontSize: 12),
+              ),
+            ),
+          ),
+        if (_error.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Surface(
+                color: errorSoft,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_error, style: const TextStyle(color: red)),
+                    TextButton(
+                      onPressed: _search,
+                      child: const Text('Try again'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        if (_hits.isEmpty &&
+            !_loading &&
+            _catalogHits.isEmpty &&
+            !_catalogLoading)
+          SliverToBoxAdapter(
+            child: EmptyState(
+              title: _query.text.trim().isEmpty
+                  ? 'No medicines here yet'
+                  : 'No matching medicines',
+              message: _scan != null && widget.database
+                  ? _onlineMode
+                        ? 'This scan was not matched confidently in your database or public medicine catalogs. You can still add it manually and review the pack.'
+                        : 'This scan was not matched confidently in your database. Turn on Online search to check public medicine catalogs, or add it manually.'
+                  : widget.database && _query.text.trim().isNotEmpty
+                  ? _onlineMode
+                        ? 'No local or online match was found. Try another spelling or add the medicine manually.'
+                        : 'No local match. Turn on Online search to look for medicine identity and strength options, or add it manually.'
+                  : widget.scope == SearchScope.all
+                  ? 'Try a name, salt, location, barcode or words from your notes.'
+                  : 'No matches in this category. You can also search the whole inventory.',
+              action: widget.database
+                  ? SizedBox(
+                      width: 230,
+                      child: RaisedActionButton(
+                        icon: Icons.add_rounded,
+                        label: 'Add medicine',
+                        height: 56,
+                        radius: 20,
+                        onPressed: () => openEditor(
+                          context,
+                          controller,
+                          barcode: _scan?.barcode ?? '',
+                          ocrText: _scan?.text ?? '',
+                        ),
+                      ),
+                    )
+                  : widget.scope != SearchScope.all
+                  ? OutlinedButton(
                       onPressed: () => Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) =>
-                              ImportCenterScreen(controller: controller),
+                          builder: (_) => SearchScreen(
+                            controller: controller,
+                            scope: SearchScope.all,
+                          ),
                         ),
                       ),
-                      icon: const Icon(Icons.add_rounded),
-                    ),
-                  ],
-                ),
-              if (widget.database)
-                const Padding(
-                  padding: EdgeInsets.only(top: 6, bottom: 18),
-                  child: Text(
-                    'Add, edit & remove medicines',
-                    style: TextStyle(color: muted, fontSize: 13),
-                  ),
-                ),
-              TextField(
-                controller: _query,
-                onChanged: _typed,
-                maxLength: 30000,
-                decoration: InputDecoration(
-                  counterText: '',
-                  hintText: 'Search medicines…',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: _query.text.isEmpty
+                      child: const Text('Search all medicines'),
+                    )
+                  : null,
+            ),
+          )
+        else if (_hits.isNotEmpty)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(22, 2, 22, 0),
+            sliver: SliverList.builder(
+              itemCount: _hits.length,
+              itemBuilder: (context, index) {
+                final hit = _hits[index];
+                final record = controller.snapshot.records[hit.id];
+                if (record == null ||
+                    !inScope(
+                      record,
+                      widget.scope,
+                      settings,
+                      today,
+                    )) {
+                  return const SizedBox.shrink();
+                }
+                return MedicineCard(
+                  record: record,
+                  settings: settings,
+                  today: today,
+                  onTap: () => openEditor(context, controller, record: record),
+                  matchLabel: hit.uncertain
+                      ? '${hit.confidence} confidence · ${hit.reason} · check name & strength'
+                      : _query.text.trim().isEmpty
                       ? null
-                      : IconButton(
-                          tooltip: 'Clear search',
-                          onPressed: () => _setQuery(''),
-                          icon: const Icon(Icons.close_rounded),
-                        ),
+                      : '${hit.confidence} confidence · ${hit.reason}',
+                );
+              },
+            ),
+          ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 12, 22, 30),
+            child: Column(
+              children: [
+                Text(
+                  _hits.length == 150 && _query.text.isNotEmpty
+                      ? 'Showing the best 150 matches. Refine your search for more.'
+                      : _query.text.trim().isEmpty &&
+                            !_browseExhausted &&
+                            _hits.isNotEmpty
+                      ? 'Showing ${_hits.length} stock entries'
+                      : '${_hits.length} stock ${_hits.length == 1 ? 'entry' : 'entries'}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: muted),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: _scanner,
-                    icon: const Icon(Icons.qr_code_scanner_rounded, size: 19),
-                    label: const Text('Scan'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _mic,
-                    icon: const Icon(Icons.mic_none_rounded, size: 19),
-                    label: const Text('Mic'),
-                  ),
-                  IconButton(
-                    tooltip: 'Paste a full medicine list',
-                    onPressed: _bulk,
-                    icon: const Icon(Icons.playlist_add_rounded),
+                if (_query.text.trim().isEmpty &&
+                    !_browseExhausted &&
+                    _hits.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  TextButton(
+                    onPressed: _loading ? null : _expandBrowse,
+                    child: Text(_loading ? 'Loading more…' : 'Load more'),
                   ),
                 ],
-              ),
-              Padding(
-                padding: const EdgeInsets.only(top: 14, bottom: 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Searching: ${scopeTitle(widget.scope, controller.settings)}${widget.scope == SearchScope.all ? '' : ' only'}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: muted,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (_loading)
-                      const SizedBox(
-                        width: 15,
-                        height: 15,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                  ],
-                ),
-              ),
-              if (_scan != null && widget.database)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: OutlinedButton.icon(
-                    onPressed: () => openEditor(
-                      context,
-                      controller,
-                      barcode: _scan!.barcode,
-                      ocrText: _scan!.text,
-                    ),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add as new stock · review draft'),
-                  ),
-                ),
-              if (_scan != null &&
-                  _scan!.barcode.isNotEmpty &&
-                  _scan!.text.isNotEmpty)
-                TextButton(
-                  onPressed: () => _setQuery(_scan!.text),
-                  child: const Text('Search the scanned text instead'),
-                ),
-            ],
+              ],
+            ),
           ),
-        ),
-        if (_error.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(_error, style: const TextStyle(color: red)),
-          ),
-        Expanded(
-          child: _hits.isEmpty && !_loading
-              ? ListView(
-                  padding: const EdgeInsets.all(22),
-                  children: [
-                    EmptyState(
-                      title: _query.text.trim().isEmpty
-                          ? 'No medicines here yet'
-                          : 'No matching medicines',
-                      message: widget.scope == SearchScope.all
-                          ? 'Try a name, salt, location, barcode or words from your notes.'
-                          : 'There are no matches inside this category. Other categories have not been included.',
-                      action: widget.database
-                          ? FilledButton.icon(
-                              onPressed: () => openEditor(
-                                context,
-                                controller,
-                                barcode: _scan?.barcode ?? '',
-                                ocrText: _scan?.text ?? '',
-                              ),
-                              icon: const Icon(Icons.add),
-                              label: const Text('Add medicine'),
-                            )
-                          : widget.scope != SearchScope.all
-                          ? OutlinedButton(
-                              onPressed: () => Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (_) => SearchScreen(
-                                    controller: controller,
-                                    scope: SearchScope.all,
-                                  ),
-                                ),
-                              ),
-                              child: const Text('Search all medicines'),
-                            )
-                          : null,
-                    ),
-                  ],
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(22, 2, 22, 25),
-                  itemCount: _hits.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == _hits.length)
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Text(
-                          _hits.length == 150 && _query.text.isNotEmpty
-                              ? 'Showing the best 150 matches. Refine your search for more.'
-                              : '${_hits.length} stock ${_hits.length == 1 ? 'entry' : 'entries'}',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 12, color: muted),
-                        ),
-                      );
-                    final hit = _hits[index];
-                    final record = controller.snapshot.records[hit.id];
-                    if (record == null ||
-                        !inScope(
-                          record,
-                          widget.scope,
-                          controller.settings,
-                          controller.today,
-                        ))
-                      return const SizedBox.shrink();
-                    return MedicineCard(
-                      record: record,
-                      settings: controller.settings,
-                      today: controller.today,
-                      onTap: () =>
-                          openEditor(context, controller, record: record),
-                      matchLabel: hit.uncertain
-                          ? '${hit.confidence} confidence · ${hit.reason} · check name & strength'
-                          : _query.text.trim().isEmpty
-                          ? null
-                          : '${hit.confidence} confidence · ${hit.reason}',
-                    );
-                  },
-                ),
         ),
       ],
     );
@@ -377,5 +960,86 @@ class _SearchScreenState extends State<SearchScreen> {
             appBar: AppBar(title: Text(title)),
             body: SafeArea(child: body),
           );
+  }
+}
+
+class _CatalogCandidateCard extends StatelessWidget {
+  const _CatalogCandidateCard({required this.candidate, required this.onTap});
+
+  final MedicineCatalogCandidate candidate;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final seed = candidate.seed;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Surface(
+        color: Colors.white,
+        padding: EdgeInsets.zero,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const DepthIcon(Icons.public_rounded, size: 42),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        seed.name,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      if (candidate.subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          candidate.subtitle,
+                          style: const TextStyle(color: muted, fontSize: 12),
+                        ),
+                      ],
+                      if (seed.brand.isNotEmpty && seed.brand != seed.name)
+                        Text(
+                          'Brand · ${seed.brand}',
+                          style: const TextStyle(color: muted, fontSize: 12),
+                        ),
+                      if (seed.manufacturer.isNotEmpty)
+                        Text(
+                          seed.manufacturer,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: muted, fontSize: 12),
+                        ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          StatusPill(candidate.confidence),
+                          Text(
+                            candidate.provider,
+                            style: const TextStyle(
+                              color: muted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.arrow_forward_rounded, color: green),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

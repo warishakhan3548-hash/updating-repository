@@ -1,10 +1,12 @@
 import 'dart:convert';
 
 import '../lib/domain/medicine.dart';
+import '../lib/domain/supplier.dart';
 import '../lib/domain/inventory.dart';
 import '../lib/domain/search.dart';
 import '../lib/domain/ai_protocol.dart';
 import '../lib/domain/backup.dart';
+import '../lib/domain/sales_overview.dart';
 import '../lib/domain/tracking.dart';
 
 void check(bool condition, String message) {
@@ -27,6 +29,7 @@ Medicine stock(
   String strength = '500mg',
   String expiry = '2026-09-10',
   String barcode = '',
+  String batchNumber = '',
   String notes = '',
   String salt = '',
   int? quantity = 10,
@@ -39,6 +42,7 @@ Medicine stock(
   'strength': strength,
   'expiry': expiry,
   'barcode': barcode,
+  'batchNumber': batchNumber,
   'notes': notes,
   'salt': salt,
   'quantity': sold ? 0 : quantity,
@@ -239,6 +243,54 @@ Map<String, void Function()> domainContract() {
       ]..sort((a, b) => expiryOrder(a, b, contractToday));
       check(list.first.id == 'b', 'Expired sort wrong.');
     },
+    'dispensing eligibility is expiry-day safe': () {
+      check(
+        isDispensableOn(stock('today', expiry: '2026-09-07'), contractToday),
+        'Stock became unavailable before the expiry day ended.',
+      );
+      check(
+        !isDispensableOn(stock('expired', expiry: '2026-09-06'), contractToday),
+        'Expired stock was offered for dispensing.',
+      );
+      check(
+        !isDispensableOn(stock('sold', sold: true), contractToday),
+        'Sold stock was offered for dispensing.',
+      );
+      check(
+        isDispensableOn(stock('unknown', expiry: ''), contractToday),
+        'Unknown expiry was silently converted into expired stock.',
+      );
+    },
+    'FEFO prefers earliest valid stock and defers unknown expiry': () {
+      final requested = stock('requested', expiry: '2026-10-10');
+      final candidates = dispensingCandidates(
+        [
+          requested,
+          stock('first', expiry: '2026-09-08'),
+          stock('unknown', expiry: ''),
+          stock('empty', expiry: '2026-09-07', quantity: 0),
+          stock('expired', expiry: '2026-09-06'),
+          stock('other', strength: '650mg', expiry: '2026-09-07'),
+        ],
+        requested,
+        contractToday,
+      );
+      check(
+        candidates.map((record) => record.id).join(',') ==
+            'first,requested,unknown',
+        'FEFO returned an unsafe or unstable stock order.',
+      );
+    },
+    'sale date respects manufacturing and inclusive expiry facts': () {
+      final dated = Medicine.fromJson({
+        ...stock('dated', expiry: '2026-09-07').toJson(),
+        'mfg': '2026-09-01',
+      });
+      validateDispensingDate(dated, DateTime(2026, 9, 1));
+      validateDispensingDate(dated, DateTime(2026, 9, 7, 23, 59));
+      rejects(() => validateDispensingDate(dated, DateTime(2026, 8, 31)));
+      rejects(() => validateDispensingDate(dated, DateTime(2026, 9, 8)));
+    },
     'paise arithmetic avoids floating rounding': () {
       check(parseMoney('2.50') == 250, 'Price parsing wrong.');
       check(parseMoney('0.01') == 1, 'Paisa missing.');
@@ -319,6 +371,22 @@ Map<String, void Function()> domainContract() {
                 .length ==
             2,
         'Barcode lost a stock entry.',
+      );
+    },
+    'batch number is searchable without acting like stock quantity': () {
+      final engine = MedicineSearch([
+        stock('batch-a', batchNumber: 'DL-2407'),
+        stock('batch-b', batchNumber: 'AZ-9912'),
+      ]);
+      final hits = engine.search(
+        'DL-2407',
+        SearchScope.all,
+        contractSettings,
+        contractToday,
+      );
+      check(
+        hits.isNotEmpty && hits.first.id == 'batch-a',
+        'Batch number was not indexed.',
       );
     },
     'fuzzy DROTAVRIN DOTIN and ROTAEN find Drotaverine': () {
@@ -425,6 +493,31 @@ Map<String, void Function()> domainContract() {
         );
       }
     },
+    'search index and hostile tokens stay memory bounded': () {
+      final longOcr = List.generate(1200, (index) => 'token$index').join(' ');
+      final longNote = List.filled(5000, 'x').join();
+      final longQuery = List.filled(30000, 'z').join();
+      final document = SearchDocument(
+        Medicine.fromJson({
+          ...stock('bounded').toJson(),
+          'ocrText': longOcr,
+          'notes': '$longNote tail note',
+        }),
+      );
+      check(
+        document.terms.length <= SearchDocument.maxTerms,
+        'One record created an unbounded search index.',
+      );
+      check(
+        document.terms.every(
+          (term) => term.length <= SearchDocument.maxTermLength,
+        ),
+        'An oversized token entered the n-gram index.',
+      );
+      final hits = MedicineSearch([document.record])
+          .search(longQuery, SearchScope.all, contractSettings, contractToday);
+      check(hits.isEmpty, 'Hostile long query produced a false match.');
+    },
     'identity normalizes punctuation and strength spacing': () {
       final a = stock('a', name: 'Dolo-650', strength: '650 mg');
       final b = stock('b', name: 'DOLO 650', strength: '650mg');
@@ -457,6 +550,7 @@ Map<String, void Function()> domainContract() {
       final data = PharmacyExport(
         revision: 7,
         records: [current],
+        suppliers: const <Supplier>[],
         today: contractToday,
       );
       check(
@@ -569,6 +663,20 @@ Map<String, void Function()> domainContract() {
         'Sold facts wrong.',
       );
     },
+    'AI cannot relabel expired stock as sold': () {
+      final expired = stock('expired', expiry: '2026-09-06');
+      rejects(
+        () => parseAiPlan(
+          envelope([
+            {'op': 'mark_sold', 'id': 'expired'},
+          ]),
+          {'expired': expired},
+          0,
+          const {},
+          contractToday,
+        ),
+      );
+    },
     'AI rejects batches over 250 actions': () {
       rejects(
         () => parse(
@@ -639,8 +747,9 @@ Map<String, void Function()> domainContract() {
       );
       check(
         tracking.reorder.single.priority == ReorderPriority.urgent &&
-            tracking.reorder.single.suggestedQuantity > 0,
-        'Sold stock was not queued for reorder.',
+            tracking.reorder.single.suggestedQuantity == null &&
+            tracking.reorder.single.reviewRequired,
+        'Sold stock must request order review without inventing quantity.',
       );
     },
     'sales velocity raises the low-stock reorder target': () {
@@ -663,7 +772,7 @@ Map<String, void Function()> domainContract() {
       );
       check(
         tracking.reorder.single.priority == ReorderPriority.soon &&
-            tracking.reorder.single.suggestedQuantity >= 100,
+            (tracking.reorder.single.suggestedQuantity ?? 0) >= 100,
         'Demand velocity did not influence the order quantity.',
       );
     },
@@ -687,6 +796,29 @@ Map<String, void Function()> domainContract() {
         }),
       );
     },
+    'undone direct SOLD transition is excluded from sales analytics': () {
+      final active = stock('sold-then-undone', quantity: 12);
+      final overview = SalesOverview(
+        const [],
+        medicines: [active],
+        events: [
+          {
+            'undone': true,
+            'soldValue': 2400,
+            'unknownSold': 0,
+            'salesBefore': <String, dynamic>{},
+            'before': <String, dynamic>{active.id: active.toJson()},
+          },
+        ],
+      );
+      check(
+        overview.recordedSales == 0 &&
+            overview.totalUnitsSold == 0 &&
+            overview.salesValuePaise == 0 &&
+            overview.ranked.isEmpty,
+        'Undo left a phantom sale in analytics.',
+      );
+    },
     'full backup round-trips medicines settings and sales': () {
       final sale = SaleEvent(
         id: 'sale_1',
@@ -703,6 +835,7 @@ Map<String, void Function()> domainContract() {
         sourceRevision: 8,
         settings: const WarningSettings(shortDays: 5, months: 3),
         records: {'existing': current},
+        suppliers: const {},
         sales: {'sale_1': sale},
         soldValue: 2000,
         unknownSold: 1,

@@ -1,0 +1,2662 @@
+import 'dart:math';
+
+import 'medicine.dart';
+import 'medicine_strength.dart';
+import 'medicine_date_parser.dart';
+import 'medicine_discovery.dart';
+import 'search.dart';
+
+/// Geometry retained from on-device OCR. Coordinates stay detector-native;
+/// only their relative position and line-height ratio are used by the parser.
+class MedicineTextLineEvidence {
+  const MedicineTextLineEvidence({
+    required this.text,
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+  });
+
+  final String text;
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+
+  Map<String, Object?> toMessage() => <String, Object?>{
+    'text': text,
+    'left': left,
+    'top': top,
+    'width': width,
+    'height': height,
+  };
+
+  factory MedicineTextLineEvidence.fromMessage(Map<Object?, Object?> map) {
+    double finiteNumber(String key) {
+      final value = map[key];
+      if (value is! num || !value.isFinite) return 0;
+      return value.toDouble().clamp(-1000000, 1000000).toDouble();
+    }
+
+    final rawText = map['text'];
+    final text = rawText is String ? _cleanLayoutLine(rawText) : '';
+    return MedicineTextLineEvidence(
+      text: text.length <= 300 ? text : text.substring(0, 300),
+      left: finiteNumber('left'),
+      top: finiteNumber('top'),
+      width: max(0.0, finiteNumber('width')),
+      height: max(0.0, finiteNumber('height')),
+    );
+  }
+}
+
+/// Immutable OCR/barcode evidence from one image or one ordered video frame.
+///
+/// The domain layer deliberately knows nothing about CameraImage, ML Kit, file
+/// paths or Android. This keeps medicine understanding deterministic, testable
+/// and safe to run in a background isolate.
+class MedicineFrameEvidence {
+  const MedicineFrameEvidence({
+    this.barcode = '',
+    this.barcodes = const <String>[],
+    this.layoutLines = const <MedicineTextLineEvidence>[],
+    this.text = '',
+    this.source = '',
+    this.sequence = 0,
+    this.timestampMs,
+    this.quality = 1,
+    this.startsNewItem = false,
+  });
+
+  final String barcode;
+  final List<String> barcodes;
+  final List<MedicineTextLineEvidence> layoutLines;
+  final String text;
+  final String source;
+  final int sequence;
+  final int? timestampMs;
+
+  /// A bounded capture-quality hint. OCR richness is evaluated independently.
+  final double quality;
+
+  /// True only for an explicit row/paragraph boundary from a structured local
+  /// import. Camera/video boundaries remain inferred from their evidence.
+  final bool startsNewItem;
+
+  List<String> get allBarcodes {
+    final values = <String>{
+      if (barcode.trim().isNotEmpty) barcode.trim(),
+      ...barcodes
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty),
+    };
+    return values.take(8).toList(growable: false);
+  }
+
+  Map<String, Object?> toMessage() => <String, Object?>{
+    'barcode': barcode,
+    'barcodes': barcodes,
+    'layoutLines': layoutLines
+        .take(240)
+        .map((line) => line.toMessage())
+        .toList(growable: false),
+    'text': text,
+    'source': source,
+    'sequence': sequence,
+    'timestampMs': timestampMs,
+    'quality': quality,
+    'startsNewItem': startsNewItem,
+  };
+
+  factory MedicineFrameEvidence.fromMessage(Map<Object?, Object?> map) {
+    final rawBarcodes = map['barcodes'];
+    final rawLayoutLines = map['layoutLines'];
+    return MedicineFrameEvidence(
+      barcode: map['barcode'] is String ? map['barcode']! as String : '',
+      barcodes: rawBarcodes is List
+          ? rawBarcodes.whereType<String>().take(8).toList(growable: false)
+          : const <String>[],
+      layoutLines: rawLayoutLines is List
+          ? rawLayoutLines
+                .whereType<Map>()
+                .take(240)
+                .map(
+                  (value) => MedicineTextLineEvidence.fromMessage(
+                    Map<Object?, Object?>.from(value),
+                  ),
+                )
+                .where((line) => line.text.isNotEmpty && line.height > 0)
+                .toList(growable: false)
+          : const <MedicineTextLineEvidence>[],
+      text: map['text'] is String ? map['text']! as String : '',
+      source: map['source'] is String ? map['source']! as String : '',
+      sequence: map['sequence'] is int ? map['sequence']! as int : 0,
+      timestampMs: map['timestampMs'] is int
+          ? map['timestampMs']! as int
+          : null,
+      quality: map['quality'] is num && (map['quality']! as num).isFinite
+          ? (map['quality']! as num).toDouble().clamp(0, 1)
+          : map['quality'] is num
+          ? .65
+          : 1,
+      startsNewItem: map['startsNewItem'] == true,
+    );
+  }
+}
+
+const maxMedicineListCharacters = 1000000;
+const maxMedicineListItems = 240;
+const maxMedicineEvidenceFrames = 240;
+const maxMedicineKnowledgeEntries = 12000;
+
+/// Compact, verified identity facts used as the scanner's private on-device
+/// medicine memory. Stock counts, prices, locations and notes are intentionally
+/// excluded: recognition needs identity only and must not copy operational data.
+class MedicineKnowledgeEntry {
+  const MedicineKnowledgeEntry({
+    this.name = '',
+    this.brand = '',
+    this.salt = '',
+    this.strength = '',
+    this.form = '',
+    this.manufacturer = '',
+    this.barcode = '',
+    this.aliases = const <String>[],
+    this.ocrAliases = const <String>[],
+    this.saltOcrAliases = const <String>[],
+  });
+
+  final String name;
+  final String brand;
+  final String salt;
+  final String strength;
+  final String form;
+  final String manufacturer;
+  final String barcode;
+  final List<String> aliases;
+  final List<String> ocrAliases;
+
+  /// Human-confirmed OCR spellings for this entry's single active ingredient.
+  /// These are field-scoped corrections, never general product aliases.
+  final List<String> saltOcrAliases;
+
+  factory MedicineKnowledgeEntry.fromMedicine(Medicine medicine) =>
+      MedicineKnowledgeEntry(
+        name: medicine.name,
+        brand: medicine.brand,
+        salt: medicine.salt,
+        strength: medicine.strength,
+        form: medicine.form,
+        manufacturer: medicine.manufacturer,
+        barcode: medicine.barcode,
+      );
+
+  Map<String, Object?> toMessage() => <String, Object?>{
+    'name': name,
+    'brand': brand,
+    'salt': salt,
+    'strength': strength,
+    'form': form,
+    'manufacturer': manufacturer,
+    'barcode': barcode,
+    'aliases': aliases.take(24).toList(growable: false),
+    'ocrAliases': ocrAliases.take(24).toList(growable: false),
+    'saltOcrAliases': saltOcrAliases.take(24).toList(growable: false),
+  };
+
+  factory MedicineKnowledgeEntry.fromMessage(Map<Object?, Object?> map) {
+    String text(String key) {
+      final raw = map[key];
+      if (raw is! String) return '';
+      final value = raw.trim();
+      return value.length <= 300 ? value : value.substring(0, 300);
+    }
+
+    List<String> texts(String key) {
+      final raw = map[key];
+      if (raw is! List) return const <String>[];
+      return raw
+          .whereType<String>()
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty && value.length <= 300)
+          .take(24)
+          .toList(growable: false);
+    }
+
+    return MedicineKnowledgeEntry(
+      name: text('name'),
+      brand: text('brand'),
+      salt: text('salt'),
+      strength: text('strength'),
+      form: text('form'),
+      manufacturer: text('manufacturer'),
+      barcode: text('barcode'),
+      aliases: texts('aliases'),
+      ocrAliases: texts('ocrAliases'),
+      saltOcrAliases: texts('saltOcrAliases'),
+    );
+  }
+
+  String get _dedupeKey => <String>[
+    name,
+    brand,
+    salt,
+    strength,
+    form,
+    manufacturer,
+    barcode,
+  ].map(searchText).join('|');
+
+  bool get _hasIdentity =>
+      name.trim().isNotEmpty ||
+      brand.trim().isNotEmpty ||
+      salt.trim().isNotEmpty ||
+      barcode.trim().isNotEmpty;
+}
+
+/// Builds a deterministic, bounded identity-only knowledge snapshot from
+/// pharmacist-reviewed local records. This is derived state, never another
+/// database and never a network payload.
+List<MedicineKnowledgeEntry> medicineKnowledgeFromRecords(
+  Iterable<Medicine> records,
+) {
+  final result = <MedicineKnowledgeEntry>[];
+  final seen = <String>{};
+  for (final medicine in records) {
+    if (medicine.archived) continue;
+    final entry = MedicineKnowledgeEntry.fromMedicine(medicine);
+    if (!entry._hasIdentity) continue;
+    if (!seen.add(entry._dedupeKey)) continue;
+    result.add(entry);
+    if (result.length >= maxMedicineKnowledgeEntries) break;
+  }
+  return List<MedicineKnowledgeEntry>.unmodifiable(result);
+}
+
+/// Converts an explicitly pasted/uploaded medicine list into hard-bounded
+/// evidence items. It never guesses quantity or price columns and never drops
+/// overflow silently; every resulting draft still requires editor review.
+List<MedicineFrameEvidence> medicineListEvidence(
+  String input, {
+  required String source,
+}) {
+  var text = input.trim().replaceFirst('\uFEFF', '');
+  if (text.isEmpty) {
+    throw const FormatException('The medicine list is empty.');
+  }
+  if (text.length > maxMedicineListCharacters) {
+    throw const FormatException(
+      'This medicine list is too large. Split it into smaller files.',
+    );
+  }
+
+  final paragraphs = text
+      .split(RegExp(r'\r?\n\s*\r?\n'))
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
+  final paragraphRows = paragraphs
+      .map((value) => value.split(RegExp(r'[\r\n]+')).length)
+      .toList(growable: false);
+  final useParagraphs =
+      paragraphs.length > 1 && paragraphRows.every((count) => count <= 6);
+  final rawItems = useParagraphs
+      ? paragraphs
+      : text
+            .split(RegExp(r'[\r\n]+'))
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList(growable: false);
+  if (rawItems.length > maxMedicineListItems) {
+    throw FormatException(
+      'This list has ${rawItems.length} items. Import at most $maxMedicineListItems at a time so every medicine can be reviewed safely.',
+    );
+  }
+
+  final items = rawItems
+      .map(
+        (value) => value
+            .replaceFirst(RegExp(r'^\s*(?:[-*•]|\d{1,4}[.)])\s+'), '')
+            .trim(),
+      )
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
+  if (items.isEmpty) {
+    throw const FormatException('The medicine list has no readable items.');
+  }
+  return <MedicineFrameEvidence>[
+    for (var index = 0; index < items.length; index++)
+      MedicineFrameEvidence(
+        text: items[index],
+        source: '$source · item ${index + 1}',
+        sequence: index,
+        timestampMs: index * 12000,
+        startsNewItem: index > 0,
+      ),
+  ];
+}
+
+class ExtractedMedicineField {
+  const ExtractedMedicineField({
+    this.value = '',
+    this.confidence = 0,
+    this.support = 0,
+    this.conflicted = false,
+  });
+
+  final String value;
+  final double confidence;
+  final int support;
+  final bool conflicted;
+
+  bool get isEmpty => value.trim().isEmpty;
+  bool get needsReview => conflicted || confidence < .78;
+
+  Map<String, Object?> toMessage() => <String, Object?>{
+    'value': value,
+    'confidence': confidence,
+    'support': support,
+    'conflicted': conflicted,
+  };
+
+  factory ExtractedMedicineField.fromMessage(Map<Object?, Object?> map) =>
+      ExtractedMedicineField(
+        value: map['value'] is String ? map['value']! as String : '',
+        confidence: map['confidence'] is num
+            ? (map['confidence']! as num).toDouble().clamp(0, 1)
+            : 0,
+        support: map['support'] is int ? map['support']! as int : 0,
+        conflicted: map['conflicted'] == true,
+      );
+}
+
+/// A reviewable stock draft produced from one temporally grouped medicine.
+///
+/// Printed pack size and MRP are intentionally review metadata. They never map
+/// to pharmacy stock quantity or entered inventory amount.
+class MedicineScanDraft {
+  const MedicineScanDraft({
+    required this.fields,
+    required this.rawText,
+    required this.searchKeywords,
+    required this.frameSequences,
+    this.expiryMonthOnly = false,
+    this.mfgMonthOnly = false,
+    this.printedPackSize = '',
+    this.printedMrp = '',
+    this.overallConfidence = 0,
+  });
+
+  final Map<String, ExtractedMedicineField> fields;
+  final String rawText;
+  final String searchKeywords;
+  final List<int> frameSequences;
+  final bool expiryMonthOnly;
+  final bool mfgMonthOnly;
+  final String printedPackSize;
+  final String printedMrp;
+  final double overallConfidence;
+
+  ExtractedMedicineField field(String name) =>
+      fields[name] ?? const ExtractedMedicineField();
+
+  String get name => field('name').value;
+  String get brand => field('brand').value;
+  String get manufacturer => field('manufacturer').value;
+  String get salt => field('salt').value;
+  String get strength => field('strength').value;
+  String get form => field('form').value;
+  String get mfg => field('mfg').value;
+  String get expiry => field('expiry').value;
+  String get barcode => field('barcode').value;
+  String get batchNumber => field('batchNumber').value;
+
+  bool get needsReview =>
+      name.isEmpty ||
+      overallConfidence < .78 ||
+      fields.values.any((value) => !value.isEmpty && value.conflicted);
+
+  MedicineDraftSeed get identitySeed => MedicineDraftSeed(
+    name: name,
+    brand: brand,
+    manufacturer: manufacturer,
+    salt: salt,
+    strength: strength,
+    form: form,
+    barcode: barcode,
+    source: 'On-device medicine understanding',
+  );
+
+  /// Keeps raw OCR auditable while adding a compact normalized search tail.
+  String get searchableOcrText {
+    final raw = rawText.trim();
+    final keywords = searchKeywords.trim();
+    if (keywords.isEmpty || searchText(raw).contains(keywords)) return raw;
+    final value = '$raw\nSearch keywords: $keywords'.trim();
+    return value.length <= 30000 ? value : value.substring(0, 30000);
+  }
+
+  Map<String, Object?> toMessage() => <String, Object?>{
+    'fields': <String, Object?>{
+      for (final entry in fields.entries) entry.key: entry.value.toMessage(),
+    },
+    'rawText': rawText,
+    'searchKeywords': searchKeywords,
+    'frameSequences': frameSequences,
+    'expiryMonthOnly': expiryMonthOnly,
+    'mfgMonthOnly': mfgMonthOnly,
+    'printedPackSize': printedPackSize,
+    'printedMrp': printedMrp,
+    'overallConfidence': overallConfidence,
+  };
+
+  factory MedicineScanDraft.fromMessage(Map<Object?, Object?> map) {
+    final rawFields = map['fields'];
+    return MedicineScanDraft(
+      fields: rawFields is Map
+          ? <String, ExtractedMedicineField>{
+              for (final entry in rawFields.entries)
+                if (entry.key is String && entry.value is Map)
+                  entry.key! as String: ExtractedMedicineField.fromMessage(
+                    entry.value! as Map<Object?, Object?>,
+                  ),
+            }
+          : const <String, ExtractedMedicineField>{},
+      rawText: map['rawText'] is String ? map['rawText']! as String : '',
+      searchKeywords: map['searchKeywords'] is String
+          ? map['searchKeywords']! as String
+          : '',
+      frameSequences: map['frameSequences'] is List
+          ? (map['frameSequences']! as List).whereType<int>().toList(
+              growable: false,
+            )
+          : const <int>[],
+      expiryMonthOnly: map['expiryMonthOnly'] == true,
+      mfgMonthOnly: map['mfgMonthOnly'] == true,
+      printedPackSize: map['printedPackSize'] is String
+          ? map['printedPackSize']! as String
+          : '',
+      printedMrp: map['printedMrp'] is String
+          ? map['printedMrp']! as String
+          : '',
+      overallConfidence: map['overallConfidence'] is num
+          ? (map['overallConfidence']! as num).toDouble().clamp(0, 1)
+          : 0,
+    );
+  }
+}
+
+class MedicineUnderstandingResult {
+  const MedicineUnderstandingResult({
+    required this.drafts,
+    this.ignoredFrames = 0,
+  });
+
+  final List<MedicineScanDraft> drafts;
+  final int ignoredFrames;
+
+  Map<String, Object?> toMessage() => <String, Object?>{
+    'drafts': drafts.map((draft) => draft.toMessage()).toList(growable: false),
+    'ignoredFrames': ignoredFrames,
+  };
+
+  factory MedicineUnderstandingResult.fromMessage(Map<Object?, Object?> map) {
+    final rawDrafts = map['drafts'];
+    return MedicineUnderstandingResult(
+      drafts: rawDrafts is List
+          ? rawDrafts
+                .whereType<Map>()
+                .map(
+                  (value) => MedicineScanDraft.fromMessage(
+                    Map<Object?, Object?>.from(value),
+                  ),
+                )
+                .toList(growable: false)
+          : const <MedicineScanDraft>[],
+      ignoredFrames: map['ignoredFrames'] is int
+          ? map['ignoredFrames']! as int
+          : 0,
+    );
+  }
+}
+
+/// Entry point suitable for Flutter's `compute` helper.
+Map<String, Object?> understandMedicineEvidenceMessage(
+  Map<String, Object?> message,
+) {
+  final raw = message['evidence'];
+  final frames = raw is List
+      ? raw
+            .whereType<Map>()
+            .map(
+              (value) => MedicineFrameEvidence.fromMessage(
+                Map<Object?, Object?>.from(value),
+              ),
+            )
+            .toList(growable: false)
+      : const <MedicineFrameEvidence>[];
+  final rawKnowledge = message['knowledge'];
+  final knowledge = rawKnowledge is List
+      ? rawKnowledge
+            .whereType<Map>()
+            .take(maxMedicineKnowledgeEntries)
+            .map(
+              (value) => MedicineKnowledgeEntry.fromMessage(
+                Map<Object?, Object?>.from(value),
+              ),
+            )
+            .toList(growable: false)
+      : const <MedicineKnowledgeEntry>[];
+  return MedicineUnderstandingEngine(knowledge: knowledge)
+      .understand(frames)
+      .toMessage();
+}
+
+/// Deterministic, offline-first medicine evidence parser and temporal grouper.
+class MedicineUnderstandingEngine {
+  const MedicineUnderstandingEngine({this.knowledge = const []});
+
+  final List<MedicineKnowledgeEntry> knowledge;
+
+  MedicineUnderstandingResult understand(
+    Iterable<MedicineFrameEvidence> input,
+  ) {
+    final knowledgeResolver = _OfflineMedicineKnowledge(knowledge);
+    final supplied = input.toList(growable: false);
+    final eligible = supplied
+        .where(
+          (frame) =>
+              frame.text.trim().isNotEmpty || frame.allBarcodes.isNotEmpty,
+        )
+        .toList(growable: false);
+    var ignored = supplied.length - eligible.length;
+    if (eligible.length > maxMedicineEvidenceFrames) {
+      ignored += eligible.length - maxMedicineEvidenceFrames;
+    }
+    final ordered =
+        eligible.take(maxMedicineEvidenceFrames).toList(growable: false)
+          ..sort((a, b) {
+            final sequence = a.sequence.compareTo(b.sequence);
+            if (sequence != 0) return sequence;
+            return (a.timestampMs ?? 0).compareTo(b.timestampMs ?? 0);
+          });
+    if (ordered.isEmpty) {
+      return MedicineUnderstandingResult(
+        drafts: const <MedicineScanDraft>[],
+        ignoredFrames: ignored,
+      );
+    }
+
+    final prepared = <_PreparedFrame>[];
+    for (final frame in ordered) {
+      final current = _prepare(frame, knowledgeResolver);
+      if (current.lines.isEmpty && current.barcodes.isEmpty) {
+        ignored++;
+        continue;
+      }
+      if (prepared.isNotEmpty && _nearDuplicate(prepared.last, current)) {
+        final previous = prepared.last;
+        // Repeated camera frames must not vote multiple times, but dropping the
+        // weaker frame can also drop the only readable barcode/date/batch. Fuse
+        // complementary facts into one vote and retain the clearer frame as its
+        // temporal representative.
+        prepared[prepared.length - 1] = _fuseNearDuplicate(
+          previous,
+          current,
+          knowledgeResolver,
+        );
+        ignored++;
+        continue;
+      }
+      prepared.add(current);
+    }
+    if (prepared.isEmpty) {
+      return MedicineUnderstandingResult(
+        drafts: const <MedicineScanDraft>[],
+        ignoredFrames: ignored,
+      );
+    }
+
+    final groups = <List<_PreparedFrame>>[];
+    for (final frame in prepared) {
+      if (groups.isEmpty || _startsNewMedicine(groups.last, frame)) {
+        groups.add(<_PreparedFrame>[frame]);
+      } else {
+        groups.last.add(frame);
+      }
+    }
+    final drafts = <MedicineScanDraft>[];
+    for (final group in groups.where((value) => value.isNotEmpty)) {
+      final draft = _fuse(group);
+      if (draft.rawText.isNotEmpty || draft.barcode.isNotEmpty) {
+        drafts.add(draft);
+      } else {
+        ignored += group.length;
+      }
+    }
+    return MedicineUnderstandingResult(drafts: drafts, ignoredFrames: ignored);
+  }
+
+  _PreparedFrame _prepare(
+    MedicineFrameEvidence frame,
+    _OfflineMedicineKnowledge knowledgeResolver,
+  ) {
+    final bounded = frame.text.length <= 30000
+        ? frame.text
+        : frame.text.substring(0, 30000);
+    final lines = <String>[];
+    final seen = <String>{};
+    for (final raw in bounded.split(RegExp(r'[\r\n]+')).take(240)) {
+      final line = _cleanLine(raw);
+      final key = searchText(line);
+      if (key.length < 2 || !seen.add(key)) continue;
+      lines.add(line);
+    }
+    final quality = frame.quality.isFinite
+        ? frame.quality.clamp(0, 1).toDouble()
+        : .65;
+    final richness =
+        (lines.fold<int>(0, (sum, line) => sum + line.length) / 180)
+            .clamp(0, 1)
+            .toDouble();
+    final effectiveQuality = (quality * .64 + richness * .36)
+        .clamp(.12, 1)
+        .toDouble();
+    final candidates = _extractCandidates(
+      lines,
+      frame,
+      effectiveQuality,
+      knowledgeResolver,
+    );
+    return _PreparedFrame(
+      frame: frame,
+      sourceSequences: [frame.sequence],
+      lines: lines,
+      normalizedText: searchText(lines.join(' ')),
+      barcodes: frame.allBarcodes,
+      candidates: candidates,
+      effectiveQuality: effectiveQuality,
+    );
+  }
+
+  bool _nearDuplicate(_PreparedFrame a, _PreparedFrame b) {
+    if (_startsNewMedicine(<_PreparedFrame>[a], b)) return false;
+    if (_strongFieldConflict(a, b, 'batchNumber') ||
+        _strongFieldConflict(a, b, 'expiry')) {
+      return false;
+    }
+    if (a.barcodes.isNotEmpty && b.barcodes.isNotEmpty) {
+      if (a.barcodes.toSet().intersection(b.barcodes.toSet()).isEmpty) {
+        return false;
+      }
+    }
+    final strengthA = _bestCandidate(<_PreparedFrame>[a], 'strength');
+    final strengthB = _bestCandidate(<_PreparedFrame>[b], 'strength');
+    if (strengthA != null &&
+        strengthB != null &&
+        _strengthKey(strengthA.value) != _strengthKey(strengthB.value)) {
+      return false;
+    }
+    final identityA = _bestIdentity(<_PreparedFrame>[a]);
+    final identityB = _bestIdentity(<_PreparedFrame>[b]);
+    if (identityA != null &&
+        identityB != null &&
+        identityA.score >= .62 &&
+        identityB.score >= .62 &&
+        orderedSimilarity(
+              searchText(identityA.value),
+              searchText(identityB.value),
+            ) >=
+            .91) {
+      return true;
+    }
+    final tokensA = _identityTokens(a.normalizedText);
+    final tokensB = _identityTokens(b.normalizedText);
+    if (tokensA.isEmpty || tokensB.isEmpty) return false;
+    final overlap =
+        tokensA.intersection(tokensB).length /
+        max(tokensA.length, tokensB.length);
+    return overlap >= .88;
+  }
+
+  _PreparedFrame _fuseNearDuplicate(
+    _PreparedFrame a,
+    _PreparedFrame b,
+    _OfflineMedicineKnowledge knowledgeResolver,
+  ) {
+    final primary = a.effectiveQuality >= b.effectiveQuality ? a : b;
+    final secondary = identical(primary, a) ? b : a;
+    final lines = <String>[];
+    final keys = <String>{};
+    for (final line in <String>[...primary.lines, ...secondary.lines]) {
+      if (keys.add(searchText(line))) lines.add(line);
+    }
+    final barcodes = <String>{
+      ...primary.barcodes,
+      ...secondary.barcodes,
+    }.take(8).toList(growable: false);
+    final representative = MedicineFrameEvidence(
+      barcode: barcodes.isEmpty ? '' : barcodes.first,
+      barcodes: barcodes,
+      layoutLines: <MedicineTextLineEvidence>[
+        ...primary.frame.layoutLines,
+        ...secondary.frame.layoutLines,
+      ].take(240).toList(growable: false),
+      text: lines.join('\n'),
+      source: primary.frame.source,
+      sequence: primary.frame.sequence,
+      timestampMs: primary.frame.timestampMs,
+      quality: max(a.frame.quality, b.frame.quality),
+      startsNewItem:
+          primary.frame.startsNewItem || secondary.frame.startsNewItem,
+    );
+    final effectiveQuality = max(a.effectiveQuality, b.effectiveQuality);
+    return _PreparedFrame(
+      frame: representative,
+      sourceSequences: {...a.sourceSequences, ...b.sourceSequences}.toList()
+        ..sort(),
+      lines: lines,
+      normalizedText: searchText(lines.join(' ')),
+      barcodes: barcodes,
+      // Re-extraction makes the fused frame one vote, while keeping facts that
+      // were legible from only one angle.
+      candidates: _extractCandidates(
+        lines,
+        representative,
+        effectiveQuality,
+        knowledgeResolver,
+      ),
+      effectiveQuality: effectiveQuality,
+    );
+  }
+
+  bool _strongFieldConflict(_PreparedFrame a, _PreparedFrame b, String field) {
+    final left = _bestCandidate(<_PreparedFrame>[a], field);
+    final right = _bestCandidate(<_PreparedFrame>[b], field);
+    if (left == null ||
+        right == null ||
+        left.score < .76 ||
+        right.score < .76) {
+      return false;
+    }
+    final leftKey = _candidateKey(field, left.value);
+    final rightKey = _candidateKey(field, right.value);
+    if (leftKey == rightKey) return false;
+    if ((field == 'expiry' || field == 'mfg') &&
+        _samePrintedDate(left.value, right.value)) {
+      return false;
+    }
+    return true;
+  }
+
+  bool _startsNewMedicine(List<_PreparedFrame> group, _PreparedFrame next) {
+    if (next.frame.startsNewItem) return true;
+    final recent = group.reversed.take(4).toList(growable: false);
+    // Identity and lot anchors belong to the whole unresolved pack. Looking only
+    // at four recent back-panel views forgets the front and can attach its dates
+    // to the next medicine. The domain evidence cap bounds this search.
+    // A GTIN commonly identifies a product, not a physical batch. Therefore a
+    // confidently different batch or expiry is a stronger stock boundary than
+    // seeing the same barcode again.
+    final recentBatch = _bestCandidate(group, 'batchNumber');
+    final nextBatch = _bestCandidate(<_PreparedFrame>[next], 'batchNumber');
+    if (recentBatch != null &&
+        nextBatch != null &&
+        recentBatch.score >= .76 &&
+        nextBatch.score >= .76 &&
+        _candidateKey('batchNumber', recentBatch.value) !=
+            _candidateKey('batchNumber', nextBatch.value)) {
+      return true;
+    }
+    final recentExpiry = _bestCandidate(group, 'expiry');
+    final nextExpiry = _bestCandidate(<_PreparedFrame>[next], 'expiry');
+    if (recentExpiry != null &&
+        nextExpiry != null &&
+        recentExpiry.score >= .84 &&
+        nextExpiry.score >= .84 &&
+        !_samePrintedDate(recentExpiry.value, nextExpiry.value)) {
+      return true;
+    }
+    final knownBarcodes = group.expand((frame) => frame.barcodes).toSet();
+    if (knownBarcodes.isNotEmpty &&
+        next.barcodes.isNotEmpty &&
+        knownBarcodes.intersection(next.barcodes.toSet()).isEmpty) {
+      return true;
+    }
+
+    // Explicit printed/locally verified brands are stronger than fuzzy name
+    // similarity. Similar trade names can be different products or variants.
+    final previousBrand = _bestCandidate(group, 'brand');
+    final nextBrand = _bestCandidate(<_PreparedFrame>[next], 'brand');
+    if (previousBrand != null &&
+        nextBrand != null &&
+        previousBrand.score >= .82 &&
+        nextBrand.score >= .82 &&
+        searchText(previousBrand.value) != searchText(nextBrand.value)) {
+      return true;
+    }
+
+    final previousIdentity = _bestIdentity(group);
+    final nextIdentity = _bestIdentity(<_PreparedFrame>[next]);
+    if (previousIdentity != null && nextIdentity != null) {
+      final similarity = orderedSimilarity(
+        searchText(previousIdentity.value),
+        searchText(nextIdentity.value),
+      );
+      if (similarity >= .82) {
+        final previousStrength = _bestCandidate(group, 'strength');
+        final nextStrength = _bestCandidate(<_PreparedFrame>[next], 'strength');
+        if (previousStrength != null &&
+            nextStrength != null &&
+            _strengthKey(previousStrength.value) !=
+                _strengthKey(nextStrength.value) &&
+            previousStrength.score >= .72 &&
+            nextStrength.score >= .72) {
+          return true;
+        }
+        final previousSalt = _bestCandidate(group, 'salt');
+        final nextSalt = _bestCandidate(<_PreparedFrame>[next], 'salt');
+        if (previousSalt != null &&
+            nextSalt != null &&
+            previousSalt.score >= .76 &&
+            nextSalt.score >= .76 &&
+            _differentIngredients(previousSalt.value, nextSalt.value)) {
+          return true;
+        }
+        return false;
+      }
+      if (previousIdentity.score >= .68 &&
+          nextIdentity.score >= .68 &&
+          similarity < .82) {
+        return true;
+      }
+    }
+
+    if (knownBarcodes.isNotEmpty && next.barcodes.isNotEmpty) {
+      return false;
+    }
+
+    final previousTokens = <String>{
+      for (final frame in recent) ..._identityTokens(frame.normalizedText),
+    };
+    final nextTokens = _identityTokens(next.normalizedText);
+    if (previousTokens.isNotEmpty && nextTokens.isNotEmpty) {
+      final overlap =
+          previousTokens.intersection(nextTokens).length /
+          min(previousTokens.length, nextTokens.length);
+      final lastTime = recent.first.frame.timestampMs;
+      final gap = lastTime == null || next.frame.timestampMs == null
+          ? 0
+          : next.frame.timestampMs! - lastTime;
+      if (gap > 10000 && overlap < .12 && nextTokens.length >= 2) return true;
+    }
+    return false;
+  }
+
+  bool _samePrintedDate(String a, String b) =>
+      a == b ||
+      (a.length >= 7 &&
+          b.length >= 7 &&
+          (a.length == 7 || b.length == 7) &&
+          a.substring(0, 7) == b.substring(0, 7));
+
+  bool _differentIngredients(String a, String b) {
+    final left = _knowledgeKey(a).split(' ').toSet();
+    final right = _knowledgeKey(b).split(' ').toSet();
+    // A partial view of a combination is complementary evidence, not a new pack.
+    if (left.containsAll(right) || right.containsAll(left)) return false;
+    return orderedSimilarity(_knowledgeKey(a), _knowledgeKey(b)) < .82;
+  }
+
+  MedicineScanDraft _fuse(List<_PreparedFrame> group) {
+    final candidates = <String, List<_Candidate>>{};
+    for (final frame in group) {
+      for (final entry in frame.candidates.entries) {
+        candidates
+            .putIfAbsent(entry.key, () => <_Candidate>[])
+            .addAll(entry.value);
+      }
+      for (final barcode in frame.barcodes) {
+        candidates
+            .putIfAbsent('barcode', () => <_Candidate>[])
+            .add(
+              _Candidate(
+                value: barcode,
+                score: .98 * frame.effectiveQuality.clamp(.72, 1),
+                sequence: frame.frame.sequence,
+              ),
+            );
+      }
+    }
+
+    final fields = <String, ExtractedMedicineField>{};
+    for (final entry in candidates.entries) {
+      if (entry.key == 'packSize' || entry.key == 'mrp') continue;
+      final resolved = _resolve(entry.key, entry.value);
+      if (!resolved.isEmpty) fields[entry.key] = resolved;
+    }
+
+    // A labelled composition is safer than inventing a brand. If the pack has
+    // no readable trade name, leave name blank so the review remains explicit.
+    final name = fields['name'];
+    if (name != null && name.confidence >= .70 && fields['brand'] == null) {
+      fields['brand'] = ExtractedMedicineField(
+        value: name.value,
+        confidence: (name.confidence - .08).clamp(0, 1),
+        support: name.support,
+        conflicted: name.conflicted,
+      );
+    }
+
+    final mfg = fields['mfg'];
+    final expiry = fields['expiry'];
+    if (mfg != null && expiry != null) {
+      final mfgDate = _dateForComparison(mfg.value, monthEnd: false);
+      final expiryDate = _dateForComparison(expiry.value, monthEnd: true);
+      if (mfgDate == null ||
+          expiryDate == null ||
+          mfgDate.isAfter(expiryDate)) {
+        fields.remove('mfg');
+      }
+    }
+
+    final rawLines = <String>[];
+    final rawKeys = <String>{};
+    for (final frame
+        in group.toList()
+          ..sort((a, b) => b.effectiveQuality.compareTo(a.effectiveQuality))) {
+      for (final line in frame.lines) {
+        final key = searchText(line);
+        if (rawKeys.add(key)) rawLines.add(line);
+      }
+    }
+    final rawText = rawLines.join('\n');
+    final safeRaw = rawText.length <= 28000
+        ? rawText
+        : rawText.substring(0, 28000);
+    final keywords = _keywords(fields, safeRaw);
+    final meaningful = fields.entries
+        .where(
+          (entry) =>
+              !entry.value.isEmpty &&
+              !const {'barcode', 'mfg', 'expiry'}.contains(entry.key),
+        )
+        .map((entry) => entry.value.confidence)
+        .toList();
+    final overall = meaningful.isEmpty
+        ? 0.35
+        : (meaningful.reduce((a, b) => a + b) / meaningful.length)
+              .clamp(0, 1)
+              .toDouble();
+    final pack = _resolve(
+      'packSize',
+      candidates['packSize'] ?? const <_Candidate>[],
+    );
+    final mrp = _resolve('mrp', candidates['mrp'] ?? const <_Candidate>[]);
+
+    return MedicineScanDraft(
+      fields: Map<String, ExtractedMedicineField>.unmodifiable(fields),
+      rawText: safeRaw,
+      searchKeywords: keywords,
+      frameSequences: group
+          .expand((frame) => frame.sourceSequences)
+          .toSet()
+          .toList(growable: false),
+      expiryMonthOnly: fields['expiry']?.value.length == 7,
+      mfgMonthOnly: fields['mfg']?.value.length == 7,
+      printedPackSize: pack.value,
+      printedMrp: mrp.value,
+      overallConfidence: overall,
+    );
+  }
+
+  ExtractedMedicineField _resolve(String field, List<_Candidate> values) {
+    if (values.isEmpty) return const ExtractedMedicineField();
+    final buckets = <String, List<_Candidate>>{};
+    for (final candidate in values) {
+      final key = _candidateKey(field, candidate.value);
+      if (key.isEmpty) continue;
+      String? matching;
+      if (field == 'name' ||
+          field == 'brand' ||
+          field == 'salt' ||
+          field == 'manufacturer') {
+        final similarityFloor = field == 'salt' ? .91 : .93;
+        for (final existing in buckets.keys) {
+          if (orderedSimilarity(existing, key) >= similarityFloor) {
+            matching = existing;
+            break;
+          }
+        }
+      }
+      buckets.putIfAbsent(matching ?? key, () => <_Candidate>[]).add(candidate);
+    }
+    if (buckets.isEmpty) return const ExtractedMedicineField();
+    final ranked = buckets.entries.map((entry) {
+      final sequences = entry.value.map((value) => value.sequence).toSet();
+      final best = entry.value.reduce((a, b) => a.score >= b.score ? a : b);
+      final average =
+          entry.value.fold<double>(0, (sum, value) => sum + value.score) /
+          entry.value.length;
+      final confidence =
+          (best.score * .70 +
+                  average * .18 +
+                  min(sequences.length - 1, 3) * .055)
+              .clamp(0, .99)
+              .toDouble();
+      return _ResolvedCandidate(best.value, confidence, sequences.length);
+    }).toList()..sort((a, b) => b.confidence.compareTo(a.confidence));
+    final winner = ranked.first;
+    final runnerUp = ranked.length > 1 ? ranked[1] : null;
+    final conflicted =
+        runnerUp != null &&
+        runnerUp.confidence >= .58 &&
+        winner.confidence - runnerUp.confidence < .14;
+    return ExtractedMedicineField(
+      value: winner.value,
+      confidence: conflicted ? winner.confidence * .82 : winner.confidence,
+      support: winner.support,
+      conflicted: conflicted,
+    );
+  }
+
+  Map<String, List<_Candidate>> _extractCandidates(
+    List<String> lines,
+    MedicineFrameEvidence frame,
+    double quality,
+    _OfflineMedicineKnowledge knowledgeResolver,
+  ) {
+    final result = <String, List<_Candidate>>{};
+    void add(
+      String field,
+      String value,
+      double score, {
+      bool adjustForOcrQuality = true,
+    }) {
+      final clean = _cleanValue(value);
+      if (clean.isEmpty) return;
+      final calibrated = adjustForOcrQuality
+          ? score * (.72 + quality * .28)
+          : score;
+      result
+          .putIfAbsent(field, () => <_Candidate>[])
+          .add(
+            _Candidate(
+              value: clean,
+              score: calibrated.clamp(0, .99),
+              sequence: frame.sequence,
+            ),
+          );
+    }
+
+    // A machine-read barcode is independent of OCR clarity. Only unambiguous
+    // identity facts shared by every local record with that barcode are used.
+    for (final hit in knowledgeResolver.barcodeFacts(frame.allBarcodes)) {
+      add(hit.field, hit.value, hit.score, adjustForOcrQuality: false);
+    }
+
+    // Composition is a small labelled section, not necessarily one OCR line.
+    // Keep the span together so "Paracetamol I.P." and a following "650 mg"
+    // are understood as one ingredient fact, and never compete as a brand.
+    final compositionLines = <int>{};
+    for (var index = 0; index < lines.length; index++) {
+      if (compositionLines.contains(index) ||
+          !_compositionLabel.hasMatch(searchText(lines[index]))) {
+        continue;
+      }
+      compositionLines.add(index);
+      final parts = <String>[];
+      final after = _afterLabel(lines[index], _compositionLabel);
+      if (after.isNotEmpty) parts.add(after);
+      for (
+        var nextIndex = index + 1;
+        nextIndex < lines.length && nextIndex <= index + 5;
+        nextIndex++
+      ) {
+        final normalized = searchText(lines[nextIndex]);
+        if (_endsCompositionScope(normalized)) break;
+        compositionLines.add(nextIndex);
+        parts.add(lines[nextIndex]);
+        if (parts.fold<int>(0, (sum, value) => sum + value.length) > 260) {
+          break;
+        }
+      }
+      final source = parts.join(' ');
+      final learnedSalt = knowledgeResolver.learnedSaltCorrection(source);
+      if (learnedSalt != null) {
+        add(learnedSalt.field, learnedSalt.value, learnedSalt.score);
+      } else {
+        final salt = _saltValue(source);
+        if (salt.isNotEmpty) add('salt', salt, .94);
+        for (final hit in knowledgeResolver.matchSalt(source)) {
+          add(hit.field, hit.value, hit.score);
+        }
+      }
+      final strengths = _strengths(source);
+      if (strengths.isNotEmpty) {
+        add('strength', strengths.join(' + '), .93);
+      }
+    }
+
+    for (var index = 0; index < lines.length; index++) {
+      final line = lines[index];
+      final lower = searchText(line);
+      final next = index + 1 < lines.length ? lines[index + 1] : '';
+
+      final mfg = _dateNearLabel(lines, index, _mfgLabel, expiry: false);
+      if (mfg != null) add('mfg', mfg.value, mfg.confidence);
+      final expiry = _dateNearLabel(lines, index, _expiryLabel, expiry: true);
+      if (expiry != null) add('expiry', expiry.value, expiry.confidence);
+
+      final batch = _labelValue(
+        line,
+        RegExp(
+          r'\b(?:batch(?:\s*(?:no|number))?|b\s*\.?\s*no|lot(?:\s*(?:no|number))?)\b\s*[:#.-]*\s*([a-z0-9][a-z0-9\-/]{2,24})',
+          caseSensitive: false,
+        ),
+      );
+      if (batch.isNotEmpty && !_looksLikeDate(batch)) {
+        add('batchNumber', batch.toUpperCase(), .91);
+      }
+
+      final manufacturer = _afterLabel(
+        line,
+        RegExp(
+          r'\b(?:manufactured|mfg|mfd|made)\s*\.?\s*by\b|\bmanufacturer\b',
+          caseSensitive: false,
+        ),
+      );
+      if (manufacturer.isNotEmpty) {
+        add('manufacturer', manufacturer, .88);
+        for (final hit in knowledgeResolver.matchManufacturer(manufacturer)) {
+          add(hit.field, hit.value, hit.score);
+        }
+      } else if (_manufacturerHeader.hasMatch(lower) && next.isNotEmpty) {
+        add('manufacturer', next, .78);
+        for (final hit in knowledgeResolver.matchManufacturer(next)) {
+          add(hit.field, hit.value, hit.score);
+        }
+      }
+
+      final explicitBrand = _afterLabel(
+        line,
+        RegExp(r'\b(?:brand(?:\s+name)?|trade\s+(?:name|mark)|product\s*name|proprietary\s+name)\b', caseSensitive: false),
+      );
+      if (explicitBrand.isNotEmpty) {
+        final value = _productName(explicitBrand);
+        add('name', value, .94);
+        add('brand', value, .96);
+      }
+
+      if (!compositionLines.contains(index) && _looksLikeGenericLine(line)) {
+        final learnedSalt = knowledgeResolver.learnedSaltCorrection(line);
+        if (learnedSalt != null) {
+          add(learnedSalt.field, learnedSalt.value, learnedSalt.score);
+        } else {
+          final salt = _saltValue(line);
+          if (salt.isNotEmpty) add('salt', salt, .76);
+          for (final hit in knowledgeResolver.matchSalt(line)) {
+            add(hit.field, hit.value, hit.score);
+          }
+        }
+      }
+
+      final lineStrengths = !compositionLines.contains(index)
+          ? _strengths(line)
+          : const <String>[];
+      if (!compositionLines.contains(index) &&
+          !_priceNoise.hasMatch(lower) &&
+          !_packNoise.hasMatch(lower) &&
+          !_dateNoise.hasMatch(lower)) {
+        if (lineStrengths.isNotEmpty) {
+          add('strength', lineStrengths.join(' + '), .88);
+          if (!_looksLikeGenericLine(line)) {
+            // A known ingredient printed with a dose is strong semantic
+            // evidence even when OCR missed the words COMPOSITION or I.P.
+            final learnedSalt = knowledgeResolver.learnedSaltCorrection(line);
+            if (learnedSalt != null) {
+              add(learnedSalt.field, learnedSalt.value, learnedSalt.score - .02);
+            } else {
+              for (final hit in knowledgeResolver.matchSalt(line)) {
+                add(hit.field, hit.value, max(.70, hit.score - .04));
+              }
+            }
+          }
+        }
+      }
+
+      final form = _formValue(lower);
+      if (form.isNotEmpty) add('form', form, .72);
+
+      final pack = _packSize(line);
+      if (pack.isNotEmpty) add('packSize', pack, .88);
+      final mrp = _mrpValue(line);
+      if (mrp.isNotEmpty) add('mrp', mrp, .92);
+
+      if (!compositionLines.contains(index) && _eligibleNameLine(line, index)) {
+        final identityHits = knowledgeResolver.matchIdentity(line);
+        for (final hit in identityHits) {
+          add(hit.field, hit.value, hit.score);
+        }
+        final name = _productName(line);
+        if (name.isNotEmpty) {
+          final learnedIngredient = knowledgeResolver.learnedSaltCorrection(name);
+          if (learnedIngredient != null) {
+            add(
+              'salt',
+              learnedIngredient.value,
+              learnedIngredient.score - .02,
+            );
+          } else {
+            final ingredientHits = knowledgeResolver.matchSalt(name);
+            if (ingredientHits.length == 1 &&
+                ingredientHits.single.score >= .95 &&
+                _candidateKey('salt', name) ==
+                    _candidateKey('salt', ingredientHits.single.value)) {
+              add(
+                'salt',
+                ingredientHits.single.value,
+                ingredientHits.single.score - .035,
+              );
+              add(
+                'name',
+                ingredientHits.single.value,
+                ingredientHits.single.score - .025,
+              );
+            }
+          }
+          final manufacturerHits = knowledgeResolver.matchManufacturer(line);
+          final hasVerifiedIdentity = identityHits.any(
+            (hit) => hit.field == 'name' || hit.field == 'brand',
+          );
+          final isKnownManufacturer =
+              !hasVerifiedIdentity &&
+              manufacturerHits.length == 1 &&
+              manufacturerHits.single.score >= .96;
+          if (isKnownManufacturer) {
+            add(
+              'manufacturer',
+              manufacturerHits.single.value,
+              manufacturerHits.single.score - .10,
+            );
+            continue;
+          }
+          final uppercase = _uppercaseRatio(line);
+          final early = index < 3 ? .10 : 0.0;
+          final trademark = RegExp(r'[®™]').hasMatch(line) ? .08 : 0.0;
+          final beforeComposition = compositionLines.any(
+            (compositionIndex) =>
+                compositionIndex > index && compositionIndex - index <= 2,
+          );
+          final layoutProminence = _layoutNameBoost(frame, line);
+          final textualScore =
+              (.61 +
+                      early +
+                      trademark +
+                      (beforeComposition ? .07 : 0) +
+                      min(uppercase, .25))
+                  .clamp(.55, .93);
+          add('name', name, (textualScore + layoutProminence).clamp(.55, .98));
+        }
+      }
+    }
+    return result;
+  }
+
+  _Candidate? _bestIdentity(List<_PreparedFrame> frames) {
+    final name = _bestCandidate(frames, 'name');
+    if (name != null) return name;
+    return null;
+  }
+
+  _Candidate? _bestCandidate(List<_PreparedFrame> frames, String field) {
+    final values = frames
+        .expand((frame) => frame.candidates[field] ?? const <_Candidate>[])
+        .toList();
+    if (values.isEmpty) return null;
+    return values.reduce((a, b) => a.score >= b.score ? a : b);
+  }
+}
+
+/// A field value supported by the pharmacist's private, verified inventory or
+/// by the conservative built-in active-ingredient vocabulary.
+class _KnowledgeHit {
+  const _KnowledgeHit(this.field, this.value, this.score);
+
+  final String field;
+  final String value;
+  final double score;
+}
+
+class _KnowledgePhrase {
+  const _KnowledgePhrase({
+    required this.indexField,
+    required this.outputField,
+    required this.value,
+    required this.key,
+    required this.verifiedLocal,
+  });
+
+  final String indexField;
+  final String outputField;
+  final String value;
+  final String key;
+  final bool verifiedLocal;
+}
+
+class _RankedKnowledgePhrase {
+  const _RankedKnowledgePhrase(
+    this.phrase,
+    this.similarity,
+    this.queryCoverage,
+    this.rank,
+  );
+
+  final _KnowledgePhrase phrase;
+  final double similarity;
+  final double queryCoverage;
+  final double rank;
+}
+
+class _KnowledgeWindowMatch {
+  const _KnowledgeWindowMatch(this.similarity, this.queryCoverage);
+
+  final double similarity;
+  final double queryCoverage;
+}
+
+/// Bounded inverted index used directly by the core parser.
+///
+/// This is intentionally not a second database. It is rebuilt inside the
+/// parser isolate from identity-only local records, so pharmacist corrections
+/// become recognition memory on the next scan without network access or model
+/// hallucination. Candidate generation is span based and field scoped; the
+/// complete noisy OCR document is never matched to one arbitrary medicine.
+class _OfflineMedicineKnowledge {
+  _OfflineMedicineKnowledge(Iterable<MedicineKnowledgeEntry> source) {
+    final entries = source
+        .where((entry) => entry._hasIdentity)
+        .take(maxMedicineKnowledgeEntries)
+        .toList(growable: false);
+    // Priority order is intentional: even at the hard phrase limit every
+    // local product keeps its base identity. Optional component aliases can be
+    // truncated; canonical names and barcodes cannot.
+    for (final entry in entries) {
+      _addLocalIdentity(entry);
+    }
+    for (final entry in entries) {
+      _addSalt(entry.salt, verifiedLocal: true, includeComponents: false);
+    }
+    // Learned composition corrections stay in a separate exact index. They are
+    // never fuzzy product aliases and cannot override an ambiguous collision.
+    for (final entry in entries) {
+      for (final alias in entry.saltOcrAliases.take(24)) {
+        _addLearnedSaltCorrection(alias, entry.salt);
+      }
+    }
+    for (final salt in _embeddedActiveIngredients) {
+      _addPhrase(
+        indexField: 'salt',
+        outputField: 'salt',
+        alias: salt,
+        value: salt,
+        verifiedLocal: false,
+      );
+    }
+    for (final alias in _embeddedActiveIngredientAliases.entries) {
+      _addPhrase(
+        indexField: 'salt',
+        outputField: 'salt',
+        alias: alias.key,
+        value: alias.value,
+        verifiedLocal: false,
+      );
+    }
+    for (final entry in entries) {
+      _addPhrase(
+        indexField: 'manufacturer',
+        outputField: 'manufacturer',
+        alias: entry.manufacturer,
+        value: entry.manufacturer,
+        verifiedLocal: true,
+      );
+    }
+    for (final entry in entries) {
+      _addSalt(entry.salt, verifiedLocal: true, includeComponents: true);
+    }
+    _buildIndexes();
+  }
+
+  static const _maxPhrases = 60000;
+  static const _maxCandidatePhrases = 64;
+
+  final List<_KnowledgePhrase> _phrases = <_KnowledgePhrase>[];
+  final Set<String> _phraseKeys = <String>{};
+  final Map<String, Map<String, List<int>>> _grams =
+      <String, Map<String, List<int>>>{};
+  final Map<String, Map<String, List<int>>> _exact =
+      <String, Map<String, List<int>>>{};
+  final Map<String, List<MedicineKnowledgeEntry>> _barcodes =
+      <String, List<MedicineKnowledgeEntry>>{};
+  final Map<String, List<String>> _strengthsByIdentity =
+      <String, List<String>>{};
+  final Map<String, Set<String>> _learnedSaltCorrections =
+      <String, Set<String>>{};
+
+  void _addLocalIdentity(MedicineKnowledgeEntry entry) {
+    final barcode = _barcodeKnowledgeKey(entry.barcode);
+    if (barcode.length >= 4 && barcode.length <= 64) {
+      _barcodes
+          .putIfAbsent(barcode, () => <MedicineKnowledgeEntry>[])
+          .add(entry);
+    }
+
+    _addIdentity('name', entry.name, entry.strength);
+    _addIdentity('brand', entry.brand, entry.strength);
+    for (final alias in entry.aliases.take(24)) {
+      _addGeneralIdentityAlias(alias, entry);
+    }
+    for (final alias in entry.ocrAliases.take(24)) {
+      _addOcrIdentityAlias(alias, entry);
+    }
+  }
+
+  void _addGeneralIdentityAlias(String alias, MedicineKnowledgeEntry entry) {
+    final cleanAlias = _cleanValue(alias);
+    if (cleanAlias.isEmpty) return;
+    final name = _cleanValue(entry.name);
+    final brand = _cleanValue(entry.brand);
+    if (name.isNotEmpty) {
+      _addPhrase(
+        indexField: 'name',
+        outputField: 'name',
+        alias: cleanAlias,
+        value: name,
+        verifiedLocal: true,
+      );
+      return;
+    }
+    if (brand.isNotEmpty) {
+      _addPhrase(
+        indexField: 'brand',
+        outputField: 'brand',
+        alias: cleanAlias,
+        value: brand,
+        verifiedLocal: true,
+      );
+    }
+  }
+
+  void _addOcrIdentityAlias(String alias, MedicineKnowledgeEntry entry) {
+    final cleanAlias = _cleanValue(alias);
+    final aliasKey = _knowledgeKey(cleanAlias);
+    if (aliasKey.length < 2) return;
+    final name = _cleanValue(entry.name);
+    final brand = _cleanValue(entry.brand);
+    final nameScore = name.isEmpty
+        ? 0.0
+        : orderedSimilarity(aliasKey, _knowledgeKey(name));
+    final brandScore = brand.isEmpty
+        ? 0.0
+        : orderedSimilarity(aliasKey, _knowledgeKey(brand));
+    if (max(nameScore, brandScore) < .52) return;
+    if (brand.isNotEmpty && brandScore > nameScore + .025) {
+      _addPhrase(
+        indexField: 'brand',
+        outputField: 'brand',
+        alias: cleanAlias,
+        value: brand,
+        verifiedLocal: true,
+      );
+      return;
+    }
+    if (name.isNotEmpty) {
+      _addPhrase(
+        indexField: 'name',
+        outputField: 'name',
+        alias: cleanAlias,
+        value: name,
+        verifiedLocal: true,
+      );
+    }
+  }
+
+  void _addLearnedSaltCorrection(String alias, String canonical) {
+    final cleanAlias = _cleanValue(alias);
+    final cleanCanonical = _cleanValue(canonical);
+    if (cleanAlias.isEmpty ||
+        cleanCanonical.length < 4 ||
+        cleanCanonical.contains('+') ||
+        cleanCanonical.contains(';')) {
+      return;
+    }
+    final key = _knowledgeKey(cleanAlias);
+    if (key.length < 2 || key.length > 160) return;
+    _learnedSaltCorrections
+        .putIfAbsent(key, () => <String>{})
+        .add(cleanCanonical);
+  }
+
+  /// Exact, human-confirmed composition correction. Longest matching OCR span
+  /// wins. If the same learned spelling points at two different salts, this
+  /// method abstains instead of following support order or insertion order.
+  _KnowledgeHit? learnedSaltCorrection(String raw) {
+    final query = _knowledgeKey(raw);
+    if (query.isEmpty || _learnedSaltCorrections.isEmpty) return null;
+    final tokens = query
+        .split(' ')
+        .where((value) => value.isNotEmpty)
+        .take(48)
+        .toList(growable: false);
+    if (tokens.isEmpty) return null;
+    for (var width = min(8, tokens.length); width >= 1; width--) {
+      final values = <String>{};
+      for (var start = 0; start + width <= tokens.length; start++) {
+        final key = tokens.sublist(start, start + width).join(' ');
+        values.addAll(_learnedSaltCorrections[key] ?? const <String>{});
+      }
+      if (values.isEmpty) continue;
+      if (values.length != 1) return null;
+      return _KnowledgeHit('salt', values.single, .99);
+    }
+    return null;
+  }
+
+  void _addIdentity(String field, String value, String strength) {
+    final clean = _cleanValue(value);
+    if (clean.isEmpty) return;
+    _addPhrase(
+      indexField: field,
+      outputField: field,
+      alias: clean,
+      value: clean,
+      verifiedLocal: true,
+    );
+    final strengthKey = _knowledgeStrengthKey(strength);
+    if (strengthKey.isEmpty) return;
+    final values = _strengthsByIdentity.putIfAbsent(
+      _knowledgeKey(clean),
+      () => <String>[],
+    );
+    final candidateKey = _candidateKey('strength', strength);
+    if (!values.any(
+      (value) => _candidateKey('strength', value) == candidateKey,
+    )) {
+      values.add(_cleanValue(strength));
+    }
+  }
+
+  void _addSalt(
+    String value, {
+    required bool verifiedLocal,
+    bool includeComponents = true,
+  }) {
+    final clean = _cleanValue(value);
+    if (clean.isEmpty) return;
+    _addPhrase(
+      indexField: 'salt',
+      outputField: 'salt',
+      alias: clean,
+      value: clean,
+      verifiedLocal: verifiedLocal,
+    );
+    if (!includeComponents) return;
+    final components = clean
+        .split(RegExp(r'\s*(?:\+|;)\s*'))
+        .map(_cleanValue)
+        .where((part) => part.length >= 4)
+        .toList(growable: false);
+    if (components.length < 2) return;
+    for (final component in components.take(6)) {
+      _addPhrase(
+        indexField: 'salt',
+        outputField: 'salt',
+        alias: component,
+        value: component,
+        verifiedLocal: verifiedLocal,
+      );
+    }
+  }
+
+  void _addPhrase({
+    required String indexField,
+    required String outputField,
+    required String alias,
+    required String value,
+    required bool verifiedLocal,
+  }) {
+    if (_phrases.length >= _maxPhrases) return;
+    final cleanValue = _cleanValue(value);
+    final key = _knowledgeKey(alias);
+    if (cleanValue.isEmpty || key.length < 2 || key.length > 160) return;
+    final dedupe = '$indexField|$outputField|$key|${_knowledgeKey(cleanValue)}';
+    if (!_phraseKeys.add(dedupe)) return;
+    _phrases.add(
+      _KnowledgePhrase(
+        indexField: indexField,
+        outputField: outputField,
+        value: cleanValue,
+        key: key,
+        verifiedLocal: verifiedLocal,
+      ),
+    );
+  }
+
+  void _buildIndexes() {
+    for (var index = 0; index < _phrases.length; index++) {
+      final phrase = _phrases[index];
+      _exact
+          .putIfAbsent(phrase.indexField, () => <String, List<int>>{})
+          .putIfAbsent(phrase.key, () => <int>[])
+          .add(index);
+      final fieldIndex = _grams.putIfAbsent(
+        phrase.indexField,
+        () => <String, List<int>>{},
+      );
+      for (final gram in grams(phrase.key)) {
+        fieldIndex.putIfAbsent(gram, () => <int>[]).add(index);
+      }
+    }
+  }
+
+  List<_KnowledgeHit> barcodeFacts(Iterable<String> rawBarcodes) {
+    final hits = <_KnowledgeHit>[];
+    for (final raw in rawBarcodes.take(8)) {
+      final entries = _barcodes[_barcodeKnowledgeKey(raw)];
+      if (entries == null || entries.isEmpty) continue;
+      void addConsensus(
+        String field,
+        String Function(MedicineKnowledgeEntry entry) read,
+        double score,
+      ) {
+        final values = <String, String>{};
+        for (final entry in entries) {
+          final value = _cleanValue(read(entry));
+          if (value.isEmpty || (field == 'form' && value == 'Other')) continue;
+          values.putIfAbsent(_candidateKey(field, value), () => value);
+        }
+        // Duplicate/mistyped barcode records are treated as a conflict, not as
+        // permission to select whichever medicine happened to be inserted first.
+        if (values.length == 1) {
+          hits.add(_KnowledgeHit(field, values.values.single, score));
+        }
+      }
+
+      addConsensus('name', (entry) => entry.name, .995);
+      addConsensus('brand', (entry) => entry.brand, .99);
+      addConsensus('salt', (entry) => entry.salt, .99);
+      addConsensus('strength', (entry) => entry.strength, .985);
+      addConsensus('form', (entry) => entry.form, .98);
+      addConsensus('manufacturer', (entry) => entry.manufacturer, .975);
+    }
+    return hits;
+  }
+
+  List<_KnowledgeHit> matchIdentity(String raw) {
+    final nameHits = _match('name', raw);
+    final brandHits = _match('brand', raw);
+    final hits = <_KnowledgeHit>[
+      ...nameHits,
+      ...brandHits,
+      // The prominent trade name on a pack is the app's visible medicine name;
+      // keep the hidden brand metadata too, but do not leave noisy dosage text
+      // in the required name field when the verified brand itself was read.
+      for (final hit in brandHits)
+        _KnowledgeHit('name', hit.value, max(0, hit.score - .01)),
+    ];
+    final evidenceNumbers = _knowledgeKey(raw)
+        .split(' ')
+        .where(_isNumericKnowledgeToken)
+        .toList(growable: false);
+    if (evidenceNumbers.isEmpty) return hits;
+
+    final supportedStrengths = <String, String>{};
+    var strongestIdentity = 0.0;
+    for (final identity in <_KnowledgeHit>[...nameHits, ...brandHits]) {
+      strongestIdentity = max(strongestIdentity, identity.score);
+      for (final strength
+          in _strengthsByIdentity[_knowledgeKey(identity.value)] ??
+              const <String>[]) {
+        final requiredNumbers = _knowledgeStrengthKey(strength)
+            .split(' ')
+            .where(_isNumericKnowledgeToken)
+            .toList(growable: false);
+        if (requiredNumbers.isEmpty ||
+            !_containsOrderedValues(evidenceNumbers, requiredNumbers)) {
+          continue;
+        }
+        supportedStrengths.putIfAbsent(
+          _candidateKey('strength', strength),
+          () => strength,
+        );
+      }
+    }
+    // Multiple locally known strengths with the same visible numeric evidence
+    // stay unresolved for human review instead of following insertion order.
+    if (supportedStrengths.length == 1) {
+      hits.add(
+        _KnowledgeHit(
+          'strength',
+          supportedStrengths.values.single,
+          min(.985, strongestIdentity),
+        ),
+      );
+    }
+    return hits;
+  }
+
+  List<_KnowledgeHit> matchManufacturer(String raw) =>
+      _match('manufacturer', raw);
+
+  List<_KnowledgeHit> matchSalt(String raw) {
+    final whole = _match('salt', raw);
+    final wholeCombination = whole
+        .where((hit) => hit.value.contains('+'))
+        .toList(growable: false);
+    if (wholeCombination.isNotEmpty) return wholeCombination;
+
+    final components = raw
+        .split(RegExp(r'\s*(?:\+|;)\s*'))
+        .map(_cleanValue)
+        .where((part) => part.length >= 3)
+        .take(6)
+        .toList(growable: false);
+    if (components.length < 2) return whole;
+    final canonical = <String>[];
+    var score = 1.0;
+    for (final component in components) {
+      final matches = _match('salt', component);
+      if (matches.length != 1) return const <_KnowledgeHit>[];
+      canonical.add(matches.single.value);
+      score = min(score, matches.single.score);
+    }
+    final distinct = <String>[];
+    final seen = <String>{};
+    for (final value in canonical) {
+      if (seen.add(_candidateKey('salt', value))) distinct.add(value);
+    }
+    if (distinct.length < 2) return whole;
+    return <_KnowledgeHit>[_KnowledgeHit('salt', distinct.join(' + '), score)];
+  }
+
+  List<_KnowledgeHit> _match(String field, String raw) {
+    final query = _knowledgeKey(raw);
+    if (query.length < 2) return const <_KnowledgeHit>[];
+    final candidateIndexes = _candidateIndexes(field, query);
+    if (candidateIndexes.isEmpty) return const <_KnowledgeHit>[];
+    final rankedByValue = <String, _RankedKnowledgePhrase>{};
+    for (final index in candidateIndexes) {
+      final phrase = _phrases[index];
+      final match = _bestKnowledgeWindow(query, phrase.key);
+      final compactLength = phrase.key.replaceAll(' ', '').length;
+      if (compactLength < 4 && match.similarity < .999) continue;
+      final threshold = switch (field) {
+        'salt' => phrase.verifiedLocal ? .84 : .88,
+        'manufacturer' => .90,
+        _ => .87,
+      };
+      if (match.similarity < threshold) continue;
+      final rank = match.similarity * .90 + match.queryCoverage * .10;
+      final key =
+          '${phrase.outputField}|${_candidateKey(phrase.outputField, phrase.value)}';
+      final current = rankedByValue[key];
+      final candidate = _RankedKnowledgePhrase(
+        phrase,
+        match.similarity,
+        match.queryCoverage,
+        rank,
+      );
+      if (current == null || candidate.rank > current.rank) {
+        rankedByValue[key] = candidate;
+      }
+    }
+    final ranked = rankedByValue.values.toList(growable: false)
+      ..sort((a, b) => b.rank.compareTo(a.rank));
+    if (ranked.isEmpty) return const <_KnowledgeHit>[];
+    final selected = <_RankedKnowledgePhrase>[ranked.first];
+    if (ranked.length > 1 && ranked.first.rank - ranked[1].rank < .035) {
+      selected.add(ranked[1]);
+    }
+    return selected
+        .map((item) {
+          final base = item.phrase.verifiedLocal ? .75 : .73;
+          final score =
+              (base +
+                      item.similarity * .22 +
+                      item.queryCoverage * .02 +
+                      (item.phrase.verifiedLocal ? .01 : 0))
+                  .clamp(0, .99)
+                  .toDouble();
+          return _KnowledgeHit(
+            item.phrase.outputField,
+            item.phrase.value,
+            score,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  List<int> _candidateIndexes(String field, String query) {
+    final exactIndex = _exact[field];
+    if (exactIndex != null) {
+      final tokens = query
+          .split(' ')
+          .where((value) => value.isNotEmpty)
+          .toList();
+      // Prefer the longest exact span. This makes "D0L0 6SO" (repaired to
+      // "dolo 650") find the exact local brand token before fuzzy retrieval,
+      // and keeps lookup stable even with tens of thousands of products.
+      for (var width = min(8, tokens.length); width >= 1; width--) {
+        final exactMatches = <int>{};
+        for (var start = 0; start + width <= tokens.length; start++) {
+          final key = tokens.sublist(start, start + width).join(' ');
+          exactMatches.addAll(exactIndex[key] ?? const <int>[]);
+        }
+        if (exactMatches.isNotEmpty) {
+          return exactMatches
+              .take(_maxCandidatePhrases)
+              .toList(growable: false);
+        }
+      }
+    }
+    final index = _grams[field];
+    if (index == null || index.isEmpty) return const <int>[];
+    final postings =
+        grams(query)
+            .map((gram) => index[gram])
+            .whereType<List<int>>()
+            .toList(growable: false)
+          ..sort((a, b) => a.length.compareTo(b.length));
+    final votes = <int, int>{};
+    for (final posting in postings.take(14)) {
+      for (final phraseIndex in posting.take(768)) {
+        votes.update(phraseIndex, (value) => value + 1, ifAbsent: () => 1);
+      }
+    }
+    final ranked = votes.entries.toList(growable: false)
+      ..sort((a, b) {
+        final votes = b.value.compareTo(a.value);
+        return votes != 0 ? votes : a.key.compareTo(b.key);
+      });
+    return ranked
+        .take(_maxCandidatePhrases)
+        .map((entry) => entry.key)
+        .toList(growable: false);
+  }
+}
+
+class _PreparedFrame {
+  const _PreparedFrame({
+    required this.frame,
+    required this.sourceSequences,
+    required this.lines,
+    required this.normalizedText,
+    required this.barcodes,
+    required this.candidates,
+    required this.effectiveQuality,
+  });
+  final MedicineFrameEvidence frame;
+  // Provenance survives vote deduplication, especially across video windows.
+  final List<int> sourceSequences;
+  final List<String> lines;
+  final String normalizedText;
+  final List<String> barcodes;
+  final Map<String, List<_Candidate>> candidates;
+  final double effectiveQuality;
+}
+
+class _Candidate {
+  const _Candidate({
+    required this.value,
+    required this.score,
+    required this.sequence,
+  });
+  final String value;
+  final double score;
+  final int sequence;
+}
+
+class _ResolvedCandidate {
+  const _ResolvedCandidate(this.value, this.confidence, this.support);
+  final String value;
+  final double confidence;
+  final int support;
+}
+
+class _ParsedDate {
+  const _ParsedDate(this.value, this.confidence);
+  final String value;
+  final double confidence;
+}
+
+String _barcodeKnowledgeKey(String value) =>
+    value.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+
+String _knowledgeKey(String value) {
+  final tokens = <String>[];
+  for (final raw in searchText(value).split(' ').take(48)) {
+    var token = _repairKnowledgeToken(raw);
+    token = token.replaceAllMapped(
+      RegExp(r'^(\d+(?:\.\d+)?)(?:mcg|ug|mg|gm|g|ml|meq|iu|units?)$'),
+      (match) => match[1]!,
+    );
+    if (token.isEmpty || _knowledgeNoise.contains(token)) continue;
+    tokens.add(token);
+  }
+  final joined = tokens.join(' ');
+  return joined.length <= 180 ? joined : joined.substring(0, 180).trim();
+}
+
+String _repairKnowledgeToken(String token) {
+  if (!RegExp(r'\d').hasMatch(token) || !RegExp(r'[a-z]').hasMatch(token)) {
+    return token;
+  }
+  if (RegExp(r'^\d[0-9oilsbz]+$').hasMatch(token)) {
+    return token
+        .replaceAll('o', '0')
+        .replaceAll('i', '1')
+        .replaceAll('l', '1')
+        .replaceAll('s', '5')
+        .replaceAll('b', '8')
+        .replaceAll('z', '2');
+  }
+  if (RegExp(r'^[a-z][a-z0-9]+$').hasMatch(token)) {
+    return token
+        .replaceAll('0', 'o')
+        .replaceAll('1', 'i')
+        .replaceAll('5', 's')
+        .replaceAll('8', 'b');
+  }
+  return token;
+}
+
+bool _isNumericKnowledgeToken(String value) =>
+    RegExp(r'^\d+(?:\.\d+)?$').hasMatch(value);
+
+bool _containsOrderedValues(List<String> values, List<String> expected) {
+  if (expected.isEmpty) return false;
+  var expectedIndex = 0;
+  for (final value in values) {
+    if (value != expected[expectedIndex]) continue;
+    expectedIndex++;
+    if (expectedIndex == expected.length) return true;
+  }
+  return false;
+}
+
+String _knowledgeStrengthKey(String value) =>
+    _knowledgeKey(value)
+        .split(' ')
+        .where(_isNumericKnowledgeToken)
+        .take(4)
+        .join(' ');
+
+_KnowledgeWindowMatch _bestKnowledgeWindow(String query, String phrase) {
+  final queryTokens = query
+      .split(' ')
+      .where((value) => value.isNotEmpty)
+      .toList();
+  final phraseTokens = phrase
+      .split(' ')
+      .where((value) => value.isNotEmpty)
+      .toList();
+  if (queryTokens.isEmpty || phraseTokens.isEmpty) {
+    return const _KnowledgeWindowMatch(0, 0);
+  }
+  final coverage =
+      min(queryTokens.length, phraseTokens.length) /
+      max(queryTokens.length, phraseTokens.length);
+  var best = orderedSimilarity(query, phrase);
+  final smallest = max(1, phraseTokens.length - 1);
+  final largest = min(queryTokens.length, phraseTokens.length + 1);
+  for (var width = smallest; width <= largest; width++) {
+    for (var start = 0; start + width <= queryTokens.length; start++) {
+      final window = queryTokens.sublist(start, start + width).join(' ');
+      best = max(best, orderedSimilarity(window, phrase));
+    }
+  }
+  return _KnowledgeWindowMatch(best.clamp(0, 1).toDouble(), coverage);
+}
+
+const _knowledgeNoise = <String>{
+  'active',
+  'ingredient',
+  'composition',
+  'generic',
+  'salt',
+  'each',
+  'contains',
+  'equivalent',
+  'tablet',
+  'tablets',
+  'capsule',
+  'capsules',
+  'syrup',
+  'suspension',
+  'solution',
+  'injection',
+  'cream',
+  'ointment',
+  'gel',
+  'lotion',
+  'drops',
+  'spray',
+  'inhaler',
+  'powder',
+  'sachet',
+  'sachets',
+  'brand',
+  'trade',
+  'product',
+  'name',
+  'ip',
+  'bp',
+  'usp',
+  'ph',
+  'eur',
+  'mg',
+  'mcg',
+  'ug',
+  'gm',
+  'ml',
+  'meq',
+  'iu',
+  'unit',
+  'units',
+};
+
+/// Conservative lexical anchors, not a product catalogue and not treatment
+/// advice. They only canonicalize an ingredient span already visible in OCR.
+const _embeddedActiveIngredients = <String>{
+  'Aceclofenac',
+  'Albendazole',
+  'Ambroxol',
+  'Amlodipine',
+  'Amoxicillin',
+  'Aspirin',
+  'Atenolol',
+  'Atorvastatin',
+  'Azithromycin',
+  'Bromhexine',
+  'Budesonide',
+  'Calcium Carbonate',
+  'Cefixime',
+  'Cefuroxime',
+  'Cephalexin',
+  'Cetirizine',
+  'Chlorpheniramine Maleate',
+  'Cholecalciferol',
+  'Ciprofloxacin',
+  'Clavulanic Acid',
+  'Clotrimazole',
+  'Dexamethasone',
+  'Dextromethorphan',
+  'Diclofenac',
+  'Domperidone',
+  'Doxofylline',
+  'Doxycycline',
+  'Esomeprazole',
+  'Famotidine',
+  'Ferrous Ascorbate',
+  'Fexofenadine',
+  'Fluconazole',
+  'Folic Acid',
+  'Gabapentin',
+  'Glimepiride',
+  'Guaifenesin',
+  'Ibuprofen',
+  'Ivermectin',
+  'Levofloxacin',
+  'Levosalbutamol',
+  'Levocetirizine',
+  'Levocetirizine Hydrochloride',
+  'Loratadine',
+  'Losartan',
+  'Metformin',
+  'Metoprolol',
+  'Metronidazole',
+  'Montelukast',
+  'Montelukast Sodium',
+  'Naproxen',
+  'Omeprazole',
+  'Ondansetron',
+  'Pantoprazole',
+  'Paracetamol',
+  'Phenylephrine',
+  'Prednisolone',
+  'Pregabalin',
+  'Rabeprazole',
+  'Rosuvastatin',
+  'Salbutamol',
+  'Sitagliptin',
+  'Telmisartan',
+  'Terbinafine',
+  'Tinidazole',
+  'Vildagliptin',
+};
+
+const _embeddedActiveIngredientAliases = <String, String>{
+  'Acetaminophen': 'Paracetamol',
+};
+
+final _mfgLabel = medicineManufacturingLabel;
+final _expiryLabel = medicineExpiryLabel;
+final _compositionLabel = RegExp(
+  r'\b(?:composition|compositions|generic|salt|active\s+ingredients?|each\s+(?:film\s+coated\s+|uncoated\s+)?(?:tablet|capsule|\d+\s*ml)\s+contains)\b',
+  caseSensitive: false,
+);
+final _manufacturerHeader = RegExp(
+  r'\b(?:manufactured|mfg|mfd|made)\s*\.?\s*by\b|\bmanufacturer\b',
+  caseSensitive: false,
+);
+final _dateNoise = RegExp(
+  r'\b(?:mfg|mfd|dom|manufactur(?:e|ed|ing)|exp|expn|xpry|expiry|expires|doe|e\s*[./-]\s*d|use\s*(?:before|by|till|until)|best\s*before|valid\s*(?:till|until|upto|up\s*to)|pkd|pkg|packed|packing)\b',
+  caseSensitive: false,
+);
+final _priceNoise = RegExp(
+  r'\b(?:m\s*r\s*p|price|rs|inr|inclusive|tax|gst)\b|₹',
+  caseSensitive: false,
+);
+final _packNoise = RegExp(
+  r'\b(?:pack|strip|blister|bottle|tablets?|capsules?|sachets?)\s*(?:of|size|x)?\s*\d+|\b\d+\s*x\s*\d+\b|\bnet\s*(?:qty|quantity|content|wt|weight)\b',
+  caseSensitive: false,
+);
+final _compositionStop = RegExp(
+  r'\b(?:excipients?|colou?r|dosage|directions?|storage|warning|schedule|keep|manufactured|marketed|batch|lot|mfg|mfd|dom|exp|expiry|doe|pkd|pkg|packed|packing|use\s*(?:before|by|till|until)|best\s*before|valid\s*(?:till|until)|mrp|price|net\s*(?:qty|content|wt|weight))\b',
+  caseSensitive: false,
+);
+
+String _cleanLayoutLine(String value) => value
+    .replaceAll(RegExp(r'[\u0000-\u0008\u000B\u000C\u000E-\u001F]'), ' ')
+    .replaceAll(
+      RegExp(r'[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]'),
+      ' ',
+    )
+    .replaceAll(RegExp(r'[\t\r\n]+'), ' ')
+    .trim();
+
+String _cleanLine(String value) => value
+    .replaceAll(RegExp(r'[\u0000-\u0008\u000B\u000C\u000E-\u001F]'), ' ')
+    .replaceAll(
+      RegExp(r'[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]'),
+      ' ',
+    )
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
+String _cleanValue(String value) =>
+    _cleanLine(value)
+        .replaceAll(RegExp(r'^[\s:;,.#-]+|[\s:;,.#-]+$'), '')
+        .trim();
+
+String _labelValue(String line, RegExp expression) =>
+    expression.firstMatch(line)?.group(1)?.trim() ?? '';
+
+String _afterLabel(String line, RegExp label) {
+  final match = label.firstMatch(line);
+  if (match == null) return '';
+  return _cleanValue(line.substring(match.end));
+}
+
+_ParsedDate? _labelledDate(String line, RegExp label, {required bool expiry}) {
+  final match = label.firstMatch(line);
+  if (match == null) return null;
+  var tail = line.substring(match.end);
+  final other = (expiry ? _mfgLabel : _expiryLabel).firstMatch(tail);
+  if (other != null) tail = tail.substring(0, other.start);
+  final nonDate = medicineNonDateLabel.firstMatch(tail);
+  if (nonDate != null) tail = tail.substring(0, nonDate.start);
+  tail = tail.replaceFirst(RegExp(r'^[\s:;,.#-]+'), '');
+  final value = parseMedicineDateText(tail)?.value;
+  if (value == null) return null;
+  return _ParsedDate(value, value.length == 7 ? .91 : .94);
+}
+
+_ParsedDate? _dateNearLabel(
+  List<String> lines,
+  int index,
+  RegExp label, {
+  required bool expiry,
+}) {
+  final direct = _labelledDate(lines[index], label, expiry: expiry);
+  if (direct != null) return direct;
+  if (!label.hasMatch(searchText(lines[index]))) return null;
+  final otherLabel = expiry ? _mfgLabel : _expiryLabel;
+  for (
+    var nextIndex = index + 1;
+    nextIndex < lines.length && nextIndex <= index + 2;
+    nextIndex++
+  ) {
+    final next = lines[nextIndex];
+    final normalized = searchText(next);
+    if (otherLabel.hasMatch(normalized) ||
+        medicineNonDateLabel.hasMatch(normalized) ||
+        _compositionStop.hasMatch(normalized)) {
+      break;
+    }
+    final adjacentMatches = extractMedicineDateMatches(
+      next,
+      allowCompact: true,
+    );
+    if (adjacentMatches.length != 1) continue;
+    final value = adjacentMatches.single.date.value;
+    final base = nextIndex == index + 1 ? .89 : .84;
+    return _ParsedDate(value, value.length == 7 ? base : base + .02);
+  }
+  return null;
+}
+
+DateTime? _dateForComparison(String value, {required bool monthEnd}) {
+  try {
+    if (value.length == 7) {
+      final year = int.parse(value.substring(0, 4));
+      final month = int.parse(value.substring(5, 7));
+      return monthEnd
+          ? DateTime.utc(year, month + 1, 0)
+          : DateTime.utc(year, month, 1);
+    }
+    return parseDate(value, monthEnd: monthEnd);
+  } catch (_) {
+    return null;
+  }
+}
+
+bool _looksLikeDate(String value) =>
+    RegExp(r'^\d{1,4}[./-]\d{1,2}(?:[./-]\d{1,4})?$').hasMatch(value);
+
+bool _endsCompositionScope(String normalized) =>
+    normalized.isEmpty ||
+    _compositionStop.hasMatch(normalized) ||
+    _dateNoise.hasMatch(normalized) ||
+    _manufacturerHeader.hasMatch(normalized) ||
+    _priceNoise.hasMatch(normalized) ||
+    _packNoise.hasMatch(normalized) ||
+    RegExp(
+      r'\b(?:batch|lot)\b|\bb\s*\.?\s*no\b',
+      caseSensitive: false,
+    ).hasMatch(normalized);
+
+List<String> _strengths(String line) {
+  final normalized = line
+      .replaceAll('μ', 'µ')
+      .replaceAllMapped(
+        RegExp(
+          r'(?<=\d)[oO](?=\s*(?:mg|mcg|ug|µg|gm|g|meq|iu|units?)\b)',
+          caseSensitive: false,
+        ),
+        (_) => '0',
+      );
+  final matches = medicineStrengthPattern.allMatches(normalized);
+  final values = <String>[];
+  for (final match in matches.take(4)) {
+    final value = match[0]!
+        .replaceAll(',', '.')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAllMapped(
+          RegExp(
+            r'(?<=\d)(mcg|ug|µg|mg|gm|g|meq|iu|units?)\b',
+            caseSensitive: false,
+          ),
+          (unit) => ' ${unit[1]!.toLowerCase()}',
+        )
+        .toLowerCase()
+        .trim();
+    if (!values.map(_strengthKey).contains(_strengthKey(value))) {
+      values.add(value);
+    }
+  }
+  return values;
+}
+
+String _strengthKey(String value) => medicineStrengthKey(value);
+
+String _saltValue(String raw) {
+  var value = raw
+      .replaceAll(_compositionLabel, ' ')
+      .replaceAll(
+        RegExp(
+          r'\b(?:i\s*\.?\s*p|b\s*\.?\s*p|u\s*\.?\s*s\s*\.?\s*p|ph\s*\.?\s*eur)\s*\.?',
+          caseSensitive: false,
+        ),
+        ' ',
+      )
+      .replaceAll(
+        RegExp(
+          r'\b(?:equivalent\s+to|eq\.?\s*to|contains?|each|film\s+coated|uncoated|tablets?|capsules?|oral|syrup|solution|suspension|injection|cream|ointment|gel|lotion|drops?|spray|inhaler|powder|sachets?|excipients?|colou?r|q\.?s\.?)\b',
+          caseSensitive: false,
+        ),
+        ' ',
+      );
+  for (final strength in _strengths(value)) {
+    value = value.replaceAll(
+      RegExp(RegExp.escape(strength), caseSensitive: false),
+      ' ',
+    );
+  }
+  value = value
+      .replaceAll(RegExp(r'\s*[+;/]\s*'), ' + ')
+      .replaceAll(RegExp(r'[^A-Za-z\u0900-\u097f+()\-\s]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .replaceAll(RegExp(r'(?:\s*\+\s*)+$'), '')
+      .trim();
+  if (value.length < 3 || value.length > 180) return '';
+  return _smartTitle(value);
+}
+
+bool _looksLikeGenericLine(String line) {
+  final lower = searchText(line);
+  return _strengths(line).isNotEmpty &&
+      RegExp(r'\b(?:ip|bp|usp|ph eur|contains|equivalent)\b').hasMatch(lower) &&
+      !_dateNoise.hasMatch(lower) &&
+      !_priceNoise.hasMatch(lower);
+}
+
+String _productName(String raw) {
+  var value = raw
+      .replaceAll(RegExp(r'[®™©]'), ' ')
+      .replaceAll(medicineFormPresentationPattern, ' ')
+      .replaceAll(
+        RegExp(r'\b(?:ip|bp|usp)\b', caseSensitive: false),
+        ' ',
+      )
+      .replaceAll(
+        RegExp(
+          r'\s+\d+(?:\.\d+)?\s*(?:mg|mcg|ug|µg|gm|g|ml|meq|iu|units?|%)?\s*$',
+          caseSensitive: false,
+        ),
+        ' ',
+      )
+      .replaceAll(RegExp(r'[^A-Za-z0-9\u0900-\u097f+\-\s]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (value.length < 2 || value.length > 70) return '';
+  return _smartTitle(value);
+}
+
+double _layoutNameBoost(MedicineFrameEvidence frame, String line) {
+  if (frame.layoutLines.length < 2) return 0;
+  final target = searchText(line);
+  final matches = frame.layoutLines
+      .where((value) => searchText(value.text) == target && value.height > 0)
+      .toList(growable: false);
+  if (matches.isEmpty) return 0;
+  final valid = frame.layoutLines
+      .where((value) => value.height > 0 && value.height.isFinite)
+      .toList(growable: false);
+  if (valid.length < 2) return 0;
+  final heights = valid.map((value) => value.height).toList(growable: false)
+    ..sort();
+  final median = heights[heights.length ~/ 2];
+  if (median <= 0) return 0;
+  final selected = matches.reduce((a, b) => a.height >= b.height ? a : b);
+  final ratio = selected.height / median;
+  if (ratio < 1.08) return 0;
+  final minTop = valid.map((value) => value.top).reduce(min);
+  final maxBottom = valid.map((value) => value.top + value.height).reduce(max);
+  final span = maxBottom - minTop;
+  final relativeTop = span <= 0 ? 1.0 : (selected.top - minTop) / span;
+  final sizeBoost = ((ratio - 1) * .09).clamp(0, .12).toDouble();
+  final topBoost = relativeTop <= .52 ? .025 : 0.0;
+  return (sizeBoost + topBoost).clamp(0, .145).toDouble();
+}
+
+bool _eligibleNameLine(String line, int index) {
+  final normalized = searchText(line);
+  if (normalized.length < 2 || normalized.length > 70) return false;
+  if (!RegExp(
+    r'[a-z\u0900-\u097f]{2}',
+    caseSensitive: false,
+  ).hasMatch(normalized)) {
+    return false;
+  }
+  if (_dateNoise.hasMatch(normalized) ||
+      _priceNoise.hasMatch(normalized) ||
+      _packNoise.hasMatch(normalized) ||
+      _packSize(line).isNotEmpty ||
+      _compositionLabel.hasMatch(normalized) ||
+      _manufacturerHeader.hasMatch(normalized) ||
+      _nonProductLine.hasMatch(normalized) ||
+      medicineCompanyIdentityMarker.hasMatch(normalized) ||
+      RegExp(
+        r'\b(?:batch|lot)\b|\bb\s*\.?\s*no\b',
+        caseSensitive: false,
+      ).hasMatch(line) ||
+      RegExp(
+        r'\b(?:batch|b no|lot|lic|license|schedule|warning|dosage|storage|keep|children|marketed|distributed|packed|packing|pkd|pkg|address|pin|email|website|customer|care|net\s*(?:qty|quantity|content|wt|weight)|only|physician|prescription)\b',
+      ).hasMatch(normalized)) {
+    return false;
+  }
+  if (_looksLikeGenericLine(line)) return false;
+  final tokens = normalized.split(' ');
+  if (tokens.every(_standaloneNameNoise.contains)) return false;
+  if (_looksLikeMarketingOnly(tokens)) return false;
+  if (tokens.length > 6) return false;
+  if (tokens.every((token) => RegExp(r'^\d').hasMatch(token))) return false;
+  if (index > 8 &&
+      _uppercaseRatio(line) < .45 &&
+      !RegExp(r'[®™]').hasMatch(line)) {
+    return false;
+  }
+  return true;
+}
+
+bool _looksLikeMarketingOnly(List<String> tokens) {
+  const marketing = <String>{
+    'new',
+    'improved',
+    'formula',
+    'advanced',
+    'effective',
+    'relief',
+    'fast',
+    'action',
+    'trusted',
+    'quality',
+    'better',
+    'extra',
+    'power',
+    'care',
+    'original',
+    'pack',
+    'packaging',
+    'pain',
+    'fever',
+    'quick',
+    'lasting',
+    'strength',
+  };
+  final words = tokens
+      .where((token) => RegExp(r'[a-z\u0900-\u097f]').hasMatch(token))
+      .toList(growable: false);
+  if (words.length < 2) return false;
+  final hits = words.where(marketing.contains).length;
+  return hits >= 2 && hits / words.length >= .66;
+}
+
+double _uppercaseRatio(String value) {
+  final letters = value.runes.where(
+    (code) => (code >= 65 && code <= 90) || (code >= 97 && code <= 122),
+  );
+  final list = letters.toList();
+  if (list.isEmpty) return 0;
+  final uppercase = list.where((code) => code >= 65 && code <= 90).length;
+  return uppercase / list.length;
+}
+
+String _formValue(String normalized) {
+  for (final entry in medicineFormAliases.entries) {
+    if (entry.key == 'other') continue;
+    if (RegExp('\\b${RegExp.escape(entry.key)}\\b').hasMatch(normalized)) {
+      return entry.value;
+    }
+  }
+  return '';
+}
+
+String _packSize(String line) {
+  final patterns = <RegExp>[
+    RegExp(
+      r'\b\d{1,3}\s*[x×]\s*\d{1,3}\s*(?:tablets?|capsules?|tabs?|caps?)?\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'\b(?:pack|strip|blister|bottle)\s*(?:of|size)?\s*[:.-]?\s*\d{1,4}\s*(?:tablets?|capsules?|tabs?|caps?|ml|g|sachets?)\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'\b\d{1,4}\s*(?:tablets?|capsules?|tabs?|caps?|sachets?)\b',
+      caseSensitive: false,
+    ),
+  ];
+  for (final pattern in patterns) {
+    final match = pattern.firstMatch(line);
+    if (match != null) return _cleanValue(match[0]!);
+  }
+  return '';
+}
+
+String _mrpValue(String line) {
+  final match = RegExp(
+    r'\bm\s*\.?\s*r\s*\.?\s*p\.?\b[^\d]{0,12}(?:rs\.?|inr|₹)?\s*(\d{1,7}(?:[.,]\d{1,2})?)',
+    caseSensitive: false,
+  ).firstMatch(line);
+  return match == null ? '' : '₹${match[1]!.replaceAll(',', '.')}';
+}
+
+Set<String> _identityTokens(String normalized) => normalized
+    .split(' ')
+    .where((token) => token.length >= 3)
+    .where((token) => !RegExp(r'^\d').hasMatch(token))
+    .where((token) => !_identityNoise.contains(token))
+    .take(40)
+    .toSet();
+
+const _identityNoise = <String>{
+  'tablet',
+  'tablets',
+  'capsule',
+  'capsules',
+  'syrup',
+  'suspension',
+  'solution',
+  'injection',
+  'cream',
+  'ointment',
+  'gel',
+  'lotion',
+  'drops',
+  'spray',
+  'inhaler',
+  'powder',
+  'sachet',
+  'sachets',
+  'each',
+  'contains',
+  'composition',
+  'excipients',
+  'colour',
+  'dosage',
+  'directed',
+  'physician',
+  'manufactured',
+  'marketed',
+  'batch',
+  'expiry',
+  'expires',
+  'mfg',
+  'mfd',
+  'dom',
+  'exp',
+  'expn',
+  'xpry',
+  'doe',
+  'pkd',
+  'pkg',
+  'packed',
+  'packing',
+  'mrp',
+  'inclusive',
+  'taxes',
+  'store',
+  'below',
+  'protect',
+  'light',
+  'children',
+  'reach',
+  'schedule',
+  'drug',
+  'retail',
+  'price',
+  'only',
+};
+
+final _nonProductLine = RegExp(
+  r'\b(?:not\s+for\s+(?:sale|retail)|free\s+(?:medical\s+)?sample|physician(?:s)?\s+sample|government\s+supply|institutional\s+supply|hospital\s+supply|for\s+external\s+use|for\s+oral\s+use|shake\s+well|dose\s+as\s+directed|keep\s+out\s+of\s+reach|protect(?:ed)?\s+from)\b',
+  caseSensitive: false,
+);
+
+final medicineCompanyIdentityMarker = RegExp(
+  r'\b(?:pvt|private|ltd|limited|llp|plc|inc|incorporated|labs?|laborator(?:y|ies)|pharmaceuticals?|pharma|healthcare|industries|company|corporation|corp(?:oration)?|biotech(?:nology)?|life\s*sciences?|remedies|formulations?)\b',
+  caseSensitive: false,
+);
+
+const _standaloneNameNoise = <String>{
+  'rx',
+  'nrx',
+  'xrx',
+  'ip',
+  'bp',
+  'usp',
+  'schedule',
+  'drug',
+  'medicine',
+};
+
+String _candidateKey(String field, String value) {
+  if (field == 'barcode') return value.replaceAll(RegExp(r'\D'), '');
+  if (field == 'strength') return _strengthKey(value);
+  if (field == 'mfg' || field == 'expiry') return value;
+  if (field == 'name' ||
+      field == 'brand' ||
+      field == 'salt' ||
+      field == 'manufacturer') {
+    return _knowledgeKey(value);
+  }
+  return searchText(value);
+}
+
+String _keywords(Map<String, ExtractedMedicineField> fields, String raw) {
+  final ordered = <String>[];
+  final seen = <String>{};
+  void add(String value) {
+    for (final token in searchText(value).split(' ')) {
+      if (token.length < 2 || _identityNoise.contains(token)) continue;
+      if (seen.add(token)) ordered.add(token);
+      if (ordered.length >= 80) return;
+    }
+  }
+
+  for (final key in const <String>[
+    'name',
+    'brand',
+    'salt',
+    'strength',
+    'form',
+    'manufacturer',
+    'batchNumber',
+    'barcode',
+  ]) {
+    add(fields[key]?.value ?? '');
+  }
+  add(raw);
+  return ordered.join(' ');
+}
+
+String _smartTitle(String value) => value
+    .split(' ')
+    .map((word) {
+      if (word.isEmpty || RegExp(r'^\d').hasMatch(word)) return word;
+      if (word.length <= 3 && word == word.toUpperCase()) return word;
+      return '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}';
+    })
+    .join(' ');

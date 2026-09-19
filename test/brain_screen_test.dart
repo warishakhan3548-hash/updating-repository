@@ -1,0 +1,385 @@
+import 'package:aaris_pharmacy/data/inventory_database.dart';
+import 'package:aaris_pharmacy/domain/app_brain.dart';
+import 'package:aaris_pharmacy/domain/medicine.dart';
+import 'package:aaris_pharmacy/state/autopilot_supervisor.dart';
+import 'package:aaris_pharmacy/state/operational_context.dart';
+import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
+import 'package:aaris_pharmacy/ui/brain_screen.dart';
+import 'package:aaris_pharmacy/ui/design.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+Medicine _stock(
+  String id, {
+  String name = 'Paracetamol',
+  String strength = '500mg',
+  String expiry = '2026-09-10',
+  String barcode = '',
+  String batchNumber = '',
+  String notes = '',
+  String salt = '',
+  int? quantity = 10,
+  int? price = 200,
+  String form = 'Tablet',
+  bool sold = false,
+  String location = '',
+}) => Medicine.fromJson({
+  'id': id,
+  'name': name,
+  'strength': strength,
+  'expiry': expiry,
+  'barcode': barcode,
+  'batchNumber': batchNumber,
+  'notes': notes,
+  'salt': salt,
+  'quantity': sold ? 0 : quantity,
+  'unitPricePaise': price,
+  'form': form,
+  'sold': sold,
+  'location': location,
+});
+
+final _today = DateTime(2026, 9, 7, 23, 59);
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'exact Brain remove command is protected and restore-it reuses only exact archived context',
+    (tester) async {
+      final medicine = _stock(
+        'brain-remove-target',
+        name: 'Dolo',
+        strength: '650mg',
+        barcode: '9988776655',
+        expiry: '2027-12',
+      );
+      final controller = PharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(records: {medicine.id: medicine}),
+        ),
+        clock: () => _today,
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      final autopilot = AarisAutopilotSupervisor(
+        controller,
+        debounce: Duration.zero,
+        startImmediately: false,
+      );
+      addTearDown(autopilot.dispose);
+
+      AppSection? openedSection;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: pharmacyTheme(),
+          home: Scaffold(
+            body: BrainScreen(
+              controller: controller,
+              autopilot: autopilot,
+              onOpenSection: (section) => openedSection = section,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byType(TextField).first,
+        '9988776655 delete karo',
+      );
+      await tester.tap(find.byTooltip('Run command').first);
+      // The command deliberately remains busy while its protected dialog is
+      // open, so pumpAndSettle would wait on the progress indicator forever.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(openedSection, AppSection.stock);
+      expect(find.text('Why remove Dolo?'), findsOneWidget);
+      expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+
+      await tester.tap(find.text('Damaged'));
+      // A second protected confirmation is now open while the command is still
+      // busy. Use bounded pumps again and assert the no-mutation boundary.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Remove Dolo?'), findsOneWidget);
+      expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+      // The Brain contains a deliberate busy progress animation while the async
+      // controller transaction is finishing, so a fixed pump is more precise
+      // than pumpAndSettle (which waits for every animation to become idle).
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.snapshot.records[medicine.id]!.archived, isTrue);
+      expect(controller.canUndo, isTrue);
+      expect(controller.operationalTarget, isNull);
+      expect(controller.archivedOperationalTargetId, medicine.id);
+      expect(tester.takeException(), isNull);
+
+      // A follow-up pronoun is never fuzzy-searched. RemovedStockScreen resolves
+      // it through the session-only archived ID and immediately opens the same
+      // revision-bound restore review. No write occurs before confirmation.
+      await tester.enterText(find.byType(TextField).first, 'restore isko');
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      // The removed-stock page schedules the protected review after its first
+      // rendered frame. Give that post-frame Navigator push one additional
+      // frame to materialize the AlertDialog; this mirrors the next vsync on a
+      // real device without waiting for Brain's intentionally-live busy ticker.
+      await tester.pump();
+      expect(find.text('Restore this removed stock?'), findsOneWidget);
+      expect(controller.snapshot.records[medicine.id]!.archived, isTrue);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Restore stock'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+      expect(controller.archivedOperationalTarget, isNull);
+      expect(controller.operationalTargetId, medicine.id);
+      expect(controller.canUndo, isTrue);
+      expect(tester.takeException(), isNull);
+
+      // Widget-test teardown hooks run after Flutter verifies that no timers are
+      // pending. Unmount first, then synchronously dispose the controller so its
+      // midnight refresh timer is cancelled before that invariant is checked.
+      await tester.pumpWidget(const SizedBox.shrink());
+      autopilot.dispose();
+      controller.dispose();
+      await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'Brain answers product stock and contextual expiry read-only from authoritative rows',
+    (tester) async {
+      final first = _stock(
+        'dolo-a',
+        name: 'Dolo',
+        strength: '650mg',
+        expiry: '2026-10-01',
+        batchNumber: 'A1',
+        salt: 'Paracetamol',
+        quantity: 10,
+        location: 'Rack A',
+      );
+      final second = _stock(
+        'dolo-b',
+        name: 'Dolo',
+        strength: '650mg',
+        expiry: '2026-11-01',
+        batchNumber: 'B1',
+        salt: 'Paracetamol',
+        quantity: 20,
+        location: 'Rack B',
+      );
+      final controller = PharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(records: {first.id: first, second.id: second}),
+        ),
+        clock: () => _today,
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      final autopilot = AarisAutopilotSupervisor(
+        controller,
+        debounce: Duration.zero,
+        startImmediately: false,
+      );
+      addTearDown(autopilot.dispose);
+
+      AppSection? openedSection;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: pharmacyTheme(),
+          home: Scaffold(
+            body: BrainScreen(
+              controller: controller,
+              autopilot: autopilot,
+              onOpenSection: (section) => openedSection = section,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final beforeRevision = controller.snapshot.revision;
+      await tester.enterText(
+        find.byType(TextField).first,
+        'Dolo 650 stock kitna hai',
+      );
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(
+        find.textContaining('30 known units across 2 current batches'),
+        findsOneWidget,
+      );
+      expect(controller.snapshot.revision, beforeRevision);
+      expect(openedSection, isNull);
+      expect(controller.operationalTarget?.identity, first.identity);
+
+      await tester.enterText(
+        find.byType(TextField).first,
+        'iska expiry kab hai',
+      );
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(
+        find.textContaining('earliest recorded valid expiry is 2026-10-01'),
+        findsOneWidget,
+      );
+      expect(controller.snapshot.revision, beforeRevision);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      autopilot.dispose();
+      controller.dispose();
+      // AiScreen starts a bounded secure-storage load in initState. Flutter
+      // widget tests use fake time, so advance beyond that deadline after the
+      // screen is unmounted to let the timeout future settle without leaking a
+      // pending timer into the framework invariant check.
+      await tester.pump(const Duration(seconds: 5));
+    },
+  );
+
+  testWidgets(
+    'Brain reuses exact context for targetless explicit operation without skipping review',
+    (tester) async {
+      final medicine = _stock(
+        'context-receive',
+        name: 'Crocin',
+        strength: '500mg',
+        expiry: '2027-12',
+        quantity: 10,
+      );
+      final controller = PharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(records: {medicine.id: medicine}),
+        ),
+        clock: () => _today,
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      final autopilot = AarisAutopilotSupervisor(
+        controller,
+        debounce: Duration.zero,
+        startImmediately: false,
+      );
+      addTearDown(autopilot.dispose);
+      controller.rememberOperationalTarget(medicine.id);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: pharmacyTheme(),
+          home: Scaffold(
+            body: BrainScreen(
+              controller: controller,
+              autopilot: autopilot,
+              onOpenSection: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'stock add 5 units');
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Receive 5 units?'), findsOneWidget);
+      expect(controller.snapshot.records[medicine.id]!.quantity, 10);
+      await tester.tap(find.widgetWithText(FilledButton, 'Receive stock'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.snapshot.records[medicine.id]!.quantity, 15);
+      expect(controller.sales, isEmpty);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      autopilot.dispose();
+      controller.dispose();
+      await tester.pump(const Duration(seconds: 5));
+    },
+  );
+
+  testWidgets(
+    'next task routes expired stock directly to protected review without silent mutation',
+    (tester) async {
+      final medicine = _stock(
+        'autopilot-expired',
+        name: 'ExpiryTask',
+        strength: '500mg',
+        expiry: '2026-09-01',
+        batchNumber: 'EXP-1',
+        location: 'Rack E1',
+        quantity: 4,
+      );
+      final controller = PharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(records: {medicine.id: medicine}),
+        ),
+        clock: () => _today,
+        backgroundSearch: false,
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      final autopilot = AarisAutopilotSupervisor(
+        controller,
+        debounce: Duration.zero,
+        startImmediately: false,
+      );
+      addTearDown(autopilot.dispose);
+
+      AppSection? openedSection;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: pharmacyTheme(),
+          home: Scaffold(
+            body: BrainScreen(
+              controller: controller,
+              autopilot: autopilot,
+              onOpenSection: (section) => openedSection = section,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final beforeRevision = controller.snapshot.revision;
+      await tester.enterText(find.byType(TextField).first, 'next task');
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(openedSection, AppSection.stock);
+      expect(find.text('Remove ExpiryTask?'), findsOneWidget);
+      expect(find.textContaining('Reason: Expired'), findsOneWidget);
+      expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+      expect(controller.snapshot.revision, beforeRevision);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(controller.snapshot.records[medicine.id]!.archived, isFalse);
+      expect(controller.snapshot.revision, beforeRevision);
+      expect(find.textContaining('still needs attention'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      autopilot.dispose();
+      controller.dispose();
+      await tester.pump(const Duration(seconds: 5));
+    },
+  );
+}

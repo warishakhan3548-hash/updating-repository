@@ -1,9 +1,11 @@
 package com.aaris.pharmacy
 
 import android.app.Activity
+import android.content.ContentValues
 import android.content.Intent
 import android.database.Cursor
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -11,31 +13,42 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
-import java.io.ByteArrayOutputStream
 import java.text.NumberFormat
 import java.util.Locale
-import java.nio.charset.StandardCharsets
+import java.util.concurrent.atomic.AtomicBoolean
+import java.security.DigestOutputStream
+import java.security.MessageDigest
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.sqrt
 
 class MainActivity : FlutterActivity() {
+    private val localAiPlatform by lazy { LocalAiPlatform(this) }
     private val documentsChannel = "com.aaris.pharmacy/documents"
-    private val pickTextRequest = 4071
+    private val pickBackupRequest = 4071
     private val pickImageRequest = 4072
     private val pickVideoRequest = 4073
-    private var pendingTextResult: MethodChannel.Result? = null
+    private var pendingBackupResult: MethodChannel.Result? = null
     private var pendingMediaResult: MethodChannel.Result? = null
+    private val photoMetricsBusy = AtomicBoolean(false)
+    // A Dart timeout does not cancel native decoding. Keep one decoder owner
+    // until it really drains so Retry cannot start overlapping bitmap workloads.
+    private val videoSamplingBusy = AtomicBoolean(false)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, documentsChannel)
             .setMethodCallHandler { call, result ->
+                if (localAiPlatform.handle(call, result)) return@setMethodCallHandler
                 when (call.method) {
                     "createPurchaseOrderPdf" -> {
                         @Suppress("UNCHECKED_CAST")
@@ -59,7 +72,75 @@ class MainActivity : FlutterActivity() {
                             }
                         }.start()
                     }
-                    "pickTextDocument" -> pickTextDocument(result)
+                    "createSupplierReturnPdf" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val arguments = call.arguments as? Map<String, Any?>
+                        if (arguments == null) {
+                            result.error(
+                                "invalid_supplier_return",
+                                "Supplier-return data is missing.",
+                                null,
+                            )
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            try {
+                                val path = createSupplierReturnPdf(arguments)
+                                runOnUiThread { result.success(path) }
+                            } catch (error: Exception) {
+                                runOnUiThread {
+                                    result.error(
+                                        "supplier_return_pdf_error",
+                                        error.message
+                                            ?: "The supplier return PDF could not be created.",
+                                        null,
+                                    )
+                                }
+                            }
+                        }.start()
+                    }
+                    "pickBackupFile" -> pickBackupDocument(result)
+                    "saveBackupToDownloads" -> {
+                        val path = call.argument<String>("path").orEmpty()
+                        val fileName = call.argument<String>("fileName").orEmpty()
+                        Thread {
+                            try {
+                                val saved = saveBackupToDownloads(path, fileName)
+                                runOnUiThread { result.success(saved) }
+                            } catch (error: Exception) {
+                                runOnUiThread {
+                                    result.error(
+                                        "backup_save_error",
+                                        error.message ?: "The backup could not be saved.",
+                                        null,
+                                    )
+                                }
+                            }
+                        }.start()
+                    }
+                    "measureImageQuality" -> {
+                        val path = call.argument<String>("path").orEmpty()
+                        if (!photoMetricsBusy.compareAndSet(false, true)) {
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            // Optional capture hint only; decoding failure does not
+                            // change OCR success or retain a full-size bitmap.
+                            val metrics = try {
+                                photoMetrics(path)
+                            } catch (_: Exception) {
+                                null
+                            } catch (_: OutOfMemoryError) {
+                                null
+                            } finally {
+                                photoMetricsBusy.set(false)
+                            }
+                            runOnUiThread { result.success(metrics?.let {
+                                mapOf("quality" to it.quality)
+                            }) }
+                        }.start()
+                    }
                     "pickImportSource" -> {
                         val kind = call.argument<String>("kind")
                         pickImportSource(kind, result)
@@ -71,10 +152,14 @@ class MainActivity : FlutterActivity() {
                             result.error("invalid_video", "Video path is missing.", null)
                             return@setMethodCallHandler
                         }
+                        if (!videoSamplingBusy.compareAndSet(false, true)) {
+                            result.error("video_busy", "The previous video step is still finishing. Retry shortly.", null)
+                            return@setMethodCallHandler
+                        }
                         Thread {
                             try {
                                 val frames = sampleVideo(path, maxFrames.coerceIn(1, 72))
-                                runOnUiThread { result.success(frames) }
+                                runOnUiThread { result.success(frames.frames) }
                             } catch (error: Exception) {
                                 runOnUiThread {
                                     result.error(
@@ -83,6 +168,36 @@ class MainActivity : FlutterActivity() {
                                         null,
                                     )
                                 }
+                            } finally {
+                                videoSamplingBusy.set(false)
+                            }
+                        }.start()
+                    }
+                    "sampleVideoWindow" -> {
+                        val path = call.argument<String>("path")
+                        val start = call.argument<Number>("startMs")?.toLong() ?: 0L
+                        if (path == null || start < 0) {
+                            result.error("invalid_video", "Invalid video window.", null)
+                            return@setMethodCallHandler
+                        }
+                        if (!videoSamplingBusy.compareAndSet(false, true)) {
+                            result.error("video_busy", "The previous video step is still finishing. Retry shortly.", null)
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            try {
+                                val duration = videoDuration(path)
+                                if (duration > 3_600_000L) throw IllegalArgumentException("Split videos longer than one hour.")
+                                val end = minOf(start + 20_000L, duration)
+                                val sampled = if (start >= duration) SampledVideo(emptyList())
+                                    else sampleVideo(path, 40, start, end)
+                                runOnUiThread { result.success(mapOf("frames" to sampled.frames,
+                                    "unreadableFrames" to sampled.unreadableFrames,
+                                    "durationMs" to duration, "nextStartMs" to end)) }
+                            } catch (error: Exception) {
+                                runOnUiThread { result.error("video_window_error", error.message, null) }
+                            } finally {
+                                videoSamplingBusy.set(false)
                             }
                         }.start()
                     }
@@ -93,29 +208,41 @@ class MainActivity : FlutterActivity() {
                             runOnUiThread { result.success(deleted) }
                         }.start()
                     }
+                    "deleteCameraCapture" -> {
+                        val path = call.argument<String>("path").orEmpty()
+                        Thread {
+                            val deleted = deleteCameraCapture(path)
+                            runOnUiThread { result.success(deleted) }
+                        }.start()
+                    }
                     else -> result.notImplemented()
                 }
             }
     }
 
-    private fun pickTextDocument(result: MethodChannel.Result) {
-        if (pendingTextResult != null || pendingMediaResult != null) {
+    private fun pickBackupDocument(result: MethodChannel.Result) {
+        if (pendingBackupResult != null || pendingMediaResult != null) {
             result.error("picker_busy", "Another file selection is already open.", null)
             return
         }
-        pendingTextResult = result
+        pendingBackupResult = result
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/json"
+            type = "text/plain"
             putExtra(
                 Intent.EXTRA_MIME_TYPES,
-                arrayOf("application/json", "text/json", "text/plain", "application/octet-stream"),
+                arrayOf(
+                    "text/plain",
+                    "application/json",
+                    "text/json",
+                    "application/octet-stream",
+                ),
             )
         }
         try {
-            startActivityForResult(intent, pickTextRequest)
+            startActivityForResult(intent, pickBackupRequest)
         } catch (error: Exception) {
-            pendingTextResult = null
+            pendingBackupResult = null
             result.error("picker_unavailable", "A document picker is unavailable.", null)
         }
     }
@@ -125,7 +252,7 @@ class MainActivity : FlutterActivity() {
             result.error("invalid_source", "Choose an image or video.", null)
             return
         }
-        if (pendingTextResult != null || pendingMediaResult != null) {
+        if (pendingBackupResult != null || pendingMediaResult != null) {
             result.error("picker_busy", "Another file selection is already open.", null)
             return
         }
@@ -147,40 +274,71 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (localAiPlatform.activityResult(requestCode, resultCode, data?.data)) return
         if (requestCode == pickImageRequest || requestCode == pickVideoRequest) {
             handlePickedMedia(requestCode, resultCode, data?.data)
             return
         }
-        if (requestCode != pickTextRequest) return
-        val pending = pendingTextResult ?: return
-        pendingTextResult = null
+        if (requestCode != pickBackupRequest) return
+        val pending = pendingBackupResult ?: return
+        pendingBackupResult = null
         val uri = data?.data
         if (resultCode != Activity.RESULT_OK || uri == null) {
             pending.success(null)
             return
         }
         Thread {
+            var partialOutput: File? = null
             try {
-                val output = ByteArrayOutputStream()
+                val originalName = displayName(uri)
+                val safeName = originalName
+                    .replace(Regex("[^a-zA-Z0-9._-]+"), "_")
+                    .takeLast(160)
+                    .ifEmpty { "Aaris_Pharmacy_Backup.txt" }
+                val directory = File(cacheDir, "pharmacy_backup_imports").apply { mkdirs() }
+                directory.listFiles()?.filter {
+                    System.currentTimeMillis() - it.lastModified() > 48 * 60 * 60 * 1000L
+                }?.forEach { it.deleteRecursively() }
+
+                val output = File(directory, "${System.currentTimeMillis()}_$safeName")
+                partialOutput = output
+                var total = 0L
                 contentResolver.openInputStream(uri).use { input ->
-                    if (input == null) throw IllegalArgumentException("The selected file could not be opened.")
-                    val buffer = ByteArray(8192)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        output.write(buffer, 0, count)
-                        if (output.size() > 12_000_000) {
-                            throw IllegalArgumentException("The selected file is larger than 12 MB.")
+                    if (input == null) {
+                        throw IllegalArgumentException("The selected backup could not be opened.")
+                    }
+                    FileOutputStream(output).use { stream ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            stream.write(buffer, 0, count)
+                            total += count
+                            if (total > 1024L * 1024L * 1024L) {
+                                throw IllegalArgumentException(
+                                    "Choose an Aaris Pharmacy backup smaller than 1 GB.",
+                                )
+                            }
                         }
+                        stream.fd.sync()
                     }
                 }
-                val text = output.toString(StandardCharsets.UTF_8.name())
-                runOnUiThread { pending.success(text) }
+                if (total <= 0L) {
+                    throw IllegalArgumentException("The selected backup file is empty.")
+                }
+                val response = mapOf(
+                    "path" to output.absolutePath,
+                    "name" to originalName,
+                    "mimeType" to contentResolver.getType(uri).orEmpty(),
+                    "size" to total,
+                )
+                runOnUiThread { pending.success(response) }
             } catch (error: Exception) {
+                partialOutput?.deleteRecursively()
                 runOnUiThread {
                     pending.error(
-                        "file_read_error",
-                        error.message ?: "The selected file could not be read.",
+                        "backup_read_error",
+                        error.message ?: "The selected backup could not be read.",
                         null,
                     )
                 }
@@ -261,6 +419,85 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
+    private fun backupExportSource(path: String): File {
+        val source = File(path).canonicalFile
+        val root = File(cacheDir, "pharmacy_backups").canonicalFile
+        if (!source.isFile || !source.path.startsWith(root.path + File.separator)) {
+            throw IllegalArgumentException("The generated backup file is no longer available.")
+        }
+        return source
+    }
+
+    private fun safeBackupFileName(value: String): String {
+        val cleaned = value
+            .replace(Regex("[^a-zA-Z0-9._-]+"), "_")
+            .takeLast(180)
+        return if (cleaned.isBlank()) "Aaris_Pharmacy_Full_Backup.txt"
+            else if (cleaned.endsWith(".txt", ignoreCase = true)) cleaned
+            else "$cleaned.txt"
+    }
+
+    private fun saveBackupToDownloads(path: String, fileName: String): Map<String, Any> {
+        val source = backupExportSource(path)
+        val safeName = safeBackupFileName(fileName)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(
+                    MediaStore.MediaColumns.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + "/Aaris Pharmacy",
+                )
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                values,
+            ) ?: throw IllegalStateException("Android could not create the Downloads backup.")
+
+            try {
+                contentResolver.openOutputStream(uri, "w").use { output ->
+                    if (output == null) {
+                        throw IllegalStateException("Android could not open the Downloads backup.")
+                    }
+                    source.inputStream().use { input ->
+                        input.copyTo(output, 64 * 1024)
+                        output.flush()
+                    }
+                }
+                values.clear()
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+                return mapOf(
+                    "uri" to uri.toString(),
+                    "name" to safeName,
+                    "size" to source.length(),
+                    "location" to "Downloads/Aaris Pharmacy",
+                )
+            } catch (error: Exception) {
+                contentResolver.delete(uri, null, null)
+                throw error
+            }
+        }
+
+        val base = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
+        val directory = File(base, "Aaris Pharmacy").apply { mkdirs() }
+        val destination = File(directory, safeName)
+        source.inputStream().use { input ->
+            FileOutputStream(destination).use { output ->
+                input.copyTo(output, 64 * 1024)
+                output.fd.sync()
+            }
+        }
+        return mapOf(
+            "path" to destination.absolutePath,
+            "name" to safeName,
+            "size" to destination.length(),
+            "location" to "Aaris Pharmacy app Documents",
+        )
+    }
+
     private fun displayName(uri: Uri): String {
         var cursor: Cursor? = null
         return try {
@@ -281,85 +518,215 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LocalAiPlatform.microphoneRequest) {
+            localAiPlatform.permissionResult(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED)
+        }
+    }
+
+    override fun onStop() {
+        localAiPlatform.cancel()
+        super.onStop()
+    }
+
     override fun onDestroy() {
-        pendingTextResult?.error("activity_closed", "File selection was cancelled.", null)
-        pendingTextResult = null
+        localAiPlatform.dispose()
+        pendingBackupResult?.error("activity_closed", "File selection was cancelled.", null)
+        pendingBackupResult = null
         pendingMediaResult?.error("activity_closed", "File selection was cancelled.", null)
         pendingMediaResult = null
         super.onDestroy()
     }
 
-    private fun sampleVideo(path: String, maxFrames: Int): List<String> {
+    private data class FrameMetrics(
+        val sharpness: Double,
+        val contrast: Double,
+        val exposure: Double,
+        val quality: Double,
+    )
+
+    private data class SampledVideo(
+        val frames: List<Map<String, Any>>,
+        val unreadableFrames: Int = 0,
+    )
+
+    private fun videoSource(path: String): File {
         val source = File(path).canonicalFile
-        val importRoot = File(cacheDir, "inventory_imports").canonicalFile
-        if (!source.isFile || !source.path.startsWith(importRoot.path + File.separator)) {
+        val roots = listOf(File(cacheDir, "inventory_imports").canonicalFile,
+            File(filesDir, "medicine_intake").canonicalFile)
+        if (!source.isFile || roots.none { source.path.startsWith(it.path + File.separator) }) {
             throw IllegalArgumentException("The selected video is no longer available.")
         }
+        return source
+    }
+
+    private fun videoDuration(path: String): Long {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(videoSource(path).absolutePath)
+            return retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()?.takeIf { it > 0 }
+                ?: throw IllegalArgumentException("Video duration unavailable.")
+        } finally { retriever.release() }
+    }
+
+    private fun sampleVideo(path: String, maxFrames: Int, startMs: Long = 0L, endMs: Long? = null): SampledVideo {
+        val source = videoSource(path)
         val retriever = MediaMetadataRetriever()
         var frameDirectory: File? = null
         try {
             retriever.setDataSource(source.absolutePath)
-            val durationMs = retriever
+            val totalDurationMs = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
                 ?: throw IllegalArgumentException("The video duration could not be read.")
-            if (durationMs < 1) throw IllegalArgumentException("The video is empty.")
-            val proposed = ceil(durationMs / 3000.0).toInt().coerceAtLeast(1)
-            val count = minOf(maxFrames, proposed)
+            val durationMs = minOf(endMs ?: totalDurationMs, totalDurationMs) - startMs
+            if (durationMs < 1) return SampledVideo(emptyList())
+            val sourceWidth = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                ?.toIntOrNull()
+                ?: 0
+            val sourceHeight = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                ?.toIntOrNull()
+                ?: 0
+            val intervalMs = when {
+                durationMs <= 20_000L -> 500.0
+                durationMs <= 60_000L -> 900.0
+                durationMs <= 180_000L -> 1_400.0
+                else -> durationMs.toDouble() / maxFrames.coerceAtLeast(1)
+            }
+            val proposed = (ceil(durationMs / intervalMs).toInt() + 1).coerceAtLeast(1)
+            val count = minOf(maxFrames, proposed, durationMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
             val frameRoot = File(cacheDir, "video_frames").apply { mkdirs() }
             frameRoot.listFiles()?.filter {
                 System.currentTimeMillis() - it.lastModified() > 24 * 60 * 60 * 1000L
             }?.forEach { it.deleteRecursively() }
-            val directory = File(frameRoot, "${System.currentTimeMillis()}").apply { mkdirs() }
+            val directory = File(frameRoot, java.util.UUID.randomUUID().toString()).apply { mkdirs() }
             frameDirectory = directory
-            val acceptedHashes = mutableListOf<Long>()
-            val result = mutableListOf<String>()
+            val result = mutableListOf<Map<String, Any>>()
+            var unreadable = 0
+            var rescueBudget = 12
+            val frameDigest = MessageDigest.getInstance("SHA-256")
+            var previousDigest: ByteArray? = null
+            var lastRetainedTimestampMs = -1L
+
+            // Bounded resolution preserves small pack text without keeping a
+            // full-resolution movie or all decoded bitmaps in memory.
+            fun decode(timeUs: Long): Bitmap? = try {
+                val largestSource = maxOf(sourceWidth, sourceHeight)
+                val scale = minOf(1.0, 1920.0 / largestSource.coerceAtLeast(1))
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1 &&
+                    sourceWidth > 0 && sourceHeight > 0) {
+                    retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST,
+                        (sourceWidth * scale).toInt().coerceAtLeast(1),
+                        (sourceHeight * scale).toInt().coerceAtLeast(1))
+                } else {
+                    retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                }
+            } catch (_: RuntimeException) {
+                // One corrupt/unsupported frame must not abandon later packs.
+                null
+            }
 
             for (index in 0 until count) {
-                val timeUs = if (count == 1) {
-                    durationMs * 500L
-                } else {
-                    durationMs * 1000L * index / (count - 1)
+                // Sample the middle of each bucket. Exact endpoints are often
+                // black transition frames and add no medicine evidence.
+                var timeUs = startMs * 1000L + durationMs * 1000L * (index * 2L + 1L) / (count * 2L)
+                var decoded = decode(timeUs)
+                var metrics = decoded?.let { imageMetrics(it) }
+                // Rescue a weak/null centre from the same temporal bucket.
+                // Budget is per window; quality selects an alternative, NEVER
+                // authorizes discarding fine text before OCR has seen it.
+                if ((metrics == null || metrics.quality < 0.28) && rescueBudget > 0) {
+                    rescueBudget--
+                    val offset = durationMs * 1000L / (count * 4L)
+                    val alternateTime = (timeUs + if (index % 2 == 0) offset else -offset)
+                        .coerceIn(startMs * 1000L, (startMs + durationMs) * 1000L - 1L)
+                    val alternate = decode(alternateTime)
+                    if (alternate != null) {
+                        val alternateMetrics = imageMetrics(alternate)
+                        if (metrics == null || alternateMetrics.quality > metrics.quality) {
+                            decoded?.recycle()
+                            decoded = alternate
+                            metrics = alternateMetrics
+                            timeUs = alternateTime
+                        } else {
+                            alternate.recycle()
+                        }
+                    }
                 }
-                val original = retriever.getFrameAtTime(
-                    timeUs,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                ) ?: continue
-                val metrics = imageMetrics(original)
-                val duplicate = acceptedHashes.any {
-                    java.lang.Long.bitCount(it xor metrics.first) < 6
-                }
-                if (acceptedHashes.isNotEmpty() && (duplicate || metrics.second < 5.0)) {
-                    original.recycle()
+                val original = decoded
+                val selectedMetrics = metrics
+                if (original == null || selectedMetrics == null) {
+                    unreadable++
+                    previousDigest = null
                     continue
                 }
-                acceptedHashes.add(metrics.first)
-                val width = minOf(1280, original.width)
-                val height = (original.height * (width.toDouble() / original.width))
-                    .toInt()
-                    .coerceAtLeast(1)
-                val frame = if (width == original.width) {
+                var frame: Bitmap? = null
+                try {
+                val timestampMs = timeUs / 1000L
+                val largest = maxOf(original.width, original.height)
+                val scale = minOf(1.0, 1920.0 / largest.coerceAtLeast(1))
+                val width = (original.width * scale).toInt().coerceAtLeast(1)
+                val height = (original.height * scale).toInt().coerceAtLeast(1)
+                val outputFrame = if (width == original.width && height == original.height) {
                     original
                 } else {
                     Bitmap.createScaledBitmap(original, width, height, true).also {
                         original.recycle()
                     }
                 }
+                frame = outputFrame
                 val file = File(directory, "frame_${index.toString().padStart(3, '0')}.jpg")
-                FileOutputStream(file).use { stream ->
-                    if (!frame.compress(Bitmap.CompressFormat.JPEG, 88, stream)) {
-                        throw IllegalStateException("A sampled frame could not be saved.")
+                frameDigest.reset()
+                FileOutputStream(file).use { output ->
+                    DigestOutputStream(output, frameDigest).use { stream ->
+                        if (!outputFrame.compress(Bitmap.CompressFormat.JPEG, 92, stream)) {
+                            throw IllegalStateException("A sampled frame could not be saved.")
+                        }
                     }
                 }
-                frame.recycle()
-                result.add(file.absolutePath)
+                outputFrame.recycle()
+                val fingerprint = frameDigest.digest()
+                val identical = previousDigest?.contentEquals(fingerprint) == true
+                previousDigest = fingerprint
+                // Compare the exact bytes OCR would receive, not a thumbnail:
+                // any difference in the encoded OCR input remains eligible.
+                // Keep a sample every 3 s plus the window tail to preserve
+                // temporal package continuity through long static views.
+                if (identical && timestampMs - lastRetainedTimestampMs < 3_000L &&
+                    index != count - 1) {
+                    file.delete()
+                    continue
+                }
+                lastRetainedTimestampMs = timestampMs
+                result.add(
+                    mapOf(
+                        "path" to file.absolutePath,
+                        "sequence" to timestampMs.toInt(),
+                        "timestampMs" to timestampMs,
+                        "quality" to selectedMetrics.quality,
+                    ),
+                )
+                } finally {
+                    frame?.let { if (!it.isRecycled) it.recycle() }
+                    if (!original.isRecycled) original.recycle()
+                }
             }
-            if (result.isEmpty()) {
+            if (result.isEmpty() && endMs == null) {
                 throw IllegalArgumentException(
                     "No clear frame could be sampled. Try a shorter, steadier video.",
                 )
             }
-            return result
+            return SampledVideo(result, unreadable)
+        } catch (error: OutOfMemoryError) {
+            frameDirectory?.deleteRecursively()
+            throw IllegalStateException(
+                "Not enough memory to process this video. Close other apps or use a shorter, lower-resolution clip.",
+                error,
+            )
         } catch (error: Exception) {
             frameDirectory?.deleteRecursively()
             throw error
@@ -389,23 +756,303 @@ class MainActivity : FlutterActivity() {
         return deleted
     }
 
-    private fun imageMetrics(bitmap: Bitmap): Pair<Long, Double> {
-        val small = Bitmap.createScaledBitmap(bitmap, 8, 8, false)
-        val pixels = IntArray(64)
-        small.getPixels(pixels, 0, 8, 0, 0, 8, 8)
+    private fun deleteCameraCapture(path: String): Boolean {
+        if (path.isBlank()) return false
+        return try {
+            val root = cacheDir.canonicalFile
+            val target = File(path).canonicalFile
+            val allowed = target.isFile &&
+                target.path.startsWith(root.path + File.separator)
+            allowed && target.delete()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun photoMetrics(path: String): FrameMetrics? {
+        if (path.isBlank()) return null
+        val target = File(path).canonicalFile
+        val roots = listOf(cacheDir, filesDir, File(applicationInfo.dataDir, "app_flutter"))
+        if (!target.isFile || target.length() > 40_000_000L || roots.none {
+            target.path.startsWith(it.canonicalPath + File.separator)
+        }) return null
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(target.path, options)
+        if (options.outWidth <= 0 || options.outHeight <= 0 ||
+            options.outWidth > 32768 || options.outHeight > 32768) return null
+        // Read bounds first; at most ~512x512 pixels for this advisory metric.
+        // Full-resolution OCR still receives the original unmodified image.
+        var sample = 1
+        while (maxOf(options.outWidth, options.outHeight) / sample > 512) sample *= 2
+        options.inSampleSize = sample
+        options.inJustDecodeBounds = false
+        options.inScaled = false
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888
+        val bitmap = BitmapFactory.decodeFile(target.path, options) ?: return null
+        return try { imageMetrics(bitmap) } finally { bitmap.recycle() }
+    }
+
+    private fun imageMetrics(bitmap: Bitmap): FrameMetrics {
+        val side = 32
+        val small = Bitmap.createScaledBitmap(bitmap, side, side, false)
+        val pixels = IntArray(side * side)
+        small.getPixels(pixels, 0, side, 0, 0, side, side)
         if (small !== bitmap) small.recycle()
         val luminance = pixels.map { color ->
-            (Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114) / 1000
+            (Color.red(color) * 299.0 +
+                Color.green(color) * 587.0 +
+                Color.blue(color) * 114.0) / 1000.0
         }
         val average = luminance.average()
-        var hash = 0L
-        var edge = 0L
-        luminance.forEachIndexed { index, value ->
-            if (value >= average) hash = hash or (1L shl index)
-            if (index % 8 != 0) edge += abs(value - luminance[index - 1])
-            if (index >= 8) edge += abs(value - luminance[index - 8])
+        val variance = luminance.sumOf { value ->
+            val distance = value - average
+            distance * distance
+        } / luminance.size
+        val contrast = sqrt(variance)
+        var edge = 0.0
+        var edgeCount = 0
+        for (y in 0 until side) {
+            for (x in 0 until side) {
+                val index = y * side + x
+                if (x > 0) {
+                    edge += abs(luminance[index] - luminance[index - 1])
+                    edgeCount += 1
+                }
+                if (y > 0) {
+                    edge += abs(luminance[index] - luminance[index - side])
+                    edgeCount += 1
+                }
+            }
         }
-        return hash to edge / 112.0
+        val sharpness = (edge / edgeCount.coerceAtLeast(1) / 28.0).coerceIn(0.0, 1.0)
+        val contrastScore = (contrast / 58.0).coerceIn(0.0, 1.0)
+        val exposure = (1.0 - abs(average - 128.0) / 128.0).coerceIn(0.0, 1.0)
+        val quality = (sharpness * 0.52 + contrastScore * 0.28 + exposure * 0.20)
+            .coerceIn(0.0, 1.0)
+        return FrameMetrics(sharpness, contrast, exposure, quality)
+    }
+
+    private fun createSupplierReturnPdf(arguments: Map<String, Any?>): String {
+        val title = (arguments["title"] as? String)?.take(100)
+            ?: "Aaris Pharmacy Supplier Return List"
+        val date = (arguments["date"] as? String)?.take(30).orEmpty()
+        val supplier = arguments["supplier"] as? Map<*, *>
+            ?: throw IllegalArgumentException("Supplier details are missing.")
+        val supplierName = (supplier["name"] as? String)?.take(300)?.trim().orEmpty()
+        if (supplierName.isEmpty()) {
+            throw IllegalArgumentException("Supplier name is missing.")
+        }
+        val address = (supplier["address"] as? String)?.take(1000)?.trim().orEmpty()
+        val gstin = (supplier["gstin"] as? String)?.take(60)?.trim().orEmpty()
+        val drugLicenceNo =
+            (supplier["drugLicenceNo"] as? String)?.take(120)?.trim().orEmpty()
+        val customFields = (supplier["customFields"] as? List<*>)
+            ?.mapNotNull { raw ->
+                val field = raw as? Map<*, *> ?: return@mapNotNull null
+                val label = (field["label"] as? String)?.take(100)?.trim().orEmpty()
+                val value = (field["value"] as? String)?.take(300)?.trim().orEmpty()
+                if (label.isEmpty() || value.isEmpty()) null else label to value
+            }
+            ?.take(4)
+            ?: emptyList()
+        val returnDays = (supplier["returnBeforeExpiryDays"] as? Number)?.toInt()
+            ?: throw IllegalArgumentException("Supplier return window is missing.")
+        if (returnDays !in 0..3650) {
+            throw IllegalArgumentException("Supplier return window is invalid.")
+        }
+        val rawLines = arguments["lines"] as? List<*>
+            ?: throw IllegalArgumentException("No supplier return rows were supplied.")
+        if (rawLines.isEmpty() || rawLines.size > 500) {
+            throw IllegalArgumentException("Choose between 1 and 500 return rows.")
+        }
+
+        val document = PdfDocument()
+        val body = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(23, 59, 52)
+            textSize = 9f
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        }
+        val small = Paint(body).apply {
+            color = Color.rgb(96, 116, 108)
+            textSize = 7.5f
+        }
+        val heading = Paint(body).apply {
+            textSize = 18f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val subheading = Paint(body).apply {
+            textSize = 10f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val tableHeading = Paint(body).apply {
+            textSize = 8f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(218, 229, 220)
+            strokeWidth = 1f
+        }
+
+        var pageNumber = 0
+        var page: PdfDocument.Page? = null
+        lateinit var canvas: Canvas
+        var y = 0f
+
+        fun fitted(text: String, width: Float, paint: Paint): String {
+            val original = text.replace(Regex("[\\r\\n]+"), " ").trim()
+            var value = if (original.isEmpty()) "-" else original
+            while (value.length > 1 && paint.measureText(value) > width) {
+                value = value.dropLast(1)
+            }
+            if (value != original && value.length > 1) {
+                value = value.dropLast(1) + "..."
+            }
+            return value
+        }
+
+        fun drawFitted(
+            text: String,
+            x: Float,
+            baseline: Float,
+            width: Float,
+            paint: Paint,
+        ) {
+            canvas.drawText(fitted(text, width, paint), x, baseline, paint)
+        }
+
+        fun beginPage() {
+            page?.let(document::finishPage)
+            pageNumber += 1
+            page = document.startPage(
+                PdfDocument.PageInfo.Builder(595, 842, pageNumber).create(),
+            )
+            canvas = page!!.canvas
+            canvas.drawText(title, 32f, 42f, heading)
+            canvas.drawText("Supplier: " + fitted(supplierName, 360f, subheading), 32f, 63f, subheading)
+            canvas.drawText("Date: $date", 430f, 63f, small)
+            canvas.drawText("Page $pageNumber", 520f, 63f, small)
+            var infoY = 80f
+            if (address.isNotEmpty()) {
+                drawFitted("Address: $address", 32f, infoY, 520f, small)
+                infoY += 14f
+            }
+            if (gstin.isNotEmpty()) {
+                drawFitted("GSTIN: $gstin", 32f, infoY, 300f, small)
+                infoY += 14f
+            }
+            if (drugLicenceNo.isNotEmpty()) {
+                drawFitted(
+                    "Drug licence: $drugLicenceNo",
+                    32f,
+                    infoY,
+                    520f,
+                    small,
+                )
+                infoY += 14f
+            }
+            customFields.forEach { (label, value) ->
+                drawFitted("$label: $value", 32f, infoY, 520f, small)
+                infoY += 14f
+            }
+            drawFitted(
+                "Return window: $returnDays day(s) before expiry",
+                32f,
+                infoY,
+                300f,
+                small,
+            )
+            infoY += 14f
+            canvas.drawLine(32f, infoY, 563f, infoY, rule)
+            val headY = infoY + 20f
+            canvas.drawText("Medicine", 32f, headY, tableHeading)
+            canvas.drawText("Batch", 270f, headY, tableHeading)
+            canvas.drawText("EXP", 365f, headY, tableHeading)
+            canvas.drawText("Qty", 430f, headY, tableHeading)
+            canvas.drawText("Location", 475f, headY, tableHeading)
+            canvas.drawLine(32f, headY + 8f, 563f, headY + 8f, rule)
+            y = headY + 28f
+        }
+
+        try {
+            beginPage()
+            rawLines.forEachIndexed { index, raw ->
+                val line = raw as? Map<*, *>
+                    ?: throw IllegalArgumentException(
+                        "Return row ${index + 1} is invalid.",
+                    )
+                val name = (line["name"] as? String)?.take(300)?.trim().orEmpty()
+                if (name.isEmpty()) {
+                    throw IllegalArgumentException(
+                        "Return row ${index + 1} has no medicine name.",
+                    )
+                }
+                val quantity = (line["quantity"] as? Number)?.toLong()
+                    ?: throw IllegalArgumentException(
+                        "Return row ${index + 1} has no quantity.",
+                    )
+                if (quantity < 1 || quantity > 100_000_000) {
+                    throw IllegalArgumentException(
+                        "Return row ${index + 1} has an invalid quantity.",
+                    )
+                }
+                if (y > 780f) beginPage()
+                val strength = (line["strength"] as? String)?.take(100)?.trim().orEmpty()
+                val batch = (line["batchNumber"] as? String)?.take(160)?.trim().orEmpty()
+                val expiry = (line["expiry"] as? String)?.take(30)?.trim().orEmpty()
+                val location = (line["location"] as? String)?.take(300)?.trim().orEmpty()
+                val manufacturer =
+                    (line["manufacturer"] as? String)?.take(300)?.trim().orEmpty()
+
+                drawFitted(
+                    if (strength.isEmpty()) name else "$name $strength",
+                    32f,
+                    y,
+                    225f,
+                    body,
+                )
+                drawFitted(batch, 270f, y, 82f, body)
+                drawFitted(expiry, 365f, y, 54f, body)
+                drawFitted(quantity.toString(), 430f, y, 34f, body)
+                drawFitted(location, 475f, y, 88f, body)
+                if (manufacturer.isNotEmpty()) {
+                    drawFitted(
+                        manufacturer,
+                        32f,
+                        y + 15f,
+                        225f,
+                        small,
+                    )
+                }
+                canvas.drawLine(32f, y + 27f, 563f, y + 27f, rule)
+                y += 40f
+            }
+
+            canvas.drawText(
+                "Prepared from Aaris Pharmacy stock records. Confirm physical handover before marking stock returned.",
+                32f,
+                816f,
+                small,
+            )
+            page?.let(document::finishPage)
+            page = null
+
+            val directory = File(cacheDir, "supplier_returns").apply { mkdirs() }
+            directory.listFiles()?.filter {
+                System.currentTimeMillis() - it.lastModified() >
+                    24 * 60 * 60 * 1000L
+            }?.forEach { it.delete() }
+            val output = File(
+                directory,
+                "Aaris_Pharmacy_Supplier_Return_${System.currentTimeMillis()}.pdf",
+            )
+            FileOutputStream(output).use { stream ->
+                document.writeTo(stream)
+            }
+            return output.absolutePath
+        } finally {
+            page?.let(document::finishPage)
+            document.close()
+        }
     }
 
     private fun createPurchaseOrderPdf(arguments: Map<String, Any?>): String {

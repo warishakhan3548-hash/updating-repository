@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -103,8 +102,14 @@ void main() {
   test('worker close during startup settles requests without a hang', () async {
     for (final duringStart in [false, true]) {
       final worker = SearchWorker();
-      final future = worker.search([stock('a')], 1, '', SearchScope.all,
-        contractSettings, contractToday);
+      final future = worker.browseActive(
+        [stock('a')],
+        1,
+        SearchScope.all,
+        contractSettings,
+        contractToday,
+        limit: 120,
+      );
       final checked = future.then<void>((_) {}, onError: (Object error, StackTrace stack) {
         expect(error, isA<StateError>());
       });

@@ -11,12 +11,34 @@ import '../lib/data/inventory_database.dart';
 import '../lib/state/pharmacy_controller.dart';
 import '../lib/ui/search_screen.dart';
 import '../lib/ui/editor_screen.dart';
+import '../lib/ui/backup_screen.dart';
+import '../lib/ui/import_screen.dart';
+import '../lib/ui/design.dart';
 import '../lib/domain/inventory.dart';
+import '../lib/domain/search.dart';
 import 'domain_contract.dart';
+
+class _CountingPharmacyController extends PharmacyController {
+  _CountingPharmacyController(
+    InventoryStorage storage, {
+    DateTime Function()? clock,
+  }) : super(storage, clock: clock, backgroundSearch: false);
+
+  int searchCalls = 0;
+
+  @override
+  Future<List<SearchHit>> search(String raw, SearchScope scope) {
+    searchCalls++;
+    return super.search(raw, scope);
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
+    await (FontLoader(
+      'MaterialIcons',
+    )..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
     await (FontLoader(
       'Manrope',
     )..addFont(rootBundle.load('assets/fonts/Manrope.ttf'))).load();
@@ -100,7 +122,7 @@ void main() {
     expect(find.text('Aaris Pharmacy'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await screenshot(tester, key, 'home');
-    await tester.scrollUntilVisible(find.text('Expired Medicines'), 250);
+    await tester.ensureVisible(find.text('Expired Medicines'));
     await tester.tap(find.text('Expired Medicines'));
     await tester.pumpAndSettle();
     expect(find.byType(SearchScreen), findsOneWidget);
@@ -110,12 +132,12 @@ void main() {
     await tester.tap(find.text('Cefixime'));
     await tester.pumpAndSettle();
     expect(find.byType(EditorScreen), findsOneWidget);
-    expect(find.text('Medicine details'), findsOneWidget);
+    expect(find.text('Medicine details'), findsWidgets);
     await screenshot(tester, key, 'medicine-details');
     await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();
   });
-  testWidgets('Database add flow saves a name-only entry and updates Home', (
+  testWidgets('Stock add flow saves a name-only entry and updates Home', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -129,14 +151,14 @@ void main() {
     await controller.initialize();
     await tester.pumpWidget(PharmacyApp(controller: controller));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Database'));
+    await tester.tap(find.text('Stock'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Add / Import medicines'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Add manually'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'New medicine');
-    await tester.scrollUntilVisible(find.text('Save medicine'), 500);
+    await tester.ensureVisible(find.text('Save medicine'));
     await tester.tap(find.text('Save medicine'));
     await tester.pumpAndSettle();
     expect(controller.records.single.name, 'New medicine');
@@ -146,6 +168,146 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();
   });
+  testWidgets('Changing tabs releases keyboard focus and preserves the query', (
+    tester,
+  ) async {
+    final controller = await seeded();
+    await tester.pumpWidget(PharmacyApp(controller: controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stock').last);
+    await tester.pumpAndSettle();
+    final query = find.descendant(
+      of: find.byType(SearchScreen),
+      matching: find.byType(TextField),
+    ).first;
+    await tester.enterText(query, 'Azithromycin');
+    await tester.pumpAndSettle();
+    final editable = tester.widget<EditableText>(find.byType(EditableText).first);
+    final searchState = tester.state(find.byType(SearchScreen));
+    expect(editable.focusNode.hasFocus, isTrue);
+
+    await tester.tap(find.text('Home').last);
+    await tester.pumpAndSettle();
+    expect(editable.focusNode.hasFocus, isFalse);
+    await tester.tap(find.text('Stock').last);
+    await tester.pumpAndSettle();
+    expect(tester.state(find.byType(SearchScreen)), same(searchState));
+    expect(tester.widget<TextField>(query).controller!.text, 'Azithromycin');
+    expect(editable.focusNode.hasFocus, isFalse);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  });
+
+  testWidgets(
+    'typing a new search query never leaves stale result cards tappable',
+    (tester) async {
+      final controller = await seeded();
+      await tester.pumpWidget(PharmacyApp(controller: controller));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Stock').last);
+      await tester.pumpAndSettle();
+
+      final query = find.descendant(
+        of: find.byType(SearchScreen),
+        matching: find.byType(TextField),
+      ).first;
+      await tester.enterText(query, 'Drotaverine');
+      await tester.pump(const Duration(milliseconds: 160));
+      await tester.pumpAndSettle();
+      expect(
+        find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Drotaverine'),
+        findsOneWidget,
+      );
+
+      await tester.enterText(query, 'Azithromycin');
+      await tester.pump();
+
+      expect(find.text('Drotaverine'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 160));
+      await tester.pumpAndSettle();
+      expect(
+        find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Azithromycin'),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Drotaverine'),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'hidden Stock tab cancels pending query work and resumes exactly once',
+    (tester) async {
+      final records = [
+        stock(
+          'short',
+          name: 'Azithromycin',
+          expiry: '2026-09-10',
+          salt: 'Azithromycin',
+        ),
+        stock(
+          'month',
+          name: 'Drotaverine',
+          strength: '80mg',
+          expiry: '2026-10-22',
+          salt: 'Drotaverine',
+        ),
+      ];
+      final controller = _CountingPharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(
+            records: {
+              for (final medicine in records) medicine.id: medicine,
+            },
+          ),
+        ),
+        clock: () => contractToday,
+      );
+      await controller.initialize();
+
+      await tester.pumpWidget(PharmacyApp(controller: controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Stock').last);
+      await tester.pumpAndSettle();
+      final baselineSearches = controller.searchCalls;
+
+      final query = find.descendant(
+        of: find.byType(SearchScreen),
+        matching: find.byType(TextField),
+      ).first;
+      await tester.enterText(query, 'Drotaverine');
+      await tester.pump();
+      await tester.tap(find.text('Home').last);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 220));
+
+      expect(controller.searchCalls, baselineSearches);
+
+      await tester.tap(find.text('Stock').last);
+      await tester.pumpAndSettle();
+      expect(controller.searchCalls, baselineSearches + 1);
+      expect(
+        find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Drotaverine'),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Azithromycin'),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
   testWidgets('All main tabs fit a narrow phone at large text scale', (
     tester,
   ) async {
@@ -159,7 +321,7 @@ void main() {
     await tester.pumpWidget(PharmacyApp(controller: c));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    for (final tab in ['Database', 'AI', 'Calculator', 'Profile']) {
+    for (final tab in ['Stock', 'Aaris Brain', 'Calculator', 'Profile']) {
       await tester.tap(find.text(tab).last);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'Overflow in $tab');
@@ -167,7 +329,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();
   });
-  testWidgets('Tracking and AI hub have reviewable screenshots', (
+  testWidgets('Calculator and Aaris Brain have reviewable screenshots', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -185,11 +347,59 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Calculator'));
     await tester.pumpAndSettle();
-    await screenshot(tester, key, 'tracking');
-    await tester.tap(find.text('AI').last);
+    await screenshot(tester, key, 'calculator');
+    await tester.tap(find.text('Aaris Brain').last);
     await tester.pumpAndSettle();
-    await screenshot(tester, key, 'ai-controller');
+    await screenshot(tester, key, 'aaris-brain');
     await tester.pumpWidget(const SizedBox.shrink());
     c.dispose();
+    // The AI tab starts a bounded secure-storage load. Advance Flutter's fake
+    // clock after unmount so its safety deadline settles before the framework
+    // checks for leaked timers.
+    await tester.pump(const Duration(seconds: 5));
   });
+  testWidgets(
+    'Stock, Profile, import and backup share the same visual system',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final c = await seeded();
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: key,
+          child: PharmacyApp(controller: c),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final tab in ['Stock', 'Profile']) {
+        await tester.tap(find.text(tab).last);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await screenshot(tester, key, tab.toLowerCase());
+      }
+      for (final entry in <String, Widget>{
+        'import': ImportCenterScreen(controller: c),
+        'backup': BackupScreen(controller: c),
+      }.entries) {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: key,
+            child: MaterialApp(
+              theme: pharmacyTheme(),
+              home: entry.value,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await screenshot(tester, key, entry.key);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      c.dispose();
+    },
+  );
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../domain/medicine.dart';
+import '../domain/date_input.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 
@@ -50,86 +51,95 @@ class VersionHistoryScreen extends StatelessWidget {
     final versions = controller.versionsFor(medicineId);
     return Scaffold(
       appBar: AppBar(title: const Text('Version history')),
-      body: ListView(
+      body: ListView.builder(
         padding: const EdgeInsets.fromLTRB(22, 8, 22, 30),
-        children: [
-          const Text(
-            'Previous saved facts from recent activity. Restoring creates a new change; it never rewrites history silently.',
-            style: TextStyle(color: muted, fontSize: 13),
-          ),
-          const SizedBox(height: 18),
-          if (versions.isEmpty)
-            const EmptyState(
+        itemCount: versions.isEmpty ? 2 : versions.length + 1,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return const ScreenIntro(
+              title: 'Previous versions',
+              message:
+                  'Compare saved details and restore the version you need. Each restore is recorded.',
+              icon: Icons.history_rounded,
+            );
+          }
+          if (versions.isEmpty) {
+            return const EmptyState(
               title: 'No earlier version',
               message: 'Edits to this stock entry will appear here.',
-            ),
-          for (final version in versions)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Surface(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            version.record.title,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
+            );
+          }
+
+          final version = versions[index - 1];
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Surface(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          version.record.title,
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        StatusPill('v${version.record.revision}'),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Before: ${version.label}',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    Text(
-                      version.time.toLocal().toString().split('.').first,
-                      style: const TextStyle(fontSize: 11, color: muted),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 7,
-                      children: [
-                        _Fact(
-                          'Expiry',
-                          version.record.expiry == null
-                              ? 'Not provided'
-                              : dateText(version.record.expiry!),
-                        ),
-                        _Fact(
-                          'Quantity',
-                          version.record.quantity?.toString() ?? 'Unknown',
-                        ),
-                        _Fact(
-                          'Unit cost',
-                          version.record.unitPricePaise == null
-                              ? 'Unknown'
-                              : money(version.record.unitPricePaise!),
-                        ),
-                        _Fact(
-                          'Location',
-                          version.record.address.isEmpty
-                              ? 'Not provided'
-                              : version.record.address,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(_restore(context, version)),
-                      icon: const Icon(Icons.restore_rounded),
-                      label: const Text('Restore this version'),
-                    ),
-                  ],
-                ),
+                      ),
+                      StatusPill('v${version.record.revision}'),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Before: ${version.label}',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    version.time.toLocal().toString().split('.').first,
+                    style: const TextStyle(fontSize: 11, color: muted),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 7,
+                    children: [
+                      _Fact(
+                        'Expiry',
+                        version.record.expiry == null
+                            ? 'Not provided'
+                            : inputDateText(
+                                version.record.expiry!,
+                                monthOnly: version.record.expiryMonthOnly,
+                              ),
+                      ),
+                      _Fact(
+                        'Quantity',
+                        version.record.quantity?.toString() ?? 'Unknown',
+                      ),
+                      _Fact(
+                        'Unit cost',
+                        version.record.unitPricePaise == null
+                            ? 'Unknown'
+                            : money(version.record.unitPricePaise!),
+                      ),
+                      _Fact(
+                        'Location',
+                        version.record.address.isEmpty
+                            ? 'Not provided'
+                            : version.record.address,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    onPressed: () => unawaited(_restore(context, version)),
+                    icon: const Icon(Icons.restore_rounded),
+                    label: const Text('Restore this version'),
+                  ),
+                ],
               ),
             ),
-        ],
+          );
+        },
       ),
     );
   }
