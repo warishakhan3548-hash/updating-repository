@@ -6,7 +6,6 @@ import '../domain/automation_guard.dart';
 import '../domain/sale_ledger_guard.dart';
 import '../domain/medicine.dart';
 import '../domain/supplier.dart';
-import '../domain/inventory.dart';
 import '../domain/tracking.dart';
 
 class InventorySnapshot {
