@@ -275,8 +275,8 @@ class _SoldMedicineTrackerScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Sold Medicine Tracker')),
-    body: AnimatedBuilder(
-      animation: controller,
+    body: ActiveListenableBuilder(
+      listenable: controller,
       builder: (context, _) {
         final overview = controller.salesOverview;
         final ranked = overview.ranked;
@@ -286,53 +286,61 @@ class _SoldMedicineTrackerScreen extends StatelessWidget {
             message: 'Record medicine sales to build the demand tracker.',
           );
         }
-        return ListView(
+        return ListView.builder(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-          children: [
-            GlassPanel(
-              tint: primarySoft,
-              accentColor: primary,
-              radius: 22,
-              elevation: .9,
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  const DepthIcon(
-                    Icons.bar_chart_rounded,
-                    color: primary,
-                    background: Colors.white,
-                    size: 44,
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${overview.totalUnitsSold} units sold',
-                          style: Theme.of(context).textTheme.titleMedium,
+          itemCount: ranked.length + 1,
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: GlassPanel(
+                  tint: primarySoft,
+                  accentColor: primary,
+                  radius: 22,
+                  elevation: .9,
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      const DepthIcon(
+                        Icons.bar_chart_rounded,
+                        color: primary,
+                        background: Colors.white,
+                        size: 44,
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${overview.totalUnitsSold} units sold',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${ranked.length} medicines ranked by recorded demand',
+                              style: const TextStyle(color: muted, fontSize: 12),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '${ranked.length} medicines ranked by recorded demand',
-                          style: const TextStyle(color: muted, fontSize: 12),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
+              );
+            }
+            final demandIndex = index - 1;
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: demandIndex == ranked.length - 1 ? 0 : 12,
               ),
-            ),
-            const SizedBox(height: 16),
-            for (var i = 0; i < ranked.length; i++) ...[
-              _DemandRow(
-                rank: i + 1,
-                demand: ranked[i],
+              child: _DemandRow(
+                rank: demandIndex + 1,
+                demand: ranked[demandIndex],
                 totalUnitsSold: overview.totalUnitsSold,
               ),
-              if (i != ranked.length - 1) const SizedBox(height: 12),
-            ],
-          ],
+            );
+          },
         );
       },
     ),
