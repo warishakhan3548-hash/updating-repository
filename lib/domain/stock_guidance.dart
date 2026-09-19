@@ -144,7 +144,9 @@ List<StockGuidance> supplierReturnGuidance({
       StockGuidance(
         key: 'supplier-return:${supplier.id}:${medicine.id}',
         title: medicine.title,
-        action: '${supplier.name} को वापसी तैयार करें',
+        action: medicine.quantity == null
+            ? 'वापसी से पहले stock count करें'
+            : '${supplier.name} को वापसी तैयार करें',
         reason:
             "${cues.join(' · ')} · supplier window ${supplier.returnBeforeExpiryDays} दिन",
         group: StockTaskGroup.supplier,
