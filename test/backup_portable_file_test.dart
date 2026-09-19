@@ -108,7 +108,7 @@ void main() {
       sourceRevision: 30,
       settings: contractSettings,
       records: <String, Medicine>{medicine.id: medicine},
-      suppliers: const <String, Supplier>{supplier.id: supplier},
+      suppliers: <String, Supplier>{supplier.id: supplier},
       sales: const <String, SaleEvent>{},
       soldValue: 0,
       unknownSold: 0,
