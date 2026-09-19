@@ -55,6 +55,7 @@ void main() {
         ],
       ),
       {'existing': live},
+      const {},
       7,
       const {},
       now,
@@ -80,6 +81,7 @@ void main() {
         ],
       ),
       {'existing': afterFirst},
+      const {},
       8,
       {first.requestId},
       now,
@@ -106,10 +108,10 @@ void main() {
         },
       ],
     );
-    final reviewed = parseAiPlan(raw, {'existing': live}, 1, const {}, now);
+    final reviewed = parseAiPlan(raw, {'existing': live}, const {}, 1, const {}, now);
 
     expect(
-      () => parseAiPlan(raw, {'existing': live}, 2, {reviewed.requestId}, now),
+      () => parseAiPlan(raw, {'existing': live}, const {}, 2, {reviewed.requestId}, now),
       throwsFormatException,
     );
   });
@@ -136,6 +138,7 @@ void main() {
         ],
       ),
       const {},
+      const {},
       5,
       const {},
       now,
@@ -158,6 +161,7 @@ void main() {
         ],
       ),
       {addedId: added},
+      const {},
       6,
       {add.requestId},
       now,
@@ -177,6 +181,7 @@ void main() {
         ],
       ),
       {addedId: updated},
+      const {},
       7,
       {add.requestId, update.requestId},
       now,
@@ -199,7 +204,7 @@ void main() {
         },
       ],
     );
-    final first = parseAiPlan(firstRaw, {'existing': live}, 3, const {}, now);
+    final first = parseAiPlan(firstRaw, {'existing': live}, const {}, 3, const {}, now);
     final afterFirst = first.changes.single.after;
 
     final secondRaw = envelope(
@@ -216,6 +221,7 @@ void main() {
     final second = parseAiPlan(
       secondRaw,
       {'existing': afterFirst},
+      const {},
       4,
       {first.requestId},
       now,
@@ -227,6 +233,7 @@ void main() {
       () => parseAiPlan(
         firstRaw,
         {'existing': afterFirst},
+        const {},
         4,
         {first.requestId},
         now,
