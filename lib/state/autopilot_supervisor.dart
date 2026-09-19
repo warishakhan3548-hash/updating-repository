@@ -248,32 +248,66 @@ class AarisAutopilotDigest {
       listEquals(nextStockIds, other.nextStockIds);
 }
 
-Map<String, dynamic> _operationalMedicineJson(Medicine medicine) {
-  final json = medicine.toJson();
+Medicine _operationalMedicine(Medicine medicine) {
+  if (medicine.notes.isEmpty && medicine.ocrText.isEmpty) return medicine;
+
   // Notes/OCR can be large and are irrelevant to deterministic operational
-  // attention checks. Do not copy those private free-text blobs across isolates.
-  json['notes'] = '';
-  json['ocrText'] = '';
-  return json;
+  // attention checks. Keep the isolate payload typed and copy only the same
+  // operational medicine facts instead of serializing every row through JSON.
+  return Medicine(
+    id: medicine.id,
+    name: medicine.name,
+    brand: medicine.brand,
+    manufacturer: medicine.manufacturer,
+    salt: medicine.salt,
+    strength: medicine.strength,
+    form: medicine.form,
+    mfg: medicine.mfg,
+    mfgMonthOnly: medicine.mfgMonthOnly,
+    expiry: medicine.expiry,
+    expiryMonthOnly: medicine.expiryMonthOnly,
+    quantity: medicine.quantity,
+    unitPricePaise: medicine.unitPricePaise,
+    barcode: medicine.barcode,
+    batchNumber: medicine.batchNumber,
+    supplierId: medicine.supplierId,
+    block: medicine.block,
+    row: medicine.row,
+    vertical: medicine.vertical,
+    location: medicine.location,
+    sold: medicine.sold,
+    archived: medicine.archived,
+    archivedAt: medicine.archivedAt,
+    archiveReason: medicine.archiveReason,
+    soldAt: medicine.soldAt,
+    soldQuantity: medicine.soldQuantity,
+    soldUnitPricePaise: medicine.soldUnitPricePaise,
+    revision: medicine.revision,
+  );
 }
 
-Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
-  final records = <Medicine>[
-    for (final raw in payload['records'] as List<dynamic>)
-      Medicine.fromJson(Map<String, dynamic>.from(raw as Map)),
-  ];
-  final sales = <SaleEvent>[
-    for (final raw in payload['sales'] as List<dynamic>)
-      SaleEvent.fromJson(Map<String, dynamic>.from(raw as Map)),
-  ];
-  final saleHistorySales = <SaleEvent>[
-    for (final raw in payload['saleHistorySales'] as List<dynamic>)
-      SaleEvent.fromJson(Map<String, dynamic>.from(raw as Map)),
-  ];
-  final settings = WarningSettings.fromJson(
-    Map<String, dynamic>.from(payload['settings'] as Map),
-  );
-  final today = DateTime.parse(payload['today'] as String);
+class _AutopilotPayload {
+  const _AutopilotPayload({
+    required this.records,
+    required this.sales,
+    required this.saleHistorySales,
+    required this.settings,
+    required this.today,
+  });
+
+  final List<Medicine> records;
+  final List<SaleEvent> sales;
+  final List<SaleEvent> saleHistorySales;
+  final WarningSettings settings;
+  final DateTime today;
+}
+
+Map<String, dynamic> _evaluateAutopilot(_AutopilotPayload payload) {
+  final records = payload.records;
+  final sales = payload.sales;
+  final saleHistorySales = payload.saleHistorySales;
+  final settings = payload.settings;
+  final today = payload.today;
   final tracking = TrackingStats(
     medicines: records,
     sales: sales,
@@ -419,7 +453,8 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
   Future<void> _rebuild(int generation) async {
     if (_disposed || !_lifecycleActive || generation != _generation) return;
 
-    final revision = controller.snapshot.revision;
+    final snapshot = controller.snapshot;
+    final revision = snapshot.revision;
     if (!controller.ready) {
       _publish(AarisAutopilotDigest.waiting(inventoryRevision: revision));
       return;
@@ -428,42 +463,37 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
     try {
       final today = controller.today;
       final start = today.subtract(const Duration(days: 30));
-      final activeById = <String, Medicine>{
-        for (final medicine in controller.records)
-          if (!medicine.archived) medicine.id: medicine,
-      };
-      final recentSales = <Map<String, dynamic>>[];
-      final saleHistorySales = <Map<String, dynamic>>[];
-      for (final sale in controller.sales) {
+      final recentSales = <SaleEvent>[];
+      final saleHistorySales = <SaleEvent>[];
+      for (final sale in snapshot.sales.values) {
         final saleDay = civilDay(sale.occurredAt);
         if (!saleDay.isBefore(start)) {
-          recentSales.add(sale.toJson());
+          recentSales.add(sale);
         }
+        final stock = snapshot.records[sale.stockId];
         if (isSaleHistoryIntegrityCandidate(
-          stock: activeById[sale.stockId],
+          stock: stock == null || stock.archived ? null : stock,
           sale: sale,
           today: today,
         )) {
-          saleHistorySales.add(sale.toJson());
+          saleHistorySales.add(sale);
         }
       }
 
-      // Capture only operational fields. Large OCR/notes text is intentionally
-      // excluded because it is irrelevant to integrity, FEFO, risk and reorder.
-      // Thirty completed days plus today drive daily demand. Future events
-      // are retained for the same review gate as the foreground calculation.
-      // The second list contains only exact
-      // full-history anomalies that can become immutable-ledger safety tasks.
-      final payload = <String, dynamic>{
-        'records': <Map<String, dynamic>>[
-          for (final medicine in controller.records)
-            _operationalMedicineJson(medicine),
+      // Capture one immutable controller snapshot and hand typed, sendable
+      // domain objects to compute(). This removes the full UI-isolate JSON
+      // encode/decode round-trip after every inventory write while still
+      // excluding large private notes/OCR blobs that the planner never reads.
+      final payload = _AutopilotPayload(
+        records: <Medicine>[
+          for (final medicine in snapshot.records.values)
+            _operationalMedicine(medicine),
         ],
-        'sales': recentSales,
-        'saleHistorySales': saleHistorySales,
-        'settings': controller.settings.toJson(),
-        'today': today.toIso8601String(),
-      };
+        sales: recentSales,
+        saleHistorySales: saleHistorySales,
+        settings: snapshot.settings,
+        today: today,
+      );
 
       final result = await compute(_evaluateAutopilot, payload);
       if (_disposed || !_lifecycleActive || generation != _generation) return;
