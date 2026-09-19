@@ -6,6 +6,7 @@ import 'backup_screen.dart';
 import 'design.dart';
 import 'home_screen.dart';
 import 'removed_stock_screen.dart';
+import 'supplier_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key, required this.controller});
@@ -101,7 +102,7 @@ class ProfileScreen extends StatelessWidget {
       children: [
         const ScreenIntro(
           title: 'Your pharmacy',
-          message: 'Manage warnings, backups and your saved activity.',
+          message: 'Manage suppliers, warnings, backups and your saved activity.',
           icon: Icons.local_pharmacy_outlined,
         ),
         Surface(
@@ -142,6 +143,23 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => showWarningSettings(context, controller),
+              ),
+              ListTile(
+                leading: const DepthIcon(
+                  Icons.local_shipping_outlined,
+                  size: 40,
+                ),
+                title: const Text('Supplier details'),
+                subtitle: Text(
+                  '${controller.snapshot.suppliers.length} saved · link exact stock from Medicine Details',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => SupplierScreen(controller: controller),
+                  ),
+                ),
               ),
               ListTile(
                 leading: const DepthIcon(Icons.history_rounded, size: 40),
