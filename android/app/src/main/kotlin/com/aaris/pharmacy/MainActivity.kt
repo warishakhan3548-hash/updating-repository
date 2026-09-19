@@ -1,6 +1,7 @@
 package com.aaris.pharmacy
 
 import android.app.Activity
+import android.content.ContentValues
 import android.content.Intent
 import android.database.Cursor
 import android.graphics.Bitmap
@@ -13,17 +14,17 @@ import android.graphics.pdf.PdfDocument
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
-import java.io.ByteArrayOutputStream
 import java.text.NumberFormat
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
-import java.nio.charset.StandardCharsets
 import java.security.DigestOutputStream
 import java.security.MessageDigest
 import kotlin.math.abs
@@ -33,10 +34,10 @@ import kotlin.math.sqrt
 class MainActivity : FlutterActivity() {
     private val localAiPlatform by lazy { LocalAiPlatform(this) }
     private val documentsChannel = "com.aaris.pharmacy/documents"
-    private val pickTextRequest = 4071
+    private val pickBackupRequest = 4071
     private val pickImageRequest = 4072
     private val pickVideoRequest = 4073
-    private var pendingTextResult: MethodChannel.Result? = null
+    private var pendingBackupResult: MethodChannel.Result? = null
     private var pendingMediaResult: MethodChannel.Result? = null
     private val photoMetricsBusy = AtomicBoolean(false)
     // A Dart timeout does not cancel native decoding. Keep one decoder owner
@@ -71,7 +72,25 @@ class MainActivity : FlutterActivity() {
                             }
                         }.start()
                     }
-                    "pickTextDocument" -> pickTextDocument(result)
+                    "pickBackupFile" -> pickBackupDocument(result)
+                    "saveBackupToDownloads" -> {
+                        val path = call.argument<String>("path").orEmpty()
+                        val fileName = call.argument<String>("fileName").orEmpty()
+                        Thread {
+                            try {
+                                val saved = saveBackupToDownloads(path, fileName)
+                                runOnUiThread { result.success(saved) }
+                            } catch (error: Exception) {
+                                runOnUiThread {
+                                    result.error(
+                                        "backup_save_error",
+                                        error.message ?: "The backup could not be saved.",
+                                        null,
+                                    )
+                                }
+                            }
+                        }.start()
+                    }
                     "measureImageQuality" -> {
                         val path = call.argument<String>("path").orEmpty()
                         if (!photoMetricsBusy.compareAndSet(false, true)) {
@@ -174,24 +193,29 @@ class MainActivity : FlutterActivity() {
             }
     }
 
-    private fun pickTextDocument(result: MethodChannel.Result) {
-        if (pendingTextResult != null || pendingMediaResult != null) {
+    private fun pickBackupDocument(result: MethodChannel.Result) {
+        if (pendingBackupResult != null || pendingMediaResult != null) {
             result.error("picker_busy", "Another file selection is already open.", null)
             return
         }
-        pendingTextResult = result
+        pendingBackupResult = result
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/json"
+            type = "text/plain"
             putExtra(
                 Intent.EXTRA_MIME_TYPES,
-                arrayOf("application/json", "text/json", "text/plain", "application/octet-stream"),
+                arrayOf(
+                    "text/plain",
+                    "application/json",
+                    "text/json",
+                    "application/octet-stream",
+                ),
             )
         }
         try {
-            startActivityForResult(intent, pickTextRequest)
+            startActivityForResult(intent, pickBackupRequest)
         } catch (error: Exception) {
-            pendingTextResult = null
+            pendingBackupResult = null
             result.error("picker_unavailable", "A document picker is unavailable.", null)
         }
     }
@@ -201,7 +225,7 @@ class MainActivity : FlutterActivity() {
             result.error("invalid_source", "Choose an image or video.", null)
             return
         }
-        if (pendingTextResult != null || pendingMediaResult != null) {
+        if (pendingBackupResult != null || pendingMediaResult != null) {
             result.error("picker_busy", "Another file selection is already open.", null)
             return
         }
@@ -228,36 +252,66 @@ class MainActivity : FlutterActivity() {
             handlePickedMedia(requestCode, resultCode, data?.data)
             return
         }
-        if (requestCode != pickTextRequest) return
-        val pending = pendingTextResult ?: return
-        pendingTextResult = null
+        if (requestCode != pickBackupRequest) return
+        val pending = pendingBackupResult ?: return
+        pendingBackupResult = null
         val uri = data?.data
         if (resultCode != Activity.RESULT_OK || uri == null) {
             pending.success(null)
             return
         }
         Thread {
+            var partialOutput: File? = null
             try {
-                val output = ByteArrayOutputStream()
+                val originalName = displayName(uri)
+                val safeName = originalName
+                    .replace(Regex("[^a-zA-Z0-9._-]+"), "_")
+                    .takeLast(160)
+                    .ifEmpty { "Aaris_Pharmacy_Backup.txt" }
+                val directory = File(cacheDir, "pharmacy_backup_imports").apply { mkdirs() }
+                directory.listFiles()?.filter {
+                    System.currentTimeMillis() - it.lastModified() > 48 * 60 * 60 * 1000L
+                }?.forEach { it.deleteRecursively() }
+
+                val output = File(directory, "${System.currentTimeMillis()}_$safeName")
+                partialOutput = output
+                var total = 0L
                 contentResolver.openInputStream(uri).use { input ->
-                    if (input == null) throw IllegalArgumentException("The selected file could not be opened.")
-                    val buffer = ByteArray(8192)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        output.write(buffer, 0, count)
-                        if (output.size() > 12_000_000) {
-                            throw IllegalArgumentException("The selected file is larger than 12 MB.")
+                    if (input == null) {
+                        throw IllegalArgumentException("The selected backup could not be opened.")
+                    }
+                    FileOutputStream(output).use { stream ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            stream.write(buffer, 0, count)
+                            total += count
+                            if (total > 1024L * 1024L * 1024L) {
+                                throw IllegalArgumentException(
+                                    "Choose an Aaris Pharmacy backup smaller than 1 GB.",
+                                )
+                            }
                         }
+                        stream.fd.sync()
                     }
                 }
-                val text = output.toString(StandardCharsets.UTF_8.name())
-                runOnUiThread { pending.success(text) }
+                if (total <= 0L) {
+                    throw IllegalArgumentException("The selected backup file is empty.")
+                }
+                val response = mapOf(
+                    "path" to output.absolutePath,
+                    "name" to originalName,
+                    "mimeType" to contentResolver.getType(uri).orEmpty(),
+                    "size" to total,
+                )
+                runOnUiThread { pending.success(response) }
             } catch (error: Exception) {
+                partialOutput?.deleteRecursively()
                 runOnUiThread {
                     pending.error(
-                        "file_read_error",
-                        error.message ?: "The selected file could not be read.",
+                        "backup_read_error",
+                        error.message ?: "The selected backup could not be read.",
                         null,
                     )
                 }
@@ -338,6 +392,85 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
+    private fun backupExportSource(path: String): File {
+        val source = File(path).canonicalFile
+        val root = File(cacheDir, "pharmacy_backups").canonicalFile
+        if (!source.isFile || !source.path.startsWith(root.path + File.separator)) {
+            throw IllegalArgumentException("The generated backup file is no longer available.")
+        }
+        return source
+    }
+
+    private fun safeBackupFileName(value: String): String {
+        val cleaned = value
+            .replace(Regex("[^a-zA-Z0-9._-]+"), "_")
+            .takeLast(180)
+        return if (cleaned.isBlank()) "Aaris_Pharmacy_Full_Backup.txt"
+            else if (cleaned.endsWith(".txt", ignoreCase = true)) cleaned
+            else "$cleaned.txt"
+    }
+
+    private fun saveBackupToDownloads(path: String, fileName: String): Map<String, Any> {
+        val source = backupExportSource(path)
+        val safeName = safeBackupFileName(fileName)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, safeName)
+                put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                put(
+                    MediaStore.Downloads.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + "/Aaris Pharmacy",
+                )
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                values,
+            ) ?: throw IllegalStateException("Android could not create the Downloads backup.")
+
+            try {
+                contentResolver.openOutputStream(uri, "w").use { output ->
+                    if (output == null) {
+                        throw IllegalStateException("Android could not open the Downloads backup.")
+                    }
+                    source.inputStream().use { input ->
+                        input.copyTo(output, 64 * 1024)
+                        output.flush()
+                    }
+                }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+                return mapOf(
+                    "uri" to uri.toString(),
+                    "name" to safeName,
+                    "size" to source.length(),
+                    "location" to "Downloads/Aaris Pharmacy",
+                )
+            } catch (error: Exception) {
+                contentResolver.delete(uri, null, null)
+                throw error
+            }
+        }
+
+        val base = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
+        val directory = File(base, "Aaris Pharmacy").apply { mkdirs() }
+        val destination = File(directory, safeName)
+        source.inputStream().use { input ->
+            FileOutputStream(destination).use { output ->
+                input.copyTo(output, 64 * 1024)
+                output.fd.sync()
+            }
+        }
+        return mapOf(
+            "path" to destination.absolutePath,
+            "name" to safeName,
+            "size" to destination.length(),
+            "location" to "Aaris Pharmacy app Documents",
+        )
+    }
+
     private fun displayName(uri: Uri): String {
         var cursor: Cursor? = null
         return try {
@@ -372,8 +505,8 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         localAiPlatform.dispose()
-        pendingTextResult?.error("activity_closed", "File selection was cancelled.", null)
-        pendingTextResult = null
+        pendingBackupResult?.error("activity_closed", "File selection was cancelled.", null)
+        pendingBackupResult = null
         pendingMediaResult?.error("activity_closed", "File selection was cancelled.", null)
         pendingMediaResult = null
         super.onDestroy()
