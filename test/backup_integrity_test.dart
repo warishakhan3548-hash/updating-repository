@@ -1,9 +1,12 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../lib/domain/backup.dart';
 import '../lib/domain/medicine.dart';
+import '../lib/domain/supplier.dart';
 import '../lib/domain/tracking.dart';
 import 'domain_contract.dart';
 
@@ -32,6 +35,7 @@ PharmacyBackup _backup() {
     sourceRevision: 7,
     settings: contractSettings,
     records: {medicine.id: medicine},
+    suppliers: const {},
     sales: {sale.id: sale},
     soldValue: 1200,
     unknownSold: 0,
@@ -39,7 +43,7 @@ PharmacyBackup _backup() {
 }
 
 void main() {
-  test('v2 backup round-trips with a deterministic SHA-256 integrity proof', () {
+  test('v3 backup round-trips with a deterministic SHA-256 integrity proof', () {
     final encoded = _backup().encode();
     final envelope = jsonDecode(encoded) as Map<String, dynamic>;
 
@@ -66,10 +70,33 @@ void main() {
     expect(() => PharmacyBackup.parse(tampered), throwsFormatException);
   });
 
+  test('previous v2 sealed backups remain importable', () {
+    final current = jsonDecode(_backup().encode()) as Map<String, dynamic>;
+    current['schema'] = previousPharmacyBackupSchema;
+    current.remove('suppliers');
+
+    final payload = <String, dynamic>{
+      'createdAt': current['createdAt'],
+      'sourceRevision': current['sourceRevision'],
+      'settings': current['settings'],
+      'medicines': current['medicines'],
+      'sales': current['sales'],
+      'soldValue': current['soldValue'],
+      'unknownSold': current['unknownSold'],
+    };
+    current['integrity'] =
+        'sha256:${sha256.convert(utf8.encode(jsonEncode(payload)))}';
+
+    final parsed = PharmacyBackup.parse(jsonEncode(current));
+    expect(parsed.suppliers, isEmpty);
+    expect(parsed.integrityVerified, isTrue);
+  });
+
   test('legacy v1 backups remain importable and are marked unsealed', () {
     final legacy = jsonDecode(_backup().encode()) as Map<String, dynamic>;
     legacy['schema'] = legacyPharmacyBackupSchema;
     legacy.remove('integrity');
+    legacy.remove('suppliers');
 
     final parsed = PharmacyBackup.parse(jsonEncode(legacy));
     expect(parsed.records.values.single.id, 'stock-a');
@@ -134,6 +161,7 @@ void main() {
         incomingReactivated.id: incomingReactivated,
         incomingNew.id: incomingNew,
       },
+      suppliers: const {},
       sales: {
         incomingChangedSale.id: incomingChangedSale,
         incomingNewSale.id: incomingNewSale,
@@ -180,6 +208,7 @@ void main() {
         archived.id: archived,
         currentOnly.id: currentOnly,
       },
+      currentSuppliers: const {},
       currentSales: {
         currentChangedSale.id: currentChangedSale,
         currentOnlySale.id: currentOnlySale,
@@ -210,6 +239,7 @@ void main() {
     final impact = BackupImpact.compare(
       backup: incoming,
       currentRecords: {current.id: current},
+      currentSuppliers: const {},
       currentSales: incoming.sales,
       currentSettings: incoming.settings,
       currentSoldValue: incoming.soldValue,
@@ -229,6 +259,7 @@ void main() {
     final synchronous = BackupImpact.compare(
       backup: incoming,
       currentRecords: {current.id: current},
+      currentSuppliers: const {},
       currentSales: incoming.sales,
       currentSettings: incoming.settings,
       currentSoldValue: incoming.soldValue,
@@ -237,6 +268,7 @@ void main() {
     final cooperative = await compareBackupImpactCooperatively(
       backup: incoming,
       currentRecords: {current.id: current},
+      currentSuppliers: const {},
       currentSales: incoming.sales,
       currentSettings: incoming.settings,
       currentSoldValue: incoming.soldValue,
