@@ -1185,14 +1185,23 @@ class PharmacyController extends ChangeNotifier {
       );
     }
     for (final record in snapshot.records.values) {
-      if (!review.backup.records.containsKey(record.id) && !record.archived) {
-        restored.add(
-          archiveMedicine(
-            record,
-            reason: 'Not present in restored backup',
-            at: restoreStartedAt,
-          ),
+      if (review.backup.records.containsKey(record.id)) continue;
+      if (!record.archived) {
+        var archived = archiveMedicine(
+          record,
+          reason: 'Not present in restored backup',
+          at: restoreStartedAt,
         );
+        if (archived.supplierId.isNotEmpty &&
+            !review.backup.suppliers.containsKey(archived.supplierId)) {
+          archived = archived.patch({'supplierId': ''});
+        }
+        restored.add(archived);
+      } else if (record.supplierId.isNotEmpty &&
+          !review.backup.suppliers.containsKey(record.supplierId)) {
+        // Removed history stays available after restore, but it cannot retain
+        // a foreign key to a supplier intentionally absent from the backup.
+        restored.add(record.patch({'supplierId': ''}));
       }
     }
     final restoredSuppliers = <Supplier>[];
