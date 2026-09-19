@@ -3,9 +3,10 @@ import 'daily_demand.dart';
 import 'inventory.dart';
 import 'medicine.dart';
 import 'operations_plan.dart';
+import 'supplier.dart';
 import 'tracking.dart';
 
-enum StockTaskGroup { urgent, order, details, movement }
+enum StockTaskGroup { urgent, order, supplier, details, movement }
 
 /// Short shop-floor instructions derived from the existing verified work plan.
 /// Quantity always means the inventory's recorded unit, never an inferred strip
@@ -20,6 +21,7 @@ class StockGuidance {
     required this.stockIds,
     this.step,
     this.demand,
+    this.supplierId,
   });
 
   final String key, title, action, reason;
@@ -27,6 +29,7 @@ class StockGuidance {
   final List<String> stockIds;
   final OperationsPlanStep? step;
   final DailyDemandProfile? demand;
+  final String? supplierId;
 
   bool get blocked => step?.blocked ?? false;
   bool get critical => step?.item.severity == AttentionSeverity.critical;
@@ -121,6 +124,41 @@ class StockGuidance {
               : null),
     );
   }
+}
+
+List<StockGuidance> supplierReturnGuidance({
+  required Iterable<SupplierReturnCandidate> candidates,
+}) {
+  final result = <StockGuidance>[];
+  for (final candidate in candidates) {
+    final medicine = candidate.medicine;
+    final supplier = candidate.supplier;
+    final cues = <String>[
+      if (medicine.quantity != null) '${medicine.quantity} यूनिट',
+      '${candidate.daysLeft} दिन में expiry',
+      if (medicine.batchNumber.trim().isNotEmpty)
+        'Batch ${medicine.batchNumber.trim()}',
+      if (medicine.address.trim().isNotEmpty) medicine.address.trim(),
+    ];
+    result.add(
+      StockGuidance(
+        key: 'supplier-return:${supplier.id}:${medicine.id}',
+        title: medicine.title,
+        action: '${supplier.name} को वापसी तैयार करें',
+        reason:
+            '${cues.join(' · ')} · supplier window ${supplier.returnBeforeExpiryDays} दिन',
+        group: StockTaskGroup.supplier,
+        stockIds: List.unmodifiable(<String>[medicine.id]),
+        supplierId: supplier.id,
+      ),
+    );
+  }
+  result.sort((a, b) {
+    final supplier = (a.supplierId ?? '').compareTo(b.supplierId ?? '');
+    if (supplier != 0) return supplier;
+    return a.title.compareTo(b.title);
+  });
+  return List.unmodifiable(result);
 }
 
 String stockActionLabel(AttentionKind kind) => switch (kind) {
