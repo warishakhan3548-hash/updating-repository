@@ -1,5 +1,4 @@
 import 'package:aaris_pharmacy/data/inventory_database.dart';
-import 'package:aaris_pharmacy/domain/inventory.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:aaris_pharmacy/domain/tracking.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
@@ -105,11 +104,16 @@ void main() {
     final statsBefore = controller.stats;
     final range = TrackingRange.lastDays(controller.today, 30);
     final trackingBefore = controller.tracking(range);
+    final preview = controller.homeProjectionFor(
+      const WarningSettings(shortDays: 5, months: 3),
+    );
 
     await controller.setShortWarningDays(5);
 
     expect(identical(statsBefore, controller.stats), isTrue);
     expect(identical(trackingBefore, controller.tracking(range)), isTrue);
+    expect(identical(preview, controller.homeProjection), isTrue);
+    expect(controller.homeProjection.shortExpiryCount, 0);
   });
 
   test('tracking read model is reused by range and invalidated safely', () async {
