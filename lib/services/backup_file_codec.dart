@@ -206,11 +206,16 @@ class PortableBackupCodec {
 
         final createdRaw = row['createdAt'];
         createdAt = createdRaw is String ? DateTime.tryParse(createdRaw) : null;
-        sourceRevision = row['sourceRevision'] as int?;
-        soldValue = row['soldValue'] as int?;
-        unknownSold = row['unknownSold'] as int?;
-        expectedMedicines = row['medicineCount'] as int?;
-        expectedSales = row['saleCount'] as int?;
+        final revisionRaw = row['sourceRevision'];
+        final soldValueRaw = row['soldValue'];
+        final unknownSoldRaw = row['unknownSold'];
+        final medicineCountRaw = row['medicineCount'];
+        final saleCountRaw = row['saleCount'];
+        sourceRevision = revisionRaw is int ? revisionRaw : null;
+        soldValue = soldValueRaw is int ? soldValueRaw : null;
+        unknownSold = unknownSoldRaw is int ? unknownSoldRaw : null;
+        expectedMedicines = medicineCountRaw is int ? medicineCountRaw : null;
+        expectedSales = saleCountRaw is int ? saleCountRaw : null;
         final settingsRaw = row['settings'];
 
         if (createdAt == null ||
