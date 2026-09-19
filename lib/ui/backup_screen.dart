@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/backup.dart';
-import '../domain/medicine.dart';
-import '../domain/tracking.dart';
 import '../services/backup_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
@@ -97,7 +95,7 @@ class _BackupScreenState extends State<BackupScreen> {
 
     final current = widget.controller.snapshot;
     final revision = current.revision;
-    final impact = await LargeBackupImpactReview.compareCooperatively(
+    final impact = await compareBackupImpactCooperatively(
       backup: backup,
       currentRecords: current.records,
       currentSales: current.sales,
