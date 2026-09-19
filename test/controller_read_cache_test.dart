@@ -105,7 +105,7 @@ void main() {
     final range = TrackingRange.lastDays(controller.today, 30);
     final trackingBefore = controller.tracking(range);
     final preview = controller.homeProjectionFor(
-      const WarningSettings(shortDays: 5, months: 3),
+      WarningSettings(shortDays: 5, months: controller.settings.months),
     );
 
     await controller.setShortWarningDays(5);
