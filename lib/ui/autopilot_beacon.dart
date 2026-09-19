@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/stock_guidance.dart';
 import '../state/autopilot_supervisor.dart';
+import 'design.dart';
 
 /// A compact global signal for urgent pharmacist work.
 ///
@@ -19,8 +20,8 @@ class AarisAutopilotBeacon extends StatelessWidget {
   final VoidCallback onOpenWorkQueue;
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: supervisor,
+  Widget build(BuildContext context) => ActiveListenableBuilder(
+    listenable: supervisor,
     builder: (context, _) {
       final digest = supervisor.digest;
       if (!digest.isReady || !digest.needsProminentSignal) {
