@@ -15,7 +15,28 @@ import '../lib/ui/backup_screen.dart';
 import '../lib/ui/import_screen.dart';
 import '../lib/ui/design.dart';
 import '../lib/domain/inventory.dart';
+import '../lib/domain/search.dart';
 import 'domain_contract.dart';
+
+class _CountingPharmacyController extends PharmacyController {
+  _CountingPharmacyController(
+    InventoryStorage storage, {
+    DateTime Function()? clock,
+  }) : super(storage, clock: clock, backgroundSearch: false);
+
+  int searchCalls = 0;
+
+  @override
+  Future<List<SearchHit>> search(String raw, SearchScope scope) {
+    searchCalls++;
+    return super.search(raw, scope);
+  }
+}
+
+Finder medicineCardText(String value) => find.descendant(
+  of: find.byType(MedicineCard),
+  matching: find.text(value),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -192,20 +213,84 @@ void main() {
 
       await tester.tap(find.text('Stock').last);
       await tester.pumpAndSettle();
-      expect(find.text('Drotaverine'), findsOneWidget);
 
       final query = find.descendant(
         of: find.byType(SearchScreen),
         matching: find.byType(TextField),
       ).first;
+      await tester.enterText(query, 'Drotaverine');
+      await tester.pump(const Duration(milliseconds: 160));
+      await tester.pumpAndSettle();
+      expect(medicineCardText('Drotaverine'), findsWidgets);
+
       await tester.enterText(query, 'Azithromycin');
       await tester.pump();
 
-      expect(find.text('Drotaverine'), findsNothing);
+      expect(medicineCardText('Drotaverine'), findsNothing);
       await tester.pump(const Duration(milliseconds: 160));
       await tester.pumpAndSettle();
-      expect(find.text('Azithromycin'), findsOneWidget);
-      expect(find.text('Drotaverine'), findsNothing);
+      expect(medicineCardText('Azithromycin'), findsWidgets);
+      expect(medicineCardText('Drotaverine'), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'hidden Stock tab cancels pending query work and resumes exactly once',
+    (tester) async {
+      final records = [
+        stock(
+          'short',
+          name: 'Azithromycin',
+          expiry: '2026-09-10',
+          salt: 'Azithromycin',
+        ),
+        stock(
+          'month',
+          name: 'Drotaverine',
+          strength: '80mg',
+          expiry: '2026-10-22',
+          salt: 'Drotaverine',
+        ),
+      ];
+      final controller = _CountingPharmacyController(
+        MemoryInventoryStorage(
+          InventorySnapshot(
+            records: {
+              for (final medicine in records) medicine.id: medicine,
+            },
+          ),
+        ),
+        clock: () => contractToday,
+      );
+      await controller.initialize();
+
+      await tester.pumpWidget(PharmacyApp(controller: controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Stock').last);
+      await tester.pumpAndSettle();
+      final baselineSearches = controller.searchCalls;
+
+      final query = find.descendant(
+        of: find.byType(SearchScreen),
+        matching: find.byType(TextField),
+      ).first;
+      await tester.enterText(query, 'Drotaverine');
+      await tester.pump();
+      await tester.tap(find.text('Home').last);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 220));
+
+      expect(controller.searchCalls, baselineSearches);
+
+      await tester.tap(find.text('Stock').last);
+      await tester.pumpAndSettle();
+      expect(controller.searchCalls, baselineSearches + 1);
+      expect(medicineCardText('Drotaverine'), findsWidgets);
+      expect(medicineCardText('Azithromycin'), findsNothing);
       expect(tester.takeException(), isNull);
 
       await tester.pumpWidget(const SizedBox.shrink());

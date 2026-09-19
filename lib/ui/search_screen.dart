@@ -62,6 +62,21 @@ class _SearchScreenState extends State<SearchScreen> {
     if (!active) {
       widget.controller.removeListener(_changed);
       _controllerListening = false;
+
+      // A retained or covered search page must become genuinely idle. Pending
+      // debounce timers otherwise start isolate search or public-catalog work
+      // after the user has already left this screen. Retire in-flight result
+      // generations too, then refresh the same query once on reactivation.
+      final localWorkPending = _loading || (_debounce?.isActive ?? false);
+      final catalogWorkPending =
+          _catalogLoading || (_onlineDebounce?.isActive ?? false);
+      _debounce?.cancel();
+      _onlineDebounce?.cancel();
+      if (localWorkPending || catalogWorkPending) {
+        ++_generation;
+        ++_catalogGeneration;
+        _refreshWhenActive = true;
+      }
       return;
     }
 
