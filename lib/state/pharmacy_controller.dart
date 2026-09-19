@@ -1359,7 +1359,6 @@ class PharmacyController extends ChangeNotifier {
         settings: review.backup.settings,
         soldValueOverride: review.backup.soldValue,
         unknownSoldOverride: review.backup.unknownSold,
-        undoable: false,
       ),
     );
   }
