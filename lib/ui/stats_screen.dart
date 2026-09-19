@@ -286,52 +286,66 @@ class _SoldMedicineTrackerScreen extends StatelessWidget {
             message: 'Record medicine sales to build the demand tracker.',
           );
         }
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-          children: [
-            GlassPanel(
-              tint: primarySoft,
-              accentColor: primary,
-              radius: 22,
-              elevation: .9,
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  const DepthIcon(
-                    Icons.bar_chart_rounded,
-                    color: primary,
-                    background: Colors.white,
-                    size: 44,
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${overview.totalUnitsSold} units sold',
-                          style: Theme.of(context).textTheme.titleMedium,
+        return CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+              sliver: SliverToBoxAdapter(
+                child: GlassPanel(
+                  tint: primarySoft,
+                  accentColor: primary,
+                  radius: 22,
+                  elevation: .9,
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      const DepthIcon(
+                        Icons.bar_chart_rounded,
+                        color: primary,
+                        background: Colors.white,
+                        size: 44,
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${overview.totalUnitsSold} units sold',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${ranked.length} medicines ranked by recorded demand',
+                              style: const TextStyle(
+                                color: muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '${ranked.length} medicines ranked by recorded demand',
-                          style: const TextStyle(color: muted, fontSize: 12),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-            const SizedBox(height: 16),
-            for (var i = 0; i < ranked.length; i++) ...[
-              _DemandRow(
-                rank: i + 1,
-                demand: ranked[i],
-                totalUnitsSold: overview.totalUnitsSold,
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              sliver: SliverList.builder(
+                itemCount: ranked.length,
+                itemBuilder: (context, index) => Padding(
+                  padding: EdgeInsets.only(
+                    bottom: index == ranked.length - 1 ? 0 : 12,
+                  ),
+                  child: _DemandRow(
+                    rank: index + 1,
+                    demand: ranked[index],
+                    totalUnitsSold: overview.totalUnitsSold,
+                  ),
+                ),
               ),
-              if (i != ranked.length - 1) const SizedBox(height: 12),
-            ],
+            ),
           ],
         );
       },
