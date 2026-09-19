@@ -54,9 +54,9 @@ class _AttentionScreenState extends State<AttentionScreen> {
     final supplierTasks = supplierReturnGuidance(
       candidates: controller.supplierReturns,
     );
-    final supplierDueIds = <String>{
-      for (final task in supplierTasks) ...task.stockIds,
-    };
+    final supplierDueIds = supplierTasks
+        .expand((task) => task.stockIds)
+        .toSet();
     final plannedTasks = <StockGuidance>[
       for (final step in plan.steps)
         StockGuidance.fromStep(
