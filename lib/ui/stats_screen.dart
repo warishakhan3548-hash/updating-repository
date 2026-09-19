@@ -275,8 +275,8 @@ class _SoldMedicineTrackerScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Sold Medicine Tracker')),
-    body: AnimatedBuilder(
-      animation: controller,
+    body: ActiveListenableBuilder(
+      listenable: controller,
       builder: (context, _) {
         final overview = controller.salesOverview;
         final ranked = overview.ranked;
