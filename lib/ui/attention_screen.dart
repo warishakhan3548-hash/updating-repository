@@ -10,6 +10,7 @@ import 'design.dart';
 import 'demand_history_sheet.dart';
 import 'editor_screen.dart';
 import 'order_screen.dart';
+import 'supplier_screen.dart';
 
 class AttentionScreen extends StatefulWidget {
   const AttentionScreen({super.key, required this.controller});
@@ -50,7 +51,13 @@ class _AttentionScreenState extends State<AttentionScreen> {
       for (final movement in tracking.movements.values)
         if (movement.demand != null) movement.key: movement.demand!,
     };
-    _tasks = [
+    final supplierTasks = supplierReturnGuidance(
+      candidates: controller.supplierReturns,
+    );
+    final supplierDueIds = <String>{
+      for (final task in supplierTasks) ...task.stockIds,
+    };
+    final plannedTasks = <StockGuidance>[
       for (final step in plan.steps)
         StockGuidance.fromStep(
           step,
@@ -59,6 +66,18 @@ class _AttentionScreenState extends State<AttentionScreen> {
           today: today,
           dailyDemand: dailyDemand,
         ),
+    ];
+    _tasks = [
+      // A supplier return deadline is the more specific action. Do not show a
+      // second generic short-expiry/expiry-waste card for the same exact stock.
+      for (final task in plannedTasks)
+        if (!(
+          task.stockIds.any(supplierDueIds.contains) &&
+          (task.step?.item.kind == AttentionKind.shortExpiry ||
+              task.step?.item.kind == AttentionKind.expiryWastePressure)
+        ))
+          task,
+      ...supplierTasks,
       ...stockMovementGuidance(
         tracking: tracking,
         records: snapshot.records,
@@ -70,11 +89,13 @@ class _AttentionScreenState extends State<AttentionScreen> {
         ? 0
         : task.group == StockTaskGroup.urgent
         ? 1
-        : task.group == StockTaskGroup.order
+        : task.group == StockTaskGroup.supplier
         ? 2
-        : task.group == StockTaskGroup.details
+        : task.group == StockTaskGroup.order
         ? 3
-        : 4;
+        : task.group == StockTaskGroup.details
+        ? 4
+        : 5;
     // Display priority cannot bypass the planner's live prerequisites.
     final original = {for (var i = 0; i < _tasks.length; i++) _tasks[i].key: i};
     _tasks.sort((a, b) {
@@ -96,6 +117,28 @@ class _AttentionScreenState extends State<AttentionScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('सूची बदल गई है। नया काम चुनें।')),
+          );
+        }
+        return;
+      }
+      if (task.group == StockTaskGroup.supplier) {
+        final supplierId = task.supplierId;
+        if (supplierId == null) {
+          await Navigator.push<void>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SupplierScreen(controller: widget.controller),
+            ),
+          );
+        } else {
+          await Navigator.push<void>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SupplierDetailScreen(
+                controller: widget.controller,
+                supplierId: supplierId,
+              ),
+            ),
           );
         }
         return;
@@ -266,6 +309,7 @@ class _AttentionScreenState extends State<AttentionScreen> {
                               'सभी',
                               'Expiry',
                               'मँगाएँ',
+                              'Supplier',
                               'जानकारी',
                               'बिक्री',
                             ].indexed)
@@ -345,6 +389,7 @@ class _AttentionCard extends StatelessWidget {
         : switch (task.group) {
             StockTaskGroup.urgent => Icons.timer_outlined,
             StockTaskGroup.order => Icons.add_shopping_cart_rounded,
+            StockTaskGroup.supplier => Icons.assignment_return_outlined,
             StockTaskGroup.details => Icons.edit_note_rounded,
             StockTaskGroup.movement => Icons.insights_outlined,
           };
