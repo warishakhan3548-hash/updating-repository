@@ -295,9 +295,9 @@ class _BackupScreenState extends State<BackupScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '${_lastExport!.fileName}\n${_fileSize(_lastExport!.sizeBytes)}'
-                    ' · ${_lastExport!.savedLocation ?? 'share file ready'}'
-                    '${_lastExport!.warning == null ? '' : '\n${_lastExport!.warning}'}',
+                    "${_lastExport!.fileName}\n${_fileSize(_lastExport!.sizeBytes)}"
+                    " · ${_lastExport!.savedLocation ?? 'share file ready'}"
+                    "${_lastExport!.warning == null ? '' : '\n${_lastExport!.warning}'}",
                     style: const TextStyle(fontSize: 12.5),
                   ),
                 ),
@@ -353,8 +353,8 @@ class _BackupScreenState extends State<BackupScreen> {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        '${_fileSize(_pickedFile!.sizeBytes)} · '
-                        '${_review != null ? 'Ready for next step' : _reading ? 'Checking file…' : 'Not reviewed'}',
+                        "${_fileSize(_pickedFile!.sizeBytes)} · "
+                        "${_review != null ? 'Ready for next step' : _reading ? 'Checking file…' : 'Not reviewed'}",
                         style: const TextStyle(color: muted, fontSize: 12),
                       ),
                     ],
