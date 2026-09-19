@@ -116,6 +116,7 @@ void main() {
       'revision': 1,
     });
     expect(supplier.customFields.single.label, 'State Code');
+    expect(_supplierA.drugLicenceNo, 'DL-A-123');
 
     expect(
       () => Supplier.fromJson(<String, dynamic>{
