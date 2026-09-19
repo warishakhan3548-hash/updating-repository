@@ -120,7 +120,40 @@ class _OrderScreenState extends State<OrderScreen> {
     Set<String> blockedProductKeys = const <String>{},
     bool selectNew = true,
   }) {
-    _selected.retainAll(suggestions.map((item) => item.productKey).toSet());
+    final liveKeys = suggestions.map((item) => item.productKey).toSet();
+
+    // A reorder suggestion is a live planning cycle, not durable form state.
+    // Once a product leaves the plan, retire every transient decision/edit tied
+    // to that old cycle. If it later becomes reorder-worthy again, it must enter
+    // with fresh defaults and normal auto-selection instead of silently reusing
+    // a stale quantity/cost or an old manual-review decision.
+    _selected.retainAll(liveKeys);
+    _seenSuggestions.retainAll(liveKeys);
+    _editedQuantity.retainAll(liveKeys);
+    _editedCost.retainAll(liveKeys);
+    _manualSelection.retainAll(liveKeys);
+
+    final retiredControllers = <TextEditingController>[];
+    void retireMissing(Map<String, TextEditingController> fields) {
+      for (final key in fields.keys.toList(growable: false)) {
+        if (liveKeys.contains(key)) continue;
+        final controller = fields.remove(key);
+        if (controller != null) retiredControllers.add(controller);
+      }
+    }
+
+    retireMissing(_quantity);
+    retireMissing(_cost);
+    if (retiredControllers.isNotEmpty) {
+      // _syncSelection also runs during build. Dispose only after that frame so
+      // TextField states being removed can detach from their controllers first.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        for (final controller in retiredControllers) {
+          controller.dispose();
+        }
+      });
+    }
+
     for (final suggestion in suggestions) {
       final isNew = _seenSuggestions.add(suggestion.productKey);
 

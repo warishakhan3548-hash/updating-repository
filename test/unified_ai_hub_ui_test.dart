@@ -40,6 +40,21 @@ void main() {
       );
       final buildEnd = ai.indexOf('class _AiHubHeader', buildStart);
       final build = ai.substring(buildStart, buildEnd);
+      expect(build, contains('rebuildToken: _screenRebuildToken'));
+      expect(
+        ai,
+        contains('_plan == null ? null : controller.snapshot.revision'),
+      );
+      expect(
+        ai,
+        contains(
+          'plan.baseRevision != widget.controller.snapshot.revision',
+        ),
+      );
+      expect(
+        ai,
+        contains('Inventory changed after this review.'),
+      );
       expect(build, contains('child: CustomScrollView('));
       expect(build, contains('sliver: SliverList.builder('));
       expect(build, contains('itemCount: _messages.length'));

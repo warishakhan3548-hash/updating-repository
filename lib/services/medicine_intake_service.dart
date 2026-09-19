@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -39,6 +40,8 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   static const _retryLocalAiWhenIdle =
       'Local AI is busy. Saved scan will retry when the local lease is idle.';
   final _jobs = <MedicineIntakeJob>[];
+  late final List<MedicineIntakeJob> _jobsView =
+      UnmodifiableListView<MedicineIntakeJob>(_jobs);
   final _media = MediaImportService();
   Database? _database;
   Directory? _root;
@@ -54,7 +57,7 @@ class MedicineIntakeService extends ChangeNotifier with WidgetsBindingObserver {
   int? _knowledgeRevision;
   List<MedicineKnowledgeEntry>? _knowledge;
 
-  List<MedicineIntakeJob> get jobs => List.unmodifiable(_jobs);
+  List<MedicineIntakeJob> get jobs => _jobsView;
   bool get full => _jobs.length >= capacity;
   bool get processing => _running;
   bool get supported =>

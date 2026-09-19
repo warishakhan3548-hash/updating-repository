@@ -346,7 +346,10 @@ MedicineDraftSeed _rxSeed(String raw, String rxcui) {
   final brand = brandMatch?.group(1)?.trim() ?? '';
   var withoutBrand = raw.replaceAll(RegExp(r'\s*\[[^\]]+\]\s*'), ' ').trim();
   final strengthMatch = RegExp(
-    r'\b\d+(?:\.\d+)?\s*(?:mcg|mg|g|ml)(?:\s*/\s*(?:mcg|mg|g|ml|dose|actuation|tablet|capsule|1))?\b',
+    // RxNorm commonly encodes liquid strengths as "250 MG/5 ML". Keep the
+    // denominator quantity with the unit; dropping the 5 would turn a
+    // concentration into a materially different medicine strength.
+    r'\b\d+(?:\.\d+)?\s*(?:mcg|mg|g|ml)(?:\s*/\s*(?:(?:\d+(?:\.\d+)?\s*)?(?:mcg|mg|g|ml|dose|actuation|tablet|capsule)|1))?\b',
     caseSensitive: false,
   ).firstMatch(withoutBrand);
   final strength =

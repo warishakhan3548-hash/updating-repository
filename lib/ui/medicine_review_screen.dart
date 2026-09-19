@@ -44,6 +44,9 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
   int _sourceGeneration = 0;
   int _matchGeneration = 0;
   int _inventoryRevision = -1;
+  Object? _inventoryRecords;
+  DateTime? _inventoryDay;
+  bool _controllerListening = false;
   bool _sourceLoading = true;
   bool _matchLoading = false;
   bool _busy = false;
@@ -58,25 +61,64 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
   void initState() {
     super.initState();
     _pipeline = MedicineReviewPipeline();
-    _inventoryRevision = widget.controller.snapshot.revision;
-    widget.controller.addListener(_inventoryChanged);
+    _captureInventoryWitness();
     unawaited(_loadSource());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = TickerMode.valuesOf(context).enabled;
+    if (active == _controllerListening) return;
+    if (!active) {
+      widget.controller.removeListener(_inventoryChanged);
+      _controllerListening = false;
+      return;
+    }
+
+    widget.controller.addListener(_inventoryChanged);
+    _controllerListening = true;
+    // A covered Navigator route may have missed stock edits or a civil-day
+    // rollover. Catch up exactly once from the authoritative inputs when the
+    // pharmacist returns instead of doing matching work behind another screen.
+    _inventoryChanged();
   }
 
   @override
   void dispose() {
     ++_sourceGeneration;
     ++_matchGeneration;
-    widget.controller.removeListener(_inventoryChanged);
+    if (_controllerListening) {
+      widget.controller.removeListener(_inventoryChanged);
+    }
     _pipeline.cancel();
     super.dispose();
   }
 
+  void _captureInventoryWitness() {
+    final snapshot = widget.controller.snapshot;
+    _inventoryRevision = snapshot.revision;
+    _inventoryRecords = snapshot.records;
+    _inventoryDay = widget.controller.today;
+  }
+
   void _inventoryChanged() {
     if (!mounted) return;
-    final revision = widget.controller.snapshot.revision;
-    if (revision == _inventoryRevision) return;
+    final snapshot = widget.controller.snapshot;
+    final day = widget.controller.today;
+    final revision = snapshot.revision;
+    final recordsChanged = !identical(_inventoryRecords, snapshot.records);
+    final dayChanged = _inventoryDay != day;
+    if (revision == _inventoryRevision && !recordsChanged && !dayChanged) return;
+
     _inventoryRevision = revision;
+    _inventoryRecords = snapshot.records;
+    _inventoryDay = day;
+
+    // Matching and intake resolution consume medicine rows and the civil day.
+    // Supplier/settings/sales/audit-only publications must not rerun fuzzy
+    // matching, and inactive routes do not stay subscribed at all.
+    if (!recordsChanged && !dayChanged) return;
     if (_sourceLoading || _busy || _drafts.isEmpty) return;
     unawaited(_prepareMatches());
   }
@@ -166,7 +208,11 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
   /// write from being mistaken for this scan's save.
   Future<bool> _editNewScanForResult(MedicineScanDraft draft) async {
     if (_busy) return false;
-    final knownIds = widget.controller.snapshot.records.keys.toSet();
+    // InventorySnapshot is immutable. Keep the pre-editor map itself as the
+    // witness instead of copying every stock ID on the UI isolate before
+    // navigation. This preserves the exact "must be a newly created row"
+    // safety check with O(1) lookup and no inventory-sized allocation.
+    final beforeRecords = widget.controller.snapshot.records;
     final previousTargetId = widget.controller.operationalTargetId;
     setState(() => _busy = true);
     try {
@@ -175,7 +221,7 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
       final targetId = widget.controller.operationalTargetId;
       if (targetId == null ||
           targetId == previousTargetId ||
-          knownIds.contains(targetId)) {
+          beforeRecords.containsKey(targetId)) {
         return false;
       }
       final saved = widget.controller.snapshot.records[targetId];
@@ -409,7 +455,7 @@ class _MedicineReviewScreenState extends State<MedicineReviewScreen> {
       _error = '';
       _autoSaveAttempted = true;
     });
-    _inventoryRevision = widget.controller.snapshot.revision;
+    _captureInventoryWitness();
     await _prepareMatches();
   }
 

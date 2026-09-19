@@ -163,4 +163,50 @@ void main() {
     expect(overview.totalUnitsSold, 25);
     expect(overview.ranked.single.name, 'Paracetamol');
   });
+
+  test('legacy SOLD fallback never invents demand from unknown or zero quantity', () {
+    final beforeUnknown = Medicine(
+      id: 'unknown',
+      name: 'Unknown quantity medicine',
+      quantity: null,
+      unitPricePaise: 2000,
+    );
+    final unknown = Medicine(
+      id: 'unknown',
+      name: 'Unknown quantity medicine',
+      quantity: 0,
+      unitPricePaise: 2000,
+      sold: true,
+      soldAt: DateTime(2026, 9, 8, 12).toIso8601String(),
+      soldQuantity: null,
+      soldUnitPricePaise: 2000,
+    );
+    final zero = Medicine(
+      id: 'zero',
+      name: 'Zero quantity medicine',
+      quantity: 0,
+      unitPricePaise: 3000,
+      sold: true,
+      soldAt: DateTime(2026, 9, 8, 13).toIso8601String(),
+      soldQuantity: 0,
+      soldUnitPricePaise: 3000,
+    );
+    final event = <String, dynamic>{
+      'soldValue': 0,
+      'unknownSold': 1,
+      'salesBefore': <String, dynamic>{},
+      'before': <String, dynamic>{'unknown': beforeUnknown.toJson()},
+    };
+
+    final overview = SalesOverview(
+      const [],
+      medicines: [unknown, zero],
+      events: [event],
+    );
+
+    expect(overview.recordedSales, 0);
+    expect(overview.totalUnitsSold, 0);
+    expect(overview.salesValuePaise, 0);
+    expect(overview.ranked, isEmpty);
+  });
 }

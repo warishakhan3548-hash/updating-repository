@@ -503,7 +503,8 @@ class _EditorScreenState extends State<EditorScreen> {
           ...draft.toJson(),
           'sold': true,
           'quantity': 0,
-          'soldAt': widget.controller.clock().toIso8601String(),
+          // SOLD lifecycle time is system-owned and stamped by the
+          // controller at the serialized commit boundary.
           'soldQuantity': draft.quantity,
           'soldUnitPricePaise': draft.unitPricePaise,
           'revision': (widget.record?.revision ?? 0) + 1,
@@ -545,20 +546,9 @@ class _EditorScreenState extends State<EditorScreen> {
       }
 
       if (!mounted) return;
-      final reviewed = widget.record;
-      if (reviewed != null) {
-        final live = widget.controller.snapshot.records[reviewed.id];
-        if (live == null ||
-            live.archived ||
-            live.revision != reviewed.revision) {
-          throw StateError(
-            'This medicine changed while you were editing it. Reopen the live entry before saving.',
-          );
-        }
-      }
-      // The editor is bound to the exact stock-row revision it opened, not to
-      // unrelated Medicine Database traffic. The storage CAS still guards the
-      // final global revision, so a later concurrent write fails closed.
+      // PharmacyController owns the exact-row concurrency check at the
+      // serialized commit boundary. Unrelated writes may advance the global
+      // revision; a real change to this stock row still fails closed.
       await widget.controller.save(
         draft,
         expectedRevision: widget.controller.snapshot.revision,

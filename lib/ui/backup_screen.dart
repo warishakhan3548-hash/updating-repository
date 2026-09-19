@@ -417,7 +417,7 @@ class _BackupScreenState extends State<BackupScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Created ${_review!.backup.createdAt.toLocal().toString().split('.').first}',
+                  'Created ${localDateTimeLabel(_review!.backup.createdAt)}',
                   style: const TextStyle(color: muted, fontSize: 12),
                 ),
               ],

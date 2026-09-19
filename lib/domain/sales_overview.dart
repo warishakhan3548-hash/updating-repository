@@ -53,10 +53,11 @@ class SalesOverview {
       );
     }
 
-    // A direct "Mark stock SOLD" action historically changed the stock state
-    // without creating a SaleEvent. Persistence still records that transition
-    // in the inventory event log. Fold those transitions into the same sales
-    // analytics so SOLD immediately updates Sales Value and the demand tracker.
+    // Legacy direct "Mark stock SOLD" actions can predate the durable
+    // SaleEvent path. Unknown-quantity confirmations also cannot truthfully
+    // create a unit-based sale. The bounded Activity stream remains a
+    // compatibility witness only: fold legacy transitions when a positive unit
+    // count is actually known, and never invent one unit for missing/zero stock.
     final directSoldStockIds = <String>{};
     for (final event in events) {
       // Undo keeps the original event for audit history. It must not keep
@@ -97,8 +98,9 @@ class SalesOverview {
           isLatestDirectTransition && current != null && current.sold;
 
       final units = useCurrentSoldSnapshot
-          ? _positiveUnits(current.soldQuantity)
-          : _positiveUnits(before.quantity);
+          ? _knownPositiveUnits(current.soldQuantity)
+          : _knownPositiveUnits(before.quantity);
+      if (units == null) continue;
       final name = useCurrentSoldSnapshot ? current.name : before.name;
 
       // Persistence stores SOLD value as the transaction aggregate
@@ -119,7 +121,8 @@ class SalesOverview {
     for (final medicine in medicineList.where((medicine) => medicine.sold)) {
       if (directSoldStockIds.contains(medicine.id)) continue;
       if (_hasRecordedFinalSale(medicine, recordedSaleWitnesses)) continue;
-      final units = _positiveUnits(medicine.soldQuantity);
+      final units = _knownPositiveUnits(medicine.soldQuantity);
+      if (units == null) continue;
       final unitPrice =
           medicine.soldUnitPricePaise ?? medicine.unitPricePaise;
       int? amount;
@@ -144,7 +147,8 @@ class SalesOverview {
   bool _topDemandResolved = false;
   List<SoldMedicineDemand>? _rankedCache;
 
-  int _positiveUnits(int? value) => value != null && value > 0 ? value : 1;
+  int? _knownPositiveUnits(int? value) =>
+      value != null && value > 0 ? value : null;
 
   int _compareDemand(SoldMedicineDemand a, SoldMedicineDemand b) {
     final units = b.unitsSold.compareTo(a.unitsSold);

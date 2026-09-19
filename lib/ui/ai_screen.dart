@@ -134,6 +134,19 @@ class _AiScreenState extends State<AiScreen> {
     _streamPreviewTimer = null;
   }
 
+  Object _screenRebuildToken() {
+    final controller = widget.controller;
+    final localRoute = _configuration.localBrainEnabled
+        ? (_local.hasSelection, _local.activeLabel, _local.status)
+        : (false, '', '');
+    return (
+      controller.aiPreparing,
+      controller.preparedActions,
+      _plan == null ? null : controller.snapshot.revision,
+      localRoute,
+    );
+  }
+
   void _scrollToEnd({bool force = false}) {
     if (force) _followResponse = true;
     if (!_followResponse || _scrollScheduled) return;
@@ -714,6 +727,9 @@ class _AiScreenState extends State<AiScreen> {
       );
     }
 
+    final stalePlan =
+        plan.baseRevision != widget.controller.snapshot.revision;
+
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Surface(
@@ -763,6 +779,30 @@ class _AiScreenState extends State<AiScreen> {
                 ),
               ],
             ),
+            if (stalePlan) ...[
+              const SizedBox(height: 10),
+              const Surface(
+                color: warningSoft,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: amber, size: 20),
+                    SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        'Inventory changed after this review. This proposal is read-only now; ask AI again or paste a fresh response before applying.',
+                        style: TextStyle(
+                          color: amber,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             for (var i = 0; i < plan.changes.length; i++)
               Container(
@@ -780,7 +820,8 @@ class _AiScreenState extends State<AiScreen> {
                   children: [
                     CheckboxListTile(
                       value: _selected.contains(i),
-                      onChanged: widget.controller.aiPreparing
+                      onChanged:
+                          widget.controller.aiPreparing || stalePlan
                           ? null
                           : (value) => setState(
                               () => value == true
@@ -865,7 +906,10 @@ class _AiScreenState extends State<AiScreen> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: widget.controller.aiPreparing || _selected.isEmpty
+                onPressed:
+                    widget.controller.aiPreparing ||
+                        stalePlan ||
+                        _selected.isEmpty
                     ? null
                     : _apply,
                 icon: const Icon(Icons.check_circle_outline_rounded),
@@ -886,6 +930,7 @@ class _AiScreenState extends State<AiScreen> {
   @override
   Widget build(BuildContext context) => ActiveListenableBuilder(
     listenable: _screenListenable,
+    rebuildToken: _screenRebuildToken,
     builder: (context, _) {
       final busy =
           _localCommanding ||

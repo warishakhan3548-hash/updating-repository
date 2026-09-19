@@ -281,6 +281,26 @@ class AarisAutopilotDigest {
     return 'Aaris Autopilot found $issueCount attention items: $urgency.$next';
   }
 
+  AarisAutopilotDigest _withEvaluatedAt(DateTime value) =>
+      AarisAutopilotDigest._(
+        health: health,
+        inventoryRevision: inventoryRevision,
+        issueCount: issueCount,
+        criticalCount: criticalCount,
+        highCount: highCount,
+        mediumCount: mediumCount,
+        lowCount: lowCount,
+        blockedCount: blockedCount,
+        verificationCount: verificationCount,
+        nextTaskKey: nextTaskKey,
+        nextTaskTitle: nextTaskTitle,
+        nextAction: nextAction,
+        nextLane: nextLane,
+        nextKind: nextKind,
+        nextStockIds: nextStockIds,
+        evaluatedAt: value,
+      );
+
   /// Ignores freshness-only metadata so a refresh that produces identical
   /// operational facts does not cause a pointless navigation/beacon repaint.
   ///
@@ -468,9 +488,9 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
 /// It continuously coalesces Medicine Database changes into the existing
 /// deterministic Needs Attention + dependency planner. Heavy operational
 /// analysis runs away from the UI isolate, never calls a stock mutation API, and
-/// publishes only if the exact inventory revision is still current. At most one
-/// worker runs at a time; newer writes invalidate old output and collapse into a
-/// single fresh pass.
+/// publishes only if the exact immutable snapshot and civil day are still current.
+/// At most one worker runs at a time; newer writes invalidate old output and
+/// collapse into a single fresh pass.
 class AarisAutopilotSupervisor extends ChangeNotifier {
   AarisAutopilotSupervisor(
     this.controller, {
@@ -485,6 +505,7 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
            day: dateText(controller.today),
          ),
        ) {
+    _observedSnapshot = controller.snapshot;
     _observedRevision = controller.snapshot.revision;
     _observedDay = dateText(controller.today);
     _observedReady = controller.ready;
@@ -512,9 +533,11 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
   /// their own freshness rule: one ownership point keeps route guards, Brain
   /// shortcuts and future queue surfaces fail-closed in the same way.
   AarisAutopilotWorkQueue? get currentWorkQueue {
+    final source = controller.snapshot;
     final current = _workQueue.value;
     if (!current.isReady ||
-        current.inventoryRevision != controller.snapshot.revision ||
+        !identical(_workQueueSource, source) ||
+        current.inventoryRevision != source.revision ||
         current.day != dateText(controller.today)) {
       return null;
     }
@@ -527,6 +550,8 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
   bool _computing = false;
   bool _rerunRequested = false;
   bool _lifecycleActive = true;
+  Object? _observedSnapshot;
+  Object? _workQueueSource;
   int _observedRevision = -1;
   String _observedDay = '';
   bool _observedReady = false;
@@ -553,14 +578,17 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
   }
 
   void _onControllerChanged() {
-    final revision = controller.snapshot.revision;
+    final source = controller.snapshot;
+    final revision = source.revision;
     final day = dateText(controller.today);
     final ready = controller.ready;
-    if (revision == _observedRevision &&
+    if (identical(source, _observedSnapshot) &&
+        revision == _observedRevision &&
         day == _observedDay &&
         ready == _observedReady) {
       return;
     }
+    _observedSnapshot = source;
     _observedRevision = revision;
     _observedDay = day;
     _observedReady = ready;
@@ -614,8 +642,24 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
           inventoryRevision: revision,
           day: day,
         ),
+        source: source,
       );
       _publish(AarisAutopilotDigest.waiting(inventoryRevision: revision));
+      return;
+    }
+
+    final currentQueue = _workQueue.value;
+    if (currentQueue.isReady &&
+        identical(_workQueueSource, source) &&
+        currentQueue.inventoryRevision == revision &&
+        currentQueue.day == day &&
+        _digest.isReady &&
+        _digest.health != AarisAutopilotHealth.degraded &&
+        _digest.inventoryRevision == revision) {
+      // Operational planning is deterministic for one immutable snapshot and
+      // civil day. Route-open/resume refreshes should update freshness metadata
+      // without rebuilding the full payload or starting another isolate.
+      _digest = _digest._withEvaluatedAt(controller.clock());
       return;
     }
 
@@ -638,7 +682,8 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
 
       final result = await compute(_evaluateAutopilot, payload);
       if (_disposed || !_lifecycleActive || generation != _generation) return;
-      if (controller.snapshot.revision != revision ||
+      if (!identical(controller.snapshot, source) ||
+          controller.snapshot.revision != revision ||
           dateText(controller.today) != day) {
         _rerunRequested = true;
         return;
@@ -650,6 +695,7 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
           day: day,
           tasks: (result['tasks'] as List<dynamic>).cast<StockGuidance>(),
         ),
+        source: source,
       );
       _publish(
         AarisAutopilotDigest.fromWorker(
@@ -660,13 +706,15 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
       );
     } catch (_) {
       if (_disposed || !_lifecycleActive || generation != _generation) return;
-      final liveRevision = controller.snapshot.revision;
+      final liveSource = controller.snapshot;
+      final liveRevision = liveSource.revision;
       final liveDay = dateText(controller.today);
       _publishWorkQueue(
         AarisAutopilotWorkQueue.degraded(
           inventoryRevision: liveRevision,
           day: liveDay,
         ),
+        source: liveSource,
       );
       _publish(
         AarisAutopilotDigest.degraded(
@@ -677,20 +725,23 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
     }
   }
 
-  void _publishWorkQueue(AarisAutopilotWorkQueue next) {
+  void _publishWorkQueue(
+    AarisAutopilotWorkQueue next, {
+    required Object source,
+  }) {
     if (_disposed) return;
     final current = _workQueue.value;
 
-    // Work cards are a deterministic projection of one inventory revision and
-    // civil business day. Route-open/close refreshes may recompute that exact
-    // projection without changing either input; retaining the current object
-    // avoids rebuilding a large visible task list for identical work. Status is
-    // part of the key so waiting/degraded recovery always remains observable.
-    if (current.status == next.status &&
+    // Snapshot identity is part of freshness. The controller can reload a
+    // different authoritative snapshot at the same numeric revision; reusing a
+    // queue across that boundary could expose stale pharmacist work.
+    if (identical(_workQueueSource, source) &&
+        current.status == next.status &&
         current.inventoryRevision == next.inventoryRevision &&
         current.day == next.day) {
       return;
     }
+    _workQueueSource = source;
     _workQueue.value = next;
   }
 

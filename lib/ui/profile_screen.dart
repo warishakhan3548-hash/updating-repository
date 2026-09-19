@@ -347,10 +347,7 @@ class ActivityScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 5),
                           Text(
-                            '${event['time']}'
-                                .replaceFirst('T', ' ')
-                                .split('.')
-                                .first,
+                            localDateTimeLabel(event['time']),
                             style: const TextStyle(fontSize: 12, color: muted),
                           ),
                           if (event['undone'] == true)

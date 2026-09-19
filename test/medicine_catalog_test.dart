@@ -103,7 +103,9 @@ void main() {
     ).single.seed;
 
     expect(suspension.form, 'Suspension');
+    expect(suspension.strength.toLowerCase(), '250 mg/5 ml');
     expect(solution.form, 'Solution');
+    expect(solution.strength.toLowerCase(), '1 mg/ml');
   });
 
   test('catalog service deduplicates identity and keeps stronger result', () async {

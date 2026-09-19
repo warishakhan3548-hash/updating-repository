@@ -283,7 +283,7 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
     ];
     final removedWhen = live.archivedAt == null
         ? 'Removal time not available'
-        : 'Removed ${live.archivedAt!.toLocal().toString().split('.').first}';
+        : 'Removed ${localDateTimeLabel(live.archivedAt)}';
     final reason = live.archiveReason.trim().isEmpty
         ? 'Legacy removal reason not available'
         : live.archiveReason.trim();
@@ -524,7 +524,7 @@ class _RemovedStockCard extends StatelessWidget {
     final removal = <String>[
       if (record.archiveReason.trim().isNotEmpty) record.archiveReason.trim(),
       if (record.archivedAt != null)
-        'Removed ${record.archivedAt!.toLocal().toString().split('.').first}',
+        'Removed ${localDateTimeLabel(record.archivedAt)}',
     ];
 
     return Surface(

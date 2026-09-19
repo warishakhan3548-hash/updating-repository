@@ -99,4 +99,57 @@ void main() {
       throwsFormatException,
     );
   });
+
+  test('exact-money witness follows row replacements across snapshots', () {
+    final first = _stock(
+      'first',
+      quantity: 90000000,
+      unitPricePaise: 50000000,
+    );
+    final second = _stock(
+      'second',
+      quantity: 90000000,
+      unitPricePaise: 50000000,
+    );
+    final before = InventorySnapshot(
+      records: <String, Medicine>{
+        first.id: first,
+        second.id: second,
+      },
+    );
+    final reduce = _mutation(
+      revision: before.revision,
+      label: 'Reduce first stock',
+      upserts: <Medicine>[
+        first.patch(<String, dynamic>{'quantity': 1}),
+      ],
+    );
+    final reduced = nextSnapshot(
+      before,
+      reduce,
+      makeEvent(before, reduce),
+    );
+
+    expect(reduced.records[first.id]!.quantity, 1);
+
+    final third = _stock(
+      'third',
+      quantity: 100000000,
+      unitPricePaise: 50000000,
+    );
+    final overflow = _mutation(
+      revision: reduced.revision,
+      label: 'Add another large stock',
+      upserts: <Medicine>[third],
+    );
+
+    expect(
+      () => nextSnapshot(
+        reduced,
+        overflow,
+        makeEvent(reduced, overflow),
+      ),
+      throwsFormatException,
+    );
+  });
 }

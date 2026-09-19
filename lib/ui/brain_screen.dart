@@ -1372,12 +1372,7 @@ class _BrainScreenState extends State<BrainScreen> {
     final businessDay = event['businessDay'] is String
         ? event['businessDay'] as String
         : '';
-    final rawTime = event['time'] is String ? event['time'] as String : '';
-    final parsedTime = DateTime.tryParse(rawTime);
-    final localTime = parsedTime?.toLocal();
-    final timeLabel = localTime == null
-        ? 'Time unavailable'
-        : localTime.toString().split('.').first;
+    final timeLabel = localDateTimeLabel(event['time']);
 
     final confirmed =
         await showDialog<bool>(
@@ -1411,13 +1406,16 @@ class _BrainScreenState extends State<BrainScreen> {
   }
 
   void _summary() {
+    // Stock summary is a frequent Brain read action and must stay off the
+    // expensive materialized-list path. HomeInventoryProjection already owns
+    // authoritative status counts for this exact snapshot/day, while stats owns
+    // quantity coverage. Reusing those read caches avoids three inventory scans
+    // plus two full sorts on the UI isolate for a simple text answer.
+    final projection = widget.controller.homeProjection;
     final stats = widget.controller.stats;
-    final active = widget.controller.records.where((m) => !m.archived).length;
-    final expired = widget.controller.list(SearchScope.expired).length;
-    final sold = widget.controller.list(SearchScope.sold).length;
     setState(
       () => _reply =
-          'Inventory now: $active active stock entries · ${stats.uniqueMedicines} unique medicines · ${stats.knownUnits} known units · $expired expired · $sold sold/reorder entries · ${stats.unknownQuantity} entries with unknown quantity.',
+          'Inventory now: ${projection.activeCount} active stock entries · ${projection.uniqueMedicines} unique medicines · ${stats.knownUnits} known units · ${projection.expiredCount} expired · ${projection.soldCount} sold/reorder entries · ${stats.unknownQuantity} entries with unknown quantity.',
     );
   }
 

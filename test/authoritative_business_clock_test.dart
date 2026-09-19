@@ -120,6 +120,54 @@ void main() {
     );
 
     test(
+      'manual SOLD lifecycle time is owned by the serialized commit',
+      () async {
+        final operationTime = DateTime.utc(2026, 9, 20, 23, 59, 59);
+        final staleCallerTime = DateTime.utc(2026, 9, 19, 12);
+        final stock = Medicine.fromJson(<String, dynamic>{
+          'id': 'sold-clock',
+          'name': 'Sold Clock Medicine',
+          'strength': '10mg',
+          'form': 'Tablet',
+          'expiry': '2027-01-01',
+          'quantity': 3,
+        });
+        final controller = PharmacyController(
+          MemoryInventoryStorage(
+            InventorySnapshot(
+              records: <String, Medicine>{stock.id: stock},
+            ),
+          ),
+          clock: () => operationTime,
+          backgroundSearch: false,
+        );
+        await controller.initialize();
+        addTearDown(controller.dispose);
+
+        final reviewed = controller.snapshot.records[stock.id]!;
+        await controller.save(
+          reviewed.patch(<String, dynamic>{
+            'sold': true,
+            'quantity': 0,
+            'soldAt': staleCallerTime.toIso8601String(),
+            'soldQuantity': reviewed.quantity,
+            'soldUnitPricePaise': reviewed.unitPricePaise,
+          }),
+          expectedRevision: controller.snapshot.revision,
+        );
+
+        final saved = controller.snapshot.records[stock.id]!;
+        expect(saved.soldAt, operationTime.toIso8601String());
+        expect(controller.sales.single.occurredAt, operationTime);
+        expect(
+          controller.snapshot.events.first['time'],
+          operationTime.toIso8601String(),
+        );
+        expect(controller.snapshot.events.first['businessDay'], '2026-09-20');
+      },
+    );
+
+    test(
       'receive-stock confirmation keeps one business instant across midnight',
       () async {
         final beforeMidnight = DateTime(2026, 9, 20, 23, 59, 59);

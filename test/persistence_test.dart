@@ -53,20 +53,136 @@ void main() {
     await Future<void>.delayed(Duration.zero);
   });
   test(
-    'write commits once, rejects stale concurrent writer, and publishes committed data',
+    'independent concurrent medicine writes serialize without false conflicts',
     () async {
       var publications = 0;
       controller.addListener(() => publications++);
+
       final first = controller.save(stock('a'), expectedRevision: 0);
       final second = controller.save(stock('b'), expectedRevision: 0);
-      final rejected = expectLater(second, throwsStateError);
-      await first;
-      await rejected;
-      expect(controller.snapshot.records.keys, ['a']);
-      expect(publications, 1);
-      expect((await storage.load()).revision, 1);
+      await Future.wait(<Future<void>>[first, second]);
+
+      expect(controller.snapshot.records.keys.toSet(), <String>{'a', 'b'});
+      expect(publications, 2);
+      expect((await storage.load()).revision, 2);
     },
   );
+
+  test(
+    'same medicine concurrent writer still fails closed on row revision',
+    () async {
+      await controller.save(stock('a', quantity: 10), expectedRevision: 0);
+      final reviewed = controller.snapshot.records['a']!;
+
+      final first = controller.save(
+        reviewed.patch(<String, dynamic>{'quantity': 9}),
+        expectedRevision: 1,
+      );
+      final second = controller.save(
+        reviewed.patch(<String, dynamic>{'quantity': 8}),
+        expectedRevision: 1,
+      );
+      final rejected = expectLater(second, throwsStateError);
+
+      await first;
+      await rejected;
+
+      expect(controller.snapshot.records['a']!.quantity, 9);
+      expect(controller.snapshot.revision, 2);
+    },
+  );
+
+  test(
+    'supplier edit rebases unrelated queued stock but rejects same-row conflict',
+    () async {
+      const supplier = Supplier(
+        id: 'supplier_concurrency',
+        name: 'Concurrency Distributor',
+        returnBeforeExpiryDays: 30,
+      );
+      await controller.saveSupplier(supplier, expectedRevision: 0);
+      final reviewed = controller.snapshot.suppliers[supplier.id]!;
+
+      final stockWrite = controller.save(stock('other'), expectedRevision: 1);
+      final supplierWrite = controller.saveSupplier(
+        reviewed.patch(<String, dynamic>{'address': 'Panipat'}),
+        expectedRevision: 1,
+      );
+      await Future.wait(<Future<void>>[stockWrite, supplierWrite]);
+
+      expect(controller.snapshot.suppliers[supplier.id]!.address, 'Panipat');
+      expect(controller.snapshot.revision, 3);
+
+      final live = controller.snapshot.suppliers[supplier.id]!;
+      final first = controller.saveSupplier(
+        live.patch(<String, dynamic>{'address': 'Karnal'}),
+        expectedRevision: 3,
+      );
+      final second = controller.saveSupplier(
+        live.patch(<String, dynamic>{'address': 'Ambala'}),
+        expectedRevision: 3,
+      );
+      final rejected = expectLater(second, throwsStateError);
+
+      await first;
+      await rejected;
+
+      expect(controller.snapshot.suppliers[supplier.id]!.address, 'Karnal');
+      expect(controller.snapshot.revision, 4);
+    },
+  );
+
+  test('manual SOLD save records known depletion and Undo removes it', () async {
+    await controller.save(stock('sold-via-editor', quantity: 3), expectedRevision: 0);
+    final live = controller.snapshot.records['sold-via-editor']!;
+
+    await controller.save(
+      live.patch(<String, dynamic>{
+        'sold': true,
+        'quantity': 0,
+        'soldAt': contractToday.toIso8601String(),
+        'soldQuantity': live.quantity,
+        'soldUnitPricePaise': live.unitPricePaise,
+      }),
+      expectedRevision: 1,
+    );
+
+    expect(controller.snapshot.records[live.id]!.sold, isTrue);
+    expect(controller.sales, hasLength(1));
+    expect(controller.sales.single.stockId, live.id);
+    expect(controller.sales.single.quantity, 3);
+    expect(controller.salesOverview.totalUnitsSold, 3);
+
+    await controller.undo();
+
+    expect(controller.snapshot.records[live.id]!.sold, isFalse);
+    expect(controller.snapshot.records[live.id]!.quantity, 3);
+    expect(controller.sales, isEmpty);
+  });
+  test(
+    'imported SOLD row stays stock history without inventing a sale',
+    () async {
+      final importedSoldAt = contractToday.subtract(const Duration(days: 1));
+      final imported = Medicine.fromJson(<String, dynamic>{
+        ...stock('imported-sold', quantity: 4).toJson(),
+        'sold': true,
+        'quantity': 0,
+        'soldAt': importedSoldAt.toIso8601String(),
+        'soldQuantity': 4,
+      });
+
+      await controller.save(imported, expectedRevision: 0);
+
+      final saved = controller.snapshot.records[imported.id]!;
+      expect(saved.sold, isTrue);
+      expect(saved.quantity, 0);
+      expect(saved.soldQuantity, 4);
+      expect(saved.soldAt, importedSoldAt.toIso8601String());
+      expect(controller.sales, isEmpty);
+      expect(controller.list(SearchScope.sold).single.id, imported.id);
+    },
+  );
+
   test('invalid second row rolls back the entire SQL transaction', () async {
     await expectLater(
       storage.commit(

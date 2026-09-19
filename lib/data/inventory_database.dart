@@ -6,7 +6,6 @@ import '../domain/automation_guard.dart';
 import '../domain/sale_ledger_guard.dart';
 import '../domain/medicine.dart';
 import '../domain/supplier.dart';
-import '../domain/inventory.dart';
 import '../domain/tracking.dart';
 
 class InventorySnapshot {
@@ -24,7 +23,10 @@ class InventorySnapshot {
        suppliers = Map.unmodifiable(suppliers ?? {}),
        sales = Map.unmodifiable(sales ?? {}),
        receipts = Set.unmodifiable(receipts ?? {}),
-       events = List.unmodifiable(events ?? []);
+       events = List.unmodifiable(events ?? []),
+       _moneyTotals = _inventoryMoneyTotals(
+         records?.values ?? const <Medicine>[],
+       );
 
   /// Internal copy-on-write constructor.
   ///
@@ -42,7 +44,8 @@ class InventorySnapshot {
     required this.events,
     required this.soldValue,
     required this.unknownSold,
-  });
+    required _InventoryMoneyTotals moneyTotals,
+  }) : _moneyTotals = moneyTotals;
 
   final int revision, soldValue, unknownSold;
   final WarningSettings settings;
@@ -51,6 +54,87 @@ class InventorySnapshot {
   final Map<String, SaleEvent> sales;
   final Set<String> receipts;
   final List<Map<String, dynamic>> events;
+
+  // Exact-accounting witness for this immutable medicine collection. A full
+  // scan is paid once when an external snapshot enters the data layer; ordinary
+  // stock writes then update only the touched rows instead of walking the whole
+  // pharmacy on the UI isolate after every sale/edit.
+  final _InventoryMoneyTotals _moneyTotals;
+}
+
+class _InventoryMoneyTotals {
+  const _InventoryMoneyTotals({
+    required this.totalEnteredAmountPaise,
+    required this.onHandValuePaise,
+  });
+
+  final int totalEnteredAmountPaise;
+  final int onHandValuePaise;
+}
+
+int _enteredAmountContribution(Medicine record) =>
+    record.archived || record.unitPricePaise == null
+    ? 0
+    : record.unitPricePaise!;
+
+int _onHandValueContribution(Medicine record) {
+  if (record.archived ||
+      record.sold ||
+      record.quantity == null ||
+      record.unitPricePaise == null) {
+    return 0;
+  }
+  return stockValue(record.quantity!, record.unitPricePaise!);
+}
+
+_InventoryMoneyTotals _inventoryMoneyTotals(Iterable<Medicine> records) {
+  var entered = 0;
+  var onHand = 0;
+  for (final record in records) {
+    entered = checkedMoneySum(entered, _enteredAmountContribution(record));
+    onHand = checkedMoneySum(onHand, _onHandValueContribution(record));
+  }
+  return _InventoryMoneyTotals(
+    totalEnteredAmountPaise: entered,
+    onHandValuePaise: onHand,
+  );
+}
+
+int _checkedMoneyTotal(BigInt value) {
+  if (value.isNegative || value > BigInt.from(maxExactPaise)) {
+    throw const FormatException(
+      'Amount exceeds the supported exact accounting range.',
+    );
+  }
+  return value.toInt();
+}
+
+_InventoryMoneyTotals _updatedInventoryMoneyTotals({
+  required _InventoryMoneyTotals beforeTotals,
+  required Map<String, Medicine> beforeRecords,
+  required Map<String, Medicine> afterRecords,
+  required Iterable<String> touchedStockIds,
+}) {
+  var entered = BigInt.from(beforeTotals.totalEnteredAmountPaise);
+  var onHand = BigInt.from(beforeTotals.onHandValuePaise);
+
+  for (final id in touchedStockIds.toSet()) {
+    final before = beforeRecords[id];
+    final after = afterRecords[id];
+    if (before != null) {
+      entered -= BigInt.from(_enteredAmountContribution(before));
+      onHand -= BigInt.from(_onHandValueContribution(before));
+    }
+    if (after != null) {
+      entered += BigInt.from(_enteredAmountContribution(after));
+      onHand += BigInt.from(_onHandValueContribution(after));
+    }
+  }
+
+  return _InventoryMoneyTotals(
+    totalEnteredAmountPaise: _checkedMoneyTotal(entered),
+    onHandValuePaise: _checkedMoneyTotal(onHand),
+  );
 }
 
 class InventoryMutation {
@@ -480,13 +564,22 @@ InventorySnapshot nextSnapshot(
   for (final id in mutation.removeSaleIds) {
     sales.remove(id);
   }
-  // Aggregate inventory arithmetic can change only when medicine facts change.
-  // Keep the exact-accounting guard on every stock mutation, but do not rescan
-  // the entire pharmacy for warning settings, supplier metadata or sale-history
-  // writes that leave the medicine collection byte-for-byte unchanged.
-  if (recordsChanged) {
-    InventoryStats(records.values, operationDay);
-  }
+  // Aggregate money safety is an invariant of the immutable snapshot, not a
+  // reason to rebuild every inventory statistic after each row-level write.
+  // The previous snapshot already carries exact totals; adjust only the touched
+  // rows. Because every contribution is non-negative, bounding total on-hand
+  // value also bounds the expired-value subset that InventoryStats derives.
+  final moneyTotals = recordsChanged
+      ? _updatedInventoryMoneyTotals(
+          beforeTotals: before._moneyTotals,
+          beforeRecords: before.records,
+          afterRecords: records,
+          touchedStockIds: <String>{
+            ...mutation.upserts.map((record) => record.id),
+            ...mutation.removeIds,
+          },
+        )
+      : before._moneyTotals;
   var total =
       mutation.soldValueOverride ??
       checkedMoneySum(before.soldValue, event['soldValue'] as int);
@@ -545,6 +638,7 @@ InventorySnapshot nextSnapshot(
     events: events,
     soldValue: total,
     unknownSold: missing,
+    moneyTotals: moneyTotals,
   );
 }
 

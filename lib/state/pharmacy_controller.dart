@@ -107,6 +107,26 @@ class ReviewedSale {
 bool _sameReviewedMedicine(Medicine live, Medicine reviewed) =>
     mapEquals(live.toJson(), reviewed.toJson());
 
+SaleEvent? _knownSoldDepletion(
+  Medicine medicine, {
+  required int? quantity,
+  required DateTime occurredAt,
+  required int? unitPricePaise,
+}) {
+  if (quantity == null || quantity <= 0) return null;
+  return SaleEvent(
+    id: newId(),
+    stockId: medicine.id,
+    medicineName: medicine.name,
+    strength: medicine.strength,
+    form: medicine.form,
+    salt: medicine.salt,
+    quantity: quantity,
+    occurredAt: occurredAt,
+    savedUnitPricePaise: unitPricePaise,
+  );
+}
+
 class BulkArchiveReview {
   BulkArchiveReview({
     required this.baseRevision,
@@ -639,23 +659,48 @@ class PharmacyController extends ChangeNotifier {
   Future<void> saveSupplier(
     Supplier supplier, {
     required int expectedRevision,
-  }) async {
-    final live = snapshot.suppliers[supplier.id];
-    if (live != null && supplier.revision <= live.revision) {
-      throw StateError(
-        'This supplier changed while it was being edited. Reopen the live supplier before saving.',
+  }) {
+    if (expectedRevision != snapshot.revision) {
+      return Future<void>.error(
+        StateError(
+          'Inventory changed. Reopen this supplier before saving.',
+        ),
       );
     }
-    await _commit(
-      InventoryMutation(
-        expectedRevision: expectedRevision,
+
+    final reviewed = snapshot.suppliers[supplier.id];
+    final reviewedRevision = reviewed?.revision;
+    if (reviewedRevision != null &&
+        supplier.revision != reviewedRevision + 1) {
+      return Future<void>.error(
+        StateError(
+          'This supplier changed while it was being edited. Reopen the live supplier before saving.',
+        ),
+      );
+    }
+
+    // Bind the edit to this supplier row, not to unrelated pharmacy traffic.
+    // The serialized turn may safely rebase its global CAS if this exact
+    // supplier revision is still unchanged.
+    return _queueReviewedCommit((_) {
+      final live = snapshot.suppliers[supplier.id];
+      final sameReviewedRow = reviewedRevision == null
+          ? live == null
+          : live != null && live.revision == reviewedRevision;
+      if (!sameReviewedRow) {
+        throw StateError(
+          'This supplier changed while it was being edited. Reopen the live supplier before saving.',
+        );
+      }
+      return InventoryMutation(
+        expectedRevision: snapshot.revision,
         label: live == null
             ? 'Added supplier · ${supplier.name}'
             : 'Updated supplier · ${supplier.name}',
         upserts: const <Medicine>[],
         upsertSuppliers: <Supplier>[supplier],
-      ),
-    );
+      );
+    });
   }
 
   List<SupplierReturnCandidate> get supplierReturns {
@@ -779,29 +824,81 @@ class PharmacyController extends ChangeNotifier {
     });
   }
 
-  Future<void> save(Medicine record, {required int expectedRevision}) async {
-    final existing = snapshot.records[record.id];
-    // Validation and persistence must describe one pharmacist action. Sampling
-    // the business clock twice can cross midnight between the expiry guard and
-    // the durable event, producing a contradictory SOLD audit day.
-    final operationTime = clock();
-    if (record.sold &&
-        existing?.sold != true &&
-        isExpiredOn(record, operationTime)) {
-      throw const FormatException(
-        'Expired stock cannot be marked SOLD. Remove it with reason Expired so it stays in the correct safety history.',
+  Future<void> save(Medicine record, {required int expectedRevision}) {
+    if (expectedRevision != snapshot.revision) {
+      return Future<void>.error(
+        StateError('Inventory changed. Reopen this entry before saving.'),
       );
     }
-    await _commit(
-      InventoryMutation(
-        expectedRevision: expectedRevision,
-        label: existing == null
-            ? 'Added ${record.name}'
-            : 'Edited ${record.name}',
-        upserts: [record],
-      ),
-      operationTime: operationTime,
-    );
+
+    final reviewed = snapshot.records[record.id];
+    final reviewedRevision = reviewed?.revision;
+    if (reviewedRevision != null && record.revision != reviewedRevision + 1) {
+      return Future<void>.error(
+        StateError(
+          'This medicine changed while it was being edited. Reopen the live entry before saving.',
+        ),
+      );
+    }
+
+    // A manual editor save is dependent on one physical stock row. Revalidate
+    // that row only when its serialized write turn begins, then use the latest
+    // global revision for the storage CAS. This preserves real same-row conflict
+    // safety without making unrelated settings/supplier/stock traffic reject a
+    // valid edit that was already reviewed by the pharmacist.
+    return _queueReviewedCommit((operationTime) {
+      final live = snapshot.records[record.id];
+      final sameReviewedRow = reviewedRevision == null
+          ? live == null
+          : live != null && live.revision == reviewedRevision;
+      if (!sameReviewedRow) {
+        throw StateError(
+          'This medicine changed while it was being edited. Reopen the live entry before saving.',
+        );
+      }
+
+      if (record.sold &&
+          live?.sold != true &&
+          isExpiredOn(record, operationTime)) {
+        throw const FormatException(
+          'Expired stock cannot be marked SOLD. Remove it with reason Expired so it stays in the correct safety history.',
+        );
+      }
+
+      var committedRecord = record;
+      SaleEvent? soldDepletion;
+      if (record.sold && live != null && !live.sold) {
+        final soldQuantity = record.soldQuantity ?? live.quantity;
+        final soldUnitPrice =
+            record.soldUnitPricePaise ?? live.unitPricePaise;
+        committedRecord = Medicine.fromJson(<String, dynamic>{
+          ...record.toJson(),
+          // A caller may carry preview/editor metadata captured earlier.
+          // The durable SOLD transition owns one authoritative commit instant
+          // for the medicine row, sale ledger and audit event.
+          'soldAt': operationTime.toIso8601String(),
+          'soldQuantity': soldQuantity,
+          'soldUnitPricePaise': soldUnitPrice,
+        });
+        soldDepletion = _knownSoldDepletion(
+          committedRecord,
+          quantity: soldQuantity,
+          occurredAt: operationTime,
+          unitPricePaise: soldUnitPrice,
+        );
+      }
+
+      return InventoryMutation(
+        expectedRevision: snapshot.revision,
+        label: live == null
+            ? 'Added ${committedRecord.name}'
+            : 'Edited ${committedRecord.name}',
+        upserts: <Medicine>[committedRecord],
+        upsertSales: soldDepletion == null
+            ? const <SaleEvent>[]
+            : <SaleEvent>[soldDepletion],
+      );
+    });
   }
 
   Future<void> _updateWarnings(
@@ -877,18 +974,32 @@ class PharmacyController extends ChangeNotifier {
           'This stock expired after the SOLD review was opened. Remove it with reason Expired instead; nothing was changed.',
         );
       }
+
+      // A known positive stock count is a real depletion fact and belongs in
+      // the durable sale ledger, not only in the bounded Activity history.
+      // Keep that transition in one helper so editor-driven SOLD and the
+      // dedicated SOLD action cannot diverge in analytics.
+      final soldQuantity = live.quantity;
+      final soldRecord = live.patch({
+        'sold': true,
+        'quantity': 0,
+        'soldAt': now.toIso8601String(),
+        'soldQuantity': soldQuantity,
+        'soldUnitPricePaise': live.unitPricePaise,
+      });
+      final soldDepletion = _knownSoldDepletion(
+        soldRecord,
+        quantity: soldQuantity,
+        occurredAt: now,
+        unitPricePaise: live.unitPricePaise,
+      );
       return InventoryMutation(
         expectedRevision: snapshot.revision,
         label: 'Marked ${live.name} sold',
-        upserts: [
-          live.patch({
-            'sold': true,
-            'quantity': 0,
-            'soldAt': now.toIso8601String(),
-            'soldQuantity': live.quantity,
-            'soldUnitPricePaise': live.unitPricePaise,
-          }),
-        ],
+        upserts: <Medicine>[soldRecord],
+        upsertSales: soldDepletion == null
+            ? const <SaleEvent>[]
+            : <SaleEvent>[soldDepletion],
       );
     });
   }

@@ -1,5 +1,6 @@
 import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
+import 'package:aaris_pharmacy/domain/tracking.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -135,6 +136,49 @@ void main() {
       expect(value.snapshot.records['a']!.quantity, 3);
       expect(value.snapshot.records['a']!.sold, isFalse);
       expect(value.sales, isEmpty);
+    });
+
+    test('explicit SOLD persists known units in the sale ledger and Undo removes them', () async {
+      final value = await controller();
+      addTearDown(value.dispose);
+      await value.save(stock('a', quantity: 3), expectedRevision: 0);
+
+      await value.applyMarkSold(value.reviewMarkSold('a'));
+
+      expect(value.snapshot.records['a']!.sold, isTrue);
+      expect(value.snapshot.records['a']!.quantity, 0);
+      expect(value.sales, hasLength(1));
+      expect(value.sales.single.stockId, 'a');
+      expect(value.sales.single.quantity, 3);
+      expect(value.salesOverview.recordedSales, 1);
+      expect(value.salesOverview.totalUnitsSold, 3);
+      expect(
+        value.tracking(TrackingRange.lastDays(value.today, 30)).movements[
+          value.snapshot.records['a']!.identity
+        ]?.unitsSold,
+        3,
+      );
+
+      await value.undo();
+
+      expect(value.snapshot.records['a']!.sold, isFalse);
+      expect(value.snapshot.records['a']!.quantity, 3);
+      expect(value.sales, isEmpty);
+    });
+
+    test('explicit SOLD with unknown quantity never invents a sale unit', () async {
+      final value = await controller();
+      addTearDown(value.dispose);
+      await value.save(stock('a', quantity: null), expectedRevision: 0);
+
+      await value.applyMarkSold(value.reviewMarkSold('a'));
+
+      expect(value.snapshot.records['a']!.sold, isTrue);
+      expect(value.sales, isEmpty);
+      expect(value.salesOverview.recordedSales, 0);
+      expect(value.salesOverview.totalUnitsSold, 0);
+      expect(value.salesOverview.salesValuePaise, 0);
+      expect(value.salesOverview.ranked, isEmpty);
     });
   });
 }

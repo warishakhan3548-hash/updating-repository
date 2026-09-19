@@ -94,7 +94,7 @@ class VersionHistoryScreen extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   Text(
-                    version.time.toLocal().toString().split('.').first,
+                    localDateTimeLabel(version.time),
                     style: const TextStyle(fontSize: 11, color: muted),
                   ),
                   const SizedBox(height: 12),

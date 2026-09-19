@@ -259,4 +259,48 @@ void main() {
     expect(identical(afterWrite, controller.tracking(range())), isTrue);
   });
 
+
+  test('sales analytics epoch ignores metadata and advances for explicit SOLD', () async {
+    final medicine = Medicine(
+      id: 'sales-epoch-stock',
+      name: 'Sales Epoch Medicine',
+      quantity: 3,
+      unitPricePaise: 1250,
+      expiry: DateTime(2027, 1, 1),
+    );
+    final controller = PharmacyController(
+      MemoryInventoryStorage(
+        InventorySnapshot(
+          records: <String, Medicine>{medicine.id: medicine},
+        ),
+      ),
+      clock: () => DateTime(2026, 9, 20, 10),
+      backgroundSearch: false,
+    );
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    final initialEpoch = controller.salesOverviewEpoch;
+    final initialOverview = controller.salesOverview;
+
+    await controller.saveSupplier(
+      const Supplier(
+        id: 'sales-epoch-supplier',
+        name: 'Sales Epoch Supplier',
+        returnBeforeExpiryDays: 30,
+      ),
+      expectedRevision: controller.snapshot.revision,
+    );
+
+    expect(controller.salesOverviewEpoch, initialEpoch);
+    expect(identical(controller.salesOverview, initialOverview), isTrue);
+
+    await controller.applyMarkSold(controller.reviewMarkSold(medicine.id));
+
+    expect(controller.salesOverviewEpoch, greaterThan(initialEpoch));
+    expect(controller.salesOverview.recordedSales, 1);
+    expect(controller.salesOverview.totalUnitsSold, 3);
+    expect(controller.sales.single.quantity, 3);
+  });
+
 }

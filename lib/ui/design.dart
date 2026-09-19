@@ -21,6 +21,26 @@ const successSoft = Color(0xFFEDF7F1);
 const warningSoft = Color(0xFFFFF5E3);
 const errorSoft = Color(0xFFFFEFF1);
 
+/// Formats a persisted instant for the device's local wall clock.
+///
+/// Inventory audit timestamps are stored in UTC for durable ordering. UI must
+/// never render those ISO strings directly: doing so makes a local-looking time
+/// several hours wrong outside UTC. Accepting both [DateTime] and persisted
+/// strings keeps every history surface on the same presentation boundary.
+String localDateTimeLabel(Object? value, {String fallback = 'Time unavailable'}) {
+  final instant = switch (value) {
+    DateTime value => value,
+    String value => DateTime.tryParse(value.trim()),
+    _ => null,
+  };
+  if (instant == null) return fallback;
+  final local = instant.toLocal();
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${local.year.toString().padLeft(4, '0')}-'
+      '${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+}
+
 /// Rebuilds from [listenable] only while this subtree is actually active.
 ///
 /// Retained tabs and covered Navigator routes are wrapped in [TickerMode].

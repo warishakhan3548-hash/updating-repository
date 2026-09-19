@@ -276,9 +276,12 @@ void main() {
         final sold = controller.snapshot.records['a']!;
         expect(sold.sold, isTrue);
         expect(sold.quantity, 0);
-        expect(controller.sales, isEmpty);
+        expect(controller.sales, hasLength(1));
+        expect(controller.sales.single.stockId, 'a');
+        expect(controller.sales.single.quantity, 10);
 
         await controller.undo();
+        expect(controller.sales, isEmpty);
         final stale = controller.reviewMarkSold('a');
         final live = controller.snapshot.records['a']!;
         await controller.save(

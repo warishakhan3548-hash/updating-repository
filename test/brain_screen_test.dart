@@ -1,5 +1,6 @@
 import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/app_brain.dart';
+import 'package:aaris_pharmacy/domain/inventory.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:aaris_pharmacy/state/autopilot_supervisor.dart';
 import 'package:aaris_pharmacy/state/operational_context.dart';
@@ -40,6 +41,15 @@ Medicine _stock(
 });
 
 final _today = DateTime(2026, 9, 7, 23, 59);
+
+class _SummaryNoListController extends PharmacyController {
+  _SummaryNoListController(InventoryStorage storage)
+    : super(storage, clock: () => _today, backgroundSearch: false);
+
+  @override
+  List<Medicine> list(SearchScope scope) =>
+      throw StateError('Stock summary must use cached read projections.');
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -382,4 +392,77 @@ void main() {
       await tester.pump(const Duration(seconds: 5));
     },
   );
+  testWidgets(
+    'Brain stock summary reuses cached projections instead of materializing scoped lists',
+    (tester) async {
+      final active = _stock(
+        'summary-active',
+        name: 'Crocin',
+        expiry: '2027-12',
+        quantity: 12,
+      );
+      final expired = _stock(
+        'summary-expired',
+        name: 'OldMed',
+        expiry: '2026-09-01',
+        quantity: 4,
+      );
+      final sold = _stock(
+        'summary-sold',
+        name: 'SoldMed',
+        expiry: '2027-05',
+        sold: true,
+      );
+      final controller = _SummaryNoListController(
+        MemoryInventoryStorage(
+          InventorySnapshot(
+            records: {
+              active.id: active,
+              expired.id: expired,
+              sold.id: sold,
+            },
+          ),
+        ),
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      final autopilot = AarisAutopilotSupervisor(
+        controller,
+        debounce: Duration.zero,
+        startImmediately: false,
+      );
+      addTearDown(autopilot.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: pharmacyTheme(),
+          home: Scaffold(
+            body: BrainScreen(
+              controller: controller,
+              autopilot: autopilot,
+              onOpenSection: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'stock summary');
+      await tester.tap(find.byTooltip('Run command').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.textContaining('3 active stock entries'), findsOneWidget);
+      expect(find.textContaining('3 unique medicines'), findsOneWidget);
+      expect(find.textContaining('1 expired'), findsOneWidget);
+      expect(find.textContaining('1 sold/reorder entries'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      autopilot.dispose();
+      controller.dispose();
+      await tester.pump();
+    },
+  );
+
 }
