@@ -416,13 +416,13 @@ class MainActivity : FlutterActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, safeName)
-                put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
                 put(
-                    MediaStore.Downloads.RELATIVE_PATH,
+                    MediaStore.MediaColumns.RELATIVE_PATH,
                     Environment.DIRECTORY_DOWNLOADS + "/Aaris Pharmacy",
                 )
-                put(MediaStore.Downloads.IS_PENDING, 1)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             val uri = contentResolver.insert(
                 MediaStore.Downloads.EXTERNAL_CONTENT_URI,
@@ -440,7 +440,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 values.clear()
-                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
                 contentResolver.update(uri, values, null, null)
                 return mapOf(
                     "uri" to uri.toString(),
