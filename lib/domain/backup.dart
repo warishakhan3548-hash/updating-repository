@@ -45,18 +45,27 @@ class PharmacyBackup {
   bool get legacyFormat =>
       integrityStatus == BackupIntegrityStatus.legacyUnsealed;
 
-  Map<String, dynamic> _canonicalPayload({bool includeSuppliers = true}) {
+  Map<String, dynamic> _canonicalPayload({
+    bool includeSuppliers = true,
+    bool includeSupplierLinks = true,
+  }) {
     final medicines = records.values.toList(growable: false)
       ..sort((a, b) => a.id.compareTo(b.id));
     final supplierRecords = suppliers.values.toList(growable: false)
       ..sort((a, b) => a.id.compareTo(b.id));
     final saleEvents = sales.values.toList(growable: false)
       ..sort((a, b) => a.id.compareTo(b.id));
+    Map<String, dynamic> medicineJson(Medicine record) {
+      final json = record.toJson();
+      if (!includeSupplierLinks) json.remove('supplierId');
+      return json;
+    }
+
     return <String, dynamic>{
       'createdAt': createdAt.toIso8601String(),
       'sourceRevision': sourceRevision,
       'settings': settings.toJson(),
-      'medicines': medicines.map((record) => record.toJson()).toList(),
+      'medicines': medicines.map(medicineJson).toList(),
       if (includeSuppliers)
         'suppliers': supplierRecords
             .map((supplier) => supplier.toJson())
@@ -71,7 +80,7 @@ class PharmacyBackup {
       .convert(utf8.encode(jsonEncode(payload)))
       .toString();
 
-  /// Version 2 adds a deterministic SHA-256 integrity proof over validated,
+  /// Version 2 introduced a deterministic SHA-256 integrity proof over validated,
   /// canonical pharmacy facts. This detects truncation/accidental edits before
   /// restore. It is deliberately not described as an authenticity signature:
   /// there is no secret key and legacy v1 files remain importable.
@@ -261,7 +270,10 @@ class PharmacyBackup {
           : BackupIntegrityStatus.legacyUnsealed,
     );
     if (current || previous) {
-      final payload = backup._canonicalPayload(includeSuppliers: current);
+      final payload = backup._canonicalPayload(
+        includeSuppliers: current,
+        includeSupplierLinks: current,
+      );
       final expected =
           '$_backupIntegrityPrefix${backup._integrityDigest(payload)}';
       if (integrity != expected) {
