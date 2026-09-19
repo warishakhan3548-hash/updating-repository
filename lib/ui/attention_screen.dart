@@ -268,8 +268,8 @@ class _AttentionScreenState extends State<AttentionScreen> {
     appBar: AppBar(title: const Text('आज के काम')),
     body: SafeArea(
       top: false,
-      child: AnimatedBuilder(
-        animation: widget.controller,
+      child: ActiveListenableBuilder(
+        listenable: widget.controller,
         builder: (context, _) {
           _refresh();
           final visible = _filter == 0
