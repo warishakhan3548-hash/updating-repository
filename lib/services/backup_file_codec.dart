@@ -247,24 +247,24 @@ class PortableBackupCodec {
         final settingsRaw = row['settings'];
 
         if (createdAt == null ||
-            createdAt!.year < 2000 ||
-            createdAt!.year > 2200 ||
+            createdAt.year < 2000 ||
+            createdAt.year > 2200 ||
             sourceRevision == null ||
-            sourceRevision! < 0 ||
+            sourceRevision < 0 ||
             soldValue == null ||
-            soldValue! < 0 ||
-            soldValue! > maxExactPaise ||
+            soldValue < 0 ||
+            soldValue > maxExactPaise ||
             unknownSold == null ||
-            unknownSold! < 0 ||
+            unknownSold < 0 ||
             expectedMedicines == null ||
-            expectedMedicines! < 0 ||
-            expectedMedicines! > maxPortableMedicineRecords ||
+            expectedMedicines < 0 ||
+            expectedMedicines > maxPortableMedicineRecords ||
             expectedSuppliers == null ||
-            expectedSuppliers! < 0 ||
-            expectedSuppliers! > maxPortableSupplierRecords ||
+            expectedSuppliers < 0 ||
+            expectedSuppliers > maxPortableSupplierRecords ||
             expectedSales == null ||
-            expectedSales! < 0 ||
-            expectedSales! > maxPortableSaleRecords ||
+            expectedSales < 0 ||
+            expectedSales > maxPortableSaleRecords ||
             settingsRaw is! Map) {
           throw const FormatException('Backup header metadata is invalid.');
         }
