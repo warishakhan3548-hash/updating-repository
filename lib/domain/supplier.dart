@@ -13,6 +13,11 @@ const _reservedSupplierLabels = <String>{
   'address',
   'gstin',
   'gst',
+  'druglicenceno',
+  'druglicensenumber',
+  'licenceno',
+  'licensenumber',
+  'dlno',
   'batch',
   'batchnumber',
   'lot',
@@ -80,6 +85,7 @@ class Supplier {
     required this.returnBeforeExpiryDays,
     this.address = '',
     this.gstin = '',
+    this.drugLicenceNo = '',
     this.customFields = const <SupplierCustomField>[],
     this.revision = 1,
   });
@@ -89,6 +95,7 @@ class Supplier {
   final int returnBeforeExpiryDays;
   final String address;
   final String gstin;
+  final String drugLicenceNo;
   final List<SupplierCustomField> customFields;
   final int revision;
 
@@ -98,6 +105,7 @@ class Supplier {
     'returnBeforeExpiryDays',
     'address',
     'gstin',
+    'drugLicenceNo',
     'customFields',
     'revision',
   };
@@ -108,6 +116,7 @@ class Supplier {
     'returnBeforeExpiryDays': returnBeforeExpiryDays,
     'address': address,
     'gstin': gstin,
+    'drugLicenceNo': drugLicenceNo,
     'customFields': customFields.map((field) => field.toJson()).toList(),
     'revision': revision,
   };
@@ -121,6 +130,7 @@ class Supplier {
     final returnDays = json['returnBeforeExpiryDays'];
     final address = json['address'] ?? '';
     final gstin = json['gstin'] ?? '';
+    final drugLicenceNo = json['drugLicenceNo'] ?? '';
     final revision = json['revision'] ?? 1;
     final rawCustom = json['customFields'] ?? const <dynamic>[];
 
@@ -133,6 +143,7 @@ class Supplier {
         returnDays > 3650 ||
         address is! String ||
         gstin is! String ||
+        drugLicenceNo is! String ||
         revision is! int ||
         revision < 1 ||
         rawCustom is! List ||
@@ -142,10 +153,13 @@ class Supplier {
     final cleanName = name.replaceAll(RegExp(r'\s+'), ' ').trim();
     final cleanAddress = address.trim();
     final cleanGstin = gstin.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+    final cleanDrugLicenceNo =
+        drugLicenceNo.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (cleanName.isEmpty ||
         cleanName.length > 300 ||
         cleanAddress.length > 1000 ||
-        cleanGstin.length > 40) {
+        cleanGstin.length > 40 ||
+        cleanDrugLicenceNo.length > 120) {
       throw const FormatException('Invalid supplier details.');
     }
 
@@ -177,6 +191,7 @@ class Supplier {
       returnBeforeExpiryDays: returnDays,
       address: cleanAddress,
       gstin: cleanGstin,
+      drugLicenceNo: cleanDrugLicenceNo,
       customFields: List.unmodifiable(fields),
       revision: revision,
     );
