@@ -1246,10 +1246,10 @@ class PharmacyController extends ChangeNotifier {
   AiPlan review(String input) => parseAiPlan(
     input,
     snapshot.records,
-    snapshot.suppliers,
     snapshot.revision,
     snapshot.receipts,
     clock(),
+    suppliers: snapshot.suppliers,
   );
 
   Future<AiPlan> reviewAsync(String input) => compute(_parseReview, {
@@ -1465,10 +1465,10 @@ class PharmacyController extends ChangeNotifier {
 AiPlan _parseReview(Map<String, dynamic> data) => parseAiPlan(
   data['input'] as String,
   data['records'] as Map<String, Medicine>,
-  data['suppliers'] as Map<String, Supplier>,
   data['revision'] as int,
   data['receipts'] as Set<String>,
   data['now'] as DateTime,
+  suppliers: data['suppliers'] as Map<String, Supplier>,
 );
 
 PharmacyBackup _parseBackup(String input) => PharmacyBackup.parse(input);
