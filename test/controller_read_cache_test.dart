@@ -120,6 +120,41 @@ void main() {
     expect(controller.debugSearchDatasetEpoch, initialEpoch + 1);
   });
 
+  test('settings-only writes preserve record-bound cache witnesses', () async {
+    final controller = PharmacyController(
+      MemoryInventoryStorage(
+        InventorySnapshot(
+          records: <String, Medicine>{
+            'cache-stock': Medicine(
+              id: 'cache-stock',
+              name: 'Cache Medicine',
+              quantity: 10,
+              expiry: DateTime(2026, 9, 26),
+            ),
+          },
+        ),
+      ),
+      clock: () => DateTime(2026, 9, 20, 10),
+      backgroundSearch: false,
+    );
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    final statsBefore = controller.stats;
+    final range = TrackingRange.lastDays(controller.today, 30);
+    final trackingBefore = controller.tracking(range);
+    final preview = controller.homeProjectionFor(
+      WarningSettings(shortDays: 5, months: controller.settings.months),
+    );
+
+    await controller.setShortWarningDays(5);
+
+    expect(identical(statsBefore, controller.stats), isTrue);
+    expect(identical(trackingBefore, controller.tracking(range)), isTrue);
+    expect(identical(preview, controller.homeProjection), isTrue);
+    expect(controller.homeProjection.shortExpiryCount, 0);
+  });
+
   test('tracking read model is reused by range and invalidated safely', () async {
     var now = DateTime(2026, 9, 12, 10);
     final controller = PharmacyController(
