@@ -82,19 +82,17 @@ class PortableBackupCodec {
         'saleCount': backup.sales.length,
       });
 
-      final medicineIds = backup.records.keys.toList(growable: false)..sort();
-      for (final id in medicineIds) {
+      for (final record in backup.records.values) {
         await addProtected(<String, dynamic>{
           'type': 'medicine',
-          'value': backup.records[id]!.toJson(),
+          'value': record.toJson(),
         });
       }
 
-      final saleIds = backup.sales.keys.toList(growable: false)..sort();
-      for (final id in saleIds) {
+      for (final sale in backup.sales.values) {
         await addProtected(<String, dynamic>{
           'type': 'sale',
-          'value': backup.sales[id]!.toJson(),
+          'value': sale.toJson(),
         });
       }
 
