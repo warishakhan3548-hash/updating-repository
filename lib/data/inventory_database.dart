@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import '../domain/automation_guard.dart';
 import '../domain/sale_ledger_guard.dart';
 import '../domain/medicine.dart';
+import '../domain/supplier.dart';
 import '../domain/inventory.dart';
 import '../domain/tracking.dart';
 
@@ -13,18 +14,21 @@ class InventorySnapshot {
     this.revision = 0,
     this.settings = const WarningSettings(),
     Map<String, Medicine>? records,
+    Map<String, Supplier>? suppliers,
     Map<String, SaleEvent>? sales,
     Set<String>? receipts,
     List<Map<String, dynamic>>? events,
     this.soldValue = 0,
     this.unknownSold = 0,
   }) : records = Map.unmodifiable(records ?? {}),
+       suppliers = Map.unmodifiable(suppliers ?? {}),
        sales = Map.unmodifiable(sales ?? {}),
        receipts = Set.unmodifiable(receipts ?? {}),
        events = List.unmodifiable(events ?? []);
   final int revision, soldValue, unknownSold;
   final WarningSettings settings;
   final Map<String, Medicine> records;
+  final Map<String, Supplier> suppliers;
   final Map<String, SaleEvent> sales;
   final Set<String> receipts;
   final List<Map<String, dynamic>> events;
@@ -35,8 +39,10 @@ class InventoryMutation {
     required this.expectedRevision,
     required this.label,
     required this.upserts,
+    this.upsertSuppliers = const [],
     this.upsertSales = const [],
     this.removeIds = const [],
+    this.removeSupplierIds = const [],
     this.removeSaleIds = const [],
     this.settings,
     this.requestId,
@@ -49,8 +55,10 @@ class InventoryMutation {
   final int expectedRevision;
   final String label;
   final List<Medicine> upserts;
+  final List<Supplier> upsertSuppliers;
   final List<SaleEvent> upsertSales;
   final List<String> removeIds;
+  final List<String> removeSupplierIds;
   final List<String> removeSaleIds;
   final WarningSettings? settings;
   final String? requestId, undoEventId;
@@ -62,8 +70,10 @@ class InventoryMutation {
     expectedRevision: expectedRevision,
     label: label,
     upserts: upserts,
+    upsertSuppliers: upsertSuppliers,
     upsertSales: upsertSales,
     removeIds: removeIds,
+    removeSupplierIds: removeSupplierIds,
     removeSaleIds: removeSaleIds,
     settings: settings,
     requestId: requestId,
@@ -120,6 +130,20 @@ void _validateMutationShape(InventoryMutation mutation) {
     );
   }
 
+  final upsertSupplierIds = uniqueIds(
+    mutation.upsertSuppliers.map((supplier) => supplier.id),
+    'supplier upsert',
+  );
+  final removeSupplierIds = uniqueIds(
+    mutation.removeSupplierIds,
+    'supplier removal',
+  );
+  if (upsertSupplierIds.intersection(removeSupplierIds).isNotEmpty) {
+    throw StateError(
+      'One inventory transaction cannot both upsert and remove the same supplier ID.',
+    );
+  }
+
   final upsertSaleIds = uniqueIds(
     mutation.upsertSales.map((sale) => sale.id),
     'sale upsert',
@@ -170,6 +194,18 @@ int _medicineUndoTextWeight(Medicine record) =>
     record.archiveReason.length +
     (record.soldAt?.length ?? 0);
 
+int _supplierUndoTextWeight(Supplier supplier) =>
+    256 +
+    supplier.id.length +
+    supplier.name.length +
+    supplier.address.length +
+    supplier.gstin.length +
+    supplier.customFields.fold<int>(
+      0,
+      (total, field) =>
+          total + field.id.length + field.label.length + field.value.length,
+    );
+
 int _saleUndoTextWeight(SaleEvent sale) =>
     192 +
     sale.id.length +
@@ -188,17 +224,29 @@ bool _canCaptureUndoSnapshot(
     ...mutation.upserts.map((record) => record.id),
     ...mutation.removeIds,
   };
+  final supplierIds = <String>{
+    ...mutation.upsertSuppliers.map((supplier) => supplier.id),
+    ...mutation.removeSupplierIds,
+  };
   final saleIds = <String>{
     ...mutation.upsertSales.map((sale) => sale.id),
     ...mutation.removeSaleIds,
   };
-  if (recordIds.length + saleIds.length > _maxUndoRows) return false;
+  if (recordIds.length + supplierIds.length + saleIds.length > _maxUndoRows) {
+    return false;
+  }
 
   var textWeight = 0;
   for (final id in recordIds) {
     final record = before.records[id];
     if (record == null) continue;
     textWeight += _medicineUndoTextWeight(record);
+    if (textWeight > _maxUndoTextCharacters) return false;
+  }
+  for (final id in supplierIds) {
+    final supplier = before.suppliers[id];
+    if (supplier == null) continue;
+    textWeight += _supplierUndoTextWeight(supplier);
     if (textWeight > _maxUndoTextCharacters) return false;
   }
   for (final id in saleIds) {
@@ -254,6 +302,15 @@ Map<String, dynamic> makeEvent(
               id: before.records[id]?.toJson(),
           }
         : <String, dynamic>{},
+    'supplierBefore': captureUndo
+        ? {
+            for (final id in {
+              ...mutation.upsertSuppliers.map((supplier) => supplier.id),
+              ...mutation.removeSupplierIds,
+            })
+              id: before.suppliers[id]?.toJson(),
+          }
+        : <String, dynamic>{},
     'salesBefore': captureUndo
         ? {
             for (final id in {
@@ -277,6 +334,7 @@ InventorySnapshot nextSnapshot(
   Map<String, dynamic> event,
 ) {
   final records = {...before.records};
+  final suppliers = {...before.suppliers};
   final sales = {...before.sales};
   final eventTimeRaw = event['time'];
   if (eventTimeRaw is! String) {
@@ -308,6 +366,21 @@ InventorySnapshot nextSnapshot(
   }
   for (final id in mutation.removeIds) {
     records.remove(id);
+  }
+  for (final supplier in mutation.upsertSuppliers) {
+    suppliers[supplier.id] = Supplier.fromJson(supplier.toJson());
+  }
+  for (final id in mutation.removeSupplierIds) {
+    suppliers.remove(id);
+  }
+
+  for (final record in records.values) {
+    final supplierId = record.supplierId.trim();
+    if (supplierId.isNotEmpty && !suppliers.containsKey(supplierId)) {
+      throw FormatException(
+        'Stock entry ${record.id} points to a supplier that does not exist.',
+      );
+    }
   }
 
   // Cross-row integrity is enforced at the same authoritative boundary as
@@ -379,6 +452,7 @@ InventorySnapshot nextSnapshot(
       (mutation.settings ?? before.settings).toJson(),
     ),
     records: records,
+    suppliers: suppliers,
     sales: sales,
     receipts: {
       ...before.receipts,
@@ -443,6 +517,7 @@ Map<String, dynamic>? decodeStoredInventoryEvent(Map<String, Object?> row) {
     }
 
     final beforeRaw = event['before'];
+    final supplierBeforeRaw = event['supplierBefore'];
     final salesBeforeRaw = event['salesBefore'];
     final settingsBeforeRaw = event['settingsBefore'];
     final canUndo =
@@ -458,6 +533,9 @@ Map<String, dynamic>? decodeStoredInventoryEvent(Map<String, Object?> row) {
       'undone': undone == 1,
       'before': beforeRaw is Map
           ? Map<String, dynamic>.from(beforeRaw)
+          : <String, dynamic>{},
+      'supplierBefore': supplierBeforeRaw is Map
+          ? Map<String, dynamic>.from(supplierBeforeRaw)
           : <String, dynamic>{},
       'salesBefore': salesBeforeRaw is Map
           ? Map<String, dynamic>.from(salesBeforeRaw)
@@ -484,7 +562,7 @@ class SqliteInventoryStorage implements InventoryStorage {
     _db = await provider.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onConfigure: (db) async {
           await db.execute('PRAGMA foreign_keys = ON');
         },
@@ -500,6 +578,9 @@ class SqliteInventoryStorage implements InventoryStorage {
           );
           await db.execute(
             'CREATE TABLE sales (id TEXT PRIMARY KEY, facts TEXT NOT NULL)',
+          );
+          await db.execute(
+            'CREATE TABLE suppliers (id TEXT PRIMARY KEY, facts TEXT NOT NULL)',
           );
           await db.execute(
             'CREATE TABLE events (id TEXT PRIMARY KEY, revision INTEGER UNIQUE NOT NULL, detail TEXT NOT NULL, sold_value INTEGER NOT NULL, unknown_sold INTEGER NOT NULL, undone INTEGER NOT NULL DEFAULT 0)',
@@ -533,6 +614,11 @@ class SqliteInventoryStorage implements InventoryStorage {
               'unknown_sold': totals['missing'],
             }, where: 'id=1');
           }
+          if (oldVersion < 4) {
+            await db.execute(
+              'CREATE TABLE IF NOT EXISTS suppliers (id TEXT PRIMARY KEY, facts TEXT NOT NULL)',
+            );
+          }
         },
       ),
     );
@@ -542,6 +628,7 @@ class SqliteInventoryStorage implements InventoryStorage {
   Future<InventorySnapshot> _read(DatabaseExecutor db) async {
     final meta = (await db.query('meta', where: 'id=1')).single;
     final records = await db.query('medicines');
+    final suppliers = await db.query('suppliers');
     final sales = await db.query('sales');
     final eventRows = await db.query(
       'events',
@@ -562,6 +649,12 @@ class SqliteInventoryStorage implements InventoryStorage {
       records: {
         for (final row in records)
           row['id'] as String: Medicine.fromJson(
+            jsonDecode(row['facts'] as String) as Map<String, dynamic>,
+          ),
+      },
+      suppliers: {
+        for (final row in suppliers)
+          row['id'] as String: Supplier.fromJson(
             jsonDecode(row['facts'] as String) as Map<String, dynamic>,
           ),
       },
@@ -636,6 +729,21 @@ class SqliteInventoryStorage implements InventoryStorage {
       }
       for (final id in mutation.removeIds) {
         batch.delete('medicines', where: 'id=?', whereArgs: [id]);
+        queued++;
+        if (queued >= 500) await flushBatch();
+      }
+      for (final supplier in mutation.upsertSuppliers) {
+        final valid = Supplier.fromJson(supplier.toJson());
+        batch.insert(
+          'suppliers',
+          {'id': valid.id, 'facts': jsonEncode(valid.toJson())},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        queued++;
+        if (queued >= 500) await flushBatch();
+      }
+      for (final id in mutation.removeSupplierIds) {
+        batch.delete('suppliers', where: 'id=?', whereArgs: [id]);
         queued++;
         if (queued >= 500) await flushBatch();
       }
