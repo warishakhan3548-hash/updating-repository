@@ -185,6 +185,7 @@ int _medicineUndoTextWeight(Medicine record) =>
     record.form.length +
     record.barcode.length +
     record.batchNumber.length +
+    record.supplierId.length +
     record.block.length +
     record.row.length +
     record.vertical.length +
@@ -200,6 +201,7 @@ int _supplierUndoTextWeight(Supplier supplier) =>
     supplier.name.length +
     supplier.address.length +
     supplier.gstin.length +
+    supplier.drugLicenceNo.length +
     supplier.customFields.fold<int>(
       0,
       (total, field) =>
