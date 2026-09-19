@@ -171,19 +171,23 @@ class PharmacyController extends ChangeNotifier {
   Future<void> _writes = Future.value();
   final _searchWorker = SearchWorker();
   MedicineSearch? _webSearch, _webArchivedSearch;
-  InventorySnapshot? _webSearchSnapshot, _webArchivedSearchSnapshot;
+  Map<String, Medicine>? _webSearchRecords, _webArchivedSearchRecords;
 
-  // Read models are derived from one immutable InventorySnapshot. Keep exactly
-  // one stable record-reference list and memoized projections per snapshot so
-  // keystrokes and non-inventory notifications do not repeatedly allocate or
-  // rescan a large pharmacy. Snapshot identity, not just its numeric revision,
-  // is the cache witness; a reload with the same revision therefore cannot reuse
-  // stale derived state. Day-sensitive projections carry their own civil-day key.
+  // Persistence snapshots are copy-on-write: unrelated settings, supplier and
+  // sales commits can publish a new snapshot while reusing the exact immutable
+  // medicine map. Bind expensive read models to the source collections they
+  // actually consume instead of invalidating everything on every audit event.
+  // This preserves one source of truth while keeping preference taps and
+  // unrelated writes off the large-inventory read path.
   InventorySnapshot? _readSnapshot;
+  Map<String, Medicine>? _readRecordSource;
+  Map<String, SaleEvent>? _readSalesSource;
+  Map<String, Supplier>? _readSupplierSource;
   List<Medicine>? _readRecords;
   InventoryStats? _statsCache;
   String _statsDayKey = '';
-  HomeInventoryProjection? _homeProjectionCache;
+  final Map<String, HomeInventoryProjection> _homeProjectionCache =
+      <String, HomeInventoryProjection>{};
   String _homeProjectionDayKey = '';
   SalesOverview? _salesOverviewCache;
   final Map<String, TrackingStats> _trackingCache = <String, TrackingStats>{};
@@ -204,18 +208,43 @@ class PharmacyController extends ChangeNotifier {
 
   void _syncReadSnapshot() {
     if (identical(_readSnapshot, snapshot)) return;
+
+    final recordsChanged = !identical(_readRecordSource, snapshot.records);
+    final salesChanged = !identical(_readSalesSource, snapshot.sales);
+    final suppliersChanged = !identical(
+      _readSupplierSource,
+      snapshot.suppliers,
+    );
+
     _readSnapshot = snapshot;
-    _readRecords = List<Medicine>.unmodifiable(snapshot.records.values);
-    _statsCache = null;
-    _statsDayKey = '';
-    _homeProjectionCache = null;
-    _homeProjectionDayKey = '';
+    _readSalesSource = snapshot.sales;
+    _readSupplierSource = snapshot.suppliers;
+
+    if (recordsChanged) {
+      _readRecordSource = snapshot.records;
+      _readRecords = List<Medicine>.unmodifiable(snapshot.records.values);
+      _statsCache = null;
+      _statsDayKey = '';
+      _homeProjectionCache.clear();
+      _homeProjectionDayKey = '';
+      _trackingCache.clear();
+      _trackingDayKey = '';
+      _supplierReturnsCache = null;
+      _supplierReturnsDayKey = '';
+      _searchDatasetEpoch++;
+    }
+    if (salesChanged) {
+      _trackingCache.clear();
+      _trackingDayKey = '';
+    }
+    if (suppliersChanged) {
+      _supplierReturnsCache = null;
+      _supplierReturnsDayKey = '';
+    }
+
+    // SalesOverview also consumes the bounded audit-event stream, which changes
+    // on every committed operation even when medicine/sale collections do not.
     _salesOverviewCache = null;
-    _trackingCache.clear();
-    _trackingDayKey = '';
-    _supplierReturnsCache = null;
-    _supplierReturnsDayKey = '';
-    _searchDatasetEpoch++;
   }
 
   List<Medicine> get _stableRecords {
@@ -234,19 +263,37 @@ class PharmacyController extends ChangeNotifier {
     return _statsCache!;
   }
 
-  HomeInventoryProjection get homeProjection {
+  HomeInventoryProjection get homeProjection => homeProjectionFor(settings);
+
+  /// Returns Home's read model for an explicit warning-window preview.
+  ///
+  /// The UI owns only the user's pending intent. Projection rules and caching
+  /// stay with the controller, and the small bounded cache lets an optimistic
+  /// warning selection survive its settings-only commit without rescanning the
+  /// unchanged medicine map during the listener/future completion sequence.
+  HomeInventoryProjection homeProjectionFor(WarningSettings selectedSettings) {
     final date = today;
     final dayKey = dateText(date);
     _syncReadSnapshot();
-    if (_homeProjectionCache == null || _homeProjectionDayKey != dayKey) {
-      _homeProjectionCache = HomeInventoryProjection.build(
-        medicines: _stableRecords,
-        settings: settings,
-        today: date,
-      );
+    if (_homeProjectionDayKey != dayKey) {
+      _homeProjectionCache.clear();
       _homeProjectionDayKey = dayKey;
     }
-    return _homeProjectionCache!;
+    final key =
+        '${selectedSettings.shortDays}:${selectedSettings.months}';
+    final cached = _homeProjectionCache[key];
+    if (cached != null) return cached;
+
+    if (_homeProjectionCache.length >= 8) {
+      _homeProjectionCache.remove(_homeProjectionCache.keys.first);
+    }
+    final projection = HomeInventoryProjection.build(
+      medicines: _stableRecords,
+      settings: selectedSettings,
+      today: date,
+    );
+    _homeProjectionCache[key] = projection;
+    return projection;
   }
 
   SalesOverview get salesOverview {
@@ -1654,9 +1701,9 @@ class PharmacyController extends ChangeNotifier {
     final date = today;
     // Isolate.run transfers the result; widgets bind it to their request generation.
     if (kIsWeb || !backgroundSearch) {
-      if (!identical(_webSearchSnapshot, snapshot)) {
+      if (!identical(_webSearchRecords, snapshot.records)) {
         _webSearch = MedicineSearch(data);
-        _webSearchSnapshot = snapshot;
+        _webSearchRecords = snapshot.records;
       }
       return _webSearch!.search(
         raw,
@@ -1715,12 +1762,12 @@ class PharmacyController extends ChangeNotifier {
     final datasetRevision = _searchDatasetEpoch;
     final date = today;
     if (kIsWeb || !backgroundSearch) {
-      if (!identical(_webArchivedSearchSnapshot, snapshot)) {
+      if (!identical(_webArchivedSearchRecords, snapshot.records)) {
         _webArchivedSearch = MedicineSearch(
           data.where((medicine) => medicine.archived),
           includeArchived: true,
         );
-        _webArchivedSearchSnapshot = snapshot;
+        _webArchivedSearchRecords = snapshot.records;
       }
       return _webArchivedSearch!.searchArchived(
         raw,
