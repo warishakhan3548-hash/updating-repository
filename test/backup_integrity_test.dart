@@ -219,4 +219,34 @@ void main() {
     expect(impact.changedStockEntries, 0);
     expect(impact.hasMaterialChange, isFalse);
   });
+  test('cooperative large-backup impact matches the synchronous contract', () async {
+    final incoming = _backup();
+    final current = Medicine.fromJson({
+      ...incoming.records.values.single.toJson(),
+      'notes': 'Different rack',
+    });
+
+    final synchronous = BackupImpact.compare(
+      backup: incoming,
+      currentRecords: {current.id: current},
+      currentSales: incoming.sales,
+      currentSettings: incoming.settings,
+      currentSoldValue: incoming.soldValue,
+      currentUnknownSold: incoming.unknownSold,
+    );
+    final cooperative = await compareBackupImpactCooperatively(
+      backup: incoming,
+      currentRecords: {current.id: current},
+      currentSales: incoming.sales,
+      currentSettings: incoming.settings,
+      currentSoldValue: incoming.soldValue,
+      currentUnknownSold: incoming.unknownSold,
+    );
+
+    expect(cooperative.changedStockEntries, synchronous.changedStockEntries);
+    expect(cooperative.newStockEntries, synchronous.newStockEntries);
+    expect(cooperative.removedSaleEvents, synchronous.removedSaleEvents);
+    expect(cooperative.hasMaterialChange, synchronous.hasMaterialChange);
+  });
+
 }
