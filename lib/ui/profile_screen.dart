@@ -282,8 +282,8 @@ class ActivityScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Activity & Undo')),
-    body: AnimatedBuilder(
-      animation: controller,
+    body: ActiveListenableBuilder(
+      listenable: controller,
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(22),
         children: [
