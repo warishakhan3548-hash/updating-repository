@@ -36,7 +36,7 @@ void main() {
       expect(ai, contains('status: true'));
 
       final buildStart = ai.indexOf(
-        'Widget build(BuildContext context) => AnimatedBuilder(',
+        'Widget build(BuildContext context) => ActiveListenableBuilder(',
       );
       final buildEnd = ai.indexOf('class _AiHubHeader', buildStart);
       final build = ai.substring(buildStart, buildEnd);
