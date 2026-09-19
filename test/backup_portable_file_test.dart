@@ -46,6 +46,7 @@ PharmacyBackup _portableBackup() {
       first.id: first,
       second.id: second,
     },
+    suppliers: const {},
     sales: <String, SaleEvent>{sale.id: sale},
     soldValue: 900,
     unknownSold: 0,
