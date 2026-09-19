@@ -74,6 +74,9 @@ void main() {
     final current = jsonDecode(_backup().encode()) as Map<String, dynamic>;
     current['schema'] = previousPharmacyBackupSchema;
     current.remove('suppliers');
+    for (final raw in current['medicines'] as List<dynamic>) {
+      (raw as Map<String, dynamic>).remove('supplierId');
+    }
 
     final payload = <String, dynamic>{
       'createdAt': current['createdAt'],
