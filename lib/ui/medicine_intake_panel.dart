@@ -134,8 +134,8 @@ class _MedicineIntakePanelState extends State<MedicineIntakePanel> {
       );
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: queue,
+  Widget build(BuildContext context) => ActiveListenableBuilder(
+        listenable: queue,
         builder: (context, _) {
           if (!queue.supported || (queue.jobs.isEmpty && error.isEmpty)) {
             return const SizedBox.shrink();
