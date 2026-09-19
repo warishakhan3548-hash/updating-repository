@@ -38,6 +38,7 @@ class _SupplierEditorScreenState extends State<SupplierEditorScreen> {
   late final TextEditingController _returnDays;
   late final TextEditingController _address;
   late final TextEditingController _gstin;
+  late final TextEditingController _drugLicenceNo;
   final List<_CustomFieldDraft> _custom = <_CustomFieldDraft>[];
   bool _busy = false;
 
@@ -51,6 +52,9 @@ class _SupplierEditorScreenState extends State<SupplierEditorScreen> {
     );
     _address = TextEditingController(text: supplier?.address ?? '');
     _gstin = TextEditingController(text: supplier?.gstin ?? '');
+    _drugLicenceNo = TextEditingController(
+      text: supplier?.drugLicenceNo ?? '',
+    );
     for (final field in supplier?.customFields ?? const <SupplierCustomField>[]) {
       _custom.add(
         _CustomFieldDraft(
@@ -68,6 +72,7 @@ class _SupplierEditorScreenState extends State<SupplierEditorScreen> {
     _returnDays.dispose();
     _address.dispose();
     _gstin.dispose();
+    _drugLicenceNo.dispose();
     for (final field in _custom) {
       field.dispose();
     }
@@ -151,6 +156,7 @@ class _SupplierEditorScreenState extends State<SupplierEditorScreen> {
         'returnBeforeExpiryDays': returnDays,
         'address': _address.text,
         'gstin': _gstin.text,
+        'drugLicenceNo': _drugLicenceNo.text,
         'customFields': [
           for (final field in _custom)
             <String, dynamic>{
@@ -275,6 +281,11 @@ class _SupplierEditorScreenState extends State<SupplierEditorScreen> {
                     maxLines: 2,
                   ),
                   _field(_gstin, 'GSTIN', hint: 'Optional'),
+                  _field(
+                    _drugLicenceNo,
+                    'Drug licence no.',
+                    hint: 'Optional',
+                  ),
                   for (var index = 0; index < _custom.length; index++)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
