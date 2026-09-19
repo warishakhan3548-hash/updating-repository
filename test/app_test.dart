@@ -33,11 +33,6 @@ class _CountingPharmacyController extends PharmacyController {
   }
 }
 
-Finder medicineCardText(String value) => find.descendant(
-  of: find.byType(MedicineCard),
-  matching: find.text(value),
-);
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
@@ -221,16 +216,25 @@ void main() {
       await tester.enterText(query, 'Drotaverine');
       await tester.pump(const Duration(milliseconds: 160));
       await tester.pumpAndSettle();
-      expect(medicineCardText('Drotaverine'), findsWidgets);
+      expect(
+        find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Drotaverine'),
+        findsOneWidget,
+      );
 
       await tester.enterText(query, 'Azithromycin');
       await tester.pump();
 
-      expect(medicineCardText('Drotaverine'), findsNothing);
+      expect(find.text('Drotaverine'), findsNothing);
       await tester.pump(const Duration(milliseconds: 160));
       await tester.pumpAndSettle();
-      expect(medicineCardText('Azithromycin'), findsWidgets);
-      expect(medicineCardText('Drotaverine'), findsNothing);
+      expect(
+        find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Azithromycin'),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Drotaverine'),
+        findsNothing,
+      );
       expect(tester.takeException(), isNull);
 
       await tester.pumpWidget(const SizedBox.shrink());
@@ -289,8 +293,14 @@ void main() {
       await tester.tap(find.text('Stock').last);
       await tester.pumpAndSettle();
       expect(controller.searchCalls, baselineSearches + 1);
-      expect(medicineCardText('Drotaverine'), findsWidgets);
-      expect(medicineCardText('Azithromycin'), findsNothing);
+      expect(
+        find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Drotaverine'),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Azithromycin'),
+        findsNothing,
+      );
       expect(tester.takeException(), isNull);
 
       await tester.pumpWidget(const SizedBox.shrink());
