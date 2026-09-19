@@ -45,6 +45,7 @@ class _SearchScreenState extends State<SearchScreen> {
   late DateTime _observedDay;
   bool _controllerListening = false;
   bool _refreshWhenActive = false;
+  Future<void> _searchTail = Future<void>.value();
 
   @override
   void initState() {
@@ -144,10 +145,10 @@ class _SearchScreenState extends State<SearchScreen> {
     unawaited(_search(preserveResults: true));
   }
 
-  Future<void> _search({bool preserveResults = false}) async {
+  Future<void> _search({bool preserveResults = false}) {
     final generation = ++_generation;
     final typedQuery = _query.text;
-    if (!mounted) return;
+    if (!mounted) return Future<void>.value();
     setState(() {
       // Snapshot/day refreshes keep the last valid cards on screen while the
       // same query is recomputed. A new query clears them immediately so stale
@@ -156,6 +157,26 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!preserveResults) _hits = [];
       _error = '';
     });
+
+    // SearchWorker intentionally serializes expensive isolate work. Serialize
+    // requests here as well so a newer query can invalidate queued predecessors
+    // before they ever reach that worker. One already-running search may finish;
+    // after it settles, only the newest queued generation performs another one.
+    final operation = _searchTail.then<void>(
+      (_) => _runSearch(generation: generation, typedQuery: typedQuery),
+    );
+    _searchTail = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return operation;
+  }
+
+  Future<void> _runSearch({
+    required int generation,
+    required String typedQuery,
+  }) async {
+    if (!mounted || generation != _generation) return;
     try {
       final hits = await widget.controller.search(typedQuery, widget.scope);
       if (!mounted || generation != _generation) return;
@@ -165,7 +186,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _loading = false;
       });
       _scheduleTypedOnlineLookup(typedQuery);
-    } catch (e) {
+    } catch (_) {
       if (mounted && generation == _generation) {
         setState(() {
           _error = 'Search could not finish. Please try again.';
@@ -430,11 +451,13 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
+    final settings = controller.settings;
+    final today = controller.today;
     final title = widget.database
         ? 'Medicine Database'
         : widget.scope == SearchScope.all
         ? 'Scan & Search'
-        : scopeTitle(widget.scope, controller.settings);
+        : scopeTitle(widget.scope, settings);
 
     Widget blueAction({
       required IconData icon,
@@ -600,7 +623,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          'Searching: ${scopeTitle(widget.scope, controller.settings)}${widget.scope == SearchScope.all ? '' : ' only'}',
+                          'Searching: ${scopeTitle(widget.scope, settings)}${widget.scope == SearchScope.all ? '' : ' only'}',
                           style: const TextStyle(
                             fontSize: 12,
                             color: muted,
@@ -789,15 +812,15 @@ class _SearchScreenState extends State<SearchScreen> {
                     !inScope(
                       record,
                       widget.scope,
-                      controller.settings,
-                      controller.today,
+                      settings,
+                      today,
                     )) {
                   return const SizedBox.shrink();
                 }
                 return MedicineCard(
                   record: record,
-                  settings: controller.settings,
-                  today: controller.today,
+                  settings: settings,
+                  today: today,
                   onTap: () => openEditor(context, controller, record: record),
                   matchLabel: hit.uncertain
                       ? '${hit.confidence} confidence · ${hit.reason} · check name & strength'
