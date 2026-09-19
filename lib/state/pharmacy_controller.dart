@@ -548,6 +548,110 @@ class PharmacyController extends ChangeNotifier {
     );
   });
 
+  /// Commits one editor session against the exact stock row it opened.
+  ///
+  /// Unrelated queued inventory writes may advance the global revision without
+  /// making the editor stale. System-owned SOLD lifecycle facts are materialized
+  /// only after the reviewed row reaches the serialized write boundary.
+  Future<void> saveReviewedMedicine({
+    required Medicine reviewed,
+    required Medicine draft,
+    bool markSold = false,
+  }) {
+    if (reviewed.id != draft.id ||
+        draft.revision != reviewed.revision + 1) {
+      return Future<void>.error(
+        StateError(
+          'This editor draft no longer matches the stock entry it opened.',
+        ),
+      );
+    }
+    return commitReviewedRecordUpdate(
+      stockId: reviewed.id,
+      recordRevision: reviewed.revision,
+      label: (_) => markSold
+          ? 'Edited and marked ${draft.name} sold'
+          : 'Edited ${draft.name}',
+      update: (live, operationTime) {
+        if (!_sameReviewedMedicine(live, reviewed) || live.archived) {
+          throw StateError(
+            'This medicine changed while you were editing it. Reopen the live entry before saving.',
+          );
+        }
+
+        var committed = Medicine.fromJson(<String, dynamic>{
+          ...draft.toJson(),
+          'id': live.id,
+          'revision': live.revision + 1,
+        });
+        if (!markSold) {
+          if (!live.sold && committed.sold) {
+            throw StateError(
+              'Use the reviewed SOLD action before marking this stock out of stock.',
+            );
+          }
+          return committed;
+        }
+
+        if (live.sold) {
+          throw StateError('This stock entry is already marked SOLD.');
+        }
+        if (isExpiredOn(committed, operationTime)) {
+          throw const FormatException(
+            'Expired stock cannot be marked SOLD. Remove it with reason Expired instead; nothing was changed.',
+          );
+        }
+
+        final soldQuantity = committed.quantity;
+        committed = Medicine.fromJson(<String, dynamic>{
+          ...committed.toJson(),
+          'sold': true,
+          'quantity': 0,
+          'soldAt': operationTime.toIso8601String(),
+          'soldQuantity': soldQuantity,
+          'soldUnitPricePaise': committed.unitPricePaise,
+          'revision': live.revision + 1,
+        });
+        return committed;
+      },
+    );
+  }
+
+  /// Supplier edits use the same dependency-scoped commit rule: unrelated
+  /// inventory traffic may proceed, but a changed supplier revision fails closed.
+  Future<void> saveReviewedSupplier({
+    required Supplier reviewed,
+    required Supplier draft,
+  }) {
+    if (reviewed.id != draft.id ||
+        draft.revision != reviewed.revision + 1) {
+      return Future<void>.error(
+        StateError(
+          'This supplier draft no longer matches the supplier it opened.',
+        ),
+      );
+    }
+    return _queueReviewedCommit((_) {
+      final live = snapshot.suppliers[reviewed.id];
+      if (live == null || live.revision != reviewed.revision) {
+        throw StateError(
+          'This supplier changed while you were editing it. Reopen the live supplier before saving.',
+        );
+      }
+      final committed = Supplier.fromJson(<String, dynamic>{
+        ...draft.toJson(),
+        'id': live.id,
+        'revision': live.revision + 1,
+      });
+      return InventoryMutation(
+        expectedRevision: snapshot.revision,
+        label: 'Updated supplier · ${committed.name}',
+        upserts: const <Medicine>[],
+        upsertSuppliers: <Supplier>[committed],
+      );
+    });
+  }
+
   Future<void> saveSupplier(
     Supplier supplier, {
     required int expectedRevision,
