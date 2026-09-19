@@ -46,6 +46,15 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _controllerListening = false;
   bool _refreshWhenActive = false;
 
+  // Result generations stop stale cards from being published, but they do not
+  // stop an already-started background search. Keep at most one additional
+  // request while that work runs and continuously replace it with the newest
+  // query, so rapid typing cannot build a FIFO backlog of obsolete searches.
+  bool _searchDraining = false;
+  String? _pendingSearchQuery;
+  int _pendingSearchGeneration = 0;
+  final List<Completer<void>> _pendingSearchWaiters = [];
+
   @override
   void initState() {
     super.initState();
@@ -67,11 +76,15 @@ class _SearchScreenState extends State<SearchScreen> {
       // debounce timers otherwise start isolate search or public-catalog work
       // after the user has already left this screen. Retire in-flight result
       // generations too, then refresh the same query once on reactivation.
-      final localWorkPending = _loading || (_debounce?.isActive ?? false);
+      final localWorkPending =
+          _loading ||
+          (_debounce?.isActive ?? false) ||
+          _pendingSearchQuery != null;
       final catalogWorkPending =
           _catalogLoading || (_onlineDebounce?.isActive ?? false);
       _debounce?.cancel();
       _onlineDebounce?.cancel();
+      _dropPendingSearch();
       if (localWorkPending || catalogWorkPending) {
         ++_generation;
         ++_catalogGeneration;
@@ -144,10 +157,10 @@ class _SearchScreenState extends State<SearchScreen> {
     unawaited(_search(preserveResults: true));
   }
 
-  Future<void> _search({bool preserveResults = false}) async {
+  Future<void> _search({bool preserveResults = false}) {
     final generation = ++_generation;
     final typedQuery = _query.text;
-    if (!mounted) return;
+    if (!mounted) return Future<void>.value();
     setState(() {
       // Snapshot/day refreshes keep the last valid cards on screen while the
       // same query is recomputed. A new query clears them immediately so stale
@@ -156,23 +169,58 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!preserveResults) _hits = [];
       _error = '';
     });
+
+    final completion = Completer<void>();
+    _pendingSearchQuery = typedQuery;
+    _pendingSearchGeneration = generation;
+    _pendingSearchWaiters.add(completion);
+    if (!_searchDraining) unawaited(_drainSearch());
+    return completion.future;
+  }
+
+  Future<void> _drainSearch() async {
+    if (_searchDraining) return;
+    _searchDraining = true;
     try {
-      final hits = await widget.controller.search(typedQuery, widget.scope);
-      if (!mounted || generation != _generation) return;
-      setState(() {
-        _hits = hits;
-        _error = '';
-        _loading = false;
-      });
-      _scheduleTypedOnlineLookup(typedQuery);
-    } catch (e) {
-      if (mounted && generation == _generation) {
-        setState(() {
-          _error = 'Search could not finish. Please try again.';
-          _loading = false;
-        });
+      while (mounted && _pendingSearchQuery != null) {
+        final typedQuery = _pendingSearchQuery!;
+        final generation = _pendingSearchGeneration;
+        _pendingSearchQuery = null;
+        final waiters = List<Completer<void>>.of(_pendingSearchWaiters);
+        _pendingSearchWaiters.clear();
+        try {
+          final hits = await widget.controller.search(typedQuery, widget.scope);
+          if (!mounted || generation != _generation) continue;
+          setState(() {
+            _hits = hits;
+            _error = '';
+            _loading = false;
+          });
+          _scheduleTypedOnlineLookup(typedQuery);
+        } catch (_) {
+          if (mounted && generation == _generation) {
+            setState(() {
+              _error = 'Search could not finish. Please try again.';
+              _loading = false;
+            });
+          }
+        } finally {
+          for (final waiter in waiters) {
+            if (!waiter.isCompleted) waiter.complete();
+          }
+        }
       }
+    } finally {
+      _searchDraining = false;
     }
+  }
+
+  void _dropPendingSearch() {
+    _pendingSearchQuery = null;
+    for (final waiter in _pendingSearchWaiters) {
+      if (!waiter.isCompleted) waiter.complete();
+    }
+    _pendingSearchWaiters.clear();
   }
 
   bool _catalogEligibleText(String value) {
@@ -422,6 +470,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_controllerListening) widget.controller.removeListener(_changed);
     _debounce?.cancel();
     _onlineDebounce?.cancel();
+    _dropPendingSearch();
     _catalog.close();
     _query.dispose();
     super.dispose();
