@@ -461,7 +461,11 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       autopilot.dispose();
       controller.dispose();
-      await tester.pump();
+      // BrainScreen mounts AiScreen, whose secure configuration read is guarded
+      // by a four-second timeout. Mirror the existing Brain widget-test cleanup
+      // so that disposed asynchronous configuration work cannot leak a fake
+      // timer into the test binding.
+      await tester.pump(const Duration(seconds: 5));
     },
   );
 
