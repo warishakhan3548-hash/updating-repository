@@ -564,7 +564,9 @@ class PharmacyController extends ChangeNotifier {
     // inventory revision without invalidating an unchanged supplier edit.
     final reviewed = snapshot.suppliers[supplier.id];
     final reviewedRevision = supplier.revision - 1;
-    if (reviewed == null ? reviewedRevision != 0 : reviewed.revision != reviewedRevision) {
+    if (reviewed == null
+        ? reviewedRevision != 0
+        : reviewed.revision != reviewedRevision) {
       throw StateError(
         'This supplier changed while it was being edited. Reopen the live supplier before saving.',
       );
