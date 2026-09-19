@@ -338,8 +338,7 @@ class BackupImpact {
       soldTotalsChange;
 }
 
-extension LargeBackupImpactReview on BackupImpact {
-  static Future<BackupImpact> compareCooperatively({
+Future<BackupImpact> compareBackupImpactCooperatively({
     required PharmacyBackup backup,
     required Map<String, Medicine> currentRecords,
     required Map<String, SaleEvent> currentSales,
@@ -413,7 +412,6 @@ extension LargeBackupImpactReview on BackupImpact {
           currentSoldValue != backup.soldValue ||
           currentUnknownSold != backup.unknownSold,
     );
-  }
 }
 
 bool _sameMedicineRestoreFacts(Medicine a, Medicine b) =>
