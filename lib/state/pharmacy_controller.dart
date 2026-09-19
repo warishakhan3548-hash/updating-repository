@@ -1110,12 +1110,19 @@ class PharmacyController extends ChangeNotifier {
     final restored = <Medicine>[];
     final restoreStartedAt = clock();
     for (final record in review.backup.records.values) {
-      final currentRevision = snapshot.records[record.id]?.revision ?? 0;
+      final current = snapshot.records[record.id];
+      if (current == null) {
+        // On a fresh phone there is no stale local row to invalidate, so reuse
+        // the already validated immutable record instead of cloning the entire
+        // imported stock set in memory.
+        restored.add(record);
+        continue;
+      }
       restored.add(
         Medicine.fromJson({
           ...record.toJson(),
-          'revision': currentRevision > record.revision
-              ? currentRevision + 1
+          'revision': current.revision > record.revision
+              ? current.revision + 1
               : record.revision + 1,
         }),
       );
