@@ -108,8 +108,8 @@ class _VoiceSheetState extends State<_VoiceSheet> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: voice,
+  Widget build(BuildContext context) => ActiveListenableBuilder(
+    listenable: voice,
     builder: (context, _) {
       final listening = voice.phase == VoicePhase.listening;
       final status = switch (voice.phase) {
