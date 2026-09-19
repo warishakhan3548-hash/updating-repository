@@ -38,6 +38,21 @@ Future<bool> scannerWorkCompletedWithin<T>(
   }
 }
 
+@visibleForTesting
+Future<bool> scannerWorkGroupCompletedWithin(
+  Iterable<Future<dynamic>?> work, {
+  Duration timeout = _lifecycleDrainTimeout,
+}) {
+  final active = <Future<dynamic>>[
+    for (final operation in work)
+      if (operation != null) operation,
+  ];
+  return scannerWorkCompletedWithin(
+    Future.wait<dynamic>(active),
+    timeout: timeout,
+  );
+}
+
 class ScanResult {
   const ScanResult({
     this.barcode = '',
@@ -532,20 +547,22 @@ class _ScannerScreenState extends State<ScannerScreen>
 
   Future<void> _stopCamera() async {
     final camera = _camera;
+    final hadSession = camera != null || _description != null;
+    final captureWork = _captureWork;
+    final frameWork = _frameWork;
     _camera = null;
     _description = null;
-    if (mounted && !_closed) setState(() {});
-    // Detach first so no new frames can enter this camera session. A native
-    // callback may outlive its visible UI deadline, so lifecycle recovery gets
-    // only a short grace period instead of inheriting an unbounded wait. These
-    // waits do not cancel recognition; the existing busy/lease guards continue
-    // to prevent overlapping OCR until the original operation really settles.
-    await scannerWorkCompletedWithin(
-      _captureWork,
-      timeout: _lifecycleDrainTimeout,
-    );
-    await scannerWorkCompletedWithin(
-      _frameWork,
+    _captureWork = null;
+    _frameWork = null;
+    if (hadSession && mounted && !_closed) setState(() {});
+
+    // Detach synchronously so no new frame enters this retired session. Give all
+    // work already owned by it one shared grace period instead of multiplying
+    // lifecycle latency by waiting for capture and frame OCR sequentially. Late
+    // OCR remains safe: MedicineVisionService keeps its recognizer lease until
+    // admitted work drains, and the scanner's busy guard rejects overlap.
+    await scannerWorkGroupCompletedWithin(
+      <Future<dynamic>?>[captureWork, frameWork],
       timeout: _lifecycleDrainTimeout,
     );
     if (camera != null) {
@@ -558,11 +575,21 @@ class _ScannerScreenState extends State<ScannerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_closed || _leaving) return;
-    _foreground = state == AppLifecycleState.resumed;
+    final foreground = state == AppLifecycleState.resumed;
+    if (_foreground == foreground) return;
+
+    _foreground = foreground;
     ++_generation;
-    setState(() => _starting = false);
-    _lifecycle = _lifecycle.then((_) => _stopCamera());
-    if (_foreground && _bootstrapped) unawaited(_restartCamera());
+    if (!foreground) {
+      if (mounted) setState(() => _starting = false);
+      _lifecycle = _lifecycle.then((_) => _stopCamera());
+      return;
+    }
+
+    // Android commonly emits inactive -> paused -> resumed for one interruption.
+    // Only the first background transition owns teardown; resume enters the same
+    // serialized camera owner without queueing redundant stops first.
+    if (_bootstrapped) unawaited(_restartCamera());
   }
 
   @override
