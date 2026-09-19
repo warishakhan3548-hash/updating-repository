@@ -269,7 +269,7 @@ class _BackupScreenState extends State<BackupScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Creates a verified .txt backup, saves a local copy first, then opens the share menu. Medicines, removed stock, warning settings and aggregate sales are included; AI API keys are never included.',
+                'Creates a verified .txt backup, saves a local copy first, then opens the share menu. Medicines, removed stock, supplier details, warning settings and aggregate sales are included; AI API keys are never included.',
                 style: TextStyle(color: inverseMuted, fontSize: 12),
               ),
               const SizedBox(height: 18),
