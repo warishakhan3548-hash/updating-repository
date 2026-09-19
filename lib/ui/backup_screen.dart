@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -10,18 +9,6 @@ import '../domain/tracking.dart';
 import '../services/backup_service.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
-
-BackupImpact _backupImpactWorker(Map<String, Object?> payload) =>
-    BackupImpact.compare(
-      backup: payload['backup']! as PharmacyBackup,
-      currentRecords: Map<String, Medicine>.from(
-        payload['records']! as Map,
-      ),
-      currentSales: Map<String, SaleEvent>.from(payload['sales']! as Map),
-      currentSettings: payload['settings']! as WarningSettings,
-      currentSoldValue: payload['soldValue']! as int,
-      currentUnknownSold: payload['unknownSold']! as int,
-    );
 
 class BackupScreen extends StatefulWidget {
   const BackupScreen({super.key, required this.controller});
@@ -34,24 +21,35 @@ class BackupScreen extends StatefulWidget {
 
 class _BackupScreenState extends State<BackupScreen> {
   final _service = BackupService();
-  final _input = TextEditingController();
   BackupReview? _review;
+  BackupFileReference? _pickedFile;
+  BackupExportResult? _lastExport;
   bool _sharing = false;
   bool _reading = false;
   bool _restoring = false;
   String _error = '';
 
-  @override
-  void dispose() {
-    _input.dispose();
-    super.dispose();
-  }
-
   Future<void> _share() async {
     if (_sharing) return;
-    setState(() => _sharing = true);
+    setState(() {
+      _sharing = true;
+      _error = '';
+    });
     try {
-      await _service.share(widget.controller.createBackup());
+      final result = await _service.exportAndShare(
+        widget.controller.createBackup(),
+      );
+      if (!mounted) return;
+      setState(() => _lastExport = result);
+      final location = result.savedLocation == null
+          ? 'a temporary share file'
+          : result.savedLocation!;
+      showSaved(
+        context,
+        result.shareOpened
+            ? 'Backup saved to $location. Share menu opened.'
+            : 'Backup saved to $location.',
+      );
     } catch (error) {
       if (mounted) showError(context, error);
     } finally {
@@ -60,89 +58,30 @@ class _BackupScreenState extends State<BackupScreen> {
   }
 
   Future<void> _pick() async {
-    if (_reading) return;
-    setState(() => _reading = true);
-    try {
-      final text = await _service.pickBackupText();
-      if (text != null && mounted) {
-        _input.text = text;
-        await _reviewInput();
-      }
-    } on MissingPluginException {
-      if (mounted) {
-        setState(
-          () => _error =
-              'File selection is available in the Android app. Paste backup JSON here on this device.',
-        );
-      }
-    } catch (error) {
-      if (mounted) showError(context, error);
-    } finally {
-      if (mounted) setState(() => _reading = false);
-    }
-  }
-
-  Future<void> _paste() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (!mounted) return;
-    _input.text = data?.text ?? '';
-    setState(() {
-      _review = null;
-      _error = '';
-    });
-  }
-
-  Future<void> _reviewInput() async {
-    if (_restoring || (_reading && _input.text.isEmpty)) return;
-    final input = _input.text;
+    if (_reading || _restoring) return;
     setState(() {
       _reading = true;
       _error = '';
       _review = null;
+      _pickedFile = null;
     });
     try {
-      final parsed = await widget.controller.reviewBackup(input);
-      if (!mounted || _input.text != input) return;
-
-      // The impact preview must describe the exact live snapshot bound to this
-      // review. For large pharmacies, compare the snapshots away from the UI
-      // isolate so a 50k-row restore review cannot freeze scrolling/animation.
-      final current = widget.controller.snapshot;
-      if (parsed.currentRevision != current.revision) {
+      final picked = await _service.pickBackupFile();
+      if (!mounted || picked == null) return;
+      setState(() => _pickedFile = picked);
+      await _reviewFile(picked);
+    } on MissingPluginException {
+      if (mounted) {
         setState(
           () => _error =
-              'Inventory changed while this backup was being reviewed. Review it again to see the current impact.',
+              'The Android document picker is unavailable on this device.',
         );
-        return;
       }
-      final impact = await compute(_backupImpactWorker, <String, Object?>{
-        'backup': parsed.backup,
-        'records': current.records,
-        'sales': current.sales,
-        'settings': current.settings,
-        'soldValue': current.soldValue,
-        'unknownSold': current.unknownSold,
-      });
-      if (!mounted || _input.text != input) return;
-      if (widget.controller.snapshot.revision != parsed.currentRevision) {
-        setState(
-          () => _error =
-              'Inventory changed while restore impact was being calculated. Review the backup again before restoring.',
-        );
-        return;
-      }
-      setState(
-        () => _review = BackupReview(
-          backup: parsed.backup,
-          currentRevision: parsed.currentRevision,
-          impact: impact,
-        ),
-      );
     } catch (error) {
-      if (mounted && _input.text == input) {
+      if (mounted) {
         setState(
           () => _error = error.toString().replaceFirst(
-            RegExp(r'^(FormatException|Bad state):\s*'),
+            RegExp(r'^(FormatException|Bad state|StateError):\s*'),
             '',
           ),
         );
@@ -150,6 +89,48 @@ class _BackupScreenState extends State<BackupScreen> {
     } finally {
       if (mounted) setState(() => _reading = false);
     }
+  }
+
+  Future<void> _reviewFile(BackupFileReference picked) async {
+    final backup = await _service.readBackupFile(picked);
+    if (!mounted || _pickedFile?.path != picked.path) return;
+
+    final current = widget.controller.snapshot;
+    final revision = current.revision;
+    final impact = await LargeBackupImpactReview.compareCooperatively(
+      backup: backup,
+      currentRecords: current.records,
+      currentSales: current.sales,
+      currentSettings: current.settings,
+      currentSoldValue: current.soldValue,
+      currentUnknownSold: current.unknownSold,
+    );
+    if (!mounted || _pickedFile?.path != picked.path) return;
+    if (widget.controller.snapshot.revision != revision) {
+      setState(
+        () => _error =
+            'Inventory changed while this backup was being reviewed. Choose the file again to compare it with the latest master stock.',
+      );
+      return;
+    }
+
+    setState(
+      () => _review = BackupReview(
+        backup: backup,
+        currentRevision: revision,
+        impact: impact,
+      ),
+    );
+  }
+
+  String _fileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    final kb = bytes / 1024;
+    if (kb < 1024) return '${kb.toStringAsFixed(kb < 10 ? 1 : 0)} KB';
+    final mb = kb / 1024;
+    if (mb < 1024) return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
+    final gb = mb / 1024;
+    return '${gb.toStringAsFixed(1)} GB';
   }
 
   Widget _impactRow(IconData icon, String text, {Color color = ink}) => Padding(
@@ -289,7 +270,7 @@ class _BackupScreenState extends State<BackupScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Export medicines, removed stock, warning settings and aggregate sales. The file never contains an AI API key.',
+                'Creates a verified .txt backup, saves a local copy first, then opens the share menu. Medicines, removed stock, warning settings and aggregate sales are included; AI API keys are never included.',
                 style: TextStyle(color: inverseMuted, fontSize: 12),
               ),
               const SizedBox(height: 18),
@@ -300,60 +281,91 @@ class _BackupScreenState extends State<BackupScreen> {
                 ),
                 onPressed: _sharing ? null : () => unawaited(_share()),
                 icon: const Icon(Icons.ios_share_rounded),
-                label: Text(_sharing ? 'Preparing…' : 'Export full backup'),
+                label: Text(_sharing ? 'Creating backup…' : 'Export full backup'),
               ),
             ],
           ),
         ),
+        if (_lastExport != null) ...[
+          const SizedBox(height: 10),
+          Surface(
+            color: primary.withAlpha(10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.check_circle_outline_rounded, color: primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${_lastExport!.fileName}\n${_fileSize(_lastExport!.sizeBytes)}'
+                    ' · ${_lastExport!.savedLocation ?? 'share file ready'}'
+                    '${_lastExport!.warning == null ? '' : '\n${_lastExport!.warning}'}',
+                    style: const TextStyle(fontSize: 12.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SectionHeading('Restore a backup'),
         FlowSteps(
           const ['Choose file', 'Review', 'Restore'],
-          current: _review == null ? 0 : 1,
+          current: _restoring ? 2 : _review == null ? 0 : 1,
         ),
         const Text(
-          'Choose your Aaris backup file, or paste its contents. Review the summary before you restore.',
+          'Choose the backup file directly. Aaris reads and verifies the file without pasting its JSON into the screen, then prepares the restore review automatically.',
           style: TextStyle(color: muted, fontSize: 13),
         ),
         const SizedBox(height: 14),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            OutlinedButton.icon(
-              onPressed: _reading ? null : () => unawaited(_pick()),
-              icon: const Icon(Icons.file_open_outlined),
-              label: const Text('Choose backup file'),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _reading ? null : () => unawaited(_pick()),
+            icon: const Icon(Icons.file_open_outlined),
+            label: Text(
+              _reading ? 'Reading & verifying backup…' : 'Import backup file',
             ),
-            OutlinedButton.icon(
-              onPressed: _reading ? null : () => unawaited(_paste()),
-              icon: const Icon(Icons.content_paste_rounded),
-              label: const Text('Paste'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        TextField(
-          controller: _input,
-          minLines: 5,
-          maxLines: 10,
-          maxLength: maxBackupCharacters,
-          onChanged: (_) => setState(() {
-            _review = null;
-            _error = '';
-          }),
-          decoration: const InputDecoration(
-            hintText: 'Aaris Pharmacy backup JSON',
-            counterText: '',
           ),
         ),
-        const SizedBox(height: 12),
-        FilledButton.icon(
-          onPressed: _reading || _input.text.trim().isEmpty
-              ? null
-              : () => unawaited(_reviewInput()),
-          icon: const Icon(Icons.fact_check_outlined),
-          label: Text(_reading ? 'Checking backup…' : 'Review backup'),
-        ),
+        if (_pickedFile != null) ...[
+          const SizedBox(height: 12),
+          Surface(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  _review != null
+                      ? Icons.verified_file_outlined
+                      : Icons.description_outlined,
+                  color: _review != null ? primary : muted,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _pickedFile!.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: ink,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${_fileSize(_pickedFile!.sizeBytes)} · '
+                        '${_review != null ? 'Ready for next step' : _reading ? 'Checking file…' : 'Not reviewed'}',
+                        style: const TextStyle(color: muted, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         if (_error.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 16),
@@ -473,8 +485,8 @@ class _BackupScreenState extends State<BackupScreen> {
           const SizedBox(height: 14),
           FilledButton.icon(
             onPressed: _restoring ? null : () => unawaited(_restore()),
-            icon: const Icon(Icons.restore_rounded),
-            label: Text(_restoring ? 'Restoring…' : 'Restore reviewed backup'),
+            icon: const Icon(Icons.arrow_forward_rounded),
+            label: Text(_restoring ? 'Restoring…' : 'Next'),
           ),
         ],
       ],
