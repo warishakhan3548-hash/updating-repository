@@ -250,10 +250,19 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
               }
               return a.title.compareTo(b.title);
             });
-          final dueIds = widget.controller.supplierReturns
+          final dueItems = widget.controller.supplierReturns
               .where((item) => item.supplier.id == supplier.id)
+              .toList(growable: false);
+          final dueIds = dueItems.map((item) => item.medicine.id).toSet();
+          final returnableIds = dueItems
+              .where(
+                (item) =>
+                    item.medicine.quantity != null &&
+                    item.medicine.quantity! > 0,
+              )
               .map((item) => item.medicine.id)
               .toSet();
+          final unknownQuantityDue = dueIds.length - returnableIds.length;
           final visible = _dueOnly
               ? all.where((medicine) => dueIds.contains(medicine.id)).toList()
               : all;
@@ -347,13 +356,13 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              if (dueIds.isNotEmpty)
+              if (returnableIds.isNotEmpty)
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
                     onPressed: _returning
                         ? null
-                        : () => _prepareReturn(supplier, dueIds),
+                        : () => _prepareReturn(supplier, returnableIds),
                     icon: _returning
                         ? const SizedBox(
                             width: 18,
@@ -364,10 +373,17 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                     label: Text(
                       _returning
                           ? 'Preparing return…'
-                          : 'Prepare return · ${dueIds.length}',
+                          : 'Prepare return · ${returnableIds.length}',
                     ),
                   ),
                 ),
+              if (unknownQuantityDue > 0) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '$unknownQuantityDue due stock ${unknownQuantityDue == 1 ? 'entry needs' : 'entries need'} a quantity count before it can be added to the return PDF.',
+                  style: const TextStyle(color: muted, fontSize: 12),
+                ),
+              ],
               if (dueIds.isNotEmpty) const SizedBox(height: 14),
               if (visible.isEmpty)
                 Surface(
