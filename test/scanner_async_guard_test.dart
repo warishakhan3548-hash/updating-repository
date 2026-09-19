@@ -38,20 +38,13 @@ void main() {
   });
 
 
-  test('scanner lifecycle-style drains stay bounded for every active job', () async {
+  test('scanner lifecycle drains share one deadline without cancelling work', () async {
     final capture = Completer<void>();
     final frame = Completer<bool>();
 
     expect(
-      await scannerWorkCompletedWithin(
-        capture.future,
-        timeout: const Duration(milliseconds: 15),
-      ),
-      isFalse,
-    );
-    expect(
-      await scannerWorkCompletedWithin(
-        frame.future,
+      await scannerWorkGroupCompletedWithin(
+        <Future<dynamic>?>[capture.future, frame.future],
         timeout: const Duration(milliseconds: 15),
       ),
       isFalse,
@@ -63,5 +56,12 @@ void main() {
     frame.complete(true);
     await capture.future;
     await expectLater(frame.future, completion(isTrue));
+    expect(
+      await scannerWorkGroupCompletedWithin(
+        <Future<dynamic>?>[null, capture.future, frame.future],
+        timeout: const Duration(milliseconds: 15),
+      ),
+      isTrue,
+    );
   });
 }
