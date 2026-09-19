@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../domain/medicine.dart';
 import '../domain/supplier.dart';
 import '../state/pharmacy_controller.dart';
+import '../services/supplier_return_service.dart';
 import 'design.dart';
 import 'editor_screen.dart';
 import 'supplier_editor.dart';
@@ -155,7 +156,9 @@ class SupplierDetailScreen extends StatefulWidget {
 }
 
 class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
+  final _returnService = SupplierReturnService();
   bool _dueOnly = true;
+  bool _returning = false;
 
   Future<void> _edit(Supplier supplier) async {
     await openSupplierEditor(
@@ -163,6 +166,56 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
       widget.controller,
       supplier: supplier,
     );
+  }
+
+  Future<void> _prepareReturn(
+    Supplier supplier,
+    Set<String> dueIds,
+  ) async {
+    if (_returning || dueIds.isEmpty) return;
+    setState(() => _returning = true);
+    try {
+      final review = widget.controller.reviewSupplierReturn(
+        supplier.id,
+        dueIds,
+      );
+      await _returnService.share(review);
+      if (!mounted) return;
+
+      final confirm = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Supplier को stock दे दिया?'),
+          content: Text(
+            '${review.lines.length} stock entries की return list share हो गई है. '
+            'सिर्फ तभी Returned करें जब physical stock supplier को सच में hand over हो चुका हो. '
+            'इसके बाद ये entries active stock से हटकर Removed history में रहेंगी.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('अभी नहीं'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Mark returned'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true || !mounted) return;
+      await widget.controller.applySupplierReturn(review);
+      if (!mounted) return;
+      showSaved(
+        context,
+        '${review.lines.length} stock entries supplier return में move हो गईं.',
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => _returning = false);
+    }
   }
 
   @override
@@ -286,7 +339,29 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
+              if (dueIds.isNotEmpty)
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _returning
+                        ? null
+                        : () => _prepareReturn(supplier, dueIds),
+                    icon: _returning
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.picture_as_pdf_outlined),
+                    label: Text(
+                      _returning
+                          ? 'Preparing return…'
+                          : 'Prepare return · ${dueIds.length}',
+                    ),
+                  ),
+                ),
+              if (dueIds.isNotEmpty) const SizedBox(height: 14),
               if (visible.isEmpty)
                 Surface(
                   child: Text(
