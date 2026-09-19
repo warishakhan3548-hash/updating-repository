@@ -188,11 +188,20 @@ void main() {
     final homeBefore = controller.homeProjection;
     final trackingBefore = controller.tracking(range);
     final returnsBefore = controller.supplierReturns;
+    final warningPreview = controller.homeProjectionFor(
+      WarningSettings(shortDays: 5, months: controller.settings.months),
+    );
 
     await controller.setShortWarningDays(5);
 
     expect(identical(statsBefore, controller.stats), isTrue);
     expect(identical(homeBefore, controller.homeProjection), isFalse);
+    expect(
+      identical(warningPreview, controller.homeProjection),
+      isTrue,
+      reason:
+          'The optimistic Home projection should become authoritative without another stock scan.',
+    );
     expect(identical(trackingBefore, controller.tracking(range)), isTrue);
     expect(identical(returnsBefore, controller.supplierReturns), isTrue);
 
