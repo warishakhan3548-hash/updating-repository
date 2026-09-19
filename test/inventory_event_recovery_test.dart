@@ -24,6 +24,7 @@ Map<String, dynamic> _detail({
   int revision = 7,
   bool undoable = true,
   Object? before = const <String, dynamic>{},
+  Object? supplierBefore = const <String, dynamic>{},
   Object? settingsBefore = const <String, dynamic>{
     'shortDays': 5,
     'months': 2,
@@ -37,6 +38,7 @@ Map<String, dynamic> _detail({
   'undoable': undoable,
   'undone': false,
   'before': before,
+  'supplierBefore': supplierBefore,
   'salesBefore': salesBefore,
   'settingsBefore': settingsBefore,
   // Deliberately different from SQL columns: the read boundary must trust the
@@ -62,6 +64,29 @@ void main() {
     expect(event['unknownSold'], 1);
     expect(event['undone'], isTrue);
     expect(event['undoable'], isTrue);
+  });
+
+  test('missing supplier before-image disables Undo without dropping history', () {
+    final detail = _detail()..remove('supplierBefore');
+    final event = decodeStoredInventoryEvent(
+      _row(detail: jsonEncode(detail)),
+    );
+
+    expect(event, isNotNull);
+    expect(event!['undoable'], isFalse);
+    expect(event['supplierBefore'], isA<Map<String, dynamic>>());
+    expect((event['supplierBefore'] as Map), isEmpty);
+  });
+
+  test('malformed sales before-image disables Undo without dropping history', () {
+    final event = decodeStoredInventoryEvent(
+      _row(detail: jsonEncode(_detail(salesBefore: 'corrupt'))),
+    );
+
+    expect(event, isNotNull);
+    expect(event!['undoable'], isFalse);
+    expect(event['salesBefore'], isA<Map<String, dynamic>>());
+    expect((event['salesBefore'] as Map), isEmpty);
   });
 
   test('malformed non-authoritative event JSON is skipped', () {

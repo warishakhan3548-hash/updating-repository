@@ -186,6 +186,7 @@ void main() {
     final range = TrackingRange.lastDays(controller.today, 30);
     final statsBefore = controller.stats;
     final homeBefore = controller.homeProjection;
+    final salesBefore = controller.salesOverview;
     final trackingBefore = controller.tracking(range);
     final returnsBefore = controller.supplierReturns;
 
@@ -193,11 +194,13 @@ void main() {
 
     expect(identical(statsBefore, controller.stats), isTrue);
     expect(identical(homeBefore, controller.homeProjection), isFalse);
+    expect(identical(salesBefore, controller.salesOverview), isTrue);
     expect(identical(trackingBefore, controller.tracking(range)), isTrue);
     expect(identical(returnsBefore, controller.supplierReturns), isTrue);
 
     final statsAfterWarning = controller.stats;
     final homeAfterWarning = controller.homeProjection;
+    final salesAfterWarning = controller.salesOverview;
     final trackingAfterWarning = controller.tracking(range);
     final returnsAfterWarning = controller.supplierReturns;
 
@@ -212,6 +215,7 @@ void main() {
 
     expect(identical(statsAfterWarning, controller.stats), isTrue);
     expect(identical(homeAfterWarning, controller.homeProjection), isTrue);
+    expect(identical(salesAfterWarning, controller.salesOverview), isTrue);
     expect(identical(trackingAfterWarning, controller.tracking(range)), isTrue);
     expect(identical(returnsAfterWarning, controller.supplierReturns), isFalse);
   });

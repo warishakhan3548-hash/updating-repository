@@ -602,6 +602,8 @@ Map<String, dynamic>? decodeStoredInventoryEvent(Map<String, Object?> row) {
     final canUndo =
         event['undoable'] == true &&
         beforeRaw is Map &&
+        supplierBeforeRaw is Map &&
+        salesBeforeRaw is Map &&
         settingsBeforeRaw is Map;
 
     return <String, dynamic>{

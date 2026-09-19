@@ -201,6 +201,7 @@ class PharmacyController extends ChangeNotifier {
   HomeInventoryProjection? _homeProjectionCache;
   String _homeProjectionDayKey = '';
   SalesOverview? _salesOverviewCache;
+  int _salesOverviewEpoch = 0;
   final Map<String, TrackingStats> _trackingCache = <String, TrackingStats>{};
   String _trackingDayKey = '';
   List<SupplierReturnCandidate>? _supplierReturnsCache;
@@ -217,6 +218,29 @@ class PharmacyController extends ChangeNotifier {
   Supplier? supplierForStock(Medicine medicine) =>
       medicine.supplierId.isEmpty ? null : snapshot.suppliers[medicine.supplierId];
 
+  bool _salesOverviewEventRelevant(Map<String, dynamic> event) {
+    if (event['undone'] == true) return false;
+    final soldValue = event['soldValue'];
+    final unknownSold = event['unknownSold'];
+    return (soldValue is int && soldValue > 0) ||
+        (unknownSold is int && unknownSold > 0);
+  }
+
+  bool _sameSalesOverviewEventProjection(
+    List<Map<String, dynamic>> before,
+    List<Map<String, dynamic>> after,
+  ) {
+    final beforeEvents = before.where(_salesOverviewEventRelevant).iterator;
+    final afterEvents = after.where(_salesOverviewEventRelevant).iterator;
+    while (true) {
+      final beforeHasNext = beforeEvents.moveNext();
+      final afterHasNext = afterEvents.moveNext();
+      if (beforeHasNext != afterHasNext) return false;
+      if (!beforeHasNext) return true;
+      if (!identical(beforeEvents.current, afterEvents.current)) return false;
+    }
+  }
+
   void _syncReadSnapshot() {
     if (identical(_readSnapshot, snapshot)) return;
     final previous = _readSnapshot;
@@ -228,8 +252,9 @@ class PharmacyController extends ChangeNotifier {
         previous == null || !identical(previous.suppliers, snapshot.suppliers);
     final salesChanged =
         previous == null || !identical(previous.sales, snapshot.sales);
-    final eventsChanged =
-        previous == null || !identical(previous.events, snapshot.events);
+    final salesOverviewEventsChanged =
+        previous == null ||
+        !_sameSalesOverviewEventProjection(previous.events, snapshot.events);
     _readSnapshot = snapshot;
 
     // InventorySnapshot uses copy-on-write collections. Reuse every derived
@@ -249,8 +274,9 @@ class PharmacyController extends ChangeNotifier {
       _homeProjectionCache = null;
       _homeProjectionDayKey = '';
     }
-    if (recordsChanged || salesChanged || eventsChanged) {
+    if (recordsChanged || salesChanged || salesOverviewEventsChanged) {
       _salesOverviewCache = null;
+      _salesOverviewEpoch++;
     }
     if (recordsChanged || salesChanged) {
       _trackingCache.clear();
@@ -273,6 +299,16 @@ class PharmacyController extends ChangeNotifier {
 
   @visibleForTesting
   int get debugWebArchivedSearchIndexBuilds => _webArchivedSearchIndexBuilds;
+
+  /// Monotonic version for the exact inputs consumed by [salesOverview].
+  ///
+  /// Activity is a bounded audit stream and changes on every saved mutation.
+  /// Only SOLD-affecting activity participates in sales analytics, so screens
+  /// can use this epoch without repainting for supplier/settings-only writes.
+  int get salesOverviewEpoch {
+    _syncReadSnapshot();
+    return _salesOverviewEpoch;
+  }
 
   List<Medicine> get _stableRecords {
     _syncReadSnapshot();
