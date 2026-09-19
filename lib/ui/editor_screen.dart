@@ -499,15 +499,6 @@ class _EditorScreenState extends State<EditorScreen> {
           return;
         }
         if (!mounted) return;
-        draft = Medicine.fromJson({
-          ...draft.toJson(),
-          'sold': true,
-          'quantity': 0,
-          'soldAt': widget.controller.clock().toIso8601String(),
-          'soldQuantity': draft.quantity,
-          'soldUnitPricePaise': draft.unitPricePaise,
-          'revision': (widget.record?.revision ?? 0) + 1,
-        });
       }
 
       if (widget.record == null) {
@@ -546,23 +537,18 @@ class _EditorScreenState extends State<EditorScreen> {
 
       if (!mounted) return;
       final reviewed = widget.record;
-      if (reviewed != null) {
-        final live = widget.controller.snapshot.records[reviewed.id];
-        if (live == null ||
-            live.archived ||
-            live.revision != reviewed.revision) {
-          throw StateError(
-            'This medicine changed while you were editing it. Reopen the live entry before saving.',
-          );
-        }
+      if (reviewed == null) {
+        await widget.controller.save(
+          draft,
+          expectedRevision: widget.controller.snapshot.revision,
+        );
+      } else {
+        await widget.controller.saveReviewedMedicine(
+          reviewed: reviewed,
+          draft: draft,
+          markSold: sold,
+        );
       }
-      // The editor is bound to the exact stock-row revision it opened, not to
-      // unrelated Medicine Database traffic. The storage CAS still guards the
-      // final global revision, so a later concurrent write fails closed.
-      await widget.controller.save(
-        draft,
-        expectedRevision: widget.controller.snapshot.revision,
-      );
       final confirmedScan = widget.scanDraft;
       if (!sold && confirmedScan != null) {
         await OfflineRecognitionMemoryService.instance.learnFromConfirmedScan(
