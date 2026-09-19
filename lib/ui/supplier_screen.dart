@@ -38,8 +38,8 @@ class SupplierScreen extends StatelessWidget {
     ),
     body: SafeArea(
       top: false,
-      child: AnimatedBuilder(
-        animation: controller,
+      child: ActiveListenableBuilder(
+        listenable: controller,
         builder: (context, _) {
           final suppliers = controller.suppliers.toList(growable: false)
             ..sort(
@@ -223,8 +223,8 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
     appBar: AppBar(title: const Text('Supplier')),
     body: SafeArea(
       top: false,
-      child: AnimatedBuilder(
-        animation: widget.controller,
+      child: ActiveListenableBuilder(
+        listenable: widget.controller,
         builder: (context, _) {
           final supplier =
               widget.controller.snapshot.suppliers[widget.supplierId];
