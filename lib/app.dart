@@ -202,8 +202,8 @@ class _ShellState extends State<_Shell> {
           tint: Colors.white,
           radius: 24,
           elevation: .65,
-          child: AnimatedBuilder(
-            animation: widget.autopilot,
+          child: ActiveListenableBuilder(
+            listenable: widget.autopilot,
             builder: (context, _) {
               final digest = widget.autopilot.digest;
               final issues = digest.isReady ? digest.navigationBadgeCount : 0;
