@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../domain/attention.dart';
 import '../domain/medicine.dart';
-import '../domain/operations_plan.dart';
 import '../domain/stock_guidance.dart';
 import '../domain/tracking.dart';
+import '../state/autopilot_supervisor.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 import 'demand_history_sheet.dart';
@@ -13,106 +12,47 @@ import 'order_screen.dart';
 import 'supplier_screen.dart';
 
 class AttentionScreen extends StatefulWidget {
-  const AttentionScreen({super.key, required this.controller});
+  const AttentionScreen({
+    super.key,
+    required this.controller,
+    required this.autopilot,
+  });
+
   final PharmacyController controller;
+  final AarisAutopilotSupervisor autopilot;
 
   @override
   State<AttentionScreen> createState() => _AttentionScreenState();
 }
 
 class _AttentionScreenState extends State<AttentionScreen> {
-  Object? _snapshot;
-  DateTime? _day;
-  List<StockGuidance> _tasks = const [];
   int _filter = 0;
   bool _opening = false;
-
-  void _refresh() {
-    final controller = widget.controller;
-    final snapshot = controller.snapshot;
-    final today = controller.today;
-    if (identical(snapshot, _snapshot) && today == _day) return;
-    final tracking = controller.tracking(TrackingRange.lastDays(today, 30));
-    final report = PharmacyAttentionReport.build(
-      medicines: controller.records,
-      settings: controller.settings,
-      today: today,
-      reorder: tracking.reorder,
-      sales: controller.sales,
-    );
-    final plan = PharmacyOperationsPlan.build(
-      items: report.items,
-      medicines: controller.records,
-    );
-    final orders = {
-      for (final order in tracking.reorder) order.productKey: order,
-    };
-    final dailyDemand = {
-      for (final movement in tracking.movements.values)
-        if (movement.demand != null) movement.key: movement.demand!,
-    };
-    final supplierTasks = supplierReturnGuidance(
-      candidates: controller.supplierReturns,
-    );
-    final supplierDueIds = supplierTasks
-        .expand((task) => task.stockIds)
-        .toSet();
-    final plannedTasks = <StockGuidance>[
-      for (final step in plan.steps)
-        StockGuidance.fromStep(
-          step,
-          records: snapshot.records,
-          orders: orders,
-          today: today,
-          dailyDemand: dailyDemand,
-        ),
-    ];
-    _tasks = [
-      // A supplier return deadline is the more specific action. Do not show a
-      // second generic short-expiry/expiry-waste card for the same exact stock.
-      for (final task in plannedTasks)
-        if (!(
-          task.stockIds.any(supplierDueIds.contains) &&
-          (task.step?.item.kind == AttentionKind.shortExpiry ||
-              task.step?.item.kind == AttentionKind.expiryWastePressure)
-        ))
-          task,
-      ...supplierTasks,
-      ...stockMovementGuidance(
-        tracking: tracking,
-        records: snapshot.records,
-        plan: plan,
-        today: today,
-      ),
-    ];
-    int priority(StockGuidance task) => task.critical
-        ? 0
-        : task.group == StockTaskGroup.urgent
-        ? 1
-        : task.group == StockTaskGroup.supplier
-        ? 2
-        : task.group == StockTaskGroup.order
-        ? 3
-        : task.group == StockTaskGroup.details
-        ? 4
-        : 5;
-    // Display priority cannot bypass the planner's live prerequisites.
-    final original = {for (var i = 0; i < _tasks.length; i++) _tasks[i].key: i};
-    _tasks.sort((a, b) {
-      final order = priority(a).compareTo(priority(b));
-      return order != 0 ? order : original[a.key]!.compareTo(original[b.key]!);
-    });
-    _snapshot = snapshot;
-    _day = today;
-  }
 
   Future<void> _open(StockGuidance selected) async {
     if (_opening) return;
     _opening = true;
     try {
-      // Revalidate after inventory updates; reject repeated navigation taps.
-      _refresh();
-      final task = _tasks.where((task) => task.key == selected.key).firstOrNull;
+      // Navigation is allowed only from a queue computed for the exact live
+      // inventory revision and business day. A write or midnight rollover can
+      // land while this route is open; never act on a stale projection.
+      final queue = widget.autopilot.workQueue.value;
+      if (!queue.isReady ||
+          queue.inventoryRevision != widget.controller.snapshot.revision ||
+          queue.day != dateText(widget.controller.today)) {
+        widget.autopilot.refreshNow();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('सूची अपडेट हो रही है। एक क्षण बाद फिर चुनें।'),
+            ),
+          );
+        }
+        return;
+      }
+      final task = queue.tasks
+          .where((task) => task.key == selected.key)
+          .firstOrNull;
       if (task == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -270,114 +210,192 @@ class _AttentionScreenState extends State<AttentionScreen> {
       top: false,
       child: ActiveListenableBuilder(
         listenable: widget.controller,
-        rebuildToken: () => (widget.controller.snapshot, widget.controller.today),
-        builder: (context, _) {
-          _refresh();
-          final visible = _filter == 0
-              ? _tasks
-              : _tasks
-                    .where((task) => task.group.index == _filter - 1)
-                    .toList();
-          final indices = {
-            for (var i = 0; i < visible.length; i++) visible[i].key: i + 1,
-          };
-          return ListView.builder(
-            key: PageStorageKey('stock-tasks-$_filter'),
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            itemCount: visible.length + (visible.isEmpty ? 2 : 1),
-            findChildIndexCallback: (key) =>
-                key is ValueKey<String> ? indices[key.value] : null,
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _tasks.isEmpty
-                            ? 'अभी सब ठीक है'
-                            : '${_tasks.length} छोटे काम · दवा पर टैप करें',
-                        style: const TextStyle(color: muted, fontSize: 13),
-                      ),
-                      const SizedBox(height: 10),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            for (final (i, label) in const [
-                              'सभी',
-                              'Expiry',
-                              'मँगाएँ',
-                              'Supplier',
-                              'जानकारी',
-                              'बिक्री',
-                            ].indexed)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: ChoiceChip(
-                                  label: Text(label),
-                                  selected: _filter == i,
-                                  onSelected: (_) {
-                                    if (_filter != i)
-                                      setState(() => _filter = i);
-                                  },
-                                ),
-                              ),
+        rebuildToken: () =>
+            (widget.controller.snapshot, widget.controller.today),
+        builder: (context, _) =>
+            ValueListenableBuilder<AarisAutopilotWorkQueue>(
+              valueListenable: widget.autopilot.workQueue,
+              builder: (context, queue, _) {
+                final liveRevision = widget.controller.snapshot.revision;
+                final liveDay = dateText(widget.controller.today);
+                final current =
+                    queue.isReady &&
+                    queue.inventoryRevision == liveRevision &&
+                    queue.day == liveDay;
+                final degraded =
+                    queue.status == AarisAutopilotWorkQueueStatus.degraded &&
+                    queue.inventoryRevision == liveRevision &&
+                    queue.day == liveDay;
+
+                if (!current && queue.tasks.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(28),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (degraded)
+                            const Icon(
+                              Icons.sync_problem_rounded,
+                              color: amber,
+                              size: 38,
+                            )
+                          else
+                            const SizedBox(
+                              width: 30,
+                              height: 30,
+                              child: CircularProgressIndicator(strokeWidth: 3),
+                            ),
+                          const SizedBox(height: 14),
+                          Text(
+                            degraded
+                                ? 'काम की सूची अभी तैयार नहीं हो सकी'
+                                : 'काम की सूची तैयार हो रही है…',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          if (degraded) ...[
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: widget.autopilot.refreshNow,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('फिर कोशिश करें'),
+                            ),
                           ],
-                        ),
+                        ],
                       ),
-                      if (_filter == 3) ...[
-                        const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: OutlinedButton.icon(
-                            onPressed: () => Navigator.push<void>(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => SupplierScreen(
-                                  controller: widget.controller,
-                                ),
+                    ),
+                  );
+                }
+
+                final tasks = queue.tasks;
+                final visible = _filter == 0
+                    ? tasks
+                    : tasks
+                          .where((task) => task.group.index == _filter - 1)
+                          .toList();
+                final indices = {
+                  for (var i = 0; i < visible.length; i++)
+                    visible[i].key: i + 1,
+                };
+                final list = ListView.builder(
+                  key: PageStorageKey('stock-tasks-$_filter'),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  itemCount: visible.length + (visible.isEmpty ? 2 : 1),
+                  findChildIndexCallback: (key) =>
+                      key is ValueKey<String> ? indices[key.value] : null,
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              tasks.isEmpty
+                                  ? 'अभी सब ठीक है'
+                                  : '${tasks.length} छोटे काम · दवा पर टैप करें',
+                              style: const TextStyle(
+                                color: muted,
+                                fontSize: 13,
                               ),
                             ),
-                            icon: const Icon(Icons.local_shipping_outlined),
-                            label: const Text('Supplier details'),
-                          ),
+                            const SizedBox(height: 10),
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  for (final (i, label) in const [
+                                    'सभी',
+                                    'Expiry',
+                                    'मँगाएँ',
+                                    'Supplier',
+                                    'जानकारी',
+                                    'बिक्री',
+                                  ].indexed)
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: ChoiceChip(
+                                        label: Text(label),
+                                        selected: _filter == i,
+                                        onSelected: (_) {
+                                          if (_filter != i) {
+                                            setState(() => _filter = i);
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            if (_filter == 3) ...[
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: OutlinedButton.icon(
+                                  onPressed: () => Navigator.push<void>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => SupplierScreen(
+                                        controller: widget.controller,
+                                      ),
+                                    ),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.local_shipping_outlined,
+                                  ),
+                                  label: const Text('Supplier details'),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                      ],
-                    ],
-                  ),
+                      );
+                    }
+                    if (visible.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 48),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.check_circle_outline_rounded,
+                              color: green,
+                              size: 36,
+                            ),
+                            SizedBox(height: 12),
+                            Text('यहाँ अभी कोई काम नहीं है'),
+                          ],
+                        ),
+                      );
+                    }
+                    final task = visible[index - 1];
+                    return _AttentionCard(
+                      key: ValueKey(task.key),
+                      task: task,
+                      onTap: () => _open(task),
+                      onHistory: task.demand != null && task.step != null
+                          ? () => _history(task)
+                          : null,
+                    );
+                  },
                 );
-              }
-              if (visible.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 48),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.check_circle_outline_rounded,
-                        color: green,
-                        size: 36,
-                      ),
-                      SizedBox(height: 12),
-                      Text('यहाँ अभी कोई काम नहीं है'),
-                    ],
-                  ),
+
+                if (current) return list;
+                return Stack(
+                  children: [
+                    IgnorePointer(child: list),
+                    const Positioned(
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
+                  ],
                 );
-              }
-              final task = visible[index - 1];
-              return _AttentionCard(
-                key: ValueKey(task.key),
-                task: task,
-                onTap: () => _open(task),
-                onHistory: task.demand != null && task.step != null
-                    ? () => _history(task)
-                    : null,
-              );
-            },
-          );
-        },
+              },
+            ),
       ),
     ),
   );
