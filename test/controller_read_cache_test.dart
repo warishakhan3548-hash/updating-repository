@@ -1,5 +1,6 @@
 import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
+import 'package:aaris_pharmacy/domain/tracking.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -79,4 +80,66 @@ void main() {
     expect(identical(salesBeforeWrite, controller.salesOverview), isFalse);
     expect(controller.homeProjection.activeCount, 1);
   });
+
+  test('tracking analytics reuse one bounded read model until data or day changes', () async {
+    var now = DateTime(2026, 9, 20, 10);
+    final controller = PharmacyController(
+      MemoryInventoryStorage(),
+      clock: () => now,
+      backgroundSearch: false,
+    );
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    final first = controller.tracking(TrackingRange.lastDays(controller.today, 30));
+    final sameRange = controller.tracking(
+      TrackingRange(
+        start: DateTime(2026, 8, 22),
+        end: DateTime(2026, 9, 20),
+      ),
+    );
+    expect(identical(first, sameRange), isTrue);
+
+    final sevenDays = controller.tracking(
+      TrackingRange.lastDays(controller.today, 7),
+    );
+    expect(identical(first, sevenDays), isFalse);
+
+    final thirtyDaysAgain = controller.tracking(
+      TrackingRange.lastDays(controller.today, 30),
+    );
+    expect(identical(first, thirtyDaysAgain), isFalse);
+    expect(
+      identical(
+        thirtyDaysAgain,
+        controller.tracking(TrackingRange.lastDays(controller.today, 30)),
+      ),
+      isTrue,
+    );
+
+    now = DateTime(2026, 9, 21, 0, 1);
+    controller.refreshDay();
+    final nextDay = controller.tracking(
+      TrackingRange.lastDays(controller.today, 30),
+    );
+    expect(identical(thirtyDaysAgain, nextDay), isFalse);
+
+    await controller.save(
+      Medicine(
+        id: 'tracking-cache-stock',
+        name: 'Tracking Cache Medicine',
+        quantity: 5,
+        expiry: DateTime(2027, 1, 1),
+      ),
+      expectedRevision: controller.snapshot.revision,
+    );
+    expect(
+      identical(
+        nextDay,
+        controller.tracking(TrackingRange.lastDays(controller.today, 30)),
+      ),
+      isFalse,
+    );
+  });
+
 }
