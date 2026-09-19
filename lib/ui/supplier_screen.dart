@@ -313,6 +313,13 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                         style: const TextStyle(color: muted, fontSize: 12.5),
                       ),
                     ],
+                    if (supplier.drugLicenceNo.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Drug licence · ${supplier.drugLicenceNo}',
+                        style: const TextStyle(color: muted, fontSize: 12.5),
+                      ),
+                    ],
                     for (final field in supplier.customFields) ...[
                       const SizedBox(height: 6),
                       Text(
