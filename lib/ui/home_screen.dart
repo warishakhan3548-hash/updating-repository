@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../state/pharmacy_controller.dart';
-import '../domain/home_projection.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import 'design.dart';
@@ -104,10 +103,10 @@ class _HomeScreenState extends State<HomeScreen> {
     rebuildToken: () => (controller.snapshot, controller.today),
     builder: (context, _) {
       // Rebuild only for a new inventory snapshot or civil day. The controller
-      // memoizes the authoritative projection. While a warning-window write is
-      // pending, derive one transient projection from that same snapshot so the
-      // title, counts, attention rows and row styling all acknowledge the tap
-      // together instead of mixing new controls with old persisted semantics.
+      // owns and memoizes Home projections. While a warning-window write is
+      // pending, pass only that optimistic preference into the controller so the
+      // title, counts, attention rows and row styling acknowledge the tap
+      // together without moving inventory rules or full-dataset scans into UI.
       final authoritativeSettings = controller.settings;
       final hasPendingWarningWindow =
           _pendingShortDays != null || _pendingMonths != null;
@@ -118,13 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
               'months': _pendingMonths ?? authoritativeSettings.months,
             })
           : authoritativeSettings;
-      final projection = hasPendingWarningWindow
-          ? HomeInventoryProjection.build(
-              medicines: controller.records,
-              settings: visibleSettings,
-              today: controller.today,
-            )
-          : controller.homeProjection;
+      final projection = controller.homeProjectionFor(visibleSettings);
       final attention = projection.attention;
       final visibleShortDays = visibleSettings.shortDays;
       final visibleMonths = visibleSettings.months;
