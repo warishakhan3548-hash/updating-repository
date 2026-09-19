@@ -1,4 +1,5 @@
 import 'package:aaris_pharmacy/data/inventory_database.dart';
+import 'package:aaris_pharmacy/domain/inventory.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:aaris_pharmacy/domain/tracking.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
@@ -79,6 +80,36 @@ void main() {
     expect(identical(homeDayTwo, controller.homeProjection), isFalse);
     expect(identical(salesBeforeWrite, controller.salesOverview), isFalse);
     expect(controller.homeProjection.activeCount, 1);
+  });
+
+  test('settings-only writes preserve record-bound cache witnesses', () async {
+    final controller = PharmacyController(
+      MemoryInventoryStorage(
+        InventorySnapshot(
+          records: <String, Medicine>{
+            'cache-stock': Medicine(
+              id: 'cache-stock',
+              name: 'Cache Medicine',
+              quantity: 10,
+              expiry: DateTime(2026, 9, 26),
+            ),
+          },
+        ),
+      ),
+      clock: () => DateTime(2026, 9, 20, 10),
+      backgroundSearch: false,
+    );
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    final statsBefore = controller.stats;
+    final range = TrackingRange.lastDays(controller.today, 30);
+    final trackingBefore = controller.tracking(range);
+
+    await controller.setShortWarningDays(5);
+
+    expect(identical(statsBefore, controller.stats), isTrue);
+    expect(identical(trackingBefore, controller.tracking(range)), isTrue);
   });
 
   test('tracking read model is reused by range and invalidated safely', () async {
