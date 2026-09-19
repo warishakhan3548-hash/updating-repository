@@ -33,6 +33,33 @@ class _CountingPharmacyController extends PharmacyController {
   }
 }
 
+class _BlockingSearchController extends PharmacyController {
+  _BlockingSearchController(InventoryStorage storage)
+    : super(storage, backgroundSearch: false);
+
+  final Completer<void> releaseFirstTypedSearch = Completer<void>();
+  final List<String> queries = [];
+  int concurrentSearches = 0;
+  int maxConcurrentSearches = 0;
+
+  @override
+  Future<List<SearchHit>> search(String raw, SearchScope scope) async {
+    queries.add(raw);
+    concurrentSearches++;
+    if (concurrentSearches > maxConcurrentSearches) {
+      maxConcurrentSearches = concurrentSearches;
+    }
+    try {
+      if (raw == 'D' && !releaseFirstTypedSearch.isCompleted) {
+        await releaseFirstTypedSearch.future;
+      }
+      return await super.search(raw, scope);
+    } finally {
+      concurrentSearches--;
+    }
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
@@ -234,6 +261,70 @@ void main() {
       expect(
         find.byWidgetPredicate((widget) => widget is MedicineCard && widget.record.name == 'Drotaverine'),
         findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'rapid typing coalesces obsolete searches behind one active request',
+    (tester) async {
+      final records = [
+        stock('drotaverine', name: 'Drotaverine', strength: '80mg'),
+        stock('dolo', name: 'Dolo', strength: '650mg'),
+      ];
+      final controller = _BlockingSearchController(
+        MemoryInventoryStorage(
+          InventorySnapshot(
+            records: {
+              for (final medicine in records) medicine.id: medicine,
+            },
+          ),
+        ),
+      );
+      await controller.initialize();
+
+      await tester.pumpWidget(PharmacyApp(controller: controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Stock').last);
+      await tester.pumpAndSettle();
+
+      final query = find.descendant(
+        of: find.byType(SearchScreen),
+        matching: find.byType(TextField),
+      ).first;
+
+      await tester.enterText(query, 'D');
+      await tester.pump(const Duration(milliseconds: 160));
+      expect(controller.queries.where((value) => value.isNotEmpty), ['D']);
+
+      for (final value in ['Dr', 'Dro', 'Drotaverine']) {
+        await tester.enterText(query, value);
+        await tester.pump(const Duration(milliseconds: 160));
+      }
+
+      expect(controller.queries.where((value) => value.isNotEmpty), ['D']);
+      expect(controller.maxConcurrentSearches, 1);
+
+      controller.releaseFirstTypedSearch.complete();
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(
+        controller.queries.where((value) => value.isNotEmpty),
+        ['D', 'Drotaverine'],
+      );
+      expect(controller.maxConcurrentSearches, 1);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is MedicineCard &&
+              widget.record.name == 'Drotaverine',
+        ),
+        findsOneWidget,
       );
       expect(tester.takeException(), isNull);
 
