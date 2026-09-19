@@ -171,19 +171,18 @@ class PharmacyController extends ChangeNotifier {
   Future<void> _writes = Future.value();
   final _searchWorker = SearchWorker();
   MedicineSearch? _webSearch, _webArchivedSearch;
-  InventorySnapshot? _webSearchSnapshot, _webArchivedSearchSnapshot;
+  Map<String, Medicine>? _webSearchRecords, _webArchivedSearchRecords;
 
-  // Read models are derived from one immutable InventorySnapshot. Keep exactly
-  // one stable record-reference list and memoized projections per snapshot so
-  // keystrokes and non-inventory notifications do not repeatedly allocate or
-  // rescan a large pharmacy. Snapshot identity, not just its numeric revision,
-  // is the cache witness; a reload with the same revision therefore cannot reuse
-  // stale derived state. Day-sensitive projections carry their own civil-day key.
+  // Read models are derived from immutable copy-on-write snapshot collections.
+  // Bind each expensive model to the source maps it actually consumes instead
+  // of treating every audit event as a full inventory change. Day-sensitive
+  // projections still carry their own civil-day key.
   InventorySnapshot? _readSnapshot;
   List<Medicine>? _readRecords;
   InventoryStats? _statsCache;
   String _statsDayKey = '';
-  HomeInventoryProjection? _homeProjectionCache;
+  final Map<String, HomeInventoryProjection> _homeProjectionCache =
+      <String, HomeInventoryProjection>{};
   String _homeProjectionDayKey = '';
   SalesOverview? _salesOverviewCache;
   final Map<String, TrackingStats> _trackingCache = <String, TrackingStats>{};
@@ -207,33 +206,40 @@ class PharmacyController extends ChangeNotifier {
     final previous = _readSnapshot;
     final recordsChanged =
         previous == null || !identical(previous.records, snapshot.records);
+    final salesChanged =
+        previous == null || !identical(previous.sales, snapshot.sales);
+    final suppliersChanged =
+        previous == null || !identical(previous.suppliers, snapshot.suppliers);
     _readSnapshot = snapshot;
 
-    // InventorySnapshot uses copy-on-write collections. Preference, supplier
-    // and sale-history commits can therefore publish a new authoritative
-    // snapshot while the medicine map itself is still the exact same immutable
-    // object. Keep the stable record list and search dataset epoch in that case:
-    // otherwise the next Stock search performs an unnecessary O(N) projection
-    // comparison / worker rebind even though not one searchable medicine fact
-    // changed. Scope settings and the civil day are passed to each search
-    // request separately, so reusing the medicine dataset is still correct.
+    // InventorySnapshot uses copy-on-write collections. Keep every read model
+    // warm until one of its real immutable inputs changes; settings-only audit
+    // events must not make a large pharmacy rescan stock, history or suppliers.
     if (recordsChanged || _readRecords == null) {
       _readRecords = List<Medicine>.unmodifiable(snapshot.records.values);
+      _statsCache = null;
+      _statsDayKey = '';
+      _homeProjectionCache.clear();
+      _homeProjectionDayKey = '';
+      _trackingCache.clear();
+      _trackingDayKey = '';
+      _supplierReturnsCache = null;
+      _supplierReturnsDayKey = '';
       _searchDatasetEpoch++;
     }
+    if (salesChanged) {
+      _trackingCache.clear();
+      _trackingDayKey = '';
+    }
+    if (suppliersChanged) {
+      _supplierReturnsCache = null;
+      _supplierReturnsDayKey = '';
+    }
 
-    // These read models intentionally keep the existing conservative
-    // invalidation boundary. Some depend on settings, suppliers, sale history
-    // or audit events in addition to medicine rows.
-    _statsCache = null;
-    _statsDayKey = '';
-    _homeProjectionCache = null;
-    _homeProjectionDayKey = '';
+    // SalesOverview consumes the bounded audit stream as well as records/sales.
+    // Every committed operation appends an event, so this model remains tied to
+    // snapshot publication rather than only collection identity.
     _salesOverviewCache = null;
-    _trackingCache.clear();
-    _trackingDayKey = '';
-    _supplierReturnsCache = null;
-    _supplierReturnsDayKey = '';
   }
 
   @visibleForTesting
@@ -258,19 +264,36 @@ class PharmacyController extends ChangeNotifier {
     return _statsCache!;
   }
 
-  HomeInventoryProjection get homeProjection {
+  HomeInventoryProjection get homeProjection => homeProjectionFor(settings);
+
+  /// Returns Home's read model for an explicit warning-window preview.
+  ///
+  /// The UI owns only the pending preference intent. Projection rules and their
+  /// bounded cache stay here, so an optimistic selector value can survive its
+  /// settings-only commit without rescanning unchanged medicine rows.
+  HomeInventoryProjection homeProjectionFor(WarningSettings selectedSettings) {
     final date = today;
     final dayKey = dateText(date);
     _syncReadSnapshot();
-    if (_homeProjectionCache == null || _homeProjectionDayKey != dayKey) {
-      _homeProjectionCache = HomeInventoryProjection.build(
-        medicines: _stableRecords,
-        settings: settings,
-        today: date,
-      );
+    if (_homeProjectionDayKey != dayKey) {
+      _homeProjectionCache.clear();
       _homeProjectionDayKey = dayKey;
     }
-    return _homeProjectionCache!;
+    final key =
+        '${selectedSettings.shortDays}:${selectedSettings.months}';
+    final cached = _homeProjectionCache[key];
+    if (cached != null) return cached;
+
+    if (_homeProjectionCache.length >= 8) {
+      _homeProjectionCache.remove(_homeProjectionCache.keys.first);
+    }
+    final projection = HomeInventoryProjection.build(
+      medicines: _stableRecords,
+      settings: selectedSettings,
+      today: date,
+    );
+    _homeProjectionCache[key] = projection;
+    return projection;
   }
 
   SalesOverview get salesOverview {
@@ -293,8 +316,8 @@ class PharmacyController extends ChangeNotifier {
 
     // Tracking is an expensive read model: it walks current stock, sale history,
     // daily demand and reorder projections. Screens often ask for the same range
-    // more than once while building related guidance. Reuse only within the
-    // exact immutable inventory snapshot + civil day + requested range.
+    // more than once while building related guidance. Reuse only while its
+    // immutable medicine/sales sources, civil day and requested range match.
     final key =
         '${range.start.microsecondsSinceEpoch}:${range.end.microsecondsSinceEpoch}';
     final cached = _trackingCache[key];
@@ -1678,9 +1701,9 @@ class PharmacyController extends ChangeNotifier {
     final date = today;
     // Isolate.run transfers the result; widgets bind it to their request generation.
     if (kIsWeb || !backgroundSearch) {
-      if (!identical(_webSearchSnapshot, snapshot)) {
+      if (!identical(_webSearchRecords, snapshot.records)) {
         _webSearch = MedicineSearch(data);
-        _webSearchSnapshot = snapshot;
+        _webSearchRecords = snapshot.records;
       }
       return _webSearch!.search(
         raw,
@@ -1739,12 +1762,12 @@ class PharmacyController extends ChangeNotifier {
     final datasetRevision = _searchDatasetEpoch;
     final date = today;
     if (kIsWeb || !backgroundSearch) {
-      if (!identical(_webArchivedSearchSnapshot, snapshot)) {
+      if (!identical(_webArchivedSearchRecords, snapshot.records)) {
         _webArchivedSearch = MedicineSearch(
           data.where((medicine) => medicine.archived),
           includeArchived: true,
         );
-        _webArchivedSearchSnapshot = snapshot;
+        _webArchivedSearchRecords = snapshot.records;
       }
       return _webArchivedSearch!.searchArchived(
         raw,
