@@ -98,6 +98,7 @@ class _BackupScreenState extends State<BackupScreen> {
     final impact = await compareBackupImpactCooperatively(
       backup: backup,
       currentRecords: current.records,
+      currentSuppliers: current.suppliers,
       currentSales: current.sales,
       currentSettings: current.settings,
       currentSoldValue: current.soldValue,
@@ -409,6 +410,7 @@ class _BackupScreenState extends State<BackupScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text('${_review!.removedMedicines} removed entries'),
+                Text('${_review!.suppliers} suppliers'),
                 Text('${_review!.sales} aggregate sale events'),
                 Text(
                   'Warnings: ${_review!.backup.settings.shortDays} days · ${_review!.backup.settings.months} months',
@@ -429,7 +431,7 @@ class _BackupScreenState extends State<BackupScreen> {
                 if (!impact.hasMaterialChange) {
                   return _impactRow(
                     Icons.check_circle_outline_rounded,
-                    'No material stock, sales, warning or sold-total difference was found against the reviewed live snapshot.',
+                    'No material stock, supplier, sales, warning or sold-total difference was found against the reviewed live snapshot.',
                     color: primary,
                   );
                 }
@@ -456,6 +458,14 @@ class _BackupScreenState extends State<BackupScreen> {
                         Icons.inventory_2_outlined,
                         '${impact.activeEntriesMovingToRemoved} current active ${impact.activeEntriesMovingToRemoved == 1 ? 'entry moves' : 'entries move'} to Removed stock because it is not in this backup.',
                         color: amber,
+                      ),
+                    if (impact.newSuppliers > 0 ||
+                        impact.changedSuppliers > 0 ||
+                        impact.removedSuppliers > 0)
+                      _impactRow(
+                        Icons.local_shipping_outlined,
+                        'Suppliers: ${impact.newSuppliers} new · ${impact.changedSuppliers} changed · ${impact.removedSuppliers} removed.',
+                        color: impact.removedSuppliers > 0 ? amber : ink,
                       ),
                     if (impact.newSaleEvents > 0 ||
                         impact.changedSaleEvents > 0 ||
