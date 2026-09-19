@@ -327,6 +327,24 @@ class _AttentionScreenState extends State<AttentionScreen> {
                           ],
                         ),
                       ),
+                      if (_filter == 3) ...[
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.push<void>(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => SupplierScreen(
+                                  controller: widget.controller,
+                                ),
+                              ),
+                            ),
+                            icon: const Icon(Icons.local_shipping_outlined),
+                            label: const Text('Supplier details'),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 );
