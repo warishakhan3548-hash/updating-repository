@@ -181,7 +181,7 @@ class PharmacyExport {
   PharmacyExport({
     required this.revision,
     required Iterable<Medicine> records,
-    required Iterable<Supplier> suppliers,
+    Iterable<Supplier> suppliers = const <Supplier>[],
     Iterable<SaleEvent> sales = const [],
     required this.today,
   }) {
@@ -240,11 +240,11 @@ Maximum 250 actions; at most one action per stock ID in one response. Omit uncha
 AiPlan parseAiPlan(
   String input,
   Map<String, Medicine> records,
-  Map<String, Supplier> suppliers,
   int revision,
   Set<String> appliedRequests,
-  DateTime now,
-) {
+  DateTime now, {
+  Map<String, Supplier> suppliers = const <String, Supplier>{},
+}) {
   var text = input.trim().replaceFirst('\uFEFF', '');
   if (text.length > 1000000)
     throw const FormatException(
