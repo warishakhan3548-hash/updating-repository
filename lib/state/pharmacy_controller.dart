@@ -575,6 +575,14 @@ class PharmacyController extends ChangeNotifier {
     await _queueReviewedCommit((_) {
       final live = snapshot.suppliers[supplier.id];
       if (reviewed == null) {
+        // Creating a new profile depends on the whole directory observed by the
+        // editor (duplicate/cross-record checks), so it remains global-CAS
+        // guarded. Only an edit of an existing exact supplier is safe to rebase.
+        if (snapshot.revision != expectedRevision) {
+          throw StateError(
+            'Inventory changed while this new supplier was waiting. Review the supplier list before saving.',
+          );
+        }
         if (live != null) {
           throw StateError(
             'This supplier ID is already in use. Reopen the supplier list before saving.',
@@ -740,6 +748,14 @@ class PharmacyController extends ChangeNotifier {
     await _queueReviewedCommit((operationTime) {
       final live = snapshot.records[record.id];
       if (reviewed == null) {
+        // A new stock row is reviewed against the whole database for duplicate
+        // and cross-row safety. Preserve that global snapshot dependency;
+        // dependency-scoped rebasing is only valid for an existing exact row.
+        if (snapshot.revision != expectedRevision) {
+          throw StateError(
+            'Inventory changed while this new medicine was waiting. Review Medicine Database before saving.',
+          );
+        }
         if (live != null) {
           throw StateError(
             'This stock ID is already in use. Reopen Medicine Database before saving.',
