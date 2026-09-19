@@ -162,6 +162,21 @@ class BackupService {
     );
   }
 
+  Future<String?> pickBackupText() async {
+    final picked = await pickBackupFile();
+    if (picked == null) return null;
+    if (picked.sizeBytes > 12 * 1024 * 1024) {
+      throw const FormatException(
+        'Choose a text medicine list smaller than 12 MB.',
+      );
+    }
+    final file = File(picked.path);
+    if (!await file.exists()) {
+      throw const FormatException('The selected text file is no longer available.');
+    }
+    return file.readAsString();
+  }
+
   Future<PharmacyBackup> readBackupFile(BackupFileReference reference) async {
     final file = File(reference.path);
     if (!await file.exists()) {
