@@ -679,7 +679,13 @@ class PharmacyController extends ChangeNotifier {
 
   Future<void> save(Medicine record, {required int expectedRevision}) async {
     final existing = snapshot.records[record.id];
-    if (record.sold && existing?.sold != true && isExpiredOn(record, today)) {
+    // Validation and persistence must describe one pharmacist action. Sampling
+    // the business clock twice can cross midnight between the expiry guard and
+    // the durable event, producing a contradictory SOLD audit day.
+    final operationTime = clock();
+    if (record.sold &&
+        existing?.sold != true &&
+        isExpiredOn(record, operationTime)) {
       throw const FormatException(
         'Expired stock cannot be marked SOLD. Remove it with reason Expired so it stays in the correct safety history.',
       );
@@ -692,6 +698,7 @@ class PharmacyController extends ChangeNotifier {
             : 'Edited ${record.name}',
         upserts: [record],
       ),
+      operationTime: operationTime,
     );
   }
 
