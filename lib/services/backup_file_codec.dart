@@ -307,6 +307,9 @@ class PortableBackupCodec {
         if (records.length > (expectedMedicines ?? 0)) {
           throw const FormatException('Backup contains more medicines than declared.');
         }
+        if (lineNumber % 256 == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
         continue;
       }
 
@@ -336,6 +339,9 @@ class PortableBackupCodec {
         sales[sale.id] = sale;
         if (sales.length > (expectedSales ?? 0)) {
           throw const FormatException('Backup contains more sales than declared.');
+        }
+        if (lineNumber % 256 == 0) {
+          await Future<void>.delayed(Duration.zero);
         }
         continue;
       }
