@@ -364,7 +364,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _catalogError = '';
     });
     try {
-      final candidates = await _catalog.search(
+      final candidates = await _catalogService.search(
         barcode: scan.barcode,
         text: scan.text,
       );
