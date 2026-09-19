@@ -110,8 +110,8 @@ void main() {
     expect(sold.soldUnitPricePaise, 900);
     expect(sold.soldAt, committedAt.toIso8601String());
     expect(
-      controller.snapshot.events.first['time'],
-      committedAt.toIso8601String(),
+      DateTime.parse(controller.snapshot.events.first['time'] as String),
+      committedAt.toUtc(),
     );
     expect(controller.snapshot.events.first['businessDay'], '2026-09-19');
   });
