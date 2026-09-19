@@ -556,9 +556,9 @@ class _EditorScreenState extends State<EditorScreen> {
           );
         }
       }
-      // The editor is bound to the exact stock-row revision it opened, not to
-      // unrelated Medicine Database traffic. The storage CAS still guards the
-      // final global revision, so a later concurrent write fails closed.
+      // Reject an already-stale row before enqueueing. The controller repeats
+      // this exact-row check in the serialized write turn and safely rebases
+      // unrelated inventory traffic onto the latest global revision.
       await widget.controller.save(
         draft,
         expectedRevision: widget.controller.snapshot.revision,
