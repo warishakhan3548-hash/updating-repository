@@ -6,10 +6,63 @@ import '../domain/attention.dart';
 import '../domain/medicine.dart';
 import '../domain/operations_plan.dart';
 import '../domain/sale_history_integrity.dart';
+import '../domain/stock_guidance.dart';
+import '../domain/supplier.dart';
 import '../domain/tracking.dart';
 import 'pharmacy_controller.dart';
 
 enum AarisAutopilotHealth { waiting, clear, attention, critical, degraded }
+
+
+enum AarisAutopilotWorkQueueStatus { waiting, ready, degraded }
+
+@immutable
+class AarisAutopilotWorkQueue {
+  const AarisAutopilotWorkQueue._({
+    required this.status,
+    required this.inventoryRevision,
+    required this.day,
+    required this.tasks,
+  });
+
+  factory AarisAutopilotWorkQueue.waiting({
+    required int inventoryRevision,
+    required String day,
+  }) => AarisAutopilotWorkQueue._(
+    status: AarisAutopilotWorkQueueStatus.waiting,
+    inventoryRevision: inventoryRevision,
+    day: day,
+    tasks: const <StockGuidance>[],
+  );
+
+  factory AarisAutopilotWorkQueue.ready({
+    required int inventoryRevision,
+    required String day,
+    required Iterable<StockGuidance> tasks,
+  }) => AarisAutopilotWorkQueue._(
+    status: AarisAutopilotWorkQueueStatus.ready,
+    inventoryRevision: inventoryRevision,
+    day: day,
+    tasks: List<StockGuidance>.unmodifiable(tasks),
+  );
+
+  factory AarisAutopilotWorkQueue.degraded({
+    required int inventoryRevision,
+    required String day,
+  }) => AarisAutopilotWorkQueue._(
+    status: AarisAutopilotWorkQueueStatus.degraded,
+    inventoryRevision: inventoryRevision,
+    day: day,
+    tasks: const <StockGuidance>[],
+  );
+
+  final AarisAutopilotWorkQueueStatus status;
+  final int inventoryRevision;
+  final String day;
+  final List<StockGuidance> tasks;
+
+  bool get isReady => status == AarisAutopilotWorkQueueStatus.ready;
+}
 
 /// Small immutable projection of the pharmacist's current operational workload.
 ///
@@ -284,9 +337,13 @@ Medicine _operationalMedicineProjection(Medicine medicine) => Medicine(
 Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
   final records = (payload['records'] as List<dynamic>).cast<Medicine>();
   final allSales = (payload['sales'] as List<dynamic>).cast<SaleEvent>();
+  final suppliers = (payload['suppliers'] as Map).cast<String, Supplier>();
   final settings = payload['settings'] as WarningSettings;
   final today = payload['today'] as DateTime;
   final start = today.subtract(const Duration(days: 30));
+  final recordsById = <String, Medicine>{
+    for (final medicine in records) medicine.id: medicine,
+  };
   final activeById = <String, Medicine>{
     for (final medicine in records)
       if (!medicine.archived) medicine.id: medicine,
@@ -323,8 +380,66 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
     items: report.items,
     medicines: records,
   );
-  final next = plan.nextStep;
+  final orders = <String, ReorderSuggestion>{
+    for (final order in tracking.reorder) order.productKey: order,
+  };
+  final dailyDemand = {
+    for (final movement in tracking.movements.values)
+      if (movement.demand != null) movement.key: movement.demand!,
+  };
+  final supplierTasks = supplierReturnGuidance(
+    candidates: supplierReturnCandidates(
+      medicines: records,
+      suppliers: suppliers,
+      today: today,
+    ),
+  );
+  final supplierDueIds = supplierTasks.expand((task) => task.stockIds).toSet();
+  final plannedTasks = <StockGuidance>[
+    for (final step in plan.steps)
+      StockGuidance.fromStep(
+        step,
+        records: recordsById,
+        orders: orders,
+        today: today,
+        dailyDemand: dailyDemand,
+      ),
+  ];
+  final tasks = <StockGuidance>[
+    // A supplier return deadline is the more specific action. Do not show a
+    // second generic short-expiry/expiry-waste card for the same exact stock.
+    for (final task in plannedTasks)
+      if (!(task.stockIds.any(supplierDueIds.contains) &&
+          (task.step?.item.kind == AttentionKind.shortExpiry ||
+              task.step?.item.kind == AttentionKind.expiryWastePressure)))
+        task,
+    ...supplierTasks,
+    ...stockMovementGuidance(
+      tracking: tracking,
+      records: recordsById,
+      plan: plan,
+      today: today,
+    ),
+  ];
+  int priority(StockGuidance task) => task.critical
+      ? 0
+      : task.group == StockTaskGroup.urgent
+      ? 1
+      : task.group == StockTaskGroup.supplier
+      ? 2
+      : task.group == StockTaskGroup.order
+      ? 3
+      : task.group == StockTaskGroup.details
+      ? 4
+      : 5;
+  // Display priority cannot bypass the planner's live prerequisites.
+  final original = {for (var i = 0; i < tasks.length; i++) tasks[i].key: i};
+  tasks.sort((a, b) {
+    final order = priority(a).compareTo(priority(b));
+    return order != 0 ? order : original[a.key]!.compareTo(original[b.key]!);
+  });
 
+  final next = plan.nextStep;
   return <String, dynamic>{
     'health': report.isEmpty
         ? 'clear'
@@ -344,6 +459,7 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
     'nextLane': next?.laneLabel ?? '',
     'nextKind': next?.item.kind.name ?? '',
     'nextStockIds': List<String>.from(next?.item.stockIds ?? const <String>[]),
+    'tasks': tasks,
   };
 }
 
@@ -362,6 +478,12 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
     bool startImmediately = true,
   }) : _digest = AarisAutopilotDigest.waiting(
          inventoryRevision: controller.snapshot.revision,
+       ),
+       _workQueue = ValueNotifier<AarisAutopilotWorkQueue>(
+         AarisAutopilotWorkQueue.waiting(
+           inventoryRevision: controller.snapshot.revision,
+           day: dateText(controller.today),
+         ),
        ) {
     _observedRevision = controller.snapshot.revision;
     _observedDay = dateText(controller.today);
@@ -377,6 +499,13 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
 
   AarisAutopilotDigest _digest;
   AarisAutopilotDigest get digest => _digest;
+
+  final ValueNotifier<AarisAutopilotWorkQueue> _workQueue;
+
+  /// Full pharmacist work cards produced by the same background evaluation as
+  /// [digest]. This has a separate notifier so detailed queue refreshes never
+  /// force the Home beacon/navigation badge to repaint.
+  ValueListenable<AarisAutopilotWorkQueue> get workQueue => _workQueue;
 
   Timer? _timer;
   int _generation = 0;
@@ -463,39 +592,51 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
 
     final source = controller.snapshot;
     final revision = source.revision;
+    final today = controller.today;
+    final day = dateText(today);
     if (!controller.ready) {
+      _publishWorkQueue(
+        AarisAutopilotWorkQueue.waiting(
+          inventoryRevision: revision,
+          day: day,
+        ),
+      );
       _publish(AarisAutopilotDigest.waiting(inventoryRevision: revision));
       return;
     }
 
     try {
-      final today = controller.today;
-
       // Build a lightweight immutable handoff from one authoritative snapshot.
       // Notes/OCR can be very large and are irrelevant to deterministic
       // operational planning, so they never cross this isolate boundary.
-      // Crucially, the UI isolate no longer converts every stock/sale row into
-      // JSON and then reparses that JSON in the worker. Historical-sale
-      // filtering and integrity-candidate selection also run inside the worker,
-      // keeping controller notifications and ordinary taps free of that CPU/GC
-      // burst on large pharmacies.
+      // The same worker now also builds the screen-ready work queue: opening
+      // "आज के काम" never repeats full inventory analytics on the UI isolate.
       final payload = <String, dynamic>{
         'records': <Medicine>[
           for (final medicine in source.records.values)
             _operationalMedicineProjection(medicine),
         ],
         'sales': source.sales.values.toList(growable: false),
+        'suppliers': Map<String, Supplier>.from(source.suppliers),
         'settings': source.settings,
         'today': today,
       };
 
       final result = await compute(_evaluateAutopilot, payload);
       if (_disposed || !_lifecycleActive || generation != _generation) return;
-      if (controller.snapshot.revision != revision) {
+      if (controller.snapshot.revision != revision ||
+          dateText(controller.today) != day) {
         _rerunRequested = true;
         return;
       }
 
+      _publishWorkQueue(
+        AarisAutopilotWorkQueue.ready(
+          inventoryRevision: revision,
+          day: day,
+          tasks: (result['tasks'] as List<dynamic>).cast<StockGuidance>(),
+        ),
+      );
       _publish(
         AarisAutopilotDigest.fromWorker(
           inventoryRevision: revision,
@@ -505,13 +646,26 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
       );
     } catch (_) {
       if (_disposed || !_lifecycleActive || generation != _generation) return;
+      final liveRevision = controller.snapshot.revision;
+      final liveDay = dateText(controller.today);
+      _publishWorkQueue(
+        AarisAutopilotWorkQueue.degraded(
+          inventoryRevision: liveRevision,
+          day: liveDay,
+        ),
+      );
       _publish(
         AarisAutopilotDigest.degraded(
-          inventoryRevision: controller.snapshot.revision,
+          inventoryRevision: liveRevision,
           evaluatedAt: controller.clock(),
         ),
       );
     }
+  }
+
+  void _publishWorkQueue(AarisAutopilotWorkQueue next) {
+    if (_disposed) return;
+    _workQueue.value = next;
   }
 
   void _publish(AarisAutopilotDigest next) {
@@ -526,6 +680,7 @@ class AarisAutopilotSupervisor extends ChangeNotifier {
     _disposed = true;
     _timer?.cancel();
     controller.removeListener(_onControllerChanged);
+    _workQueue.dispose();
     super.dispose();
   }
 }
