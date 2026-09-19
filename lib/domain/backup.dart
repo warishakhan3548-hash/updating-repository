@@ -351,7 +351,6 @@ Future<BackupImpact> compareBackupImpactCooperatively({
     var reactivated = 0;
     var processed = 0;
 
-    final incomingIds = backup.records.keys.toSet();
     for (final incoming in backup.records.values) {
       final current = currentRecords[incoming.id];
       if (current == null) {
@@ -367,7 +366,7 @@ Future<BackupImpact> compareBackupImpactCooperatively({
 
     var movingToRemoved = 0;
     for (final current in currentRecords.values) {
-      if (!current.archived && !incomingIds.contains(current.id)) {
+      if (!current.archived && !backup.records.containsKey(current.id)) {
         movingToRemoved++;
       }
       if (++processed % 512 == 0) {
