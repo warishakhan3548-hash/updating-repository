@@ -13,6 +13,7 @@ import '../domain/sales_overview.dart';
 import '../domain/search.dart';
 import '../domain/tracking.dart';
 import '../services/search_worker.dart';
+import '../domain/supplier.dart';
 
 const _maxStockQuantity = 100000000;
 
@@ -189,7 +190,11 @@ class PharmacyController extends ChangeNotifier {
   DateTime get today => civilDay(clock());
   WarningSettings get settings => snapshot.settings;
   Iterable<Medicine> get records => snapshot.records.values;
+  Iterable<Supplier> get suppliers => snapshot.suppliers.values;
   Iterable<SaleEvent> get sales => snapshot.sales.values;
+
+  Supplier? supplierForStock(Medicine medicine) =>
+      medicine.supplierId.isEmpty ? null : snapshot.suppliers[medicine.supplierId];
 
   void _syncReadSnapshot() {
     if (identical(_readSnapshot, snapshot)) return;
@@ -474,6 +479,34 @@ class PharmacyController extends ChangeNotifier {
     _writes = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
     return result;
   }
+
+  Future<void> saveSupplier(
+    Supplier supplier, {
+    required int expectedRevision,
+  }) async {
+    final live = snapshot.suppliers[supplier.id];
+    if (live != null && supplier.revision <= live.revision) {
+      throw StateError(
+        'This supplier changed while it was being edited. Reopen the live supplier before saving.',
+      );
+    }
+    await _commit(
+      InventoryMutation(
+        expectedRevision: expectedRevision,
+        label: live == null
+            ? 'Added supplier · ${supplier.name}'
+            : 'Updated supplier · ${supplier.name}',
+        upserts: const <Medicine>[],
+        upsertSuppliers: <Supplier>[supplier],
+      ),
+    );
+  }
+
+  List<SupplierReturnCandidate> get supplierReturns => supplierReturnCandidates(
+    medicines: records,
+    suppliers: snapshot.suppliers,
+    today: today,
+  );
 
   Future<void> save(Medicine record, {required int expectedRevision}) async {
     final existing = snapshot.records[record.id];
@@ -1032,10 +1065,14 @@ class PharmacyController extends ChangeNotifier {
     if (!canUndo) throw StateError('No current change is available to undo.');
     final event = snapshot.events.first;
     final before = Map<String, dynamic>.from(event['before'] as Map);
+    final supplierBefore = Map<String, dynamic>.from(
+      event['supplierBefore'] as Map? ?? const {},
+    );
     final salesBefore = Map<String, dynamic>.from(
       event['salesBefore'] as Map? ?? const {},
     );
     final upserts = <Medicine>[], removes = <String>[];
+    final upsertSuppliers = <Supplier>[], removeSuppliers = <String>[];
     final upsertSales = <SaleEvent>[], removeSales = <String>[];
     for (final entry in before.entries) {
       if (entry.value == null) {
@@ -1049,6 +1086,22 @@ class PharmacyController extends ChangeNotifier {
             ...record.toJson(),
             'revision':
                 (snapshot.records[entry.key]?.revision ?? record.revision) + 1,
+          }),
+        );
+      }
+    }
+    for (final entry in supplierBefore.entries) {
+      if (entry.value == null) {
+        removeSuppliers.add(entry.key);
+      } else {
+        final supplier = Supplier.fromJson(
+          Map<String, dynamic>.from(entry.value as Map),
+        );
+        upsertSuppliers.add(
+          Supplier.fromJson({
+            ...supplier.toJson(),
+            'revision':
+                (snapshot.suppliers[entry.key]?.revision ?? supplier.revision) + 1,
           }),
         );
       }
@@ -1067,8 +1120,10 @@ class PharmacyController extends ChangeNotifier {
         expectedRevision: snapshot.revision,
         label: 'Undo: ${event['label']}',
         upserts: upserts,
+        upsertSuppliers: upsertSuppliers,
         upsertSales: upsertSales,
         removeIds: removes,
+        removeSupplierIds: removeSuppliers,
         removeSaleIds: removeSales,
         settings: WarningSettings.fromJson(
           Map<String, dynamic>.from(event['settingsBefore'] as Map),
@@ -1082,6 +1137,7 @@ class PharmacyController extends ChangeNotifier {
   PharmacyExport export() => PharmacyExport(
     revision: snapshot.revision,
     records: records,
+    suppliers: suppliers,
     sales: sales,
     today: today,
   );
@@ -1091,6 +1147,7 @@ class PharmacyController extends ChangeNotifier {
     sourceRevision: snapshot.revision,
     settings: settings,
     records: snapshot.records,
+    suppliers: snapshot.suppliers,
     sales: snapshot.sales,
     soldValue: snapshot.soldValue,
     unknownSold: snapshot.unknownSold,
@@ -1138,13 +1195,43 @@ class PharmacyController extends ChangeNotifier {
         );
       }
     }
+    final restoredSuppliers = <Supplier>[];
+    for (final supplier in review.backup.suppliers.values) {
+      final current = snapshot.suppliers[supplier.id];
+      restoredSuppliers.add(
+        current == null
+            ? supplier
+            : Supplier.fromJson({
+                ...supplier.toJson(),
+                'revision': current.revision > supplier.revision
+                    ? current.revision + 1
+                    : supplier.revision + 1,
+              }),
+      );
+    }
+
+    // Rows preserved only as Removed history must not keep a dangling supplier
+    // link when a full backup intentionally omits that supplier.
+    for (var i = 0; i < restored.length; i++) {
+      final record = restored[i];
+      if (record.archived &&
+          record.supplierId.isNotEmpty &&
+          !review.backup.suppliers.containsKey(record.supplierId)) {
+        restored[i] = record.patch({'supplierId': ''});
+      }
+    }
+
     await _commit(
       InventoryMutation(
         expectedRevision: review.currentRevision,
         label:
             'Restored backup · ${review.activeMedicines} active medicines · ${review.sales} sales',
         upserts: restored,
+        upsertSuppliers: restoredSuppliers,
         upsertSales: review.backup.sales.values.toList(),
+        removeSupplierIds: snapshot.suppliers.keys
+            .where((id) => !review.backup.suppliers.containsKey(id))
+            .toList(),
         removeSaleIds: snapshot.sales.keys
             .where((id) => !review.backup.sales.containsKey(id))
             .toList(),
