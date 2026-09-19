@@ -72,6 +72,33 @@ class MainActivity : FlutterActivity() {
                             }
                         }.start()
                     }
+                    "createSupplierReturnPdf" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val arguments = call.arguments as? Map<String, Any?>
+                        if (arguments == null) {
+                            result.error(
+                                "invalid_supplier_return",
+                                "Supplier-return data is missing.",
+                                null,
+                            )
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            try {
+                                val path = createSupplierReturnPdf(arguments)
+                                runOnUiThread { result.success(path) }
+                            } catch (error: Exception) {
+                                runOnUiThread {
+                                    result.error(
+                                        "supplier_return_pdf_error",
+                                        error.message
+                                            ?: "The supplier return PDF could not be created.",
+                                        null,
+                                    )
+                                }
+                            }
+                        }.start()
+                    }
                     "pickBackupFile" -> pickBackupDocument(result)
                     "saveBackupToDownloads" -> {
                         val path = call.argument<String>("path").orEmpty()
@@ -803,6 +830,204 @@ class MainActivity : FlutterActivity() {
         val quality = (sharpness * 0.52 + contrastScore * 0.28 + exposure * 0.20)
             .coerceIn(0.0, 1.0)
         return FrameMetrics(sharpness, contrast, exposure, quality)
+    }
+
+    private fun createSupplierReturnPdf(arguments: Map<String, Any?>): String {
+        val title = (arguments["title"] as? String)?.take(100)
+            ?: "Aaris Pharmacy Supplier Return List"
+        val date = (arguments["date"] as? String)?.take(30).orEmpty()
+        val supplier = arguments["supplier"] as? Map<*, *>
+            ?: throw IllegalArgumentException("Supplier details are missing.")
+        val supplierName = (supplier["name"] as? String)?.take(300)?.trim().orEmpty()
+        if (supplierName.isEmpty()) {
+            throw IllegalArgumentException("Supplier name is missing.")
+        }
+        val address = (supplier["address"] as? String)?.take(1000)?.trim().orEmpty()
+        val gstin = (supplier["gstin"] as? String)?.take(60)?.trim().orEmpty()
+        val returnDays = (supplier["returnBeforeExpiryDays"] as? Number)?.toInt()
+            ?: throw IllegalArgumentException("Supplier return window is missing.")
+        if (returnDays !in 0..3650) {
+            throw IllegalArgumentException("Supplier return window is invalid.")
+        }
+        val rawLines = arguments["lines"] as? List<*>
+            ?: throw IllegalArgumentException("No supplier return rows were supplied.")
+        if (rawLines.isEmpty() || rawLines.size > 500) {
+            throw IllegalArgumentException("Choose between 1 and 500 return rows.")
+        }
+
+        val document = PdfDocument()
+        val body = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(23, 59, 52)
+            textSize = 9f
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        }
+        val small = Paint(body).apply {
+            color = Color.rgb(96, 116, 108)
+            textSize = 7.5f
+        }
+        val heading = Paint(body).apply {
+            textSize = 18f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val subheading = Paint(body).apply {
+            textSize = 10f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val tableHeading = Paint(body).apply {
+            textSize = 8f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(218, 229, 220)
+            strokeWidth = 1f
+        }
+
+        var pageNumber = 0
+        var page: PdfDocument.Page? = null
+        lateinit var canvas: Canvas
+        var y = 0f
+
+        fun fitted(text: String, width: Float, paint: Paint): String {
+            val original = text.replace(Regex("[\\r\\n]+"), " ").trim()
+            var value = if (original.isEmpty()) "-" else original
+            while (value.length > 1 && paint.measureText(value) > width) {
+                value = value.dropLast(1)
+            }
+            if (value != original && value.length > 1) {
+                value = value.dropLast(1) + "..."
+            }
+            return value
+        }
+
+        fun drawFitted(
+            text: String,
+            x: Float,
+            baseline: Float,
+            width: Float,
+            paint: Paint,
+        ) {
+            canvas.drawText(fitted(text, width, paint), x, baseline, paint)
+        }
+
+        fun beginPage() {
+            page?.let(document::finishPage)
+            pageNumber += 1
+            page = document.startPage(
+                PdfDocument.PageInfo.Builder(595, 842, pageNumber).create(),
+            )
+            canvas = page!!.canvas
+            canvas.drawText(title, 32f, 42f, heading)
+            canvas.drawText("Supplier: " + fitted(supplierName, 360f, subheading), 32f, 63f, subheading)
+            canvas.drawText("Date: $date", 430f, 63f, small)
+            canvas.drawText("Page $pageNumber", 520f, 63f, small)
+            var infoY = 80f
+            if (address.isNotEmpty()) {
+                drawFitted("Address: $address", 32f, infoY, 520f, small)
+                infoY += 14f
+            }
+            if (gstin.isNotEmpty()) {
+                drawFitted("GSTIN: $gstin", 32f, infoY, 300f, small)
+                infoY += 14f
+            }
+            drawFitted(
+                "Return window: $returnDays day(s) before expiry",
+                32f,
+                infoY,
+                300f,
+                small,
+            )
+            infoY += 14f
+            canvas.drawLine(32f, infoY, 563f, infoY, rule)
+            val headY = infoY + 20f
+            canvas.drawText("Medicine", 32f, headY, tableHeading)
+            canvas.drawText("Batch", 270f, headY, tableHeading)
+            canvas.drawText("EXP", 365f, headY, tableHeading)
+            canvas.drawText("Qty", 430f, headY, tableHeading)
+            canvas.drawText("Location", 475f, headY, tableHeading)
+            canvas.drawLine(32f, headY + 8f, 563f, headY + 8f, rule)
+            y = headY + 28f
+        }
+
+        try {
+            beginPage()
+            rawLines.forEachIndexed { index, raw ->
+                val line = raw as? Map<*, *>
+                    ?: throw IllegalArgumentException(
+                        "Return row ${index + 1} is invalid.",
+                    )
+                val name = (line["name"] as? String)?.take(300)?.trim().orEmpty()
+                if (name.isEmpty()) {
+                    throw IllegalArgumentException(
+                        "Return row ${index + 1} has no medicine name.",
+                    )
+                }
+                val quantity = (line["quantity"] as? Number)?.toLong()
+                    ?: throw IllegalArgumentException(
+                        "Return row ${index + 1} has no quantity.",
+                    )
+                if (quantity < 1 || quantity > 100_000_000) {
+                    throw IllegalArgumentException(
+                        "Return row ${index + 1} has an invalid quantity.",
+                    )
+                }
+                if (y > 780f) beginPage()
+                val strength = (line["strength"] as? String)?.take(100)?.trim().orEmpty()
+                val batch = (line["batchNumber"] as? String)?.take(160)?.trim().orEmpty()
+                val expiry = (line["expiry"] as? String)?.take(30)?.trim().orEmpty()
+                val location = (line["location"] as? String)?.take(300)?.trim().orEmpty()
+                val manufacturer =
+                    (line["manufacturer"] as? String)?.take(300)?.trim().orEmpty()
+
+                drawFitted(
+                    if (strength.isEmpty()) name else "$name $strength",
+                    32f,
+                    y,
+                    225f,
+                    body,
+                )
+                drawFitted(batch, 270f, y, 82f, body)
+                drawFitted(expiry, 365f, y, 54f, body)
+                drawFitted(quantity.toString(), 430f, y, 34f, body)
+                drawFitted(location, 475f, y, 88f, body)
+                if (manufacturer.isNotEmpty()) {
+                    drawFitted(
+                        manufacturer,
+                        32f,
+                        y + 15f,
+                        225f,
+                        small,
+                    )
+                }
+                canvas.drawLine(32f, y + 27f, 563f, y + 27f, rule)
+                y += 40f
+            }
+
+            canvas.drawText(
+                "Prepared from Aaris Pharmacy stock records. Confirm physical handover before marking stock returned.",
+                32f,
+                816f,
+                small,
+            )
+            page?.let(document::finishPage)
+            page = null
+
+            val directory = File(cacheDir, "supplier_returns").apply { mkdirs() }
+            directory.listFiles()?.filter {
+                System.currentTimeMillis() - it.lastModified() >
+                    24 * 60 * 60 * 1000L
+            }?.forEach { it.delete() }
+            val output = File(
+                directory,
+                "Aaris_Pharmacy_Supplier_Return_${System.currentTimeMillis()}.pdf",
+            )
+            FileOutputStream(output).use { stream ->
+                document.writeTo(stream)
+            }
+            return output.absolutePath
+        } finally {
+            page?.let(document::finishPage)
+            document.close()
+        }
     }
 
     private fun createPurchaseOrderPdf(arguments: Map<String, Any?>): String {
