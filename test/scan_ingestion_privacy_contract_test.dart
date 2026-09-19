@@ -46,11 +46,13 @@ void main() {
 
     expect(source, contains("Future<void> _photo() => _queueMedia('photo');"));
     expect(source, contains("Future<void> _video() => _queueMedia('video');"));
+    expect(source, contains('await queue.addFile('));
+    expect(source, contains('source.path,'));
+    expect(source, contains('kind: kind,'));
+    expect(source, contains('title: source.name,'));
     expect(
       source,
-      contains(
-        'await queue.addFile(source.path, kind: kind, title: source.name);',
-      ),
+      contains('cancelled: () => !mounted || generation != _generation,'),
     );
     expect(source, isNot(contains('final vision = MedicineVisionService();')));
   });
