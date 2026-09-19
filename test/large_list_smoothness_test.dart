@@ -40,12 +40,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('Sold Medicine Tracker'),
-      350,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(find.text('Sold Medicine Tracker'));
+
+    final tracker = find.text('Sold Medicine Tracker');
+    await tester.ensureVisible(tracker);
+    await tester.pumpAndSettle();
+    await tester.tap(tracker);
     await tester.pumpAndSettle();
 
     expect(find.text('Medicine 0'), findsOneWidget);
