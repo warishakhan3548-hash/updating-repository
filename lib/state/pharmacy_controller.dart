@@ -316,8 +316,8 @@ class PharmacyController extends ChangeNotifier {
 
     // Tracking is an expensive read model: it walks current stock, sale history,
     // daily demand and reorder projections. Screens often ask for the same range
-    // more than once while building related guidance. Reuse only within the
-    // exact immutable inventory snapshot + civil day + requested range.
+    // more than once while building related guidance. Reuse only while its
+    // immutable medicine/sales sources, civil day and requested range match.
     final key =
         '${range.start.microsecondsSinceEpoch}:${range.end.microsecondsSinceEpoch}';
     final cached = _trackingCache[key];
