@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
+import 'package:aaris_pharmacy/domain/supplier.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -22,6 +25,33 @@ Future<PharmacyController> controller() async {
   );
   await value.initialize();
   return value;
+}
+
+
+class _FirstCommitGateStorage implements InventoryStorage {
+  _FirstCommitGateStorage(InventorySnapshot initial)
+    : _inner = MemoryInventoryStorage(initial);
+
+  final MemoryInventoryStorage _inner;
+  final Completer<void> _firstCommitGate = Completer<void>();
+  int commits = 0;
+
+  void releaseFirstCommit() {
+    if (!_firstCommitGate.isCompleted) _firstCommitGate.complete();
+  }
+
+  @override
+  Future<InventorySnapshot> load() => _inner.load();
+
+  @override
+  Future<InventorySnapshot> commit(InventoryMutation mutation) async {
+    commits++;
+    if (commits == 1) await _firstCommitGate.future;
+    return _inner.commit(mutation);
+  }
+
+  @override
+  Future<void> close() => _inner.close();
 }
 
 void main() {
@@ -137,4 +167,148 @@ void main() {
       expect(value.sales, isEmpty);
     });
   });
+
+  group('serialized editor saves', () {
+    test('medicine save survives an unrelated write queued ahead', () async {
+      final original = stock('a');
+      final storage = _FirstCommitGateStorage(
+        InventorySnapshot(records: <String, Medicine>{original.id: original}),
+      );
+      final value = PharmacyController(
+        storage,
+        clock: () => DateTime(2026, 9, 10, 12),
+        backgroundSearch: false,
+      );
+      addTearDown(value.dispose);
+      await value.initialize();
+
+      final unrelated = value.save(
+        stock('b', name: 'Crocin'),
+        expectedRevision: 0,
+      );
+      final edited = value.save(
+        original.patch(<String, dynamic>{'notes': 'Rack rechecked'}),
+        expectedRevision: 0,
+      );
+
+      storage.releaseFirstCommit();
+      await Future.wait<void>(<Future<void>>[unrelated, edited]);
+
+      expect(value.snapshot.revision, 2);
+      expect(value.snapshot.records['b']?.name, 'Crocin');
+      expect(value.snapshot.records['a']?.notes, 'Rack rechecked');
+      expect(storage.commits, 2);
+    });
+
+    test('medicine save rejects its row changing while queued', () async {
+      final original = stock('a');
+      final storage = _FirstCommitGateStorage(
+        InventorySnapshot(records: <String, Medicine>{original.id: original}),
+      );
+      final value = PharmacyController(
+        storage,
+        clock: () => DateTime(2026, 9, 10, 12),
+        backgroundSearch: false,
+      );
+      addTearDown(value.dispose);
+      await value.initialize();
+
+      final first = value.save(
+        original.patch(<String, dynamic>{'notes': 'First edit'}),
+        expectedRevision: 0,
+      );
+      final stale = value.save(
+        original.patch(<String, dynamic>{'notes': 'Stale edit'}),
+        expectedRevision: 0,
+      );
+
+      storage.releaseFirstCommit();
+      await first;
+      await expectLater(stale, throwsStateError);
+
+      expect(value.snapshot.revision, 1);
+      expect(value.snapshot.records['a']?.notes, 'First edit');
+      expect(storage.commits, 1);
+    });
+
+    test('supplier save survives unrelated stock write queued ahead', () async {
+      const supplier = Supplier(
+        id: 'supplier-a',
+        name: 'ABC Pharma',
+        returnBeforeExpiryDays: 30,
+      );
+      final storage = _FirstCommitGateStorage(
+        InventorySnapshot(
+          suppliers: const <String, Supplier>{'supplier-a': supplier},
+        ),
+      );
+      final value = PharmacyController(
+        storage,
+        clock: () => DateTime(2026, 9, 10, 12),
+        backgroundSearch: false,
+      );
+      addTearDown(value.dispose);
+      await value.initialize();
+
+      final unrelated = value.save(
+        stock('b', name: 'Crocin'),
+        expectedRevision: 0,
+      );
+      final edited = value.saveSupplier(
+        supplier.patch(<String, dynamic>{'returnBeforeExpiryDays': 45}),
+        expectedRevision: 0,
+      );
+
+      storage.releaseFirstCommit();
+      await Future.wait<void>(<Future<void>>[unrelated, edited]);
+
+      expect(value.snapshot.revision, 2);
+      expect(
+        value.snapshot.suppliers['supplier-a']?.returnBeforeExpiryDays,
+        45,
+      );
+      expect(storage.commits, 2);
+    });
+
+    test('supplier save rejects its supplier changing while queued', () async {
+      const supplier = Supplier(
+        id: 'supplier-a',
+        name: 'ABC Pharma',
+        returnBeforeExpiryDays: 30,
+      );
+      final storage = _FirstCommitGateStorage(
+        InventorySnapshot(
+          suppliers: const <String, Supplier>{'supplier-a': supplier},
+        ),
+      );
+      final value = PharmacyController(
+        storage,
+        clock: () => DateTime(2026, 9, 10, 12),
+        backgroundSearch: false,
+      );
+      addTearDown(value.dispose);
+      await value.initialize();
+
+      final first = value.saveSupplier(
+        supplier.patch(<String, dynamic>{'returnBeforeExpiryDays': 45}),
+        expectedRevision: 0,
+      );
+      final stale = value.saveSupplier(
+        supplier.patch(<String, dynamic>{'returnBeforeExpiryDays': 60}),
+        expectedRevision: 0,
+      );
+
+      storage.releaseFirstCommit();
+      await first;
+      await expectLater(stale, throwsStateError);
+
+      expect(value.snapshot.revision, 1);
+      expect(
+        value.snapshot.suppliers['supplier-a']?.returnBeforeExpiryDays,
+        45,
+      );
+      expect(storage.commits, 1);
+    });
+  });
+
 }
