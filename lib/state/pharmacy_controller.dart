@@ -189,6 +189,7 @@ class PharmacyController extends ChangeNotifier {
   List<SupplierReturnCandidate>? _supplierReturnsCache;
   String _supplierReturnsDayKey = '';
   int _searchDatasetEpoch = 0;
+  String _observedDayKey = '';
 
   DateTime get today => civilDay(clock());
   WarningSettings get settings => snapshot.settings;
@@ -277,7 +278,9 @@ class PharmacyController extends ChangeNotifier {
     if (_disposed) return;
     snapshot = loaded;
     ready = true;
-    _scheduleMidnight();
+    final now = clock();
+    _observedDayKey = dateText(civilDay(now));
+    _scheduleMidnight(now);
     _emit();
   }
 
@@ -286,14 +289,18 @@ class PharmacyController extends ChangeNotifier {
   }
 
   void refreshDay() {
-    _scheduleMidnight();
-    _emit();
+    final now = clock();
+    final dayKey = dateText(civilDay(now));
+    final changed = _observedDayKey != dayKey;
+    _observedDayKey = dayKey;
+    _scheduleMidnight(now);
+    if (changed) _emit();
   }
 
-  void _scheduleMidnight() {
+  void _scheduleMidnight([DateTime? sampledNow]) {
     _midnight?.cancel();
     if (_disposed) return;
-    final now = clock();
+    final now = sampledNow ?? clock();
     final next = DateTime(
       now.year,
       now.month,
@@ -302,9 +309,14 @@ class PharmacyController extends ChangeNotifier {
     _midnight = Timer(next.difference(now), refreshDay);
   }
 
-  List<Medicine> list(SearchScope scope) =>
-      records.where((m) => inScope(m, scope, settings, today)).toList()
-        ..sort((a, b) => expiryOrder(a, b, today));
+  List<Medicine> list(SearchScope scope) {
+    final date = today;
+    final result = _stableRecords
+        .where((medicine) => inScope(medicine, scope, settings, date))
+        .toList();
+    result.sort((a, b) => expiryOrder(a, b, date));
+    return result;
+  }
 
   List<Medicine> dispensingChoices(String id, {DateTime? on}) {
     final requested = snapshot.records[id];
@@ -639,7 +651,10 @@ class PharmacyController extends ChangeNotifier {
 
   Future<void> save(Medicine record, {required int expectedRevision}) async {
     final existing = snapshot.records[record.id];
-    if (record.sold && existing?.sold != true && isExpiredOn(record, today)) {
+    final operationTime = clock();
+    if (record.sold &&
+        existing?.sold != true &&
+        isExpiredOn(record, operationTime)) {
       throw const FormatException(
         'Expired stock cannot be marked SOLD. Remove it with reason Expired so it stays in the correct safety history.',
       );
@@ -652,6 +667,7 @@ class PharmacyController extends ChangeNotifier {
             : 'Edited ${record.name}',
         upserts: [record],
       ),
+      operationTime: operationTime,
     );
   }
 
