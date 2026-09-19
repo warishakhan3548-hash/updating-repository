@@ -329,7 +329,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _catalogError = '';
     });
     try {
-      final candidates = await _catalog.search(text: clean);
+      final candidates = await _catalogService.search(text: clean);
       if (!mounted ||
           generation != _catalogGeneration ||
           !_onlineMode ||
