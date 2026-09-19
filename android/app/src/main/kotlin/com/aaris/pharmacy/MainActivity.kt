@@ -844,6 +844,17 @@ class MainActivity : FlutterActivity() {
         }
         val address = (supplier["address"] as? String)?.take(1000)?.trim().orEmpty()
         val gstin = (supplier["gstin"] as? String)?.take(60)?.trim().orEmpty()
+        val drugLicenceNo =
+            (supplier["drugLicenceNo"] as? String)?.take(120)?.trim().orEmpty()
+        val customFields = (supplier["customFields"] as? List<*>)
+            ?.mapNotNull { raw ->
+                val field = raw as? Map<*, *> ?: return@mapNotNull null
+                val label = (field["label"] as? String)?.take(100)?.trim().orEmpty()
+                val value = (field["value"] as? String)?.take(300)?.trim().orEmpty()
+                if (label.isEmpty() || value.isEmpty()) null else label to value
+            }
+            ?.take(4)
+            ?: emptyList()
         val returnDays = (supplier["returnBeforeExpiryDays"] as? Number)?.toInt()
             ?: throw IllegalArgumentException("Supplier return window is missing.")
         if (returnDays !in 0..3650) {
@@ -927,6 +938,20 @@ class MainActivity : FlutterActivity() {
             }
             if (gstin.isNotEmpty()) {
                 drawFitted("GSTIN: $gstin", 32f, infoY, 300f, small)
+                infoY += 14f
+            }
+            if (drugLicenceNo.isNotEmpty()) {
+                drawFitted(
+                    "Drug licence: $drugLicenceNo",
+                    32f,
+                    infoY,
+                    520f,
+                    small,
+                )
+                infoY += 14f
+            }
+            customFields.forEach { (label, value) ->
+                drawFitted("$label: $value", 32f, infoY, 520f, small)
                 infoY += 14f
             }
             drawFitted(
