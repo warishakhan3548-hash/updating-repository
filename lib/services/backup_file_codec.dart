@@ -6,13 +6,16 @@ import 'package:crypto/crypto.dart';
 
 import '../domain/backup.dart';
 import '../domain/medicine.dart';
+import '../domain/supplier.dart';
 import '../domain/tracking.dart';
 
-const pharmacyPortableBackupSchema = 'aaris.pharmacy.portable.v3';
+const pharmacyPortableBackupSchema = 'aaris.pharmacy.portable.v4';
+const previousPortableBackupSchema = 'aaris.pharmacy.portable.v3';
 const portableBackupIntegrityPrefix = 'sha256-chain:';
 const maxPortableBackupBytes = 1024 * 1024 * 1024;
 const maxPortableBackupLineBytes = 8 * 1024 * 1024;
 const maxPortableMedicineRecords = 100000;
+const maxPortableSupplierRecords = 10000;
 const maxPortableSaleRecords = 500000;
 
 class PortableBackupCodec {
@@ -25,7 +28,8 @@ class PortableBackupCodec {
       final decoded = jsonDecode(line);
       return decoded is Map &&
           decoded['type'] == 'header' &&
-          decoded['schema'] == pharmacyPortableBackupSchema;
+          (decoded['schema'] == pharmacyPortableBackupSchema ||
+              decoded['schema'] == previousPortableBackupSchema);
     } catch (_) {
       return false;
     }
@@ -35,6 +39,11 @@ class PortableBackupCodec {
     if (backup.records.length > maxPortableMedicineRecords) {
       throw const FormatException(
         'This backup has too many medicine rows for one portable file.',
+      );
+    }
+    if (backup.suppliers.length > maxPortableSupplierRecords) {
+      throw const FormatException(
+        'This backup has too many suppliers for one portable file.',
       );
     }
     if (backup.sales.length > maxPortableSaleRecords) {
@@ -49,7 +58,7 @@ class PortableBackupCodec {
 
     final sink = partial.openWrite(mode: FileMode.writeOnly);
     var closed = false;
-    var chain = _digestSeed();
+    var chain = _digestSeed(pharmacyPortableBackupSchema);
     var protectedRows = 0;
 
     Future<void> addProtected(Map<String, dynamic> value) async {
@@ -79,8 +88,16 @@ class PortableBackupCodec {
         'soldValue': backup.soldValue,
         'unknownSold': backup.unknownSold,
         'medicineCount': backup.records.length,
+        'supplierCount': backup.suppliers.length,
         'saleCount': backup.sales.length,
       });
+
+      for (final supplier in backup.suppliers.values) {
+        await addProtected(<String, dynamic>{
+          'type': 'supplier',
+          'value': supplier.toJson(),
+        });
+      }
 
       for (final record in backup.records.values) {
         await addProtected(<String, dynamic>{
@@ -100,6 +117,7 @@ class PortableBackupCodec {
         'type': 'end',
         'integrity': '$portableBackupIntegrityPrefix${_hex(chain)}',
         'medicineCount': backup.records.length,
+        'supplierCount': backup.suppliers.length,
         'saleCount': backup.sales.length,
       });
       sink.add(utf8.encode('$footer\n'));
@@ -151,13 +169,17 @@ class PortableBackupCodec {
     int? soldValue;
     int? unknownSold;
     int? expectedMedicines;
+    int? expectedSuppliers;
     int? expectedSales;
+    String? portableSchema;
 
     final records = <String, Medicine>{};
+    final suppliers = <String, Supplier>{};
     final sales = <String, SaleEvent>{};
-    var chain = _digestSeed();
+    List<int>? chain;
     var lineNumber = 0;
     var footerSeen = false;
+    var medicinePhase = false;
     var salePhase = false;
 
     await for (var rawLine in file
@@ -182,12 +204,15 @@ class PortableBackupCodec {
       final type = row['type'];
 
       if (lineNumber == 1) {
-        if (type != 'header' || row['schema'] != pharmacyPortableBackupSchema) {
+        portableSchema = row['schema'] is String ? row['schema'] as String : null;
+        if (type != 'header' ||
+            (portableSchema != pharmacyPortableBackupSchema &&
+                portableSchema != previousPortableBackupSchema)) {
           throw const FormatException(
-            'This is not a current Aaris Pharmacy portable backup.',
+            'This is not a supported Aaris Pharmacy portable backup.',
           );
         }
-        const allowed = <String>{
+        final allowed = <String>{
           'type',
           'schema',
           'createdAt',
@@ -196,6 +221,7 @@ class PortableBackupCodec {
           'soldValue',
           'unknownSold',
           'medicineCount',
+          if (portableSchema == pharmacyPortableBackupSchema) 'supplierCount',
           'saleCount',
         };
         if (row.keys.any((key) => !allowed.contains(key))) {
@@ -208,37 +234,47 @@ class PortableBackupCodec {
         final soldValueRaw = row['soldValue'];
         final unknownSoldRaw = row['unknownSold'];
         final medicineCountRaw = row['medicineCount'];
+        final supplierCountRaw = portableSchema == pharmacyPortableBackupSchema
+            ? row['supplierCount']
+            : 0;
         final saleCountRaw = row['saleCount'];
         sourceRevision = revisionRaw is int ? revisionRaw : null;
         soldValue = soldValueRaw is int ? soldValueRaw : null;
         unknownSold = unknownSoldRaw is int ? unknownSoldRaw : null;
         expectedMedicines = medicineCountRaw is int ? medicineCountRaw : null;
+        expectedSuppliers = supplierCountRaw is int ? supplierCountRaw : null;
         expectedSales = saleCountRaw is int ? saleCountRaw : null;
         final settingsRaw = row['settings'];
 
         if (createdAt == null ||
-            createdAt!.year < 2000 ||
-            createdAt!.year > 2200 ||
+            createdAt.year < 2000 ||
+            createdAt.year > 2200 ||
             sourceRevision == null ||
-            sourceRevision! < 0 ||
+            sourceRevision < 0 ||
             soldValue == null ||
-            soldValue! < 0 ||
-            soldValue! > maxExactPaise ||
+            soldValue < 0 ||
+            soldValue > maxExactPaise ||
             unknownSold == null ||
-            unknownSold! < 0 ||
+            unknownSold < 0 ||
             expectedMedicines == null ||
-            expectedMedicines! < 0 ||
-            expectedMedicines! > maxPortableMedicineRecords ||
+            expectedMedicines < 0 ||
+            expectedMedicines > maxPortableMedicineRecords ||
+            expectedSuppliers == null ||
+            expectedSuppliers < 0 ||
+            expectedSuppliers > maxPortableSupplierRecords ||
             expectedSales == null ||
-            expectedSales! < 0 ||
-            expectedSales! > maxPortableSaleRecords ||
+            expectedSales < 0 ||
+            expectedSales > maxPortableSaleRecords ||
             settingsRaw is! Map) {
           throw const FormatException('Backup header metadata is invalid.');
         }
         settings = WarningSettings.fromJson(
           Map<String, dynamic>.from(settingsRaw),
         );
-        chain = _advanceDigest(chain, lineBytes);
+        chain = _advanceDigest(
+          _digestSeed(portableSchema!),
+          lineBytes,
+        );
         continue;
       }
 
@@ -247,10 +283,11 @@ class PortableBackupCodec {
       }
 
       if (type == 'end') {
-        const allowed = <String>{
+        final allowed = <String>{
           'type',
           'integrity',
           'medicineCount',
+          if (portableSchema == pharmacyPortableBackupSchema) 'supplierCount',
           'saleCount',
         };
         if (row.keys.any((key) => !allowed.contains(key))) {
@@ -258,9 +295,12 @@ class PortableBackupCodec {
         }
         final integrity = row['integrity'];
         final footerMedicines = row['medicineCount'];
+        final footerSuppliers = portableSchema == pharmacyPortableBackupSchema
+            ? row['supplierCount']
+            : 0;
         final footerSales = row['saleCount'];
         final expectedIntegrity =
-            '$portableBackupIntegrityPrefix${_hex(chain)}';
+            '$portableBackupIntegrityPrefix${_hex(chain!)}';
         if (integrity is! String ||
             !RegExp(r'^sha256-chain:[a-f0-9]{64}$').hasMatch(integrity) ||
             integrity != expectedIntegrity) {
@@ -269,8 +309,10 @@ class PortableBackupCodec {
           );
         }
         if (footerMedicines != expectedMedicines ||
+            footerSuppliers != expectedSuppliers ||
             footerSales != expectedSales ||
             records.length != expectedMedicines ||
+            suppliers.length != expectedSuppliers ||
             sales.length != expectedSales) {
           throw const FormatException(
             'Backup record counts do not match the verified file footer.',
@@ -280,8 +322,52 @@ class PortableBackupCodec {
         continue;
       }
 
-      chain = _advanceDigest(chain, lineBytes);
+      chain = _advanceDigest(chain!, lineBytes);
+      if (type == 'supplier') {
+        if (portableSchema != pharmacyPortableBackupSchema) {
+          throw const FormatException(
+            'Legacy portable backups cannot contain supplier rows.',
+          );
+        }
+        if (medicinePhase || salePhase) {
+          throw const FormatException(
+            'Supplier rows must appear before medicine and sale rows.',
+          );
+        }
+        if (row.keys.any((key) => key != 'type' && key != 'value')) {
+          throw FormatException(
+            'Supplier line $lineNumber has an unsupported field.',
+          );
+        }
+        final raw = row['value'];
+        if (raw is! Map) {
+          throw FormatException('Supplier line $lineNumber is invalid.');
+        }
+        if (raw.keys.any((key) => !Supplier.storedFields.contains(key))) {
+          throw FormatException(
+            'Supplier line $lineNumber contains an unsupported supplier field.',
+          );
+        }
+        final supplier = Supplier.fromJson(Map<String, dynamic>.from(raw));
+        if (suppliers.containsKey(supplier.id)) {
+          throw FormatException(
+            'Supplier line $lineNumber repeats an existing ID.',
+          );
+        }
+        suppliers[supplier.id] = supplier;
+        if (suppliers.length > (expectedSuppliers ?? 0)) {
+          throw const FormatException(
+            'Backup contains more suppliers than declared.',
+          );
+        }
+        if (lineNumber % 256 == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        continue;
+      }
+
       if (type == 'medicine') {
+        medicinePhase = true;
         if (salePhase) {
           throw const FormatException(
             'Medicine rows cannot appear after sale rows in a portable backup.',
@@ -302,6 +388,12 @@ class PortableBackupCodec {
         final medicine = Medicine.fromJson(Map<String, dynamic>.from(raw));
         if (records.containsKey(medicine.id)) {
           throw FormatException('Medicine line $lineNumber repeats an existing ID.');
+        }
+        if (medicine.supplierId.isNotEmpty &&
+            !suppliers.containsKey(medicine.supplierId)) {
+          throw FormatException(
+            'Medicine line $lineNumber points to a missing supplier.',
+          );
         }
         records[medicine.id] = medicine;
         if (records.length > (expectedMedicines ?? 0)) {
@@ -358,6 +450,7 @@ class PortableBackupCodec {
       sourceRevision: sourceRevision!,
       settings: settings!,
       records: Map.unmodifiable(records),
+      suppliers: Map.unmodifiable(suppliers),
       sales: Map.unmodifiable(sales),
       soldValue: soldValue!,
       unknownSold: unknownSold!,
@@ -365,8 +458,8 @@ class PortableBackupCodec {
     );
   }
 
-  static List<int> _digestSeed() =>
-      sha256.convert(utf8.encode('$pharmacyPortableBackupSchema\n')).bytes;
+  static List<int> _digestSeed(String schema) =>
+      sha256.convert(utf8.encode('$schema\n')).bytes;
 
   static List<int> _advanceDigest(List<int> current, List<int> bytes) {
     final merged = Uint8List(current.length + bytes.length)

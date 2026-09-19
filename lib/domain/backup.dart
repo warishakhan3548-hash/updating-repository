@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import 'medicine.dart';
+import 'supplier.dart';
 import 'tracking.dart';
 
-const pharmacyBackupSchema = 'aaris.pharmacy.backup.v2';
+const pharmacyBackupSchema = 'aaris.pharmacy.backup.v3';
+const previousPharmacyBackupSchema = 'aaris.pharmacy.backup.v2';
 const legacyPharmacyBackupSchema = 'aaris.pharmacy.backup.v1';
 const maxBackupCharacters = 64000000;
 const _backupIntegrityPrefix = 'sha256:';
@@ -18,6 +20,7 @@ class PharmacyBackup {
     required this.sourceRevision,
     required this.settings,
     required this.records,
+    this.suppliers = const <String, Supplier>{},
     required this.sales,
     required this.soldValue,
     required this.unknownSold,
@@ -28,6 +31,7 @@ class PharmacyBackup {
   final int sourceRevision;
   final WarningSettings settings;
   final Map<String, Medicine> records;
+  final Map<String, Supplier> suppliers;
   final Map<String, SaleEvent> sales;
   final int soldValue;
   final int unknownSold;
@@ -41,16 +45,31 @@ class PharmacyBackup {
   bool get legacyFormat =>
       integrityStatus == BackupIntegrityStatus.legacyUnsealed;
 
-  Map<String, dynamic> _canonicalPayload() {
+  Map<String, dynamic> _canonicalPayload({
+    bool includeSuppliers = true,
+    bool includeSupplierLinks = true,
+  }) {
     final medicines = records.values.toList(growable: false)
+      ..sort((a, b) => a.id.compareTo(b.id));
+    final supplierRecords = suppliers.values.toList(growable: false)
       ..sort((a, b) => a.id.compareTo(b.id));
     final saleEvents = sales.values.toList(growable: false)
       ..sort((a, b) => a.id.compareTo(b.id));
+    Map<String, dynamic> medicineJson(Medicine record) {
+      final json = record.toJson();
+      if (!includeSupplierLinks) json.remove('supplierId');
+      return json;
+    }
+
     return <String, dynamic>{
       'createdAt': createdAt.toIso8601String(),
       'sourceRevision': sourceRevision,
       'settings': settings.toJson(),
-      'medicines': medicines.map((record) => record.toJson()).toList(),
+      'medicines': medicines.map(medicineJson).toList(),
+      if (includeSuppliers)
+        'suppliers': supplierRecords
+            .map((supplier) => supplier.toJson())
+            .toList(),
       'sales': saleEvents.map((sale) => sale.toJson()).toList(),
       'soldValue': soldValue,
       'unknownSold': unknownSold,
@@ -61,7 +80,7 @@ class PharmacyBackup {
       .convert(utf8.encode(jsonEncode(payload)))
       .toString();
 
-  /// Version 2 adds a deterministic SHA-256 integrity proof over validated,
+  /// Version 2 introduced a deterministic SHA-256 integrity proof over validated,
   /// canonical pharmacy facts. This detects truncation/accidental edits before
   /// restore. It is deliberately not described as an authenticity signature:
   /// there is no secret key and legacy v1 files remain importable.
@@ -100,13 +119,14 @@ class PharmacyBackup {
 
     final schema = decoded['schema'];
     final current = schema == pharmacyBackupSchema;
+    final previous = schema == previousPharmacyBackupSchema;
     final legacy = schema == legacyPharmacyBackupSchema;
-    if (!current && !legacy) {
+    if (!current && !previous && !legacy) {
       throw const FormatException(
         'This is not a supported Aaris Pharmacy backup.',
       );
     }
-    const payloadFields = {
+    const basePayloadFields = {
       'createdAt',
       'sourceRevision',
       'settings',
@@ -117,8 +137,9 @@ class PharmacyBackup {
     };
     final allowed = <String>{
       'schema',
-      ...payloadFields,
-      if (current) 'integrity',
+      ...basePayloadFields,
+      if (current) 'suppliers',
+      if (current || previous) 'integrity',
     };
     if (decoded.keys.any((key) => !allowed.contains(key))) {
       throw const FormatException(
@@ -126,7 +147,7 @@ class PharmacyBackup {
       );
     }
     final integrity = decoded['integrity'];
-    if (current &&
+    if ((current || previous) &&
         (integrity is! String ||
             !RegExp(r'^sha256:[a-f0-9]{64}$').hasMatch(integrity))) {
       throw const FormatException(
@@ -140,6 +161,7 @@ class PharmacyBackup {
         : null;
     final revision = decoded['sourceRevision'];
     final medicinesRaw = decoded['medicines'];
+    final suppliersRaw = current ? decoded['suppliers'] : const <dynamic>[];
     final salesRaw = decoded['sales'];
     final soldValue = decoded['soldValue'];
     final unknownSold = decoded['unknownSold'];
@@ -149,7 +171,9 @@ class PharmacyBackup {
         revision is! int ||
         revision < 0 ||
         medicinesRaw is! List ||
-        medicinesRaw.length > 50000 ||
+        medicinesRaw.length > 100000 ||
+        suppliersRaw is! List ||
+        suppliersRaw.length > 10000 ||
         salesRaw is! List ||
         salesRaw.length > 200000 ||
         soldValue is! int ||
@@ -166,6 +190,26 @@ class PharmacyBackup {
     final parsedSettings = WarningSettings.fromJson(
       Map<String, dynamic>.from(settingsRaw),
     );
+    final suppliers = <String, Supplier>{};
+    for (var index = 0; index < suppliersRaw.length; index++) {
+      final raw = suppliersRaw[index];
+      if (raw is! Map) {
+        throw FormatException('Supplier ${index + 1} is invalid.');
+      }
+      if (raw.keys.any((key) => !Supplier.storedFields.contains(key))) {
+        throw FormatException(
+          'Supplier ${index + 1} contains an unsupported field.',
+        );
+      }
+      final supplier = Supplier.fromJson(Map<String, dynamic>.from(raw));
+      if (suppliers.containsKey(supplier.id)) {
+        throw FormatException(
+          'Supplier ${index + 1} repeats an existing ID.',
+        );
+      }
+      suppliers[supplier.id] = supplier;
+    }
+
     final records = <String, Medicine>{};
     for (var index = 0; index < medicinesRaw.length; index++) {
       final raw = medicinesRaw[index];
@@ -180,6 +224,12 @@ class PharmacyBackup {
       final record = Medicine.fromJson(Map<String, dynamic>.from(raw));
       if (records.containsKey(record.id)) {
         throw FormatException('Medicine ${index + 1} repeats an existing ID.');
+      }
+      if (record.supplierId.isNotEmpty &&
+          !suppliers.containsKey(record.supplierId)) {
+        throw FormatException(
+          'Medicine ${index + 1} points to a missing supplier.',
+        );
       }
       records[record.id] = record;
     }
@@ -211,15 +261,19 @@ class PharmacyBackup {
       sourceRevision: revision,
       settings: parsedSettings,
       records: Map.unmodifiable(records),
+      suppliers: Map.unmodifiable(suppliers),
       sales: Map.unmodifiable(sales),
       soldValue: soldValue,
       unknownSold: unknownSold,
-      integrityStatus: current
+      integrityStatus: current || previous
           ? BackupIntegrityStatus.verified
           : BackupIntegrityStatus.legacyUnsealed,
     );
-    if (current) {
-      final payload = backup._canonicalPayload();
+    if (current || previous) {
+      final payload = backup._canonicalPayload(
+        includeSuppliers: current,
+        includeSupplierLinks: current,
+      );
       final expected =
           '$_backupIntegrityPrefix${backup._integrityDigest(payload)}';
       if (integrity != expected) {
@@ -238,6 +292,9 @@ class BackupImpact {
     required this.changedStockEntries,
     required this.reactivatedStockEntries,
     required this.activeEntriesMovingToRemoved,
+    required this.newSuppliers,
+    required this.changedSuppliers,
+    required this.removedSuppliers,
     required this.newSaleEvents,
     required this.changedSaleEvents,
     required this.removedSaleEvents,
@@ -250,6 +307,9 @@ class BackupImpact {
       changedStockEntries = 0,
       reactivatedStockEntries = 0,
       activeEntriesMovingToRemoved = 0,
+      newSuppliers = 0,
+      changedSuppliers = 0,
+      removedSuppliers = 0,
       newSaleEvents = 0,
       changedSaleEvents = 0,
       removedSaleEvents = 0,
@@ -259,6 +319,7 @@ class BackupImpact {
   factory BackupImpact.compare({
     required PharmacyBackup backup,
     required Map<String, Medicine> currentRecords,
+    Map<String, Supplier> currentSuppliers = const <String, Supplier>{},
     required Map<String, SaleEvent> currentSales,
     required WarningSettings currentSettings,
     required int currentSoldValue,
@@ -285,6 +346,20 @@ class BackupImpact {
       }
     }
 
+    var newSuppliers = 0;
+    var changedSuppliers = 0;
+    for (final incoming in backup.suppliers.values) {
+      final current = currentSuppliers[incoming.id];
+      if (current == null) {
+        newSuppliers++;
+      } else if (!_sameSupplierFacts(current, incoming)) {
+        changedSuppliers++;
+      }
+    }
+    final removedSuppliers = currentSuppliers.keys
+        .where((id) => !backup.suppliers.containsKey(id))
+        .length;
+
     var newSales = 0;
     var changedSales = 0;
     for (final incoming in backup.sales.values) {
@@ -304,6 +379,9 @@ class BackupImpact {
       changedStockEntries: changedStock,
       reactivatedStockEntries: reactivated,
       activeEntriesMovingToRemoved: movingToRemoved,
+      newSuppliers: newSuppliers,
+      changedSuppliers: changedSuppliers,
+      removedSuppliers: removedSuppliers,
       newSaleEvents: newSales,
       changedSaleEvents: changedSales,
       removedSaleEvents: removedSales,
@@ -320,6 +398,9 @@ class BackupImpact {
   final int changedStockEntries;
   final int reactivatedStockEntries;
   final int activeEntriesMovingToRemoved;
+  final int newSuppliers;
+  final int changedSuppliers;
+  final int removedSuppliers;
   final int newSaleEvents;
   final int changedSaleEvents;
   final int removedSaleEvents;
@@ -331,6 +412,9 @@ class BackupImpact {
       changedStockEntries > 0 ||
       reactivatedStockEntries > 0 ||
       activeEntriesMovingToRemoved > 0 ||
+      newSuppliers > 0 ||
+      changedSuppliers > 0 ||
+      removedSuppliers > 0 ||
       newSaleEvents > 0 ||
       changedSaleEvents > 0 ||
       removedSaleEvents > 0 ||
@@ -341,6 +425,7 @@ class BackupImpact {
 Future<BackupImpact> compareBackupImpactCooperatively({
     required PharmacyBackup backup,
     required Map<String, Medicine> currentRecords,
+    Map<String, Supplier> currentSuppliers = const <String, Supplier>{},
     required Map<String, SaleEvent> currentSales,
     required WarningSettings currentSettings,
     required int currentSoldValue,
@@ -374,6 +459,28 @@ Future<BackupImpact> compareBackupImpactCooperatively({
       }
     }
 
+    var newSuppliers = 0;
+    var changedSuppliers = 0;
+    for (final incoming in backup.suppliers.values) {
+      final current = currentSuppliers[incoming.id];
+      if (current == null) {
+        newSuppliers++;
+      } else if (!_sameSupplierFacts(current, incoming)) {
+        changedSuppliers++;
+      }
+      if (++processed % 512 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    var removedSuppliers = 0;
+    for (final id in currentSuppliers.keys) {
+      if (!backup.suppliers.containsKey(id)) removedSuppliers++;
+      if (++processed % 512 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
     var newSales = 0;
     var changedSales = 0;
     for (final incoming in backup.sales.values) {
@@ -401,6 +508,9 @@ Future<BackupImpact> compareBackupImpactCooperatively({
       changedStockEntries: changedStock,
       reactivatedStockEntries: reactivated,
       activeEntriesMovingToRemoved: movingToRemoved,
+      newSuppliers: newSuppliers,
+      changedSuppliers: changedSuppliers,
+      removedSuppliers: removedSuppliers,
       newSaleEvents: newSales,
       changedSaleEvents: changedSales,
       removedSaleEvents: removedSales,
@@ -429,6 +539,7 @@ bool _sameMedicineRestoreFacts(Medicine a, Medicine b) =>
     a.unitPricePaise == b.unitPricePaise &&
     a.barcode == b.barcode &&
     a.batchNumber == b.batchNumber &&
+    a.supplierId == b.supplierId &&
     a.block == b.block &&
     a.row == b.row &&
     a.vertical == b.vertical &&
@@ -442,6 +553,30 @@ bool _sameMedicineRestoreFacts(Medicine a, Medicine b) =>
     a.soldAt == b.soldAt &&
     a.soldQuantity == b.soldQuantity &&
     a.soldUnitPricePaise == b.soldUnitPricePaise;
+
+bool _sameSupplierFacts(Supplier a, Supplier b) =>
+    a.id == b.id &&
+    a.name == b.name &&
+    a.returnBeforeExpiryDays == b.returnBeforeExpiryDays &&
+    a.address == b.address &&
+    a.gstin == b.gstin &&
+    a.drugLicenceNo == b.drugLicenceNo &&
+    _sameSupplierCustomFields(a.customFields, b.customFields);
+
+bool _sameSupplierCustomFields(
+  List<SupplierCustomField> a,
+  List<SupplierCustomField> b,
+) {
+  if (a.length != b.length) return false;
+  for (var index = 0; index < a.length; index++) {
+    if (a[index].id != b[index].id ||
+        a[index].label != b[index].label ||
+        a[index].value != b[index].value) {
+      return false;
+    }
+  }
+  return true;
+}
 
 bool _sameSaleFacts(SaleEvent a, SaleEvent b) =>
     a.id == b.id &&
@@ -470,6 +605,7 @@ class BackupReview {
       backup.records.values.where((record) => !record.archived).length;
   int get removedMedicines =>
       backup.records.values.where((record) => record.archived).length;
+  int get suppliers => backup.suppliers.length;
   int get sales => backup.sales.length;
   bool get integrityVerified => backup.integrityVerified;
   bool get legacyFormat => backup.legacyFormat;

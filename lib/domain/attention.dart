@@ -323,7 +323,7 @@ class PharmacyAttentionReport {
         // physical locator before raising a probable-duplicate review item.
         if (barcode.isNotEmpty || address.isNotEmpty) {
           key =
-              '${medicine.identity}|batch:$batch|barcode:$barcode|address:$address';
+              '${medicine.identity}|batch:$batch|supplier:${normalize(medicine.supplierId)}|barcode:$barcode|address:$address';
         }
       } else if (barcode.isNotEmpty && address.isNotEmpty) {
         // A batch number is optional. Two rows at the same saved physical
@@ -336,7 +336,7 @@ class PharmacyAttentionReport {
         final mfg = medicine.mfg == null ? '' : dateText(medicine.mfg!);
         if (expiry.isNotEmpty || mfg.isNotEmpty) {
           key =
-              '${medicine.identity}|no-batch|barcode:$barcode|expiry:$expiry|mfg:$mfg|address:$address';
+              '${medicine.identity}|no-batch|supplier:${normalize(medicine.supplierId)}|barcode:$barcode|expiry:$expiry|mfg:$mfg|address:$address';
         }
       }
       if (key == null) continue;

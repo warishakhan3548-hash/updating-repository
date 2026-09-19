@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../lib/domain/backup.dart';
 import '../lib/domain/medicine.dart';
+import '../lib/domain/supplier.dart';
 import '../lib/domain/tracking.dart';
 import '../lib/services/backup_file_codec.dart';
 import 'domain_contract.dart';
@@ -46,6 +47,7 @@ PharmacyBackup _portableBackup() {
       first.id: first,
       second.id: second,
     },
+    suppliers: const {},
     sales: <String, SaleEvent>{sale.id: sale},
     soldValue: 900,
     unknownSold: 0,
@@ -90,4 +92,41 @@ void main() {
       throwsA(isA<FormatException>()),
     );
   });
+  test('portable v4 streams supplier before its linked medicine', () async {
+    const supplier = Supplier(
+      id: 'supplier-portable',
+      name: 'XYZ Distributor',
+      returnBeforeExpiryDays: 30,
+      drugLicenceNo: 'DL-PORTABLE',
+    );
+    final medicine = Medicine.fromJson({
+      ...stock('portable-linked', expiry: '2026-11-03').toJson(),
+      'supplierId': supplier.id,
+    });
+    final backup = PharmacyBackup(
+      createdAt: contractToday,
+      sourceRevision: 30,
+      settings: contractSettings,
+      records: <String, Medicine>{medicine.id: medicine},
+      suppliers: <String, Supplier>{supplier.id: supplier},
+      sales: const <String, SaleEvent>{},
+      soldValue: 0,
+      unknownSold: 0,
+    );
+
+    final directory =
+        await Directory.systemTemp.createTemp('aaris_supplier_portable_');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/supplier.txt');
+    await PortableBackupCodec.write(file, backup);
+
+    final lines = await file.readAsLines();
+    expect(lines[1], contains('"type":"supplier"'));
+    expect(lines[2], contains('"type":"medicine"'));
+
+    final parsed = await PortableBackupCodec.read(file);
+    expect(parsed.suppliers[supplier.id]!.name, supplier.name);
+    expect(parsed.records[medicine.id]!.supplierId, supplier.id);
+  });
+
 }

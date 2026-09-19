@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../lib/domain/medicine.dart';
+import '../lib/domain/supplier.dart';
 import '../lib/domain/inventory.dart';
 import '../lib/domain/search.dart';
 import '../lib/domain/ai_protocol.dart';
@@ -549,6 +550,7 @@ Map<String, void Function()> domainContract() {
       final data = PharmacyExport(
         revision: 7,
         records: [current],
+        suppliers: const <Supplier>[],
         today: contractToday,
       );
       check(
@@ -833,6 +835,7 @@ Map<String, void Function()> domainContract() {
         sourceRevision: 8,
         settings: const WarningSettings(shortDays: 5, months: 3),
         records: {'existing': current},
+        suppliers: const {},
         sales: {'sale_1': sale},
         soldValue: 2000,
         unknownSold: 1,

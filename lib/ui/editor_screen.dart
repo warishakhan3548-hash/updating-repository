@@ -12,6 +12,7 @@ import '../state/operational_context.dart';
 import '../state/pharmacy_controller.dart';
 import 'date_field.dart';
 import 'design.dart';
+import 'supplier_editor.dart';
 import 'version_history_screen.dart';
 
 Future<void> openEditor(
@@ -67,7 +68,7 @@ class _EditorScreenState extends State<EditorScreen> {
   final _formKey = GlobalKey<FormState>();
 
   bool _mfgMonthOnly = false, _expiryMonthOnly = true;
-  String _form = '', _error = '';
+  String _form = '', _supplierId = '', _error = '';
   bool _busy = false, _restocking = false, _dirty = false, _allowPop = false;
 
   @override
@@ -152,6 +153,7 @@ class _EditorScreenState extends State<EditorScreen> {
 
     final record = widget.record;
     _form = record?.form ?? identityValue(seed?.form, scan?.form ?? '');
+    _supplierId = record?.supplierId ?? '';
     _mfgMonthOnly = record?.mfg == null
         ? scan?.mfgMonthOnly ?? false
         : record!.mfgMonthOnly;
@@ -281,6 +283,149 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  Future<void> _selectSupplier() async {
+    if (_busy) return;
+    final suppliers = widget.controller.suppliers.toList(growable: false)
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => FractionallySizedBox(
+        heightFactor: .72,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 10, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Link supplier',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.pop(sheetContext),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.link_off_rounded),
+              title: const Text('No supplier'),
+              subtitle: const Text('Keep this stock entry unlinked'),
+              trailing: _supplierId.isEmpty
+                  ? const Icon(Icons.check_rounded, color: primary)
+                  : null,
+              onTap: () => Navigator.pop(sheetContext, ''),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView.builder(
+                itemCount: suppliers.length,
+                itemBuilder: (_, index) {
+                  final supplier = suppliers[index];
+                  return ListTile(
+                    leading: const Icon(Icons.local_shipping_outlined),
+                    title: Text(supplier.name),
+                    subtitle: Text(
+                      'Return ${supplier.returnBeforeExpiryDays} days before expiry',
+                    ),
+                    trailing: supplier.id == _supplierId
+                        ? const Icon(Icons.check_rounded, color: primary)
+                        : const Icon(Icons.chevron_right_rounded),
+                    onTap: () => Navigator.pop(sheetContext, supplier.id),
+                  );
+                },
+              ),
+            ),
+            SafeArea(
+              top: false,
+              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.pop(sheetContext, '__add__'),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Add supplier'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    if (selected == '__add__') {
+      final created = await openSupplierEditor(context, widget.controller);
+      if (!mounted || created == null) return;
+      setState(() {
+        _supplierId = created;
+        _dirty = true;
+      });
+      return;
+    }
+    setState(() {
+      _supplierId = selected;
+      _dirty = true;
+    });
+  }
+
+  Widget _supplierField() {
+    final supplier = _supplierId.isEmpty
+        ? null
+        : widget.controller.snapshot.suppliers[_supplierId];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GlassPanel(
+        tint: Colors.white,
+        radius: 18,
+        elevation: 1.12,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _busy ? null : _selectSupplier,
+            borderRadius: BorderRadius.circular(18),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  const Icon(Icons.local_shipping_outlined, color: primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Supplier',
+                          style: TextStyle(color: muted, fontSize: 11.5),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          supplier?.name ?? 'Not linked',
+                          style: const TextStyle(
+                            color: ink,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (supplier != null)
+                          Text(
+                            'Return ${supplier.returnBeforeExpiryDays} days before expiry',
+                            style: const TextStyle(color: muted, fontSize: 11.5),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, color: primary),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Medicine _draft() {
     final old = widget.record;
     final quantityText = fields['quantity']!.text.trim();
@@ -302,6 +447,7 @@ class _EditorScreenState extends State<EditorScreen> {
       'mfg': inputDateToIso(fields['mfg']!.text, monthOnly: _mfgMonthOnly),
       'id': old?.id ?? newId(),
       'form': _form,
+      'supplierId': _supplierId,
       'quantity': quantity,
       'unitPricePaise': parseMoney(fields['price']!.text),
       'revision': (old?.revision ?? 0) + 1,
@@ -1112,6 +1258,7 @@ class _EditorScreenState extends State<EditorScreen> {
                         'Batch / lot number',
                         hint: 'Read from the medicine pack',
                       ),
+                      _supplierField(),
                       _field(
                         'ocrText',
                         'Captured search text',

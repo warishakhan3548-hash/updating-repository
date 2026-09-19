@@ -13,6 +13,8 @@ import '../domain/sales_overview.dart';
 import '../domain/search.dart';
 import '../domain/tracking.dart';
 import '../services/search_worker.dart';
+import '../domain/supplier.dart';
+import '../domain/supplier_return.dart';
 
 const _maxStockQuantity = 100000000;
 
@@ -189,7 +191,11 @@ class PharmacyController extends ChangeNotifier {
   DateTime get today => civilDay(clock());
   WarningSettings get settings => snapshot.settings;
   Iterable<Medicine> get records => snapshot.records.values;
+  Iterable<Supplier> get suppliers => snapshot.suppliers.values;
   Iterable<SaleEvent> get sales => snapshot.sales.values;
+
+  Supplier? supplierForStock(Medicine medicine) =>
+      medicine.supplierId.isEmpty ? null : snapshot.suppliers[medicine.supplierId];
 
   void _syncReadSnapshot() {
     if (identical(_readSnapshot, snapshot)) return;
@@ -473,6 +479,145 @@ class PharmacyController extends ChangeNotifier {
     });
     _writes = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
     return result;
+  }
+
+  Future<void> saveSupplier(
+    Supplier supplier, {
+    required int expectedRevision,
+  }) async {
+    final live = snapshot.suppliers[supplier.id];
+    if (live != null && supplier.revision <= live.revision) {
+      throw StateError(
+        'This supplier changed while it was being edited. Reopen the live supplier before saving.',
+      );
+    }
+    await _commit(
+      InventoryMutation(
+        expectedRevision: expectedRevision,
+        label: live == null
+            ? 'Added supplier · ${supplier.name}'
+            : 'Updated supplier · ${supplier.name}',
+        upserts: const <Medicine>[],
+        upsertSuppliers: <Supplier>[supplier],
+      ),
+    );
+  }
+
+  List<SupplierReturnCandidate> get supplierReturns => supplierReturnCandidates(
+    medicines: records,
+    suppliers: snapshot.suppliers,
+    today: today,
+  );
+
+  ReviewedSupplierReturn reviewSupplierReturn(
+    String supplierId,
+    Iterable<String> stockIds,
+  ) {
+    final supplier = snapshot.suppliers[supplierId];
+    if (supplier == null) {
+      throw StateError('Choose a saved supplier before preparing a return.');
+    }
+    final ids = stockIds.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
+    if (ids.isEmpty || ids.length > 500) {
+      throw const FormatException(
+        'Choose between 1 and 500 due stock entries for one supplier return.',
+      );
+    }
+
+    final dueById = <String, SupplierReturnCandidate>{
+      for (final candidate in supplierReturns)
+        if (candidate.supplier.id == supplier.id)
+          candidate.medicine.id: candidate,
+    };
+    final lines = <SupplierReturnLine>[];
+    for (final id in ids) {
+      final candidate = dueById[id];
+      if (candidate == null) {
+        throw StateError(
+          'One selected stock entry is no longer inside this supplier return window. Refresh the list and review again.',
+        );
+      }
+      final medicine = candidate.medicine;
+      final quantity = medicine.quantity;
+      if (quantity == null || quantity <= 0) {
+        throw StateError(
+          'Count the remaining stock before preparing the supplier return.',
+        );
+      }
+      lines.add(
+        SupplierReturnLine(
+          record: Medicine.fromJson(medicine.toJson()),
+          quantity: quantity,
+          daysLeft: candidate.daysLeft,
+        ),
+      );
+    }
+    lines.sort((a, b) {
+      final expiry = a.daysLeft.compareTo(b.daysLeft);
+      return expiry != 0 ? expiry : a.record.title.compareTo(b.record.title);
+    });
+    return ReviewedSupplierReturn(
+      baseRevision: snapshot.revision,
+      supplier: Supplier.fromJson(supplier.toJson()),
+      lines: List.unmodifiable(lines),
+      reviewedAt: clock(),
+    );
+  }
+
+  Future<void> applySupplierReturn(ReviewedSupplierReturn review) async {
+    final liveSupplier = snapshot.suppliers[review.supplier.id];
+    if (liveSupplier == null ||
+        liveSupplier.revision != review.supplier.revision ||
+        liveSupplier.returnBeforeExpiryDays !=
+            review.supplier.returnBeforeExpiryDays) {
+      throw StateError(
+        'Supplier details changed after this return was reviewed. Review the return list again.',
+      );
+    }
+
+    final day = today;
+    final returnedAt = clock();
+    final updates = <Medicine>[];
+    for (final line in review.lines) {
+      final reviewed = line.record;
+      final live = snapshot.records[reviewed.id];
+      if (live == null ||
+          live.archived ||
+          live.sold ||
+          live.revision != reviewed.revision ||
+          live.supplierId != liveSupplier.id ||
+          live.quantity != line.quantity ||
+          live.expiry == null) {
+        throw StateError(
+          'A reviewed stock entry changed before the supplier return was confirmed. Refresh the return list.',
+        );
+      }
+      final daysLeft = civilDay(live.expiry!).difference(day).inDays;
+      if (daysLeft < 0 ||
+          daysLeft > liveSupplier.returnBeforeExpiryDays) {
+        throw StateError(
+          'A reviewed stock entry is no longer inside the supplier return window. Refresh the return list.',
+        );
+      }
+      updates.add(
+        archiveMedicine(
+          live,
+          reason: 'Returned to ${liveSupplier.name}',
+          at: returnedAt,
+        ),
+      );
+    }
+
+    if (updates.isEmpty) return;
+    await _commit(
+      InventoryMutation(
+        expectedRevision: snapshot.revision,
+        label:
+            'Supplier return · ${liveSupplier.name} · ${updates.length} stock entries',
+        upserts: updates,
+      ),
+      operationTime: returnedAt,
+    );
   }
 
   Future<void> save(Medicine record, {required int expectedRevision}) async {
@@ -1032,10 +1177,14 @@ class PharmacyController extends ChangeNotifier {
     if (!canUndo) throw StateError('No current change is available to undo.');
     final event = snapshot.events.first;
     final before = Map<String, dynamic>.from(event['before'] as Map);
+    final supplierBefore = Map<String, dynamic>.from(
+      event['supplierBefore'] as Map? ?? const {},
+    );
     final salesBefore = Map<String, dynamic>.from(
       event['salesBefore'] as Map? ?? const {},
     );
     final upserts = <Medicine>[], removes = <String>[];
+    final upsertSuppliers = <Supplier>[], removeSuppliers = <String>[];
     final upsertSales = <SaleEvent>[], removeSales = <String>[];
     for (final entry in before.entries) {
       if (entry.value == null) {
@@ -1049,6 +1198,22 @@ class PharmacyController extends ChangeNotifier {
             ...record.toJson(),
             'revision':
                 (snapshot.records[entry.key]?.revision ?? record.revision) + 1,
+          }),
+        );
+      }
+    }
+    for (final entry in supplierBefore.entries) {
+      if (entry.value == null) {
+        removeSuppliers.add(entry.key);
+      } else {
+        final supplier = Supplier.fromJson(
+          Map<String, dynamic>.from(entry.value as Map),
+        );
+        upsertSuppliers.add(
+          Supplier.fromJson({
+            ...supplier.toJson(),
+            'revision':
+                (snapshot.suppliers[entry.key]?.revision ?? supplier.revision) + 1,
           }),
         );
       }
@@ -1067,8 +1232,10 @@ class PharmacyController extends ChangeNotifier {
         expectedRevision: snapshot.revision,
         label: 'Undo: ${event['label']}',
         upserts: upserts,
+        upsertSuppliers: upsertSuppliers,
         upsertSales: upsertSales,
         removeIds: removes,
+        removeSupplierIds: removeSuppliers,
         removeSaleIds: removeSales,
         settings: WarningSettings.fromJson(
           Map<String, dynamic>.from(event['settingsBefore'] as Map),
@@ -1082,6 +1249,7 @@ class PharmacyController extends ChangeNotifier {
   PharmacyExport export() => PharmacyExport(
     revision: snapshot.revision,
     records: records,
+    suppliers: suppliers,
     sales: sales,
     today: today,
   );
@@ -1091,6 +1259,7 @@ class PharmacyController extends ChangeNotifier {
     sourceRevision: snapshot.revision,
     settings: settings,
     records: snapshot.records,
+    suppliers: snapshot.suppliers,
     sales: snapshot.sales,
     soldValue: snapshot.soldValue,
     unknownSold: snapshot.unknownSold,
@@ -1128,30 +1297,68 @@ class PharmacyController extends ChangeNotifier {
       );
     }
     for (final record in snapshot.records.values) {
-      if (!review.backup.records.containsKey(record.id) && !record.archived) {
-        restored.add(
-          archiveMedicine(
-            record,
-            reason: 'Not present in restored backup',
-            at: restoreStartedAt,
-          ),
+      if (review.backup.records.containsKey(record.id)) continue;
+      if (!record.archived) {
+        var archived = archiveMedicine(
+          record,
+          reason: 'Not present in restored backup',
+          at: restoreStartedAt,
         );
+        if (archived.supplierId.isNotEmpty &&
+            !review.backup.suppliers.containsKey(archived.supplierId)) {
+          archived = archived.patch({'supplierId': ''});
+        }
+        restored.add(archived);
+      } else if (record.supplierId.isNotEmpty &&
+          !review.backup.suppliers.containsKey(record.supplierId)) {
+        // Removed history stays available after restore, but it cannot retain
+        // a foreign key to a supplier intentionally absent from the backup.
+        restored.add(record.patch({'supplierId': ''}));
       }
     }
+    final restoredSuppliers = <Supplier>[];
+    for (final supplier in review.backup.suppliers.values) {
+      final current = snapshot.suppliers[supplier.id];
+      restoredSuppliers.add(
+        current == null
+            ? supplier
+            : Supplier.fromJson({
+                ...supplier.toJson(),
+                'revision': current.revision > supplier.revision
+                    ? current.revision + 1
+                    : supplier.revision + 1,
+              }),
+      );
+    }
+
+    // Rows preserved only as Removed history must not keep a dangling supplier
+    // link when a full backup intentionally omits that supplier.
+    for (var i = 0; i < restored.length; i++) {
+      final record = restored[i];
+      if (record.archived &&
+          record.supplierId.isNotEmpty &&
+          !review.backup.suppliers.containsKey(record.supplierId)) {
+        restored[i] = record.patch({'supplierId': ''});
+      }
+    }
+
     await _commit(
       InventoryMutation(
         expectedRevision: review.currentRevision,
         label:
             'Restored backup · ${review.activeMedicines} active medicines · ${review.sales} sales',
         upserts: restored,
+        upsertSuppliers: restoredSuppliers,
         upsertSales: review.backup.sales.values.toList(),
+        removeSupplierIds: snapshot.suppliers.keys
+            .where((id) => !review.backup.suppliers.containsKey(id))
+            .toList(),
         removeSaleIds: snapshot.sales.keys
             .where((id) => !review.backup.sales.containsKey(id))
             .toList(),
         settings: review.backup.settings,
         soldValueOverride: review.backup.soldValue,
         unknownSoldOverride: review.backup.unknownSold,
-        undoable: false,
       ),
     );
   }
@@ -1162,11 +1369,13 @@ class PharmacyController extends ChangeNotifier {
     snapshot.revision,
     snapshot.receipts,
     clock(),
+    suppliers: snapshot.suppliers,
   );
 
   Future<AiPlan> reviewAsync(String input) => compute(_parseReview, {
     'input': input,
     'records': snapshot.records,
+    'suppliers': snapshot.suppliers,
     'revision': snapshot.revision,
     'receipts': snapshot.receipts,
     'now': clock(),
@@ -1379,6 +1588,7 @@ AiPlan _parseReview(Map<String, dynamic> data) => parseAiPlan(
   data['revision'] as int,
   data['receipts'] as Set<String>,
   data['now'] as DateTime,
+  suppliers: data['suppliers'] as Map<String, Supplier>,
 );
 
 PharmacyBackup _parseBackup(String input) => PharmacyBackup.parse(input);
