@@ -7,7 +7,7 @@ import 'tracking.dart';
 
 const pharmacyBackupSchema = 'aaris.pharmacy.backup.v2';
 const legacyPharmacyBackupSchema = 'aaris.pharmacy.backup.v1';
-const maxBackupCharacters = 12000000;
+const maxBackupCharacters = 64000000;
 const _backupIntegrityPrefix = 'sha256:';
 
 enum BackupIntegrityStatus { verified, legacyUnsealed }
@@ -336,6 +336,84 @@ class BackupImpact {
       removedSaleEvents > 0 ||
       warningSettingsChange ||
       soldTotalsChange;
+}
+
+extension LargeBackupImpactReview on BackupImpact {
+  static Future<BackupImpact> compareCooperatively({
+    required PharmacyBackup backup,
+    required Map<String, Medicine> currentRecords,
+    required Map<String, SaleEvent> currentSales,
+    required WarningSettings currentSettings,
+    required int currentSoldValue,
+    required int currentUnknownSold,
+  }) async {
+    var newStock = 0;
+    var changedStock = 0;
+    var reactivated = 0;
+    var processed = 0;
+
+    final incomingIds = backup.records.keys.toSet();
+    for (final incoming in backup.records.values) {
+      final current = currentRecords[incoming.id];
+      if (current == null) {
+        newStock++;
+      } else {
+        if (!_sameMedicineRestoreFacts(current, incoming)) changedStock++;
+        if (current.archived && !incoming.archived) reactivated++;
+      }
+      if (++processed % 512 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    var movingToRemoved = 0;
+    for (final current in currentRecords.values) {
+      if (!current.archived && !incomingIds.contains(current.id)) {
+        movingToRemoved++;
+      }
+      if (++processed % 512 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    var newSales = 0;
+    var changedSales = 0;
+    for (final incoming in backup.sales.values) {
+      final current = currentSales[incoming.id];
+      if (current == null) {
+        newSales++;
+      } else if (!_sameSaleFacts(current, incoming)) {
+        changedSales++;
+      }
+      if (++processed % 512 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    var removedSales = 0;
+    for (final id in currentSales.keys) {
+      if (!backup.sales.containsKey(id)) removedSales++;
+      if (++processed % 512 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    return BackupImpact(
+      newStockEntries: newStock,
+      changedStockEntries: changedStock,
+      reactivatedStockEntries: reactivated,
+      activeEntriesMovingToRemoved: movingToRemoved,
+      newSaleEvents: newSales,
+      changedSaleEvents: changedSales,
+      removedSaleEvents: removedSales,
+      warningSettingsChange:
+          currentSettings.shortDays != backup.settings.shortDays ||
+          currentSettings.months != backup.settings.months,
+      soldTotalsChange:
+          currentSoldValue != backup.soldValue ||
+          currentUnknownSold != backup.unknownSold,
+    );
+  }
 }
 
 bool _sameMedicineRestoreFacts(Medicine a, Medicine b) =>
