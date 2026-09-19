@@ -874,8 +874,8 @@ class _AiScreenState extends State<AiScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: Listenable.merge([widget.controller, _local]),
+  Widget build(BuildContext context) => ActiveListenableBuilder(
+    listenable: Listenable.merge([widget.controller, _local]),
     builder: (context, _) {
       final busy =
           _localCommanding ||
@@ -1704,8 +1704,8 @@ class _AiConnectionsSheetState extends State<_AiConnectionsSheet> {
     }
   }
 
-  Widget _brainRouteCard(BuildContext context) => AnimatedBuilder(
-    animation: local,
+  Widget _brainRouteCard(BuildContext context) => ActiveListenableBuilder(
+    listenable: local,
     builder: (context, _) => Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
       decoration: BoxDecoration(
