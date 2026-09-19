@@ -32,7 +32,7 @@ class _SearchScreenState extends State<SearchScreen> {
   static const _browsePageSize = 120;
 
   final _query = TextEditingController();
-  final _catalog = MedicineCatalogService();
+  MedicineCatalogService? _catalog;
   Timer? _debounce, _onlineDebounce;
   List<SearchHit> _hits = [];
   List<MedicineCatalogCandidate> _catalogHits = [];
