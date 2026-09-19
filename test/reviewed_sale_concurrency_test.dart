@@ -27,7 +27,6 @@ Future<PharmacyController> controller() async {
   return value;
 }
 
-
 class _FirstCommitGateStorage implements InventoryStorage {
   _FirstCommitGateStorage(InventorySnapshot initial)
     : _inner = MemoryInventoryStorage(initial);
@@ -310,5 +309,4 @@ void main() {
       expect(storage.commits, 1);
     });
   });
-
 }
