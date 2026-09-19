@@ -50,7 +50,7 @@ void main() {
     final medicine = _stock('stock-a');
     final at45 = supplierReturnCandidates(
       medicines: <Medicine>[medicine],
-      suppliers: const <String, Supplier>{_supplierA.id: _supplierA},
+      suppliers: <String, Supplier>{_supplierA.id: _supplierA},
       today: today,
     );
     expect(at45.single.medicine.id, medicine.id);
@@ -73,7 +73,7 @@ void main() {
 
     final candidates = supplierReturnCandidates(
       medicines: <Medicine>[first, second],
-      suppliers: const <String, Supplier>{
+      suppliers: <String, Supplier>{
         _supplierA.id: _supplierA,
         _supplierB.id: _supplierB,
       },
@@ -223,7 +223,7 @@ void main() {
       1,
       const <String>{},
       today,
-      suppliers: const <String, Supplier>{_supplierA.id: _supplierA},
+      suppliers: <String, Supplier>{_supplierA.id: _supplierA},
     );
     expect(plan.changes.single.after.supplierId, _supplierA.id);
 
@@ -234,7 +234,7 @@ void main() {
         1,
         const <String>{},
         today,
-        suppliers: const <String, Supplier>{_supplierA.id: _supplierA},
+        suppliers: <String, Supplier>{_supplierA.id: _supplierA},
       ),
       throwsFormatException,
     );
