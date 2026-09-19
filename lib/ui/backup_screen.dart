@@ -334,7 +334,7 @@ class _BackupScreenState extends State<BackupScreen> {
               children: [
                 Icon(
                   _review != null
-                      ? Icons.verified_file_outlined
+                      ? Icons.verified_outlined
                       : Icons.description_outlined,
                   color: _review != null ? primary : muted,
                 ),
