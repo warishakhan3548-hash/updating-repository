@@ -146,7 +146,7 @@ List<StockGuidance> supplierReturnGuidance({
         title: medicine.title,
         action: '${supplier.name} को वापसी तैयार करें',
         reason:
-            '${cues.join(' · ')} · supplier window ${supplier.returnBeforeExpiryDays} दिन',
+            "${cues.join(' · ')} · supplier window ${supplier.returnBeforeExpiryDays} दिन",
         group: StockTaskGroup.supplier,
         stockIds: List.unmodifiable(<String>[medicine.id]),
         supplierId: supplier.id,
