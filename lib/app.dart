@@ -148,7 +148,10 @@ class _ShellState extends State<_Shell> {
       Navigator.of(context)
           .push<void>(
             MaterialPageRoute(
-              builder: (_) => AttentionScreen(controller: widget.controller),
+              builder: (_) => AttentionScreen(
+                controller: widget.controller,
+                autopilot: widget.autopilot,
+              ),
             ),
           )
           .whenComplete(() {
