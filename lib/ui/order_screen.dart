@@ -308,8 +308,8 @@ class _OrderScreenState extends State<OrderScreen> {
     appBar: AppBar(title: const Text('दवाएँ मँगाएँ')),
     body: SafeArea(
       top: false,
-      child: AnimatedBuilder(
-        animation: widget.controller,
+      child: ActiveListenableBuilder(
+        listenable: widget.controller,
         builder: (context, _) {
           final suggestions = _suggestions;
           final blocked = _blockedOrders(_operationsPlan(suggestions));
