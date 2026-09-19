@@ -79,7 +79,7 @@ void main() {
       sourceRevision: 11,
       settings: contractSettings,
       records: <String, Medicine>{linked.id: linked},
-      suppliers: const <String, Supplier>{supplier.id: supplier},
+      suppliers: <String, Supplier>{supplier.id: supplier},
       sales: const <String, SaleEvent>{},
       soldValue: 0,
       unknownSold: 0,
