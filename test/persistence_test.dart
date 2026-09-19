@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../lib/data/inventory_database.dart';
 import '../lib/domain/medicine.dart';
+import '../lib/domain/supplier.dart';
 import '../lib/domain/inventory.dart';
 import '../lib/domain/ai_protocol.dart';
 import '../lib/domain/tracking.dart';
@@ -480,4 +481,28 @@ void main() {
     expect(controller.snapshot.records['a']!.quantity, 10);
     expect(controller.snapshot.records['a']!.location, '');
   });
+  test('supplier profiles and exact stock links persist in SQLite', () async {
+    const supplier = Supplier(
+      id: 'supplier_persist',
+      name: 'ABC Distributor',
+      returnBeforeExpiryDays: 45,
+      address: 'Panipat',
+      gstin: '06ABCDE1234F1Z5',
+      drugLicenceNo: 'DL-123',
+    );
+    await controller.saveSupplier(supplier, expectedRevision: 0);
+    final linked = Medicine.fromJson({
+      ...stock('supplier-stock', expiry: '2026-10-20').toJson(),
+      'supplierId': supplier.id,
+    });
+    await controller.save(linked, expectedRevision: 1);
+
+    final loaded = await storage.load();
+    expect(loaded.suppliers[supplier.id]!.name, supplier.name);
+    expect(
+      loaded.records[linked.id]!.supplierId,
+      supplier.id,
+    );
+  });
+
 }
