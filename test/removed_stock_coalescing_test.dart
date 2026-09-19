@@ -115,6 +115,8 @@ void main() {
       expect(find.text('Drotaverine'), findsOneWidget);
       expect(find.text('Azithromycin'), findsNothing);
       expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
     },
   );
 
@@ -148,6 +150,8 @@ void main() {
       expect(find.text('Azithromycin'), findsOneWidget);
       expect(find.text('Drotaverine'), findsNothing);
       expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
     },
   );
 }
