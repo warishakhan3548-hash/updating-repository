@@ -20,7 +20,7 @@ class PharmacyBackup {
     required this.sourceRevision,
     required this.settings,
     required this.records,
-    required this.suppliers,
+    this.suppliers = const <String, Supplier>{},
     required this.sales,
     required this.soldValue,
     required this.unknownSold,
@@ -307,7 +307,7 @@ class BackupImpact {
   factory BackupImpact.compare({
     required PharmacyBackup backup,
     required Map<String, Medicine> currentRecords,
-    required Map<String, Supplier> currentSuppliers,
+    Map<String, Supplier> currentSuppliers = const <String, Supplier>{},
     required Map<String, SaleEvent> currentSales,
     required WarningSettings currentSettings,
     required int currentSoldValue,
@@ -413,7 +413,7 @@ class BackupImpact {
 Future<BackupImpact> compareBackupImpactCooperatively({
     required PharmacyBackup backup,
     required Map<String, Medicine> currentRecords,
-    required Map<String, Supplier> currentSuppliers,
+    Map<String, Supplier> currentSuppliers = const <String, Supplier>{},
     required Map<String, SaleEvent> currentSales,
     required WarningSettings currentSettings,
     required int currentSoldValue,
