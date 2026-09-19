@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/aaris_default_ai_service.dart';
 import '../services/local_ai_service.dart';
+import 'design.dart';
 
 /// The single Local AI setup surface inside the existing AI connections sheet.
 /// LocalAiService remains the only source of truth for download/activation state.
@@ -649,8 +650,8 @@ class _LocalModelsPanelState extends State<LocalModelsPanel> {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: Listenable.merge([local, defaults]),
+  Widget build(BuildContext context) => ActiveListenableBuilder(
+    listenable: Listenable.merge([local, defaults]),
     builder: (context, _) => Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
