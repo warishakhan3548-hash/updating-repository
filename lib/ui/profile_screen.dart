@@ -94,8 +94,8 @@ class ProfileScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: controller,
+  Widget build(BuildContext context) => ActiveListenableBuilder(
+    listenable: controller,
     builder: (context, _) => ListView(
       key: const PageStorageKey('profile-scroll'),
       padding: const EdgeInsets.fromLTRB(22, 26, 22, 30),

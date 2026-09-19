@@ -12,8 +12,8 @@ class StatsScreen extends StatelessWidget {
   String _money(int paise) => '₹${(paise / 100).toStringAsFixed(2)}';
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: controller,
+  Widget build(BuildContext context) => ActiveListenableBuilder(
+    listenable: controller,
     builder: (context, _) {
       final inventory = controller.stats;
       final sales = controller.salesOverview;

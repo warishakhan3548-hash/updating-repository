@@ -183,6 +183,36 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets(
+    'typing a new search query never leaves stale result cards tappable',
+    (tester) async {
+      final controller = await seeded();
+      await tester.pumpWidget(PharmacyApp(controller: controller));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Stock').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Drotaverine'), findsOneWidget);
+
+      final query = find.descendant(
+        of: find.byType(SearchScreen),
+        matching: find.byType(TextField),
+      ).first;
+      await tester.enterText(query, 'Azithromycin');
+      await tester.pump();
+
+      expect(find.text('Drotaverine'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 160));
+      await tester.pumpAndSettle();
+      expect(find.text('Azithromycin'), findsOneWidget);
+      expect(find.text('Drotaverine'), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
   testWidgets('All main tabs fit a narrow phone at large text scale', (
     tester,
   ) async {

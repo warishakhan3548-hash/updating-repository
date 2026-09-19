@@ -21,6 +21,73 @@ const successSoft = Color(0xFFEDF7F1);
 const warningSoft = Color(0xFFFFF5E3);
 const errorSoft = Color(0xFFFFEFF1);
 
+/// Rebuilds from [listenable] only while this subtree is actually active.
+///
+/// Retained tabs and covered Navigator routes are wrapped in [TickerMode].
+/// A normal AnimatedBuilder keeps listening while those screens are offstage,
+/// which makes hidden pages spend CPU rebuilding after every inventory change.
+/// This builder detaches while inactive and naturally catches up from the latest
+/// source state when TickerMode enables the subtree again.
+class ActiveListenableBuilder extends StatefulWidget {
+  const ActiveListenableBuilder({
+    super.key,
+    required this.listenable,
+    required this.builder,
+    this.child,
+  });
+
+  final Listenable listenable;
+  final TransitionBuilder builder;
+  final Widget? child;
+
+  @override
+  State<ActiveListenableBuilder> createState() =>
+      _ActiveListenableBuilderState();
+}
+
+class _ActiveListenableBuilderState extends State<ActiveListenableBuilder> {
+  bool _listening = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncSubscription(TickerMode.of(context));
+  }
+
+  @override
+  void didUpdateWidget(covariant ActiveListenableBuilder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_listening || identical(oldWidget.listenable, widget.listenable)) {
+      return;
+    }
+    oldWidget.listenable.removeListener(_changed);
+    widget.listenable.addListener(_changed);
+  }
+
+  void _syncSubscription(bool active) {
+    if (_listening == active) return;
+    _listening = active;
+    if (active) {
+      widget.listenable.addListener(_changed);
+    } else {
+      widget.listenable.removeListener(_changed);
+    }
+  }
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    if (_listening) widget.listenable.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, widget.child);
+}
+
 int _alpha(int value, double elevation) =>
     (value * elevation.clamp(.25, 1.5)).round().clamp(0, 255);
 

@@ -189,7 +189,7 @@ class PharmacyController extends ChangeNotifier {
   List<SupplierReturnCandidate>? _supplierReturnsCache;
   String _supplierReturnsDayKey = '';
   int _searchDatasetEpoch = 0;
-  String _observedDayKey = '';
+  String _publishedDayKey = '';
 
   DateTime get today => civilDay(clock());
   WarningSettings get settings => snapshot.settings;
@@ -278,29 +278,26 @@ class PharmacyController extends ChangeNotifier {
     if (_disposed) return;
     snapshot = loaded;
     ready = true;
-    final now = clock();
-    _observedDayKey = dateText(civilDay(now));
-    _scheduleMidnight(now);
+    _scheduleMidnight();
     _emit();
   }
 
   void _emit() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    _publishedDayKey = dateText(today);
+    notifyListeners();
   }
 
   void refreshDay() {
-    final now = clock();
-    final dayKey = dateText(civilDay(now));
-    final changed = _observedDayKey != dayKey;
-    _observedDayKey = dayKey;
-    _scheduleMidnight(now);
-    if (changed) _emit();
+    _scheduleMidnight();
+    if (_publishedDayKey == dateText(today)) return;
+    _emit();
   }
 
-  void _scheduleMidnight([DateTime? sampledNow]) {
+  void _scheduleMidnight() {
     _midnight?.cancel();
     if (_disposed) return;
-    final now = sampledNow ?? clock();
+    final now = clock();
     final next = DateTime(
       now.year,
       now.month,
@@ -310,9 +307,10 @@ class PharmacyController extends ChangeNotifier {
   }
 
   List<Medicine> list(SearchScope scope) {
+    final selectedSettings = settings;
     final date = today;
-    final result = _stableRecords
-        .where((medicine) => inScope(medicine, scope, settings, date))
+    final result = records
+        .where((medicine) => inScope(medicine, scope, selectedSettings, date))
         .toList();
     result.sort((a, b) => expiryOrder(a, b, date));
     return result;

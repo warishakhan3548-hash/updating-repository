@@ -43,14 +43,75 @@ class _SearchScreenState extends State<SearchScreen> {
   ScanResult? _scan;
   late Object _observedSnapshot;
   late DateTime _observedDay;
+  bool _controllerListening = false;
+  bool _refreshWhenActive = false;
 
   @override
   void initState() {
     super.initState();
     _observedSnapshot = widget.controller.snapshot;
     _observedDay = widget.controller.today;
-    widget.controller.addListener(_changed);
     unawaited(_search());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = TickerMode.of(context);
+    if (active == _controllerListening) return;
+    if (!active) {
+      widget.controller.removeListener(_changed);
+      _controllerListening = false;
+      return;
+    }
+
+    widget.controller.addListener(_changed);
+    _controllerListening = true;
+    final currentSnapshot = widget.controller.snapshot;
+    final currentDay = widget.controller.today;
+    if (_refreshWhenActive ||
+        !identical(currentSnapshot, _observedSnapshot) ||
+        currentDay != _observedDay) {
+      _observedSnapshot = currentSnapshot;
+      _observedDay = currentDay;
+      _refreshWhenActive = false;
+      _debounce?.cancel();
+      _onlineDebounce?.cancel();
+      unawaited(_search(preserveResults: true));
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant SearchScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final controllerChanged = oldWidget.controller != widget.controller;
+    final searchContextChanged =
+        oldWidget.scope != widget.scope || oldWidget.database != widget.database;
+    if (controllerChanged) {
+      if (_controllerListening) {
+        oldWidget.controller.removeListener(_changed);
+        widget.controller.addListener(_changed);
+      }
+      _observedSnapshot = widget.controller.snapshot;
+      _observedDay = widget.controller.today;
+    }
+    if (!controllerChanged && !searchContextChanged) return;
+
+    ++_generation;
+    ++_catalogGeneration;
+    _debounce?.cancel();
+    _onlineDebounce?.cancel();
+    _hits = [];
+    _scan = null;
+    _catalogHits = [];
+    _catalogLoading = false;
+    _catalogError = '';
+    if (_controllerListening) {
+      _refreshWhenActive = false;
+      unawaited(_search());
+    } else {
+      _refreshWhenActive = true;
+    }
   }
 
   void _changed() {
@@ -65,16 +126,19 @@ class _SearchScreenState extends State<SearchScreen> {
     _observedDay = currentDay;
     _debounce?.cancel();
     _onlineDebounce?.cancel();
-    unawaited(_search());
+    unawaited(_search(preserveResults: true));
   }
 
-  Future<void> _search() async {
+  Future<void> _search({bool preserveResults = false}) async {
     final generation = ++_generation;
     final typedQuery = _query.text;
     if (!mounted) return;
     setState(() {
+      // Snapshot/day refreshes keep the last valid cards on screen while the
+      // same query is recomputed. A new query clears them immediately so stale
+      // results can never remain tappable under different search text.
       _loading = true;
-      _hits = [];
+      if (!preserveResults) _hits = [];
       _error = '';
     });
     try {
@@ -131,6 +195,8 @@ class _SearchScreenState extends State<SearchScreen> {
     _debounce?.cancel();
     _onlineDebounce?.cancel();
     setState(() {
+      // Query meaning changed. Remove old cards immediately rather than leaving
+      // a stale medicine tappable during the short debounce.
       _hits = [];
       _loading = true;
       _error = '';
@@ -338,7 +404,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void dispose() {
     ++_generation;
     ++_catalogGeneration;
-    widget.controller.removeListener(_changed);
+    if (_controllerListening) widget.controller.removeListener(_changed);
     _debounce?.cancel();
     _onlineDebounce?.cancel();
     _catalog.close();
