@@ -132,6 +132,35 @@ def _load_policy(path: Path) -> tuple[int, dict[str, dict[str, Any]]]:
         status = entry.get("status")
         if status not in {"active", "retired", "revoked"}:
             raise PackSignatureError(f"{key_id}: invalid trusted key status")
+
+        min_sequence = entry.get("min_release_sequence")
+        if (
+            isinstance(min_sequence, bool)
+            or not isinstance(min_sequence, int)
+            or min_sequence < 1
+        ):
+            raise PackSignatureError(
+                f"{key_id}: min_release_sequence must be a positive integer"
+            )
+
+        max_sequence = entry.get("max_release_sequence")
+        if max_sequence is not None and (
+            isinstance(max_sequence, bool)
+            or not isinstance(max_sequence, int)
+            or max_sequence < min_sequence
+        ):
+            raise PackSignatureError(
+                f"{key_id}: max_release_sequence must be null or >= min_release_sequence"
+            )
+        if status == "active" and max_sequence is not None:
+            raise PackSignatureError(
+                f"{key_id}: active key must have max_release_sequence null"
+            )
+        if status == "retired" and max_sequence is None:
+            raise PackSignatureError(
+                f"{key_id}: retired key requires max_release_sequence"
+            )
+
         public_key = _strict_b64(entry.get("public_key_base64"), f"{key_id}.public_key")
         if len(public_key) != 32:
             raise PackSignatureError(f"{key_id}: Ed25519 public key must be 32 bytes")
@@ -193,6 +222,11 @@ def verify_manifest_signature(
             continue
         key = trusted.get(key_id)
         if key is None or key["status"] == "revoked":
+            continue
+        if release_sequence < key["min_release_sequence"]:
+            continue
+        max_sequence = key["max_release_sequence"]
+        if max_sequence is not None and release_sequence > max_sequence:
             continue
         try:
             signature = _strict_b64(
