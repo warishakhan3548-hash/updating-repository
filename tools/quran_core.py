@@ -64,6 +64,23 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def extract_tanzil_notice_bytes(path: Path) -> bytes:
+    """Extract the embedded Tanzil copyright/licence block byte-for-byte."""
+    raw = path.read_bytes()
+    notice = b"".join(
+        line for line in raw.splitlines(keepends=True) if line.startswith(b"#")
+    )
+    required = (
+        b"Tanzil Quran Text (Uthmani, Version 1.1)",
+        b"Creative Commons Attribution 3.0",
+        b"CHANGING IT IS NOT ALLOWED",
+        b"tanzil.net",
+    )
+    if any(marker not in notice for marker in required):
+        raise QuranSourceError("source artifact notice is incomplete")
+    return notice
+
+
 def expected_coordinates() -> tuple[tuple[int, int], ...]:
     return tuple(
         (surah, ayah)
