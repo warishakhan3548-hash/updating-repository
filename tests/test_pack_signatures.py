@@ -228,8 +228,8 @@ class PackSignatureTests(unittest.TestCase):
             private, public, key_id = self._key(12)
             keyring = self._write_keyring(root, [(key_id, public)])
             manifest = self._manifest()
-            manifest["release_sequence"] = 9_007_199_254_740_992
             self._sign(manifest, private, key_id)
+            manifest["release_sequence"] = 9_007_199_254_740_992
             with self.assertRaisesRegex(
                 PackSignatureError, "safe integer"
             ):
