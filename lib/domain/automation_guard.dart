@@ -104,6 +104,36 @@ bool _introducesFutureManufactureDate({
   return !civilDay(before.mfg!).isAfter(day);
 }
 
+bool _stockStateChanged(Medicine before, Medicine after) =>
+    before.quantity != after.quantity ||
+    before.sold != after.sold ||
+    before.soldAt != after.soldAt ||
+    before.soldQuantity != after.soldQuantity ||
+    before.soldUnitPricePaise != after.soldUnitPricePaise;
+
+bool _identityFactsChanged(Medicine before, Medicine after) =>
+    before.identity != after.identity ||
+    normalize(before.batchNumber) != normalize(after.batchNumber) ||
+    normalize(before.barcode) != normalize(after.barcode) ||
+    normalize(before.manufacturer) != normalize(after.manufacturer) ||
+    normalize(before.brand) != normalize(after.brand) ||
+    before.mfg != after.mfg ||
+    before.expiry != after.expiry;
+
+bool _canParticipateInLotConflict(Medicine medicine) {
+  if (medicine.archived || medicine.sold) return false;
+  if (normalize(medicine.batchNumber).isEmpty) return false;
+  return normalize(medicine.barcode).isNotEmpty ||
+      normalize(medicine.manufacturer).isNotEmpty ||
+      normalize(medicine.brand).isNotEmpty;
+}
+
+bool _hasFutureManufactureDate(Medicine medicine, DateTime today) =>
+    !medicine.archived &&
+    !medicine.sold &&
+    medicine.mfg != null &&
+    civilDay(medicine.mfg!).isAfter(civilDay(today));
+
 /// Persistence-boundary policy for the authoritative medicine database.
 ///
 /// This is the deterministic safety kernel underneath manual UI, Aaris Brain,
@@ -128,6 +158,71 @@ InventoryIntegrityMutationBlock? inventoryIntegrityMutationBlock({
 }) {
   final touched = touchedStockIds.toSet();
   if (touched.isEmpty) return null;
+
+  // Quantity/SOLD updates are the latency-sensitive daily path. If no row is
+  // added, restored or identity-edited, the change cannot introduce a new lot
+  // or barcode contradiction (except SOLD -> active, which falls through).
+  // Evaluate only the pre-existing safety facts needed by touched rows instead
+  // of rebuilding before/after integrity graphs several times.
+  var stockOnly = true;
+  var hasStockMovement = false;
+  var needsLotScan = false;
+  var needsBarcodeScan = false;
+  for (final id in touched) {
+    final old = before[id];
+    final next = after[id];
+    if (old == null ||
+        next == null ||
+        old.archived != next.archived ||
+        _identityFactsChanged(old, next) ||
+        (old.sold && !next.sold)) {
+      stockOnly = false;
+      break;
+    }
+    if (next.archived) continue;
+    if (!_stockStateChanged(old, next)) continue;
+    hasStockMovement = true;
+    needsLotScan = needsLotScan || _canParticipateInLotConflict(old);
+    needsBarcodeScan =
+        needsBarcodeScan || old.barcode.trim().isNotEmpty;
+  }
+
+  if (stockOnly) {
+    if (!hasStockMovement) return null;
+
+    final lotIds = needsLotScan
+        ? _lotConflicts(before.values, today)
+              .expand((issue) => issue.stockIds)
+              .toSet()
+        : const <String>{};
+    final barcodeIds = needsBarcodeScan
+        ? _barcodeIdentityConflicts(before.values)
+              .values
+              .expand((ids) => ids)
+              .toSet()
+        : const <String>{};
+
+    for (final id in touched) {
+      final old = before[id]!;
+      final next = after[id]!;
+      if (next.archived || !_stockStateChanged(old, next)) continue;
+      final futureMfg = _hasFutureManufactureDate(old, today);
+      final blocked =
+          lotIds.contains(id) || barcodeIds.contains(id) || futureMfg;
+      if (!blocked) continue;
+      final reason = barcodeIds.contains(id)
+          ? 'a barcode identity conflict'
+          : futureMfg
+          ? 'a manufacturing date in the future'
+          : 'conflicting saved batch facts';
+      return InventoryIntegrityMutationBlock(
+        stockIds: List.unmodifiable(<String>[id]),
+        message:
+            'Aaris paused this stock movement because this row has $reason. Open Needs attention, verify the physical pack, and correct or archive the unsafe row before changing quantity or SOLD state. Nothing was changed.',
+      );
+    }
+    return null;
+  }
 
   final introducedLots = newlyIntroducedLotConflicts(
     before: before.values,
@@ -204,20 +299,8 @@ InventoryIntegrityMutationBlock? inventoryIntegrityMutationBlock({
         afterLotIds.contains(id) ||
         afterBarcodeIds.contains(id) ||
         afterFutureIds.contains(id);
-    final stockStateChanged =
-        old.quantity != next.quantity ||
-        old.sold != next.sold ||
-        old.soldAt != next.soldAt ||
-        old.soldQuantity != next.soldQuantity ||
-        old.soldUnitPricePaise != next.soldUnitPricePaise;
-    final identityFactsChanged =
-        old.identity != next.identity ||
-        normalize(old.batchNumber) != normalize(next.batchNumber) ||
-        normalize(old.barcode) != normalize(next.barcode) ||
-        normalize(old.manufacturer) != normalize(next.manufacturer) ||
-        normalize(old.brand) != normalize(next.brand) ||
-        old.mfg != next.mfg ||
-        old.expiry != next.expiry;
+    final stockStateChanged = _stockStateChanged(old, next);
+    final identityFactsChanged = _identityFactsChanged(old, next);
 
     if (!stockStateChanged && !identityFactsChanged) continue;
     if (!blockedAfter && identityFactsChanged) continue;
