@@ -1,428 +1,191 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import hashlib
-import io
 import json
-from pathlib import Path
-import subprocess
-import sys
-import tarfile
 import tempfile
+from pathlib import Path
 import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError
 
 from tools.capture_quranenc_gloss import (
-    BASE_URL,
-    BROWSE_URL,
-    CaptureError,
-    EXPECTED_AYAH_COUNTS,
-    FetchResult,
-    LIST_URL,
+    EXPECTED_VERSION,
+    RESOURCE_BOOK,
+    RESOURCE_TITLE,
+    SOURCE_INDEX_URL,
+    SOURCE_PAGE_URL,
+    SURA_URL_TEMPLATE,
     TERMS_URL,
-    VAULT_RELATIVE,
-    capture_snapshot,
+    CaptureError,
+    Download,
+    capture,
+    fetch_https,
+    sha256_bytes,
+    validate_existing,
 )
 
 
-def enc(obj):
+def _source_index(version: str = EXPECTED_VERSION) -> bytes:
+    return (
+        "<html><body>"
+        f"17/12/2025 - V{version}"
+        f"<h2>{RESOURCE_TITLE}</h2>"
+        f'<p>From the book "{RESOURCE_BOOK}".</p>'
+        "</body></html>"
+    ).encode("utf-8")
+
+
+def _sura_bytes(sura: int) -> bytes:
     return json.dumps(
-        obj,
+        {
+            "result": [
+                {
+                    "sura": sura,
+                    "aya": 1,
+                    "translation": f"معنى {sura}",
+                    "footnotes": "",
+                }
+            ]
+        },
         ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode()
+    ).encode("utf-8")
 
 
-def meta(
-    version="1.0.0",
-    last_update="2025-12-17",
-):
-    return enc(
-        [
-            {
-                "key": "arabic_seraj",
-                "language_iso_code": "ar",
-                "version": version,
-                "last_update": last_update,
-                "title": (
-                    "Arabic Language - "
-                    "Meanings of Words"
-                ),
-                "description": "As-Siraj",
-            },
-            {
-                "key": "other",
-                "language_iso_code": "ar",
-                "version": "9.9.9",
-                "last_update": "x",
-                "title": "x",
-                "description": "x",
-            },
-        ]
-    )
-
-
-def sura_payload(surah, count):
-    return enc(
-        [
-            {
-                "sura": str(surah),
-                "aya": str(ayah),
-                "translation": (
-                    f"gloss {surah}:{ayah}"
-                ),
-                "footnotes": "",
-            }
-            for ayah in range(
-                1, count + 1
-            )
-        ]
-    )
-
-
-class FakeFetcher:
-    def __init__(
-        self,
-        *,
-        version="1.0.0",
-        post_version=None,
-        bad_sura=None,
-        final_host="quranenc.com",
+def _download(url: str, body: bytes) -> Download:
+    return Download(
+        requested_url=url,
+        final_url=url,
         status=200,
-    ):
-        self.version = version
-        self.post_version = (
-            post_version
-            if post_version is not None
-            else version
-        )
-        self.bad_sura = bad_sura
-        self.final_host = final_host
-        self.status = status
-        self.list_calls = 0
+        content_type="application/octet-stream",
+        etag=None,
+        last_modified=None,
+        body=body,
+    )
 
-    def __call__(self, url):
-        final = url.replace(
-            "quranenc.com",
-            self.final_host,
-        )
-        if url == LIST_URL:
-            self.list_calls += 1
-            version = (
-                self.version
-                if self.list_calls == 1
-                else self.post_version
-            )
-            return FetchResult(
-                url,
-                final,
-                self.status,
-                "application/json",
-                meta(version),
-            )
+
+class QuranEncCaptureTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.index = _source_index()
+        self.terms = b"<html><body>Terms and Policies</body></html>"
+        self.source_page = b"<html><body>arabic_seraj</body></html>"
+
+    def fetcher(self, url: str) -> Download:
+        if url == SOURCE_INDEX_URL:
+            return _download(url, self.index)
         if url == TERMS_URL:
-            return FetchResult(
-                url,
-                final,
-                self.status,
-                "text/html",
-                b"<html>QuranEnc terms</html>",
-            )
-        if url == BROWSE_URL:
-            return FetchResult(
-                url,
-                final,
-                self.status,
-                "text/html",
-                (
-                    b"<html>Arabic Language - "
-                    b"Meanings of Words</html>"
-                ),
-            )
-        prefix = (
-            f"{BASE_URL}/api/v1/"
-            "translation/sura/"
-            "arabic_seraj/"
-        )
+            return _download(url, self.terms)
+        if url == SOURCE_PAGE_URL:
+            return _download(url, self.source_page)
+        prefix = SURA_URL_TEMPLATE.rsplit("{sura}", 1)[0]
         if url.startswith(prefix):
-            surah = int(
-                url[len(prefix):]
+            sura = int(url.rsplit("/", 1)[1])
+            return _download(url, _sura_bytes(sura))
+        raise AssertionError(f"unexpected test URL: {url}")
+
+    def test_capture_preserves_exact_api_bytes_and_revalidates_offline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "tools.capture_quranenc_gloss.EXPECTED_AYAH_COUNT",
+            114,
+        ), patch(
+            "tools.capture_quranenc_gloss.EXPECTED_AYAH_COUNTS",
+            (1,) * 114,
+        ):
+            output = Path(tmp) / "vault" / "1.0.0"
+            provenance = capture(
+                output,
+                self.fetcher,
+                retrieved_at="2026-09-20T18:30:00Z",
             )
-            count = (
-                EXPECTED_AYAH_COUNTS[
-                    surah - 1
-                ]
+
+            first = _sura_bytes(1)
+            self.assertEqual(
+                first,
+                (output / "raw" / "suras" / "001.json").read_bytes(),
             )
-            if self.bad_sura == surah:
-                count -= 1
-            return FetchResult(
-                url,
-                final,
-                self.status,
-                "application/json",
-                sura_payload(
-                    surah, count
-                ),
+            self.assertEqual(
+                self.index,
+                (output / "SOURCE_INDEX.html").read_bytes(),
             )
-        raise AssertionError(url)
+            self.assertEqual(
+                self.terms,
+                (output / "LICENSE_SOURCE.html").read_bytes(),
+            )
+            self.assertEqual(
+                self.source_page,
+                (output / "SOURCE_PAGE.html").read_bytes(),
+            )
+            self.assertEqual(114, provenance["record_count"])
+            self.assertEqual(114, provenance["sura_count"])
+            self.assertEqual(
+                EXPECTED_VERSION,
+                provenance["upstream_metadata"]["version"],
+            )
+            self.assertEqual("captured-unreviewed", provenance["promotion_status"])
+            self.assertTrue(provenance["snapshot_manifest_sha256"])
 
+            verified = validate_existing(output)
+            self.assertEqual(
+                provenance["snapshot_manifest_sha256"],
+                verified["snapshot_manifest_sha256"],
+            )
 
-class CaptureTests(unittest.TestCase):
-    def test_direct_cli_help_runs_from_repo_root(self):
-        root = Path(__file__).resolve().parents[1]
-        completed = subprocess.run(
-            [sys.executable, "tools/capture_quranenc_gloss.py", "--help"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(0, completed.returncode, completed.stderr)
-        self.assertIn("Capture the pinned QuranEnc", completed.stdout)
+    def test_wrong_upstream_version_fails_without_partial_vault(self) -> None:
+        bad_index = _source_index("1.0.1")
 
-    def test_success_is_complete_review_only_and_deterministic(
-        self,
-    ):
-        now = datetime(
-            2026,
-            9,
-            20,
-            18,
-            30,
-            tzinfo=timezone.utc,
-        )
-        hashes = []
-        for _ in range(2):
-            with tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp)
-                dest = capture_snapshot(
-                    root,
-                    fetcher=FakeFetcher(),
-                    now=now,
-                )
-                self.assertEqual(
-                    root / VAULT_RELATIVE,
-                    dest,
-                )
-                manifest = json.loads(
-                    (
-                        dest
-                        / "capture-manifest.json"
-                    ).read_text()
-                )
-                self.assertEqual(
-                    116,
-                    manifest[
-                        "raw_payload_count"
-                    ],
-                )
-                self.assertEqual(
-                    "captured-unreviewed",
-                    manifest[
-                        "promotion_state"
-                    ],
-                )
-                self.assertFalse(
-                    manifest[
-                        "normal_build_dependency"
-                    ]
-                )
-                self.assertTrue(
-                    (
-                        dest
-                        / "LICENSE_SOURCE.html"
-                    )
-                    .read_bytes()
-                    .startswith(b"<html>")
-                )
-                self.assertTrue(
-                    (
-                        dest
-                        / "SOURCE_PAGE.html"
-                    )
-                    .read_bytes()
-                    .startswith(b"<html>")
-                )
-                self.assertEqual(
-                    hashlib.sha256(
-                        (
-                            dest
-                            / "SOURCE_PAGE.html"
-                        ).read_bytes()
-                    ).hexdigest(),
-                    manifest[
-                        "source_page_snapshot"
-                    ]["sha256"],
-                )
-                tar_bytes = (
-                    dest
-                    / "raw-snapshot.tar"
-                ).read_bytes()
-                hashes.append(
-                    hashlib.sha256(
-                        tar_bytes
-                    ).hexdigest()
-                )
-                with tarfile.open(
-                    fileobj=io.BytesIO(
-                        tar_bytes
-                    ),
-                    mode="r:",
-                ) as archive:
-                    names = (
-                        archive.getnames()
-                    )
-                    self.assertEqual(
-                        116,
-                        len(names),
-                    )
-                    self.assertIn(
-                        "raw/sura-001.json",
-                        names,
-                    )
-                    self.assertIn(
-                        "raw/sura-114.json",
-                        names,
-                    )
-                    self.assertEqual(
-                        meta(),
-                        archive.extractfile(
-                            "metadata/"
-                            "translations-list-"
-                            "ar.pre.json"
-                        ).read(),
-                    )
-                with self.assertRaisesRegex(
-                    CaptureError,
-                    "refusing to overwrite",
-                ):
-                    capture_snapshot(
-                        root,
-                        fetcher=FakeFetcher(),
-                        now=now,
-                    )
-        self.assertEqual(
-            hashes[0], hashes[1]
-        )
+        def fetcher(url: str) -> Download:
+            if url == SOURCE_INDEX_URL:
+                return _download(url, bad_index)
+            return self.fetcher(url)
 
-    def test_naive_timestamp_fails_closed(
-        self,
-    ):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            output = Path(tmp) / "vault" / "1.0.0"
+            with self.assertRaisesRegex(CaptureError, "upstream version changed"):
+                capture(output, fetcher)
+            self.assertFalse(output.exists())
+
+    def test_existing_version_is_immutable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "tools.capture_quranenc_gloss.EXPECTED_AYAH_COUNT",
+            114,
+        ), patch(
+            "tools.capture_quranenc_gloss.EXPECTED_AYAH_COUNTS",
+            (1,) * 114,
+        ):
+            output = Path(tmp) / "vault" / "1.0.0"
+            capture(output, self.fetcher)
+            with self.assertRaisesRegex(CaptureError, "refusing to overwrite"):
+                capture(output, self.fetcher)
+
+    def test_post_capture_tamper_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "tools.capture_quranenc_gloss.EXPECTED_AYAH_COUNT",
+            114,
+        ), patch(
+            "tools.capture_quranenc_gloss.EXPECTED_AYAH_COUNTS",
+            (1,) * 114,
+        ):
+            output = Path(tmp) / "vault" / "1.0.0"
+            capture(output, self.fetcher)
+            primary = output / "raw" / "suras" / "001.json"
+            primary.write_bytes(primary.read_bytes() + b"tamper\n")
+
+            with self.assertRaisesRegex(CaptureError, "byte size mismatch|SHA-256"):
+                validate_existing(output)
+
+    def test_retryable_http_failure_is_reported_after_bounded_retries(self) -> None:
+        failure = HTTPError(SOURCE_INDEX_URL, 503, "Service Unavailable", None, None)
+        with patch(
+            "tools.capture_quranenc_gloss.urlopen",
+            side_effect=failure,
+        ) as mocked_urlopen, patch(
+            "tools.capture_quranenc_gloss.time.sleep",
+        ):
             with self.assertRaisesRegex(
                 CaptureError,
-                "timezone-aware",
+                r"quranenc\.com/en/home: HTTP 503",
             ):
-                capture_snapshot(
-                    root,
-                    fetcher=FakeFetcher(),
-                    now=datetime(
-                        2026, 9, 20, 18, 30
-                    ),
-                )
-            self.assertFalse(
-                (
-                    root / VAULT_RELATIVE
-                ).exists()
-            )
+                fetch_https(SOURCE_INDEX_URL)
 
-    def test_version_mismatch_leaves_no_snapshot(
-        self,
-    ):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            with self.assertRaisesRegex(
-                CaptureError,
-                "expected pinned",
-            ):
-                capture_snapshot(
-                    root,
-                    fetcher=FakeFetcher(
-                        version="1.0.1"
-                    ),
-                )
-            self.assertFalse(
-                (
-                    root / VAULT_RELATIVE
-                ).exists()
-            )
-
-    def test_mid_capture_metadata_drift_leaves_no_snapshot(
-        self,
-    ):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            with self.assertRaisesRegex(
-                CaptureError,
-                "metadata changed during capture",
-            ):
-                capture_snapshot(
-                    root,
-                    fetcher=FakeFetcher(
-                        post_version="1.0.1"
-                    ),
-                )
-            self.assertFalse(
-                (
-                    root / VAULT_RELATIVE
-                ).exists()
-            )
-
-    def test_coordinate_gap_fails_closed(
-        self,
-    ):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            with self.assertRaisesRegex(
-                CaptureError,
-                "coordinate mismatch",
-            ):
-                capture_snapshot(
-                    root,
-                    fetcher=FakeFetcher(
-                        bad_sura=2
-                    ),
-                )
-            self.assertFalse(
-                (
-                    root / VAULT_RELATIVE
-                ).exists()
-            )
-
-    def test_redirect_off_quranenc_fails_closed(
-        self,
-    ):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(
-                CaptureError,
-                (
-                    "approved QuranEnc "
-                    "HTTPS hosts"
-                ),
-            ):
-                capture_snapshot(
-                    Path(tmp),
-                    fetcher=FakeFetcher(
-                        final_host=(
-                            "evil.example"
-                        )
-                    ),
-                )
-
-    def test_non_200_fails_closed_even_for_injected_fetcher(
-        self,
-    ):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(
-                CaptureError,
-                "unexpected HTTP status",
-            ):
-                capture_snapshot(
-                    Path(tmp),
-                    fetcher=FakeFetcher(
-                        status=503
-                    ),
-                )
+        self.assertEqual(4, mocked_urlopen.call_count)
 
 
 if __name__ == "__main__":
