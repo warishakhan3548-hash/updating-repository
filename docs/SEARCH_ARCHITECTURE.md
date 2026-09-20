@@ -35,8 +35,12 @@ The evaluator emits Recall@5, Recall@10, MRR, NDCG@10, negative false-positive r
 
 ## One-edit typo experiment — 2026-09-21
 
-A follow-on experiment evaluates a narrower typo fallback **after both the strict lane and `arabic-query-variant-v1` have abstained**. It is host-side evaluation code only; Android runtime behavior is unchanged.
+A follow-on experiment evaluates a narrower typo fallback **after both the strict lane and `arabic-query-variant-v1` have abstained**. It remains host-side evaluation code only; Android runtime behavior is unchanged.
 
-The fallback refuses single-word fuzzy guesses. For a multi-word query, a candidate must match a contiguous token window of the same width, each token must be identical or at edit distance one, and the whole query may consume at most **one insertion, deletion or substitution total**. This keeps the evidence threshold substantially tighter than generic fuzzy search.
+The original experiment demonstrated useful recovery but its active-v2 benchmark had too little adversarial negative coverage for runtime promotion. The candidate is now isolated in `evaluation/quran_search_one_edit_candidate_v1.json` so the active `quran-search-golden-v2` runtime contract stays immutable.
 
-The experiment is evaluated against the active, version-bound `quran-search-golden-v2` contract without modifying historical v1. Promotion requires Recall@5 = 1.0 for exact-source, diacritic-free, partial-phrase, orthographic-variant and keyboard-variant cases, raises the labelled typo category to Recall@5 = 1.0, and keeps labelled no-answer false-positive rate at 0.0. Even a passing host benchmark is not sufficient for Android adoption: low-end-device latency and equivalent Kotlin behavior still require measurement and review.
+The candidate requires at least **three query tokens**, a contiguous same-width token window, and exactly **one insertion, deletion or substitution total** across the phrase. It abstains if the fuzzy phrase identifies more than one ayah. Single/two-token fuzzy phrases, two-error phrases, ambiguous repeated phrases and adjacent transpositions are pinned as abstentions. These constraints deliberately trade recall for lower false-positive risk around sacred text.
+
+GitHub CI on the first adversarial candidate run preserved Recall@5 = 1.0 for the supported exact-source, diacritic-free, partial-phrase, typo, orthographic-variant and keyboard-variant categories and kept labelled no-answer false-positive rate at 0.0. The deliberately unsupported transposition case remains at Recall@5 = 0.0, so aggregate candidate Recall@5/MRR are 0.9444 rather than being misreported as universal typo support. Host full-corpus timing on that runner was p50 26.897 ms and p95 70.38 ms; these figures are diagnostic only.
+
+Runtime promotion is still blocked. Equivalent Kotlin behavior, broader user-derived typo data and representative low-end **physical-device** measurement remain required before Android adoption. The Android baseline therefore continues to show only strict and constrained spelling matches and may still return **No reliable match found** for edit-distance typos.

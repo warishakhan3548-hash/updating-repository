@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "golden_set_id": "quran-search-one-edit-candidate-v1",
+  "purpose": "Adversarial candidate benchmark for a deterministic one-edit Quran typo fallback. This is not the Android runtime contract and does not authorize promotion.",
+  "pack": {
+    "pack_id": "quran-core",
+    "content_version": "1.1.0",
+    "search_normalization_version": "arabic-search-v1"
+  },
+  "baseline_policy": {
+    "required_categories": [
+      "exact_source",
+      "diacritic_free",
+      "partial_phrase",
+      "typo",
+      "orthographic_variant",
+      "keyboard_variant",
+      "no_answer"
+    ],
+    "minimum_recall_at_5_by_category": {
+      "exact_source": 1,
+      "diacritic_free": 1,
+      "partial_phrase": 1,
+      "typo": 1,
+      "orthographic_variant": 1,
+      "keyboard_variant": 1
+    },
+    "maximum_negative_false_positive_rate": 0
+  },
+  "candidate_policy": {
+    "minimum_query_tokens": 3,
+    "ambiguous_candidate_policy": "abstain",
+    "required_one_edit_recoveries": [
+      "typo-ikhlas-ahad",
+      "typo-ikhlas-ahad-substitution",
+      "typo-ikhlas-ahad-deletion"
+    ],
+    "required_abstentions": [
+      "unsupported-transposition-ikhlas-ahad",
+      "negative-short-fuzzy-ahad",
+      "negative-short-fuzzy-qayyum",
+      "negative-two-edit-ikhlas",
+      "negative-ambiguous-repeated-divine-phrase"
+    ]
+  },
+  "runtime": {
+    "query_variant_normalization_version": "arabic-query-variant-v1"
+  },
+  "candidate_runtime": {
+    "one_edit_engine_id": "quran-one-edit-fallback-v1",
+    "minimum_query_tokens": 3,
+    "ambiguous_candidate_policy": "abstain"
+  },
+  "cases": [
+    {
+      "id": "exact-fatiha-1-2",
+      "category": "exact_source",
+      "query_from_ayah_id": "qa:001:002",
+      "query_derivation": "source_exact",
+      "expected_ayah_ids": ["qa:001:002"]
+    },
+    {
+      "id": "exact-baqarah-2-255",
+      "category": "exact_source",
+      "query_from_ayah_id": "qa:002:255",
+      "query_derivation": "source_exact",
+      "expected_ayah_ids": ["qa:002:255"]
+    },
+    {
+      "id": "exact-ikhlas-112-1",
+      "category": "exact_source",
+      "query_from_ayah_id": "qa:112:001",
+      "query_derivation": "source_exact",
+      "expected_ayah_ids": ["qa:112:001"]
+    },
+    {
+      "id": "no-harakat-kahf-18-10",
+      "category": "diacritic_free",
+      "query_from_ayah_id": "qa:018:010",
+      "query_derivation": "diacritic_free",
+      "expected_ayah_ids": ["qa:018:010"]
+    },
+    {
+      "id": "no-harakat-nur-24-35",
+      "category": "diacritic_free",
+      "query_from_ayah_id": "qa:024:035",
+      "query_derivation": "diacritic_free",
+      "expected_ayah_ids": ["qa:024:035"]
+    },
+    {
+      "id": "no-harakat-zumar-39-53",
+      "category": "diacritic_free",
+      "query_from_ayah_id": "qa:039:053",
+      "query_derivation": "diacritic_free",
+      "expected_ayah_ids": ["qa:039:053"]
+    },
+    {
+      "id": "partial-hujurat-49-13",
+      "category": "partial_phrase",
+      "query_from_ayah_id": "qa:049:013",
+      "query_derivation": "word_slice_diacritic_free",
+      "word_slice": [0, 8],
+      "expected_ayah_ids": ["qa:049:013"]
+    },
+    {
+      "id": "partial-duha-93-3",
+      "category": "partial_phrase",
+      "query_from_ayah_id": "qa:093:003",
+      "query_derivation": "word_slice_diacritic_free",
+      "word_slice": [0, 5],
+      "expected_ayah_ids": ["qa:093:003"]
+    },
+    {
+      "id": "partial-anbiya-21-87",
+      "category": "partial_phrase",
+      "query_from_ayah_id": "qa:021:087",
+      "query_derivation": "word_slice_diacritic_free",
+      "word_slice": [0, 8],
+      "expected_ayah_ids": ["qa:021:087"]
+    },
+    {
+      "id": "typo-fatiha-alamin",
+      "category": "typo",
+      "query": "الحمد لله رب العلمين",
+      "expected_ayah_ids": ["qa:001:002"],
+      "expected_match_mode": "approximate_spelling"
+    },
+    {
+      "id": "typo-ikhlas-ahad",
+      "category": "typo",
+      "query": "قل هو الله احدد",
+      "expected_ayah_ids": ["qa:112:001"],
+      "expected_match_mode": "approximate_one_edit"
+    },
+    {
+      "id": "typo-ikhlas-ahad-substitution",
+      "category": "typo",
+      "query": "قل هو الله اخد",
+      "expected_ayah_ids": ["qa:112:001"],
+      "expected_match_mode": "approximate_one_edit"
+    },
+    {
+      "id": "typo-ikhlas-ahad-deletion",
+      "category": "typo",
+      "query": "قل هو الله حد",
+      "expected_ayah_ids": ["qa:112:001"],
+      "expected_match_mode": "approximate_one_edit"
+    },
+    {
+      "id": "orthographic-inshirah-94-5",
+      "category": "orthographic_variant",
+      "query": "فان مع العسر يسرا",
+      "expected_ayah_ids": ["qa:094:005"]
+    },
+    {
+      "id": "orthographic-duha-93-1",
+      "category": "orthographic_variant",
+      "query": "والضحى",
+      "expected_ayah_ids": ["qa:093:001"]
+    },
+    {
+      "id": "keyboard-persian-yeh-hayy-qayyum",
+      "category": "keyboard_variant",
+      "query": "الحی القیوم",
+      "expected_ayah_ids": ["qa:003:002", "qa:002:255"]
+    },
+    {
+      "id": "keyboard-heh-goal-ikhlas-112-1",
+      "category": "keyboard_variant",
+      "query": "قل ہو الله أحد",
+      "expected_ayah_ids": ["qa:112:001"]
+    },
+    {
+      "id": "unsupported-transposition-ikhlas-ahad",
+      "category": "unsupported_transposition",
+      "query": "قل هو الله ادح",
+      "expected_ayah_ids": ["qa:112:001"],
+      "expected_match_mode": "none"
+    },
+    {
+      "id": "negative-latin-nonsense",
+      "category": "no_answer",
+      "query": "aaris-search-no-match-zzqxx",
+      "expected_ayah_ids": []
+    },
+    {
+      "id": "negative-arabic-nonsense",
+      "category": "no_answer",
+      "query": "زززز قققق",
+      "expected_ayah_ids": []
+    },
+    {
+      "id": "negative-short-fuzzy-ahad",
+      "category": "no_answer",
+      "query": "الله اخد",
+      "expected_ayah_ids": [],
+      "expected_match_mode": "none"
+    },
+    {
+      "id": "negative-short-fuzzy-qayyum",
+      "category": "no_answer",
+      "query": "الحي القيومم",
+      "expected_ayah_ids": [],
+      "expected_match_mode": "none"
+    },
+    {
+      "id": "negative-two-edit-ikhlas",
+      "category": "no_answer",
+      "query": "قل هى الله احدد",
+      "expected_ayah_ids": [],
+      "expected_match_mode": "none"
+    },
+    {
+      "id": "negative-ambiguous-repeated-divine-phrase",
+      "category": "no_answer",
+      "query": "الله لا اله الا هى",
+      "expected_ayah_ids": [],
+      "expected_match_mode": "none"
+    }
+  ]
+}
