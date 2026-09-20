@@ -8,7 +8,13 @@ from tools.pack_gate import PackGateError, validate_manifest
 
 
 class PackGateTests(unittest.TestCase):
-    def _fixture(self, root: Path, *, source_status: str = "production-approved"):
+    def _fixture(
+        self,
+        root: Path,
+        *,
+        source_status: str = "production-approved",
+        attribution_required: bool = False,
+    ):
         vault = root / "source-vault" / "quran" / "example" / "1.0"
         vault.mkdir(parents=True)
         source_artifact = vault / "raw.txt"
@@ -29,6 +35,7 @@ class PackGateTests(unittest.TestCase):
                             "status": source_status,
                             "licence_id": "Example-License",
                             "redistribution_allowed": True,
+                            "attribution_required": attribution_required,
                             "vault_artifact": "source-vault/quran/example/1.0/raw.txt",
                             "sha256": source_hash,
                         }
@@ -43,6 +50,9 @@ class PackGateTests(unittest.TestCase):
         built = pack_dir / "content.sqlite"
         built.write_bytes(b"deterministic pack bytes")
         built_hash = hashlib.sha256(built.read_bytes()).hexdigest()
+        notice = pack_dir / "NOTICE.txt"
+        notice.write_text("Example source notice\\n", encoding="utf-8")
+        notice_hash = hashlib.sha256(notice.read_bytes()).hexdigest()
         manifest = pack_dir / "manifest.json"
         manifest.write_text(
             json.dumps(
@@ -65,6 +75,8 @@ class PackGateTests(unittest.TestCase):
                     "built_byte_size": built.stat().st_size,
                     "dependencies": [],
                     "signature": {"status": "unsigned"},
+                    "notice_path": "content-packs/quran-example/1.0/NOTICE.txt",
+                    "notice_sha256": notice_hash,
                 }
             ),
             encoding="utf-8",
@@ -75,6 +87,30 @@ class PackGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             registry, manifest, _ = self._fixture(Path(tmp))
             validate_manifest(manifest, registry)
+
+    def test_attribution_required_pack_notice_is_hash_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root, attribution_required=True)
+            validate_manifest(manifest, registry)
+            notice = root / "content-packs" / "quran-example" / "1.0" / "NOTICE.txt"
+            notice.write_text("tampered notice\\n", encoding="utf-8")
+            with self.assertRaisesRegex(PackGateError, "notice_sha256 mismatch"):
+                validate_manifest(manifest, registry)
+
+    def test_attribution_required_pack_cannot_point_to_notice_in_other_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root, attribution_required=True)
+            other = root / "content-packs" / "other" / "NOTICE.txt"
+            other.parent.mkdir(parents=True)
+            other.write_text("Example source notice\\n", encoding="utf-8")
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["notice_path"] = "content-packs/other/NOTICE.txt"
+            data["notice_sha256"] = hashlib.sha256(other.read_bytes()).hexdigest()
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(PackGateError, "must live inside its pack directory"):
+                validate_manifest(manifest, registry)
 
     def test_pack_from_unapproved_source_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
