@@ -213,7 +213,7 @@ class VaultGateTests(unittest.TestCase):
             first.unlink()
             first.symlink_to(outside)
             with self.assertRaisesRegex(
-                VaultGateError, "resolves outside snapshot root"
+                VaultGateError, "checksum-set member must not be a symlink"
             ):
                 validate_registry(path)
 
