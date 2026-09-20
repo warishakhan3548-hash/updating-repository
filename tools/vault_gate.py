@@ -96,6 +96,32 @@ def _parse_retrieved_at(value: object, source_id: str) -> None:
         )
 
 
+def _validate_release_requirements(source: dict, source_id: str) -> dict | None:
+    requirements = source.get("release_requirements")
+    if requirements is None:
+        return None
+    expected_fields = {
+        "latest_upstream_version_required",
+        "version_check_url",
+    }
+    if not isinstance(requirements, dict) or set(requirements) != expected_fields:
+        raise VaultGateError(
+            f"{source_id}: release_requirements must contain exactly "
+            f"{sorted(expected_fields)}"
+        )
+    if requirements.get("latest_upstream_version_required") is not True:
+        raise VaultGateError(
+            f"{source_id}: latest_upstream_version_required must be true when declared"
+        )
+    raw_url = requirements.get("version_check_url")
+    parsed = urlparse(raw_url) if isinstance(raw_url, str) else None
+    if parsed is None or parsed.scheme != "https" or not parsed.netloc:
+        raise VaultGateError(
+            f"{source_id}: release version_check_url must be an absolute https URL"
+        )
+    return requirements
+
+
 def _safe_vault_file(root: Path, raw: object, source_id: str, field: str) -> Path:
     if not isinstance(raw, str) or not raw:
         raise VaultGateError(f"{source_id}: missing {field}")
@@ -148,6 +174,8 @@ def validate_registry(registry_path: Path) -> None:
         status = source.get("status")
         if status not in ALLOWED_STATUSES:
             raise VaultGateError(f"{source_id}: invalid status {status!r}")
+
+        release_requirements = _validate_release_requirements(source, source_id)
 
         snapshot_fields_present = [
             field
@@ -279,6 +307,8 @@ def validate_registry(registry_path: Path) -> None:
             "licence_snapshot": source["licence_snapshot"],
             "project_mirror": source["vault_artifact"],
         }
+        if release_requirements is not None:
+            expected_provenance["release_requirements"] = release_requirements
         mismatched = [
             key
             for key, expected in expected_provenance.items()
