@@ -22,6 +22,7 @@ from tools.capture_quranenc_gloss import (
     TERMS_URL,
     VAULT_RELATIVE,
     capture_snapshot,
+    validate_preserved_snapshot,
 )
 
 
@@ -205,6 +206,20 @@ class FakeFetcher:
 
 
 class CaptureTests(unittest.TestCase):
+    def test_preserved_repository_snapshot_revalidates_offline(self):
+        root = Path(__file__).resolve().parents[1]
+        provenance = validate_preserved_snapshot(root)
+        self.assertEqual(6236, provenance["record_count"])
+        self.assertEqual(114, provenance["sura_count"])
+        self.assertEqual(
+            "8cbc4f5f41298e438f7862fff1eba309ffdab254ca240257bd5b652631f2396c",
+            provenance["snapshot_manifest_sha256"],
+        )
+        self.assertEqual(
+            "captured-unreviewed",
+            provenance["promotion_status"],
+        )
+
     def test_direct_cli_help_runs_from_repo_root(self):
         root = Path(__file__).resolve().parents[1]
         completed = subprocess.run(
