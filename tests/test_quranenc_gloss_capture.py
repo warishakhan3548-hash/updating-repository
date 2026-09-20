@@ -10,6 +10,8 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError
 
 from tools.capture_quranenc_gloss import (
     BASE_URL,
@@ -21,7 +23,9 @@ from tools.capture_quranenc_gloss import (
     TERMS_URL,
     VAULT_RELATIVE,
     capture_snapshot,
+    fetch_https,
 )
+from tools.verify_quranenc_gloss_snapshot import verify_snapshot
 
 
 def enc(obj):
@@ -302,6 +306,101 @@ class CaptureTests(unittest.TestCase):
                     )
         self.assertEqual(
             hashes[0], hashes[1]
+        )
+
+    def test_captured_snapshot_revalidates_offline(self):
+        now = datetime(
+            2026,
+            9,
+            20,
+            18,
+            30,
+            tzinfo=timezone.utc,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            capture_snapshot(
+                root,
+                fetcher=FakeFetcher(),
+                now=now,
+            )
+            provenance = verify_snapshot(root)
+            self.assertEqual(
+                "candidate-unreviewed",
+                provenance["review_status"],
+            )
+
+    def test_offline_verifier_detects_source_page_tamper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dest = capture_snapshot(
+                root,
+                fetcher=FakeFetcher(),
+            )
+            source_page = dest / "SOURCE_PAGE.html"
+            source_page.write_bytes(
+                source_page.read_bytes() + b"tamper"
+            )
+            with self.assertRaisesRegex(
+                CaptureError,
+                "source_page_snapshot byte size mismatch",
+            ):
+                verify_snapshot(root)
+
+    def test_translation_list_object_envelope_is_accepted(self):
+        class WrappedFetcher(FakeFetcher):
+            def __call__(self, url):
+                result = super().__call__(url)
+                if url == LIST_URL:
+                    rows = json.loads(
+                        result.body.decode("utf-8")
+                    )
+                    return FetchResult(
+                        result.requested_url,
+                        result.final_url,
+                        result.status,
+                        result.content_type,
+                        enc({"result": rows}),
+                    )
+                return result
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            capture_snapshot(
+                root,
+                fetcher=WrappedFetcher(),
+            )
+            self.assertEqual(
+                "candidate-unreviewed",
+                verify_snapshot(root)["review_status"],
+            )
+
+    def test_fetch_https_retries_transient_503(self):
+        error = HTTPError(
+            LIST_URL,
+            503,
+            "Service Unavailable",
+            hdrs=None,
+            fp=None,
+        )
+        with (
+            patch(
+                "tools.capture_quranenc_gloss.urlopen",
+                side_effect=[error, error, error, error],
+            ) as mocked_open,
+            patch(
+                "tools.capture_quranenc_gloss.time.sleep"
+            ) as mocked_sleep,
+        ):
+            with self.assertRaisesRegex(
+                CaptureError,
+                "HTTP 503",
+            ):
+                fetch_https(LIST_URL, timeout=0.01)
+        self.assertEqual(4, mocked_open.call_count)
+        self.assertEqual(
+            [((1,), {}), ((2,), {}), ((4,), {})],
+            mocked_sleep.call_args_list,
         )
 
     def test_naive_timestamp_fails_closed(
