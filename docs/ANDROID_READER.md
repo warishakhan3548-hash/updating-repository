@@ -19,7 +19,9 @@ The Android build points its asset source directly at `content-packs/quran-core/
 
 Gradle hashes `content.sqlite` before every Android build. At first runtime use the asset is copied into `noBackupFilesDir`, hashed again, and opened with Android SQLite `OPEN_READONLY`.
 
-Debug builds may exercise the candidate pack. Release builds fail closed while the pack is a candidate, and an `approved` manifest still remains blocked until its signature is cryptographically verified against trusted project keys. Signature-shaped metadata alone is never treated as verification. Runtime also rejects every non-release-ready pack outside debug builds.
+Debug builds may exercise the candidate pack. The repository can now cryptographically verify an approved pack against trusted Ed25519 public keys, but the production key registry is empty and the Android release-readiness flag remains fail-closed. Signature-shaped metadata alone is never treated as verification.
+
+The app supports API 24+, while Android's platform Ed25519 `Signature` primitive is only documented on newer API levels. A future production activation path must therefore deliberately choose and test a min-API-compatible verification strategy instead of silently raising minSdk or assuming build-time verification is sufficient for downloadable updates.
 
 ## Runtime architecture
 
