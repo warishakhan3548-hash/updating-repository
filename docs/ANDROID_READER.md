@@ -15,7 +15,7 @@ There is no network permission, account, analytics SDK, translation guess, morph
 
 ## Content activation
 
-The Android build points its asset source directly at `content-packs/quran-core/1.0.4/`; no second Quran database is committed.
+The Android build points its asset source directly at the current canonical-bound candidate `content-packs/quran-core/1.1.0/`; no second Quran database is committed. The pack remains a development candidate until independent review and real release signing.
 
 Gradle hashes `content.sqlite` before every Android build. At first runtime use the asset is copied into `noBackupFilesDir`, hashed again, and opened with Android SQLite `OPEN_READONLY`.
 
