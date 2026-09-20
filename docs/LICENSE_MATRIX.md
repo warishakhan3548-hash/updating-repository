@@ -22,3 +22,8 @@
 - attribution required: yes.
 
 The registry and executable Source Vault gate are authoritative for promotion state; this document is a human-readable summary.
+
+
+## Build/security dependency
+
+- `cryptography==50.0.1` — trusted-pack Ed25519 verification adapter only; **not** Evidence Plane data. PyPI reports the package under `Apache-2.0 OR BSD-3-Clause`. The version is exactly pinned in `requirements-foundation.txt`; the verifier interface remains replaceable.
