@@ -69,6 +69,8 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertTrue(source["redistribution_allowed"])
         self.assertTrue(source["modification_allowed"])
         self.assertTrue(source["attribution_required"])
+        self.assertIn("historical", source["notes"])
+        self.assertIn("reproducibility", source["notes"])
         self.assertIsNone(source["vault_artifact"])
         self.assertIsNone(source["sha256"])
         self.assertIn("6,235", source["notes"])
@@ -83,8 +85,8 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         source = by_id["quran-gloss.quranenc.arabic-seraj.v1.0.0"]
 
         self.assertEqual("1.0.0", source["version"])
-        self.assertEqual("awaiting-artifact", source["status"])
-        self.assertTrue(source["redistribution_allowed"])
+        self.assertEqual("awaiting-licence", source["status"])
+        self.assertIsNone(source["redistribution_allowed"])
         self.assertFalse(source["modification_allowed"])
         self.assertTrue(source["attribution_required"])
         self.assertIsNone(source["vault_artifact"])

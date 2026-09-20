@@ -84,3 +84,11 @@ The Learning Plane stores review events as durable user history and treats sched
 This contract deliberately does not serialize FSRS equations, parameter vectors or library-specific card objects into permanent event identity. A future scheduler may replay the same preserved events into a different cache implementation.
 
 The v1→v2 migration never guesses the meaning of an unknown historical outcome. Exact canonical grade strings are mapped; all other legacy outcomes remain verbatim with no canonical grade. Historical rows stay append-only.
+
+## ADR-019 — Ongoing-update licences do not automatically satisfy immutable archival mirroring
+
+A source may permit current republication while still leaving permanent redistribution of superseded versions unclear. That is insufficient for a public immutable Source Vault whose purpose is long-term reproducibility.
+
+Such a source remains `awaiting-licence` until written clarification, compatible archival terms, or another durable legal basis verifies historical snapshot retention. Acquisition tooling must consult the Source Vault registry before any network request and must require both explicit capture permissions and `historical_snapshot_retention_status=verified-allowed` before writing source bytes.
+
+Release freshness and archival permission remain separate controls: after archival permission is cleared and a snapshot is preserved, a source-specific “stay current” obligation can still require a signed release-time source review. Neither control substitutes for the other.

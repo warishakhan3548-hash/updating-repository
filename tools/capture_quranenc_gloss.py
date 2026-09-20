@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 import hashlib
 import io
 import json
+import re
+from html.parser import HTMLParser
 from pathlib import Path
 import tarfile
 import tempfile
@@ -32,12 +34,24 @@ SOURCE_NAME = (
 )
 TRANSLATION_KEY = "arabic_seraj"
 EXPECTED_VERSION = "1.0.0"
+RESOURCE_TITLE = "Arabic Language - Meanings of Words"
+RESOURCE_BOOK = "As-Siraj fi Bayan Gharib Al-Quran"
 BASE_URL = "https://quranenc.com"
-LIST_URL = f"{BASE_URL}/api/v1/translations/list/ar/?localization=en"
-TERMS_URL = f"{BASE_URL}/en/home"
+SOURCE_INDEX_URL = f"{BASE_URL}/en/home"
+TERMS_URL = f"{BASE_URL}/en/home/about/terms-and-conditions"
 BROWSE_URL = f"{BASE_URL}/en/browse/{TRANSLATION_KEY}"
 VAULT_RELATIVE = Path(
     "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0"
+)
+REGISTRY_RELATIVE = Path("source-vault/registry.json")
+PRESERVED_SNAPSHOT_FIELDS = (
+    "vault_artifact",
+    "licence_snapshot",
+    "provenance",
+    "sha256",
+    "licence_sha256",
+    "provenance_sha256",
+    "byte_size",
 )
 ALLOWED_HOSTS = frozenset({"quranenc.com", "www.quranenc.com"})
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
@@ -127,44 +141,90 @@ def _json(data: bytes, *, label: str):
         ) from exc
 
 
-def _translation_entries(payload) -> list[dict]:
-    if not isinstance(payload, list) or not all(
-        isinstance(item, dict) for item in payload
-    ):
-        raise CaptureError(
-            "translation list API returned an unexpected shape"
-        )
-    return payload
+class _TextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        if data.strip():
+            self.parts.append(data)
+
+
+def _visible_html(raw: bytes, *, label: str) -> str:
+    try:
+        source = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise CaptureError(f"{label} is not valid UTF-8 HTML") from exc
+    parser = _TextExtractor()
+    try:
+        parser.feed(source)
+        parser.close()
+    except Exception as exc:
+        raise CaptureError(f"{label} HTML could not be parsed") from exc
+    return " ".join(" ".join(parser.parts).split())
 
 
 def _selected_translation(
     raw: bytes, *, enforce_version: bool = True
 ) -> dict:
-    entries = _translation_entries(
-        _json(raw, label="translation list")
-    )
-    matches = [
-        entry for entry in entries
-        if entry.get("key") == TRANSLATION_KEY
-    ]
-    if len(matches) != 1:
+    text = _visible_html(raw, label="QuranEnc source index")
+    title_at = text.find(RESOURCE_TITLE)
+    if title_at < 0:
         raise CaptureError(
-            f"expected exactly one {TRANSLATION_KEY!r} "
-            f"translation entry, found {len(matches)}"
+            f"official source index does not list {RESOURCE_TITLE!r}"
         )
-    selected = matches[0]
-    version = (
-        str(selected.get("version", ""))
-        .removeprefix("V")
-        .removeprefix("v")
+    before = text[max(0, title_at - 200):title_at]
+    after = text[title_at:title_at + 520]
+    versions = re.findall(
+        r"\b[Vv]?(\d+\.\d+\.\d+)\b",
+        before,
     )
+    if not versions:
+        raise CaptureError(
+            "resource version is not adjacent to its source-index title"
+        )
+    version = versions[-1]
     if enforce_version and version != EXPECTED_VERSION:
         raise CaptureError(
-            f"upstream {TRANSLATION_KEY} version is "
-            f"{selected.get('version')!r}; expected pinned "
-            f"{EXPECTED_VERSION!r}"
+            f"upstream {TRANSLATION_KEY} version is {version!r}; "
+            f"expected pinned {EXPECTED_VERSION!r}"
         )
-    return selected
+    if RESOURCE_BOOK not in after:
+        raise CaptureError(
+            "source-index title is not followed by the expected As-Siraj attribution"
+        )
+    return {
+        "key": TRANSLATION_KEY,
+        "language_iso_code": "ar",
+        "version": version,
+        "title": RESOURCE_TITLE,
+        "description": f'From the book "{RESOURCE_BOOK}".',
+    }
+
+
+def _validate_terms(raw: bytes) -> None:
+    text = _visible_html(raw, label="QuranEnc terms").casefold()
+    required = (
+        "no modification",
+        "publisher and the source",
+        "version number",
+        "updating the translation",
+    )
+    missing = [phrase for phrase in required if phrase not in text]
+    if missing:
+        raise CaptureError(
+            "terms snapshot is missing expected republication clauses: "
+            + ", ".join(missing)
+        )
+
+
+def _validate_source_page(raw: bytes) -> None:
+    text = _visible_html(raw, label="QuranEnc source page")
+    if RESOURCE_TITLE not in text:
+        raise CaptureError(
+            "source page does not identify the expected QuranEnc resource"
+        )
 
 
 def _sura_rows(payload) -> list[dict]:
@@ -287,6 +347,102 @@ def _record(
     }
 
 
+def _assert_capture_authorized(repo_root: Path) -> None:
+    registry_path = repo_root / REGISTRY_RELATIVE
+    try:
+        registry = json.loads(
+            registry_path.read_text(encoding="utf-8")
+        )
+    except FileNotFoundError as exc:
+        raise CaptureError(
+            "QuranEnc capture blocked: missing source-vault/registry.json"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise CaptureError(
+            "QuranEnc capture blocked: invalid source-vault/registry.json"
+        ) from exc
+
+    sources = registry.get("sources")
+    if not isinstance(sources, list):
+        raise CaptureError(
+            "QuranEnc capture blocked: registry sources must be a list"
+        )
+    matches = [
+        source
+        for source in sources
+        if isinstance(source, dict)
+        and source.get("source_id") == SOURCE_ID
+    ]
+    if len(matches) != 1:
+        raise CaptureError(
+            "QuranEnc capture blocked: expected exactly one "
+            f"registry entry for {SOURCE_ID}"
+        )
+
+    source = matches[0]
+    if source.get("status") != "awaiting-artifact":
+        raise CaptureError(
+            "QuranEnc capture blocked: licence review must promote "
+            "registry status to 'awaiting-artifact' first"
+        )
+    if source.get("version") != EXPECTED_VERSION:
+        raise CaptureError(
+            "QuranEnc capture blocked: registry version does not "
+            "match the pinned acquisition version"
+        )
+
+    required_permissions = {
+        "redistribution_allowed": True,
+        "modification_allowed": False,
+        "attribution_required": True,
+    }
+    mismatched = [
+        field
+        for field, expected in required_permissions.items()
+        if source.get(field) is not expected
+    ]
+    if mismatched:
+        raise CaptureError(
+            "QuranEnc capture blocked: licence permissions are not "
+            "explicitly cleared: " + ", ".join(mismatched)
+        )
+
+    requirements = source.get("release_requirements")
+    if not isinstance(requirements, dict):
+        raise CaptureError(
+            "QuranEnc capture blocked: release requirements are missing"
+        )
+    if requirements.get("latest_upstream_version_required") is not True:
+        raise CaptureError(
+            "QuranEnc capture blocked: latest-version obligation "
+            "is not encoded"
+        )
+    if requirements.get("version_check_url") != SOURCE_INDEX_URL:
+        raise CaptureError(
+            "QuranEnc capture blocked: version-check URL does not "
+            "match the verified official source index"
+        )
+    if (
+        requirements.get("historical_snapshot_retention_status")
+        != "verified-allowed"
+    ):
+        raise CaptureError(
+            "QuranEnc capture blocked: immutable historical snapshot "
+            "retention is not verified-allowed"
+        )
+
+    present_snapshot_fields = [
+        field
+        for field in PRESERVED_SNAPSHOT_FIELDS
+        if source.get(field) not in (None, "")
+    ]
+    if present_snapshot_fields:
+        raise CaptureError(
+            "QuranEnc capture blocked: registry already contains "
+            "preserved snapshot metadata"
+        )
+
+
 def capture_snapshot(
     repo_root: Path,
     *,
@@ -316,6 +472,7 @@ def capture_snapshot(
         retrieved_at.isoformat()
         .replace("+00:00", "Z")
     )
+    _assert_capture_authorized(repo_root)
     destination.parent.mkdir(
         parents=True, exist_ok=True
     )
@@ -332,7 +489,7 @@ def capture_snapshot(
         ] = []
         fetch_records: list[dict] = []
 
-        pre = fetcher(LIST_URL)
+        pre = fetcher(SOURCE_INDEX_URL)
         _validate_result(
             pre, label="metadata preflight"
         )
@@ -341,7 +498,7 @@ def capture_snapshot(
         )
         pre_name = (
             "metadata/"
-            "translations-list-ar.pre.json"
+            "source-index.pre.html"
         )
         raw_entries.append(
             (pre_name, pre.body)
@@ -354,10 +511,7 @@ def capture_snapshot(
         _validate_result(
             terms, label="terms"
         )
-        if not terms.body.strip():
-            raise CaptureError(
-                "terms snapshot is empty"
-            )
+        _validate_terms(terms.body)
         (
             staging / "LICENSE_SOURCE.html"
         ).write_bytes(terms.body)
@@ -372,6 +526,7 @@ def capture_snapshot(
         _validate_result(
             source_page, label="source page"
         )
+        _validate_source_page(source_page.body)
         (
             staging / "SOURCE_PAGE.html"
         ).write_bytes(source_page.body)
@@ -411,7 +566,7 @@ def capture_snapshot(
                 _record(result, name)
             )
 
-        post = fetcher(LIST_URL)
+        post = fetcher(SOURCE_INDEX_URL)
         _validate_result(
             post, label="metadata postflight"
         )
@@ -426,7 +581,7 @@ def capture_snapshot(
             )
         post_name = (
             "metadata/"
-            "translations-list-ar.post.json"
+            "source-index.post.html"
         )
         raw_entries.append(
             (post_name, post.body)

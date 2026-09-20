@@ -17,7 +17,10 @@ from tools.capture_quranenc_gloss import (
     CaptureError,
     EXPECTED_AYAH_COUNTS,
     FetchResult,
-    LIST_URL,
+    RESOURCE_BOOK,
+    RESOURCE_TITLE,
+    SOURCE_ID,
+    SOURCE_INDEX_URL,
     TERMS_URL,
     VAULT_RELATIVE,
     capture_snapshot,
@@ -36,28 +39,53 @@ def meta(
     version="1.0.0",
     last_update="2025-12-17",
 ):
-    return enc(
-        [
+    return (
+        "<html><body>"
+        f"{last_update} - V{version}"
+        f"<h2>{RESOURCE_TITLE}</h2>"
+        f'<p>From the book "{RESOURCE_BOOK}".</p>'
+        "</body></html>"
+    ).encode("utf-8")
+
+
+def authorize_capture(
+    root: Path,
+    *,
+    status: str = "awaiting-artifact",
+    redistribution_allowed=True,
+    retention_status: str = "verified-allowed",
+) -> None:
+    vault = root / "source-vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    (vault / "registry.json").write_text(
+        json.dumps(
             {
-                "key": "arabic_seraj",
-                "language_iso_code": "ar",
-                "version": version,
-                "last_update": last_update,
-                "title": (
-                    "Arabic Language - "
-                    "Meanings of Words"
-                ),
-                "description": "As-Siraj",
-            },
-            {
-                "key": "other",
-                "language_iso_code": "ar",
-                "version": "9.9.9",
-                "last_update": "x",
-                "title": "x",
-                "description": "x",
-            },
-        ]
+                "schema_version": 1,
+                "sources": [
+                    {
+                        "source_id": SOURCE_ID,
+                        "version": "1.0.0",
+                        "status": status,
+                        "redistribution_allowed": redistribution_allowed,
+                        "modification_allowed": False,
+                        "attribution_required": True,
+                        "vault_artifact": None,
+                        "licence_snapshot": None,
+                        "provenance": None,
+                        "sha256": None,
+                        "licence_sha256": None,
+                        "provenance_sha256": None,
+                        "byte_size": None,
+                        "release_requirements": {
+                            "latest_upstream_version_required": True,
+                            "version_check_url": SOURCE_INDEX_URL,
+                            "historical_snapshot_retention_status": retention_status,
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
     )
 
 
@@ -105,7 +133,7 @@ class FakeFetcher:
             "quranenc.com",
             self.final_host,
         )
-        if url == LIST_URL:
+        if url == SOURCE_INDEX_URL:
             self.list_calls += 1
             version = (
                 self.version
@@ -116,7 +144,7 @@ class FakeFetcher:
                 url,
                 final,
                 self.status,
-                "application/json",
+                "text/html",
                 meta(version),
             )
         if url == TERMS_URL:
@@ -125,7 +153,13 @@ class FakeFetcher:
                 final,
                 self.status,
                 "text/html",
-                b"<html>QuranEnc terms</html>",
+                (
+                    b"<html><body>No modification. "
+                    b"Clearly referring to the publisher and the source. "
+                    b"Mentioning the version number. "
+                    b"Updating the translation according to the latest version."
+                    b"</body></html>"
+                ),
             )
         if url == BROWSE_URL:
             return FetchResult(
@@ -134,9 +168,10 @@ class FakeFetcher:
                 self.status,
                 "text/html",
                 (
-                    b"<html>Arabic Language - "
-                    b"Meanings of Words</html>"
-                ),
+                    "<html><body>"
+                    f"<h1>{RESOURCE_TITLE}</h1>"
+                    "</body></html>"
+                ).encode("utf-8"),
             )
         prefix = (
             f"{BASE_URL}/api/v1/"
@@ -194,6 +229,7 @@ class CaptureTests(unittest.TestCase):
         for _ in range(2):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
+                authorize_capture(root)
                 dest = capture_snapshot(
                     root,
                     fetcher=FakeFetcher(),
@@ -287,8 +323,8 @@ class CaptureTests(unittest.TestCase):
                         meta(),
                         archive.extractfile(
                             "metadata/"
-                            "translations-list-"
-                            "ar.pre.json"
+                            "source-index."
+                            "pre.html"
                         ).read(),
                     )
                 with self.assertRaisesRegex(
@@ -331,6 +367,7 @@ class CaptureTests(unittest.TestCase):
     ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            authorize_capture(root)
             with self.assertRaisesRegex(
                 CaptureError,
                 "expected pinned",
@@ -352,6 +389,7 @@ class CaptureTests(unittest.TestCase):
     ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            authorize_capture(root)
             with self.assertRaisesRegex(
                 CaptureError,
                 "metadata changed during capture",
@@ -373,6 +411,7 @@ class CaptureTests(unittest.TestCase):
     ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            authorize_capture(root)
             with self.assertRaisesRegex(
                 CaptureError,
                 "coordinate mismatch",
@@ -393,6 +432,8 @@ class CaptureTests(unittest.TestCase):
         self,
     ):
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            authorize_capture(root)
             with self.assertRaisesRegex(
                 CaptureError,
                 (
@@ -401,7 +442,7 @@ class CaptureTests(unittest.TestCase):
                 ),
             ):
                 capture_snapshot(
-                    Path(tmp),
+                    root,
                     fetcher=FakeFetcher(
                         final_host=(
                             "evil.example"
@@ -413,16 +454,63 @@ class CaptureTests(unittest.TestCase):
         self,
     ):
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            authorize_capture(root)
             with self.assertRaisesRegex(
                 CaptureError,
                 "unexpected HTTP status",
             ):
                 capture_snapshot(
-                    Path(tmp),
+                    root,
                     fetcher=FakeFetcher(
                         status=503
                     ),
                 )
+
+
+    def test_awaiting_licence_blocks_before_network(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            authorize_capture(
+                root,
+                status="awaiting-licence",
+                redistribution_allowed=None,
+                retention_status="unresolved",
+            )
+            calls = []
+
+            def should_not_fetch(url):
+                calls.append(url)
+                raise AssertionError("network must not be reached")
+
+            with self.assertRaisesRegex(
+                CaptureError,
+                "licence review must promote",
+            ):
+                capture_snapshot(root, fetcher=should_not_fetch)
+
+            self.assertEqual([], calls)
+
+    def test_unresolved_historical_retention_blocks_before_network(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            authorize_capture(
+                root,
+                retention_status="unresolved",
+            )
+            calls = []
+
+            def should_not_fetch(url):
+                calls.append(url)
+                raise AssertionError("network must not be reached")
+
+            with self.assertRaisesRegex(
+                CaptureError,
+                "retention is not verified-allowed",
+            ):
+                capture_snapshot(root, fetcher=should_not_fetch)
+
+            self.assertEqual([], calls)
 
 
 if __name__ == "__main__":

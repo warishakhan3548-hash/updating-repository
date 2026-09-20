@@ -27,6 +27,8 @@ The Source Vault gate validates preserved candidate snapshots before production 
 
 Because this repository is project-controlled redistribution infrastructure, a preserved public snapshot must also have verified redistribution permission and explicit modification/attribution flags. If those rights are unresolved, keep the source metadata-only and do not mirror its bytes.
 
+Acquisition tools that write into `source-vault/` must consult the registry **before making any network request**. A source in `awaiting-licence` is not capture-authorized. For sources with an ongoing latest-version condition, capture additionally requires `historical_snapshot_retention_status=verified-allowed`; a status change alone cannot bypass that archival-rights gate.
+
 ## Production promotion contract
 
 A `production-approved` registry entry fails closed unless the project has a consistent source identity, verified redistribution permission, explicit modification/attribution flags, a project-controlled artifact, a non-empty licence snapshot and provenance file, and hashes that still match all three preserved files.
