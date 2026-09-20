@@ -1,10 +1,21 @@
+import base64
 import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
 from tools.pack_gate import PackGateError, validate_manifest
+from tools.pack_signing import (
+    ALGORITHM,
+    PAYLOAD_FORMAT,
+    SIGNATURE_ENCODING,
+    public_key_id,
+    signature_payload,
+)
 
 
 class PackGateTests(unittest.TestCase):
@@ -100,26 +111,90 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaises(PackGateError):
                 validate_manifest(manifest, registry)
 
-    def test_approved_pack_requires_verified_signature_not_just_fields(self):
+    def _sign_approved_manifest(self, root: Path, manifest: Path) -> dict:
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        public_key = private_key.public_key()
+        key_id = public_key_id(public_key)
+        public_der = public_key.public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+
+        policy_dir = root / "policy"
+        policy_dir.mkdir(parents=True, exist_ok=True)
+        (policy_dir / "trusted_pack_keys.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "signature_threshold": 1,
+                    "keys": [
+                        {
+                            "key_id": key_id,
+                            "algorithm": ALGORITHM,
+                            "status": "active",
+                            "public_key_spki_base64": base64.b64encode(
+                                public_der
+                            ).decode("ascii"),
+                            "allowed_pack_ids": ["quran-example"],
+                            "min_release_sequence": 1,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        data["review_status"] = "approved"
+        data["release_sequence"] = 1
+        signature = private_key.sign(
+            signature_payload(data),
+            ec.ECDSA(hashes.SHA256()),
+        )
+        data["signature"] = {
+            "status": "signed",
+            "payload_format": PAYLOAD_FORMAT,
+            "signatures": [
+                {
+                    "algorithm": ALGORITHM,
+                    "encoding": SIGNATURE_ENCODING,
+                    "key_id": key_id,
+                    "value": base64.b64encode(signature).decode("ascii"),
+                }
+            ],
+        }
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+        return data
+
+    def test_approved_pack_requires_real_trusted_signature(self):
         with tempfile.TemporaryDirectory() as tmp:
-            registry, manifest, _ = self._fixture(Path(tmp))
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
+            data["release_sequence"] = 1
             manifest.write_text(json.dumps(data), encoding="utf-8")
+
             with self.assertRaisesRegex(
-                PackGateError, "approved pack requires signature"
+                PackGateError,
+                "signature status must be signed",
             ):
                 validate_manifest(manifest, registry)
 
-            data["signature"] = {
-                "algorithm": "ed25519",
-                "key_id": "release-key-1",
-                "value": "fixture-signature",
-            }
+            self._sign_approved_manifest(root, manifest)
+            validate_manifest(manifest, registry)
+
+    def test_approved_signature_authenticates_entire_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            data = self._sign_approved_manifest(root, manifest)
+            data["review_note"] = "changed after approval"
             manifest.write_text(json.dumps(data), encoding="utf-8")
+
             with self.assertRaisesRegex(
                 PackGateError,
-                "approved packs are disabled until cryptographic signature verification",
+                "trusted signature threshold not met",
             ):
                 validate_manifest(manifest, registry)
 
