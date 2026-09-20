@@ -22,28 +22,145 @@
     "signature"
   ],
   "properties": {
-    "pack_id": {"type": "string", "minLength": 1},
-    "schema_version": {"const": 1},
-    "content_version": {"type": "string", "minLength": 1},
-    "source_id": {"type": "string", "minLength": 1},
-    "source_name": {"type": "string", "minLength": 1},
-    "source_version": {"type": "string", "minLength": 1},
-    "source_vault_path": {"type": "string", "pattern": "^source-vault/"},
-    "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "licence": {"type": "string", "minLength": 1},
-    "edition": {"type": ["string", "null"]},
-    "importer_version": {"type": "string", "minLength": 1},
-    "artifact_path": {"type": "string", "pattern": "^content-packs/"},
-    "record_count": {"type": "integer", "minimum": 0},
-    "review_status": {"enum": ["candidate", "reviewed", "approved"]},
-    "built_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "built_byte_size": {"type": "integer", "minimum": 1},
+    "pack_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_version": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "content_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_vault_path": {
+      "type": "string",
+      "pattern": "^source-vault/"
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "licence": {
+      "type": "string",
+      "minLength": 1
+    },
+    "edition": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "importer_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_path": {
+      "type": "string",
+      "pattern": "^content-packs/"
+    },
+    "record_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "review_status": {
+      "enum": [
+        "candidate",
+        "reviewed",
+        "approved"
+      ]
+    },
+    "built_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "built_byte_size": {
+      "type": "integer",
+      "minimum": 1
+    },
     "dependencies": {
       "type": "array",
       "uniqueItems": true,
-      "items": {"type": "string", "minLength": 1}
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
-    "signature": {"type": "object"}
+    "signature": {
+      "type": "object"
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "source_attribution": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_licence_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "source_licence_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_provenance_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "notice_path": {
+      "type": "string",
+      "pattern": "^content-packs/"
+    },
+    "notice_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "supersedes": {
+      "type": "string",
+      "minLength": 1
+    }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": 2
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "required": [
+          "source_url",
+          "source_attribution",
+          "source_licence_url",
+          "source_licence_sha256",
+          "source_provenance_sha256",
+          "notice_path",
+          "notice_sha256"
+        ]
+      }
+    }
+  ]
 }
