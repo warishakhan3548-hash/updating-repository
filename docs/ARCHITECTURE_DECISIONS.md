@@ -43,3 +43,10 @@ A runtime pack SHA-256 identifies exact shipped bytes, not whether those bytes s
 ## ADR-013 — Canonical Quran semantics are the long-lived reproducibility anchor
 
 Runtime SQLite byte identity is useful but can depend on the pinned Python/SQLite toolchain. Quran evidence therefore has a deterministic canonical JSONL layer between Source Vault and runtime packs. Schema-v3 packs bind to that canonical manifest/artifact, while promotion independently proves that every canonical ayah exactly matches the preserved Source Vault row and that every runtime Quran row/search lane still derives from the same evidence. Recomputing hashes after changing sacred text is not sufficient to restore validity.
+
+
+## ADR-014 — Pack approval uses P-256 signatures over the whole manifest
+
+Approved content packs use ECDSA P-256 with SHA-256 and a project-owned deterministic manifest payload. The complete manifest except the signature block is authenticated, including schema-v3 canonical bindings and a monotonic release-sequence primitive. Public key IDs are SHA-256 fingerprints of SubjectPublicKeyInfo bytes; trusted keys can be scoped, retired, revoked and sequence-bounded. Private release keys stay offline.
+
+P-256 is preferred over platform Ed25519 for the current Android minSdk 24 because Android exposes SHA256withECDSA on old API levels while platform Ed25519 support begins much later. This keeps a future native update verifier replaceable and dependency-light. Full TUF-style freshness/anti-rollback activation remains a later distribution concern rather than importing an entire update framework before downloadable packs exist.
