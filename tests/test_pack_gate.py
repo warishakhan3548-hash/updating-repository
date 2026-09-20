@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tools.pack_gate import PackGateError, validate_manifest
 from tools.pack_signatures import (
+    SIGNATURE_FORMAT,
     canonical_manifest_payload,
     key_id_for_ed25519_public_key,
 )
@@ -107,6 +108,25 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaises(PackGateError):
                 validate_manifest(manifest, registry)
 
+    def test_duplicate_manifest_json_key_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, manifest, _ = self._fixture(Path(tmp))
+            original = manifest.read_text(encoding="utf-8")
+            manifest.write_text(
+                original.replace(
+                    '"pack_id": "quran-example"',
+                    '"pack_id": "quran-example", '
+                    '"pack_id": "shadow-pack"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                PackGateError,
+                "duplicate JSON object key",
+            ):
+                validate_manifest(manifest, registry)
+
     def test_approved_pack_rejects_unsigned_and_legacy_fake_signatures(self):
         with tempfile.TemporaryDirectory() as tmp:
             registry, manifest, _ = self._fixture(Path(tmp))
@@ -118,6 +138,7 @@ class PackGateTests(unittest.TestCase):
             ):
                 validate_manifest(manifest, registry)
 
+            data["release_sequence"] = 1
             data["signature"] = {
                 "algorithm": "ed25519",
                 "key_id": "release-key-1",
@@ -146,12 +167,15 @@ class PackGateTests(unittest.TestCase):
             (policy / "trusted_pack_keys.json").write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "state": "active",
                         "keys": {
                             key_id: {
                                 "algorithm": "ed25519",
                                 "public_key": public,
+                                "status": "active",
+                                "min_release_sequence": 1,
+                                "max_release_sequence": None,
                             }
                         },
                         "roles": {
@@ -167,8 +191,9 @@ class PackGateTests(unittest.TestCase):
 
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
+            data["release_sequence"] = 1
             data["signature"] = {
-                "format": "aaris-pack-signature-v1",
+                "format": SIGNATURE_FORMAT,
                 "role": "content-pack-release",
                 "signatures": [],
             }
