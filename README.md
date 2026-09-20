@@ -8,9 +8,9 @@ This repository deliberately begins with the trust foundation before production 
 
 ## Current phase
 
-Phase 0A–0C: Source Vault policy, semantic kernel, canonical schemas, validation gates and research baseline.
+Phase 0A–0C: Source Vault policy, semantic kernel, canonical schemas, validation gates, deterministic Quran-core builder and research baseline.
 
-Production Quran/Hadith content is currently **not approved**. See `source-vault/registry.json`.
+The exact Tanzil Uthmani v1.1 Quran source used by the project is now **production-approved and preserved** in the Source Vault with licence/provenance hashes. No Hadith dataset is production-approved yet. The derived `quran-core` runtime pack is built only from the pinned vault snapshot and is promoted separately.
 
 ## Architecture boundaries
 
