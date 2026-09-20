@@ -246,6 +246,30 @@
       }
     },
     {
+      "source_id": "morphology.eqtb.v1",
+      "category": "morphology",
+      "source_name": "Extended Quranic Treebank (Quranic)",
+      "original_url": "https://data.mendeley.com/datasets/rk96pn66m4/1",
+      "version": "1",
+      "status": "awaiting-licence",
+      "licence_id": "CC-BY-4.0-dataset-third-party-rights-chain-unverified",
+      "redistribution_allowed": null,
+      "modification_allowed": null,
+      "attribution_required": true,
+      "vault_artifact": null,
+      "licence_snapshot": null,
+      "provenance": null,
+      "sha256": null,
+      "byte_size": null,
+      "notes": "Official Mendeley Data version 1 publicly exposes the Extended Quranic Treebank and labels the dataset CC BY 4.0. Its associated data paper states that foundational Quran text and initial morphological/syntactic material came from Tanzil and the Quranic Arabic Corpus before substantial re-annotation and expert validation. An institutional repository copy explicitly warns that third-party source components remain subject to their respective licences. Because this project already records unresolved commercial/redistribution ambiguity in the Quranic Arabic Corpus terms, the downstream rights scope for embedded or derived third-party components is not yet sufficiently clear for commercial immutable Source Vault mirroring. No EQTB bytes may be captured or consumed by a production pack until the component rights chain, commercial use, redistribution/modification scope, attribution obligations, and durable historical-retention rights are explicitly cleared.",
+      "commercial_use_allowed": null,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://data.mendeley.com/datasets/rk96pn66m4/1",
+        "historical_snapshot_retention_status": "unresolved"
+      }
+    },
+    {
       "source_id": "quran-gloss.qul.english-wbw.resource-92",
       "category": "quran-gloss",
       "source_name": "QUL English Word by Word Translation",
