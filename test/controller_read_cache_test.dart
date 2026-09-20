@@ -226,7 +226,7 @@ void main() {
   });
 
   test(
-    'Home projection cache ignores stock-only counters but not visible facts',
+    'Home projection cache ignores hidden stock facts but not visible status facts',
     () async {
       final medicine = Medicine(
         id: 'home-cache-stock',
@@ -275,9 +275,22 @@ void main() {
         expectedRevision: controller.snapshot.revision,
       );
 
+      expect(controller.homeProjectionEpoch, initialEpoch);
+      expect(
+        identical(initialProjection, controller.homeProjection),
+        isTrue,
+        reason: 'Location is operational detail, not a Home dashboard input.',
+      );
+
+      live = controller.snapshot.records[medicine.id]!;
+      await controller.save(
+        live.patch(<String, dynamic>{'expiry': '2027-12-31'}),
+        expectedRevision: controller.snapshot.revision,
+      );
+
       expect(controller.homeProjectionEpoch, initialEpoch + 1);
       expect(identical(initialProjection, controller.homeProjection), isFalse);
-      expect(controller.homeProjection.attention.single.address, 'Shelf B');
+      expect(controller.homeProjection.shortExpiryCount, 0);
     },
   );
 

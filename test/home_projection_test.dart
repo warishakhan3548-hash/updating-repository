@@ -85,7 +85,7 @@ void main() {
         base.patch(<String, dynamic>{'expiry': '2026-09-13'}),
       ),
       isFalse,
-      reason: 'Expiry drives Home status, ordering and card text.',
+      reason: 'Expiry drives Home warning status and counts.',
     );
   });
 

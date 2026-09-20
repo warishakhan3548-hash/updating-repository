@@ -267,10 +267,9 @@ class _SupplierEditorScreenState extends State<SupplierEditorScreen> {
     canPop: _allowPop || (!_dirty && !_busy),
     onPopInvokedWithResult: (didPop, result) async {
       if (didPop || _busy || !_dirty) return;
-      if (await _confirmDiscard() && mounted) {
-        setState(() => _allowPop = true);
-        Navigator.pop(context);
-      }
+      if (!await _confirmDiscard() || !context.mounted) return;
+      setState(() => _allowPop = true);
+      Navigator.pop(context);
     },
     child: Scaffold(
     appBar: AppBar(
