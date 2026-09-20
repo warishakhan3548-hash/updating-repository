@@ -80,6 +80,18 @@ class PackGateTests(unittest.TestCase):
             registry, manifest, _ = self._fixture(Path(tmp))
             validate_manifest(manifest, registry)
 
+    def test_duplicate_manifest_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, manifest, _ = self._fixture(Path(tmp))
+            raw = manifest.read_text(encoding="utf-8")
+            raw = raw.replace(
+                '"review_status": "reviewed"',
+                '"review_status": "reviewed", "review_status": "approved"',
+            )
+            manifest.write_text(raw, encoding="utf-8")
+            with self.assertRaisesRegex(PackGateError, "duplicate JSON object key"):
+                validate_manifest(manifest, registry)
+
     def test_pack_from_unapproved_source_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             registry, manifest, _ = self._fixture(
