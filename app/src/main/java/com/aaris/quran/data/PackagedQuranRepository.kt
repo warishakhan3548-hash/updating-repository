@@ -22,16 +22,27 @@ class PackagedQuranRepository(
             "Production reader refuses an unapproved or unsigned Quran pack"
         }
 
-        val installed = installVerifiedPack()
-        if (!BuildConfig.DEBUG) {
+        val releaseSequence = if (BuildConfig.DEBUG) {
+            null
+        } else {
             check(BuildConfig.QURAN_PACK_RELEASE_READY) {
                 "Release reader requires an approved Quran pack"
             }
-            check(BuildConfig.QURAN_PACK_RELEASE_SEQUENCE > 0L) {
-                "Approved Quran pack is missing a positive release sequence"
+            val candidate = BuildConfig.QURAN_PACK_RELEASE_SEQUENCE
+            check(candidate in 1..MAX_SIGNED_RELEASE_SEQUENCE) {
+                "Approved Quran pack is missing a valid signed release sequence"
             }
+            activationStateStore.requireAcceptable(
+                releaseSequence = candidate,
+                packSha256 = BuildConfig.QURAN_PACK_SHA256,
+            )
+            candidate
+        }
+
+        val installed = installVerifiedPack()
+        releaseSequence?.let { accepted ->
             activationStateStore.accept(
-                releaseSequence = BuildConfig.QURAN_PACK_RELEASE_SEQUENCE,
+                releaseSequence = accepted,
                 packSha256 = BuildConfig.QURAN_PACK_SHA256,
             )
         }
