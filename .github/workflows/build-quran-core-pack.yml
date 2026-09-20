@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: build-quran-core-1-0-0
+  group: build-quran-core-1-0-1
   cancel-in-progress: false
 
 jobs:
@@ -45,20 +45,20 @@ jobs:
 
             git fetch origin main
             git reset --hard origin/main
-            git clean -fdx -- content-packs/quran-core/1.0.0
+            git clean -fdx -- content-packs/quran-core/1.0.1
 
-            if [[ -f content-packs/quran-core/1.0.0/manifest.json && -f content-packs/quran-core/1.0.0/content.sqlite ]]; then
+            if [[ -f content-packs/quran-core/1.0.1/manifest.json && -f content-packs/quran-core/1.0.1/content.sqlite && -f content-packs/quran-core/1.0.1/NOTICE.txt ]]; then
               echo 'Quran core pack already exists on current main; validating existing immutable pack.'
               python tools/vault_gate.py source-vault/registry.json
               python tools/pack_gate.py \
                 source-vault/registry.json \
-                content-packs/quran-core/1.0.0/manifest.json
+                content-packs/quran-core/1.0.1/manifest.json
               exit 0
             fi
 
-            if [[ -e content-packs/quran-core/1.0.0/manifest.json || -e content-packs/quran-core/1.0.0/content.sqlite ]]; then
+            if [[ -e content-packs/quran-core/1.0.1/manifest.json || -e content-packs/quran-core/1.0.1/content.sqlite || -e content-packs/quran-core/1.0.1/NOTICE.txt ]]; then
               echo 'Partial Quran core pack detected; rebuilding the derived pack from pinned inputs.'
-              rm -rf content-packs/quran-core/1.0.0
+              rm -rf content-packs/quran-core/1.0.1
             fi
 
             python tools/vault_gate.py source-vault/registry.json
@@ -67,7 +67,7 @@ jobs:
             python tools/build_quran_core.py
             python tools/pack_gate.py \
               source-vault/registry.json \
-              content-packs/quran-core/1.0.0/manifest.json
+              content-packs/quran-core/1.0.1/manifest.json
 
             BASE_SHA="$(git rev-parse HEAD)"
             git fetch origin main
@@ -78,9 +78,10 @@ jobs:
               continue
             fi
 
-            git add content-packs/quran-core/1.0.0/manifest.json
-            git add -f content-packs/quran-core/1.0.0/content.sqlite
-            git commit -m 'Build Quran core content pack 1.0.0'
+            git add content-packs/quran-core/1.0.1/manifest.json
+            git add content-packs/quran-core/1.0.1/NOTICE.txt
+            git add -f content-packs/quran-core/1.0.1/content.sqlite
+            git commit -m 'Build Quran core content pack 1.0.1'
 
             if git push origin HEAD:main; then
               exit 0
