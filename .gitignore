@@ -5,6 +5,7 @@ __pycache__/
 build/
 dist/
 *.sqlite
+!content-packs/**/*.sqlite
 *.sqlite3
 *.db
 .env
