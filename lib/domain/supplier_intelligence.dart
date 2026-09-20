@@ -8,7 +8,7 @@ class SupplierProductProfile {
     required this.supplier,
     required this.samples,
     required this.medianRemainingShelfLifeDays,
-    required this.medianUsableShelfLifeDays,
+    required this.returnWindowDays,
     required this.medianUnitCostPaise,
     required this.planningLeadDays,
   });
@@ -17,7 +17,7 @@ class SupplierProductProfile {
   final Supplier supplier;
   final int samples;
   final int medianRemainingShelfLifeDays;
-  final int medianUsableShelfLifeDays;
+  final int returnWindowDays;
   final int? medianUnitCostPaise;
   final int? planningLeadDays;
 }
@@ -98,10 +98,6 @@ Map<String, SupplierPurchaseAdvice> buildSupplierPurchaseAdvice({
         .where((days) => days >= 0)
         .toList(growable: false);
     if (remaining.length < 2) continue;
-    final usable = remaining
-        .map((days) => days - supplier.returnBeforeExpiryDays)
-        .map((days) => days < 0 ? 0 : days)
-        .toList(growable: false);
     final costs = samples
         .map((item) => item.unitCostPaise)
         .whereType<int>()
@@ -111,7 +107,7 @@ Map<String, SupplierPurchaseAdvice> buildSupplierPurchaseAdvice({
       supplier: supplier,
       samples: remaining.length,
       medianRemainingShelfLifeDays: _median(remaining),
-      medianUsableShelfLifeDays: _median(usable),
+      returnWindowDays: supplier.returnBeforeExpiryDays,
       medianUnitCostPaise: costs.length >= 2 ? _median(costs) : null,
       planningLeadDays: supplierPlanningLeadDays(supplier),
     );
@@ -126,7 +122,9 @@ Map<String, SupplierPurchaseAdvice> buildSupplierPurchaseAdvice({
     final best = profiles[0];
     final runner = profiles[1];
     final shelfAdvantage =
-        best.medianUsableShelfLifeDays - runner.medianUsableShelfLifeDays;
+        best.medianRemainingShelfLifeDays - runner.medianRemainingShelfLifeDays;
+    final returnWindowAdvantage =
+        best.returnWindowDays - runner.returnWindowDays;
     final leadAdvantage = best.planningLeadDays != null &&
             runner.planningLeadDays != null
         ? runner.planningLeadDays! - best.planningLeadDays!
@@ -138,16 +136,21 @@ Map<String, SupplierPurchaseAdvice> buildSupplierPurchaseAdvice({
             runner.medianUnitCostPaise!
         : 0.0;
     final comparableShelf =
-        best.medianUsableShelfLifeDays + 14 >= runner.medianUsableShelfLifeDays;
+        (best.medianRemainingShelfLifeDays -
+                runner.medianRemainingShelfLifeDays)
+            .abs() <=
+        30;
     final meaningful = shelfAdvantage >= 30 ||
+        (returnWindowAdvantage >= 15 && comparableShelf) ||
         (leadAdvantage >= 2 && comparableShelf) ||
         (costAdvantage >= .05 && comparableShelf);
     if (!meaningful) continue;
 
     final cues = <String>[
       '${best.samples} recorded intake observations',
-      'usable shelf-life median ${best.medianUsableShelfLifeDays} दिन',
-      '${runner.supplier.name}: ${runner.medianUsableShelfLifeDays} दिन',
+      'remaining shelf-life median ${best.medianRemainingShelfLifeDays} दिन',
+      '${runner.supplier.name}: ${runner.medianRemainingShelfLifeDays} दिन',
+      'return window ${best.returnWindowDays} दिन',
       if (best.planningLeadDays != null)
         'lead time ${best.planningLeadDays} दिन',
       if (best.medianUnitCostPaise != null &&
@@ -166,10 +169,13 @@ Map<String, SupplierPurchaseAdvice> buildSupplierPurchaseAdvice({
 }
 
 int _compareProfiles(SupplierProductProfile left, SupplierProductProfile right) {
-  final shelf = right.medianUsableShelfLifeDays.compareTo(
-    left.medianUsableShelfLifeDays,
-  );
-  if (shelf != 0) return shelf;
+  final shelfDelta =
+      left.medianRemainingShelfLifeDays - right.medianRemainingShelfLifeDays;
+  if (shelfDelta.abs() >= 30) {
+    return shelfDelta > 0 ? -1 : 1;
+  }
+  final returnWindow = right.returnWindowDays.compareTo(left.returnWindowDays);
+  if (returnWindow != 0) return returnWindow;
   final leftLead = left.planningLeadDays ?? 1 << 20;
   final rightLead = right.planningLeadDays ?? 1 << 20;
   final lead = leftLead.compareTo(rightLead);
@@ -178,6 +184,10 @@ int _compareProfiles(SupplierProductProfile left, SupplierProductProfile right) 
   final rightCost = right.medianUnitCostPaise ?? maxExactPaise;
   final cost = leftCost.compareTo(rightCost);
   if (cost != 0) return cost;
+  final shelf = right.medianRemainingShelfLifeDays.compareTo(
+    left.medianRemainingShelfLifeDays,
+  );
+  if (shelf != 0) return shelf;
   final samples = right.samples.compareTo(left.samples);
   return samples != 0
       ? samples
