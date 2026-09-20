@@ -321,3 +321,29 @@ def verify_approved_manifest(
             f"{verified}/{threshold}"
         )
     return verified
+
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Validate the project content-pack public trust root."
+    )
+    parser.add_argument(
+        "policy",
+        nargs="?",
+        type=Path,
+        default=Path("policy/trusted_pack_keys.json"),
+    )
+    args = parser.parse_args()
+    try:
+        validate_trusted_key_policy(args.policy)
+    except PackSignatureError as exc:
+        print(f"Trusted pack key policy FAILED: {exc}", file=__import__("sys").stderr)
+        raise SystemExit(1)
+    print("Trusted pack key policy OK")
+
+
+if __name__ == "__main__":
+    main()
