@@ -2,12 +2,17 @@
 __pycache__/
 *.pyc
 .venv/
+.gradle/
 build/
+**/build/
 dist/
 *.sqlite
 !content-packs/**/*.sqlite
 *.sqlite3
 *.db
+local.properties
+.idea/
+*.iml
 .env
 *.key
 *.pem
