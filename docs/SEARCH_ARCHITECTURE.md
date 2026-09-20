@@ -29,3 +29,12 @@ Exact-source, diacritic-free and partial-phrase queries are derived at evaluatio
 CI enforces Recall@5 = 1.0 for exact-source, diacritic-free and partial-phrase categories and now also for the constrained orthographic and South-Asian keyboard categories, while retaining a zero false-positive rate for labelled no-answer cases. The fallback is evaluated as a distinct `approximate_spelling` match mode. Edit-distance typo cases remain measured but are not promoted as a supported capability. Any future FTS5, trigram, edit-distance, morphology or AI-expanded lane must demonstrate a measured gain without degrading exact retrieval, abstention or source-faithful rendering.
 
 The evaluator emits Recall@5, Recall@10, MRR, NDCG@10, negative false-positive rate and zero-result rate. Host SQLite p50/p95 are diagnostic only; low-end Android latency remains a separate device measurement.
+
+
+## One-edit typo experiment — 2026-09-21
+
+A follow-on experiment evaluates a narrower typo fallback **after both the strict lane and `arabic-query-variant-v1` have abstained**. It is host-side evaluation code only; Android runtime behavior is unchanged.
+
+The fallback refuses single-word fuzzy guesses. For a multi-word query, a candidate must match a contiguous token window of the same width, each token must be identical or at edit distance one, and the whole query may consume at most **one insertion, deletion or substitution total**. This keeps the evidence threshold substantially tighter than generic fuzzy search.
+
+Promotion requires the existing labelled golden set to retain Recall@5 = 1.0 for exact-source, diacritic-free, partial-phrase, orthographic-variant and keyboard-variant cases, raise the labelled typo category to Recall@5 = 1.0, and keep labelled no-answer false-positive rate at 0.0. Even a passing host benchmark is not sufficient for Android adoption: low-end-device latency and equivalent Kotlin behavior still require measurement and review.
