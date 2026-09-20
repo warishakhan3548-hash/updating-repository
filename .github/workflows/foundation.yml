@@ -1,0 +1,27 @@
+name: Evidence foundation checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Source Vault gate
+        run: python tools/vault_gate.py source-vault/registry.json
+      - name: SQLite schema validation
+        run: python tools/validate_schemas.py
+      - name: Foundation unit tests
+        run: python -m unittest discover -s tests -v
