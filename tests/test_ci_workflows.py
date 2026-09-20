@@ -50,6 +50,11 @@ class WorkflowSupplyChainTests(unittest.TestCase):
 
         self.assertEqual([], failures, "\\n".join(failures))
 
+
+    def test_pack_builder_reruns_when_validation_tests_change(self) -> None:
+        text = self.workflow_text("build-quran-core-pack.yml")
+        self.assertIn("      - 'tests/**'\n", text)
+
     def test_pack_builder_revalidates_the_committed_tree_before_push(self) -> None:
         text = self.workflow_text("build-quran-core-pack.yml")
         commit_index = text.index("git commit -m 'Build Quran canonical layer and core pack 1.1.0'")
