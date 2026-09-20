@@ -15,6 +15,7 @@ from tools.verify_quran_core_pack import (
     QuranPackSemanticError,
     verify_quran_core_pack,
 )
+from tools.pack_signing import PackSignatureError, verify_manifest_signature
 
 
 class PackGateError(RuntimeError):
@@ -407,28 +408,26 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
                 pack_metadata,
             )
 
-    signature = manifest["signature"]
-    if not isinstance(signature, dict):
-        raise PackGateError(f"{manifest_path}: signature must be an object")
-    if manifest["review_status"] == "approved":
-        required_signature = ("algorithm", "key_id", "value")
-        if any(not isinstance(signature.get(key), str) or not signature[key] for key in required_signature):
-            raise PackGateError(
-                f"{manifest_path}: approved pack requires signature algorithm/key_id/value"
-            )
-        # Signature-shaped strings are not cryptographic verification. Until a
-        # trusted-key verifier exists, production approval must fail closed.
-        raise PackGateError(
-            f"{manifest_path}: approved packs are disabled until cryptographic "
-            "signature verification is implemented"
-        )
-
     if manifest["pack_id"] == "quran-core" and manifest["schema_version"] in {2, 3}:
         try:
             verify_quran_core_pack(root, manifest, artifact)
         except QuranPackSemanticError as exc:
             raise PackGateError(
                 f"{manifest_path}: Quran semantic verification failed: {exc}"
+            ) from exc
+
+    signature = manifest["signature"]
+    if not isinstance(signature, dict):
+        raise PackGateError(f"{manifest_path}: signature must be an object")
+    if manifest["review_status"] == "approved":
+        try:
+            verify_manifest_signature(
+                manifest,
+                root / "policy" / "trusted_pack_keys.json",
+            )
+        except PackSignatureError as exc:
+            raise PackGateError(
+                f"{manifest_path}: approved pack signature verification failed: {exc}"
             ) from exc
 
 
