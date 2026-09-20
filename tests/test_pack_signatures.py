@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tools.pack_signatures import (
+    DOMAIN_SEPARATOR,
     PackSignatureError,
     canonical_manifest_payload,
     key_id_for_ed25519_public_key,
@@ -136,6 +137,26 @@ class PackSignatureTests(unittest.TestCase):
             before,
             canonical_manifest_payload(manifest),
         )
+
+    def test_signed_payload_is_domain_separated(self):
+        payload = canonical_manifest_payload(self._manifest())
+        self.assertTrue(payload.startswith(DOMAIN_SEPARATOR))
+        self.assertEqual(1, payload.count(DOMAIN_SEPARATOR))
+
+    def test_non_ascii_object_key_in_signed_payload_is_rejected(self):
+        manifest = self._manifest()
+        manifest["مفتاح"] = "value"
+        with self.assertRaisesRegex(
+            PackSignatureError,
+            "non-ASCII JSON object key",
+        ):
+            canonical_manifest_payload(manifest)
+
+    def test_arabic_string_value_is_preserved_in_signed_payload(self):
+        manifest = self._manifest()
+        manifest["source_name"] = "القرآن الكريم"
+        payload = canonical_manifest_payload(manifest)
+        self.assertIn("القرآن الكريم".encode("utf-8"), payload)
 
     def test_unconfigured_keyring_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
