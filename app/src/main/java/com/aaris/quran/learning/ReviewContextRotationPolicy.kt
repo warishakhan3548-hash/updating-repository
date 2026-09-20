@@ -77,7 +77,7 @@ object ReviewContextRotationPolicy {
         val early = successfulReviewCount < config.familiarPhaseSuccessfulReviews
         val chosen = if (early) {
             eligible.minWithOrNull(
-                compareByDescending<ReviewContextCandidate> { it.familiar }
+                compareBy<ReviewContextCandidate> { if (it.familiar) 0 else 1 }
                     .thenBy { if (it.source == ReviewContextSource.QURAN) 0 else 1 }
                     .thenBy { it.pedagogicalRank }
                     .thenBy { it.priorReviewUses }
