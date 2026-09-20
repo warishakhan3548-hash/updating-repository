@@ -48,6 +48,10 @@ Historical schema-v1/v2 packs remain immutable and verifiable under their own co
 - `reviewed`: technically/content reviewed.
 - `approved`: reserved for a pack whose cryptographic signature has actually been verified against a trusted project key.
 
-**Current fail-closed rule:** the repository does not yet contain the trusted-key cryptographic verifier required for an `approved` pack. Therefore `tools/pack_gate.py` rejects every `approved` manifest, even if it contains plausible-looking `algorithm`, `key_id`, and `value` fields. Mere field presence is not a signature check. Promotion remains blocked until a real verifier and key-rotation policy are implemented and tested.
+Approved packs are verified cryptographically by `tools/pack_signing.py` before promotion. The signed payload is the complete manifest except its top-level `signature` field, so schema-v3 canonical bindings, Source Vault provenance, hashes, toolchain metadata, dependencies, review status and signed `release_sequence` are authenticated together.
+
+The trusted-key policy supports threshold verification, SHA-256 public-key fingerprint IDs, active/retired/revoked states, pack scoping, and release-sequence windows. See `docs/PACK_SIGNING.md`.
+
+**Current fail-closed rule:** no production public key is enrolled yet. The policy threshold therefore cannot be met, so no pack can become `approved` until an explicit offline key ceremony and content review occur. Private release keys must never be created or stored merely to make CI green.
 
 Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for rollback and reproducibility.
