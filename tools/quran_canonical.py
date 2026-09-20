@@ -155,6 +155,7 @@ def load_canonical(
         "source_provenance_sha256",
         "licence",
         "edition",
+        "source_artifact_name",
     }
     missing = sorted(key for key in required if manifest.get(key) in (None, ""))
     if missing:
@@ -168,7 +169,7 @@ def load_canonical(
     if manifest["generator_version"] != GENERATOR_VERSION:
         raise QuranCanonicalError("unexpected canonical generator_version")
 
-    source, source_artifact, _ = load_production_source(root)
+    source, source_artifact, source_rows = load_production_source(root)
     expected_source = {
         "source_id": SOURCE_ID,
         "source_name": source["source_name"],
@@ -179,6 +180,8 @@ def load_canonical(
         "source_licence_sha256": source["licence_sha256"],
         "source_provenance_sha256": source["provenance_sha256"],
         "licence": source["licence_id"],
+        "edition": "Uthmani",
+        "source_artifact_name": source_artifact.name,
     }
     for field, expected in expected_source.items():
         if manifest.get(field) != expected:
@@ -243,6 +246,10 @@ def load_canonical(
         raise QuranCanonicalError("canonical Quran coordinate sequence mismatch")
     if len(rows) != manifest["record_count"] or len(rows) != 6236:
         raise QuranCanonicalError("canonical Quran record_count mismatch")
+    if tuple(rows) != tuple(source_rows):
+        raise QuranCanonicalError(
+            "canonical Quran text does not match preserved Source Vault artifact"
+        )
 
     return CanonicalQuran(
         manifest=manifest,
