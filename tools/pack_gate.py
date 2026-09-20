@@ -95,20 +95,19 @@ def _validate_source_release_review(
     manifest_path: Path,
 ) -> None:
     requirements = source.get("release_requirements")
-    if requirements is None:
-        return
     required_requirement_fields = {
         "latest_upstream_version_required",
         "version_check_url",
         "historical_snapshot_retention_status",
     }
-    if (
-        not isinstance(requirements, dict)
-        or set(requirements) != required_requirement_fields
-        or requirements.get("latest_upstream_version_required") is not True
-    ):
+    if not isinstance(requirements, dict) or set(requirements) != required_requirement_fields:
         raise PackGateError(
             f"{manifest_path}: invalid Source Vault release_requirements"
+        )
+    latest_required = requirements.get("latest_upstream_version_required")
+    if not isinstance(latest_required, bool):
+        raise PackGateError(
+            f"{manifest_path}: latest_upstream_version_required must be boolean"
         )
     retention_status = requirements.get("historical_snapshot_retention_status")
     if retention_status != "verified-allowed":
@@ -122,6 +121,13 @@ def _validate_source_release_review(
         )
 
     review = manifest.get("source_release_review")
+    if not latest_required:
+        if review is not None:
+            raise PackGateError(
+                f"{manifest_path}: source_release_review is only valid when the source "
+                "requires the latest upstream version"
+            )
+        return
     if review is None:
         if manifest.get("review_status") == "approved":
             raise PackGateError(
