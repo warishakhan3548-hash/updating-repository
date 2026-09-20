@@ -197,20 +197,41 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
   final _returnService = SupplierReturnService();
   bool _dueOnly = true;
   bool _returning = false;
+  bool _routeOpening = false;
 
-  Future<void> _edit(Supplier supplier) async {
-    await openSupplierEditor(
+  bool get _interactionLocked => _returning || _routeOpening;
+
+  Future<void> _runExclusiveRoute(Future<void> Function() action) async {
+    if (_interactionLocked || !mounted) return;
+    setState(() => _routeOpening = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _routeOpening = false);
+    }
+  }
+
+  Future<void> _edit(Supplier supplier) => _runExclusiveRoute(
+    () => openSupplierEditor(
       context,
       widget.controller,
       supplier: supplier,
-    );
-  }
+    ),
+  );
+
+  Future<void> _openMedicine(Medicine medicine) => _runExclusiveRoute(
+    () => openEditor(
+      context,
+      widget.controller,
+      record: medicine,
+    ),
+  );
 
   Future<void> _prepareReturn(
     Supplier supplier,
     Set<String> dueIds,
   ) async {
-    if (_returning || dueIds.isEmpty) return;
+    if (_interactionLocked || dueIds.isEmpty) return;
     setState(() => _returning = true);
     try {
       final review = widget.controller.reviewSupplierReturn(
@@ -356,7 +377,9 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                               ),
                               IconButton(
                                 tooltip: 'Edit supplier',
-                                onPressed: () => _edit(supplier),
+                                onPressed: _interactionLocked
+                                    ? null
+                                    : () => unawaited(_edit(supplier)),
                                 icon: const Icon(Icons.edit_outlined),
                               ),
                             ],
@@ -426,9 +449,11 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
-                          onPressed: _returning
+                          onPressed: _interactionLocked
                               ? null
-                              : () => _prepareReturn(supplier, returnableIds),
+                              : () => unawaited(
+                                  _prepareReturn(supplier, returnableIds),
+                                ),
                           icon: _returning
                               ? const SizedBox(
                                   width: 18,
@@ -472,11 +497,9 @@ class _SupplierDetailScreenState extends State<SupplierDetailScreen> {
                 medicine: medicine,
                 today: widget.controller.today,
                 due: dueIds.contains(medicine.id),
-                onTap: () => openEditor(
-                  context,
-                  widget.controller,
-                  record: medicine,
-                ),
+                onTap: _interactionLocked
+                    ? null
+                    : () => unawaited(_openMedicine(medicine)),
               );
             },
           );
@@ -498,7 +521,7 @@ class _SupplierMedicineRow extends StatelessWidget {
   final Medicine medicine;
   final DateTime today;
   final bool due;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
