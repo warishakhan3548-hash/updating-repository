@@ -8,7 +8,35 @@ from tools.vault_gate import VaultGateError, validate_registry
 
 
 class VaultGateTests(unittest.TestCase):
+    def _policy(self, root: Path, **overrides: bool) -> None:
+        policy_dir = root / "policy"
+        policy_dir.mkdir(parents=True, exist_ok=True)
+        rules = {
+            "require_production_approved": True,
+            "require_redistribution_allowed": True,
+            "require_exact_sha256": True,
+            "require_licence_snapshot": True,
+            "require_project_controlled_artifact": True,
+            "forbid_runtime_upstream_download": True,
+            "forbid_unknown_licence_in_release": True,
+        }
+        rules.update(overrides)
+        (policy_dir / "license_policy.json").write_text(
+            json.dumps({"schema_version": 1, "release_rules": rules}),
+            encoding="utf-8",
+        )
+
+    def _refresh_provenance_hash(
+        self, registry_path: Path, provenance_path: Path
+    ) -> None:
+        data = json.loads(registry_path.read_text(encoding="utf-8"))
+        data["sources"][0]["provenance_sha256"] = hashlib.sha256(
+            provenance_path.read_bytes()
+        ).hexdigest()
+        registry_path.write_text(json.dumps(data), encoding="utf-8")
+
     def _registry(self, root: Path, source: dict) -> Path:
+        self._policy(root)
         vault = root / "source-vault"
         vault.mkdir(parents=True, exist_ok=True)
         path = vault / "registry.json"
@@ -24,7 +52,8 @@ class VaultGateTests(unittest.TestCase):
         artifact = base / "raw" / "source.txt"
         artifact.write_bytes(b"immutable example")
         digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
-        (base / "LICENSE.txt").write_text("example licence", encoding="utf-8")
+        licence = base / "LICENSE.txt"
+        licence.write_text("example licence", encoding="utf-8")
         provenance = {
             "source_id": "example",
             "source_name": "Example Source",
@@ -46,11 +75,17 @@ class VaultGateTests(unittest.TestCase):
             "version": "1.0",
             "status": "production-approved",
             "redistribution_allowed": True,
+            "modification_allowed": False,
+            "attribution_required": True,
             "licence_id": "example-licence",
             "vault_artifact": "source-vault/quran/example/1.0/raw/source.txt",
             "licence_snapshot": "source-vault/quran/example/1.0/LICENSE.txt",
             "provenance": "source-vault/quran/example/1.0/provenance.json",
             "sha256": digest,
+            "licence_sha256": hashlib.sha256(licence.read_bytes()).hexdigest(),
+            "provenance_sha256": hashlib.sha256(
+                provenance_path.read_bytes()
+            ).hexdigest(),
             "byte_size": artifact.stat().st_size,
         }
         return source, artifact, provenance_path
@@ -99,6 +134,7 @@ class VaultGateTests(unittest.TestCase):
             provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
             provenance["version"] = "latest"
             provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            self._refresh_provenance_hash(path, provenance_path)
             with self.assertRaises(VaultGateError):
                 validate_registry(path)
 
@@ -110,6 +146,7 @@ class VaultGateTests(unittest.TestCase):
             provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
             provenance["project_mirror"] = "https://upstream.invalid/latest"
             provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            self._refresh_provenance_hash(path, provenance_path)
             with self.assertRaises(VaultGateError):
                 validate_registry(path)
 
@@ -122,6 +159,7 @@ class VaultGateTests(unittest.TestCase):
             provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
             provenance["original_url"] = source["original_url"]
             provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            self._refresh_provenance_hash(path, provenance_path)
             with self.assertRaisesRegex(VaultGateError, "absolute https URL"):
                 validate_registry(self._registry(root, source))
 
@@ -135,6 +173,45 @@ class VaultGateTests(unittest.TestCase):
             artifact.symlink_to(outside)
             with self.assertRaisesRegex(VaultGateError, "resolves outside source-vault"):
                 validate_registry(self._registry(root, source))
+
+
+    def test_tampered_licence_snapshot_fails_hash_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root)
+            path = self._registry(root, source)
+            licence = (
+                root
+                / "source-vault"
+                / "quran"
+                / "example"
+                / "1.0"
+                / "LICENSE.txt"
+            )
+            licence.write_text("changed terms", encoding="utf-8")
+            with self.assertRaises(VaultGateError):
+                validate_registry(path)
+
+    def test_retrieval_timestamp_requires_timezone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, provenance_path = self._valid_snapshot(root)
+            path = self._registry(root, source)
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["retrieved_at"] = "2026-09-20T00:00:00"
+            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            self._refresh_provenance_hash(path, provenance_path)
+            with self.assertRaises(VaultGateError):
+                validate_registry(path)
+
+    def test_weakened_licence_policy_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root)
+            path = self._registry(root, source)
+            self._policy(root, forbid_unknown_licence_in_release=False)
+            with self.assertRaises(VaultGateError):
+                validate_registry(path)
 
 
 if __name__ == "__main__":
