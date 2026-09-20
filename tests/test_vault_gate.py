@@ -446,6 +446,21 @@ class VaultGateTests(unittest.TestCase):
             with self.assertRaises(VaultGateError):
                 validate_registry(path)
 
+    def test_historical_retention_policy_cannot_be_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root)
+            path = self._registry(root, source)
+            self._policy(
+                root,
+                require_historical_snapshot_retention_allowed=False,
+            )
+            with self.assertRaisesRegex(
+                VaultGateError,
+                "weakens mandatory release rules",
+            ):
+                validate_registry(path)
+
     def test_latest_version_release_requirement_requires_https_check_url(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._registry(
