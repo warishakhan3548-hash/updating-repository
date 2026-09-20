@@ -8,13 +8,13 @@ This repository builds trust and reproducibility before UI breadth. Critical ext
 
 ## Current phase
 
-Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. The deterministic Quran core builder is the bridge into early Phase 1.
+Phase 0A–0C is operational, the first Quran evidence source has passed the production Source Vault gate, and Phase 1 has a minimal offline Android reader on the trusted read-only Reader Core boundary. Canonical Quran schema v3 is integrated; its protected publisher will create the next immutable runtime candidate only after exact-tree validation succeeds.
 
 **Production-approved today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
 
 **Not production-approved yet:** Quranic Arabic Corpus morphology, Hadith datasets, QUL resources and other optional content. See `source-vault/registry.json`.
 
-This is not yet a finished reader application. Reader UI, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+This is not yet a finished reader application. The current reader deliberately withholds word meanings/morphology because no word-level source has passed the legal Source Vault gate. Learning, Hadith retrieval and external-AI evidence workflows remain later phases.
 
 ## Architecture boundaries
 
@@ -29,15 +29,19 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 
 `tools/quran_core.py` validates the pinned Tanzil artifact and the complete 114-surah / 6,236-ayah coordinate sequence while keeping original display text separate from derived search normalization.
 
-`tools/build_quran_core.py` deterministically builds the current `quran-core` 1.0.4 candidate under `content-packs/` using provenance-bound manifest schema v2, including SQLite content, manifest and the source-derived Tanzil attribution notice. The pack contains 6,236 ayahs, keeps display Arabic separate from search-normalized lanes, and remains unsigned/candidate until release review and signing. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
+The published `quran-core 1.0.4` remains an immutable schema-v2 candidate. Canonical schema v3 adds a deterministic `canonical/quran-core/1.0.0/ayahs.jsonl` layer between Source Vault evidence and runtime SQLite; the protected publisher targets a new `quran-core 1.1.0` candidate and does not rewrite 1.0.4.
 
 The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.
+
+Approved packs require real Ed25519 verification against `policy/trusted_pack_keys.json` after source/provenance/canonical/semantic checks. The production trust policy is intentionally empty, so no current pack can be approved. Android release activation remains separately fail-closed until equivalent on-device signature verification exists.
 
 ## Validation
 
 The main branch runs:
 
 ```bash
+python -m pip install --disable-pip-version-check -r requirements-foundation.txt
+python tools/pack_signing.py policy/trusted_pack_keys.json
 python tools/vault_gate.py source-vault/registry.json
 python tools/pack_gate.py source-vault/registry.json
 python tools/validate_schemas.py
