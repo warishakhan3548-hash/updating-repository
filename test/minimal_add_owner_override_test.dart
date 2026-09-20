@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:aaris_pharmacy/domain/ai_protocol.dart';
 import 'package:aaris_pharmacy/domain/local_ai_protocol.dart';
+import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
