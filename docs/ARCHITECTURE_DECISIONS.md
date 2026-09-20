@@ -23,3 +23,10 @@ Use TUF-style version, hash, signature and rollback principles rather than ad-ho
 
 ## ADR-008 — Runtime packs cannot outrun Source Vault trust
 A runtime content pack may only reference a `production-approved` Source Vault entry. CI cross-checks the pack's source ID, version, vault path, source hash and licence against the registry, then verifies the built artifact's own hash and byte size. `approved` packs require signature metadata. This turns provenance from documentation into an executable release boundary.
+
+
+## ADR-009 — Ayah-only core until morphology is production-approved
+The first Quran core pack stores source-faithful ayah evidence and derived search lanes only. It must not manufacture canonical token, segment, lexeme or morphology identities by whitespace splitting. Word-level linguistic identities wait for a legally compatible morphology source that independently passes the Source Vault gate and mapping invariants.
+
+## ADR-010 — Attribution notices are source-derived, not hand-authored
+When the preserved source artifact embeds the redistribution/attribution notice required for derived copies, the pack builder extracts those exact embedded notice bytes into the runtime pack. A manually rewritten summary is not the authoritative redistribution notice. Notice bytes are independently hashed in the manifest and must live beside the pack they describe.
