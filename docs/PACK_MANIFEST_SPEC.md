@@ -1,28 +1,34 @@
 # Content Pack Manifest Spec
 
-A runtime content pack is a derived artifact, never the surviving source of truth. Every pack must be traceable to one **production-approved** Source Vault entry.
+A runtime content pack is a derived artifact, never the surviving source of truth. Every pack must trace to one **production-approved** Source Vault entry.
 
-Each pack manifest includes:
+## Schema v1
 
-- `pack_id`, `schema_version`, `content_version`;
-- `source_id`, source name/version/edition;
-- exact `source_vault_path` and `source_sha256`;
-- licence identifier;
-- importer version;
-- runtime `artifact_path`, `record_count`, `built_sha256`, `built_byte_size`;
-- review status;
-- dependencies;
-- signature metadata;
-- when attribution is required, a pack-local `notice_path` and exact `notice_sha256`.
+Schema v1 remains supported for historical packs. For attribution-required sources it requires a pack-local `notice_path` plus `notice_sha256`, validates the hash, and keeps both the runtime artifact and notice inside the immutable pack-version directory even after symlink resolution.
 
-`tools/pack_gate.py` fails closed when the source is not production-approved, when source identity/hash/path/licence drift from the Source Vault registry, or when the built artifact's bytes no longer match its manifest.
+Schema v1 does not bind notice wording, licence snapshot identity, or provenance identity back to the Source Vault. Existing v1 packs are not rewritten in place.
 
-For a Source Vault entry with `attribution_required=true`, the manifest must carry both `notice_path` and `notice_sha256`. The notice must be non-empty, resolve inside the same immutable pack-version directory as the manifest (including after symlink resolution), and match the declared SHA-256. The runtime artifact is subject to the same pack-local resolution rule. If optional notice metadata is present for another source, the path/hash pair is still validated together.
+## Schema v2 — provenance-bound pack
 
-`candidate` and `reviewed` packs may be unsigned during development. A pack marked `approved` must carry signature algorithm, key ID and signature value. This creates the release boundary now while allowing the final signing implementation/key-management policy to remain replaceable.
+Schema v2 retains all v1 checks and additionally requires:
 
-A pack is immutable by content version. Updating a gloss pack must not rebuild unrelated Quran/Hadith packs. Release tooling must reject incompatible dependency mixes and preserve a previous verified pack for rollback.
+- `source_url`;
+- `source_attribution`;
+- `source_licence_url`;
+- `source_licence_sha256`;
+- `source_provenance_sha256`;
+- `notice_path` and `notice_sha256`.
 
-## Attribution notice gate
+`tools/pack_gate.py` loads the pinned Source Vault provenance and requires those values to match it. For SQLite packs, the same source identity, attribution, licence/provenance hashes, notice hash, and exact notice text must also exist inside `pack_metadata`.
 
-When the production Source Vault entry requires attribution, the runtime pack must carry a project-packaged notice file and bind it with `notice_path` plus `notice_sha256`. `tools/pack_gate.py` verifies the notice file and its hash. This prevents a valid evidence source from being repackaged in a way that silently drops required source credit or licence notice obligations.
+This closes an important trust gap: a caller cannot replace a required notice or attribution with arbitrary text, recompute local hashes, and still pass the gate if those values no longer match the preserved Source Vault record.
+
+For the Tanzil Quran pack, notice text is derived from comment lines in the exact preserved production artifact. The importer does not author substitute licence wording.
+
+## Promotion
+
+- `candidate`: deterministic build output; not release-approved.
+- `reviewed`: technically/content reviewed.
+- `approved`: requires current signature material and release-policy checks.
+
+Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for rollback and reproducibility.

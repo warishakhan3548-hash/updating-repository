@@ -1,57 +1,74 @@
-# Phase 1 Reader Architecture
+# Reader Architecture — Phase 1
 
 ## Purpose
 
-The first reader slice proves the product north star without weakening the Evidence Plane. It renders the exact verified Quran Arabic already present in `quran-core` and deliberately postpones word-level meaning/morphology until a legally preserved token-level source passes the Source Vault gate.
+The Reader is intentionally thinner than the content pipeline. Its job is to display already-verified Quran evidence, navigate stable coordinates, and preserve the visual anchor needed for future tap-to-understand interactions.
 
-## Data path
+The Reader must never become a second Quran database, a morphology generator, or a place where search-normalized text leaks into display.
 
-`content-packs/quran-core/1.0.3/` is bundled as an Android asset directory by reference; its database bytes are not duplicated in a second source tree.
+## Trust boundary
 
-At runtime:
+Production flow:
 
-1. copy `content.sqlite` into the app-private versioned pack directory only when needed;
-2. verify the exact expected byte size and SHA-256 before activation;
-3. atomically rename the verified candidate inside the same directory;
-4. mark the installed file read-only;
-5. open SQLite with `OPEN_READONLY`;
-6. verify pack ID, content version, source SHA-256 and Quran coordinate count from `pack_metadata`;
-7. query only `quran_ayah.original_text` for display.
+`Source Vault -> deterministic importer -> gated/signed quran-core pack -> ReaderCore -> UI`
 
-Search-normalized fields never feed the reading surface.
+`ReaderCore.from_manifest()` reuses the existing content-pack gate. Production callers additionally refuse a pack whose manifest is not `approved`. Development/tests must opt in explicitly when exercising a `candidate` pack.
 
-## UI contract
+The runtime database is opened read-only. Reader models expose `original_text`; they do not expose `search_unicode` or `search_diacritic_free`.
 
-The visible reader stays intentionally small:
+## Navigation contract
 
-- previous / next Surah;
-- obvious Surah chooser;
-- source-information action;
-- exact Arabic ayah text with coordinates shown separately.
+A Quran position is an app-owned `QuranCoordinate(surah, ayah)` whose canonical ayah ID is `qa:SSS:AAA`.
 
-Arabic is rendered RTL with scalable `sp` text. Material controls provide standard semantics and touch behavior. The reader performs database installation/verification and reads off the UI thread.
+The Reader supports:
 
-No guessed Surah-name table, whitespace-derived token identity, morphology, translation or AI output is inserted into the evidence reading surface.
+- direct coordinate lookup;
+- first/last positions;
+- previous/next navigation across Surah boundaries;
+- ordered iteration of the complete coordinate set;
+- per-Surah ayah count for simple progress labels.
 
-## Network boundary
+Invalid coordinates fail closed instead of silently falling back to a nearby ayah.
 
-The Phase 1 app manifest declares neither `INTERNET` nor `ACCESS_NETWORK_STATE`. Core reading therefore cannot silently depend on a server. The source-information screen may hand an explicit Tanzil link to the user's external browser; the app itself does not fetch it.
+## Word-tap plumbing without fake morphology
 
-Later audio, signed pack updates or external-AI flows must be separate explicit capabilities rather than hidden reader dependencies.
+The current `quran-core` pack line is deliberately ayah-only. It contains no canonical `quran_token` rows because no word-level morphology source has yet passed the Source Vault licence/provenance gate.
 
-## Replaceability
+To let the UI prototype anchored taps safely, `ReaderCore.surface_tap_anchors()` derives transient non-whitespace spans from the exact displayed string. These anchors:
 
-Jetpack Compose is an implementation choice, not a permanent data contract. The durable boundary is the verified content-pack contract plus repository methods that expose source-faithful records. A future UI toolkit can replace Compose without changing canonical IDs, source artifacts or user history.
+- are namespaced `ui-surface:`;
+- carry character start/end offsets into the immutable ayah string;
+- have no `TokenID`, `LexemeID`, root, lemma, gloss, or grammar claim;
+- are never written to the Evidence Plane;
+- may be discarded and regenerated at any time.
 
-## Validation
+Whitespace hit splitting is therefore a rendering aid, not linguistic annotation.
 
-CI checks that:
+When a legally preserved word-level source is approved, a later pack may map visual spans to canonical token/segment IDs after explicit alignment tests. Until then, the UI must not invent word meanings or morphology.
 
-- the Android pack contract matches the checked-in `quran-core` manifest;
-- the app references the existing pack instead of duplicating source bytes;
-- the manifest has no direct network permissions;
-- the reader opens SQLite read-only and selects `original_text`, never search-normalized display data;
-- Source Vault and content-pack gates still pass;
-- Android unit tests compile and a debug APK assembles.
+## Android UI implications
 
-Device-level TalkBack, large-font, RTL, low-end performance and scroll-smoothness testing remain release gates and are not claimed by repository compilation alone.
+The future Android layer should remain a simple projection of this core:
+
+1. local content pack is the source of truth;
+2. Arabic renders from `ReaderAyah.original_text` only;
+3. navigation events request another `QuranCoordinate`;
+4. tap hit-testing may return a `SurfaceTapAnchor` but must show no authoritative linguistic detail unless a trusted word-level pack resolves it;
+5. interactive controls should meet Android's 48dp minimum target guidance, with RTL and screen-reader semantics tested on-device.
+
+No network call belongs on the critical read path.
+
+## Release invariants
+
+A Reader release fails if:
+
+- the activated Quran pack fails the existing pack gate;
+- an unapproved pack is accepted by the production reader path;
+- display text comes from a normalized/search column;
+- a missing coordinate is silently substituted;
+- UI-only anchors are persisted as canonical Quran tokens;
+- word meaning/morphology appears without a provenance-backed source assertion.
+
+## Current limitation
+
+This phase does **not** yet provide tap meanings. That is intentional. QAC v0.4 remains blocked by conflicting official usage statements, and QUL morphology cannot be treated as an independently cleared replacement until each resource's upstream licence/provenance is verified.
