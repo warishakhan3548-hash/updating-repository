@@ -25,6 +25,8 @@ An unmirrored research candidate may remain metadata-only. Once **any** preserve
 
 The Source Vault gate validates preserved candidate snapshots before production promotion as well as production-approved snapshots. This prevents research/awaiting-review bytes from drifting silently between acquisition and later review. A preserved candidate still cannot feed a release content builder until its registry status is explicitly promoted to `production-approved`.
 
+For a multi-file source snapshot, `vault_artifact` may point to a deterministic aggregate manifest that cryptographically binds the member files. The registry gate validates that aggregate artifact, licence snapshot and review provenance; a source-specific offline validator must also reconstruct and verify the full member set. QuranEnc `arabic_seraj` follows this pattern: the original capture provenance remains immutable, while `review-provenance.json` binds the aggregate manifest to current registry policy without rewriting the historical capture record.
+
 Because this repository is project-controlled redistribution infrastructure, a preserved public snapshot must also have verified redistribution permission and explicit modification/attribution flags. If those rights are unresolved, keep the source metadata-only and do not mirror its bytes.
 
 ## Production promotion contract
