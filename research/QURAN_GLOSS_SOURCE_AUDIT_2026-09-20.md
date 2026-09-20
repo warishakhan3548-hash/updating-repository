@@ -14,20 +14,21 @@ Purpose: find a legally preservable source that can make the north-star flow `Re
 
 Register `quran-gloss.quranenc.arabic-seraj.v1.0.0` as **awaiting-licence**.
 
-No QuranEnc content bytes are production-approved or capture-authorized by this change. The current Android reader must continue to abstain rather than invent a meaning when no verified local gloss pack is installed.
+No QuranEnc content bytes are production-approved or currently capture-authorized. A review-only snapshot was captured earlier in commit `95e8fc41fae70c4687e41ac887df7ab0c2c2eb48`; after the stronger archival-retention review, those bytes are removed from the active Source Vault tree and remain excluded from registry artifact fields. The current Android reader must continue to abstain rather than invent a meaning when no verified local gloss pack is installed.
 
 Before acquisition, obtain authoritative clarification that the republication terms permit this project to retain and redistribute immutable historical snapshots after a newer upstream version appears, or obtain an equivalent archival grant. Only after that review may the registry move to `awaiting-artifact` with explicit redistribution/modification/attribution flags.
 
-After licence clearance, the acquisition sequence is:
+After licence clearance, the acquisition/preservation sequence is:
 
-1. update the registry to `awaiting-artifact` with reviewed permissions;
-2. obtain authoritative Arabic translation-list metadata and confirm `arabic_seraj` at version 1.0.0;
-3. capture the exact upstream response/file bytes for all required coordinates without editing them;
-4. preserve the applicable QuranEnc API/terms page and the exact resource page;
+1. set `historical_snapshot_retention_status=verified-allowed` and update the registry to `awaiting-artifact` with reviewed permissions;
+2. obtain authoritative translation-list metadata and confirm the then-current `arabic_seraj` version;
+3. either restore the exact historical review capture if the grant permits that version, or reacquire the then-current official bytes through the gated capture path;
+4. preserve the applicable QuranEnc API/terms page and exact resource page;
 5. record retrieval timestamp, URLs/status, version, sizes and SHA-256 values;
 6. store the immutable snapshot under project control;
 7. independently validate coordinates and content shape;
-8. only then build a separate candidate gloss pack.
+8. only then build a separate candidate gloss pack;
+9. before release approval, separately bind the latest-upstream-version review into the signed manifest.
 
 Normal builds must never re-query QuranEnc.
 
@@ -65,16 +66,17 @@ The capture is fail-closed:
 - build a deterministic raw tar plus request-level SHA-256/size metadata, a candidate provenance record and checksums;
 - leave the result explicitly `captured-unreviewed` until a human/source review promotes the registry entry.
 
-This repository still has **no preserved QuranEnc production artifact**. The source remains `awaiting-licence` until the historical-archive redistribution question is resolved. Only then may it become `awaiting-artifact`, after which the real capture can run in a trusted network-enabled environment and the resulting bytes/terms can be reviewed for a separate production promotion. A runtime gloss importer must not precede that promotion.
+This repository still has **no preserved QuranEnc production artifact**. The source remains `awaiting-licence` until the historical-archive redistribution question is resolved. The earlier review capture is an audit artifact in Git history, not a production Source Vault dependency, and its active-tree copy is removed. Only after archival permission is verified may the source become `awaiting-artifact` and an exact snapshot be restored/reacquired for review. A runtime gloss importer must not precede that promotion.
 
 
 ## Follow-up — redistribution freshness boundary (verified 2026-09-21)
 
 Current primary-source review still shows **Arabic Language - Meanings of Words** as version **V1.0.0**. QuranEnc's API documentation exposes a version-bearing translations-list endpoint, and its published republication terms require publishers to update the translation according to the latest version issued by QuranEnc.
 
-That creates two distinct invariants:
+That creates three distinct invariants:
 
-1. **Archive invariant:** once archival redistribution is legally cleared, keep every exact legally preserved snapshot allowed by that grant so historical builds remain reproducible and no upstream deletion can erase our evidence trail.
-2. **Release-eligibility invariant:** before approving a newly distributed pack from a source with a latest-version condition, explicitly verify the official upstream version and bind that review into the signed pack manifest.
+1. **Acquisition-permission invariant:** do not move a source to `awaiting-artifact` or register preserved bytes while historical snapshot retention remains unresolved.
+2. **Archive invariant:** once archival redistribution is legally cleared, keep every exact legally preserved snapshot allowed by that grant so historical builds remain reproducible and no upstream deletion can erase our evidence trail.
+3. **Release-eligibility invariant:** before approving a newly distributed pack from a source with a latest-version condition, explicitly verify the official upstream version and bind that review into the signed pack manifest.
 
 The implementation records the future release-time condition as `release_requirements` on the Source Vault entry and `source_release_review` on an approved pack. That second gate becomes relevant only after the archival-retention gate is cleared. It intentionally does not make normal builds query QuranEnc and does not claim that software can replace legal/source review. If a compatible archival grant is obtained and the official version later advances, the preserved old snapshot remains part of the reproducibility record only to the extent that grant permits, while a newly distributed approved pack must use a source version that passes the current release review.
