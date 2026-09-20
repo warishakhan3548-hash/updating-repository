@@ -23,10 +23,12 @@ The verifier uses Ed25519 against project-controlled public keys in `policy/trus
 
 Release key IDs are SHA-256 fingerprints of the canonical public-key descriptor. Threshold policy is supported. Enrolled keys are explicitly active, retired, or revoked and are bound to release-sequence validity windows; retired keys can remain available for historical verification without authorizing newer sequences, and revoked keys never count. An active policy must have enough active authorized keys to satisfy its threshold.
 
-Approved manifests now also require a positive integer `release_sequence`. The value is inside the signed payload, so changing release order after signing invalidates approval. This provides the deterministic ordering primitive needed for later rollback resistance without pretending that client-side rollback protection already exists.
+Approved manifests require a positive safe-integer `release_sequence`. The value is inside the signed payload, so changing release order after signing invalidates approval.
+
+The Android bundled-release reader now persists the highest accepted sequence in `noBackupFilesDir/trust/quran-core.release-sequence` with `AtomicFile`. A lower production sequence is rejected before local replacement, and the state advances only after exact bundled bytes pass runtime SHA-256 verification and activation succeeds. Debug candidates do not create or mutate production rollback state.
 
 The repository trust root is deliberately `bootstrap-required`: no real release public key has been enrolled and no private signing key is stored in GitHub. Existing candidate packs therefore remain candidates until durable offline key custody and independent backup are established.
 
 ## Still blocked before automatic network updates
 
-Cryptographic authenticity and a signed ordering primitive are not the whole update system. Automatic remote pack updates remain disabled until the project persists the highest accepted `release_sequence`, handles freshness/expiry, tests atomic activation/recovery, and reviews key-rotation/revocation protocol. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.
+Automatic remote pack updates remain disabled. Before downloaded-pack activation exists, the project still needs a reviewed on-device signature-verification path compatible with minSdk 24, freshness/expiry metadata, atomic downloaded-pack activation/recovery, and remote trust-root rotation semantics. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.
