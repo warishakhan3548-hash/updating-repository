@@ -28,6 +28,8 @@ It deliberately contains no note text, review history, identifiers or other user
 
 `tools/user_backup.py export` creates the database snapshot with SQLite's online backup mechanism rather than copying the live database file directly. This is important when the application database may be active or using a journal/WAL.
 
+Backup format v1 currently accepts only `user.sqlite` schema v2. The historical `schemas/user_v1.sql` fixture did not assign a stable `PRAGMA user_version=1` (it remains SQLite default `0`), so legacy databases must first pass the existing tested v1→v2 application migration rather than being guessed into a backup schema.
+
 The exported snapshot is validated before publication:
 
 1. SQLite opens read-only.
@@ -60,7 +62,7 @@ The reference restore path writes only to a **new** destination database. It ref
 
 The Android application must perform its eventual restore while its user database is closed, validate into a temporary app-private file, then publish through one coordinated database-lifecycle owner. Do not replace an open Room/SQLite database underneath live connections.
 
-A restored older supported schema remains an older schema until the application's normal tested migration path upgrades it. Backup restore must not invent a parallel migration system.
+Backup restore must not invent a parallel migration system. When a future schema version is added, support for restoring that version must be explicit and regression-tested; older pre-v2 databases migrate through the existing application migration before export.
 
 ## Scope
 
