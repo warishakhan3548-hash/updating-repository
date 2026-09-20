@@ -186,9 +186,9 @@ class PackagedQuranRepository(
             if (compatibilityQuery.isBlank()) return@withContext emptyList()
 
             val compatibilityExpression =
-                "replace(replace(replace(replace(replace(replace(" +
+                "replace(replace(replace(replace(replace(replace(replace(" +
                     "search_diacritic_free, 'ٱ', 'ا'), 'أ', 'ا'), 'إ', 'ا'), " +
-                    "'آ', 'ا'), 'ی', 'ي'), 'ہ', 'ه')"
+                    "'آ', 'ا'), 'ی', 'ي'), 'ى', 'ي'), 'ہ', 'ه')"
 
             database.rawQuery(
                 """
