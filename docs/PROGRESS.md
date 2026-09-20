@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 0A–0C is executable. The first Quran Evidence Plane source is permanently mirrored, a deterministic Quran-core builder exists, and the first complete candidate runtime pack has been produced from pinned Source Vault bytes. Work can now enter the minimal Phase 1 reader without inventing morphology or Hadith evidence.
+Phase 0A–0C is executable. The first Quran Evidence Plane source is permanently mirrored, deterministic Quran-core packs are reproducible from pinned Source Vault bytes, and early Phase 1 now has a minimal Android reader over the verified local pack. Word-level comprehension remains deliberately blocked until token-level evidence passes the same legal/provenance gate.
 
 ## Completed
 
@@ -17,8 +17,10 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - 114-surah / 6,236-ayah coordinate invariants;
 - display Arabic separated from derived search-normalized lanes;
 - deterministic Quran-core importer with byte-reproducibility coverage;
-- complete candidate Quran core pack published at `content-packs/quran-core/1.0.2/`;
-- GitHub Actions foundation checks and deterministic pack build workflow.
+- current candidate Quran core pack published at `content-packs/quran-core/1.0.3/`;
+- GitHub Actions foundation checks and deterministic pack build workflow;
+- minimal Android reader shell with read-only verified pack activation, RTL Arabic rendering, Surah navigation and source notice access;
+- Android contract tests that forbid network permission and normalized-text rendering on the reading path.
 
 ## Production Source Vault
 
@@ -42,31 +44,37 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 ## Quran core candidate pack
 
 - pack: `quran-core`
-- content version: `1.0.2`
-- artifact: `content-packs/quran-core/1.0.2/content.sqlite`
+- content version: `1.0.3`
+- artifact: `content-packs/quran-core/1.0.3/content.sqlite`
 - artifact bytes: `4599808`
-- artifact SHA-256: `fbb8827d9a80b29087153178615ede039d15aa50c33c43b536ebcd8c9eaa531e`
+- artifact SHA-256: `7acfb731c59ff2bc404752372eda8f30d16f38fa8c282aa4887ccb2fd8a2a025`
 - records: `6236`
-- importer: `quran-core-importer-3`
+- importer: `quran-core-importer-4`
 - search normalization: `arabic-search-v1`
 - review status: `candidate`
 - signature status: unsigned
-- source-derived attribution notice: `content-packs/quran-core/1.0.2/NOTICE.txt`
-- notice SHA-256: `731ac0d39eb5081307625f5111b19bd8786c6646e695aa8fb0263ad701f41544`
+- source-derived attribution notice: `content-packs/quran-core/1.0.3/NOTICE.txt`
+- notice SHA-256: `d52680db446c36e9f7878c704e1db6eee16328f854671276fc63533fb73f3483`
 
-Candidate does not mean release-approved. Promotion must still pass review/signing policy. Version 1.0.1 remains preserved as the preceding candidate; 1.0.2 replaces the hand-maintained notice with notice text derived from the pinned source artifact and binds provenance attribution/source URL into runtime metadata.
+Candidate does not mean release-approved. Promotion still requires the project release/signing policy.
+
+## Phase 1 reader slice
+
+The Android reader references the existing `quran-core` 1.0.3 directory as build assets rather than creating another source copy. On first use it copies the SQLite artifact into a private versioned pack directory, verifies exact size/SHA-256 before activation, verifies runtime metadata, opens SQLite read-only, and queries only `quran_ayah.original_text`.
+
+The initial app declares no direct network permissions. Coordinates are displayed separately from Quran text. Word-level tap, gloss and morphology are intentionally absent rather than derived from whitespace or AI.
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, pack/source identity binding, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The Evidence foundation workflow passed after the attribution-notice gate and regression tests were added.
+Foundation automation checks Source Vault integrity, licence/provenance consistency, pack/source identity binding, attribution-notice hashing, pack-local artifact/notice isolation, SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder execution and deterministic pack reproducibility.
 
-No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
+The Android workflow checks the pack contract, re-runs the Source Vault/content-pack gates, runs JVM unit tests and assembles a debug APK. No Hadith retrieval benchmark, FSRS retention benchmark, TalkBack device test or low-end Android performance number is claimed yet.
 
 ## Next safe milestones
 
 1. Review/sign/promote the Quran core pack according to the release policy.
-2. Build the minimal reader: immutable Arabic rendering, stable Surah/Ayah navigation, RTL/accessibility semantics, and anchored word-tap plumbing.
-3. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
+2. Exercise the reader with TalkBack, large fonts, RTL and representative low-end hardware; measure cold start, scroll and Surah-switch latency.
+3. Add anchored word meaning only after a legally preserved, provenance-backed token/gloss source exists.
 4. Resolve QAC licensing or choose a legally clearer morphology source.
 5. Preserve an edition-aware Hadith source before production Hadith search.
 6. Add an independent backup/archive for critical Source Vault artifacts.
