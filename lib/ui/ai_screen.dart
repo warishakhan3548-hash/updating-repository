@@ -570,8 +570,11 @@ class _AiScreenState extends State<AiScreen> {
     final text = _request.text.trim();
     if (text.isEmpty) return;
 
-    if ((text.startsWith('{') || text.contains('```')) &&
-        containsAiConversationJson(text)) {
+    // External pharmacy JSON always owns the composer before natural-language
+    // routing. Chat apps may prepend UI text such as "Worked for 43s" when the
+    // owner copies a response, so a valid protocol marker must never reach the
+    // deterministic Medicine Database command router.
+    if (containsAiConversationJson(text)) {
       setState(() {
         _request.clear();
       });

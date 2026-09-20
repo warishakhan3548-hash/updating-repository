@@ -40,10 +40,19 @@ class AiConversationResponse {
     try {
       decoded = jsonDecode(candidate);
     } on FormatException {
-      if (containsAiConversationJson(text) || text.startsWith('{')) {
+      final extracted = _singleProtocolJsonObject(text);
+      if (extracted == null) {
+        if (containsAiConversationJson(text) || text.startsWith('{')) {
+          throw _invalidResponse;
+        }
+        return AiConversationResponse._(reply: text);
+      }
+      candidate = extracted;
+      try {
+        decoded = jsonDecode(candidate);
+      } on FormatException {
         throw _invalidResponse;
       }
-      return AiConversationResponse._(reply: text);
     }
     if (decoded is! Map<String, dynamic> && containsAiConversationJson(text)) {
       throw _invalidResponse;
@@ -92,6 +101,72 @@ class AiConversationResponse {
 const _invalidResponse = FormatException(
   'The AI returned incomplete or ambiguous change data. Ask it for one complete pharmacy action object. Nothing was changed.',
 );
+
+String? _singleProtocolJsonObject(String text) {
+  final candidates = <String>[];
+  int? start;
+  var depth = 0;
+  var inString = false;
+  var escaped = false;
+
+  for (var index = 0; index < text.length; index++) {
+    final char = text[index];
+
+    if (start == null) {
+      if (char == '{') {
+        start = index;
+        depth = 1;
+        inString = false;
+        escaped = false;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char == '\\') {
+        escaped = true;
+      } else if (char == '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char == '"') {
+      inString = true;
+      continue;
+    }
+    if (char == '{') {
+      depth++;
+      continue;
+    }
+    if (char != '}') continue;
+
+    depth--;
+    if (depth > 0) continue;
+
+    final raw = text.substring(start, index + 1).trim();
+    start = null;
+    if (!containsAiConversationJson(raw)) continue;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic> &&
+          (decoded['schema'] == pharmacySchema ||
+              decoded.keys.any(
+                (key) => const {'reply', 'actions', 'operations'}.contains(key),
+              ))) {
+        candidates.add(raw);
+      }
+    } on FormatException {
+      // Keep scanning the pasted wrapper. The caller fails closed when a
+      // pharmacy marker is present but no complete protocol object is found.
+    }
+  }
+
+  if (candidates.length > 1) throw _invalidResponse;
+  return candidates.isEmpty ? null : candidates.single;
+}
 
 bool containsAiConversationJson(String text) => RegExp(
   r'"(?:reply|actions|operations)"\s*:|"schema"\s*:\s*"aaris\.pharmacy\.v1',
