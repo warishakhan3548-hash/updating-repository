@@ -84,10 +84,12 @@ def validate_registry(registry_path: Path) -> None:
             raise VaultGateError(
                 f"{source_id}: artifact/licence/provenance must be distinct files"
             )
+        if licence.stat().st_size == 0:
+            raise VaultGateError(f"{source_id}: licence snapshot is empty")
 
         expected_size = source.get("byte_size")
         expected_hash = source.get("sha256")
-        if not isinstance(expected_size, int) or expected_size < 0:
+        if not isinstance(expected_size, int) or expected_size < 1:
             raise VaultGateError(f"{source_id}: invalid byte_size")
         if (
             not isinstance(expected_hash, str)
@@ -106,25 +108,39 @@ def validate_registry(registry_path: Path) -> None:
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
         required = [
             "source_id",
+            "source_name",
             "original_url",
             "version",
             "retrieved_at",
             "sha256",
             "byte_size",
             "licence_id",
+            "redistribution_allowed",
+            "project_mirror",
         ]
         missing = [key for key in required if provenance.get(key) in (None, "")]
         if missing:
             raise VaultGateError(f"{source_id}: provenance missing {missing}")
         if provenance["source_id"] != source_id:
             raise VaultGateError(f"{source_id}: provenance source_id mismatch")
+        for key in ("source_name", "original_url", "version", "licence_id"):
+            if provenance[key] != source.get(key):
+                raise VaultGateError(f"{source_id}: provenance {key} mismatch")
+        if provenance["redistribution_allowed"] is not True:
+            raise VaultGateError(
+                f"{source_id}: provenance does not confirm redistribution permission"
+            )
         if (
             provenance["sha256"] != expected_hash
             or provenance["byte_size"] != expected_size
         ):
             raise VaultGateError(f"{source_id}: provenance integrity mismatch")
-        if provenance["licence_id"] != source.get("licence_id"):
-            raise VaultGateError(f"{source_id}: provenance licence mismatch")
+
+        mirror = provenance["project_mirror"]
+        if mirror != source.get("vault_artifact"):
+            raise VaultGateError(
+                f"{source_id}: project_mirror must identify the pinned vault artifact"
+            )
 
 
 if __name__ == "__main__":
