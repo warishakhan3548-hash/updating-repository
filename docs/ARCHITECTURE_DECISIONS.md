@@ -59,3 +59,12 @@ The current Ed25519 verifier is a repository/build-time boundary. Android platfo
 Release-key rotation must not force deletion of the public key needed to verify an old approved pack, but retaining an old key must not let a later compromise authorize new releases. Trusted release keys therefore have active/retired/revoked lifecycle state and signed release-sequence validity windows. Retired keys require a finite maximum sequence; revoked keys never count. The active release role must still contain enough active keys to satisfy its threshold.
 
 This is repository-side trust policy. It complements, but does not replace, the future client requirement to persist the highest accepted release sequence and freshness state.
+
+
+## ADR-016 — Release signing is offline, additive and cannot approve content
+
+Production release private keys remain outside the repository and CI. The project-owned signer accepts only encrypted PKCS#8 Ed25519 private keys whose resolved paths are outside the repository, prompts for their passwords interactively, derives the existing project key ID, and signs through the existing canonical payload contract.
+
+Signing authority is separated from content review: the signer refuses manifests that are not already `approved`, requires the key to be active and authorized for the signed release-sequence window, refuses duplicate signatures by the same key, and creates a new output file instead of overwriting an input.
+
+Threshold signing is additive because the top-level signature block is intentionally excluded from the signed payload. This keeps the release ceremony reproducible and library-replaceable without making private-key generation, key custody, review approval, or repository mutation a hidden side effect of the signing tool.
