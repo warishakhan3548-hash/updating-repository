@@ -12,7 +12,7 @@ Purpose: find a legally preservable source that can make the north-star flow `Re
 
 ## Decision
 
-Register `quran-gloss.quranenc.arabic-seraj.v1.0.0` as **awaiting-artifact**.
+Post-capture status: register `quran-gloss.quranenc.arabic-seraj.v1.0.0` as **awaiting-licence**. The exact source snapshot exists for review, but production binding remains blocked by the unresolved historical-retention question.
 
 No QuranEnc content bytes are production-approved by this change. The current Android reader must continue to abstain rather than invent a meaning when no verified local gloss pack is installed.
 
@@ -61,7 +61,7 @@ The capture is fail-closed:
 - build a deterministic raw tar plus request-level SHA-256/size metadata, a candidate provenance record and checksums;
 - leave the result explicitly `captured-unreviewed` until a human/source review promotes the registry entry.
 
-This repository still has **no preserved QuranEnc production artifact**. The source remains `awaiting-artifact` until the real capture is run in a trusted network-enabled environment, the resulting bytes and terms are reviewed, and the registry is updated in a separate reviewed change. A runtime gloss importer must not precede that promotion.
+This repository still has **no preserved QuranEnc production artifact**. It does now contain a **captured-unreviewed** v1.0.0 candidate under `source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/`, with 114 Surah responses / 6,236 coordinates, source/index pages, terms, provenance and checksums. The snapshot-manifest SHA-256 is `8cbc4f5f41298e438f7862fff1eba309ffdab254ca240257bd5b652631f2396c` and the terms SHA-256 is `24dd28bc25f21e59a2ec87137faeb0d969c1401232d99d2177cabf887c48341c`. The registry deliberately leaves its production artifact fields unset and marks the source `awaiting-licence`; no runtime gloss importer may consume it before archival-retention rights and subsequent production review are resolved.
 
 
 ## Follow-up — redistribution freshness boundary (verified 2026-09-21)
@@ -74,3 +74,7 @@ That creates two distinct invariants:
 2. **Release-eligibility invariant:** before approving a newly distributed pack from a source with a latest-version condition, explicitly verify the official upstream version and bind that review into the signed pack manifest.
 
 The implementation records this as `release_requirements` on the Source Vault entry and `source_release_review` on an approved pack. It intentionally does not make normal builds query QuranEnc, does not make historical snapshots self-destruct with time, and does not claim that software can replace legal/source review. If the official version advances, the old snapshot remains archived but is not sufficient by itself for a new release; the new upstream bytes must pass the Source Vault workflow as a new version.
+
+### Historical snapshot retention remains a separate blocker
+
+The official terms reviewed on 2026-09-21 allow republication subject to source-specific conditions and require updating according to the latest version issued by QuranEnc. That supports preservation of the current review candidate, but the inspected text does not clearly establish that superseded editions may remain indefinitely available in a public immutable redistribution mirror after a newer version is issued. This project therefore separates the current review capture from production Source Vault approval: `historical_snapshot_retention_status` stays `unresolved`, and production promotion is blocked until explicit permission or a legally compatible preservation design resolves that durability requirement.

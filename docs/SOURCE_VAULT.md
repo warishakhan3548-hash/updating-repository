@@ -43,3 +43,7 @@ The gate records and verifies:
 - mandatory release rules from `policy/license_policy.json`.
 
 `schemas/source_registry_v1.schema.json` documents the registry shape. `tools/vault_gate.py` remains the executable conditional authority for production promotion.
+
+## Review-only captures
+
+A captured review candidate is not the same thing as a production Source Vault binding. A candidate may preserve exact bytes, provenance and checksums for source/legal review while the registry still leaves `vault_artifact`, `licence_snapshot` and `provenance` unset. Such bytes are non-production and must not be consumed by release content builders. Promotion requires an explicit reviewed registry change and all normal licence, integrity and provenance gates.

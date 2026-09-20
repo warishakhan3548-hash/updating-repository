@@ -83,10 +83,14 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         source = by_id["quran-gloss.quranenc.arabic-seraj.v1.0.0"]
 
         self.assertEqual("1.0.0", source["version"])
-        self.assertEqual("awaiting-artifact", source["status"])
+        self.assertEqual("awaiting-licence", source["status"])
         self.assertTrue(source["redistribution_allowed"])
         self.assertFalse(source["modification_allowed"])
         self.assertTrue(source["attribution_required"])
+        self.assertEqual(
+            "unresolved",
+            source["release_requirements"]["historical_snapshot_retention_status"],
+        )
         self.assertIsNone(source["vault_artifact"])
         self.assertIsNone(source["licence_snapshot"])
         self.assertIsNone(source["provenance"])

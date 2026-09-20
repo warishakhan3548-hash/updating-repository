@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-09-20",
+  "verified_at": "2026-09-21",
   "production_rule": "Only production-approved sources may be consumed by release content builders.",
   "sources": [
     {
@@ -29,7 +29,7 @@
       "source_name": "QuranEnc Arabic Language - Meanings of Words (As-Siraj fi Bayan Gharib Al-Quran)",
       "original_url": "https://quranenc.com/en/browse/arabic_seraj",
       "version": "1.0.0",
-      "status": "awaiting-artifact",
+      "status": "awaiting-licence",
       "licence_id": "quranenc-republication-terms",
       "redistribution_allowed": true,
       "modification_allowed": false,
@@ -39,7 +39,7 @@
       "provenance": null,
       "sha256": null,
       "byte_size": null,
-      "notes": "Official QuranEnc lists this verse-scoped Arabic difficult-word resource as v1.0.0 and its API/republishing policy is version-aware. The content is a promising low-friction contextual-gloss source, not a morphology or Quran-text authority. No production bytes are consumed until an exact versioned upstream response/file set plus the applicable terms are preserved under project control with hashes and provenance. QuranEnc's current republication terms also require updating to the latest source version; release approval therefore requires a source-bound latest-version review rather than treating an archived snapshot as perpetually redistributable. Whether superseded versions may remain indefinitely available in a public immutable mirror is not established by the inspected terms; that question remains a production blocker until verified permission or a legally compatible preservation design exists.",
+      "notes": "Official QuranEnc lists this verse-scoped Arabic difficult-word resource as v1.0.0 and permits republication under source-specific conditions. A review-only exact 114-Surah / 6,236-ayah API snapshot, source/index pages, terms snapshot, provenance and checksums are preserved under source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/, but this candidate is deliberately not bound as a production vault_artifact. The terms require updating to the latest source version; whether superseded versions may remain indefinitely available in a public immutable mirror is not established by the inspected terms. Keep the source awaiting-licence and outside production until that archival-retention question is resolved by explicit permission or another legally durable design.",
       "release_requirements": {
         "latest_upstream_version_required": true,
         "version_check_url": "https://quranenc.com/api/v1/translations/list/ar/?localization=en",
