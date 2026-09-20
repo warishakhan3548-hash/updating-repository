@@ -64,7 +64,7 @@ Approved manifests use `aaris-pack-signature-v1`:
 }
 ```
 
-The signed bytes are deterministic JSON for the entire manifest except the top-level `signature` field. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version, review status and `release_sequence` are therefore covered by the signature. The sequence is the monotonic ordering primitive for future anti-rollback state; current clients do not yet persist the highest accepted value for downloaded updates.
+The signed bytes are the fixed application-domain prefix `AARIS-CONTENT-PACK-SIGNATURE-V1\\n` followed by deterministic JSON for the entire manifest except the top-level `signature` field. The prefix is part of the signed message and prevents these Ed25519 signatures from being interpreted as raw signatures for a different protocol. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version, review status and `release_sequence` are therefore covered by the signature. The sequence is the monotonic ordering primitive for future anti-rollback state; current clients do not yet persist the highest accepted value for downloaded updates.
 
 `tools/pack_gate.py` delegates approved-manifest authenticity to `tools/pack_signatures.py`; signature-shaped strings are never sufficient. Trusted release public keys and threshold policy live in `policy/trusted_pack_keys.json`. Key IDs are derived from the public key, and private keys must remain outside the repository.
 
