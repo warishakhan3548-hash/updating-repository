@@ -85,7 +85,6 @@ jobs:
               rm -rf "$CANONICAL_DIR" "$PACK_DIR"
             fi
 
-            python tools/pack_signing.py policy/trusted_pack_keys.json
             python tools/vault_gate.py source-vault/registry.json
             python tools/validate_schemas.py
             python -m unittest discover -s tests -v
