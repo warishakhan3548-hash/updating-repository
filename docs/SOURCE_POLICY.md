@@ -15,6 +15,9 @@ Critical external data must pass every gate before production use:
 
 A normal production build must not fetch an uncontrolled upstream `latest` resource.
 
+When a publisher exposes a release as multiple immutable files, preserve those exact files and bind them with a project-controlled checksum ledger instead of rewriting them into a new source artifact. Multi-file integrity does not override licensing or promotion gates.
+
+
 ## Statuses
 
 - `research-candidate`: useful for evaluation; never consumed by production builds.
