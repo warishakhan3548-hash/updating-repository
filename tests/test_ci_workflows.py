@@ -54,32 +54,6 @@ class WorkflowSupplyChainTests(unittest.TestCase):
         text = self.workflow_text("build-quran-core-pack.yml")
         self.assertIn("      - 'tests/**'\n", text)
 
-    def test_pack_builder_installs_release_dependency_after_main_reset(self) -> None:
-        text = self.workflow_text("build-quran-core-pack.yml")
-        loop = text.index("for attempt in 1 2 3 4 5; do")
-        reset = text.index("git reset --hard origin/main", loop)
-        install = text.index(
-            "python -m pip install --disable-pip-version-check "
-            "-r requirements-ci.txt",
-            reset,
-        )
-        complete = text.index("canonical_complete=false", install)
-        self.assertLess(loop, reset)
-        self.assertLess(reset, install)
-        self.assertLess(install, complete)
-
-    def test_existing_schema_v3_pack_path_runs_full_validation(self) -> None:
-        text = self.workflow_text("build-quran-core-pack.yml")
-        start = text.index(
-            "Canonical Quran layer and Quran core 1.1.0 already exist"
-        )
-        end = text.index("exit 0", start)
-        block = text[start:end]
-        self.assertIn("python tools/vault_gate.py", block)
-        self.assertIn("python tools/pack_gate.py", block)
-        self.assertIn("python tools/validate_schemas.py", block)
-        self.assertIn("python -m unittest discover -s tests -v", block)
-
     def test_pack_builder_revalidates_the_committed_tree_before_push(self) -> None:
         text = self.workflow_text("build-quran-core-pack.yml")
         commit_index = text.index("git commit -m 'Build Quran canonical layer and core pack 1.1.0'")

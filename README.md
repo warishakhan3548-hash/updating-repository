@@ -27,7 +27,7 @@ The reader is intentionally narrow: source-faithful Arabic, local navigation and
 - Canonical Quran JSONL: long-lived semantic reproducibility anchor between Source Vault and SQLite runtime bytes.
 - AI may expand queries or reason over exported evidence; it cannot author Evidence Plane truth.
 - Normal content builds use project-controlled snapshots, never an uncontrolled upstream `latest`.
-- Release approval is fail-closed: approved manifests must pass the authoritative pack gate and project-controlled Ed25519 trust policy.
+- Release approval is fail-closed: approved manifests require a signed positive `release_sequence` and must pass the authoritative pack gate plus project-controlled Ed25519 trust policy.
 
 ## Current Quran core
 
@@ -52,6 +52,3 @@ python -m unittest discover -s tests -v
 ```
 
 GitHub Actions executes the same foundation checks on pushes and pull requests. Remote Actions are pinned to full commit SHAs, and the write-capable pack publisher revalidates the exact committed tree before pushing because `GITHUB_TOKEN`-generated pushes do not trigger ordinary push workflows.
-
-
-Release approval uses `aaris-pack-signature-v2`: a fixed Aaris domain prefix plus the strict deterministic manifest payload, with signed release ordering and project-controlled threshold keys whose retirement is bounded by release sequence. The production trust root remains deliberately unbootstrapped.

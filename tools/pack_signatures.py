@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Any
 
 
-SIGNATURE_FORMAT = "aaris-pack-signature-v2"
-DOMAIN_SEPARATOR = b"AARIS-CONTENT-PACK-SIGNATURE-V2\n"
+SIGNATURE_FORMAT = "aaris-pack-signature-v1"
 RELEASE_ROLE = "content-pack-release"
 KEYRING_SCHEMA_VERSION = 1
+SIGNATURE_PAYLOAD_DOMAIN = b"AARIS-CONTENT-PACK-SIGNATURE-V1\\n"
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
 
@@ -106,7 +106,7 @@ def canonical_manifest_payload(manifest: dict[str, Any]) -> bytes:
     if "signature" not in payload:
         raise PackSignatureError("manifest is missing signature field")
     payload.pop("signature")
-    return DOMAIN_SEPARATOR + canonical_json_bytes(payload)
+    return SIGNATURE_PAYLOAD_DOMAIN + canonical_json_bytes(payload)
 
 
 def key_id_for_ed25519_public_key(public_key_hex: str) -> str:
@@ -361,9 +361,7 @@ def verify_approved_manifest(
         key = keys[key_id]
         status = key.get("status")
         if status == "revoked":
-            raise PackSignatureError(
-                "pack signature key is revoked"
-            )
+            raise PackSignatureError("pack signature key is revoked")
         min_sequence = key["min_release_sequence"]
         max_sequence = key["max_release_sequence"]
         if release_sequence < min_sequence or (

@@ -8,8 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tools.pack_signatures import (
-    DOMAIN_SEPARATOR,
-    SIGNATURE_FORMAT,
+    SIGNATURE_PAYLOAD_DOMAIN,
     PackSignatureError,
     canonical_manifest_payload,
     key_id_for_ed25519_public_key,
@@ -39,7 +38,7 @@ class PackSignatureTests(unittest.TestCase):
             "built_byte_size": 123,
             "dependencies": [],
             "signature": {
-                "format": SIGNATURE_FORMAT,
+                "format": "aaris-pack-signature-v1",
                 "role": "content-pack-release",
                 "signatures": [],
             },
@@ -103,10 +102,7 @@ class PackSignatureTests(unittest.TestCase):
                     "roles": {
                         "content-pack-release": {
                             "threshold": threshold,
-                            "key_ids": [
-                                key_id
-                                for key_id, *_ in normalized
-                            ],
+                            "key_ids": [key_id for key_id, *_ in normalized],
                         }
                     },
                 },
@@ -193,6 +189,15 @@ class PackSignatureTests(unittest.TestCase):
             ):
                 verify_approved_manifest(manifest, keyring)
 
+    def test_signed_payload_has_fixed_application_domain(self):
+        payload = canonical_manifest_payload(self._manifest())
+        self.assertTrue(payload.startswith(SIGNATURE_PAYLOAD_DOMAIN))
+        self.assertEqual(1, payload.count(SIGNATURE_PAYLOAD_DOMAIN))
+        self.assertEqual(
+            b"AARIS-CONTENT-PACK-SIGNATURE-V1\\n",
+            SIGNATURE_PAYLOAD_DOMAIN,
+        )
+
     def test_signature_block_is_not_part_of_signed_payload(self):
         manifest = self._manifest()
         before = canonical_manifest_payload(manifest)
@@ -261,11 +266,6 @@ class PackSignatureTests(unittest.TestCase):
             ):
                 verify_approved_manifest(manifest, keyring)
 
-    def test_signature_payload_has_fixed_domain_separator(self):
-        payload = canonical_manifest_payload(self._manifest())
-        self.assertTrue(payload.startswith(DOMAIN_SEPARATOR))
-        self.assertTrue(payload[len(DOMAIN_SEPARATOR):].startswith(b"{"))
-
     def test_retired_key_only_verifies_its_historical_window(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -282,10 +282,7 @@ class PackSignatureTests(unittest.TestCase):
             historical = self._manifest()
             historical["release_sequence"] = 5
             self._sign(historical, old_private, old_id)
-            self.assertEqual(
-                1,
-                verify_approved_manifest(historical, keyring),
-            )
+            self.assertEqual(1, verify_approved_manifest(historical, keyring))
 
             future = self._manifest()
             future["release_sequence"] = 6

@@ -9,7 +9,6 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tools.pack_gate import PackGateError, validate_manifest
 from tools.pack_signatures import (
-    SIGNATURE_FORMAT,
     canonical_manifest_payload,
     key_id_for_ed25519_public_key,
 )
@@ -191,7 +190,7 @@ class PackGateTests(unittest.TestCase):
             data["review_status"] = "approved"
             data["release_sequence"] = 1
             data["signature"] = {
-                "format": SIGNATURE_FORMAT,
+                "format": "aaris-pack-signature-v1",
                 "role": "content-pack-release",
                 "signatures": [],
             }

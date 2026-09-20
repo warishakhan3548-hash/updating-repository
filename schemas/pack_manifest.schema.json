@@ -306,7 +306,7 @@
             ],
             "properties": {
               "format": {
-                "const": "aaris-pack-signature-v2"
+                "const": "aaris-pack-signature-v1"
               },
               "role": {
                 "const": "content-pack-release"

@@ -86,10 +86,9 @@ The research now converges on four durable choices: immutable source/display dat
 | inference | A signed monotonic integer is a safer internal rollback-ordering primitive than parsing content-version strings because ordering semantics stay explicit and independent of naming conventions. | update threat-model synthesis | high | Require positive `release_sequence` on every approved manifest and sign it with the rest of the manifest. |
 
 
-## Signature-domain and key-retirement hardening
+## Signature-domain refinement
 
 | type | claim | source | confidence | product implication |
 | --- | --- | --- | --- | --- |
-| fact | RFC 8032 explains that contexts can separate uses between different protocols, while basic Ed25519 itself uses an empty context. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Prefix the Aaris release message with a fixed protocol/domain string rather than assuming plain Ed25519 provides application separation. |
-| fact | TUF root metadata binds roles to trusted keys and thresholds, and TUF treats rollback as a distinct update-system threat. | https://theupdateframework.io/docs/metadata/ and https://theupdateframework.io/docs/security/ | high | Keep signed release ordering and explicitly bound retired-key authorization to historical release sequences. |
-| finding | The write-capable Quran pack publisher installed `requirements-ci.txt` before a retry loop that can reset to a newer `main`. | repository audit | high | Install the verifier dependency after each reset so the exact tree being validated determines its verification dependency. |
+| fact | RFC 8032 discusses cryptographic contexts as a way to separate signature uses between protocols and recommends a constant protocol-defined context where that mode is used; pure Ed25519 itself has no context input. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Keep widely supported pure Ed25519, but prepend a fixed project-owned byte domain to the manifest message before signing/verifying so release signatures cannot be interpreted as raw signatures over an unrelated protocol payload. |
+| decision | No production release key or approved signed pack exists yet, so defining the v1 application-domain prefix now does not invalidate any production trust history. | repository audit | high | Freeze the prefix before the offline key-bootstrap/signing ceremony and cover it with regression tests. |
