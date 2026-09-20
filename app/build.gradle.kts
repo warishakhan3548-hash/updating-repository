@@ -25,7 +25,7 @@ android {
     }
 
     sourceSets {
-        getByName("main").assets.srcDir("../content-packs/quran-core/1.0.1")
+        getByName("main").assets.srcDir("../content-packs/quran-core/1.0.3")
     }
 }
 
