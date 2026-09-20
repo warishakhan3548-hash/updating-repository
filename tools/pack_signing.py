@@ -25,6 +25,15 @@ class PackSignatureError(RuntimeError):
     pass
 
 
+def _reject_duplicate_policy_keys(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise PackSignatureError(f"duplicate trusted-key policy field: {key}")
+        result[key] = value
+    return result
+
+
 def _json_string(value: str) -> bytes:
     try:
         return json.dumps(
@@ -111,7 +120,10 @@ def verify_ed25519_signature(
 
 def _load_policy(path: Path) -> tuple[int, dict[str, dict[str, Any]]]:
     try:
-        policy = json.loads(path.read_text(encoding="utf-8"))
+        policy = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_policy_keys,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         raise PackSignatureError(f"cannot load trusted pack keys: {path}") from exc
 
