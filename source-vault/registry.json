@@ -19,7 +19,9 @@
       "provenance": "source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/provenance.json",
       "sha256": "4b91f9e6e8ac645d039e4ed85b3be492e795232a31cd22d668ac58238722e26f",
       "byte_size": 1384612,
-      "notes": "Exact Tanzil Uthmani v1.1 txt-2 artifact preserved from the official Tanzil endpoint with pause marks, sajdah signs and rub-el-hizb signs. Sequential tanween and optional tatweel features were not requested."
+      "notes": "Exact Tanzil Uthmani v1.1 txt-2 artifact preserved from the official Tanzil endpoint with pause marks, sajdah signs and rub-el-hizb signs. Sequential tanween and optional tatweel features were not requested.",
+      "licence_sha256": "1ef7fbb0454f64ed4cceb838337808969711155f36147d1b357fc083336f4c68",
+      "provenance_sha256": "733a938c4f54f082bf7f4e0b1d9bff7ce21afedceeba199294e872a428a57505"
     },
     {
       "source_id": "morphology.qac.v0.4",
