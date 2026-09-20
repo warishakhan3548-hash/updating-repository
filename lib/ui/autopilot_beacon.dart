@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../domain/stock_guidance.dart';
 import '../state/autopilot_supervisor.dart';
 
 /// A compact global signal for urgent pharmacist work.

@@ -228,6 +228,95 @@ void main() {
     expect(controller.snapshot.records['lot_1']!.intakeHistory, hasLength(1));
   });
 
+  test('Receive on a SOLD row records a new supplier observation', () async {
+    final supplier = _supplier('supplier_sold', 'Sold Row Supplier');
+    final controller = PharmacyController(
+      MemoryInventoryStorage(),
+      clock: () => today,
+      backgroundSearch: false,
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.saveSupplier(supplier, expectedRevision: 0);
+    await controller.save(
+      Medicine.fromJson(<String, dynamic>{
+        'id': 'sold_receive',
+        'name': 'Azithromycin',
+        'strength': '500mg',
+        'form': 'Tablet',
+        'expiry': '2028-12',
+        'quantity': 8,
+        'supplierId': supplier.id,
+        'batchNumber': 'AZ-1',
+      }),
+      expectedRevision: 1,
+    );
+    await controller.markSold('sold_receive');
+    final before = controller.snapshot.records['sold_receive']!;
+    expect(before.sold, isTrue);
+    final learnedBefore = before.intakeHistory.length;
+
+    final receive = controller.reviewStockAdjustment(
+      'sold_receive',
+      kind: StockAdjustmentKind.receive,
+      quantity: 6,
+    );
+    await controller.applyStockAdjustment(receive);
+
+    final after = controller.snapshot.records['sold_receive']!;
+    expect(after.sold, isFalse);
+    expect(after.quantity, 6);
+    expect(after.intakeHistory.length, learnedBefore + 1);
+    expect(after.intakeHistory.last.source, 'receive');
+  });
+
+  test('receipt-defining fact correction invalidates stale learning evidence', () async {
+    final supplier = _supplier('supplier_fix', 'Correction Supplier');
+    final controller = PharmacyController(
+      MemoryInventoryStorage(),
+      clock: () => today,
+      backgroundSearch: false,
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.saveSupplier(supplier, expectedRevision: 0);
+    await controller.save(
+      Medicine.fromJson(<String, dynamic>{
+        'id': 'corrected_lot',
+        'name': 'Cefixime',
+        'strength': '200mg',
+        'form': 'Tablet',
+        'expiry': '2028-12',
+        'quantity': 10,
+        'supplierId': supplier.id,
+        'batchNumber': 'OLD-BATCH',
+        'unitPricePaise': 500,
+      }),
+      expectedRevision: 1,
+    );
+    final receive = controller.reviewStockAdjustment(
+      'corrected_lot',
+      kind: StockAdjustmentKind.receive,
+      quantity: 5,
+    );
+    await controller.applyStockAdjustment(receive);
+    expect(
+      controller.snapshot.records['corrected_lot']!.intakeHistory,
+      isNotEmpty,
+    );
+
+    final live = controller.snapshot.records['corrected_lot']!;
+    await controller.save(
+      live.patch(<String, dynamic>{'batchNumber': 'CORRECT-BATCH'}),
+      expectedRevision: controller.snapshot.revision,
+    );
+
+    expect(
+      controller.snapshot.records['corrected_lot']!.intakeHistory,
+      isEmpty,
+    );
+  });
+
   test('missing supplier is surfaced only when return planning is relevant', () {
     Medicine stock(String id, String expiry) => Medicine.fromJson(<String, dynamic>{
       'id': id,
