@@ -37,7 +37,9 @@ These restrictions keep Arabic attribution or other Unicode string values intact
 
 Every approved manifest must carry a positive integer `release_sequence`. Because it is outside the excluded signature block, the sequence is authenticated by every release signature. It is an app-owned monotonic ordering primitive for future rollback protection and does not depend on semantic-version string parsing.
 
-The repository verifier checks that the value is a positive integer. Automatic downloaded-pack activation is still blocked until clients persist the highest accepted sequence and reject lower values except through an explicit recovery procedure.
+The repository verifier checks that the value is a positive integer. Android release builds also carry the verified manifest's sequence into runtime configuration. The release reader persists the highest successfully activated sequence under `noBackupFilesDir` and rejects a lower sequence before replacing its local bundled pack. Debug candidate builds do not mutate this trust state.
+
+This is deliberately narrower than a remote update protocol: downloaded-pack signature verification, freshness/expiry and explicit recovery remain blocked work.
 
 ## Bootstrap ceremony
 
