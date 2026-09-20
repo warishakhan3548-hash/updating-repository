@@ -15,6 +15,8 @@ Critical external data must pass every gate before production use:
 
 A normal production build must not fetch an uncontrolled upstream `latest` resource.
 
+**Historical retention is a universal preservation gate.** A source may enter `awaiting-artifact`, declare preserved snapshot bytes, or become `production-approved` only when `historical_snapshot_retention_status=verified-allowed`. Generic redistribution permission is not treated as proof that superseded immutable snapshots may remain in the project-controlled archive.
+
 When a legally cleared upstream release is inherently multi-file, preserve the exact members and bind them with a project-controlled checksum ledger rather than concatenating or normalizing source bytes. The ledger becomes the stable Source Vault artifact root; its members are still verified individually before promotion.
 
 ## Statuses
@@ -43,6 +45,8 @@ If archival retention is explicitly verified **not allowed**, the source must be
 
 Archival permission and current redistribution eligibility are separate questions. Once archival retention has been legally cleared, a preserved source snapshot remains immutable for reproducibility even when its licence also imposes an ongoing release-time obligation such as “use/update to the latest upstream version”.
 
-Such obligations are recorded as machine-readable `release_requirements` in the Source Vault registry. Normal offline builds do **not** contact upstream and historical candidate packs do not expire with wall-clock time. Instead, an `approved` pack from a source that requires the latest upstream version must carry a `source_release_review` that binds the source ID/version, exact archived licence hash, official version-check URL, review timestamp, and the observed upstream version. The final pack gate requires the observed version to equal the preserved source version. Because the review object is part of the manifest outside the signature block, release signatures authenticate that review together with the pack.
+Such obligations are recorded as machine-readable `release_requirements` in the Source Vault registry. The same object records the archival-retention decision even when `latest_upstream_version_required=false`. Release/freshness interpretation is mutable compliance policy and is deliberately not copied into immutable acquisition provenance.
+
+Normal offline builds do **not** contact upstream and historical candidate packs do not expire with wall-clock time. An `approved` pack from a source that actually requires the latest upstream version must carry a `source_release_review` that binds the source ID/version, exact archived licence hash, official version-check URL, review timestamp, and the observed upstream version. The final pack gate requires the observed version to equal the preserved source version. A source with `latest_upstream_version_required=false` must not carry a misleading freshness review. Because a required review object is part of the manifest outside the signature block, release signatures authenticate that review together with the pack.
 
 This is deliberately a release-approval control, not a claim that the build system can infer legal compliance automatically. The review must be performed against the official source as part of the release review; if upstream has advanced, preserve the new version as a new Source Vault snapshot instead of overwriting the old one.

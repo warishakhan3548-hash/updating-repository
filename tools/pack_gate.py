@@ -95,8 +95,6 @@ def _validate_source_release_review(
     manifest_path: Path,
 ) -> None:
     requirements = source.get("release_requirements")
-    if requirements is None:
-        return
     required_requirement_fields = {
         "latest_upstream_version_required",
         "version_check_url",
@@ -105,16 +103,24 @@ def _validate_source_release_review(
     if (
         not isinstance(requirements, dict)
         or set(requirements) != required_requirement_fields
-        or requirements.get("latest_upstream_version_required") is not True
     ):
         raise PackGateError(
-            f"{manifest_path}: invalid Source Vault release_requirements"
+            f"{manifest_path}: production source requires complete "
+            "Source Vault release_requirements"
         )
+
+    latest_required = requirements.get("latest_upstream_version_required")
+    if not isinstance(latest_required, bool):
+        raise PackGateError(
+            f"{manifest_path}: latest_upstream_version_required must be boolean"
+        )
+
     retention_status = requirements.get("historical_snapshot_retention_status")
     if retention_status != "verified-allowed":
         raise PackGateError(
             f"{manifest_path}: source lacks verified historical snapshot retention permission"
         )
+
     version_check_url = requirements.get("version_check_url")
     if not isinstance(version_check_url, str) or not version_check_url.startswith("https://"):
         raise PackGateError(
@@ -122,6 +128,14 @@ def _validate_source_release_review(
         )
 
     review = manifest.get("source_release_review")
+    if not latest_required:
+        if review is not None:
+            raise PackGateError(
+                f"{manifest_path}: source_release_review is only valid when the "
+                "source requires the latest upstream version"
+            )
+        return
+
     if review is None:
         if manifest.get("review_status") == "approved":
             raise PackGateError(
@@ -176,7 +190,6 @@ def _validate_source_release_review(
         raise PackGateError(
             f"{manifest_path}: source_release_review checked_at must include a timezone"
         )
-
 
 def _validate_canonical_binding(
     root: Path,

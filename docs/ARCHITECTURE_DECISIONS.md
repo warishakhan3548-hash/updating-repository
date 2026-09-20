@@ -131,3 +131,12 @@ A source whose republication terms require downstream copies to stay current may
 `awaiting-licence` is also a **no-bytes** state in project-controlled public storage. The central Source Vault gate rejects any preserved snapshot metadata under that status. This makes the legal boundary independent of source-specific download scripts and prevents a future acquisition path from accidentally publishing bytes before archival rights are established.
 
 Once archival retention is explicitly `verified-allowed`, the source may advance to artifact acquisition/review. Any separate ongoing obligation to ship only the latest upstream version remains enforced later by the signed source-release review. Commercial-use permission remains a separate gate under ADR-022. Current-version permission, historical archival permission, commercial-use permission, evidence quality and release freshness are therefore distinct decisions.
+
+
+## ADR-025 — Archival retention is a universal preservation gate
+
+Archival-retention permission is required not only when a licence explicitly raises a stay-current concern, but for every source that becomes capture-ready, every source with preserved bytes, and every production-approved source. `awaiting-artifact` therefore means the project has already verified that durable historical retention is allowed; general redistribution permission alone is not sufficient.
+
+`release_requirements.latest_upstream_version_required` is a boolean independent from archival permission. A source may permit durable historical snapshots without requiring every release to track upstream latest. Sources that do impose a latest-version obligation continue to require the separately signed `source_release_review` for approved packs.
+
+Release/freshness interpretation is mutable compliance policy, not an acquisition fact. It remains in the registry and signed release review rather than being copied into immutable source provenance. Artifact bytes, archived licence bytes, acquisition provenance and their hashes therefore remain stable when the project's later compliance interpretation changes.
