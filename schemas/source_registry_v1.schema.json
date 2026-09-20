@@ -28,6 +28,11 @@
             ]
           },
           "licence_id": {"type": ["string", "null"]},
+          "artifact_kind": {
+            "type": "string",
+            "enum": ["file", "sha256-set"],
+            "default": "file"
+          },
           "redistribution_allowed": {"type": ["boolean", "null"]},
           "modification_allowed": {"type": ["boolean", "null"]},
           "attribution_required": {"type": ["boolean", "null"]},
