@@ -147,9 +147,10 @@ class QuranReaderRepository(context: Context) {
             "Unexpected Quran pack review status"
         }
         if (!BuildConfig.DEBUG) {
-            check(reviewStatus == "approved") {
-                "Reader refuses an unapproved Quran pack outside development"
-            }
+            error(
+                "Production Quran pack activation is disabled until trusted-key " +
+                    "cryptographic signature verification is implemented",
+            )
         }
 
         check(sha256Asset(NOTICE_ASSET) == EXPECTED_NOTICE_SHA256) {
