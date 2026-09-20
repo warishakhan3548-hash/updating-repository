@@ -3,7 +3,7 @@
 Critical external data must pass every gate before production use:
 
 1. identify origin and exact edition/version;
-2. verify redistribution, commercial-use, modification and attribution terms;
+2. verify redistribution, commercial-use, modification, attribution and historical-retention rights;
 3. download the exact artifact;
 4. preserve the exact bytes under project control;
 5. calculate SHA-256 and file size;
@@ -15,12 +15,14 @@ Critical external data must pass every gate before production use:
 
 A normal production build must not fetch an uncontrolled upstream `latest` resource.
 
+**Historical retention is a universal preservation gate.** A source may enter `awaiting-artifact`, preserve bytes, or become `production-approved` only when the registry explicitly records `historical_snapshot_retention_status=verified-allowed`. Generic redistribution permission is not treated as proof that superseded snapshots may remain in a public immutable archive.
+
 When a legally cleared upstream release is inherently multi-file, preserve the exact members and bind them with a project-controlled checksum ledger rather than concatenating or normalizing source bytes. The ledger becomes the stable Source Vault artifact root; its members are still verified individually before promotion.
 
 ## Statuses
 
 - `research-candidate`: useful for evaluation; never consumed by production builds.
-- `awaiting-artifact`: licensing appears compatible, but exact bytes are not yet preserved.
+- `awaiting-artifact`: licensing and historical retention are explicitly cleared for capture, but exact bytes are not yet preserved.
 - `awaiting-licence`: origin known; storage/redistribution rights are not sufficiently verified.
 - `production-approved`: exact artifact, licence snapshot, provenance and checksum are present and validated.
 - `rejected`: unsuitable due to trust, licensing or integrity.
@@ -43,6 +45,10 @@ If archival retention is explicitly verified **not allowed**, the source must be
 
 Archival permission and current redistribution eligibility are separate questions. Once archival retention has been legally cleared, a preserved source snapshot remains immutable for reproducibility even when its licence also imposes an ongoing release-time obligation such as “use/update to the latest upstream version”.
 
-Such obligations are recorded as machine-readable `release_requirements` in the Source Vault registry. Normal offline builds do **not** contact upstream and historical candidate packs do not expire with wall-clock time. Instead, an `approved` pack from a source that requires the latest upstream version must carry a `source_release_review` that binds the source ID/version, exact archived licence hash, official version-check URL, review timestamp, and the observed upstream version. The final pack gate requires the observed version to equal the preserved source version. Because the review object is part of the manifest outside the signature block, release signatures authenticate that review together with the pack.
+These decisions are recorded as machine-readable `release_requirements` in the Source Vault registry. `historical_snapshot_retention_status` answers whether the exact snapshot may remain archived; `latest_upstream_version_required` independently answers whether a release must re-check upstream freshness. A source such as Tanzil can therefore have verified archival retention without a mandatory latest-version release review.
+
+Normal offline builds do **not** contact upstream and historical candidate packs do not expire with wall-clock time. When `latest_upstream_version_required=true`, an `approved` pack must carry a `source_release_review` that binds the source ID/version, exact archived licence hash, official version-check URL, review timestamp, and the observed upstream version. When it is false, that release review is rejected as unnecessary.
+
+Acquisition provenance remains an immutable description of the bytes originally captured and the archived terms used at acquisition time. Later registry-level legal/release interpretations are not backfilled into old provenance files merely to satisfy a new policy dimension.
 
 This is deliberately a release-approval control, not a claim that the build system can infer legal compliance automatically. The review must be performed against the official source as part of the release review; if upstream has advanced, preserve the new version as a new Source Vault snapshot instead of overwriting the old one.

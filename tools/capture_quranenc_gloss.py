@@ -361,6 +361,17 @@ def _assert_capture_authorized(repo_root: Path) -> None:
             + ", ".join(mismatched)
         )
 
+    release_requirements = source.get("release_requirements")
+    if (
+        not isinstance(release_requirements, dict)
+        or release_requirements.get("historical_snapshot_retention_status")
+        != "verified-allowed"
+    ):
+        raise CaptureError(
+            "QuranEnc capture blocked: historical snapshot retention "
+            "permission is not explicitly cleared"
+        )
+
     present_snapshot_fields = [
         field
         for field in PRESERVED_SNAPSHOT_FIELDS

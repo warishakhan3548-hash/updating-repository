@@ -27,6 +27,7 @@ The reader is intentionally narrow: source-faithful Arabic, local navigation and
 - Canonical Quran JSONL: long-lived semantic reproducibility anchor between Source Vault and SQLite runtime bytes.
 - AI may expand queries or reason over exported evidence; it cannot author Evidence Plane truth.
 - Normal content builds use project-controlled snapshots, never an uncontrolled upstream `latest`.
+- Capture-ready, preserved and production sources require explicit historical-retention clearance; this is independent from any latest-version release obligation.
 - Release approval is fail-closed: approved manifests require a signed positive `release_sequence` and must pass the authoritative pack gate plus project-controlled Ed25519 trust policy.
 
 ## Current Quran core
