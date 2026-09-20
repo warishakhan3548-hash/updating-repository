@@ -44,7 +44,7 @@ Pinned as of 2026-09-20:
 - Android Gradle Plugin 9.4.1
 - Gradle 9.6.1 in CI
 - Kotlin/Compose compiler plugin 2.4.20
-- Compose BOM 2026.09.00
+- Compose BOM 2026.04.01 (Compose 1.11-era stable baseline compatible with compileSdk 36)
 - compile/target SDK 36
 - minimum SDK 24
 
