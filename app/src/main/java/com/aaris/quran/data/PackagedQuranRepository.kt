@@ -19,7 +19,7 @@ class PackagedQuranRepository(
 
     private val installedPack: File by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         synchronized(PACK_ACTIVATION_PROCESS_LOCK) {
-                require(BuildConfig.DEBUG || BuildConfig.QURAN_PACK_RELEASE_READY) {
+            require(BuildConfig.DEBUG || BuildConfig.QURAN_PACK_RELEASE_READY) {
                 "Production reader refuses an unapproved or unsigned Quran pack"
             }
 
@@ -47,7 +47,7 @@ class PackagedQuranRepository(
                     packSha256 = BuildConfig.QURAN_PACK_SHA256,
                 )
             }
-                installed
+            installed
         }
     }
 
