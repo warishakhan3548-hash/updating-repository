@@ -5,7 +5,7 @@
 - RTL-first semantics for Arabic reading.
 - Screen-reader labels expose surah/ayah context without reading hidden normalized text.
 - Important Android controls use at least 48dp focus/touch areas.
-- Text scales without clipping; color is never the only status signal.
+- Text uses scalable units and must remain usable without clipping at large user font scales; color is never the only status signal.
 - Do not expose a gesture-only word action. Word help stays hidden until verified content exists and the same action can be reached through accessibility focus/custom actions as well as touch.
 - Respect reduced-motion preferences.
 
