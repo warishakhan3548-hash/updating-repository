@@ -8,13 +8,13 @@ This repository builds trust and reproducibility before UI breadth. Critical ext
 
 ## Current phase
 
-Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. The deterministic Quran core builder is the bridge into early Phase 1.
+Phase 0A–0C is operational, the first Quran evidence source has passed the production Source Vault gate, and Phase 1 has a minimal offline Android reader over the trusted local pack boundary. Canonical Quran v3 and cryptographic pack-approval work harden reproducibility before word-level evidence is added.
 
 **Production-approved today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
 
 **Not production-approved yet:** Quranic Arabic Corpus morphology, Hadith datasets, QUL resources and other optional content. See `source-vault/registry.json`.
 
-This is not yet a finished reader application. Reader UI, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+This is not yet a finished comprehension application. The minimal reader exists, but authoritative word meanings/morphology, learning, Hadith retrieval and external-AI evidence workflows remain gated by their required trusted data foundations.
 
 ## Architecture boundaries
 
@@ -38,6 +38,8 @@ The ayah-only core intentionally does not manufacture canonical token/morphology
 The main branch runs:
 
 ```bash
+python -m pip install --disable-pip-version-check -r requirements-foundation.txt
+python tools/pack_signing.py policy/trusted_pack_keys.json
 python tools/vault_gate.py source-vault/registry.json
 python tools/pack_gate.py source-vault/registry.json
 python tools/validate_schemas.py
