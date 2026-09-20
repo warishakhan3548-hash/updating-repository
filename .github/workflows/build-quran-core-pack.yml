@@ -15,6 +15,9 @@ on:
       - 'tools/build_quran_core.py'
       - 'tools/pack_gate.py'
       - 'tools/verify_quran_core_pack.py'
+      - 'tools/pack_signing.py'
+      - 'policy/trusted_pack_keys.json'
+      - 'requirements-foundation.txt'
   workflow_dispatch:
 
 permissions:
@@ -54,6 +57,11 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             git clean -fdx -- "$CANONICAL_DIR" "$PACK_DIR"
+
+            # Tests and approval gates use the exact security dependency pinned
+            # by the tree being validated. No private release key is present.
+            python -m pip install --disable-pip-version-check -r requirements-foundation.txt
+            python tools/pack_signing.py policy/trusted_pack_keys.json
 
             canonical_complete=false
             pack_complete=false
@@ -101,6 +109,7 @@ jobs:
             # Revalidate the exact committed tree before it is allowed onto main.
             PACK_COMMIT_SHA="$(git rev-parse HEAD)"
             echo "Validating committed Quran canonical/pack $PACK_COMMIT_SHA"
+            python tools/pack_signing.py policy/trusted_pack_keys.json
             python tools/vault_gate.py source-vault/registry.json
             python tools/pack_gate.py               source-vault/registry.json               "$PACK_DIR/manifest.json"
             python tools/validate_schemas.py
