@@ -1,10 +1,24 @@
+import base64
 import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from tools.pack_gate import PackGateError, validate_manifest
+from tools.pack_signing import PAYLOAD_FORMAT, signature_payload
+
+
+RFC8032_SECRET = bytes.fromhex(
+    "9d61b19deffd5a60ba844af492ec2cc4"
+    "4449c5697b326919703bac031cae7f60"
+)
+RFC8032_PUBLIC = bytes.fromhex(
+    "d75a980182b10ab7d54bfed3c964073a"
+    "0ee172f3daa62325af021a68f707511a"
+)
 
 
 class PackGateTests(unittest.TestCase):
@@ -100,28 +114,83 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaises(PackGateError):
                 validate_manifest(manifest, registry)
 
-    def test_approved_pack_requires_verified_signature_not_just_fields(self):
+    def _write_trusted_key_policy(self, root: Path) -> None:
+        policy_dir = root / "policy"
+        policy_dir.mkdir(parents=True, exist_ok=True)
+        (policy_dir / "trusted_pack_keys.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "signature_threshold": 1,
+                    "keys": [
+                        {
+                            "key_id": "rfc8032-test-key",
+                            "algorithm": "ed25519",
+                            "status": "active",
+                            "min_release_sequence": 1,
+                            "max_release_sequence": None,
+                            "public_key_base64": base64.b64encode(
+                                RFC8032_PUBLIC
+                            ).decode("ascii"),
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def _sign_manifest(self, data: dict) -> None:
+        private = Ed25519PrivateKey.from_private_bytes(RFC8032_SECRET)
+        signature = private.sign(signature_payload(data))
+        data["signature"] = {
+            "status": "signed",
+            "payload_format": PAYLOAD_FORMAT,
+            "signatures": [
+                {
+                    "algorithm": "ed25519",
+                    "key_id": "rfc8032-test-key",
+                    "value": base64.b64encode(signature).decode("ascii"),
+                }
+            ],
+        }
+
+    def test_approved_pack_rejects_signature_shaped_but_untrusted_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
-            registry, manifest, _ = self._fixture(Path(tmp))
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            self._write_trusted_key_policy(root)
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
-            manifest.write_text(json.dumps(data), encoding="utf-8")
-            with self.assertRaisesRegex(
-                PackGateError, "approved pack requires signature"
-            ):
-                validate_manifest(manifest, registry)
-
+            data["release_sequence"] = 1
             data["signature"] = {
-                "algorithm": "ed25519",
-                "key_id": "release-key-1",
-                "value": "fixture-signature",
+                "status": "signed",
+                "payload_format": PAYLOAD_FORMAT,
+                "signatures": [
+                    {
+                        "algorithm": "ed25519",
+                        "key_id": "rfc8032-test-key",
+                        "value": base64.b64encode(b"not-a-real-signature").decode("ascii"),
+                    }
+                ],
             }
             manifest.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(
                 PackGateError,
-                "approved packs are disabled until cryptographic signature verification",
+                "trusted signature threshold not met",
             ):
                 validate_manifest(manifest, registry)
+
+    def test_approved_pack_passes_only_with_real_trusted_signature(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            self._write_trusted_key_policy(root)
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["review_status"] = "approved"
+            data["release_sequence"] = 1
+            self._sign_manifest(data)
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            validate_manifest(manifest, registry)
 
 
     def test_attribution_required_pack_requires_notice(self):
