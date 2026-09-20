@@ -2,8 +2,9 @@
 """Cryptographic verification for approved content-pack manifests.
 
 The signed payload is the complete manifest with the top-level signature field
-removed, serialized as deterministic UTF-8 JSON. Private keys never belong in the
-repository; this module only handles public-key trust and verification.
+removed, serialized as deterministic UTF-8 JSON and domain-separated. Private
+keys never belong in the repository; this module only handles public-key trust
+and verification.
 """
 from __future__ import annotations
 
@@ -13,33 +14,69 @@ from pathlib import Path
 from typing import Any
 
 
-SIGNATURE_FORMAT = "aaris-pack-signature-v1"
+SIGNATURE_FORMAT = "aaris-pack-signature-v2"
 RELEASE_ROLE = "content-pack-release"
-KEYRING_SCHEMA_VERSION = 1
+KEYRING_SCHEMA_VERSION = 2
+DOMAIN_SEPARATOR = b"AARIS-CONTENT-PACK-SIGNATURE-V2\n"
+MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
 
 class PackSignatureError(RuntimeError):
     pass
 
 
-def _reject_float(value: Any, path: str = "$") -> None:
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PackSignatureError(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
+
+
+def _validate_canonical_value(value: Any, path: str = "$") -> None:
+    if value is None or isinstance(value, bool):
+        return
+    if isinstance(value, int):
+        if abs(value) > MAX_SAFE_INTEGER:
+            raise PackSignatureError(
+                f"integer outside cross-runtime safe range at {path}"
+            )
+        return
     if isinstance(value, float):
         raise PackSignatureError(
             f"floating-point value is not allowed in signed metadata at {path}"
         )
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise PackSignatureError(
+                f"invalid Unicode scalar value in signed metadata at {path}"
+            ) from exc
+        return
     if isinstance(value, dict):
         for key, child in value.items():
             if not isinstance(key, str):
-                raise PackSignatureError(f"non-string JSON object key at {path}")
-            _reject_float(child, f"{path}.{key}")
-    elif isinstance(value, list):
+                raise PackSignatureError(
+                    f"non-string JSON object key at {path}"
+                )
+            _validate_canonical_value(key, f"{path}.<key>")
+            _validate_canonical_value(child, f"{path}.{key}")
+        return
+    if isinstance(value, list):
         for index, child in enumerate(value):
-            _reject_float(child, f"{path}[{index}]")
+            _validate_canonical_value(child, f"{path}[{index}]")
+        return
+    raise PackSignatureError(
+        f"unsupported signed metadata type at {path}: "
+        f"{type(value).__name__}"
+    )
 
 
 def canonical_json_bytes(value: Any) -> bytes:
     """Serialize a restricted JSON value deterministically for signatures."""
-    _reject_float(value)
+    _validate_canonical_value(value)
     try:
         text = json.dumps(
             value,
@@ -48,25 +85,30 @@ def canonical_json_bytes(value: Any) -> bytes:
             separators=(",", ":"),
             allow_nan=False,
         )
-    except (TypeError, ValueError) as exc:
+        return text.encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise PackSignatureError(
             "signed metadata is not canonicalizable JSON"
         ) from exc
-    return text.encode("utf-8")
 
 
 def canonical_manifest_payload(manifest: dict[str, Any]) -> bytes:
+    """Return the exact domain-separated bytes authenticated by release keys."""
     if not isinstance(manifest, dict):
         raise PackSignatureError("manifest must be a JSON object")
     payload = dict(manifest)
     if "signature" not in payload:
         raise PackSignatureError("manifest is missing signature field")
     payload.pop("signature")
-    return canonical_json_bytes(payload)
+    return DOMAIN_SEPARATOR + canonical_json_bytes(payload)
 
 
 def key_id_for_ed25519_public_key(public_key_hex: str) -> str:
-    raw = _decode_hex(public_key_hex, expected_bytes=32, field="public_key")
+    raw = _decode_hex(
+        public_key_hex,
+        expected_bytes=32,
+        field="public_key",
+    )
     key_object = {
         "algorithm": "ed25519",
         "public_key": raw.hex(),
@@ -87,20 +129,46 @@ def _decode_hex(value: object, *, expected_bytes: int, field: str) -> bytes:
 
 def _load_keyring(path: Path) -> dict[str, Any]:
     if not path.is_file():
-        raise PackSignatureError(f"missing trusted pack key policy: {path}")
+        raise PackSignatureError(
+            f"missing trusted pack key policy: {path}"
+        )
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except PackSignatureError:
+        raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PackSignatureError("invalid trusted pack key policy JSON") from exc
+        raise PackSignatureError(
+            "invalid trusted pack key policy JSON"
+        ) from exc
     if (
         not isinstance(data, dict)
         or data.get("schema_version") != KEYRING_SCHEMA_VERSION
     ):
-        raise PackSignatureError("unsupported trusted pack key policy schema")
+        raise PackSignatureError(
+            "unsupported trusted pack key policy schema"
+        )
     state = data.get("state")
     if state not in {"bootstrap-required", "active"}:
-        raise PackSignatureError("invalid trusted pack key policy state")
+        raise PackSignatureError(
+            "invalid trusted pack key policy state"
+        )
     return data
+
+
+def _validate_release_sequence(value: object, field: str) -> int:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 1
+        or value > MAX_SAFE_INTEGER
+    ):
+        raise PackSignatureError(
+            f"{field} must be a positive cross-runtime-safe integer"
+        )
+    return value
 
 
 def validate_trusted_key_policy(
@@ -108,11 +176,13 @@ def validate_trusted_key_policy(
     *,
     require_active: bool = False,
 ) -> tuple[dict[str, Any], set[str], int]:
-    """Validate the project trust root even while it is still bootstrapping."""
+    """Validate project trust policy, including lifecycle/sequence bounds."""
     keyring = _load_keyring(path)
     state = keyring.get("state")
     if require_active and state != "active":
-        raise PackSignatureError("trusted pack key policy is not active")
+        raise PackSignatureError(
+            "trusted pack key policy is not active"
+        )
 
     keys = keyring.get("keys")
     roles = keyring.get("roles")
@@ -132,26 +202,37 @@ def validate_trusted_key_policy(
         not isinstance(threshold, int)
         or isinstance(threshold, bool)
         or threshold < 1
+        or threshold > MAX_SAFE_INTEGER
     ):
-        raise PackSignatureError("invalid release signature threshold")
+        raise PackSignatureError(
+            "invalid release signature threshold"
+        )
     if (
         not isinstance(key_ids, list)
         or any(
-            not isinstance(key_id, str) or not key_id for key_id in key_ids
+            not isinstance(key_id, str) or not key_id
+            for key_id in key_ids
         )
         or len(set(key_ids)) != len(key_ids)
     ):
-        raise PackSignatureError("invalid release role key_ids")
+        raise PackSignatureError(
+            "invalid release role key_ids"
+        )
 
     for key_id, key in keys.items():
         if not isinstance(key_id, str) or not key_id:
-            raise PackSignatureError("invalid trusted key id")
+            raise PackSignatureError(
+                "invalid trusted key id"
+            )
         if not isinstance(key, dict):
-            raise PackSignatureError(f"invalid trusted key {key_id}")
+            raise PackSignatureError(
+                f"invalid trusted key {key_id}"
+            )
         if key.get("algorithm") != "ed25519":
             raise PackSignatureError(
                 f"unsupported trusted-key algorithm for {key_id}"
             )
+
         computed_id = key_id_for_ed25519_public_key(
             key.get("public_key")
         )
@@ -160,11 +241,46 @@ def validate_trusted_key_policy(
                 f"trusted key id mismatch for {key_id}"
             )
 
+        status = key.get("status")
+        if status not in {"active", "retired", "revoked"}:
+            raise PackSignatureError(
+                f"invalid trusted key status for {key_id}"
+            )
+        minimum = _validate_release_sequence(
+            key.get("min_release_sequence"),
+            f"{key_id}.min_release_sequence",
+        )
+        maximum = key.get("max_release_sequence")
+        if maximum is not None:
+            maximum = _validate_release_sequence(
+                maximum,
+                f"{key_id}.max_release_sequence",
+            )
+            if maximum < minimum:
+                raise PackSignatureError(
+                    f"{key_id}.max_release_sequence must be "
+                    ">= min_release_sequence"
+                )
+        if status == "active" and maximum is not None:
+            raise PackSignatureError(
+                f"active trusted key {key_id} must not have "
+                "max_release_sequence"
+            )
+        if status == "retired" and maximum is None:
+            raise PackSignatureError(
+                f"retired trusted key {key_id} requires "
+                "max_release_sequence"
+            )
+
     authorized = set(key_ids)
-    missing = [key_id for key_id in key_ids if key_id not in keys]
+    missing = [
+        key_id for key_id in key_ids
+        if key_id not in keys
+    ]
     if missing:
         raise PackSignatureError(
-            f"release role references missing trusted key {missing[0]}"
+            f"release role references missing trusted key "
+            f"{missing[0]}"
         )
     if state == "active" and threshold > len(key_ids):
         raise PackSignatureError(
@@ -179,7 +295,10 @@ def _verify_ed25519(
     payload: bytes,
 ) -> None:
     try:
-        from cryptography.exceptions import InvalidSignature
+        from cryptography.exceptions import (
+            InvalidSignature,
+            UnsupportedAlgorithm,
+        )
         from cryptography.hazmat.primitives.asymmetric.ed25519 import (
             Ed25519PublicKey,
         )
@@ -191,25 +310,60 @@ def _verify_ed25519(
 
     try:
         Ed25519PublicKey.from_public_bytes(public_key).verify(
-            signature, payload
+            signature,
+            payload,
         )
     except InvalidSignature as exc:
         raise PackSignatureError(
             "invalid Ed25519 manifest signature"
         ) from exc
+    except UnsupportedAlgorithm as exc:
+        raise PackSignatureError(
+            "Ed25519 is unavailable in the active cryptography backend"
+        ) from exc
     except ValueError as exc:
-        raise PackSignatureError("invalid Ed25519 public key") from exc
+        raise PackSignatureError(
+            "invalid Ed25519 public key"
+        ) from exc
+
+
+def _authorize_key_for_sequence(
+    key_id: str,
+    key: dict[str, Any],
+    release_sequence: int,
+) -> None:
+    status = key["status"]
+    if status == "revoked":
+        raise PackSignatureError(
+            f"pack signature key is revoked: {key_id}"
+        )
+
+    minimum = key["min_release_sequence"]
+    maximum = key["max_release_sequence"]
+    if release_sequence < minimum:
+        raise PackSignatureError(
+            f"pack release_sequence predates key authorization: {key_id}"
+        )
+    if maximum is not None and release_sequence > maximum:
+        raise PackSignatureError(
+            f"pack release_sequence exceeds key authorization: {key_id}"
+        )
 
 
 def verify_approved_manifest(
     manifest: dict[str, Any],
     keyring_path: Path,
 ) -> int:
-    """Verify an approved manifest against project-controlled trusted keys."""
+    """Verify an approved manifest against project-controlled release keys."""
     if manifest.get("review_status") != "approved":
         raise PackSignatureError(
             "signature verification is only defined for approved packs"
         )
+
+    release_sequence = _validate_release_sequence(
+        manifest.get("release_sequence"),
+        "release_sequence",
+    )
 
     signature_block = manifest.get("signature")
     if not isinstance(signature_block, dict):
@@ -218,7 +372,8 @@ def verify_approved_manifest(
         )
     if signature_block.get("format") != SIGNATURE_FORMAT:
         raise PackSignatureError(
-            f"approved pack requires signature format {SIGNATURE_FORMAT}"
+            f"approved pack requires signature format "
+            f"{SIGNATURE_FORMAT}"
         )
     if signature_block.get("role") != RELEASE_ROLE:
         raise PackSignatureError(
@@ -267,18 +422,28 @@ def verify_approved_manifest(
             )
         seen.add(key_id)
 
+        key = keys[key_id]
+        _authorize_key_for_sequence(
+            key_id,
+            key,
+            release_sequence,
+        )
+
         signature = _decode_hex(
             value,
             expected_bytes=64,
             field="signature value",
         )
-        key = keys[key_id]
         public_key = _decode_hex(
             key.get("public_key"),
             expected_bytes=32,
             field="trusted public_key",
         )
-        _verify_ed25519(public_key, signature, payload)
+        _verify_ed25519(
+            public_key,
+            signature,
+            payload,
+        )
         verified += 1
 
     if verified < threshold:
