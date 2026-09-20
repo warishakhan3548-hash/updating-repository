@@ -31,11 +31,11 @@ Runtime also rejects a manifest that was not marked release-ready at build time.
 
 Only `ayah_id`, `surah`, `ayah`, and `original_text` enter the UI model. Search-normalized columns do not.
 
-## Tap boundary
+## Word-help boundary
 
-`SurfaceTapAnchorResolver` mirrors the existing Reader Core's ephemeral `ui-surface:` contract. It returns display-character offsets only. It does not create or persist TokenID, LexemeID, lemma, root, sense, grammar, or meaning.
+The low-level Reader Core may retain non-canonical span utilities for future verified content, but the Android reader currently exposes no word-tap gesture or placeholder word-detail panel.
 
-Until a legally preserved word-level source passes the Source Vault gate, authoritative word details remain withheld.
+Until a legally preserved word-level source passes the Source Vault gate, authoritative TokenID, lemma, root, sense, grammar and meaning details remain withheld. When word help is enabled, the same action must be reachable through accessibility focus/custom actions as well as touch.
 
 ## Accessibility
 
