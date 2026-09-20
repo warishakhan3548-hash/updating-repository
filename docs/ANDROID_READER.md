@@ -19,7 +19,9 @@ The Android build points its asset source directly at `content-packs/quran-core/
 
 Gradle hashes `content.sqlite` before every Android build. At first runtime use the asset is copied into `noBackupFilesDir`, hashed again, and opened with Android SQLite `OPEN_READONLY`.
 
-Debug builds may exercise the candidate pack. Release builds fail closed unless the manifest is `approved` **and** the authoritative Python pack gate succeeds. The release task verifies Source Vault/canonical binding, file and semantic integrity, and the Ed25519 signature against `policy/trusted_pack_keys.json`; signature-shaped metadata alone is never treated as verification.
+Debug builds may exercise the candidate pack. Release builds fail closed unless the manifest is `approved` **and** the authoritative Python pack gate succeeds. The release task verifies Source Vault/canonical binding, file and semantic integrity, Ed25519 authorization/key lifecycle, and the signed `release_sequence` against project policy.
+
+For production builds, that signed sequence is carried into runtime configuration. Before activation the reader compares it with the highest sequence already accepted on the device; lower values are rejected. The maximum is stored atomically under `noBackupFilesDir/trust/` only after the exact bundled SQLite bytes pass runtime hashing and activate successfully. Debug/candidate builds do not mutate this state.
 
 For release environments, install the pinned verifier dependency first with `python -m pip install -r requirements-ci.txt`. If Python is not named `python3`, Gradle accepts `-PpythonExecutable=<path>`.
 
