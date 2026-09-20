@@ -109,6 +109,33 @@ Some copied footer
     expect(plan.changes.single.after.name, 'Pantoprazole');
   });
 
+  test('extracts Aaris envelope even when schema is not the first key', () {
+    final reordered = jsonEncode(<String, dynamic>{
+      'requestId': 'request_33333',
+      'reply': 'Prepared for review',
+      'actions': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'op': 'add',
+          'id': 'ai_request_33333_medicine',
+          'fields': <String, dynamic>{'name': 'Losartan'},
+        },
+      ],
+      'baseRevision': 1,
+      'schema': pharmacySchema,
+      'changeId': 'change_33333',
+    });
+
+    final plan = parseAiPlan(
+      'Copied heading\n$reordered\nCopied footer',
+      const <String, Medicine>{},
+      1,
+      const <String>{},
+      now,
+    );
+
+    expect(plan.changes.single.after.name, 'Losartan');
+  });
+
   test('rejects ambiguous clipboard text containing two Aaris envelopes', () {
     final raw = '''
 ${envelope(requestId: 'request_11111', changeId: 'change_11111')}
