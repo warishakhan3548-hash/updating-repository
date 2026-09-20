@@ -37,6 +37,11 @@ class PackGateTests(unittest.TestCase):
                             "licence_id": "Example-License",
                             "redistribution_allowed": True,
                             "commercial_use_allowed": True,
+                            "release_requirements": {
+                                "latest_upstream_version_required": False,
+                                "version_check_url": "https://example.invalid/versions",
+                                "historical_snapshot_retention_status": "verified-allowed",
+                            },
                             "vault_artifact": "source-vault/quran/example/1.0/raw.txt",
                             "sha256": source_hash,
                         }
@@ -130,6 +135,18 @@ class PackGateTests(unittest.TestCase):
             registry.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(
                 PackGateError, "lacks commercial-use approval"
+            ):
+                validate_manifest(manifest, registry)
+
+    def test_pack_source_requires_archival_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            data = json.loads(registry.read_text(encoding="utf-8"))
+            data["sources"][0].pop("release_requirements")
+            registry.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError, "requires complete Source Vault release_requirements"
             ):
                 validate_manifest(manifest, registry)
 
