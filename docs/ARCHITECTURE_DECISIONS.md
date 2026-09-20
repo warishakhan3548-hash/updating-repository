@@ -52,3 +52,12 @@ Every `approved` content-pack manifest carries a positive integer `release_seque
 A signed sequence alone does not prevent rollback. A future downloaded-pack client must persist the highest accepted sequence, reject lower sequences by default, and expose any recovery/downgrade path explicitly. Freshness/expiry and atomic activation remain separate update-system responsibilities.
 
 The current Ed25519 verifier is a repository/build-time boundary. Android platform `Signature` support for Ed25519 begins at API 33 while this app supports older Android versions, so a future on-device updater must use a reviewed compatible verifier/provider or introduce a versioned signature-format migration. It must not silently assume the build-time Python verifier is available on device.
+
+
+## ADR-015 — Persist accepted release ordering outside backup
+
+Bundled production Quran releases persist the highest accepted signed `release_sequence` in Android `noBackupFilesDir`, using the framework `AtomicFile` primitive and one process lock. A production candidate must be at least that sequence before it can replace the local content pack.
+
+The state advances only after the bundled SQLite bytes pass the runtime SHA-256 check and activation succeeds. Corrupt state fails closed instead of being silently reset. Debug candidate builds do not read or write production anti-rollback state.
+
+Keeping this small trust record outside automatic backup prevents a restored cloud backup from silently rewinding remembered release ordering. Uninstall/data-clear can still erase it, so this is a bundled-release rollback barrier rather than hardware-backed anti-tamper storage or a complete remote-update protocol.
