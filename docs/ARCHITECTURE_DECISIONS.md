@@ -38,3 +38,11 @@ Remote GitHub Actions used by evidence/content builds are pinned to full commit 
 ## ADR-012 — Exact-byte integrity and semantic fidelity are separate gates
 
 A runtime pack SHA-256 identifies exact shipped bytes, not whether those bytes still faithfully represent preserved sacred evidence. For provenance-bound Quran packs (manifest schema v2), promotion therefore reconstructs Source Vault evidence, opens the SQLite artifact read-only, verifies the canonical schema and source assertion/runtime metadata, compares all Quran display/search rows with independently derived expectations, and rejects undeclared morphology/Hadith evidence. Historical schema-v1 candidates remain immutable under their historical contract rather than being rewritten in place.
+
+## ADR-013 — Reader Core owns the trust contract; Android is a native projection
+
+`tools/reader_core.py` defines the reader invariants and reference behavior around Quran coordinates, source-faithful display text and non-canonical tap anchors. Android implements those same invariants natively rather than embedding Python or creating a second content model. Conformance tests bind both implementations to the same `quran-core` manifest and prohibit normalized display text or canonical word identity in the ayah-only phase.
+
+## ADR-014 — Candidate Quran packs may power debug readers, never release builds
+
+The Android project may bundle the current unsigned `candidate` pack for development validation, but only in the debug source set. The release variant is disabled while trusted-key signature verification is not implemented and the pinned Quran pack cannot be promoted to `approved`. The app manifest also declares no direct network permission, keeping the core read path local by construction.
