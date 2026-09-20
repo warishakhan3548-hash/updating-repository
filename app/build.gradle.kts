@@ -43,7 +43,7 @@ val packVersion = manifestString("content_version")
 val packSha256 = manifestString("built_sha256")
 val packReviewStatus = manifestString("review_status")
 val packSourceSha256 = manifestString("source_sha256")
-val packReleaseSequence = manifestLong("release_sequence") ?: 0L
+val packReleaseSequence = manifestTopLevelReleaseSequenceOrZero()
 
 android {
     namespace = "com.aaris.quran"
