@@ -15,11 +15,11 @@ There is no network permission, account, analytics SDK, translation guess, morph
 
 ## Content activation
 
-The Android build points its asset source directly at `content-packs/quran-core/1.0.4/`; no second Quran database is committed.
+The Android build currently points its asset source at `content-packs/quran-core/1.0.4/`; no second Quran database is committed. The newer schema-v3 `quran-core 1.1.0` candidate exists in the repository but is not silently substituted into the reader. Migrating the reader pin is a separate tested change.
 
 Gradle hashes `content.sqlite` before every Android build. At first runtime use the asset is copied into `noBackupFilesDir`, hashed again, and opened with Android SQLite `OPEN_READONLY`.
 
-Debug builds may exercise the candidate pack. Release builds fail closed unless the manifest is `approved` **and** the authoritative Python pack gate succeeds. The release task verifies Source Vault/canonical binding, file and semantic integrity, and the Ed25519 signature against `policy/trusted_pack_keys.json`; signature-shaped metadata alone is never treated as verification.\n\nFor release environments, install the pinned verifier dependency first with `python -m pip install -r requirements-ci.txt`. If Python is not named `python3`, Gradle accepts `-PpythonExecutable=<path>`.\n\nRuntime also rejects a manifest that was not marked release-ready at build time. The build-time cryptographic gate remains the authoritative approval boundary for official artifacts.
+Debug builds may exercise the candidate pack. Release builds fail closed unless the manifest is `approved` **and** the authoritative Python pack gate succeeds. The release task verifies Source Vault/canonical binding, file and semantic integrity, then Ed25519 signature-v2 approval (including signed release ordering and key-lifecycle policy) against `policy/trusted_pack_keys.json`; signature-shaped metadata alone is never treated as verification.\n\nFor release environments, install the pinned verifier dependency first with `python -m pip install -r requirements-ci.txt`. If Python is not named `python3`, Gradle accepts `-PpythonExecutable=<path>`.\n\nRuntime also rejects a manifest that was not marked release-ready at build time. The build-time cryptographic gate remains the authoritative approval boundary for official artifacts.
 
 ## Runtime architecture
 
