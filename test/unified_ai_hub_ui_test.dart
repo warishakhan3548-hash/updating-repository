@@ -154,4 +154,18 @@ void main() {
     );
   });
 
+  test('pharmacy JSON is intercepted before deterministic database commands', () {
+    final source = File('lib/ui/ai_screen.dart').readAsStringSync();
+    final sendStart = source.indexOf('Future<void> _sendComposer()');
+    final sendEnd = source.indexOf('Future<void> _runQuickAction', sendStart);
+    final send = source.substring(sendStart, sendEnd);
+
+    expect(send, contains('if (containsAiConversationJson(text))'));
+    expect(send, isNot(contains("text.startsWith('{')")));
+    expect(
+      send.indexOf('containsAiConversationJson(text)'),
+      lessThan(send.indexOf('final localHandler = widget.onLocalCommand')),
+    );
+  });
+
 }
