@@ -1,9 +1,9 @@
-# Licence Matrix — 2026-09-20
+# Licence Matrix — 2026-09-21
 
 | Source | Intended use | Current status | Key implication |
 |---|---|---|---|
 | Tanzil Quran Text v1.1 | Quran Evidence Plane source | **production-approved** | Exact Uthmani `txt-2` snapshot is preserved in Source Vault. Official terms allow verbatim copying/distribution with attribution/source link and prohibit changing the Quran text. |
-| QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0 | contextual difficult-word gloss candidate | **awaiting-artifact** | Official catalogue identifies v1.0.0 and QuranEnc publishes version-aware republication terms. Exact content/terms bytes are not yet preserved under project control, so it cannot feed production. It is a gloss source, not a morphology or Quran-text authority. |
+| QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0 | contextual difficult-word gloss candidate | **awaiting-licence** | Official catalogue identifies v1.0.0 and permits republication under source-specific conditions, but the terms also require updating according to newer source versions. That obligation is not yet proven compatible with this project's public immutable retention of historical Source Vault snapshots. No bytes may be captured into the public vault until archival redistribution is clarified. It is a gloss source, not a morphology or Quran-text authority. |
 | Quranic Arabic Corpus v0.4 | morphology candidate | **awaiting-licence** | Official download presents GNU GPL/verbatim-copy terms, while the official FAQ also says research/non-commercial use. This conflict must be resolved before production redistribution/commercial use; no artifact promotion. |
 | QuranMorph (SinaLab/Birzeit, 2025) | morphology candidate | **awaiting-artifact** | Official SinaLab catalogue labels the Quran morphology dataset CC BY 4.0. The current publisher download form limits free-edition access to recognized institutional/company affiliations and professional email; no exact bytes/version have been acquired or mirrored. The paper's 6,235-verse count must also be reconciled against this project's 6,236-ayah Tanzil coordinates before promotion. |
 | Quran Foundation APIs | optional online integration | **rejected as critical vault source** | Current developer terms make it unsuitable as the permanent mirrored evidence foundation. |
