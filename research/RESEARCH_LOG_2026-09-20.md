@@ -92,3 +92,12 @@ The research now converges on four durable choices: immutable source/display dat
 | --- | --- | --- | --- | --- |
 | fact | RFC 8032 discusses cryptographic contexts as a way to separate signature uses between protocols and recommends a constant protocol-defined context where that mode is used; pure Ed25519 itself has no context input. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Keep widely supported pure Ed25519, but prepend a fixed project-owned byte domain to the manifest message before signing/verifying so release signatures cannot be interpreted as raw signatures over an unrelated protocol payload. |
 | decision | No production release key or approved signed pack exists yet, so defining the v1 application-domain prefix now does not invalidate any production trust history. | repository audit | high | Freeze the prefix before the offline key-bootstrap/signing ceremony and cover it with regression tests. |
+
+
+## Release-key lifecycle hardening
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | TUF root metadata binds roles to trusted keys and thresholds, and TUF treats rollback as a distinct update-system threat. | https://theupdateframework.io/docs/metadata/ and https://theupdateframework.io/docs/security/ | high | Keep signed release ordering and explicitly bound retired-key authorization to historical release sequences. |
+| finding | The write-capable Quran pack publisher installed `requirements-ci.txt` before a retry loop that can reset to a newer `main`. | repository audit | high | Install the verifier dependency after each reset so the exact tree being validated determines its verification dependency. |
+| inference | Keeping a rotated key trusted forever for all future release numbers weakens compromise containment even when release ordering is signed. | trust-model analysis | high | Give active/retired/revoked keys explicit release-sequence windows; retired keys retain only historical authorization and revoked keys authorize nothing. |

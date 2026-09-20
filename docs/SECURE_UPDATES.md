@@ -21,7 +21,7 @@ Hash, provenance, canonical-v3 binding and Quran semantic validation are already
 
 The verifier uses Ed25519 against project-controlled public keys in `policy/trusted_pack_keys.json`. The signed payload is the complete manifest with only the top-level `signature` field removed, serialized as deterministic UTF-8 JSON with sorted keys and compact separators. Floating-point values are rejected in signed metadata to avoid cross-language numeric canonicalization ambiguity.
 
-Release key IDs are SHA-256 fingerprints of the canonical public-key descriptor. Threshold policy is supported, and verification fails closed on unknown, unauthorized, duplicate or malformed signatures, public-key/key-ID mismatch, invalid cryptography, insufficient signatures, or an inactive trust root.
+Release key IDs are SHA-256 fingerprints of the canonical public-key descriptor. Threshold policy is supported, and trusted keys have active/retired/revoked state plus `release_sequence` authorization windows. Verification fails closed on unknown, unauthorized, out-of-window, revoked, duplicate or malformed signatures, public-key/key-ID mismatch, invalid cryptography, insufficient signatures, or an inactive trust root.
 
 Approved manifests now also require a positive integer `release_sequence`. The value is inside the signed payload, so changing release order after signing invalidates approval. This provides the deterministic ordering primitive needed for later rollback resistance without pretending that client-side rollback protection already exists.
 

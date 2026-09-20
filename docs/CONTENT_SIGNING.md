@@ -39,6 +39,12 @@ Every approved manifest must carry a positive integer `release_sequence`. Becaus
 
 The repository verifier checks that the value is a positive integer. Automatic downloaded-pack activation is still blocked until clients persist the highest accepted sequence and reject lower values except through an explicit recovery procedure.
 
+## Key lifecycle windows
+
+Authorized release keys carry `status` plus `min_release_sequence` and `max_release_sequence`. Active keys have no maximum. Retired keys require a finite historical ceiling, allowing old releases to remain verifiable without letting an old key sign arbitrary future sequence numbers. Revoked keys never count.
+
+When the trust root is active, its threshold must be satisfiable by currently active authorized keys. Preserve historical trust-policy snapshots for reproducibility, but current activation must always use the current trust policy.
+
 ## Bootstrap ceremony
 
 The repository intentionally starts with `state: bootstrap-required`.
