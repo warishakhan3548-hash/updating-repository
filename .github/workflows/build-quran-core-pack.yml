@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/build-quran-core-pack.yml'
+      - 'source-vault/registry.json'
+      - 'source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/**'
+      - 'schemas/content_v1.sql'
+      - 'tools/quran_core.py'
+      - 'tools/build_quran_core.py'
   workflow_dispatch:
 
 permissions:
