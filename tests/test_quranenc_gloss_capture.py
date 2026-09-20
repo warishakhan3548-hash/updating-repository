@@ -67,6 +67,7 @@ def authorize_capture(
     *,
     status="awaiting-artifact",
     redistribution_allowed=True,
+    retention_status="verified-allowed",
 ):
     vault = root / "source-vault"
     vault.mkdir(parents=True, exist_ok=True)
@@ -84,6 +85,16 @@ def authorize_capture(
                         ),
                         "modification_allowed": False,
                         "attribution_required": True,
+                        "release_requirements": {
+                            "latest_upstream_version_required": True,
+                            "version_check_url": (
+                                "https://quranenc.com/api/v1/"
+                                "translations/list/ar/?localization=en"
+                            ),
+                            "historical_snapshot_retention_status": (
+                                retention_status
+                            ),
+                        },
                         "vault_artifact": None,
                         "licence_snapshot": None,
                         "provenance": None,
@@ -490,6 +501,31 @@ class CaptureTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 CaptureError,
                 "licence review must promote",
+            ):
+                capture_snapshot(
+                    root,
+                    fetcher=should_not_fetch,
+                )
+
+    def test_unresolved_archive_permission_blocks_before_network(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            authorize_capture(
+                root,
+                retention_status="unresolved",
+            )
+
+            def should_not_fetch(url):
+                self.fail(
+                    "network fetch attempted before "
+                    "archive permission"
+                )
+
+            with self.assertRaisesRegex(
+                CaptureError,
+                "historical snapshot retention permission",
             ):
                 capture_snapshot(
                     root,
