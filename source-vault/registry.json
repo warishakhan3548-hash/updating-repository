@@ -39,10 +39,10 @@
       "provenance": null,
       "sha256": null,
       "byte_size": null,
-      "notes": "Official QuranEnc identifies arabic_seraj as v1.0.0 and permits republication only under source-specific conditions. Those terms include no content modification, attribution/version retention, transcript-information retention, and an obligation to update according to newer source versions. That ongoing-update condition is not yet proven compatible with this project's requirement to keep immutable historical snapshots publicly redistributable for long-term reproducibility. Do not capture or mirror production bytes until QuranEnc clarifies archival retention or an equivalent legally durable basis is documented. If archival permission is later cleared, the existing release_requirements still require a source-bound latest-version review before an approved pack may ship.",
+      "notes": "Official QuranEnc identifies arabic_seraj as v1.0.0 and publishes source-specific republication conditions, including no content modification, attribution/version retention, transcript-information retention, and an obligation to update according to newer source versions. An exact review-only v1.0.0 snapshot (official index, dedicated terms page, resource page, and 114 Surah API responses) is already preserved under source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/ and in Git history, but it is not a production dependency. Permanent public retention of superseded immutable snapshots is not yet proven compatible with the update obligation, so the source remains awaiting-licence, redistribution_allowed stays unresolved for production, and no additional/replacement network capture or runtime pack may be made until that durability question is cleared.",
       "release_requirements": {
         "latest_upstream_version_required": true,
-        "version_check_url": "https://quranenc.com/api/v1/translations/list/ar/?localization=en",
+        "version_check_url": "https://quranenc.com/en/home",
         "historical_snapshot_retention_status": "unresolved"
       }
     },
