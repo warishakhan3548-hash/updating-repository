@@ -14,7 +14,7 @@ Phase 0A–0C is operational and Phase 1 has a minimal offline Android reader on
 
 **Current Quran runtime candidate:** `quran-core 1.1.0` (manifest schema v3), generated from the project-controlled Tanzil snapshot through the deterministic canonical Quran JSONL layer. It contains 6,236 ayahs and remains `candidate` / unsigned.
 
-**Not production-approved yet:** QuranEnc Arabic difficult-word glosses (currently `awaiting-licence` because its “stay current” republication condition is not yet proven compatible with immutable historical public mirrors), Quranic Arabic Corpus/QuranMorph/QUL morphology, Hadith datasets and other optional content. See `source-vault/registry.json`.
+**Not production-approved yet:** QuranEnc Arabic difficult-word glosses (an exact v1.0.0 review snapshot is preserved, but the source remains `awaiting-licence` because its “stay current” condition is not yet proven compatible with permanent historical public retention), Quranic Arabic Corpus/QuranMorph/QUL morphology, Hadith datasets and other optional content. See `source-vault/registry.json`.
 
 The reader is intentionally narrow: source-faithful Arabic, local navigation, strict local ayah search and safe UI-only tap anchors. Quran search now also has a versioned executable golden benchmark, so broader retrieval lanes must demonstrate measured gains before promotion. Morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
 
