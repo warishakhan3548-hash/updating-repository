@@ -410,25 +410,32 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     signature = manifest["signature"]
     if not isinstance(signature, dict):
         raise PackGateError(f"{manifest_path}: signature must be an object")
-    if manifest["review_status"] == "approved":
-        required_signature = ("algorithm", "key_id", "value")
-        if any(not isinstance(signature.get(key), str) or not signature[key] for key in required_signature):
-            raise PackGateError(
-                f"{manifest_path}: approved pack requires signature algorithm/key_id/value"
-            )
-        # Signature-shaped strings are not cryptographic verification. Until a
-        # trusted-key verifier exists, production approval must fail closed.
-        raise PackGateError(
-            f"{manifest_path}: approved packs are disabled until cryptographic "
-            "signature verification is implemented"
-        )
 
+    # Authenticity is the final promotion gate. Quran source/provenance,
+    # canonical binding and semantic fidelity are proven first, so a valid
+    # signature can never legitimize altered sacred evidence.
     if manifest["pack_id"] == "quran-core" and manifest["schema_version"] in {2, 3}:
         try:
             verify_quran_core_pack(root, manifest, artifact)
         except QuranPackSemanticError as exc:
             raise PackGateError(
                 f"{manifest_path}: Quran semantic verification failed: {exc}"
+            ) from exc
+
+    if manifest["review_status"] == "approved":
+        try:
+            from tools.pack_signing import PackSignatureError, verify_manifest_signature
+        except ImportError as exc:
+            raise PackGateError(
+                f"{manifest_path}: cryptographic signature verifier unavailable"
+            ) from exc
+
+        trusted_keys = root / "policy" / "trusted_pack_keys.json"
+        try:
+            verify_manifest_signature(manifest, trusted_keys)
+        except PackSignatureError as exc:
+            raise PackGateError(
+                f"{manifest_path}: signature verification failed: {exc}"
             ) from exc
 
 
