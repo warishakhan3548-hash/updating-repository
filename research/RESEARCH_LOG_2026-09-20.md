@@ -92,3 +92,13 @@ The research now converges on four durable choices: immutable source/display dat
 | --- | --- | --- | --- | --- |
 | fact | RFC 8032 discusses cryptographic contexts as a way to separate signature uses between protocols and recommends a constant protocol-defined context where that mode is used; pure Ed25519 itself has no context input. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Keep widely supported pure Ed25519, but prepend a fixed project-owned byte domain to the manifest message before signing/verifying so release signatures cannot be interpreted as raw signatures over an unrelated protocol payload. |
 | decision | No production release key or approved signed pack exists yet, so defining the v1 application-domain prefix now does not invalidate any production trust history. | repository audit | high | Freeze the prefix before the offline key-bootstrap/signing ceremony and cover it with regression tests. |
+
+## Android rollback-state update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | TUF defines rollback as presenting content older than a client has already seen and freshness as refusing obsolete trusted state. | https://theupdateframework.io/docs/security/ and https://theupdateframework.io/docs/metadata/ | high | A signed release sequence needs client-persisted acceptance state; signed ordering alone is not rollback resistance. |
+| fact | Android `getNoBackupFilesDir()` stores app-internal files excluded from automatic backup. | https://developer.android.com/reference/android/content/Context#getNoBackupFilesDir() | high | Store rollback acceptance state there so cloud restore does not silently restore an older highest-sequence value. |
+| fact | Android `AtomicFile` provides fail-safe replacement semantics for a file. | https://developer.android.com/reference/android/util/AtomicFile | high | Use it for the tiny rollback-state file and bundled pack replacement to avoid delete-then-write crash windows. |
+| inference | Adding DataStore solely for one monotonic sequence/hash record would add a dependency without improving the present trust model over a strict small `AtomicFile` record. | repository + Android storage synthesis | high | Keep the mechanism dependency-free until broader settings/state justify another storage layer. |
+| limitation | App-internal rollback state is erased by uninstall or clear-data and is not a hardware monotonic counter. | Android application-storage model | high | Do not claim protection against device-owner/root compromise or post-uninstall replay. |
