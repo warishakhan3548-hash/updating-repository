@@ -142,10 +142,18 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         notice = _safe_repo_file(
             root, notice_path, "notice_path", "content-packs"
         )
+        if notice.parent.resolve() != manifest_path.parent.resolve():
+            raise PackGateError(
+                f"{manifest_path}: notice_path must live beside its manifest"
+            )
         if sha256_file(notice) != notice_hash:
             raise PackGateError(f"{manifest_path}: notice_sha256 mismatch")
 
     artifact = _safe_repo_file(root, manifest["artifact_path"], "artifact_path", "content-packs")
+    if artifact.parent.resolve() != manifest_path.parent.resolve():
+        raise PackGateError(
+            f"{manifest_path}: artifact_path must live beside its manifest"
+        )
     expected_hash = _lower_sha256(manifest["built_sha256"], "built_sha256")
     expected_size = manifest["built_byte_size"]
     if not isinstance(expected_size, int) or expected_size < 1:
