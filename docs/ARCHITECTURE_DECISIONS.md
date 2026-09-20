@@ -84,3 +84,11 @@ The Learning Plane stores review events as durable user history and treats sched
 This contract deliberately does not serialize FSRS equations, parameter vectors or library-specific card objects into permanent event identity. A future scheduler may replay the same preserved events into a different cache implementation.
 
 The v1→v2 migration never guesses the meaning of an unknown historical outcome. Exact canonical grade strings are mapped; all other legacy outcomes remain verbatim with no canonical grade. Historical rows stay append-only.
+
+## ADR-020 — Multi-file source snapshots use a checksum-set root
+
+Some authoritative publishers expose a version as many immutable files rather than one archive. The Source Vault therefore supports a generic `sha256-set` artifact kind alongside the default single-file artifact.
+
+For a checksum set, `vault_artifact` is a project-controlled UTF-8 checksum ledger. Every member path must be relative POSIX syntax, remain inside the snapshot directory, resolve to a unique file, and match its recorded SHA-256. Absolute paths, traversal, symlink escape, duplicate/aliased members, self-reference and hash drift fail closed.
+
+This is an integrity primitive, not a licensing shortcut. A checksum-bound source still cannot feed a release unless its registry state is `production-approved` and all licence, provenance, historical-retention and release-time obligations pass independently. QuranEnc's captured review snapshot uses the same integrity model for offline audit, but remains non-production while its historical archival-rights question is unresolved.
