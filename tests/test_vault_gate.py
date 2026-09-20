@@ -294,6 +294,67 @@ class VaultGateTests(unittest.TestCase):
             ):
                 validate_registry(path)
 
+    def test_awaiting_artifact_requires_verified_historical_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {
+                    "source_id": "candidate",
+                    "status": "awaiting-artifact",
+                    "release_requirements": {
+                        "latest_upstream_version_required": True,
+                        "version_check_url": "https://example.invalid/versions",
+                        "historical_snapshot_retention_status": "unresolved",
+                    },
+                },
+            )
+            with self.assertRaisesRegex(
+                VaultGateError,
+                "capture-ready or preserved source requires verified historical",
+            ):
+                validate_registry(path)
+
+    def test_awaiting_licence_may_record_unresolved_historical_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {
+                    "source_id": "candidate",
+                    "status": "awaiting-licence",
+                    "release_requirements": {
+                        "latest_upstream_version_required": True,
+                        "version_check_url": "https://example.invalid/versions",
+                        "historical_snapshot_retention_status": "unresolved",
+                    },
+                },
+            )
+            validate_registry(path)
+
+    def test_registered_preserved_candidate_requires_verified_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, provenance_path = self._valid_snapshot(
+                root, status="research-candidate"
+            )
+            requirements = {
+                "latest_upstream_version_required": True,
+                "version_check_url": "https://example.invalid/versions",
+                "historical_snapshot_retention_status": "unresolved",
+            }
+            source["release_requirements"] = requirements
+            provenance = json.loads(
+                provenance_path.read_text(encoding="utf-8")
+            )
+            provenance["release_requirements"] = requirements
+            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            path = self._registry(root, source)
+            self._refresh_provenance_hash(path, provenance_path)
+            with self.assertRaisesRegex(
+                VaultGateError,
+                "capture-ready or preserved source requires verified historical",
+            ):
+                validate_registry(path)
+
     def test_production_source_blocks_unresolved_historical_snapshot_retention(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
