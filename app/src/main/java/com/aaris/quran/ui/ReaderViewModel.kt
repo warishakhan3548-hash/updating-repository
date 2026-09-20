@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+internal fun isCanonicalSurahNumber(surah: Int): Boolean = surah in 1..114
+
 data class ReaderUiState(
     val surah: Int = 1,
     val ayahs: List<QuranAyah> = emptyList(),
@@ -35,7 +37,7 @@ class ReaderViewModel(
     fun retry() = loadSurah(_state.value.surah)
 
     private fun loadSurah(surah: Int) {
-        if (surah !in 1..114) return
+        if (!isCanonicalSurahNumber(surah)) return
         loadJob?.cancel()
         _state.value = _state.value.copy(
             surah = surah,
