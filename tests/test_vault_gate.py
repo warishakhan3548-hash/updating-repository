@@ -133,7 +133,7 @@ class VaultGateTests(unittest.TestCase):
                 root, status="research-candidate"
             )
             path = self._registry(root, source)
-            artifact.write_bytes(b"tampered research candidate")
+            artifact.write_bytes(b"tampered example!")
             with self.assertRaisesRegex(VaultGateError, "artifact SHA-256 mismatch"):
                 validate_registry(path)
 
