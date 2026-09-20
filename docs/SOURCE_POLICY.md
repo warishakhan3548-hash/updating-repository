@@ -37,6 +37,8 @@ A `production-approved` source must set `commercial_use_allowed: true`. Unknown 
 
 A source-specific term that requires republishers to remain on the latest upstream version is **not automatically compatible** with a public immutable historical Source Vault. If the project must retain old snapshots for reproducibility but the licence does not clearly permit continued archival redistribution of those older versions, keep the source `awaiting-licence` until written clarification, a compatible archival grant, or a replacement source resolves the conflict. Acquisition tooling must fail closed before network download when the registry has not cleared the source for capture.
 
+This is an executable state transition, not documentation only. `awaiting-licence` must remain metadata-only. When `release_requirements.historical_snapshot_retention_status` is declared and is not `verified-allowed`, the central Source Vault gate blocks `awaiting-artifact`, any preserved snapshot metadata, and `production-approved`. Sources with licences that already clearly permit archival retention do not need a synthetic stay-current requirement added merely to satisfy this rule.
+
 ## Release-time source obligations
 
 Archival permission and current redistribution eligibility are separate questions. Once archival retention has been legally cleared, a preserved source snapshot remains immutable for reproducibility even when its licence also imposes an ongoing release-time obligation such as “use/update to the latest upstream version”.
