@@ -2,7 +2,7 @@
 
 ## Decision
 
-QuranEnc **Arabic Language - Meanings of Words** (`arabic_seraj`) is now captured under project control as a **review-only Source Vault candidate**. It is **not production-approved** and must not feed a runtime gloss pack yet.
+QuranEnc **Arabic Language - Meanings of Words** (`arabic_seraj`) was captured in commit `95e8fc41fae70c4687e41ac887df7ab0c2c2eb48` as a **review-only candidate** while the currently issued v1.0.0 was redistributable under QuranEnc's published conditions. A subsequent durability review found that those terms do not clearly establish indefinite public retention after a newer version appears. The candidate is therefore **not production-approved**, is excluded from registry artifact fields, and is removed from the active Source Vault tree pending clarification.
 
 The capture uses QuranEnc's documented Surah translation API rather than the unreliable bulk CSV route. Exact response bytes for Surahs 1–114 were preserved without modification, together with the official resource index, resource page, terms snapshot, provenance and checksums.
 
@@ -24,9 +24,11 @@ Primary pages:
 
 ## Preserved candidate
 
-Project-controlled path:
+Historical capture path in commit `95e8fc41fae70c4687e41ac887df7ab0c2c2eb48`:
 
 `source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/`
+
+The current tree intentionally does not retain these bytes while historical-retention permission is unresolved. The hashes below remain the audit reference for that capture.
 
 Important integrity values from the captured commit:
 
@@ -45,14 +47,17 @@ The update obligation creates a material unresolved question for this project's 
 
 Therefore:
 
-1. keep this capture `captured-unreviewed`;
-2. do not change the Source Vault registry entry to `production-approved`;
-3. do not build a production gloss pack from these bytes;
+1. keep the registry entry `awaiting-licence` with no artifact/provenance/hash promotion fields;
+2. remove the review capture from the active Source Vault tree while historical retention remains unresolved;
+3. do not build a production gloss pack from those bytes;
 4. obtain explicit clarification/permission for permanent historical retention, or choose a source whose terms clearly permit it;
-5. if permission is obtained, promote in a separate reviewed change with a multi-file vault gate and immutable content-pack importer;
-6. if permission is not obtained, remove this source from the permanent-production path and use a legally durable alternative.
+5. if permission is obtained, either restore the exact audited snapshot where legally permitted or reacquire the then-current official version through the gated capture path and compare it against the recorded hashes;
+6. still perform the separate signed latest-version review before approving any future pack;
+7. if permission is denied, keep QuranEnc outside the permanent-production path and use a legally durable alternative.
 
-Capture is evidence for review, not a licence conclusion.
+The historical Git commit remains part of the audit trail because this change does not rewrite repository history. A history purge would be a separate destructive operation requiring explicit authorization and a concrete legal/operational reason.
+
+Capture evidence is not a licence conclusion.
 
 ## Product architecture consequence
 
