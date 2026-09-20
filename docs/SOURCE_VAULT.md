@@ -29,6 +29,8 @@ Because this repository is project-controlled redistribution infrastructure, a p
 
 Acquisition tools that write into `source-vault/` must consult the registry **before making any network request**. A source in `awaiting-licence` is not capture-authorized. This prevents a review-only downloader from accidentally turning unresolved third-party rights into a public project-controlled mirror.
 
+The central vault gate enforces the same boundary independently of acquisition scripts: an `awaiting-licence` entry may not declare preserved snapshot bytes, and a source that explicitly declares unresolved historical-retention rights may not advance to `awaiting-artifact`, preserve bytes, or become `production-approved` until that status is `verified-allowed`.
+
 ## Multi-file snapshot contract
 
 Some legally cleared sources are naturally a versioned set of files rather than one blob. Do not concatenate or rewrite those source bytes merely to satisfy the single-file gate.
