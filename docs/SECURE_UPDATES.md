@@ -37,6 +37,6 @@ The signed `release_sequence` is now enforced by Android runtime state for non-d
 
 A candidate below the stored sequence is rejected even if its older signature and hash are otherwise valid. Reusing the same sequence for different bytes is also rejected. Debug candidate builds do not advance this production state.
 
-The rollback-state record is written with Android `AtomicFile`. Bundled `content.sqlite` replacement is likewise performed only after a temporary copy passes SHA-256 verification, then written through `AtomicFile` and re-hashed after activation. This removes the previous delete-then-rename crash window.
+The rollback-state record is written with Android `AtomicFile`. Bundled `content.sqlite` replacement is likewise performed only after a temporary copy passes SHA-256 verification, then written through `AtomicFile` and re-hashed after activation. This removes the previous delete-then-rename crash window. Because Android explicitly gives `AtomicFile` no locking semantics, the complete release transaction—rollback preflight, verified pack activation and rollback-state advancement—is serialized by one process-wide lock, and direct state-store operations use that same lock.
 
 This is an installed-app rollback barrier, not hardware-backed monotonic storage. Uninstall or clear-data removes app-internal state. Automatic remote pack updates remain disabled until freshness/expiry, downloaded-pack staging, explicit recovery, supported-API on-device signature verification, and remote trust-rotation behavior are reviewed and tested.
