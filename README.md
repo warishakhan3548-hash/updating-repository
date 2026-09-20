@@ -14,7 +14,7 @@ Phase 0A–0C is operational and the first Quran evidence source has passed the 
 
 **Not production-approved yet:** Quranic Arabic Corpus morphology, Hadith datasets, QUL resources and other optional content. See `source-vault/registry.json`.
 
-This is not yet a finished reader application. Reader UI, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+A minimal offline Android reader now projects the trusted local Quran read path. Morphology-backed word meaning, learning, Hadith retrieval and external-AI evidence workflows still wait for their required data foundations to pass the same gates.
 
 ## Architecture boundaries
 
@@ -33,11 +33,15 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 
 The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.
 
+Approved runtime packs additionally require trusted Ed25519 verification after provenance/canonical/semantic gates. The production public-key registry is intentionally empty until an offline release-key ceremony, so current candidates remain unapproved.
+
 ## Validation
 
 The main branch runs:
 
 ```bash
+python -m pip install --disable-pip-version-check -r requirements-foundation.txt
+python tools/pack_signing.py policy/trusted_pack_keys.json
 python tools/vault_gate.py source-vault/registry.json
 python tools/pack_gate.py source-vault/registry.json
 python tools/validate_schemas.py
