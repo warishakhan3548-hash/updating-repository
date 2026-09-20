@@ -89,7 +89,6 @@ Future<T> runMedicineVisionWorkForTesting<T>(
 
 class MedicineVisionService {
   static const _channel = MethodChannel('com.aaris.pharmacy/documents');
-  static const _detectorTimeout = Duration(seconds: 12);
   final _latin = TextRecognizer(script: TextRecognitionScript.latin);
   final _hindi = TextRecognizer(script: TextRecognitionScript.devanagiri);
   final _barcodes = BarcodeScanner(
@@ -104,7 +103,6 @@ class MedicineVisionService {
       BarcodeFormat.itf,
     ],
   );
-  final Set<String> _quarantinedDetectors = <String>{};
   bool _closing = false, _closed = false;
   int _inFlight = 0;
   Completer<void>? _drained;
@@ -157,24 +155,24 @@ class MedicineVisionService {
         await Future.wait<void>([
           if (quality == null && qualityPath != null)
             _fileQuality(qualityPath).then((value) => measuredQuality = value),
-          _runDetector<RecognizedText>(
-            key: 'latin',
-            work: () => _latin.processImage(input),
-            close: _latin.close,
-            errors: errors,
-          ).then<void>((value) => latin = value),
-          _runDetector<RecognizedText>(
-            key: 'devanagari',
-            work: () => _hindi.processImage(input),
-            close: _hindi.close,
-            errors: errors,
-          ).then<void>((value) => hindi = value),
-          _runDetector<List<Barcode>>(
-            key: 'barcode',
-            work: () => _barcodes.processImage(input),
-            close: _barcodes.close,
-            errors: errors,
-          ).then<void>((value) => barcodeResult = value),
+          _latin
+              .processImage(input)
+              .then<void>(
+                (value) => latin = value,
+                onError: (Object error, StackTrace _) => errors.add(error),
+              ),
+          _hindi
+              .processImage(input)
+              .then<void>(
+                (value) => hindi = value,
+                onError: (Object error, StackTrace _) => errors.add(error),
+              ),
+          _barcodes
+              .processImage(input)
+              .then<void>(
+                (value) => barcodeResult = value,
+                onError: (Object error, StackTrace _) => errors.add(error),
+              ),
         ]);
         if (latin == null && hindi == null && barcodeResult == null) {
           throw StateError(
@@ -232,56 +230,6 @@ class MedicineVisionService {
     }
   }
 
-  Future<T?> _runDetector<T>({
-    required String key,
-    required Future<T> Function() work,
-    required Future<void> Function() close,
-    required List<Object> errors,
-  }) async {
-    // A timed-out plugin operation cannot be cancelled safely. Never issue a
-    // second request to that recognizer while native work may still be alive.
-    if (_quarantinedDetectors.contains(key)) return null;
-    late final Future<T> operation;
-    try {
-      operation = work();
-    } catch (error) {
-      errors.add(error);
-      return null;
-    }
-    try {
-      return await operation.timeout(_detectorTimeout);
-    } on TimeoutException {
-      errors.add(
-        TimeoutException(
-          '$key medicine detector did not respond in time.',
-          _detectorTimeout,
-        ),
-      );
-      _quarantinedDetectors.add(key);
-      unawaited(_retireQuarantinedDetector(operation, close));
-      return null;
-    } catch (error) {
-      errors.add(error);
-      return null;
-    }
-  }
-
-  Future<void> _retireQuarantinedDetector<T>(
-    Future<T> operation,
-    Future<void> Function() close,
-  ) async {
-    try {
-      await operation;
-    } catch (_) {
-      // The original detector failure is already represented in analyze().
-    }
-    try {
-      await close();
-    } catch (_) {
-      // Late native cleanup must never surface as an unhandled async error.
-    }
-  }
-
   Future<double> _fileQuality(String path) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
       return CaptureQuality.unknownScore;
@@ -314,11 +262,7 @@ class MedicineVisionService {
       // Release every native recognizer only after admitted work has drained.
       // Future.wait still gives every recognizer a chance to close if one close
       // operation fails, preventing native resources from leaking on teardown.
-      await Future.wait([
-        if (!_quarantinedDetectors.contains('latin')) _latin.close(),
-        if (!_quarantinedDetectors.contains('devanagari')) _hindi.close(),
-        if (!_quarantinedDetectors.contains('barcode')) _barcodes.close(),
-      ]);
+      await Future.wait([_latin.close(), _hindi.close(), _barcodes.close()]);
     } finally {
       _closed = true;
     }
