@@ -131,8 +131,11 @@ class QuranCoreTests(unittest.TestCase):
             notice = root_a / manifest["notice_path"]
             self.assertTrue(notice.is_file())
             self.assertEqual(sha256_file(notice), manifest["notice_sha256"])
-            self.assertIn("Tanzil Quran Text", notice.read_text(encoding="utf-8"))
-            self.assertIn("Copyright (C) 2007-2021 Tanzil Project", notice.read_text(encoding="utf-8"))
+            _, source_artifact, _ = load_production_source(root_a)
+            self.assertEqual(
+                notice.read_text(encoding="utf-8"),
+                extract_tanzil_notice(source_artifact),
+            )
 
 
 if __name__ == "__main__":
