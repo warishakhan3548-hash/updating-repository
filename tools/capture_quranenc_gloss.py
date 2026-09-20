@@ -301,9 +301,17 @@ def capture_snapshot(
             f"{destination}"
         )
 
-    retrieved_at = (
-        now or datetime.now(timezone.utc)
-    ).astimezone(timezone.utc)
+    retrieved_at = now or datetime.now(timezone.utc)
+    if (
+        retrieved_at.tzinfo is None
+        or retrieved_at.utcoffset() is None
+    ):
+        raise CaptureError(
+            "capture timestamp must be timezone-aware"
+        )
+    retrieved_at = retrieved_at.astimezone(
+        timezone.utc
+    )
     retrieved_iso = (
         retrieved_at.isoformat()
         .replace("+00:00", "Z")
@@ -357,6 +365,20 @@ def capture_snapshot(
             _record(
                 terms,
                 "LICENSE_SOURCE.html",
+            )
+        )
+
+        source_page = fetcher(BROWSE_URL)
+        _validate_result(
+            source_page, label="source page"
+        )
+        (
+            staging / "SOURCE_PAGE.html"
+        ).write_bytes(source_page.body)
+        fetch_records.append(
+            _record(
+                source_page,
+                "SOURCE_PAGE.html",
             )
         )
 
@@ -453,6 +475,15 @@ def capture_snapshot(
                     terms.body
                 ),
             },
+            "source_page_snapshot": {
+                "path": "SOURCE_PAGE.html",
+                "byte_size": len(
+                    source_page.body
+                ),
+                "sha256": sha256_bytes(
+                    source_page.body
+                ),
+            },
             "requests": fetch_records,
             "promotion_state": (
                 "captured-unreviewed"
@@ -482,6 +513,10 @@ def capture_snapshot(
             VAULT_RELATIVE
             / "LICENSE_SOURCE.html"
         ).as_posix()
+        source_page_path = (
+            VAULT_RELATIVE
+            / "SOURCE_PAGE.html"
+        ).as_posix()
         provenance = {
             "source_id": SOURCE_ID,
             "source_name": SOURCE_NAME,
@@ -500,6 +535,9 @@ def capture_snapshot(
             "attribution_required": True,
             "licence_snapshot": (
                 licence_path
+            ),
+            "source_page_snapshot": (
+                source_page_path
             ),
             "project_mirror": (
                 project_artifact
@@ -534,6 +572,11 @@ def capture_snapshot(
             ),
             "LICENSE_SOURCE.html": (
                 sha256_bytes(terms.body)
+            ),
+            "SOURCE_PAGE.html": (
+                sha256_bytes(
+                    source_page.body
+                )
             ),
             "capture-manifest.json": (
                 sha256_bytes(
