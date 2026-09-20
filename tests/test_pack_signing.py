@@ -51,7 +51,15 @@ class PackSigningTests(unittest.TestCase):
             "signature": {"status": "unsigned"},
         }
 
-    def _policy(self, root: Path, *, threshold: int = 1, status: str = "active") -> Path:
+    def _policy(
+        self,
+        root: Path,
+        *,
+        threshold: int = 1,
+        status: str = "active",
+        min_sequence: int = 1,
+        max_sequence: int | None = None,
+    ) -> Path:
         path = root / "trusted_pack_keys.json"
         path.write_text(
             json.dumps(
@@ -63,6 +71,11 @@ class PackSigningTests(unittest.TestCase):
                             "key_id": "rfc8032-test-key",
                             "algorithm": "ed25519",
                             "status": status,
+                            "min_release_sequence": min_sequence,
+                            "max_release_sequence": (
+                                5 if status == "retired" and max_sequence is None
+                                else max_sequence
+                            ),
                             "public_key_base64": base64.b64encode(
                                 RFC8032_PUBLIC
                             ).decode("ascii"),
@@ -149,6 +162,53 @@ class PackSigningTests(unittest.TestCase):
                 verify_manifest_signature(manifest, keys),
                 ("rfc8032-test-key",),
             )
+
+    def test_retired_key_cannot_authorize_future_release_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest()
+            manifest["release_sequence"] = 6
+            self._sign(manifest)
+            keys = self._policy(
+                Path(tmp),
+                status="retired",
+                max_sequence=5,
+            )
+            with self.assertRaisesRegex(
+                PackSignatureError, "trusted signature threshold not met"
+            ):
+                verify_manifest_signature(manifest, keys)
+
+    def test_retired_key_policy_requires_sequence_ceiling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "trusted_pack_keys.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "signature_threshold": 1,
+                        "keys": [
+                            {
+                                "key_id": "rfc8032-test-key",
+                                "algorithm": "ed25519",
+                                "status": "retired",
+                                "min_release_sequence": 1,
+                                "max_release_sequence": None,
+                                "public_key_base64": base64.b64encode(
+                                    RFC8032_PUBLIC
+                                ).decode("ascii"),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            manifest = self._manifest()
+            self._sign(manifest)
+            with self.assertRaisesRegex(
+                PackSignatureError,
+                "retired key requires max_release_sequence",
+            ):
+                verify_manifest_signature(manifest, path)
 
     def test_threshold_is_enforced(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
