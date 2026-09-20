@@ -180,7 +180,62 @@ class PackGateTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 PackGateError,
-                "notice_path must stay inside manifest pack directory",
+                "notice_path must resolve inside manifest pack directory",
+            ):
+                validate_manifest(manifest, registry)
+
+    def test_runtime_artifact_cannot_borrow_another_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, built = self._fixture(root)
+            other = root / "content-packs" / "other-pack" / "1.0" / "content.sqlite"
+            other.parent.mkdir(parents=True)
+            other.write_bytes(built.read_bytes())
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["artifact_path"] = "content-packs/other-pack/1.0/content.sqlite"
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError,
+                "artifact_path must resolve inside manifest pack directory",
+            ):
+                validate_manifest(manifest, registry)
+
+    def test_runtime_artifact_symlink_cannot_borrow_another_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, built = self._fixture(root)
+            other = root / "content-packs" / "other-pack" / "1.0" / "content.sqlite"
+            other.parent.mkdir(parents=True)
+            other.write_bytes(built.read_bytes())
+            built.unlink()
+            built.symlink_to(other)
+            with self.assertRaisesRegex(
+                PackGateError,
+                "artifact_path must resolve inside manifest pack directory",
+            ):
+                validate_manifest(manifest, registry)
+
+    def test_attribution_notice_symlink_cannot_borrow_another_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            registry_data = json.loads(registry.read_text(encoding="utf-8"))
+            registry_data["sources"][0]["attribution_required"] = True
+            registry.write_text(json.dumps(registry_data), encoding="utf-8")
+
+            other = root / "content-packs" / "other-pack" / "1.0" / "NOTICE.txt"
+            other.parent.mkdir(parents=True)
+            other.write_text("required attribution", encoding="utf-8")
+            local_notice = manifest.parent / "NOTICE.txt"
+            local_notice.symlink_to(other)
+
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["notice_path"] = str(local_notice.relative_to(root))
+            data["notice_sha256"] = hashlib.sha256(other.read_bytes()).hexdigest()
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError,
+                "notice_path must resolve inside manifest pack directory",
             ):
                 validate_manifest(manifest, registry)
 
