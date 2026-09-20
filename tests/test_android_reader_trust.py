@@ -13,12 +13,11 @@ class AndroidReaderTrustTests(unittest.TestCase):
 
         self.assertNotIn("releaseSignatureReady", build)
         self.assertNotIn("hasManifestString", build)
+        self.assertIn('tasks.registering(Exec::class)', build)
+        self.assertIn('"tools/pack_gate.py"', build)
+        self.assertIn('"policy/trusted_pack_keys.json"', build)
         self.assertIn(
-            'buildConfigField("boolean", "QURAN_PACK_RELEASE_READY", "false")',
-            build,
-        )
-        self.assertIn(
-            "trusted-key cryptographic content-pack signature",
+            'buildConfigField("boolean", "QURAN_PACK_RELEASE_READY", "true")',
             build,
         )
 
@@ -27,6 +26,23 @@ class AndroidReaderTrustTests(unittest.TestCase):
 
         self.assertIn('check(packReviewStatus == "approved")', build)
         self.assertIn("not approved", build)
+        self.assertIn(
+            'it.name == "preReleaseBuild"',
+            build,
+        )
+        self.assertIn("dependsOn(verifyReleaseQuranPack)", build)
+
+    def test_debug_never_claims_release_pack_readiness(self):
+        build = BUILD.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'getByName("debug") {',
+            build,
+        )
+        self.assertIn(
+            'buildConfigField("boolean", "QURAN_PACK_RELEASE_READY", "false")',
+            build,
+        )
 
     def test_reader_has_no_direct_network_permission(self):
         manifest = MANIFEST.read_text(encoding="utf-8")
