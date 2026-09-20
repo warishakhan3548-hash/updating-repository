@@ -21,6 +21,8 @@ Gradle hashes `content.sqlite` before every Android build. At first runtime use 
 
 Debug builds may exercise the candidate pack. Release builds fail closed unless the manifest is `approved` **and** the authoritative Python pack gate succeeds. The release task verifies Source Vault/canonical binding, file and semantic integrity, and the Ed25519 signature against `policy/trusted_pack_keys.json`; signature-shaped metadata alone is never treated as verification.
 
+For production builds, the signed positive `release_sequence` is also compiled into runtime configuration. Before activation the reader compares it with the highest sequence already accepted on that device. The highest value is stored atomically under `noBackupFilesDir/trust/`, and a lower sequence is rejected. The state is recorded only after the exact bundled SQLite bytes pass runtime hashing and activate successfully. Candidate/debug builds do not mutate this production state.
+
 For release environments, install the pinned verifier dependency first with `python -m pip install -r requirements-ci.txt`. If Python is not named `python3`, Gradle accepts `-PpythonExecutable=<path>`.
 
 Runtime also rejects a manifest that was not marked release-ready at build time. The build-time cryptographic gate remains the authoritative approval boundary for official artifacts.
