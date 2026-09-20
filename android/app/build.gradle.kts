@@ -7,7 +7,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val quranPackDir = rootProject.file("../content-packs/quran-core/1.0.2")
+val quranPackDir = rootProject.file("../content-packs/quran-core/1.0.4")
 val quranManifest = quranPackDir.resolve("manifest.json")
 val quranDatabase = quranPackDir.resolve("content.sqlite")
 
@@ -37,8 +37,10 @@ fun sha256(file: File): String {
 val quranPackVersion = manifestString("content_version")
 val quranPackSha256 = manifestString("built_sha256")
 val quranSourceAttribution = manifestString("source_attribution")
+val quranSourceLicenceSha256 = manifestString("source_licence_sha256")
+val quranSourceProvenanceSha256 = manifestString("source_provenance_sha256")
 
-check(quranPackVersion == "1.0.2") { "Unexpected Quran content pack version" }
+check(quranPackVersion == "1.0.4") { "Unexpected Quran content pack version" }
 check(sha256(quranDatabase) == quranPackSha256) {
     "Pinned Quran pack SHA-256 does not match its manifest"
 }
@@ -56,6 +58,8 @@ android {
 
         buildConfigField("String", "QURAN_PACK_VERSION", JsonOutput.toJson(quranPackVersion))
         buildConfigField("String", "QURAN_PACK_SHA256", JsonOutput.toJson(quranPackSha256))
+        buildConfigField("String", "QURAN_SOURCE_LICENCE_SHA256", JsonOutput.toJson(quranSourceLicenceSha256))
+        buildConfigField("String", "QURAN_SOURCE_PROVENANCE_SHA256", JsonOutput.toJson(quranSourceProvenanceSha256))
         buildConfigField(
             "String",
             "QURAN_SOURCE_ATTRIBUTION",
