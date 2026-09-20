@@ -131,3 +131,12 @@ A source whose republication terms require downstream copies to stay current may
 `awaiting-licence` is also a **no-bytes** state in project-controlled public storage. The central Source Vault gate rejects any preserved snapshot metadata under that status. This makes the legal boundary independent of source-specific download scripts and prevents a future acquisition path from accidentally publishing bytes before archival rights are established.
 
 Once archival retention is explicitly `verified-allowed`, the source may advance to artifact acquisition/review. Any separate ongoing obligation to ship only the latest upstream version remains enforced later by the signed source-release review. Commercial-use permission remains a separate gate under ADR-022. Current-version permission, historical archival permission, commercial-use permission, evidence quality and release freshness are therefore distinct decisions.
+
+
+## ADR-025 — Historical-retention permission gates every preserved source
+
+Redistribution permission and permission to keep an immutable historical copy are separate assertions. Building on ADR-024's fail-closed handling of unresolved rights, the Source Vault requires explicit `historical_snapshot_retention_status=verified-allowed` before a source may enter `awaiting-artifact`, before any source bytes may be registered as preserved, and before a source may be `production-approved`.
+
+The existing `release_requirements` object represents both archival-retention review and any release-time freshness obligation. `latest_upstream_version_required` is a boolean: a source such as Tanzil may permit durable historical redistribution without requiring every release to use upstream latest, while a source such as QuranEnc or HadeethEnc may impose a latest-version obligation and still remain blocked because historical retention is unresolved.
+
+Release/freshness policy is intentionally not copied into immutable acquisition provenance. Provenance records what exact artifact was obtained, from where, when, under which archived terms and hashes. The registry records the current legal/release interpretation, while an approved pack that is legally required to track upstream latest carries a separately signed `source_release_review`. This keeps evidence bytes reproducible without freezing a mutable compliance judgment into source identity.
