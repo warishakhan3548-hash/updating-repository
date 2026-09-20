@@ -20,7 +20,7 @@ This prevents a human-friendly label from silently being rebound to different ke
 
 ## Signed payload
 
-The signed payload is the complete manifest with the top-level `signature` property removed. Signature arrays are excluded so independent authorized keys can sign the same immutable payload.
+The signed payload begins with the fixed byte domain `AARIS-CONTENT-PACK-SIGNATURE-V1\\n`, followed by the complete manifest with the top-level `signature` property removed. The fixed prefix gives this project-owned Ed25519 use an application-level signature domain, reducing the risk that the same release key/signature bytes are accidentally interpreted by another protocol. Signature arrays are excluded so independent authorized keys can sign the same immutable payload.
 
 Signature format v1 deliberately uses a narrow, project-owned JSON contract rather than claiming full RFC 8785/JCS conformance:
 
