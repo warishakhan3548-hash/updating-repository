@@ -8,13 +8,13 @@ This repository builds trust and reproducibility before UI breadth. Critical ext
 
 ## Current phase
 
-Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. The deterministic Quran core builder is the bridge into early Phase 1.
+Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. Early Phase 1 now includes a minimal Android reader over the verified Quran core; word-level comprehension remains gated on legally preserved token-level evidence.
 
 **Production-approved today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
 
 **Not production-approved yet:** Quranic Arabic Corpus morphology, Hadith datasets, QUL resources and other optional content. See `source-vault/registry.json`.
 
-This is not yet a finished reader application. Reader UI, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+This is not yet a finished product. Learning, morphology-assisted word tap, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
 
 ## Architecture boundaries
 
@@ -29,19 +29,18 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 
 `tools/quran_core.py` validates the pinned Tanzil artifact and the complete 114-surah / 6,236-ayah coordinate sequence while keeping original display text separate from derived search normalization.
 
-`tools/build_quran_core.py` deterministically builds the current `quran-core` 1.0.2 candidate under `content-packs/`, including SQLite content, manifest and a source-derived Tanzil attribution notice. The pack contains 6,236 ayahs, keeps display Arabic separate from search-normalized lanes, and remains unsigned/candidate until release review and signing. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
+`tools/build_quran_core.py` deterministically builds the current `quran-core` 1.0.3 candidate under `content-packs/`, including SQLite content, manifest and a source-derived Tanzil attribution notice. The pack contains 6,236 ayahs and remains unsigned/candidate until release review and signing.
 
-The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.
+The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology and glosses wait for a legally preserved, production-approved source.
+
+## Early Phase 1 Android reader
+
+The Android reader bundles the existing `quran-core` 1.0.3 directory by reference rather than copying a second Quran database into the app tree. At runtime it verifies the exact pack SHA-256 and size before activation, validates pack metadata, opens SQLite read-only and displays only `quran_ayah.original_text`.
+
+The initial manifest contains no direct network permission. The visible experience is deliberately small: Surah navigation, exact Arabic ayahs, separate coordinates and source information. See `docs/READER_ARCHITECTURE.md`.
 
 ## Validation
 
-The main branch runs:
+The repository runs the Source Vault/content-pack gates, SQLite schema checks and unit tests. The Android reader workflow additionally checks its pinned pack contract and assembles a debug APK.
 
-```bash
-python tools/vault_gate.py source-vault/registry.json
-python tools/pack_gate.py source-vault/registry.json
-python tools/validate_schemas.py
-python -m unittest discover -s tests -v
-```
-
-GitHub Actions executes the same foundation checks on pushes and pull requests.
+Device TalkBack, large-font, RTL, low-end performance and scroll-smoothness measurements remain explicit release work; repository compilation is not treated as proof of those qualities.
