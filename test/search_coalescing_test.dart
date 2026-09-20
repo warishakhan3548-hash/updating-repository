@@ -260,7 +260,7 @@ void main() {
       );
       expect(targetCard(), findsOneWidget);
 
-      final quantityRefresh = controller.gateNextSearch();
+      final searchesBeforeCounterWrite = controller.searchRequests;
       var live = controller.snapshot.records[record.id]!;
       await controller.save(
         live.patch({'quantity': 9}),
@@ -272,9 +272,14 @@ void main() {
         findsOneWidget,
         reason:
             'Quantity-only edits do not change search membership, so the valid '
-            'card should stay visible while the same query refreshes.',
+            'card should stay visible without another fuzzy-search pass.',
       );
-      quantityRefresh.complete();
+      expect(
+        controller.searchRequests,
+        searchesBeforeCounterWrite,
+        reason:
+            'Counter-only writes must repaint live row data without rebuilding or rerunning the search projection.',
+      );
       await tester.pumpAndSettle();
 
       final searchableRefresh = controller.gateNextSearch();
