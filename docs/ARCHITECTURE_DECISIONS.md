@@ -92,3 +92,11 @@ A source may permit republication while still imposing conditions that are incom
 For any such source, the registry remains `awaiting-licence` until the project has a documented basis for immutable historical retention, such as explicit written permission or terms that clearly allow archival redistribution. Acquisition tooling that writes under `source-vault/` must consult that registry state before network download and fail closed while the source is not capture-authorized.
 
 This keeps “we may republish the current version” separate from “we may permanently mirror every historical version,” which are different legal and durability questions.
+
+## ADR-020 — Multi-file evidence snapshots use a checksum-set root
+
+After a source has independently cleared the licence/archival gate, an inherently multi-file release may be preserved without concatenating or rewriting its upstream bytes. The Source Vault supports a generic `sha256-set` artifact kind in addition to the existing single-file artifact.
+
+The root artifact is a project-owned checksum ledger whose own SHA-256 and byte size are recorded in the registry. Every ledger member must use one canonical relative POSIX path, remain inside the same immutable snapshot directory and match its recorded SHA-256. Absolute/traversal paths, non-canonical path spellings, symlinked ledgers or members, duplicate members and self-reference fail closed.
+
+This is a preservation-integrity primitive, not a licence or promotion shortcut. Runtime builders still require `production-approved`, verified redistribution and historical-retention rights, licence/provenance binding, applicable release-time source requirements and all existing pack gates. Source-specific validators remain responsible for semantic invariants such as Quran/Hadith coordinates, editions and record shape.
