@@ -65,3 +65,12 @@ The research now converges on four durable choices: immutable source/display dat
 | type | claim | source | confidence | product implication |
 | --- | --- | --- | --- | --- |
 | fact | SQLite stores file-level structural/version metadata such as the file change counter and the SQLite version that most recently modified the database. A runtime SQLite SHA-256 identifies exact file bytes but does not by itself prove semantic fidelity to an external preserved source. | https://sqlite.org/fileformat.html | high | Keep byte-integrity checking, but independently compare schema and Quran evidence rows/search lanes back to the pinned Source Vault before promotion. |
+
+## Release-signing research update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | TUF specification 1.0.36 (last modified 2026-08-05) models trusted root keys, threshold roles, deterministic/canonicalizable signed metadata, unique key IDs and rollback resistance. | https://theupdateframework.io/specification/latest/ | high | Adopt the narrow trust properties now—project-controlled root, threshold signatures and deterministic payload—without importing a full remote-update framework before it is needed. |
+| fact | PyCA Cryptography 50.0.1 was released 2026-08-25; its official Ed25519 API verifies signatures directly from a public key and raises on invalid signatures. | https://pypi.org/project/cryptography/ and https://cryptography.io/en/latest/hazmat/primitives/asymmetric/ed25519/ | high | Use it as a replaceable CI/release verifier behind a project-owned signing format rather than making the library itself part of the data model. |
+| finding | The newly added Android vertical slice treated the presence of manifest strings named algorithm/key_id/value as release readiness, while the Python pack gate intentionally rejected such field-only trust. | repository audit at main 002d9abd68a3bc11a101b3f3888cc4422407e556 | high | Remove the duplicate trust rule; Android release builds must delegate to the authoritative cryptographic pack gate. |
+| inference | Generating a release private key inside CI/GitHub merely to unblock the current candidate would make key custody fragile and could create unrecoverable trust history. | threat-model review | high | Keep the trust root in bootstrap-required state until offline key generation and independent backup are deliberately established; do not manufacture an approval. |
