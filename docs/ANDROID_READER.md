@@ -9,7 +9,7 @@ The screen only:
 1. opens the already-built `quran-core` pack locally;
 2. renders `quran_ayah.original_text`;
 3. navigates Surahs with obvious previous/next controls plus a direct 1–114 chooser;
-4. performs UI-only tap hit testing for future verified word details.
+4. keeps word help unavailable until provenance-backed word-level content is installed and an equivalent accessible action can ship with touch.
 
 There is no network permission, account, analytics SDK, translation guess, morphology guess, or AI call.
 
