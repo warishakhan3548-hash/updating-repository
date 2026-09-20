@@ -17,15 +17,15 @@ if __package__ in (None, ""):
 from tools.quran_core import (
     SEARCH_NORMALIZATION_VERSION,
     SOURCE_ID,
+    load_embedded_notice_bytes,
     load_production_source,
     normalize_search_diacritic_free,
     normalize_search_unicode,
 )
 
 PACK_ID = "quran-core"
-CONTENT_VERSION = "1.0.1"
-IMPORTER_VERSION = "quran-core-importer-2"
-NOTICE_TEXT = """Tanzil Quran Text\nCopyright (C) 2007-2021 Tanzil Project\nLicense: Creative Commons Attribution 3.0\nSource: https://tanzil.net/\n\nPermission is granted to copy and distribute verbatim copies of the Quran text. Changing the Quran text is not allowed. The Tanzil Project must be clearly indicated as the source and linked so users can track text updates.\n"""
+CONTENT_VERSION = "1.0.2"
+IMPORTER_VERSION = "quran-core-importer-3"
 SOURCE_ASSERTION_ID = "sa:quran.tanzil.uthmani.v1.1"
 
 
@@ -63,6 +63,7 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     source, artifact, rows = load_production_source(root)
+    source_notice = load_embedded_notice_bytes(artifact)
     schema = (root / "schemas" / "content_v1.sql").read_text(encoding="utf-8")
 
     connection = sqlite3.connect(db_path)
@@ -152,7 +153,7 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
     finally:
         connection.close()
 
-    notice_path.write_text(NOTICE_TEXT, encoding="utf-8")
+    notice_path.write_bytes(source_notice)
     notice_hash = sha256_file(notice_path)
     built_hash = sha256_file(db_path)
     built_size = db_path.stat().st_size
@@ -198,7 +199,7 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("content-packs/quran-core/1.0.1"),
+        default=Path("content-packs/quran-core/1.0.2"),
         help="pack directory, relative to repository root",
     )
     args = parser.parse_args()
