@@ -16,6 +16,7 @@ from typing import Any
 SIGNATURE_FORMAT = "aaris-pack-signature-v1"
 RELEASE_ROLE = "content-pack-release"
 KEYRING_SCHEMA_VERSION = 1
+DOMAIN_SEPARATOR = b"AARIS-CONTENT-PACK-SIGNATURE-V1\\n"
 
 
 class PackSignatureError(RuntimeError):
@@ -39,6 +40,10 @@ def _reject_nonportable_json(value: Any, path: str = "$") -> None:
         for key, child in value.items():
             if not isinstance(key, str):
                 raise PackSignatureError(f"non-string JSON object key at {path}")
+            if not key.isascii():
+                raise PackSignatureError(
+                    f"non-ASCII JSON object key is not allowed in signed metadata at {path}"
+                )
             _reject_nonportable_json(child, f"{path}.{key}")
     elif isinstance(value, list):
         for index, child in enumerate(value):
@@ -86,7 +91,7 @@ def canonical_manifest_payload(manifest: dict[str, Any]) -> bytes:
     if "signature" not in payload:
         raise PackSignatureError("manifest is missing signature field")
     payload.pop("signature")
-    return canonical_json_bytes(payload)
+    return DOMAIN_SEPARATOR + canonical_json_bytes(payload)
 
 
 def key_id_for_ed25519_public_key(public_key_hex: str) -> str:
