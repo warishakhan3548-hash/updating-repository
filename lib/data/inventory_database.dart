@@ -9,6 +9,33 @@ import '../domain/medicine.dart';
 import '../domain/supplier.dart';
 import '../domain/tracking.dart';
 
+Object? _freezeInventoryEventValue(Object? value) {
+  if (value is Map) {
+    return Map<Object?, Object?>.unmodifiable(<Object?, Object?>{
+      for (final entry in value.entries)
+        entry.key: _freezeInventoryEventValue(entry.value),
+    });
+  }
+  if (value is List) {
+    return List<Object?>.unmodifiable(
+      value.map((item) => _freezeInventoryEventValue(item)),
+    );
+  }
+  return value;
+}
+
+Map<String, dynamic> _freezeInventoryEvent(Map<String, dynamic> event) =>
+    Map<String, dynamic>.unmodifiable(<String, dynamic>{
+      for (final entry in event.entries)
+        entry.key: _freezeInventoryEventValue(entry.value),
+    });
+
+List<Map<String, dynamic>> _freezeInventoryEvents(
+  Iterable<Map<String, dynamic>> events,
+) => List<Map<String, dynamic>>.unmodifiable(
+  events.map(_freezeInventoryEvent),
+);
+
 class InventorySnapshot {
   InventorySnapshot({
     this.revision = 0,
@@ -24,7 +51,9 @@ class InventorySnapshot {
        suppliers = Map.unmodifiable(suppliers ?? {}),
        sales = Map.unmodifiable(sales ?? {}),
        receipts = Set.unmodifiable(receipts ?? {}),
-       events = List.unmodifiable(events ?? []),
+       events = _freezeInventoryEvents(
+         events ?? const <Map<String, dynamic>>[],
+       ),
        _moneyTotals = _inventoryMoneyTotals(
          records?.values ?? const <Medicine>[],
        );
@@ -119,7 +148,10 @@ _InventoryMoneyTotals _updatedInventoryMoneyTotals({
   var entered = BigInt.from(beforeTotals.totalEnteredAmountPaise);
   var onHand = BigInt.from(beforeTotals.onHandValuePaise);
 
-  for (final id in touchedStockIds.toSet()) {
+  final touchedIds = touchedStockIds is Set<String>
+      ? touchedStockIds
+      : touchedStockIds.toSet();
+  for (final id in touchedIds) {
     final before = beforeRecords[id];
     final after = afterRecords[id];
     if (before != null) {
@@ -210,15 +242,16 @@ void _validateMutationShape(InventoryMutation mutation) {
   }
 
   Set<String> uniqueIds(Iterable<String> values, String description) {
-    final list = values.toList(growable: false);
-    if (list.any((id) => id.trim().isEmpty || id.length > 300)) {
-      throw FormatException('Invalid $description ID.');
-    }
-    final ids = list.toSet();
-    if (ids.length != list.length) {
-      throw StateError(
-        'One inventory transaction cannot repeat a $description ID.',
-      );
+    final ids = <String>{};
+    for (final id in values) {
+      if (id.trim().isEmpty || id.length > 300) {
+        throw FormatException('Invalid $description ID.');
+      }
+      if (!ids.add(id)) {
+        throw StateError(
+          'One inventory transaction cannot repeat a $description ID.',
+        );
+      }
     }
     return ids;
   }
@@ -326,6 +359,18 @@ bool _canCaptureUndoSnapshot(
   InventoryMutation mutation,
 ) {
   if (!mutation.undoable) return false;
+  // Bulk restore/import operations are intentionally non-undoable. Reject them
+  // before materializing large ID sets: building a huge before-image only to
+  // discover the 256-row cap causes avoidable memory pressure and jank.
+  final touchedRows =
+      mutation.upserts.length +
+      mutation.removeIds.length +
+      mutation.upsertSuppliers.length +
+      mutation.removeSupplierIds.length +
+      mutation.upsertSales.length +
+      mutation.removeSaleIds.length;
+  if (touchedRows > _maxUndoRows) return false;
+
   final recordIds = <String>{
     ...mutation.upserts.map((record) => record.id),
     ...mutation.removeIds,
@@ -369,21 +414,26 @@ Map<String, dynamic> makeEvent(
   InventoryMutation mutation,
 ) {
   var soldValue = 0, unknownSold = 0;
-  for (final m in mutation.upserts) {
-    if (mutation.undoEventId == null &&
-        m.sold &&
-        before.records[m.id]?.sold != true) {
-      if (m.soldQuantity != null && m.soldUnitPricePaise != null) {
-        soldValue = checkedMoneySum(
-          soldValue,
-          stockValue(m.soldQuantity!, m.soldUnitPricePaise!),
-        );
-      } else {
-        unknownSold++;
+  final restoringAggregate =
+      mutation.soldValueOverride != null ||
+      mutation.unknownSoldOverride != null;
+  if (!restoringAggregate) {
+    for (final m in mutation.upserts) {
+      if (mutation.undoEventId == null &&
+          m.sold &&
+          before.records[m.id]?.sold != true) {
+        if (m.soldQuantity != null && m.soldUnitPricePaise != null) {
+          soldValue = checkedMoneySum(
+            soldValue,
+            stockValue(m.soldQuantity!, m.soldUnitPricePaise!),
+          );
+        } else {
+          unknownSold++;
+        }
       }
     }
+    checkedMoneySum(before.soldValue, soldValue);
   }
-  checkedMoneySum(before.soldValue, soldValue);
   // One immutable operation timestamp drives both the durable audit event and
   // every date-sensitive persistence guard for this transaction. Controller
   // writes stamp this from the controller's injected business clock; direct
@@ -615,9 +665,11 @@ InventorySnapshot nextSnapshot(
         });
   final events = List<Map<String, dynamic>>.unmodifiable(
     <Map<String, dynamic>>[
-      event,
+      _freezeInventoryEvent(event),
       ...before.events.map(
-        (e) => e['id'] == mutation.undoEventId ? {...e, 'undone': true} : e,
+        (e) => e['id'] == mutation.undoEventId
+            ? _freezeInventoryEvent(<String, dynamic>{...e, 'undone': true})
+            : e,
       ),
     ].take(200),
   );
