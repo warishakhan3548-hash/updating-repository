@@ -69,5 +69,19 @@ class WorkflowSupplyChainTests(unittest.TestCase):
                 self.assertIn(marker, post_commit)
 
 
+    def test_python_ci_installs_pinned_trust_dependency(self) -> None:
+        requirement = (ROOT / "requirements-trust.txt").read_text(encoding="utf-8").strip()
+        self.assertRegex(requirement, r"^cryptography==[0-9]+(?:\\.[0-9]+){2}$")
+
+        for workflow_name in ("foundation.yml", "build-quran-core-pack.yml"):
+            with self.subTest(workflow=workflow_name):
+                text = self.workflow_text(workflow_name)
+                self.assertIn(
+                    "python -m pip install -r requirements-trust.txt",
+                    text,
+                )
+
+
+
 if __name__ == "__main__":
     unittest.main()
