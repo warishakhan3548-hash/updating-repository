@@ -19,6 +19,9 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.13'
+
+      - name: Install pinned trust verifier dependency
+        run: python -m pip install -r requirements-trust.txt
       - name: Source Vault gate
         run: python tools/vault_gate.py source-vault/registry.json
       - name: Content pack promotion gate
