@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.13.15'
+      - name: Install pinned release-verification dependency
+        run: python -m pip install --disable-pip-version-check -r requirements-ci.txt
       - name: Source Vault gate
         run: python tools/vault_gate.py source-vault/registry.json
       - name: Content pack promotion gate
