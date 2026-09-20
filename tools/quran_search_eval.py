@@ -16,11 +16,18 @@ import statistics
 import time
 from typing import Any
 
-from tools.quran_core import (
-    SEARCH_NORMALIZATION_VERSION,
-    normalize_search_diacritic_free,
-    normalize_search_unicode,
-)
+if __package__:
+    from tools.quran_core import (
+        SEARCH_NORMALIZATION_VERSION,
+        normalize_search_diacritic_free,
+        normalize_search_unicode,
+    )
+else:
+    from quran_core import (
+        SEARCH_NORMALIZATION_VERSION,
+        normalize_search_diacritic_free,
+        normalize_search_unicode,
+    )
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PACK = ROOT / "content-packs" / "quran-core" / "1.1.0" / "content.sqlite"
