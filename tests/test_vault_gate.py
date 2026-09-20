@@ -64,6 +64,9 @@ class VaultGateTests(unittest.TestCase):
             "byte_size": artifact.stat().st_size,
             "licence_id": "example-licence",
             "redistribution_allowed": True,
+            "modification_allowed": False,
+            "attribution_required": True,
+            "licence_snapshot": "source-vault/quran/example/1.0/LICENSE.txt",
             "project_mirror": "source-vault/quran/example/1.0/raw/source.txt",
         }
         provenance_path = base / "provenance.json"
@@ -136,6 +139,30 @@ class VaultGateTests(unittest.TestCase):
             provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
             self._refresh_provenance_hash(path, provenance_path)
             with self.assertRaises(VaultGateError):
+                validate_registry(path)
+
+    def test_provenance_licence_permissions_must_match_registry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, provenance_path = self._valid_snapshot(root)
+            path = self._registry(root, source)
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["modification_allowed"] = True
+            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            self._refresh_provenance_hash(path, provenance_path)
+            with self.assertRaisesRegex(VaultGateError, "provenance does not match registry"):
+                validate_registry(path)
+
+    def test_provenance_licence_snapshot_path_must_match_registry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, provenance_path = self._valid_snapshot(root)
+            path = self._registry(root, source)
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["licence_snapshot"] = "source-vault/quran/example/1.0/OTHER.txt"
+            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            self._refresh_provenance_hash(path, provenance_path)
+            with self.assertRaisesRegex(VaultGateError, "provenance does not match registry"):
                 validate_registry(path)
 
     def test_project_mirror_must_point_to_pinned_artifact(self):
