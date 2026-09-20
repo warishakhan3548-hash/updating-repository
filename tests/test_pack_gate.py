@@ -4,7 +4,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from tools.pack_gate import PackGateError, validate_manifest
+from tools.pack_signatures import (
+    PAYLOAD_VERSION,
+    canonical_manifest_payload,
+    ed25519_key_id,
+)
 
 
 class PackGateTests(unittest.TestCase):
@@ -100,28 +108,63 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaises(PackGateError):
                 validate_manifest(manifest, registry)
 
-    def test_approved_pack_requires_verified_signature_not_just_fields(self):
+    def test_approved_pack_requires_verified_trusted_signature(self):
         with tempfile.TemporaryDirectory() as tmp:
-            registry, manifest, _ = self._fixture(Path(tmp))
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
+            data["release_sequence"] = 1
+            data["signature"] = {
+                "payload_version": PAYLOAD_VERSION,
+                "trust_root_version": 2,
+                "signatures": [],
+            }
             manifest.write_text(json.dumps(data), encoding="utf-8")
+
             with self.assertRaisesRegex(
-                PackGateError, "approved pack requires signature"
+                PackGateError, "signature verification failed"
             ):
                 validate_manifest(manifest, registry)
 
-            data["signature"] = {
-                "algorithm": "ed25519",
-                "key_id": "release-key-1",
-                "value": "fixture-signature",
-            }
+            private_key = Ed25519PrivateKey.generate()
+            public = private_key.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            ).hex()
+            key_id = ed25519_key_id(public)
+            trust_dir = root / "policy" / "trusted-pack-keys"
+            trust_dir.mkdir(parents=True)
+            (trust_dir / "root-v2.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "role": "content-pack-release",
+                        "version": 2,
+                        "threshold": 1,
+                        "keys": {
+                            key_id: {
+                                "keytype": "ed25519",
+                                "scheme": "ed25519",
+                                "status": "active",
+                                "keyval": {"public": public},
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            data["signature"]["signatures"] = [
+                {
+                    "algorithm": "ed25519",
+                    "key_id": key_id,
+                    "value": private_key.sign(
+                        canonical_manifest_payload(data)
+                    ).hex(),
+                }
+            ]
             manifest.write_text(json.dumps(data), encoding="utf-8")
-            with self.assertRaisesRegex(
-                PackGateError,
-                "approved packs are disabled until cryptographic signature verification",
-            ):
-                validate_manifest(manifest, registry)
+            validate_manifest(manifest, registry)
 
 
     def test_attribution_required_pack_requires_notice(self):
