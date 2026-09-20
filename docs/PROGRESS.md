@@ -47,7 +47,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 ### Still blocked from production
 
-- QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0: `awaiting-artifact`; official version/republication terms are promising, but exact content and applicable terms bytes have not yet been preserved under project control.
+- QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0: exact 114-Surah / 6,236-ayah API response bytes plus official index/source/terms pages have now been captured on the review branch under `source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/`. The candidate remains **non-production**: QuranEnc's requirement to update republished content to the latest issued version needs explicit review against this project's permanent immutable historical-archive policy before registry promotion.
 - Quranic Arabic Corpus v0.4: `awaiting-licence` because official materials create a commercial-use/terms ambiguity.
 - QuranMorph (SinaLab/Birzeit, 2025): `awaiting-artifact`. Official catalogue licensing is materially clearer at CC BY 4.0, but the free-edition download is currently affiliation-gated; no exact bytes/version are mirrored, and the paper's 6,235-verse count still requires exact coordinate alignment against the 6,236-ayah Tanzil Evidence Plane.
 - HadeethEnc Arabic: official version check reports v1.7.0; still a research candidate pending exact artifact preservation plus edition/collection mapping and numbering provenance.
