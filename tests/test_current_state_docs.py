@@ -94,6 +94,14 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertIsNone(source["provenance"])
         self.assertIsNone(source["sha256"])
         self.assertIsNone(source["byte_size"])
+        self.assertEqual(
+            "https://quranenc.com/en/home",
+            source["release_requirements"]["version_check_url"],
+        )
+        self.assertEqual(
+            "unresolved",
+            source["release_requirements"]["historical_snapshot_retention_status"],
+        )
 
         snapshot_path = (
             ROOT
