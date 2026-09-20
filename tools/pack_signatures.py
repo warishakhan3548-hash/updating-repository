@@ -16,30 +16,50 @@ from typing import Any
 SIGNATURE_FORMAT = "aaris-pack-signature-v1"
 RELEASE_ROLE = "content-pack-release"
 KEYRING_SCHEMA_VERSION = 1
+DOMAIN_SEPARATOR = b"AARIS-CONTENT-PACK-SIGNATURE-V1\n"
+MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
 
 class PackSignatureError(RuntimeError):
     pass
 
 
-def _reject_float(value: Any, path: str = "$") -> None:
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PackSignatureError(f"duplicate JSON object key: {key!r}")
+        result[key] = value
+    return result
+
+
+def _validate_canonical_value(value: Any, path: str = "$") -> None:
     if isinstance(value, float):
         raise PackSignatureError(
             f"floating-point value is not allowed in signed metadata at {path}"
         )
+    if isinstance(value, int) and not isinstance(value, bool):
+        if abs(value) > MAX_SAFE_INTEGER:
+            raise PackSignatureError(
+                f"integer is outside cross-runtime safe range at {path}"
+            )
     if isinstance(value, dict):
         for key, child in value.items():
             if not isinstance(key, str):
                 raise PackSignatureError(f"non-string JSON object key at {path}")
-            _reject_float(child, f"{path}.{key}")
+            if not key.isascii():
+                raise PackSignatureError(
+                    f"non-ASCII JSON object key is not allowed at {path}"
+                )
+            _validate_canonical_value(child, f"{path}.{key}")
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            _reject_float(child, f"{path}[{index}]")
+            _validate_canonical_value(child, f"{path}[{index}]")
 
 
 def canonical_json_bytes(value: Any) -> bytes:
-    """Serialize a restricted JSON value deterministically for signatures."""
-    _reject_float(value)
+    """Serialize restricted JSON deterministically across supported runtimes."""
+    _validate_canonical_value(value)
     try:
         text = json.dumps(
             value,
@@ -62,7 +82,7 @@ def canonical_manifest_payload(manifest: dict[str, Any]) -> bytes:
     if "signature" not in payload:
         raise PackSignatureError("manifest is missing signature field")
     payload.pop("signature")
-    return canonical_json_bytes(payload)
+    return DOMAIN_SEPARATOR + canonical_json_bytes(payload)
 
 
 def key_id_for_ed25519_public_key(public_key_hex: str) -> str:
@@ -89,7 +109,10 @@ def _load_keyring(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise PackSignatureError(f"missing trusted pack key policy: {path}")
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_json_object,
+        )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PackSignatureError("invalid trusted pack key policy JSON") from exc
     if (
@@ -209,6 +232,17 @@ def verify_approved_manifest(
     if manifest.get("review_status") != "approved":
         raise PackSignatureError(
             "signature verification is only defined for approved packs"
+        )
+
+    release_sequence = manifest.get("release_sequence")
+    if (
+        not isinstance(release_sequence, int)
+        or isinstance(release_sequence, bool)
+        or release_sequence < 1
+        or release_sequence > MAX_SAFE_INTEGER
+    ):
+        raise PackSignatureError(
+            "approved pack requires positive safe integer release_sequence"
         )
 
     signature_block = manifest.get("signature")
