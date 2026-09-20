@@ -7,7 +7,7 @@ import unittest
 
 from tools.build_quran_core import build_pack
 from tools.pack_gate import PackGateError, validate_manifest
-from tools.quran_canonical import build_canonical
+from tools.quran_canonical import QuranCanonicalError, build_canonical, load_canonical
 from tools.quran_core import load_production_source
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +96,33 @@ class CanonicalPackGateTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(PackGateError, "canonical artifact must resolve"):
                 validate_manifest(manifest, registry)
+
+    def test_rehashed_canonical_text_tamper_still_fails_source_fidelity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, _, canonical, canonical_manifest = self._build(root)
+
+            lines = canonical.read_text(encoding="utf-8").splitlines()
+            first = json.loads(lines[0])
+            first["original_text"] = first["original_text"] + " تَحْرِيف"
+            lines[0] = json.dumps(
+                first, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+            canonical.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            data = json.loads(canonical_manifest.read_text(encoding="utf-8"))
+            data["artifact_sha256"] = hashlib.sha256(canonical.read_bytes()).hexdigest()
+            data["artifact_byte_size"] = canonical.stat().st_size
+            canonical_manifest.write_text(
+                json.dumps(data, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                QuranCanonicalError,
+                "canonical Quran text does not match preserved Source Vault artifact",
+            ):
+                load_canonical(root, canonical_manifest)
 
 
 if __name__ == "__main__":
