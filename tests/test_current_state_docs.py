@@ -62,8 +62,12 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         signing = (ROOT / "docs" / "CONTENT_SIGNING.md").read_text(encoding="utf-8")
         domain = "AARIS-CONTENT-PACK-SIGNATURE-V1\\\\n"
 
+        secure_updates = (ROOT / "docs" / "SECURE_UPDATES.md").read_text(encoding="utf-8")
+
         self.assertIn(domain, spec)
         self.assertIn(domain, signing)
+        self.assertIn(domain, secure_updates)
+        self.assertIn("Bundled Android production releases persist", spec)
 
 
 if __name__ == "__main__":
