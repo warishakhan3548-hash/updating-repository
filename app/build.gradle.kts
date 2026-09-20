@@ -52,9 +52,9 @@ android {
         buildConfigField("String", "QURAN_PACK_SHA256", "\"$packSha256\"")
         buildConfigField("String", "QURAN_SOURCE_SHA256", "\"$packSourceSha256\"")
         buildConfigField("String", "QURAN_PACK_REVIEW_STATUS", "\"$packReviewStatus\"")
-        // The repository pack gate deliberately rejects every approved pack until
-        // trusted-key cryptographic signature verification exists. Android must not
-        // weaken that boundary by treating signature-shaped manifest strings as proof.
+        // Repository-side trusted-key verification exists, but Android release
+        // activation does not yet consume that verified decision. Do not weaken
+        // the boundary by treating manifest strings as proof inside Gradle/runtime.
         buildConfigField("boolean", "QURAN_PACK_RELEASE_READY", "false")
     }
 
@@ -120,7 +120,7 @@ val verifyReleaseQuranPack by tasks.registering {
         }
         error(
             "Release build blocked: trusted-key cryptographic content-pack signature " +
-                "verification is not implemented"
+                "verification is not yet wired into the Android release path"
         )
     }
 }
