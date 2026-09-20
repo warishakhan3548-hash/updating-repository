@@ -369,6 +369,14 @@ def validate_registry(registry_path: Path) -> None:
             )
 
         release_requirements = _validate_release_requirements(source, source_id)
+        if (
+            status in {"awaiting-licence", "rejected"}
+            and release_requirements is None
+        ):
+            raise VaultGateError(
+                f"{source_id}: {status} source must declare explicit "
+                "historical retention state in release_requirements"
+            )
         retention_status = (
             release_requirements["historical_snapshot_retention_status"]
             if release_requirements is not None

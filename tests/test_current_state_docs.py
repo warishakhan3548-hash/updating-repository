@@ -137,6 +137,47 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertEqual("awaiting-licence", source["status"])
         self.assertFalse(source["commercial_use_allowed"])
         self.assertIsNone(source["vault_artifact"])
+        self.assertEqual(
+            "unresolved",
+            source["release_requirements"]["historical_snapshot_retention_status"],
+        )
+
+    def test_quran_foundation_rejection_records_retention_denial(self):
+        registry = json.loads(
+            (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
+        )
+        by_id = {item["source_id"]: item for item in registry["sources"]}
+        source = by_id["quran.quran-foundation.api"]
+
+        self.assertEqual("rejected", source["status"])
+        self.assertFalse(source["redistribution_allowed"])
+        self.assertEqual(
+            "verified-not-allowed",
+            source["release_requirements"]["historical_snapshot_retention_status"],
+        )
+        self.assertIsNone(source["vault_artifact"])
+
+    def test_masaq_v5_stays_metadata_only_pending_rights_chain_review(self):
+        registry = json.loads(
+            (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
+        )
+        by_id = {item["source_id"]: item for item in registry["sources"]}
+        source = by_id["morphology.masaq.v5"]
+
+        self.assertEqual("5", source["version"])
+        self.assertEqual("awaiting-licence", source["status"])
+        self.assertIsNone(source["redistribution_allowed"])
+        self.assertIsNone(source["commercial_use_allowed"])
+        self.assertIsNone(source["modification_allowed"])
+        self.assertTrue(source["attribution_required"])
+        self.assertEqual(
+            "unresolved",
+            source["release_requirements"]["historical_snapshot_retention_status"],
+        )
+        self.assertIsNone(source["vault_artifact"])
+        self.assertIsNone(source["licence_snapshot"])
+        self.assertIsNone(source["provenance"])
+        self.assertIsNone(source["sha256"])
 
     def test_tanzil_production_source_is_commercially_usable(self):
         registry = json.loads(

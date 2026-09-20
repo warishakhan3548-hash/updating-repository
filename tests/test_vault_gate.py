@@ -194,6 +194,28 @@ class VaultGateTests(unittest.TestCase):
             )
             validate_registry(path)
 
+    def test_awaiting_licence_requires_explicit_historical_retention_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {"source_id": "candidate", "status": "awaiting-licence"},
+            )
+            with self.assertRaisesRegex(
+                VaultGateError, "must declare explicit historical retention state"
+            ):
+                validate_registry(path)
+
+    def test_rejected_requires_explicit_historical_retention_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {"source_id": "candidate", "status": "rejected"},
+            )
+            with self.assertRaisesRegex(
+                VaultGateError, "must declare explicit historical retention state"
+            ):
+                validate_registry(path)
+
     def test_awaiting_artifact_requires_archival_clearance(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._registry(
