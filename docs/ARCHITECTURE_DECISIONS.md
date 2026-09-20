@@ -108,3 +108,12 @@ Quran search preserves a strict-first trust ladder. NFC/diacritic-free exact con
 The fallback is query/search-lane logic only: it never rewrites `original_text`, never mutates the canonical Quran artifact, and never changes the source-bound `arabic-search-v1` pack contract. Fallback hits are explicitly labelled **Approximate spelling match** in the reader. Unsupported edit-distance typos continue to abstain unless a future measured lane passes the golden-set gate.
 
 This keeps source truth and search convenience separate while improving recall for common keyboard/script variation without introducing a heavyweight search dependency or silently broadening confidence.
+
+
+## ADR-022 — Historical-retention permission gates every preserved source
+
+Redistribution permission and permission to keep an immutable historical copy are separate assertions. The Source Vault therefore requires explicit `historical_snapshot_retention_status=verified-allowed` before a source may enter `awaiting-artifact`, before any source bytes may be registered as preserved, and before a source may be `production-approved`.
+
+The existing `release_requirements` object now represents both archival-retention review and any release-time freshness obligation. `latest_upstream_version_required` is a boolean: a source such as Tanzil may permit durable historical redistribution without requiring every release to use upstream latest, while a source such as QuranEnc may impose a latest-version obligation and still remain blocked because historical retention is unresolved.
+
+Release/freshness policy is intentionally not copied into immutable acquisition provenance. Provenance records what exact artifact was obtained, from where, when, under which archived terms and hashes. The registry records the current legal/release interpretation, while an approved pack that is legally required to track upstream latest carries a separately signed `source_release_review`. This keeps evidence bytes reproducible without freezing a mutable compliance judgment into source identity.

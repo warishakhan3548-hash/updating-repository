@@ -44,7 +44,7 @@
               "historical_snapshot_retention_status"
             ],
             "properties": {
-              "latest_upstream_version_required": {"const": true},
+              "latest_upstream_version_required": {"type": "boolean"},
               "version_check_url": {
                 "type": "string",
                 "format": "uri",

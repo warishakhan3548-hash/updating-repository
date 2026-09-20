@@ -361,6 +361,26 @@ def _assert_capture_authorized(repo_root: Path) -> None:
             + ", ".join(mismatched)
         )
 
+    release_requirements = source.get("release_requirements")
+    if (
+        not isinstance(release_requirements, dict)
+        or release_requirements.get("latest_upstream_version_required") is not True
+        or release_requirements.get("historical_snapshot_retention_status")
+        != "verified-allowed"
+    ):
+        raise CaptureError(
+            "QuranEnc capture blocked: durable historical snapshot retention "
+            "permission is not explicitly cleared"
+        )
+    version_check_url = release_requirements.get("version_check_url")
+    if (
+        not isinstance(version_check_url, str)
+        or not version_check_url.startswith("https://")
+    ):
+        raise CaptureError(
+            "QuranEnc capture blocked: release version_check_url must be HTTPS"
+        )
+
     present_snapshot_fields = [
         field
         for field in PRESERVED_SNAPSHOT_FIELDS
