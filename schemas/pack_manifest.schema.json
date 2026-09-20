@@ -103,7 +103,41 @@
       }
     },
     "signature": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "payload_format": {
+          "type": "string"
+        },
+        "signatures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "algorithm",
+              "key_id",
+              "value"
+            ],
+            "properties": {
+              "algorithm": {
+                "const": "ed25519"
+              },
+              "key_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": true
     },
     "notice_path": {
       "type": "string",
@@ -220,6 +254,10 @@
     "byte_reproducibility_scope": {
       "type": "string",
       "minLength": 1
+    },
+    "release_sequence": {
+      "type": "integer",
+      "minimum": 1
     }
   },
   "dependentRequired": {
@@ -276,6 +314,43 @@
           "build_toolchain",
           "byte_reproducibility_scope"
         ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "const": "approved"
+          }
+        },
+        "required": [
+          "review_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "release_sequence"
+        ],
+        "properties": {
+          "signature": {
+            "required": [
+              "status",
+              "payload_format",
+              "signatures"
+            ],
+            "properties": {
+              "status": {
+                "const": "signed"
+              },
+              "payload_format": {
+                "const": "aaris-pack-json-v1"
+              },
+              "signatures": {
+                "minItems": 1
+              }
+            }
+          }
+        }
       }
     }
   ]
