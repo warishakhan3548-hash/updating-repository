@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader on the trusted read-only Reader Core boundary. The source-faithful canonical Quran JSONL layer now separates durable semantics from SQLite byte identity, and release authenticity now has a real Ed25519 trusted-key verifier. Production approval remains deliberately blocked until offline release-key custody is bootstrapped.
+Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader on the trusted read-only Reader Core boundary. The source-faithful canonical Quran JSONL layer separates durable semantics from SQLite byte identity. Release authenticity now has a hardened Ed25519 verifier with signed release ordering and key lifecycle windows. Production approval remains deliberately blocked until offline release-key custody is bootstrapped.
 
 ## Completed
 
@@ -23,7 +23,11 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
 - GitHub Actions foundation checks and deterministic pack build workflow;
-- Ed25519 release-authenticity gate with deterministic signed-manifest bytes, content-derived key IDs, threshold policy, unauthorized/duplicate-key rejection, and project-controlled public trust-root storage;\n- Android release builds delegate to the same authoritative pack gate instead of trusting signature-shaped metadata;\n- trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
+- Ed25519 release-authenticity gate with domain-separated deterministic signed-manifest bytes, content-derived key IDs, threshold policy, and project-controlled public trust-root storage;
+- approved packs require a signed positive monotonic `release_sequence`; active/retired/revoked release keys are constrained by explicit sequence windows;
+- pack/source-registry trust parsing rejects duplicate JSON keys, while signed metadata rejects floats, unsafe-width integers, and invalid Unicode scalar values;
+- Android release builds delegate to the same authoritative pack gate instead of trusting signature-shaped metadata;
+- trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
 
 ## Production Source Vault
 
@@ -71,14 +75,14 @@ Automated coverage now checks Source Vault integrity, licence/provenance consist
 
 Schema-v2 Quran semantic regression coverage now tampers with Quran text and SQLite schema, recomputes the runtime artifact SHA-256, and requires promotion to fail. Recomputing `built_sha256` after changing Quran text or SQLite schema does not make the pack valid.
 
-Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows. Signing regression coverage verifies valid Ed25519 approval, post-signing tamper failure, unauthorized/duplicate keys, threshold enforcement, malformed/bootstrap trust roots, and Android release delegation to the authoritative pack gate.
+Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows. Signing regression coverage verifies valid Ed25519 approval, post-signing tamper failure, signed release-sequence mutation, retired-key sequence ceilings, revoked-key rejection, unauthorized/duplicate keys, threshold enforcement, malformed/bootstrap trust roots, duplicate-JSON rejection, restricted signed JSON, and Android release delegation to the authoritative pack gate.
 
 No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
 ## Next safe milestones
 
 1. Bootstrap durable offline release-key custody and independent backup, commit only the public trust material, then sign/review a new immutable Quran-core release candidate for production approval.
-2. Add persistent rollback/freshness state before enabling any automatic remote content-update channel.
+2. Persist the highest accepted release sequence on Android, add freshness state and atomic activation/recovery tests before enabling any automatic remote content-update channel.
 3. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
 4. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
 5. Resolve QAC licensing or choose a legally clearer morphology source, and preserve an edition-aware Hadith source before production Hadith search.
