@@ -8,28 +8,11 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-ALLOWED_STATUSES = {
-    "research-candidate",
-    "awaiting-artifact",
-    "awaiting-licence",
-    "production-approved",
-    "rejected",
-}
-
-REQUIRED_RELEASE_RULES = {
-    "require_production_approved",
-    "require_redistribution_allowed",
-    "require_exact_sha256",
-    "require_licence_snapshot",
-    "require_project_controlled_artifact",
-    "forbid_runtime_upstream_download",
-    "forbid_unknown_licence_in_release",
-}
-
+ALLOWED_STATUSES = {"research-candidate","awaiting-artifact","awaiting-licence","production-approved","rejected"}
+REQUIRED_RELEASE_RULES = {"require_production_approved","require_redistribution_allowed","require_exact_sha256","require_licence_snapshot","require_project_controlled_artifact","forbid_runtime_upstream_download","forbid_unknown_licence_in_release"}
 
 class VaultGateError(RuntimeError):
     pass
-
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -38,16 +21,10 @@ def sha256_file(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
-
 def _lower_sha256(value: object, source_id: str, field: str) -> str:
-    if (
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(ch not in "0123456789abcdef" for ch in value)
-    ):
+    if not isinstance(value, str) or len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
         raise VaultGateError(f"{source_id}: invalid lowercase {field}")
     return value
-
 
 def _load_policy(root: Path) -> None:
     policy_path = root / "policy" / "license_policy.json"
@@ -55,21 +32,14 @@ def _load_policy(root: Path) -> None:
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise VaultGateError("Missing policy/license_policy.json") from exc
-
     if policy.get("schema_version") != 1:
         raise VaultGateError("Unsupported licence policy schema_version")
     rules = policy.get("release_rules")
     if not isinstance(rules, dict):
         raise VaultGateError("Licence policy release_rules must be an object")
-
-    weakened = sorted(
-        rule for rule in REQUIRED_RELEASE_RULES if rules.get(rule) is not True
-    )
+    weakened = sorted(rule for rule in REQUIRED_RELEASE_RULES if rules.get(rule) is not True)
     if weakened:
-        raise VaultGateError(
-            "Licence policy weakens mandatory release rules: " + ", ".join(weakened)
-        )
-
+        raise VaultGateError("Licence policy weakens mandatory release rules: " + ", ".join(weakened))
 
 def _parse_retrieved_at(value: object, source_id: str) -> None:
     if not isinstance(value, str) or not value:
@@ -77,25 +47,15 @@ def _parse_retrieved_at(value: object, source_id: str) -> None:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise VaultGateError(
-            f"{source_id}: provenance retrieved_at is not ISO-8601"
-        ) from exc
+        raise VaultGateError(f"{source_id}: provenance retrieved_at is not ISO-8601") from exc
     if parsed.tzinfo is None:
-        raise VaultGateError(
-            f"{source_id}: provenance retrieved_at must include a timezone"
-        )
-
+        raise VaultGateError(f"{source_id}: provenance retrieved_at must include a timezone")
 
 def _safe_vault_file(root: Path, raw: object, source_id: str, field: str) -> Path:
     if not isinstance(raw, str) or not raw:
         raise VaultGateError(f"{source_id}: missing {field}")
     rel = Path(raw)
-    if (
-        rel.is_absolute()
-        or ".." in rel.parts
-        or not rel.parts
-        or rel.parts[0] != "source-vault"
-    ):
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts or rel.parts[0] != "source-vault":
         raise VaultGateError(f"{source_id}: {field} must be under source-vault/")
     path = root / rel
     if not path.is_file():
@@ -104,28 +64,21 @@ def _safe_vault_file(root: Path, raw: object, source_id: str, field: str) -> Pat
     try:
         path.resolve().relative_to(vault_root)
     except ValueError as exc:
-        raise VaultGateError(
-            f"{source_id}: {field} resolves outside source-vault/"
-        ) from exc
+        raise VaultGateError(f"{source_id}: {field} resolves outside source-vault/") from exc
     return path
-
 
 def validate_registry(registry_path: Path) -> None:
     registry_path = registry_path.resolve()
     if registry_path.parent.name != "source-vault":
         raise VaultGateError("Registry must live directly under source-vault/")
-
     root = registry_path.parents[1]
     _load_policy(root)
-
     data = json.loads(registry_path.read_text(encoding="utf-8"))
     if data.get("schema_version") != 1:
         raise VaultGateError("Unsupported source-vault registry schema_version")
-
     sources = data.get("sources")
     if not isinstance(sources, list):
         raise VaultGateError("Registry sources must be a list")
-
     seen: set[str] = set()
     for source in sources:
         if not isinstance(source, dict):
@@ -134,141 +87,79 @@ def validate_registry(registry_path: Path) -> None:
         if not isinstance(source_id, str) or not source_id or source_id in seen:
             raise VaultGateError(f"Missing or duplicate source_id: {source_id!r}")
         seen.add(source_id)
-
         status = source.get("status")
         if status not in ALLOWED_STATUSES:
             raise VaultGateError(f"{source_id}: invalid status {status!r}")
-
         if status != "production-approved":
             continue
-
-        for field in ("source_name", "version", "licence_id"):
+        for field in ("source_name","version","licence_id"):
             if not isinstance(source.get(field), str) or not source[field]:
-                raise VaultGateError(
-                    f"{source_id}: missing production metadata {field}"
-                )
-
+                raise VaultGateError(f"{source_id}: missing production metadata {field}")
         original_url = source.get("original_url")
         parsed_url = urlparse(original_url) if isinstance(original_url, str) else None
-        if (
-            parsed_url is None
-            or parsed_url.scheme != "https"
-            or not parsed_url.netloc
-        ):
-            raise VaultGateError(
-                f"{source_id}: production original_url must be an absolute https URL"
-            )
-
+        if parsed_url is None or parsed_url.scheme != "https" or not parsed_url.netloc:
+            raise VaultGateError(f"{source_id}: production original_url must be an absolute https URL")
         if source.get("redistribution_allowed") is not True:
-            raise VaultGateError(
-                f"{source_id}: production source lacks verified redistribution permission"
-            )
+            raise VaultGateError(f"{source_id}: production source lacks verified redistribution permission")
         if not isinstance(source.get("modification_allowed"), bool):
-            raise VaultGateError(
-                f"{source_id}: modification_allowed must be explicit"
-            )
+            raise VaultGateError(f"{source_id}: modification_allowed must be explicit")
         if not isinstance(source.get("attribution_required"), bool):
-            raise VaultGateError(
-                f"{source_id}: attribution_required must be explicit"
-            )
+            raise VaultGateError(f"{source_id}: attribution_required must be explicit")
 
-        artifact = _safe_vault_file(
-            root, source.get("vault_artifact"), source_id, "vault_artifact"
-        )
-        licence = _safe_vault_file(
-            root, source.get("licence_snapshot"), source_id, "licence_snapshot"
-        )
-        provenance_path = _safe_vault_file(
-            root, source.get("provenance"), source_id, "provenance"
-        )
+        artifact = _safe_vault_file(root, source.get("vault_artifact"), source_id, "vault_artifact")
+        licence = _safe_vault_file(root, source.get("licence_snapshot"), source_id, "licence_snapshot")
+        provenance_path = _safe_vault_file(root, source.get("provenance"), source_id, "provenance")
         if len({artifact.resolve(), licence.resolve(), provenance_path.resolve()}) != 3:
-            raise VaultGateError(
-                f"{source_id}: artifact/licence/provenance must be distinct files"
-            )
+            raise VaultGateError(f"{source_id}: artifact/licence/provenance must be distinct files")
         if licence.stat().st_size == 0:
             raise VaultGateError(f"{source_id}: licence snapshot is empty")
 
         expected_size = source.get("byte_size")
-        if (
-            not isinstance(expected_size, int)
-            or isinstance(expected_size, bool)
-            or expected_size < 1
-        ):
+        if not isinstance(expected_size, int) or isinstance(expected_size, bool) or expected_size < 1:
             raise VaultGateError(f"{source_id}: invalid byte_size")
-
-        expected_hash = _lower_sha256(
-            source.get("sha256"), source_id, "sha256"
-        )
-        expected_licence_hash = _lower_sha256(
-            source.get("licence_sha256"), source_id, "licence_sha256"
-        )
-        expected_provenance_hash = _lower_sha256(
-            source.get("provenance_sha256"), source_id, "provenance_sha256"
-        )
-
+        expected_hash = _lower_sha256(source.get("sha256"), source_id, "sha256")
+        expected_licence_hash = _lower_sha256(source.get("licence_sha256"), source_id, "licence_sha256")
+        expected_provenance_hash = _lower_sha256(source.get("provenance_sha256"), source_id, "provenance_sha256")
         if artifact.stat().st_size != expected_size:
             raise VaultGateError(f"{source_id}: artifact byte_size mismatch")
         if sha256_file(artifact) != expected_hash:
             raise VaultGateError(f"{source_id}: artifact SHA-256 mismatch")
         if sha256_file(licence) != expected_licence_hash:
-            raise VaultGateError(
-                f"{source_id}: licence snapshot SHA-256 mismatch"
-            )
+            raise VaultGateError(f"{source_id}: licence snapshot SHA-256 mismatch")
         if sha256_file(provenance_path) != expected_provenance_hash:
             raise VaultGateError(f"{source_id}: provenance SHA-256 mismatch")
 
+        notice_path_raw = source.get("required_notice_path")
+        notice_hash_raw = source.get("required_notice_sha256")
+        if (notice_path_raw is None) != (notice_hash_raw is None):
+            raise VaultGateError(f"{source_id}: required notice path/hash must be declared together")
+        if source.get("attribution_required") is True and notice_path_raw is None:
+            raise VaultGateError(f"{source_id}: attribution-required source lacks required notice policy")
+        if notice_path_raw is not None:
+            notice_path = _safe_vault_file(root, notice_path_raw, source_id, "required_notice_path")
+            expected_notice_hash = _lower_sha256(notice_hash_raw, source_id, "required_notice_sha256")
+            notice_bytes = notice_path.read_bytes()
+            if not notice_bytes:
+                raise VaultGateError(f"{source_id}: required notice is empty")
+            if sha256_file(notice_path) != expected_notice_hash:
+                raise VaultGateError(f"{source_id}: required notice SHA-256 mismatch")
+            if notice_bytes not in artifact.read_bytes():
+                raise VaultGateError(f"{source_id}: required notice is not embedded verbatim in source artifact")
+
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-        required = [
-            "source_id",
-            "source_name",
-            "original_url",
-            "version",
-            "retrieved_at",
-            "sha256",
-            "byte_size",
-            "licence_id",
-            "redistribution_allowed",
-            "modification_allowed",
-            "attribution_required",
-            "licence_snapshot",
-            "project_mirror",
-        ]
+        required = ["source_id","source_name","original_url","version","retrieved_at","sha256","byte_size","licence_id","redistribution_allowed","modification_allowed","attribution_required","licence_snapshot","project_mirror"]
         missing = [key for key in required if provenance.get(key) in (None, "")]
         if missing:
             raise VaultGateError(f"{source_id}: provenance missing {missing}")
-
         _parse_retrieved_at(provenance["retrieved_at"], source_id)
-
-        expected_provenance = {
-            "source_id": source_id,
-            "source_name": source["source_name"],
-            "original_url": source["original_url"],
-            "version": source["version"],
-            "sha256": expected_hash,
-            "byte_size": expected_size,
-            "licence_id": source["licence_id"],
-            "redistribution_allowed": True,
-            "modification_allowed": source["modification_allowed"],
-            "attribution_required": source["attribution_required"],
-            "licence_snapshot": source["licence_snapshot"],
-            "project_mirror": source["vault_artifact"],
-        }
-        mismatched = [
-            key
-            for key, expected in expected_provenance.items()
-            if provenance.get(key) != expected
-        ]
+        expected_provenance = {"source_id":source_id,"source_name":source["source_name"],"original_url":source["original_url"],"version":source["version"],"sha256":expected_hash,"byte_size":expected_size,"licence_id":source["licence_id"],"redistribution_allowed":True,"modification_allowed":source["modification_allowed"],"attribution_required":source["attribution_required"],"licence_snapshot":source["licence_snapshot"],"project_mirror":source["vault_artifact"]}
+        mismatched = [key for key, expected in expected_provenance.items() if provenance.get(key) != expected]
         if mismatched:
-            raise VaultGateError(
-                f"{source_id}: provenance does not match registry for {mismatched}"
-            )
-
+            raise VaultGateError(f"{source_id}: provenance does not match registry for {mismatched}")
 
 if __name__ == "__main__":
     try:
-        path = Path(
-            sys.argv[1] if len(sys.argv) > 1 else "source-vault/registry.json"
-        )
+        path = Path(sys.argv[1] if len(sys.argv) > 1 else "source-vault/registry.json")
         validate_registry(path)
     except (OSError, ValueError, json.JSONDecodeError, VaultGateError) as exc:
         print(f"Source Vault gate FAILED: {exc}", file=sys.stderr)
