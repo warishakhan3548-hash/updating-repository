@@ -50,6 +50,28 @@ class WorkflowSupplyChainTests(unittest.TestCase):
 
         self.assertEqual([], failures, "\\n".join(failures))
 
+    def test_foundation_crypto_dependency_is_exactly_pinned(self) -> None:
+        requirements = (ROOT / "requirements-foundation.txt").read_text(
+            encoding="utf-8"
+        )
+        pins = [
+            line.strip()
+            for line in requirements.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(["cryptography==50.0.1"], pins)
+
+        foundation = self.workflow_text("foundation.yml")
+        self.assertIn(
+            "python -m pip install --disable-pip-version-check "
+            "-r requirements-foundation.txt",
+            foundation,
+        )
+        self.assertIn(
+            "python tools/pack_signing.py policy/trusted_pack_keys.json",
+            foundation,
+        )
+
     def test_pack_builder_revalidates_the_committed_tree_before_push(self) -> None:
         text = self.workflow_text("build-quran-core-pack.yml")
         commit_index = text.index("git commit -m 'Build Quran core content pack 1.0.4'")
@@ -57,6 +79,7 @@ class WorkflowSupplyChainTests(unittest.TestCase):
         post_commit = text[commit_index:push_index]
 
         required = (
+            "python tools/pack_signing.py policy/trusted_pack_keys.json",
             "python tools/vault_gate.py source-vault/registry.json",
             "python tools/pack_gate.py",
             "content-packs/quran-core/1.0.4/manifest.json",
