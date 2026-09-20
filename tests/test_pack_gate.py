@@ -112,6 +112,7 @@ class PackGateTests(unittest.TestCase):
             registry, manifest, _ = self._fixture(Path(tmp))
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
+            data["release_sequence"] = 1
             manifest.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(
                 PackGateError, "approved pack signature verification failed"
