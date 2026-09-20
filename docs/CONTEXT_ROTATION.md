@@ -55,3 +55,8 @@ JVM tests lock:
 - deterministic tie-breaking.
 
 No retention benefit is claimed until real eligible semantic units and a labelled learning evaluation exist.
+
+
+## Activation gate
+
+The current production Quran core is still ayah-only. Word-level gloss/morphology candidates, including newly audited QUL word-by-word candidates, remain outside production until their own Source Vault licence, archival and alignment gates clear. Therefore this selector stays dormant in the visible reader and must not be fed guessed whitespace-derived word identities.
