@@ -29,7 +29,10 @@ Phase 0A–0C is established and executable. The first production Quran source i
 - exact Tanzil Quran Text v1.1 Uthmani source snapshot preserved under project control;
 - deterministic Quran-core parsing/build path with separate display/search fields;
 - full 114-surah / 6,236-ayah coordinate validation;
-- byte-reproducibility test for identical Quran pack inputs.
+- byte-reproducibility test for identical Quran pack inputs in the same toolchain;
+- committed candidate `quran-core/1.0.0` runtime pack;
+- importer-independent Quran semantic verifier that compares all 6,236 runtime rows to the preserved Tanzil source and recomputes derived search lanes;
+- promotion-gate regression test proving that sacred-text tampering still fails even if the altered SQLite file is given a freshly recomputed artifact SHA-256.
 
 ## Production Source Vault status
 
@@ -64,13 +67,15 @@ The latest verified main-branch foundation run is green. Automated checks cover:
 - separation of display text from search-normalized text;
 - complete Quran coordinate count/ordering;
 - preserved Tanzil artifact hash/size validation;
-- deterministic Quran pack build reproducibility.
+- deterministic Quran pack build reproducibility in the pinned CI toolchain;
+- row-for-row source-to-runtime Quran semantic fidelity;
+- source-assertion identity and search-normalization fidelity inside the shipped Quran pack.
 
 No Hadith search quality benchmark or device performance benchmark is claimed yet because those production systems are not built far enough to measure honestly.
 
 ## Next safe milestones
 
-1. Produce/review the first candidate `quran-core` runtime pack from the pinned Tanzil snapshot and promote only after manifest/integrity review.
+1. Review/promote the committed `quran-core/1.0.0` candidate only after its semantic fidelity gate and release metadata are green.
 2. Build the minimal reader around immutable Quran evidence: stable navigation, excellent RTL, and anchored word-tap plumbing without inventing morphology.
 3. Resolve QAC licensing before making it a production morphology dependency; otherwise choose a legally clearer alternative.
 4. Acquire and preserve an edition-aware Hadith source before implementing production Hadith search.
