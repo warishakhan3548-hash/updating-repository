@@ -149,6 +149,41 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaisesRegex(PackGateError, "notice_sha256 mismatch"):
                 validate_manifest(manifest, registry)
 
+    def test_notice_metadata_must_be_paired_even_when_not_required(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["notice_path"] = "content-packs/quran-example/1.0/NOTICE.txt"
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError,
+                "notice_path and notice_sha256 must be provided together",
+            ):
+                validate_manifest(manifest, registry)
+
+    def test_attribution_notice_must_live_with_manifest_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            registry_data = json.loads(registry.read_text(encoding="utf-8"))
+            registry_data["sources"][0]["attribution_required"] = True
+            registry.write_text(json.dumps(registry_data), encoding="utf-8")
+
+            notice = root / "content-packs" / "shared" / "NOTICE.txt"
+            notice.parent.mkdir(parents=True)
+            notice.write_text("required attribution", encoding="utf-8")
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["notice_path"] = "content-packs/shared/NOTICE.txt"
+            data["notice_sha256"] = hashlib.sha256(notice.read_bytes()).hexdigest()
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                PackGateError,
+                "notice_path must stay inside manifest pack directory",
+            ):
+                validate_manifest(manifest, registry)
+
     def test_runtime_pack_symlink_cannot_escape_content_packs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
