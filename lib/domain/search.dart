@@ -420,8 +420,8 @@ bool sameSearchProjection(Medicine before, Medicine after) =>
     before.salt == after.salt &&
     before.strength == after.strength &&
     before.form == after.form &&
-    before.mfg == after.mfg &&
-    before.expiry == after.expiry &&
+    sameCivilDate(before.mfg, after.mfg) &&
+    sameCivilDate(before.expiry, after.expiry) &&
     before.barcode == after.barcode &&
     before.batchNumber == after.batchNumber &&
     before.block == after.block &&
