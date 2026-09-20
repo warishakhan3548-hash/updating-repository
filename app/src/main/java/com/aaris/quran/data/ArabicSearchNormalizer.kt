@@ -71,7 +71,7 @@ internal object ArabicSearchNormalizer {
                 append(
                     when (char) {
                         'ٱ', 'أ', 'إ', 'آ' -> 'ا'
-                        'ی' -> 'ي'
+                        'ی', 'ى' -> 'ي'
                         'ہ' -> 'ه'
                         else -> char
                     },
