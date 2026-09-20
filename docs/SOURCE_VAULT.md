@@ -46,7 +46,7 @@ This is an integrity format, not acquisition permission. A source must clear the
 
 ## Production promotion contract
 
-A `production-approved` registry entry fails closed unless the project has a consistent source identity, verified redistribution permission, explicit modification/attribution flags, a project-controlled artifact, a non-empty licence snapshot and provenance file, and hashes that still match all three preserved files.
+A `production-approved` registry entry fails closed unless the project has a consistent source identity, verified redistribution permission, verified commercial-use permission, explicit modification/attribution flags, a project-controlled artifact, a non-empty licence snapshot and provenance file, and hashes that still match all three preserved files.
 
 The gate records and verifies:
 
