@@ -26,18 +26,24 @@ class PublishedQuranPackSemanticTests(unittest.TestCase):
         manifest = json.loads((ROOT / MANIFEST_REL).read_text(encoding="utf-8"))
         verify_quran_core_pack(ROOT, manifest)
 
-    def _copy_release_fixture(self, destination: Path) -> tuple[Path, Path]:
-        shutil.copytree(ROOT / "source-vault", destination / "source-vault")
+    def _copy_release_fixture(
+        self,
+        destination: Path,
+        source_root: Path = ROOT,
+        manifest_rel: Path = MANIFEST_REL,
+    ) -> tuple[Path, Path]:
+        pack_rel = manifest_rel.parent
+        shutil.copytree(source_root / "source-vault", destination / "source-vault")
         (destination / "schemas").mkdir(parents=True)
         shutil.copy2(
-            ROOT / "schemas" / "content_v1.sql",
+            source_root / "schemas" / "content_v1.sql",
             destination / "schemas" / "content_v1.sql",
         )
-        target_pack = destination / PACK_REL
+        target_pack = destination / pack_rel
         target_pack.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(ROOT / PACK_REL, target_pack)
+        shutil.copytree(source_root / pack_rel, target_pack)
 
-        manifest = json.loads((ROOT / MANIFEST_REL).read_text(encoding="utf-8"))
+        manifest = json.loads((source_root / manifest_rel).read_text(encoding="utf-8"))
         if manifest.get("schema_version") == 3:
             canonical = manifest.get("canonical")
             if not isinstance(canonical, dict):
@@ -46,11 +52,11 @@ class PublishedQuranPackSemanticTests(unittest.TestCase):
                 rel = Path(canonical[field])
                 target = destination / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(ROOT / rel, target)
+                shutil.copy2(source_root / rel, target)
 
         return (
             destination / "source-vault" / "registry.json",
-            destination / MANIFEST_REL,
+            destination / manifest_rel,
         )
 
     def _refresh_manifest_artifact_identity(
@@ -168,6 +174,22 @@ class SchemaV3QuranPackSemanticTests(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             verify_quran_core_pack(root, manifest)
             validate_manifest(manifest_path, registry)
+
+    def test_schema_v3_release_fixture_carries_canonical_dependency(self):
+        with tempfile.TemporaryDirectory() as build_tmp, tempfile.TemporaryDirectory() as copy_tmp:
+            build_root = Path(build_tmp)
+            copy_root = Path(copy_tmp)
+            _, manifest_path, _ = self._build(build_root)
+            manifest_rel = manifest_path.relative_to(build_root)
+
+            helper = PublishedQuranPackSemanticTests()
+            registry, copied_manifest = helper._copy_release_fixture(
+                copy_root,
+                source_root=build_root,
+                manifest_rel=manifest_rel,
+            )
+
+            validate_manifest(copied_manifest, registry)
 
     def test_schema_v3_runtime_tamper_cannot_be_legitimized_by_rehashing(self):
         with tempfile.TemporaryDirectory() as tmp:
