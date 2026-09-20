@@ -68,8 +68,24 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertEqual("CC-BY-4.0", source["licence_id"])
         self.assertTrue(source["redistribution_allowed"])
         self.assertTrue(source["commercial_use_allowed"])
+        self.assertEqual(
+            {
+                "latest_upstream_version_required": False,
+                "version_check_url": "https://tanzil.net/updates/",
+                "historical_snapshot_retention_status": "verified-allowed",
+            },
+            source["release_requirements"],
+        )
         self.assertTrue(source["modification_allowed"])
         self.assertTrue(source["attribution_required"])
+        self.assertEqual(
+            {
+                "latest_upstream_version_required": False,
+                "version_check_url": "https://sina.birzeit.edu/quran/",
+                "historical_snapshot_retention_status": "verified-allowed",
+            },
+            source["release_requirements"],
+        )
         self.assertIsNone(source["vault_artifact"])
         self.assertIsNone(source["sha256"])
         self.assertIn("6,235", source["notes"])
