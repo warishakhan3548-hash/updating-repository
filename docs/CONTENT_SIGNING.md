@@ -20,9 +20,19 @@ This prevents a human-friendly label from silently being rebound to different ke
 
 ## Signed payload
 
-The signed payload is the complete manifest with the top-level `signature` property removed. The remaining JSON is serialized as UTF-8 with sorted object keys, compact separators and no NaN/Infinity. Floating-point values are prohibited.
+The signed payload is the complete manifest with the top-level `signature` property removed, prefixed by the domain separator `AARIS-CONTENT-PACK-SIGNATURE-V1\\n`.
+
+The project-owned canonicalization contract is intentionally narrower than general JSON:
+
+- UTF-8 string values are preserved as supplied; no Unicode normalization is performed;
+- JSON object keys must be ASCII, are sorted lexicographically, and duplicate object fields are rejected at the trust boundary;
+- array order is preserved;
+- floating-point values are forbidden;
+- integers must stay within the cross-runtime safe integer range (±9,007,199,254,740,991).
 
 Signature arrays are excluded so independent authorized keys can sign the same immutable payload.
+
+Every `approved` manifest also requires a positive signed `release_sequence`. It is the monotonic rollback-ordering primitive for future downloadable updates. A future client must persist the highest accepted sequence and reject lower sequences except through an explicit recovery procedure.
 
 ## Bootstrap ceremony
 
@@ -48,7 +58,7 @@ For bundled application releases, trust-root changes are code-reviewed repositor
 
 A lost or suspected-compromised private key must be removed from the release role before subsequent packs are approved.
 
-Remote self-updating trust metadata is deliberately out of scope until rollback/freshness state and a stronger update protocol are implemented.
+Remote self-updating trust metadata is deliberately out of scope until persistent rollback/freshness state and a stronger update protocol are implemented. The current Android app bundles content inside the signed application and runs the authoritative project pack gate at release-build time; it does not claim remote self-update security.
 
 ## Dependency boundary
 
