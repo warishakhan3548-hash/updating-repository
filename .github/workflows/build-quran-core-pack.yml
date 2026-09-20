@@ -61,6 +61,8 @@ jobs:
             git reset --hard origin/main
             git clean -fdx -- "$CANONICAL_DIR" "$PACK_DIR"
 
+            python tools/pack_signatures.py policy/trusted_pack_keys.json
+
             canonical_complete=false
             pack_complete=false
             if [[ -f "$CANONICAL_DIR/manifest.json" && -f "$CANONICAL_DIR/ayahs.jsonl" ]]; then
@@ -107,6 +109,7 @@ jobs:
             # Revalidate the exact committed tree before it is allowed onto main.
             PACK_COMMIT_SHA="$(git rev-parse HEAD)"
             echo "Validating committed Quran canonical/pack $PACK_COMMIT_SHA"
+            python tools/pack_signatures.py policy/trusted_pack_keys.json
             python tools/vault_gate.py source-vault/registry.json
             python tools/pack_gate.py               source-vault/registry.json               "$PACK_DIR/manifest.json"
             python tools/validate_schemas.py
