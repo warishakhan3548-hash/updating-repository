@@ -36,6 +36,18 @@ class PublishedQuranPackSemanticTests(unittest.TestCase):
         target_pack = destination / PACK_REL
         target_pack.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(ROOT / PACK_REL, target_pack)
+
+        manifest = json.loads((ROOT / MANIFEST_REL).read_text(encoding="utf-8"))
+        if manifest.get("schema_version") == 3:
+            canonical = manifest.get("canonical")
+            if not isinstance(canonical, dict):
+                self.fail("schema-v3 published pack is missing canonical binding")
+            for field in ("manifest_path", "artifact_path"):
+                rel = Path(canonical[field])
+                target = destination / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / rel, target)
+
         return (
             destination / "source-vault" / "registry.json",
             destination / MANIFEST_REL,
