@@ -26,7 +26,9 @@ Canonicalization is deliberately narrow:
 - array order preserved;
 - integers only within the cross-runtime safe integer range;
 - floats forbidden;
-- JSON strings encoded deterministically.
+- JSON strings encoded deterministically;
+- duplicate JSON object keys rejected before trust decisions;
+- invalid Unicode surrogate code points rejected instead of being implementation-defined.
 
 This is a project-owned restricted format, not a claim of full RFC 8785/JCS conformance. The restriction keeps the payload simple enough to implement identically on Android later.
 
@@ -102,6 +104,6 @@ Changing trusted keys is a security-sensitive code review event.
 
 No production release public key is enrolled yet. Therefore no manifest can currently satisfy the threshold for `approved`.
 
-The existing `quran-core 1.0.4` remains an immutable unsigned candidate. It is not rewritten in place merely to add a signature. Promotion requires a new immutable content version after an offline release-key ceremony and content review.
+The existing `quran-core 1.0.4` remains an immutable unsigned candidate. Canonical schema v3 targets a new `quran-core 1.1.0` candidate once its protected publisher succeeds; neither version is rewritten merely to add a signature. Promotion requires a new immutable content version after an offline release-key ceremony, content review, and Android-side trusted-key activation support.
 
 Tests use the public RFC 8032 Ed25519 test key only. That test private seed is public test material and MUST NEVER become a production release key.
