@@ -29,14 +29,4 @@ The repository trust root is deliberately `bootstrap-required`: no real release 
 
 ## Still blocked before automatic network updates
 
-Cryptographic authenticity, signed ordering and installed-app rollback state are not the whole update system. Automatic remote pack updates remain disabled until the project handles freshness/expiry, downloaded-pack staging, explicit activation/recovery tests, supported-API on-device signature verification, and remote key-rotation/revocation protocol. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.
-
-## Installed-app rollback state
-
-The signed `release_sequence` is now enforced by Android runtime state for non-debug bundled releases. After the authoritative build-time pack gate approves a release, the reader requires a positive release sequence and persists the highest accepted sequence together with the exact pack SHA-256 under `noBackupFilesDir/content/activation/`.
-
-A candidate below the stored sequence is rejected even if its older signature and hash are otherwise valid. Reusing the same sequence for different bytes is also rejected. Debug candidate builds do not advance this production state.
-
-The rollback-state record is written with Android `AtomicFile`. Bundled `content.sqlite` replacement is likewise performed only after a temporary copy passes SHA-256 verification, then written through `AtomicFile` and re-hashed after activation. This removes the previous delete-then-rename crash window.
-
-This is an installed-app rollback barrier, not hardware-backed monotonic storage. Uninstall or clear-data removes app-internal state. Automatic remote pack updates remain disabled until freshness/expiry, downloaded-pack staging, explicit recovery, supported-API on-device signature verification, and remote trust-rotation behavior are reviewed and tested.
+Cryptographic authenticity and a signed ordering primitive are not the whole update system. Automatic remote pack updates remain disabled until the project persists the highest accepted `release_sequence`, handles freshness/expiry, tests atomic activation/recovery, and reviews key-rotation/revocation protocol. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.

@@ -57,6 +57,24 @@ class CurrentStateDocumentationTests(unittest.TestCase):
             self.assertIsNot(source["redistribution_allowed"], True)
 
 
+    def test_quranmorph_remains_awaiting_exact_authorized_artifact(self):
+        registry = json.loads(
+            (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
+        )
+        by_id = {item["source_id"]: item for item in registry["sources"]}
+        source = by_id["morphology.quranmorph.2025"]
+
+        self.assertEqual("awaiting-artifact", source["status"])
+        self.assertEqual("CC-BY-4.0", source["licence_id"])
+        self.assertTrue(source["redistribution_allowed"])
+        self.assertTrue(source["modification_allowed"])
+        self.assertTrue(source["attribution_required"])
+        self.assertIsNone(source["vault_artifact"])
+        self.assertIsNone(source["sha256"])
+        self.assertIn("6,235", source["notes"])
+        self.assertIn("6,236", source["notes"])
+
+
     def test_manifest_spec_tracks_signature_domain(self):
         spec = (ROOT / "docs" / "PACK_MANIFEST_SPEC.md").read_text(encoding="utf-8")
         signing = (ROOT / "docs" / "CONTENT_SIGNING.md").read_text(encoding="utf-8")
