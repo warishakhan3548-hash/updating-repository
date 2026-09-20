@@ -31,6 +31,7 @@ class PackSignatureTests(unittest.TestCase):
             "schema_version": 2,
             "content_version": "1.2.3",
             "review_status": "approved",
+            "release_sequence": 1,
             "built_sha256": "ab" * 32,
             "built_byte_size": 123,
             "dependencies": [],
@@ -106,6 +107,38 @@ class PackSignatureTests(unittest.TestCase):
                 2,
                 verify_approved_manifest(manifest, keyring),
             )
+
+    def test_release_sequence_is_required_positive_and_signed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private, public, key_id = self._key(11)
+            keyring = self._write_keyring(
+                root, [(key_id, public)]
+            )
+
+            missing = self._manifest()
+            missing.pop("release_sequence")
+            self._sign(missing, private, key_id)
+            with self.assertRaisesRegex(
+                PackSignatureError, "release_sequence"
+            ):
+                verify_approved_manifest(missing, keyring)
+
+            zero = self._manifest()
+            zero["release_sequence"] = 0
+            self._sign(zero, private, key_id)
+            with self.assertRaisesRegex(
+                PackSignatureError, "release_sequence"
+            ):
+                verify_approved_manifest(zero, keyring)
+
+            tampered = self._manifest()
+            self._sign(tampered, private, key_id)
+            tampered["release_sequence"] = 2
+            with self.assertRaisesRegex(
+                PackSignatureError, "invalid Ed25519"
+            ):
+                verify_approved_manifest(tampered, keyring)
 
     def test_manifest_tamper_after_signing_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
