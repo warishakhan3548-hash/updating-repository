@@ -2,6 +2,7 @@
 """Fail-closed promotion gate for immutable runtime content packs."""
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
 import json
 import sqlite3
@@ -385,7 +386,7 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         try:
             notice_text = notice.read_text(encoding="utf-8")
             uri = f"file:{artifact.as_posix()}?mode=ro"
-            with sqlite3.connect(uri, uri=True) as connection:
+            with closing(sqlite3.connect(uri, uri=True)) as connection:
                 pack_metadata = dict(
                     connection.execute("SELECT key, value FROM pack_metadata").fetchall()
                 )
