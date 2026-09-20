@@ -19,3 +19,7 @@ Each pack manifest includes:
 `candidate` and `reviewed` packs may be unsigned during development. A pack marked `approved` must carry signature algorithm, key ID and signature value. This creates the release boundary now while allowing the final signing implementation/key-management policy to remain replaceable.
 
 A pack is immutable by content version. Updating a gloss pack must not rebuild unrelated Quran/Hadith packs. Release tooling must reject incompatible dependency mixes and preserve a previous verified pack for rollback.
+
+## Attribution notice gate
+
+When the production Source Vault entry requires attribution, the runtime pack must carry a project-packaged notice file and bind it with `notice_path` plus `notice_sha256`. `tools/pack_gate.py` verifies the notice file and its hash. This prevents a valid evidence source from being repackaged in a way that silently drops required source credit or licence notice obligations.
