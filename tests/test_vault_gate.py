@@ -14,6 +14,7 @@ class VaultGateTests(unittest.TestCase):
         rules = {
             "require_production_approved": True,
             "require_redistribution_allowed": True,
+            "require_commercial_use_allowed": True,
             "require_exact_sha256": True,
             "require_licence_snapshot": True,
             "require_project_controlled_artifact": True,
@@ -66,6 +67,7 @@ class VaultGateTests(unittest.TestCase):
             "byte_size": artifact.stat().st_size,
             "licence_id": "example-licence",
             "redistribution_allowed": True,
+            "commercial_use_allowed": True,
             "modification_allowed": False,
             "attribution_required": True,
             "licence_snapshot": "source-vault/quran/example/1.0/LICENSE.txt",
@@ -80,6 +82,7 @@ class VaultGateTests(unittest.TestCase):
             "version": "1.0",
             "status": status,
             "redistribution_allowed": True,
+            "commercial_use_allowed": True,
             "modification_allowed": False,
             "attribution_required": True,
             "licence_id": "example-licence",
@@ -130,6 +133,7 @@ class VaultGateTests(unittest.TestCase):
             "byte_size": checksum.stat().st_size,
             "licence_id": "example-licence",
             "redistribution_allowed": True,
+            "commercial_use_allowed": True,
             "modification_allowed": False,
             "attribution_required": True,
             "licence_snapshot": (
@@ -149,6 +153,7 @@ class VaultGateTests(unittest.TestCase):
             "status": status,
             "artifact_kind": "sha256-set",
             "redistribution_allowed": True,
+            "commercial_use_allowed": True,
             "modification_allowed": False,
             "attribution_required": True,
             "licence_id": "example-licence",
@@ -274,6 +279,26 @@ class VaultGateTests(unittest.TestCase):
             root = Path(tmp)
             source, _, _ = self._valid_snapshot(root)
             validate_registry(self._registry(root, source))
+
+    def test_production_source_without_commercial_permission_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root)
+            source["commercial_use_allowed"] = False
+            with self.assertRaisesRegex(
+                VaultGateError, "verified commercial-use permission"
+            ):
+                validate_registry(self._registry(root, source))
+
+    def test_production_source_with_unknown_commercial_permission_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root)
+            source["commercial_use_allowed"] = None
+            with self.assertRaisesRegex(
+                VaultGateError, "verified commercial-use permission"
+            ):
+                validate_registry(self._registry(root, source))
 
     def test_tampered_artifact_fails_hash_check(self):
         with tempfile.TemporaryDirectory() as tmp:

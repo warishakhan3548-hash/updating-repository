@@ -108,3 +108,9 @@ Quran search preserves a strict-first trust ladder. NFC/diacritic-free exact con
 The fallback is query/search-lane logic only: it never rewrites `original_text`, never mutates the canonical Quran artifact, and never changes the source-bound `arabic-search-v1` pack contract. Fallback hits are explicitly labelled **Approximate spelling match** in the reader. Unsupported edit-distance typos continue to abstain unless a future measured lane passes the golden-set gate.
 
 This keeps source truth and search convenience separate while improving recall for common keyboard/script variation without introducing a heavyweight search dependency or silently broadening confidence.
+
+## ADR-022 — Commercial-use permission is an independent release gate
+
+Redistribution permission does not imply permission to ship content in a commercial build. The Source Vault registry records `commercial_use_allowed` separately from redistribution, modification and attribution requirements. A source may remain useful for research with a false or unknown commercial-use value, but it cannot be `production-approved` or feed a runtime pack unless commercial use is explicitly verified as allowed.
+
+The gate is deliberately enforced twice: Source Vault validation blocks an invalid production classification, and the runtime pack gate independently rejects a production source whose commercial-use permission is not true. Historical provenance files and runtime packs are not rewritten merely to backfill this new review dimension; the immutable archived licence snapshot remains the legal evidence, while the current registry records the reviewed release decision.

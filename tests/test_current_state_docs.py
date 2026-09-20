@@ -67,6 +67,7 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertEqual("awaiting-artifact", source["status"])
         self.assertEqual("CC-BY-4.0", source["licence_id"])
         self.assertTrue(source["redistribution_allowed"])
+        self.assertTrue(source["commercial_use_allowed"])
         self.assertTrue(source["modification_allowed"])
         self.assertTrue(source["attribution_required"])
         self.assertIsNone(source["vault_artifact"])
@@ -74,6 +75,28 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertIn("6,235", source["notes"])
         self.assertIn("6,236", source["notes"])
 
+
+    def test_qac_commercial_use_is_explicitly_blocked(self):
+        registry = json.loads(
+            (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
+        )
+        by_id = {item["source_id"]: item for item in registry["sources"]}
+        source = by_id["morphology.qac.v0.4"]
+
+        self.assertEqual("awaiting-licence", source["status"])
+        self.assertFalse(source["commercial_use_allowed"])
+        self.assertIsNone(source["vault_artifact"])
+
+    def test_tanzil_production_source_is_commercially_usable(self):
+        registry = json.loads(
+            (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
+        )
+        by_id = {item["source_id"]: item for item in registry["sources"]}
+        source = by_id["quran.tanzil.uthmani.v1.1"]
+
+        self.assertEqual("production-approved", source["status"])
+        self.assertTrue(source["redistribution_allowed"])
+        self.assertTrue(source["commercial_use_allowed"])
 
     def test_quranenc_gloss_candidate_remains_outside_production(self):
         registry = json.loads(

@@ -36,6 +36,7 @@ class PackGateTests(unittest.TestCase):
                             "status": source_status,
                             "licence_id": "Example-License",
                             "redistribution_allowed": True,
+                            "commercial_use_allowed": True,
                             "vault_artifact": "source-vault/quran/example/1.0/raw.txt",
                             "sha256": source_hash,
                         }
@@ -106,6 +107,30 @@ class PackGateTests(unittest.TestCase):
                 Path(tmp), source_status="awaiting-artifact"
             )
             with self.assertRaises(PackGateError):
+                validate_manifest(manifest, registry)
+
+    def test_pack_from_noncommercial_source_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            data = json.loads(registry.read_text(encoding="utf-8"))
+            data["sources"][0]["commercial_use_allowed"] = False
+            registry.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError, "lacks commercial-use approval"
+            ):
+                validate_manifest(manifest, registry)
+
+    def test_pack_from_source_with_unknown_commercial_permission_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            data = json.loads(registry.read_text(encoding="utf-8"))
+            data["sources"][0]["commercial_use_allowed"] = None
+            registry.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError, "lacks commercial-use approval"
+            ):
                 validate_manifest(manifest, registry)
 
     def test_tampered_runtime_pack_fails_hash_check(self):

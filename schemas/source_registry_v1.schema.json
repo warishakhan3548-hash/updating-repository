@@ -34,6 +34,7 @@
             "default": "file"
           },
           "redistribution_allowed": {"type": ["boolean", "null"]},
+          "commercial_use_allowed": {"type": ["boolean", "null"]},
           "modification_allowed": {"type": ["boolean", "null"]},
           "attribution_required": {"type": ["boolean", "null"]},
           "release_requirements": {

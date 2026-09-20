@@ -23,6 +23,7 @@ CHECKSUM_LINE_RE = re.compile(r"^([0-9a-f]{64})  ([^\r\n]+)$")
 REQUIRED_RELEASE_RULES = {
     "require_production_approved",
     "require_redistribution_allowed",
+    "require_commercial_use_allowed",
     "require_exact_sha256",
     "require_licence_snapshot",
     "require_project_controlled_artifact",
@@ -329,6 +330,13 @@ def validate_registry(registry_path: Path) -> None:
         if source.get("redistribution_allowed") is not True:
             raise VaultGateError(
                 f"{source_id}: preserved source lacks verified redistribution permission"
+            )
+        if (
+            status == "production-approved"
+            and source.get("commercial_use_allowed") is not True
+        ):
+            raise VaultGateError(
+                f"{source_id}: production source lacks verified commercial-use permission"
             )
         if not isinstance(source.get("modification_allowed"), bool):
             raise VaultGateError(

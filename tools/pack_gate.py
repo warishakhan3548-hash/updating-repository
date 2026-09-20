@@ -382,6 +382,10 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         raise PackGateError(
             f"{manifest_path}: source {source_id} lacks redistribution approval"
         )
+    if source.get("commercial_use_allowed") is not True:
+        raise PackGateError(
+            f"{manifest_path}: source {source_id} lacks commercial-use approval"
+        )
 
     expected = {
         "source_name": source.get("source_name"),
