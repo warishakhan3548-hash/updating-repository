@@ -3,7 +3,7 @@
 | Source | Intended use | Current status | Key implication |
 |---|---|---|---|
 | Tanzil Quran Text v1.1 | Quran Evidence Plane source | **production-approved** | Exact Uthmani `txt-2` snapshot is preserved in Source Vault. Official terms allow verbatim copying/distribution with attribution/source link and prohibit changing the Quran text. |
-| QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0 | contextual difficult-word gloss candidate | **awaiting-licence** | Official catalogue identifies v1.0.0 and permits republication under source-specific conditions, but the terms also require updating to newer source versions and do not clearly establish indefinite public redistribution of superseded snapshots. No source bytes may enter the public Source Vault until archival retention is clarified. If that gate clears, the separate signed source-release review still enforces latest-version eligibility for each approved pack. It is a gloss source, not a morphology or Quran-text authority. |
+| QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0 | contextual difficult-word gloss candidate | **awaiting-licence / quarantined review snapshot** | Official catalogue identifies v1.0.0 and permits republication under source-specific conditions, but the terms also require updating to newer source versions and do not clearly establish indefinite public redistribution of superseded snapshots. A snapshot captured before ADR-019 is retained only as quarantined review evidence and verified offline; registry artifact fields remain null and no build may consume it. No new capture or production promotion is allowed until archival retention is clarified. |
 | Quranic Arabic Corpus v0.4 | morphology candidate | **awaiting-licence** | Official download presents GNU GPL/verbatim-copy terms, while the official FAQ also says research/non-commercial use. This conflict must be resolved before production redistribution/commercial use; no artifact promotion. |
 | QuranMorph (SinaLab/Birzeit, 2025) | morphology candidate | **awaiting-artifact** | Official SinaLab catalogue labels the Quran morphology dataset CC BY 4.0. The current publisher download form limits free-edition access to recognized institutional/company affiliations and professional email; no exact bytes/version have been acquired or mirrored. The paper's 6,235-verse count must also be reconciled against this project's 6,236-ayah Tanzil coordinates before promotion. |
 | Quran Foundation APIs | optional online integration | **rejected as critical vault source** | Current developer terms make it unsuitable as the permanent mirrored evidence foundation. |
@@ -22,5 +22,16 @@
 - redistribution allowed: yes, under the archived source-specific terms;
 - modification allowed: no;
 - attribution required: yes.
+
+### QuranEnc quarantined review snapshot
+
+- path: `source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/`
+- version: `1.0.0`
+- aggregate API manifest SHA-256: `8cbc4f5f41298e438f7862fff1eba309ffdab254ca240257bd5b652631f2396c`
+- original capture provenance SHA-256: `a34107eb5edc90122bbdfcb5906639e69d19f5cf3a038e08e66709c510132b82`
+- archived terms SHA-256: `24dd28bc25f21e59a2ec87137faeb0d969c1401232d99d2177cabf887c48341c`
+- contents: official index/source/terms pages plus 114 exact Surah API responses covering 6,236 ayahs;
+- legal state: unresolved for immutable historical public retention;
+- production state: **not registered, not production-approved, not consumable by content builders**.
 
 The registry and executable Source Vault gate are authoritative for promotion state; this document is a human-readable summary.
