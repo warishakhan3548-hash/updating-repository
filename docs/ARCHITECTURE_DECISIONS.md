@@ -108,3 +108,11 @@ Quran search preserves a strict-first trust ladder. NFC/diacritic-free exact con
 The fallback is query/search-lane logic only: it never rewrites `original_text`, never mutates the canonical Quran artifact, and never changes the source-bound `arabic-search-v1` pack contract. Fallback hits are explicitly labelled **Approximate spelling match** in the reader. Unsupported edit-distance typos continue to abstain unless a future measured lane passes the golden-set gate.
 
 This keeps source truth and search convenience separate while improving recall for common keyboard/script variation without introducing a heavyweight search dependency or silently broadening confidence.
+
+## ADR-022 — Unresolved archival rights block capture, not only release
+
+A source whose republication terms require downstream copies to stay current may still be legally ambiguous for an immutable public Source Vault. When `historical_snapshot_retention_status` is `unresolved`, the source registry must use `awaiting-licence`; it may not be softened to `research-candidate` or `awaiting-artifact` merely because current-version republication is otherwise allowed.
+
+`awaiting-licence` is also a **no-bytes** state in project-controlled public storage. The central Source Vault gate rejects any preserved snapshot metadata under that status. This makes the legal boundary independent of source-specific download scripts and prevents a future acquisition path from accidentally publishing bytes before archival rights are established.
+
+Once archival retention is explicitly `verified-allowed`, the source may advance to artifact acquisition/review. Any separate ongoing obligation to ship only the latest upstream version remains enforced later by the signed source-release review. Current-version permission, historical archival permission, evidence quality and release freshness are therefore four distinct gates.
