@@ -281,6 +281,18 @@ def validate_registry(registry_path: Path) -> None:
             )
 
         release_requirements = _validate_release_requirements(source, source_id)
+        if (
+            status == "production-approved"
+            and (
+                release_requirements is None
+                or release_requirements["historical_snapshot_retention_status"]
+                != "verified-allowed"
+            )
+        ):
+            raise VaultGateError(
+                f"{source_id}: production source requires verified historical "
+                "snapshot retention permission"
+            )
         retention_status = (
             release_requirements["historical_snapshot_retention_status"]
             if release_requirements is not None
