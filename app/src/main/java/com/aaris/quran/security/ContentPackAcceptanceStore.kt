@@ -170,6 +170,7 @@ class ContentPackAcceptanceStore(context: Context) {
     }
 
     private companion object {
+        val PROCESS_LOCK = Any()
         const val FORMAT_MAGIC = 0x41435041
         const val FORMAT_VERSION = 1
         val PACK_ID = Regex("^[a-z0-9][a-z0-9._-]{0,63}$")
