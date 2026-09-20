@@ -55,7 +55,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0: `awaiting-licence`; its published republication conditions include staying updated to newer source versions, and immutable public redistribution of superseded historical snapshots is not yet clearly authorized. No bytes are captured while that question remains unresolved.
 - Quranic Arabic Corpus v0.4: `awaiting-licence` because official materials create a commercial-use/terms ambiguity.
 - QuranMorph (SinaLab/Birzeit, 2025): `awaiting-artifact`. Official catalogue licensing is materially clearer at CC BY 4.0, but the free-edition download is currently affiliation-gated; no exact bytes/version are mirrored, and the paper's 6,235-verse count still requires exact coordinate alignment against the 6,236-ayah Tanzil Evidence Plane.
-- HadeethEnc Arabic: official version check reports v1.7.0; still a research candidate pending exact artifact preservation plus edition/collection mapping and numbering provenance.
+- HadeethEnc Arabic v1.7.0: `awaiting-licence`; official republication terms include staying updated to newer source versions, while indefinite public retention of superseded snapshots is not yet clearly authorized. No bytes are mirrored; edition/collection mapping and numbering provenance remain separate later gates.
 - QUL resources: official morphology downloads expose word-location keyed lemma/root/stem data, but QUL's FAQ explicitly requires checking dataset-specific licensing for commercial use and the inspected morphology pages do not expose a dataset licence; no bytes are mirrored.
 - Quran Foundation API: not accepted as the permanent mirrored evidence foundation under current developer terms.
 
@@ -95,7 +95,9 @@ Quran search now has an executable host-side golden benchmark. Its host SQLite l
 
 ## Licence-firewall hardening
 
-Commercial-use permission is represented independently from redistribution in the Source Vault registry. Production Source Vault validation and runtime pack promotion both fail closed unless `commercial_use_allowed` is explicitly true. QAC v0.4 is conservatively marked false from its official FAQ's non-commercial research condition; unknown candidates remain null rather than being inferred from repository or code licences. Existing preserved source/provenance bytes and Quran runtime packs were not rewritten.
+Commercial-use permission is represented independently from redistribution in the Source Vault registry. Production Source Vault validation and runtime pack promotion both fail closed unless `commercial_use_allowed` is explicitly true. QAC v0.4 is conservatively marked false from its official FAQ's non-commercial research condition; unknown candidates remain null rather than being inferred from repository or code licences.
+
+Historical-snapshot retention is now a universal pre-capture/pre-production dimension rather than a special case for sources with “stay current” terms. `awaiting-artifact`, any preserved snapshot, and `production-approved` all require explicit `verified-allowed` archival retention. `awaiting-licence` cannot contain preserved snapshot metadata. Release-time “latest upstream version” review remains separate, so policy can evolve without rewriting immutable acquisition provenance or source bytes.
 
 ## Next safe milestones
 
