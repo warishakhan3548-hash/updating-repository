@@ -20,4 +20,5 @@ def validate_schema(path: Path) -> None:
 if __name__ == "__main__":
     validate_schema(ROOT / "schemas" / "content_v1.sql")
     validate_schema(ROOT / "schemas" / "user_v1.sql")
+    validate_schema(ROOT / "schemas" / "user_v2.sql")
     print("SQLite schemas: PASS")
