@@ -27,6 +27,21 @@ The Source Vault gate validates preserved candidate snapshots before production 
 
 Because this repository is project-controlled redistribution infrastructure, a preserved public snapshot must also have verified redistribution permission and explicit modification/attribution flags. If those rights are unresolved, keep the source metadata-only and do not mirror its bytes.
 
+## Multi-file snapshot contract
+
+Some trustworthy upstream sources are naturally a versioned set of files rather than one blob. Do not concatenate or rewrite those source bytes merely to satisfy the single-file gate.
+
+Registry entries may set `artifact_kind` to `sha256-set`. In that mode:
+
+- `vault_artifact` points to an immutable UTF-8 checksum ledger under the snapshot directory;
+- every ledger line is exactly `<lowercase-sha256><two spaces><relative-posix-path>`;
+- every listed member must resolve inside the same snapshot directory;
+- path traversal, absolute paths, non-canonical POSIX paths, duplicate members, aliasing through symlinks, self-reference and hash drift fail closed;
+- the registry still independently hashes the checksum ledger, licence snapshot and provenance;
+- non-production preserved sets remain unusable by release content builders until the registry status is explicitly `production-approved`.
+
+This lets an API/source export remain byte-for-byte faithful as multiple files while giving the project one stable root hash for the exact set. Single-file sources remain the default `artifact_kind=file` contract.
+
 ## Production promotion contract
 
 A `production-approved` registry entry fails closed unless the project has a consistent source identity, verified redistribution permission, explicit modification/attribution flags, a project-controlled artifact, a non-empty licence snapshot and provenance file, and hashes that still match all three preserved files.
