@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 0A–0C is executable. The first Quran Evidence Plane source is permanently mirrored, the provenance-bound Quran core is reproducible, Phase 1 has a trusted read-only Reader Core boundary, and a minimal Android debug reader now projects that same contract without inventing morphology or Hadith evidence.
+Phase 0A–0C is executable. The first Quran Evidence Plane source is permanently mirrored, the provenance-bound Quran core is reproducible, and Phase 1 now has a trusted read-only Reader Core boundary. Android presentation can build on verified ayah navigation without inventing morphology or Hadith evidence.
 
 ## Completed
 
@@ -19,11 +19,7 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - deterministic Quran-core importer with byte-reproducibility coverage;
 - complete candidate Quran core pack published at `content-packs/quran-core/1.0.4/`, using provenance-bound manifest schema v2;
 - read-only Reader Core with stable `QuranCoordinate` navigation, production pack-approval guard, source-faithful `original_text` projection, and ephemeral UI tap anchors that never become canonical TokenIDs;
-- minimal Android reader with Surah navigation, source-faithful RTL Arabic, separate coordinates and source notice;
-- Android runtime verification of pack byte size/SHA-256 plus schema-v2 content/source metadata before read-only SQLite access;
-- Android candidate pack restricted to debug builds, with release variant disabled until an approved/signed Quran pack exists;
-- Android manifest with no direct network permission and contract tests preventing normalized display text or canonical word identity;
-- GitHub Actions foundation checks and deterministic pack build workflow.
+- GitHub Actions foundation checks and deterministic pack build workflow;\n- fail-closed release authenticity gate: `approved` packs are rejected until their cryptographic signatures can be verified against trusted project keys.
 
 ## Production Source Vault
 
@@ -67,19 +63,17 @@ Candidate does not mean release-approved. Version 1.0.4 strengthens the runtime 
 
 ## Validation status
 
-Automated coverage checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, attribution-notice hashing, pack-local artifact/notice isolation, SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder execution and deterministic pack reproducibility. The 1.0.4 publish workflow ran 44 tests successfully and passed the content-pack gate before pushing the generated pack. CI also rejects movable remote Action references and requires generated-pack commits to revalidate the exact committed tree before push.
+Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The 1.0.4 publish workflow ran 44 tests successfully and passed the content-pack gate before pushing the generated pack. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
 
-Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration and the invariant that the ayah-only pack contains zero canonical `quran_token` rows.
+Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows.
 
-Android CI additionally binds its constants to the exact 1.0.4 manifest, re-runs evidence gates, checks the no-network/no-canonical-word boundary, runs JVM unit tests and assembles the debug APK.
-
-No Hadith retrieval benchmark, FSRS retention benchmark, TalkBack device result or low-end Android performance number is claimed yet.
+No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
 ## Next safe milestones
 
-1. Complete PR/device validation of the minimal Android reader, including TalkBack, large fonts, RTL and representative low-end hardware measurements.
-2. Review/sign/promote the Quran core pack according to the release policy; only then enable a production/release reader variant.
-3. Add anchored word meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
+1. Implement and test the trusted-key content-pack signature verifier (canonical signed payload, key IDs/rotation and rollback metadata), then review/sign/promote the Quran core pack.
+2. Build the minimal Android reader UI on the Reader Core contract: immutable Arabic rendering, stable Surah/Ayah navigation, RTL/accessibility semantics, and anchored word-tap hit testing.
+3. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
 4. Resolve QAC licensing or choose a legally clearer morphology source.
 5. Preserve an edition-aware Hadith source before production Hadith search.
 6. Add an independent backup/archive for critical Source Vault artifacts.
