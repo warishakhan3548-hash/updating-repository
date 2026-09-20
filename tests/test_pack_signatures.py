@@ -8,6 +8,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tools.pack_signatures import (
+    DOMAIN_SEPARATOR,
+    SIGNATURE_FORMAT,
     PackSignatureError,
     canonical_manifest_payload,
     key_id_for_ed25519_public_key,
@@ -37,7 +39,7 @@ class PackSignatureTests(unittest.TestCase):
             "built_byte_size": 123,
             "dependencies": [],
             "signature": {
-                "format": "aaris-pack-signature-v1",
+                "format": SIGNATURE_FORMAT,
                 "role": "content-pack-release",
                 "signatures": [],
             },
@@ -51,6 +53,31 @@ class PackSignatureTests(unittest.TestCase):
         threshold=1,
         state="active",
     ):
+        normalized = []
+        for item in keys:
+            if len(item) == 2:
+                key_id, public = item
+                status, min_sequence, max_sequence = "active", 1, None
+            elif len(item) == 5:
+                (
+                    key_id,
+                    public,
+                    status,
+                    min_sequence,
+                    max_sequence,
+                ) = item
+            else:
+                self.fail("invalid signing-key fixture")
+            normalized.append(
+                (
+                    key_id,
+                    public,
+                    status,
+                    min_sequence,
+                    max_sequence,
+                )
+            )
+
         keyring = root / "trusted_pack_keys.json"
         keyring.write_text(
             json.dumps(
@@ -61,14 +88,24 @@ class PackSignatureTests(unittest.TestCase):
                         key_id: {
                             "algorithm": "ed25519",
                             "public_key": public,
+                            "status": status,
+                            "min_release_sequence": min_sequence,
+                            "max_release_sequence": max_sequence,
                         }
-                        for key_id, public in keys
+                        for (
+                            key_id,
+                            public,
+                            status,
+                            min_sequence,
+                            max_sequence,
+                        ) in normalized
                     },
                     "roles": {
                         "content-pack-release": {
                             "threshold": threshold,
                             "key_ids": [
-                                key_id for key_id, _ in keys
+                                key_id
+                                for key_id, *_ in normalized
                             ],
                         }
                     },
@@ -224,6 +261,58 @@ class PackSignatureTests(unittest.TestCase):
             ):
                 verify_approved_manifest(manifest, keyring)
 
+    def test_signature_payload_has_fixed_domain_separator(self):
+        payload = canonical_manifest_payload(self._manifest())
+        self.assertTrue(payload.startswith(DOMAIN_SEPARATOR))
+        self.assertTrue(payload[len(DOMAIN_SEPARATOR):].startswith(b"{"))
+
+    def test_retired_key_only_verifies_its_historical_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_private, old_public, old_id = self._key(12)
+            _, new_public, new_id = self._key(13)
+            keyring = self._write_keyring(
+                root,
+                [
+                    (old_id, old_public, "retired", 1, 5),
+                    (new_id, new_public, "active", 6, None),
+                ],
+            )
+
+            historical = self._manifest()
+            historical["release_sequence"] = 5
+            self._sign(historical, old_private, old_id)
+            self.assertEqual(
+                1,
+                verify_approved_manifest(historical, keyring),
+            )
+
+            future = self._manifest()
+            future["release_sequence"] = 6
+            self._sign(future, old_private, old_id)
+            with self.assertRaisesRegex(
+                PackSignatureError, "not authorized for release_sequence"
+            ):
+                verify_approved_manifest(future, keyring)
+
+    def test_revoked_key_never_authorizes_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            compromised, public, key_id = self._key(14)
+            _, replacement_public, replacement_id = self._key(15)
+            keyring = self._write_keyring(
+                root,
+                [
+                    (key_id, public, "revoked", 1, 5),
+                    (replacement_id, replacement_public, "active", 6, None),
+                ],
+            )
+            manifest = self._manifest()
+            manifest["release_sequence"] = 5
+            self._sign(manifest, compromised, key_id)
+            with self.assertRaisesRegex(PackSignatureError, "revoked"):
+                verify_approved_manifest(manifest, keyring)
+
     def test_float_in_signed_payload_is_rejected(self):
         manifest = self._manifest()
         manifest["score"] = 0.5
@@ -297,6 +386,9 @@ class PackSignatureTests(unittest.TestCase):
                             "0" * 64: {
                                 "algorithm": "ed25519",
                                 "public_key": public,
+                                "status": "active",
+                                "min_release_sequence": 1,
+                                "max_release_sequence": None,
                             }
                         },
                         "roles": {

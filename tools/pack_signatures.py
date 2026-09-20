@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any
 
 
-SIGNATURE_FORMAT = "aaris-pack-signature-v1"
+SIGNATURE_FORMAT = "aaris-pack-signature-v2"
+DOMAIN_SEPARATOR = b"AARIS-CONTENT-PACK-SIGNATURE-V2\n"
 RELEASE_ROLE = "content-pack-release"
 KEYRING_SCHEMA_VERSION = 1
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
@@ -105,7 +106,7 @@ def canonical_manifest_payload(manifest: dict[str, Any]) -> bytes:
     if "signature" not in payload:
         raise PackSignatureError("manifest is missing signature field")
     payload.pop("signature")
-    return canonical_json_bytes(payload)
+    return DOMAIN_SEPARATOR + canonical_json_bytes(payload)
 
 
 def key_id_for_ed25519_public_key(public_key_hex: str) -> str:
@@ -200,16 +201,56 @@ def validate_trusted_key_policy(
                 f"trusted key id mismatch for {key_id}"
             )
 
+        status = key.get("status")
+        if status not in {"active", "retired", "revoked"}:
+            raise PackSignatureError(
+                f"invalid trusted key status for {key_id}"
+            )
+        min_sequence = key.get("min_release_sequence")
+        max_sequence = key.get("max_release_sequence")
+        if (
+            isinstance(min_sequence, bool)
+            or not isinstance(min_sequence, int)
+            or min_sequence < 1
+            or min_sequence > MAX_SAFE_INTEGER
+        ):
+            raise PackSignatureError(
+                f"invalid min_release_sequence for {key_id}"
+            )
+        if max_sequence is not None and (
+            isinstance(max_sequence, bool)
+            or not isinstance(max_sequence, int)
+            or max_sequence < min_sequence
+            or max_sequence > MAX_SAFE_INTEGER
+        ):
+            raise PackSignatureError(
+                f"invalid max_release_sequence for {key_id}"
+            )
+        if status == "active" and max_sequence is not None:
+            raise PackSignatureError(
+                f"active key {key_id} must not have max_release_sequence"
+            )
+        if status == "retired" and max_sequence is None:
+            raise PackSignatureError(
+                f"retired key {key_id} requires max_release_sequence"
+            )
+
     authorized = set(key_ids)
     missing = [key_id for key_id in key_ids if key_id not in keys]
     if missing:
         raise PackSignatureError(
             f"release role references missing trusted key {missing[0]}"
         )
-    if state == "active" and threshold > len(key_ids):
-        raise PackSignatureError(
-            "release signature threshold exceeds authorized key count"
+    if state == "active":
+        active_authorized = sum(
+            1
+            for key_id in key_ids
+            if keys[key_id].get("status") == "active"
         )
+        if threshold > active_authorized:
+            raise PackSignatureError(
+                "release signature threshold exceeds active authorized key count"
+            )
     return keys, authorized, threshold
 
 
@@ -317,12 +358,27 @@ def verify_approved_manifest(
             )
         seen.add(key_id)
 
+        key = keys[key_id]
+        status = key.get("status")
+        if status == "revoked":
+            raise PackSignatureError(
+                "pack signature key is revoked"
+            )
+        min_sequence = key["min_release_sequence"]
+        max_sequence = key["max_release_sequence"]
+        if release_sequence < min_sequence or (
+            max_sequence is not None
+            and release_sequence > max_sequence
+        ):
+            raise PackSignatureError(
+                "pack signature key is not authorized for release_sequence"
+            )
+
         signature = _decode_hex(
             value,
             expected_bytes=64,
             field="signature value",
         )
-        key = keys[key_id]
         public_key = _decode_hex(
             key.get("public_key"),
             expected_bytes=32,

@@ -224,7 +224,8 @@
     "release_sequence": {
       "type": "integer",
       "minimum": 1,
-      "description": "Monotonic signed release ordering primitive; required for approved packs."
+      "description": "Monotonic signed release ordering primitive; required for approved packs.",
+      "maximum": 9007199254740991
     }
   },
   "dependentRequired": {
@@ -305,7 +306,7 @@
             ],
             "properties": {
               "format": {
-                "const": "aaris-pack-signature-v1"
+                "const": "aaris-pack-signature-v2"
               },
               "role": {
                 "const": "content-pack-release"

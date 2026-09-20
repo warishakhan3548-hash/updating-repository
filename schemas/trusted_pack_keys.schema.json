@@ -2,35 +2,127 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Trusted content-pack keys",
   "type": "object",
-  "required": ["schema_version", "state", "keys", "roles"],
+  "required": [
+    "schema_version",
+    "state",
+    "keys",
+    "roles"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "state": {"enum": ["bootstrap-required", "active"]},
-    "description": {"type": "string"},
+    "schema_version": {
+      "const": 1
+    },
+    "state": {
+      "enum": [
+        "bootstrap-required",
+        "active"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
     "keys": {
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["algorithm", "public_key"],
+        "required": [
+          "algorithm",
+          "public_key",
+          "status",
+          "min_release_sequence",
+          "max_release_sequence"
+        ],
         "properties": {
-          "algorithm": {"const": "ed25519"},
+          "algorithm": {
+            "const": "ed25519"
+          },
           "public_key": {
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "retired",
+              "revoked"
+            ]
+          },
+          "min_release_sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "max_release_sequence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "active"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "max_release_sequence": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "retired"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "max_release_sequence": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              }
+            }
+          }
+        ]
       }
     },
     "roles": {
       "type": "object",
-      "required": ["content-pack-release"],
+      "required": [
+        "content-pack-release"
+      ],
       "properties": {
         "content-pack-release": {
           "type": "object",
-          "required": ["threshold", "key_ids"],
+          "required": [
+            "threshold",
+            "key_ids"
+          ],
           "properties": {
-            "threshold": {"type": "integer", "minimum": 1},
+            "threshold": {
+              "type": "integer",
+              "minimum": 1
+            },
             "key_ids": {
               "type": "array",
               "uniqueItems": true,
