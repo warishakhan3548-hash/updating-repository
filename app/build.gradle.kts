@@ -44,12 +44,12 @@ val releaseSignatureReady = listOf("algorithm", "key_id", "value").all(::hasMani
 
 android {
     namespace = "com.aaris.quran"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.aaris.quran"
         minSdk = 24
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0-dev"
         buildConfigField("String", "QURAN_PACK_VERSION", "\"$packVersion\"")

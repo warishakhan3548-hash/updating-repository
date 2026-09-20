@@ -45,7 +45,7 @@ Pinned as of 2026-09-20:
 - Gradle 9.6.1 in CI
 - Kotlin/Compose compiler plugin 2.4.20
 - Compose BOM 2026.09.00
-- compile/target SDK 37
+- compile/target SDK 36
 - minimum SDK 24
 
 ## Current limitation
