@@ -52,3 +52,10 @@ Every `approved` content-pack manifest carries a positive integer `release_seque
 A signed sequence alone does not prevent rollback. A future downloaded-pack client must persist the highest accepted sequence, reject lower sequences by default, and expose any recovery/downgrade path explicitly. Freshness/expiry and atomic activation remain separate update-system responsibilities.
 
 The current Ed25519 verifier is a repository/build-time boundary. Android platform `Signature` support for Ed25519 begins at API 33 while this app supports older Android versions, so a future on-device updater must use a reviewed compatible verifier/provider or introduce a versioned signature-format migration. It must not silently assume the build-time Python verifier is available on device.
+
+
+## ADR-015 — Pack signatures are domain-separated and retired keys are sequence-bounded
+
+Before the first production release key is enrolled, the signing contract advances to `aaris-pack-signature-v2`. The Ed25519 message is prefixed with a fixed Aaris content-release domain string and then the existing strict deterministic manifest payload. This avoids treating an unlabelled signature over the same bytes as valid across unrelated Aaris protocols.
+
+Trusted release keys carry active/retired/revoked state and release-sequence authorization windows. Retired keys have a finite maximum so they can verify their historical releases without remaining valid for arbitrary future releases; revoked keys never count. The active trust root must still have enough active keys to satisfy its threshold.

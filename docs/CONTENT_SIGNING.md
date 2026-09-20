@@ -20,9 +20,9 @@ This prevents a human-friendly label from silently being rebound to different ke
 
 ## Signed payload
 
-The signed payload is the complete manifest with the top-level `signature` property removed. Signature arrays are excluded so independent authorized keys can sign the same immutable payload.
+The Ed25519 message is the fixed ASCII prefix `AARIS-CONTENT-PACK-SIGNATURE-V2\\n` followed by the existing strict deterministic JSON of the complete manifest with the top-level `signature` property removed. Signature arrays are excluded so independent authorized keys can sign the same immutable payload. The prefix supplies application-level domain separation before any production key is enrolled.
 
-Signature format v1 deliberately uses a narrow, project-owned JSON contract rather than claiming full RFC 8785/JCS conformance:
+Signature format v2 deliberately uses a narrow, project-owned JSON contract rather than claiming full RFC 8785/JCS conformance:
 
 - duplicate object names are rejected before interpretation;
 - object-property names must be 7-bit ASCII, so Python/Java/Kotlin/ECMAScript sorting agrees without UTF-16 edge cases;
@@ -31,13 +31,19 @@ Signature format v1 deliberately uses a narrow, project-owned JSON contract rath
 - signed integers are limited to ±9,007,199,254,740,991, the exact cross-runtime safe range;
 - Unicode string **values** are preserved exactly as supplied; they are not normalized or transliterated.
 
-These restrictions keep Arabic attribution or other Unicode string values intact while preventing a future verifier from authenticating different bytes because of duplicate names, numeric precision or property-ordering differences. If the format ever needs richer numeric/property-name semantics, introduce a new signature-format version rather than silently changing v1.
+These restrictions keep Arabic attribution or other Unicode string values intact while preventing a future verifier from authenticating different bytes because of duplicate names, numeric precision or property-ordering differences. If the format ever needs richer numeric/property-name semantics, introduce a new signature-format version rather than silently changing v2.
 
 ## Release ordering
 
 Every approved manifest must carry a positive integer `release_sequence`. Because it is outside the excluded signature block, the sequence is authenticated by every release signature. It is an app-owned monotonic ordering primitive for future rollback protection and does not depend on semantic-version string parsing.
 
 The repository verifier checks that the value is a positive integer. Automatic downloaded-pack activation is still blocked until clients persist the highest accepted sequence and reject lower values except through an explicit recovery procedure.
+
+## Key lifecycle windows
+
+Authorized release keys carry `status` plus `min_release_sequence` and `max_release_sequence`. Active keys have no maximum. Retired keys require a finite historical ceiling, allowing old releases to remain verifiable without letting an old key sign arbitrary future sequence numbers. Revoked keys never count.
+
+When the trust root is active, its threshold must be satisfiable by currently active authorized keys. Preserve historical trust-policy snapshots for reproducibility, but current activation must always use the current trust policy.
 
 ## Bootstrap ceremony
 

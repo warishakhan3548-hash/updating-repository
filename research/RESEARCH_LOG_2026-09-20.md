@@ -84,3 +84,12 @@ The research now converges on four durable choices: immutable source/display dat
 | fact | Android's `java.security.Signature` API lists Ed25519 support at API 33+, while SHA256withECDSA is available at API 11+. | https://developer.android.com/reference/java/security/Signature | high | Current Python Ed25519 verification is valid for build-time approval, but a future on-device updater for this minSdk-24 app must not assume platform Ed25519 exists on every supported device. |
 | fact | TUF explicitly treats rollback as presenting an older version than a client has already seen, and its signed metadata uses version/freshness information so clients can reject obsolete state. | https://theupdateframework.io/docs/security/ and https://theupdateframework.io/docs/metadata/ | high | Keep rollback ordering authenticated, but implement persisted client state before enabling automatic downloaded-pack activation. |
 | inference | A signed monotonic integer is a safer internal rollback-ordering primitive than parsing content-version strings because ordering semantics stay explicit and independent of naming conventions. | update threat-model synthesis | high | Require positive `release_sequence` on every approved manifest and sign it with the rest of the manifest. |
+
+
+## Signature-domain and key-retirement hardening
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | RFC 8032 explains that contexts can separate uses between different protocols, while basic Ed25519 itself uses an empty context. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Prefix the Aaris release message with a fixed protocol/domain string rather than assuming plain Ed25519 provides application separation. |
+| fact | TUF root metadata binds roles to trusted keys and thresholds, and TUF treats rollback as a distinct update-system threat. | https://theupdateframework.io/docs/metadata/ and https://theupdateframework.io/docs/security/ | high | Keep signed release ordering and explicitly bound retired-key authorization to historical release sequences. |
+| finding | The write-capable Quran pack publisher installed `requirements-ci.txt` before a retry loop that can reset to a newer `main`. | repository audit | high | Install the verifier dependency after each reset so the exact tree being validated determines its verification dependency. |
