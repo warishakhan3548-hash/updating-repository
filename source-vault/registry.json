@@ -195,6 +195,54 @@
       "byte_size": null,
       "notes": "Technically suitable candidate: QUL documents a downloadable SQLite mapping roots to word_location keys. No artifact is mirrored because the inspected resource page does not state a dataset licence and QUL's FAQ requires resource-specific licence review before commercial production use.",
       "commercial_use_allowed": null
+    },
+    {
+      "source_id": "quran-gloss.qul.english-wbw.resource-92",
+      "category": "quran-gloss",
+      "source_name": "QUL English Word by Word Translation",
+      "original_url": "https://qul.tarteel.ai/resources/translation/92",
+      "version": "resource-92-unpinned-2026-09-21",
+      "status": "awaiting-licence",
+      "licence_id": "dataset-specific-unverified",
+      "redistribution_allowed": null,
+      "modification_allowed": null,
+      "attribution_required": null,
+      "vault_artifact": null,
+      "licence_snapshot": null,
+      "provenance": null,
+      "sha256": null,
+      "byte_size": null,
+      "notes": "Official QUL resource 92 is a word-by-word English translation and exposes JSON/SQLite downloads. QUL's own FAQ requires dataset-specific licensing review before production use. QUL credits QuranWBW.com for word-by-word translations, while QuranWBW's published site states that its data belongs to the respective owners/authors and that copying is not allowed. This does not prove QUL lacks permission to host the resource, but it does mean this project has not established a downstream right to archive and redistribute immutable copies. No bytes may be captured or mirrored until resource-specific redistribution, commercial-use, attribution/modification, and historical-retention rights are verified.",
+      "commercial_use_allowed": null,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://qul.tarteel.ai/resources/translation/92",
+        "historical_snapshot_retention_status": "unresolved"
+      }
+    },
+    {
+      "source_id": "quran-gloss.qul.hindi-wbw.resource-44",
+      "category": "quran-gloss",
+      "source_name": "QUL Hindi wbw translation",
+      "original_url": "https://qul.tarteel.ai/resources/translation/44",
+      "version": "resource-44-unpinned-2026-09-21",
+      "status": "awaiting-licence",
+      "licence_id": "dataset-specific-unverified",
+      "redistribution_allowed": null,
+      "modification_allowed": null,
+      "attribution_required": null,
+      "vault_artifact": null,
+      "licence_snapshot": null,
+      "provenance": null,
+      "sha256": null,
+      "byte_size": null,
+      "notes": "Official QUL resource 44 is a word-by-word Hindi translation and exposes JSON/SQLite downloads. QUL's own FAQ requires dataset-specific licensing review before production use. QUL credits QuranWBW.com for word-by-word translations, while QuranWBW's published site states that its data belongs to the respective owners/authors and that copying is not allowed. This does not prove QUL lacks permission to host the resource, but it does mean this project has not established a downstream right to archive and redistribute immutable copies. No bytes may be captured or mirrored until resource-specific redistribution, commercial-use, attribution/modification, and historical-retention rights are verified.",
+      "commercial_use_allowed": null,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://qul.tarteel.ai/resources/translation/44",
+        "historical_snapshot_retention_status": "unresolved"
+      }
     }
   ]
 }
