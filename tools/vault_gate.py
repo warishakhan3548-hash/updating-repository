@@ -6,7 +6,7 @@ import json
 import re
 import sys
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 ALLOWED_STATUSES = {
@@ -151,12 +151,18 @@ def _validate_checksum_set(artifact: Path, source_id: str) -> int:
             raise VaultGateError(
                 f"{source_id}: checksum-set member must use POSIX separators"
             )
-        rel = Path(raw_path)
-        if rel.is_absolute() or not rel.parts or ".." in rel.parts or "." in rel.parts:
+        posix_rel = PurePosixPath(raw_path)
+        normalized = posix_rel.as_posix()
+        if (
+            posix_rel.is_absolute()
+            or not posix_rel.parts
+            or ".." in posix_rel.parts
+            or raw_path != normalized
+        ):
             raise VaultGateError(
                 f"{source_id}: unsafe checksum-set member path {raw_path!r}"
             )
-        normalized = rel.as_posix()
+        rel = Path(*posix_rel.parts)
         if normalized in seen_paths:
             raise VaultGateError(
                 f"{source_id}: duplicate checksum-set member {normalized}"
