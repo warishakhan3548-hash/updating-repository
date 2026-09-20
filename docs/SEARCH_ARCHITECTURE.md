@@ -11,3 +11,9 @@ Candidate generation and re-ranking are separate. Signals may include exact phra
 Search may return **no reliable match**. Approximate results must be labelled approximate.
 
 Golden-set metrics: Recall@5, Recall@10, MRR, NDCG@10, false-positive rate, zero-result rate, p50 and p95 latency. Include exact, no-harakat, typo, partial phrase, keyboard variants, concept queries, AI query bundles and no-answer cases.
+
+## Implemented Quran baseline — 2026-09-20
+
+The Android reader now has one deliberately strict offline Quran lane over the existing `quran-core 1.1.0` derived fields. Query normalization is version-locked to `arabic-search-v1`; a pack/runtime mismatch fails closed. Retrieval uses literal SQLite `instr` containment over NFC and diacritic-free lanes, with exact/prefix matches ordered before broader containment. Results expose canonical ayah coordinates and render only `original_text`.
+
+This baseline does **not** claim fuzzy, conceptual, root, morphology, typo-tolerant or AI-expanded retrieval. Those remain evaluation-gated behind the labelled golden set. Empty retrieval is allowed to abstain with **No reliable match found**.

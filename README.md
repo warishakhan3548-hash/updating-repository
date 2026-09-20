@@ -8,7 +8,7 @@ This repository builds trust and reproducibility before UI breadth. Critical ext
 
 ## Current phase
 
-Phase 0A–0C is operational and Phase 1 has a minimal offline Android reader on the trusted read-only Reader Core boundary.
+Phase 0A–0C is operational and Phase 1 has a minimal offline Android reader on the trusted read-only Reader Core boundary. The reader also has a strict ayah-level offline Quran search lane over the existing provenance-bound search fields; it adds no new evidence source and never renders normalized text.
 
 **Production-approved source today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
 
@@ -16,7 +16,7 @@ Phase 0A–0C is operational and Phase 1 has a minimal offline Android reader on
 
 **Not production-approved yet:** QuranEnc Arabic difficult-word glosses, Quranic Arabic Corpus/QuranMorph/QUL morphology, Hadith datasets and other optional content. See `source-vault/registry.json`.
 
-The reader is intentionally narrow: source-faithful Arabic, local navigation and safe UI-only tap anchors. Morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+The reader is intentionally narrow: source-faithful Arabic, local navigation, strict local ayah search and safe UI-only tap anchors. Morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
 
 ## Architecture boundaries
 

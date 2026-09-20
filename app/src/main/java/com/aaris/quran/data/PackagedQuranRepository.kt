@@ -100,6 +100,86 @@ class PackagedQuranRepository(
             }
         }
 
+
+    override suspend fun searchAyahs(
+        query: String,
+        limit: Int,
+    ): List<QuranAyah> = withContext(Dispatchers.IO) {
+        require(limit in 1..100) { "search limit must be between 1 and 100" }
+
+        val unicodeQuery = ArabicSearchNormalizer.normalizeUnicode(query).trim()
+        val diacriticFreeQuery = ArabicSearchNormalizer.normalizeDiacriticFree(query)
+        if (diacriticFreeQuery.isBlank()) return@withContext emptyList()
+
+        val database = SQLiteDatabase.openDatabase(
+            installedPack.absolutePath,
+            null,
+            SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS,
+        )
+        try {
+            database.rawQuery(
+                "SELECT value FROM pack_metadata WHERE key = 'search_normalization_version'",
+                null,
+            ).use { cursor ->
+                check(cursor.moveToFirst()) {
+                    "Verified Quran pack is missing its search normalization version"
+                }
+                check(cursor.getString(0) == ArabicSearchNormalizer.VERSION) {
+                    "Quran search normalization version mismatch"
+                }
+            }
+
+            database.rawQuery(
+                """
+                SELECT ayah_id, surah, ayah, original_text
+                FROM quran_ayah
+                WHERE instr(search_unicode, ?) > 0
+                   OR instr(search_diacritic_free, ?) > 0
+                ORDER BY
+                    CASE
+                        WHEN search_unicode = ? THEN 0
+                        WHEN instr(search_unicode, ?) = 1 THEN 1
+                        WHEN search_diacritic_free = ? THEN 2
+                        WHEN instr(search_diacritic_free, ?) = 1 THEN 3
+                        ELSE 4
+                    END,
+                    length(search_diacritic_free),
+                    surah,
+                    ayah
+                LIMIT ?
+                """.trimIndent(),
+                arrayOf(
+                    unicodeQuery,
+                    diacriticFreeQuery,
+                    unicodeQuery,
+                    unicodeQuery,
+                    diacriticFreeQuery,
+                    diacriticFreeQuery,
+                    limit.toString(),
+                ),
+            ).use { cursor ->
+                val ayahIdIndex = cursor.getColumnIndexOrThrow("ayah_id")
+                val surahIndex = cursor.getColumnIndexOrThrow("surah")
+                val ayahIndex = cursor.getColumnIndexOrThrow("ayah")
+                val originalTextIndex = cursor.getColumnIndexOrThrow("original_text")
+                buildList {
+                    while (cursor.moveToNext()) {
+                        add(
+                            QuranAyah(
+                                ayahId = cursor.getString(ayahIdIndex),
+                                surah = cursor.getInt(surahIndex),
+                                ayah = cursor.getInt(ayahIndex),
+                                originalText = cursor.getString(originalTextIndex),
+                            ),
+                        )
+                    }
+                }
+            }
+        } finally {
+            database.close()
+        }
+    }
+
     private fun installVerifiedPack(): File {
         val directory = File(
             context.noBackupFilesDir,

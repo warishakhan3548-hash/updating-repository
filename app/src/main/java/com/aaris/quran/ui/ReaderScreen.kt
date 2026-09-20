@@ -18,11 +18,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +54,8 @@ fun ReaderRoute(viewModel: ReaderViewModel, modifier: Modifier = Modifier) {
         onPreviousSurah = viewModel::previousSurah,
         onNextSurah = viewModel::nextSurah,
         onSelectSurah = viewModel::selectSurah,
+        onSearchQueryChange = viewModel::updateSearchQuery,
+        onOpenSearchResult = viewModel::openSearchResult,
         onRetry = viewModel::retry,
         modifier = modifier,
     )
@@ -63,10 +67,19 @@ fun ReaderScreen(
     onPreviousSurah: () -> Unit,
     onNextSurah: () -> Unit,
     onSelectSurah: (Int) -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onOpenSearchResult: (QuranAyah) -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showSurahChooser by remember { mutableStateOf(false) }
+    val ayahListState = rememberLazyListState()
+
+    LaunchedEffect(state.surah, state.targetAyah, state.ayahs.size) {
+        val target = state.targetAyah ?: return@LaunchedEffect
+        val index = state.ayahs.indexOfFirst { it.ayah == target }
+        if (index >= 0) ayahListState.scrollToItem(index)
+    }
 
     Column(
         modifier = modifier
@@ -78,17 +91,29 @@ fun ReaderScreen(
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
-        TextButton(
-            onClick = { showSurahChooser = true },
-            enabled = !state.isLoading,
+        OutlinedTextField(
+            value = state.searchQuery,
+            onValueChange = onSearchQueryChange,
+            singleLine = true,
+            label = { Text("Search Quran") },
             modifier = Modifier
-                .padding(horizontal = 8.dp)
-                .heightIn(min = 48.dp),
-        ) {
-            Text(
-                text = "Surah ${state.surah} ▾",
-                style = MaterialTheme.typography.titleMedium,
-            )
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 4.dp),
+        )
+
+        if (state.searchQuery.isBlank()) {
+            TextButton(
+                onClick = { showSurahChooser = true },
+                enabled = !state.isLoading,
+                modifier = Modifier
+                    .padding(horizontal = 8.dp)
+                    .heightIn(min = 48.dp),
+            ) {
+                Text(
+                    text = "Surah ${state.surah} ▾",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
         }
 
         Box(
@@ -97,6 +122,12 @@ fun ReaderScreen(
                 .fillMaxWidth(),
         ) {
             when {
+                state.searchQuery.isNotBlank() -> {
+                    SearchResultsContent(
+                        state = state,
+                        onOpenSearchResult = onOpenSearchResult,
+                    )
+                }
                 state.isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 state.errorMessage != null -> {
                     Column(
@@ -114,7 +145,10 @@ fun ReaderScreen(
                     }
                 }
                 else -> {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = ayahListState,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
                         items(state.ayahs, key = { it.ayahId }) { ayah ->
                             AyahRow(ayah)
                             HorizontalDivider()
@@ -124,24 +158,26 @@ fun ReaderScreen(
             }
         }
 
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            TextButton(
-                onClick = onPreviousSurah,
-                enabled = state.surah > 1 && !state.isLoading,
-                modifier = Modifier.heightIn(min = 48.dp),
+        if (state.searchQuery.isBlank()) {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                Text("Previous Surah")
-            }
-            TextButton(
-                onClick = onNextSurah,
-                enabled = state.surah < 114 && !state.isLoading,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Text("Next Surah")
+                TextButton(
+                    onClick = onPreviousSurah,
+                    enabled = state.surah > 1 && !state.isLoading,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("Previous Surah")
+                }
+                TextButton(
+                    onClick = onNextSurah,
+                    enabled = state.surah < 114 && !state.isLoading,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("Next Surah")
+                }
             }
         }
     }
@@ -155,6 +191,68 @@ fun ReaderScreen(
                 onSelectSurah(surah)
             },
         )
+    }
+}
+
+@Composable
+private fun SearchResultsContent(
+    state: ReaderUiState,
+    onOpenSearchResult: (QuranAyah) -> Unit,
+) {
+    when {
+        state.isSearching -> {
+            Box(Modifier.fillMaxSize()) {
+                CircularProgressIndicator(Modifier.align(Alignment.Center))
+            }
+        }
+        state.searchErrorMessage != null -> {
+            Box(Modifier.fillMaxSize()) {
+                Text(
+                    text = state.searchErrorMessage,
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                )
+            }
+        }
+        state.searchResults.isEmpty() -> {
+            Box(Modifier.fillMaxSize()) {
+                Text(
+                    text = "No reliable match found.",
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                )
+            }
+        }
+        else -> {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(state.searchResults, key = { it.ayahId }) { ayah ->
+                    TextButton(
+                        onClick = { onOpenSearchResult(ayah) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .padding(horizontal = 8.dp),
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = "Surah ${ayah.surah} • Ayah ${ayah.ayah}",
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            Text(
+                                text = ayah.originalText,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = 26.sp,
+                                    lineHeight = 42.sp,
+                                    textDirection = TextDirection.ContentOrRtl,
+                                ),
+                            )
+                        }
+                    }
+                    HorizontalDivider()
+                }
+            }
+        }
     }
 }
 
