@@ -46,8 +46,28 @@ Historical schema-v1/v2 packs remain immutable and verifiable under their own co
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: reserved for a pack whose cryptographic signature has actually been verified against a trusted project key.
+- `approved`: all ordinary gates pass and the manifest release signature verifies against the active project trust root.
 
-**Current fail-closed rule:** the repository does not yet contain the trusted-key cryptographic verifier required for an `approved` pack. Therefore `tools/pack_gate.py` rejects every `approved` manifest, even if it contains plausible-looking `algorithm`, `key_id`, and `value` fields. Mere field presence is not a signature check. Promotion remains blocked until a real verifier and key-rotation policy are implemented and tested.
+Approved manifests use `aaris-pack-signature-v1`:
 
-Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for rollback and reproducibility.
+```json
+{
+  "format": "aaris-pack-signature-v1",
+  "role": "content-pack-release",
+  "signatures": [
+    {
+      "algorithm": "ed25519",
+      "key_id": "<64-lowercase-hex-key-id>",
+      "value": "<128-lowercase-hex-signature>"
+    }
+  ]
+}
+```
+
+The signed bytes are deterministic JSON for the entire manifest except the top-level `signature` field. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version and review status are therefore covered by the signature.
+
+`tools/pack_gate.py` delegates approved-manifest authenticity to `tools/pack_signatures.py`; signature-shaped strings are never sufficient. Trusted release public keys and threshold policy live in `policy/trusted_pack_keys.json`. Key IDs are derived from the public key, and private keys must remain outside the repository.
+
+The current trust-root state is `bootstrap-required`, so verifier availability does **not** promote existing candidates. A real offline release key and independent backup must be established first.
+
+Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for reproducibility and later rollback support.
