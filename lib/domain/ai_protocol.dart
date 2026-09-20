@@ -336,6 +336,93 @@ Maximum 250 actions; at most one action per stock ID in one response. Omit uncha
   String get fileName => 'Aaris_Pharmacy_${dateText(today)}.txt';
 }
 
+int? _balancedJsonObjectEnd(String source, int start) {
+  var depth = 0;
+  var inString = false;
+  var escaped = false;
+  for (var index = start; index < source.length; index++) {
+    final code = source.codeUnitAt(index);
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (code == 0x5c) {
+        escaped = true;
+      } else if (code == 0x22) {
+        inString = false;
+      }
+      continue;
+    }
+    if (code == 0x22) {
+      inString = true;
+    } else if (code == 0x7b) {
+      depth++;
+    } else if (code == 0x7d) {
+      depth--;
+      if (depth == 0) return index + 1;
+      if (depth < 0) return null;
+    }
+  }
+  return null;
+}
+
+Map<String, dynamic> _decodePharmacyEnvelope(String input) {
+  final text = input.trim().replaceFirst('\uFEFF', '');
+  if (text.length > 1000000) {
+    throw const FormatException(
+      'AI response is too large. Split it into smaller requests.',
+    );
+  }
+
+  Map<String, dynamic>? directMap;
+  try {
+    final direct = jsonDecode(text);
+    if (direct is Map) {
+      directMap = Map<String, dynamic>.from(direct);
+      if (directMap['schema'] == pharmacySchema) return directMap;
+    }
+  } on FormatException {
+    // Clipboard text may contain harmless prose before/after the protocol object.
+    // The bounded scanner below extracts only an exact Aaris envelope.
+  }
+
+  // External chat apps often copy UI text such as "Worked for 43s" together
+  // with the JSON response. Find only objects that start with our protocol
+  // signature, then parse their balanced braces while respecting JSON strings.
+  // Unrelated prose/JSON above or below is ignored and never becomes authority.
+  final signature = RegExp(
+    r'\{\s*"schema"\s*:\s*"aaris\.pharmacy\.v1"',
+  );
+  final candidates = <Map<String, dynamic>>[];
+  for (final match in signature.allMatches(text)) {
+    final end = _balancedJsonObjectEnd(text, match.start);
+    if (end == null) continue;
+    final raw = text.substring(match.start, end);
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map && decoded['schema'] == pharmacySchema) {
+        candidates.add(Map<String, dynamic>.from(decoded));
+      }
+    } on FormatException {
+      // A truncated/lookalike object is ignored. It can never be executed.
+    }
+  }
+
+  if (candidates.length > 1) {
+    throw const FormatException(
+      'More than one Aaris Pharmacy change was found in the pasted text. Copy one change at a time so Aaris never guesses which one to apply.',
+    );
+  }
+  if (candidates.length == 1) return candidates.single;
+
+  // Preserve the normal validation/error path for a complete JSON object with
+  // the wrong schema or unsupported fields.
+  if (directMap != null) return directMap;
+
+  throw const FormatException(
+    'No complete Aaris Pharmacy change JSON was found. Copy the full object and try again. Nothing was changed.',
+  );
+}
+
 AiPlan parseAiPlan(
   String input,
   Map<String, Medicine> records,
@@ -344,30 +431,8 @@ AiPlan parseAiPlan(
   DateTime now, {
   Map<String, Supplier> suppliers = const <String, Supplier>{},
 }) {
-  var text = input.trim().replaceFirst('\uFEFF', '');
-  if (text.length > 1000000)
-    throw const FormatException(
-      'AI response is too large. Split it into smaller requests.',
-    );
-  if (text.startsWith('```')) {
-    final firstLine = text.indexOf('\n');
-    final end = text.lastIndexOf('```');
-    if (firstLine < 0 || end <= firstLine)
-      throw const FormatException('Incomplete JSON code block.');
-    text = text.substring(firstLine + 1, end).trim();
-  }
-  final dynamic decoded;
-  try {
-    decoded = jsonDecode(text);
-  } on FormatException {
-    throw const FormatException(
-      'The AI change JSON is incomplete or invalid. Copy the complete object and try again. Nothing was changed.',
-    );
-  }
-  if (decoded is! Map<String, dynamic>)
-    throw const FormatException(
-      'Paste the complete pharmacy JSON object, including requestId and baseRevision.',
-    );
+  final decoded = _decodePharmacyEnvelope(input);
+
   const allowedEnvelope = {
     'schema',
     'requestId',
