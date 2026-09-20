@@ -8,18 +8,18 @@ ROOT = Path(__file__).resolve().parents[1]
 class AndroidReaderContractTests(unittest.TestCase):
     def test_reader_packages_the_pinned_quran_core_candidate(self):
         manifest = json.loads(
-            (ROOT / "content-packs" / "quran-core" / "1.0.1" / "manifest.json")
+            (ROOT / "content-packs" / "quran-core" / "1.0.3" / "manifest.json")
             .read_text(encoding="utf-8")
         )
         build_file = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
 
-        self.assertIn("../content-packs/quran-core/1.0.1", build_file)
+        self.assertIn("../content-packs/quran-core/1.0.3", build_file)
         self.assertEqual(manifest["pack_id"], "quran-core")
-        self.assertEqual(manifest["content_version"], "1.0.1")
+        self.assertEqual(manifest["content_version"], "1.0.3")
         self.assertEqual(manifest["record_count"], 6236)
         self.assertEqual(
             manifest["built_sha256"],
-            "34df2de57790226382d7693f1f64df78a78d446b83754d714e72787cc32f7b58",
+            "7acfb731c59ff2bc404752372eda8f30d16f38fa8c282aa4887ccb2fd8a2a025",
         )
         self.assertEqual(manifest["review_status"], "candidate")
 
