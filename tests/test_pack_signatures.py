@@ -59,17 +59,20 @@ class PackSignatureTests(unittest.TestCase):
                     "schema_version": 1,
                     "state": state,
                     "keys": {
-                        key_id: {
+                        item[0]: {
                             "algorithm": "ed25519",
-                            "public_key": public,
+                            "public_key": item[1],
+                            "status": item[2] if len(item) > 2 else "active",
+                            "min_release_sequence": item[3] if len(item) > 3 else 1,
+                            "max_release_sequence": item[4] if len(item) > 4 else None,
                         }
-                        for key_id, public in keys
+                        for item in keys
                     },
                     "roles": {
                         "content-pack-release": {
                             "threshold": threshold,
                             "key_ids": [
-                                key_id for key_id, _ in keys
+                                item[0] for item in keys
                             ],
                         }
                     },
@@ -256,6 +259,14 @@ class PackSignatureTests(unittest.TestCase):
         payload = canonical_manifest_payload(manifest)
         self.assertIn("مصدر موثوق".encode("utf-8"), payload)
 
+    def test_invalid_unicode_surrogate_is_rejected_cleanly(self):
+        manifest = self._manifest()
+        manifest["source_attribution"] = "\ud800"
+        with self.assertRaisesRegex(
+            PackSignatureError, "invalid Unicode scalar value"
+        ):
+            canonical_manifest_payload(manifest)
+
     def test_large_integer_is_rejected_from_signed_payload(self):
         manifest = self._manifest()
         manifest["sequence"] = 9_007_199_254_740_992
@@ -284,6 +295,87 @@ class PackSignatureTests(unittest.TestCase):
             ):
                 validate_trusted_key_policy(keyring)
 
+    def test_retired_key_verifies_only_its_historical_sequence_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private, public, key_id = self._key(12)
+            _, active_public, active_id = self._key(17)
+            keyring = self._write_keyring(
+                root,
+                [
+                    (key_id, public, "retired", 2, 4),
+                    (active_id, active_public, "active", 5, None),
+                ],
+                state="active",
+            )
+
+            historical = self._manifest()
+            historical["release_sequence"] = 4
+            self._sign(historical, private, key_id)
+            self.assertEqual(
+                1,
+                verify_approved_manifest(historical, keyring),
+            )
+
+            future = self._manifest()
+            future["release_sequence"] = 5
+            self._sign(future, private, key_id)
+            with self.assertRaisesRegex(
+                PackSignatureError, "release-sequence window"
+            ):
+                verify_approved_manifest(future, keyring)
+
+    def test_revoked_key_never_verifies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private, public, key_id = self._key(13)
+            keyring = self._write_keyring(
+                root,
+                [(key_id, public, "revoked", 1, None)],
+                state="bootstrap-required",
+            )
+            manifest = self._manifest()
+            self._sign(manifest, private, key_id)
+
+            # Structural policy validation preserves revoked key history.
+            validate_trusted_key_policy(keyring)
+            policy = json.loads(keyring.read_text(encoding="utf-8"))
+            policy["state"] = "active"
+            _, active_public, active_id = self._key(14)
+            policy["keys"][active_id] = {
+                "algorithm": "ed25519",
+                "public_key": active_public,
+                "status": "active",
+                "min_release_sequence": 1,
+                "max_release_sequence": None,
+            }
+            policy["roles"]["content-pack-release"]["key_ids"].append(active_id)
+            keyring.write_text(json.dumps(policy), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                PackSignatureError, "revoked"
+            ):
+                verify_approved_manifest(manifest, keyring)
+
+    def test_active_policy_threshold_must_be_satisfiable_by_active_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, active_public, active_id = self._key(15)
+            _, retired_public, retired_id = self._key(16)
+            keyring = self._write_keyring(
+                root,
+                [
+                    (active_id, active_public, "active", 1, None),
+                    (retired_id, retired_public, "retired", 1, 2),
+                ],
+                threshold=2,
+                state="active",
+            )
+            with self.assertRaisesRegex(
+                PackSignatureError, "active authorized key count"
+            ):
+                validate_trusted_key_policy(keyring)
+
     def test_repository_bootstrap_policy_is_structurally_valid(self):
         root = Path(__file__).resolve().parents[1]
         keys, authorized, threshold = validate_trusted_key_policy(
@@ -307,6 +399,9 @@ class PackSignatureTests(unittest.TestCase):
                             "0" * 64: {
                                 "algorithm": "ed25519",
                                 "public_key": public,
+                                "status": "active",
+                                "min_release_sequence": 1,
+                                "max_release_sequence": None,
                             }
                         },
                         "roles": {
