@@ -42,6 +42,90 @@ class SqlSchemaTests(unittest.TestCase):
         )
         connection.close()
 
+    def test_source_faithful_quran_rows_are_immutable(self):
+        connection = self.load("content_v1.sql")
+        digest = "0" * 64
+        connection.execute(
+            "INSERT INTO source_assertion VALUES (?,?,?,?,?,?)",
+            ("sa:quran", "fixture", "1", digest, "quran-text", "{}"),
+        )
+        connection.execute(
+            "INSERT INTO quran_ayah VALUES (?,?,?,?,?,?,?)",
+            (
+                "qa:001:001",
+                1,
+                1,
+                "SYNTHETIC-NOT-QURAN",
+                "synthetic",
+                "synthetic",
+                "sa:quran",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO quran_token VALUES (?,?,?,?,?)",
+            ("qt:001:001:001", "qa:001:001", 1, "SYNTHETIC", "synthetic"),
+        )
+        connection.execute(
+            "INSERT INTO quran_segment VALUES (?,?,?,?,?,?)",
+            ("qs:001:001:001:001", "qt:001:001:001", 1, "SYN", "{}", "sa:quran"),
+        )
+        for statement in (
+            "UPDATE quran_ayah SET original_text='changed' WHERE ayah_id='qa:001:001'",
+            "UPDATE quran_token SET original_text='changed' WHERE token_id='qt:001:001:001'",
+            "UPDATE quran_segment SET original_text='changed' WHERE segment_id='qs:001:001:001:001'",
+            "DELETE FROM source_assertion WHERE source_assertion_id='sa:quran'",
+        ):
+            with self.assertRaises(sqlite3.DatabaseError):
+                connection.execute(statement)
+        connection.close()
+
+    def test_source_faithful_hadith_rows_and_grades_are_immutable(self):
+        connection = self.load("content_v1.sql")
+        digest = "0" * 64
+        connection.execute(
+            "INSERT INTO source_assertion VALUES (?,?,?,?,?,?)",
+            ("sa:hadith", "fixture", "1", digest, "hadith-edition", "{}"),
+        )
+        connection.execute(
+            "INSERT INTO hadith_edition VALUES (?,?,?,?,?,?)",
+            ("ed:fixture", "fixture", "fixture edition", "1", "fixture numbering", "sa:hadith"),
+        )
+        connection.execute(
+            "INSERT INTO hadith_record VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "hr:fixture",
+                "ed:fixture",
+                "fixture-key",
+                "book",
+                "chapter",
+                "1",
+                "SYNTHETIC-NOT-HADITH",
+                "synthetic-isnad",
+                "synthetic-matn",
+                "synthetic-exact",
+                "synthetic-matn",
+                "synthetic-isnad",
+                "synthetic-orthographic",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO citation VALUES (?,?,?)",
+            ("ct:fixture", "hr:fixture", "fixture citation"),
+        )
+        connection.execute(
+            "INSERT INTO grade_assertion VALUES (?,?,?,?,?,?)",
+            ("ga:fixture", "hr:fixture", "fixture grade", "fixture grader", "fixture source", "1"),
+        )
+        for statement in (
+            "UPDATE hadith_edition SET collection_name='changed' WHERE edition_id='ed:fixture'",
+            "UPDATE hadith_record SET original_arabic='changed' WHERE hadith_record_id='hr:fixture'",
+            "UPDATE citation SET display_citation='changed' WHERE citation_id='ct:fixture'",
+            "UPDATE grade_assertion SET grade_text='changed' WHERE grade_assertion_id='ga:fixture'",
+        ):
+            with self.assertRaises(sqlite3.DatabaseError):
+                connection.execute(statement)
+        connection.close()
+
     def test_exposure_history_is_append_only(self):
         connection = self.load("user_v1.sql")
         connection.execute(
