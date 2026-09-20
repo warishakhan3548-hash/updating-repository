@@ -64,6 +64,10 @@ Map<String, SupplierPurchaseAdvice> buildSupplierPurchaseAdvice({
           !suppliers.containsKey(evidence.supplierId)) {
         continue;
       }
+      final reliableSource =
+          evidence.source == 'receive' ||
+          (evidence.source == 'ai' && evidence.batchNumber.trim().isNotEmpty);
+      if (!reliableSource) continue;
       final receivedDay = civilDay(evidence.receivedAt);
       if (receivedDay.isBefore(cutoff) || receivedDay.isAfter(day)) continue;
       final dedupe = <String>[
@@ -141,7 +145,7 @@ Map<String, SupplierPurchaseAdvice> buildSupplierPurchaseAdvice({
     if (!meaningful) continue;
 
     final cues = <String>[
-      '${best.samples} verified intake observations',
+      '${best.samples} recorded intake observations',
       'usable shelf-life median ${best.medianUsableShelfLifeDays} दिन',
       '${runner.supplier.name}: ${runner.medianUsableShelfLifeDays} दिन',
       if (best.planningLeadDays != null)

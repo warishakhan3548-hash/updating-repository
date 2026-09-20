@@ -140,6 +140,8 @@ List<StockIntakeEvidence> appendStockIntakeEvidence({
   required String source,
 }) {
   if (quantity < 1 ||
+      medicine.archived ||
+      medicine.sold ||
       medicine.supplierId.trim().isEmpty ||
       medicine.expiry == null ||
       civilDay(medicine.expiry!).isBefore(civilDay(receivedAt))) {
