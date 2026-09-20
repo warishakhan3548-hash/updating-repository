@@ -475,13 +475,19 @@ def _load_archive_into_temp(
 
         database_path = temporary_root / DATABASE_MEMBER
         try:
+            copied = 0
             with archive.open(DATABASE_MEMBER, "r") as source:
                 with database_path.open("xb") as destination:
-                    shutil.copyfileobj(
-                        source,
-                        destination,
-                        length=1024 * 1024,
-                    )
+                    while True:
+                        chunk = source.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        copied += len(chunk)
+                        if copied > MAX_DATABASE_BYTES:
+                            raise UserBackupError(
+                                "backup database exceeds size limit"
+                            )
+                        destination.write(chunk)
         except (
             OSError,
             RuntimeError,
