@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-09-20",
+  "verified_at": "2026-09-21",
   "production_rule": "Only production-approved sources may be consumed by release content builders.",
   "sources": [
     {
@@ -29,9 +29,9 @@
       "source_name": "QuranEnc Arabic Language - Meanings of Words (As-Siraj fi Bayan Gharib Al-Quran)",
       "original_url": "https://quranenc.com/en/browse/arabic_seraj",
       "version": "1.0.0",
-      "status": "awaiting-artifact",
+      "status": "awaiting-licence",
       "licence_id": "quranenc-republication-terms",
-      "redistribution_allowed": true,
+      "redistribution_allowed": null,
       "modification_allowed": false,
       "attribution_required": true,
       "vault_artifact": null,
@@ -39,7 +39,7 @@
       "provenance": null,
       "sha256": null,
       "byte_size": null,
-      "notes": "Official QuranEnc lists this verse-scoped Arabic difficult-word resource as v1.0.0 and its API/republishing policy is version-aware. The content is a promising low-friction contextual-gloss source, not a morphology or Quran-text authority. No production bytes are consumed until an exact versioned upstream response/file set plus the applicable terms are preserved under project control with hashes and provenance. QuranEnc's current republication terms also require updating to the latest source version; release approval therefore requires a source-bound latest-version review rather than treating an archived snapshot as perpetually redistributable. Whether superseded versions may remain indefinitely available in a public immutable mirror is not established by the inspected terms; that question remains a production blocker until verified permission or a legally compatible preservation design exists.",
+      "notes": "Official QuranEnc identifies arabic_seraj as v1.0.0 and permits republication only under source-specific conditions. Those terms include no content modification, attribution/version retention, transcript-information retention, and an obligation to update according to newer source versions. That ongoing-update condition is not yet proven compatible with this project's requirement to keep immutable historical snapshots publicly redistributable for long-term reproducibility. Do not capture or mirror production bytes until QuranEnc clarifies archival retention or an equivalent legally durable basis is documented. If archival permission is later cleared, the existing release_requirements still require a source-bound latest-version review before an approved pack may ship.",
       "release_requirements": {
         "latest_upstream_version_required": true,
         "version_check_url": "https://quranenc.com/api/v1/translations/list/ar/?localization=en",
