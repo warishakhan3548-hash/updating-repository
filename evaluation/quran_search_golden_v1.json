@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "golden_set_id": "quran-search-golden-v1",
+  "purpose": "Measured regression and future-lane evaluation for deterministic Quran retrieval. Source-derived queries are generated from the verified runtime pack and are never rendered as replacement Quran text.",
+  "pack": {
+    "pack_id": "quran-core",
+    "content_version": "1.1.0",
+    "search_normalization_version": "arabic-search-v1"
+  },
+  "baseline_policy": {
+    "required_categories": [
+      "exact_source",
+      "diacritic_free",
+      "partial_phrase",
+      "typo",
+      "orthographic_variant",
+      "keyboard_variant",
+      "no_answer"
+    ],
+    "minimum_recall_at_5_by_category": {
+      "exact_source": 1.0,
+      "diacritic_free": 1.0,
+      "partial_phrase": 1.0
+    },
+    "maximum_negative_false_positive_rate": 0.0
+  },
+  "cases": [
+    {
+      "id": "exact-fatiha-1-2",
+      "category": "exact_source",
+      "query_from_ayah_id": "qa:001:002",
+      "query_derivation": "source_exact",
+      "expected_ayah_ids": ["qa:001:002"]
+    },
+    {
+      "id": "exact-baqarah-2-255",
+      "category": "exact_source",
+      "query_from_ayah_id": "qa:002:255",
+      "query_derivation": "source_exact",
+      "expected_ayah_ids": ["qa:002:255"]
+    },
+    {
+      "id": "exact-ikhlas-112-1",
+      "category": "exact_source",
+      "query_from_ayah_id": "qa:112:001",
+      "query_derivation": "source_exact",
+      "expected_ayah_ids": ["qa:112:001"]
+    },
+    {
+      "id": "no-harakat-kahf-18-10",
+      "category": "diacritic_free",
+      "query_from_ayah_id": "qa:018:010",
+      "query_derivation": "diacritic_free",
+      "expected_ayah_ids": ["qa:018:010"]
+    },
+    {
+      "id": "no-harakat-nur-24-35",
+      "category": "diacritic_free",
+      "query_from_ayah_id": "qa:024:035",
+      "query_derivation": "diacritic_free",
+      "expected_ayah_ids": ["qa:024:035"]
+    },
+    {
+      "id": "no-harakat-zumar-39-53",
+      "category": "diacritic_free",
+      "query_from_ayah_id": "qa:039:053",
+      "query_derivation": "diacritic_free",
+      "expected_ayah_ids": ["qa:039:053"]
+    },
+    {
+      "id": "partial-hujurat-49-13",
+      "category": "partial_phrase",
+      "query_from_ayah_id": "qa:049:013",
+      "query_derivation": "word_slice_diacritic_free",
+      "word_slice": [0, 8],
+      "expected_ayah_ids": ["qa:049:013"]
+    },
+    {
+      "id": "partial-duha-93-3",
+      "category": "partial_phrase",
+      "query_from_ayah_id": "qa:093:003",
+      "query_derivation": "word_slice_diacritic_free",
+      "word_slice": [0, 5],
+      "expected_ayah_ids": ["qa:093:003"]
+    },
+    {
+      "id": "partial-anbiya-21-87",
+      "category": "partial_phrase",
+      "query_from_ayah_id": "qa:021:087",
+      "query_derivation": "word_slice_diacritic_free",
+      "word_slice": [0, 8],
+      "expected_ayah_ids": ["qa:021:087"]
+    },
+    {
+      "id": "typo-fatiha-alamin",
+      "category": "typo",
+      "query": "الحمد لله رب العلمين",
+      "expected_ayah_ids": ["qa:001:002"]
+    },
+    {
+      "id": "typo-ikhlas-ahad",
+      "category": "typo",
+      "query": "قل هو الله احدد",
+      "expected_ayah_ids": ["qa:112:001"]
+    },
+    {
+      "id": "orthographic-inshirah-94-5",
+      "category": "orthographic_variant",
+      "query": "فان مع العسر يسرا",
+      "expected_ayah_ids": ["qa:094:005"]
+    },
+    {
+      "id": "orthographic-duha-93-1",
+      "category": "orthographic_variant",
+      "query": "والضحى",
+      "expected_ayah_ids": ["qa:093:001"]
+    },
+    {
+      "id": "keyboard-persian-yeh-baqarah-2-255",
+      "category": "keyboard_variant",
+      "query": "الحی القیوم",
+      "expected_ayah_ids": ["qa:002:255"]
+    },
+    {
+      "id": "keyboard-heh-goal-ikhlas-112-1",
+      "category": "keyboard_variant",
+      "query": "قل ہو الله أحد",
+      "expected_ayah_ids": ["qa:112:001"]
+    },
+    {
+      "id": "negative-latin-nonsense",
+      "category": "no_answer",
+      "query": "aaris-search-no-match-zzqxx",
+      "expected_ayah_ids": []
+    },
+    {
+      "id": "negative-arabic-nonsense",
+      "category": "no_answer",
+      "query": "زززز قققق",
+      "expected_ayah_ids": []
+    }
+  ]
+}
