@@ -21,7 +21,9 @@
 - provenance SHA-256: `733a938c4f54f082bf7f4e0b1d9bff7ce21afedceeba199294e872a428a57505`
 - redistribution allowed: yes, under the archived source-specific terms;
 - modification allowed: no;
-- attribution required: yes.
+- attribution required: yes;
+- historical snapshot retention: verified allowed;
+- latest-upstream release obligation: no; upstream versions are still reviewed deliberately.
 
 The registry and executable Source Vault gate are authoritative for promotion state; this document is a human-readable summary.
 
