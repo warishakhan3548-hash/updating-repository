@@ -210,6 +210,18 @@ class PackSigningTests(unittest.TestCase):
             ):
                 verify_manifest_signature(manifest, path)
 
+    def test_trusted_key_policy_rejects_duplicate_json_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "trusted_pack_keys.json"
+            path.write_text(
+                '{"schema_version":1,"signature_threshold":1,'
+                '"signature_threshold":2,"keys":[]}',
+                encoding="utf-8",
+            )
+            manifest = self._manifest()
+            with self.assertRaisesRegex(PackSignatureError, "duplicate JSON object key"):
+                verify_manifest_signature(manifest, path)
+
     def test_threshold_is_enforced(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             manifest = self._manifest()
