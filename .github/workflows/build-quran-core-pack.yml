@@ -47,7 +47,7 @@ jobs:
             git reset --hard origin/main
             git clean -fdx -- content-packs/quran-core/1.0.2
 
-            if [[ -f content-packs/quran-core/1.0.2/manifest.json && -f content-packs/quran-core/1.0.2/content.sqlite ]]; then
+            if [[ -f content-packs/quran-core/1.0.2/manifest.json && -f content-packs/quran-core/1.0.2/content.sqlite && -f content-packs/quran-core/1.0.2/NOTICE.txt ]]; then
               echo 'Quran core pack already exists on current main; validating existing immutable pack.'
               python tools/vault_gate.py source-vault/registry.json
               python tools/pack_gate.py \
@@ -56,7 +56,7 @@ jobs:
               exit 0
             fi
 
-            if [[ -e content-packs/quran-core/1.0.2/manifest.json || -e content-packs/quran-core/1.0.2/content.sqlite ]]; then
+            if [[ -e content-packs/quran-core/1.0.2/manifest.json || -e content-packs/quran-core/1.0.2/content.sqlite || -e content-packs/quran-core/1.0.2/NOTICE.txt ]]; then
               echo 'Partial Quran core pack detected; rebuilding the derived pack from pinned inputs.'
               rm -rf content-packs/quran-core/1.0.2
             fi
