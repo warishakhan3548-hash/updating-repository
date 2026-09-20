@@ -1,0 +1,7 @@
+# Local/Termux release-signing example.
+# Copy this file to android/key.properties and replace the placeholders.
+# NEVER commit android/key.properties or any .jks/.keystore file.
+storeFile=/absolute/path/to/Aarish-upload-keystore.jks
+storePassword=CHANGE_ME
+keyAlias=upload
+keyPassword=CHANGE_ME

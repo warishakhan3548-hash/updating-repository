@@ -4,12 +4,43 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val localKeyProperties = java.util.Properties()
+val localKeyPropertiesFile = rootProject.file("key.properties")
+if (localKeyPropertiesFile.exists()) {
+    localKeyPropertiesFile.inputStream().use(localKeyProperties::load)
+}
+
+fun signingValue(envName: String, propertyName: String): String? =
+    System.getenv(envName)?.trim()?.takeIf { it.isNotEmpty() }
+        ?: localKeyProperties.getProperty(propertyName)?.trim()?.takeIf { it.isNotEmpty() }
+
+val releaseStoreFilePath = signingValue("CM_KEYSTORE_PATH", "storeFile")
+val releaseStorePassword = signingValue("CM_KEYSTORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("CM_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("CM_KEY_PASSWORD", "keyPassword")
+val releaseSigningReady = listOf(
+    releaseStoreFilePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
+
+// Debug builds must remain easy to run locally and in GitHub CI, but a release
+// artifact must never silently fall back to Android's debug signing identity.
+val releaseTaskRequested = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true)
+}
+if (releaseTaskRequested && !releaseSigningReady) {
+    throw org.gradle.api.GradleException(
+        "Permanent release signing credentials are missing. " +
+            "Use Codemagic android_signing (CM_KEYSTORE_*) or an ignored android/key.properties file.",
+    )
+}
+
 android {
     namespace = "com.aaris.pharmacy"
 
     // Keep the compile SDK aligned with the Flutter SDK used by CI/build services.
-    // Hard-coding API 37 caused Codemagic to request android-37 and then fail to
-    // resolve that target. Flutter 3.47.x currently validates against API 36.
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -30,10 +61,25 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            if (releaseSigningReady) {
+                val configuredStore = java.io.File(releaseStoreFilePath!!)
+                storeFile = if (configuredStore.isAbsolute) {
+                    configuredStore
+                } else {
+                    rootProject.file(releaseStoreFilePath)
+                }
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Development distribution only. Configure an owner release key before store publication.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

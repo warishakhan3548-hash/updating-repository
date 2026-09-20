@@ -1,0 +1,112 @@
+workflows:
+  aaris-pharmacy-release:
+    name: Aaris Pharmacy permanent release
+    max_build_duration: 60
+    environment:
+      flutter: 3.47.2
+      java: 17
+      android_signing:
+        - aaris_permanent
+      vars:
+        PACKAGE_NAME: "com.aaris.pharmacy"
+        EXPECTED_KEY_ALIAS: "upload"
+        EXPECTED_SIGNING_SHA256: "330D1611849C7C9B1F9F592C458932F25AE6F3ABA1BC7E8ABFBC9E6868EF004F"
+        RELEASE_BUILD_OFFSET: "1000"
+    scripts:
+      - name: Resolve pinned dependencies
+        script: |
+          set -euo pipefail
+          flutter pub get
+
+      - name: Verify permanent signing identity
+        script: |
+          set -euo pipefail
+          : "${CM_KEYSTORE_PATH:?Codemagic keystore reference aaris_permanent is not configured}"
+          : "${CM_KEYSTORE_PASSWORD:?Missing keystore password}"
+          : "${CM_KEY_ALIAS:?Missing key alias}"
+          : "${CM_KEY_PASSWORD:?Missing key password}"
+          test -s "$CM_KEYSTORE_PATH"
+
+          if [ "$CM_KEY_ALIAS" != "$EXPECTED_KEY_ALIAS" ]; then
+            echo "Unexpected signing alias: $CM_KEY_ALIAS"
+            exit 1
+          fi
+
+          ACTUAL_SHA256="$(
+            keytool -exportcert               -alias "$CM_KEY_ALIAS"               -keystore "$CM_KEYSTORE_PATH"               -storepass "$CM_KEYSTORE_PASSWORD"               -rfc |
+            openssl x509 -noout -fingerprint -sha256 |
+            sed 's/^.*=//' |
+            tr -d ':' |
+            tr '[:lower:]' '[:upper:]'
+          )"
+
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SIGNING_SHA256" ]; then
+            echo "Signing certificate mismatch. Refusing to build a production artifact."
+            echo "Expected: $EXPECTED_SIGNING_SHA256"
+            echo "Actual:   $ACTUAL_SHA256"
+            exit 1
+          fi
+
+          echo "Permanent signing identity verified."
+
+      - name: Static safety gate
+        script: |
+          set -euo pipefail
+          dart analyze lib test tool third_party/lib_llama_cpp/lib
+
+      - name: Full pharmacy regression gate
+        script: |
+          set -euo pipefail
+          flutter test --reporter expanded
+
+      - name: Build signed APK and AAB
+        script: |
+          set -euo pipefail
+          RELEASE_BUILD_NUMBER=$((PROJECT_BUILD_NUMBER + RELEASE_BUILD_OFFSET))
+          echo "Aaris Pharmacy versionCode: $RELEASE_BUILD_NUMBER"
+
+          flutter build apk --release --no-pub             --build-number="$RELEASE_BUILD_NUMBER"
+
+          flutter build appbundle --release --no-pub             --build-number="$RELEASE_BUILD_NUMBER"
+
+          printf '%s\n'             "package=$PACKAGE_NAME"             "commit=$CM_COMMIT"             "version_code=$RELEASE_BUILD_NUMBER"             "signing_alias=$CM_KEY_ALIAS"             "signing_sha256=$EXPECTED_SIGNING_SHA256"             > build/release-metadata.txt
+
+      - name: Verify signed APK certificate
+        script: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+
+          APKSIGNER="$(
+            find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner |
+            sort -V |
+            tail -n 1
+          )"
+          test -n "$APKSIGNER"
+
+          "$APKSIGNER" verify --verbose --print-certs "$APK" |
+            tee build/apk-signing-verification.txt
+
+          APK_SHA256="$(
+            "$APKSIGNER" verify --print-certs "$APK" |
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
+            head -n 1 |
+            tr -d ':' |
+            tr '[:lower:]' '[:upper:]'
+          )"
+
+          if [ "$APK_SHA256" != "$EXPECTED_SIGNING_SHA256" ]; then
+            echo "Built APK certificate mismatch."
+            exit 1
+          fi
+
+          sha256sum "$APK" > build/app-release.sha256
+          sha256sum build/app/outputs/bundle/release/app-release.aab > build/app-release-aab.sha256
+
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
+      - build/app/outputs/bundle/release/app-release.aab
+      - build/app-release.sha256
+      - build/app-release-aab.sha256
+      - build/apk-signing-verification.txt
+      - build/release-metadata.txt
