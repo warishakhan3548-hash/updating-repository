@@ -17,14 +17,15 @@ if __package__ in (None, ""):
 from tools.quran_core import (
     SEARCH_NORMALIZATION_VERSION,
     SOURCE_ID,
+    extract_tanzil_notice,
     load_production_source,
     normalize_search_diacritic_free,
     normalize_search_unicode,
 )
 
 PACK_ID = "quran-core"
-CONTENT_VERSION = "1.0.0"
-IMPORTER_VERSION = "quran-core-importer-1"
+CONTENT_VERSION = "1.0.1"
+IMPORTER_VERSION = "quran-core-importer-2"
 SOURCE_ASSERTION_ID = "sa:quran.tanzil.uthmani.v1.1"
 
 
@@ -61,6 +62,17 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     source, artifact, rows = load_production_source(root)
+    source_notice = extract_tanzil_notice(artifact)
+    source_notice_sha256 = hashlib.sha256(source_notice.encode("utf-8")).hexdigest()
+    provenance_path = root / source["provenance"]
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    source_attribution = provenance.get("attribution")
+    source_url = provenance.get("original_url")
+    if not isinstance(source_attribution, str) or not source_attribution:
+        raise QuranPackError("source provenance is missing runtime attribution")
+    if source_url != source.get("original_url"):
+        raise QuranPackError("source provenance URL does not match Source Vault registry")
+
     schema = (root / "schemas" / "content_v1.sql").read_text(encoding="utf-8")
 
     connection = sqlite3.connect(db_path)
@@ -75,6 +87,9 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
                 "vault_artifact": source["vault_artifact"],
                 "licence_snapshot": source["licence_snapshot"],
                 "provenance": source["provenance"],
+                "source_url": source_url,
+                "source_attribution": source_attribution,
+                "source_notice_sha256": source_notice_sha256,
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -104,6 +119,11 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
             "source_id": SOURCE_ID,
             "source_version": source["version"],
             "source_sha256": source["sha256"],
+            "source_name": source["source_name"],
+            "source_url": source_url,
+            "source_attribution": source_attribution,
+            "source_notice": source_notice,
+            "source_notice_sha256": source_notice_sha256,
             "importer_version": IMPORTER_VERSION,
             "search_normalization_version": SEARCH_NORMALIZATION_VERSION,
             "quran_coordinate_count": str(len(rows)),
@@ -147,6 +167,11 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
         ).fetchone()[0]
         if source_rows != 1:
             raise QuranPackError("expected exactly one Quran source assertion")
+        stored_notice = connection.execute(
+            "SELECT value FROM pack_metadata WHERE key = 'source_notice'"
+        ).fetchone()
+        if stored_notice is None or stored_notice[0] != source_notice:
+            raise QuranPackError("runtime pack did not preserve the source notice")
     finally:
         connection.close()
 
@@ -161,6 +186,9 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
         "source_version": source["version"],
         "source_vault_path": source["vault_artifact"],
         "source_sha256": source["sha256"],
+        "source_url": source_url,
+        "source_attribution": source_attribution,
+        "source_notice_sha256": source_notice_sha256,
         "licence": source["licence_id"],
         "edition": "Uthmani",
         "importer_version": IMPORTER_VERSION,
@@ -192,7 +220,7 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("content-packs/quran-core/1.0.0"),
+        default=Path("content-packs/quran-core/1.0.1"),
         help="pack directory, relative to repository root",
     )
     args = parser.parse_args()
