@@ -15,6 +15,7 @@ on:
       - 'tools/build_quran_core.py'
       - 'tools/pack_gate.py'
       - 'tools/verify_quran_core_pack.py'
+      - 'tests/**'
       - 'tools/pack_signing.py'
       - 'policy/trusted_pack_keys.json'
       - 'requirements-foundation.txt'
