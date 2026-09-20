@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tools.pack_signatures import (
+    SIGNATURE_PAYLOAD_DOMAIN,
     PackSignatureError,
     canonical_manifest_payload,
     key_id_for_ed25519_public_key,
@@ -155,6 +156,15 @@ class PackSignatureTests(unittest.TestCase):
                 PackSignatureError, "invalid Ed25519"
             ):
                 verify_approved_manifest(manifest, keyring)
+
+    def test_signed_payload_has_fixed_application_domain(self):
+        payload = canonical_manifest_payload(self._manifest())
+        self.assertTrue(payload.startswith(SIGNATURE_PAYLOAD_DOMAIN))
+        self.assertEqual(1, payload.count(SIGNATURE_PAYLOAD_DOMAIN))
+        self.assertEqual(
+            b"AARIS-CONTENT-PACK-SIGNATURE-V1\\n",
+            SIGNATURE_PAYLOAD_DOMAIN,
+        )
 
     def test_signature_block_is_not_part_of_signed_payload(self):
         manifest = self._manifest()

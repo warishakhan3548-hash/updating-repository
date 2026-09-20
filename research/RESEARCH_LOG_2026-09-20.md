@@ -84,3 +84,11 @@ The research now converges on four durable choices: immutable source/display dat
 | fact | Android's `java.security.Signature` API lists Ed25519 support at API 33+, while SHA256withECDSA is available at API 11+. | https://developer.android.com/reference/java/security/Signature | high | Current Python Ed25519 verification is valid for build-time approval, but a future on-device updater for this minSdk-24 app must not assume platform Ed25519 exists on every supported device. |
 | fact | TUF explicitly treats rollback as presenting an older version than a client has already seen, and its signed metadata uses version/freshness information so clients can reject obsolete state. | https://theupdateframework.io/docs/security/ and https://theupdateframework.io/docs/metadata/ | high | Keep rollback ordering authenticated, but implement persisted client state before enabling automatic downloaded-pack activation. |
 | inference | A signed monotonic integer is a safer internal rollback-ordering primitive than parsing content-version strings because ordering semantics stay explicit and independent of naming conventions. | update threat-model synthesis | high | Require positive `release_sequence` on every approved manifest and sign it with the rest of the manifest. |
+
+
+## Signature-domain refinement
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | RFC 8032 discusses cryptographic contexts as a way to separate signature uses between protocols and recommends a constant protocol-defined context where that mode is used; pure Ed25519 itself has no context input. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Keep widely supported pure Ed25519, but prepend a fixed project-owned byte domain to the manifest message before signing/verifying so release signatures cannot be interpreted as raw signatures over an unrelated protocol payload. |
+| decision | No production release key or approved signed pack exists yet, so defining the v1 application-domain prefix now does not invalidate any production trust history. | repository audit | high | Freeze the prefix before the offline key-bootstrap/signing ceremony and cover it with regression tests. |
