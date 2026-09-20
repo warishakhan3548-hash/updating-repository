@@ -44,7 +44,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 - Quranic Arabic Corpus v0.4: `awaiting-licence` because official materials create a commercial-use/terms ambiguity.
 - HadeethEnc: research candidate pending exact version, edition/collection mapping, numbering provenance and preserved artifact.
-- QUL resources: each resource requires its own licence/provenance review.
+- QUL resources: official morphology downloads expose word-location keyed lemma/root/stem data, but QUL's FAQ explicitly requires checking dataset-specific licensing for commercial use and the inspected morphology pages do not expose a dataset licence; no bytes are mirrored.
 - Quran Foundation API: not accepted as the permanent mirrored evidence foundation under current developer terms.
 
 ## Quran core candidate pack
