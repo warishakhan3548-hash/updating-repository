@@ -35,6 +35,8 @@ A `production-approved` source must set `commercial_use_allowed: true`. Unknown 
 
 ## Archival-retention gate
 
+Historical retention is a universal capture/preservation decision, not an exception reserved for sources with a “stay current” clause. Every source in `awaiting-artifact`, every source with preserved snapshot metadata, and every `production-approved` source must explicitly declare `historical_snapshot_retention_status: verified-allowed`. An unmirrored `research-candidate` may remain metadata-only while this question is still being investigated.
+
 A source-specific term that requires republishers to remain on the latest upstream version is **not automatically compatible** with a public immutable historical Source Vault. If the project must retain old snapshots for reproducibility but the licence does not clearly permit continued archival redistribution of those older versions, keep the source `awaiting-licence` until written clarification, a compatible archival grant, or a replacement source resolves the conflict. Acquisition tooling must fail closed before network download when the registry has not cleared the source for capture. The executable Source Vault gate also rejects preserved snapshot fields on `awaiting-licence` entries and rejects `unresolved` historical-retention requirements under any less restrictive status, so repository metadata and captured bytes cannot drift away from this policy.
 
 If archival retention is explicitly verified **not allowed**, the source must be `rejected` for public Source Vault preservation and must remain metadata-only. This is distinct from `unresolved`: unresolved rights may later be clarified, while a verified denial is an explicit stop condition unless the legal basis changes and is re-reviewed.
