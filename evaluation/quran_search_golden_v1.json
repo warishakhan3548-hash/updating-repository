@@ -153,10 +153,11 @@
       ]
     },
     {
-      "id": "keyboard-persian-yeh-baqarah-2-255",
+      "id": "keyboard-persian-yeh-hayy-qayyum",
       "category": "keyboard_variant",
       "query": "الحی القیوم",
       "expected_ayah_ids": [
+        "qa:003:002",
         "qa:002:255"
       ]
     },
