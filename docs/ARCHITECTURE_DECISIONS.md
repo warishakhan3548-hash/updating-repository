@@ -124,10 +124,11 @@ A labelled retrieval benchmark is part of the product's reproducibility record. 
 
 This keeps benchmark history auditable across search-engine evolution and prevents a newer engine from appearing to have passed an older benchmark whose labels or thresholds were retrospectively changed.
 
-## ADR-024 — Unresolved archival rights block capture, not only release
+## ADR-024 — Archival retention is a universal source-admission gate
 
-A source whose republication terms require downstream copies to stay current may still be legally ambiguous for an immutable public Source Vault. When `historical_snapshot_retention_status` is `unresolved`, the source registry must use `awaiting-licence`; it may not be softened to `research-candidate` or `awaiting-artifact` merely because current-version republication is otherwise allowed.
+Permission to redistribute a dataset today does not by itself prove that the project may keep every superseded version publicly mirrored forever. Historical-snapshot retention is therefore an explicit Source Vault admission decision for every source that is ready for acquisition or preservation, not only for sources whose terms include a “stay current” clause.
 
-`awaiting-licence` is also a **no-bytes** state in project-controlled public storage. The central Source Vault gate rejects any preserved snapshot metadata under that status. This makes the legal boundary independent of source-specific download scripts and prevents a future acquisition path from accidentally publishing bytes before archival rights are established.
+A source may be `awaiting-artifact`, contain preserved snapshot metadata, or be `production-approved` only when `historical_snapshot_retention_status` is `verified-allowed`. `awaiting-licence` is metadata-only and cannot contain preserved bytes. The runtime pack gate independently checks the same archival clearance for production sources.
 
-Once archival retention is explicitly `verified-allowed`, the source may advance to artifact acquisition/review. Any separate ongoing obligation to ship only the latest upstream version remains enforced later by the signed source-release review. Commercial-use permission remains a separate gate under ADR-022. Current-version permission, historical archival permission, commercial-use permission, evidence quality and release freshness are therefore distinct decisions.
+`latest_upstream_version_required` remains a separate boolean release obligation. If true, an approved pack additionally needs a source-bound signed freshness review; if false, no such review is invented. These mutable release decisions live in the registry/manifest policy layer rather than being retroactively copied into immutable acquisition provenance. This keeps preserved bytes reproducible while allowing later legal or release-policy review to fail closed without rewriting history.
+
