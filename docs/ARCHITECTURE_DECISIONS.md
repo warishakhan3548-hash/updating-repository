@@ -151,3 +151,12 @@ The v1 numerical thresholds are experimental policy parameters, not permanent us
 
 This policy does not create word identities. Until a provenance-backed word/gloss or morphology source clears the Source Vault and alignment gates, Quran word-level rescue remains dormant and the reader UI stays unchanged.
 
+
+
+## ADR-027 — Review context rotation is separate from review scheduling
+
+Choosing *where* a review happens is a separate responsibility from deciding *whether* a semantic unit needs review. `rare-word-rescue-v1` and the scheduler retain ownership of enrollment/due-state; `context-rotation-v1` only chooses among already-verified semantic-unit/context bindings.
+
+Early review may prefer a familiar verified Quran context. After the experimental familiar phase, the selector rotates deterministically toward least-used and least-recent verified contexts so the learner is not permanently trained against one memorized sentence. Numerical phase thresholds are versioned product hypotheses and may change after measured evaluation without rewriting learning history.
+
+Hadith contexts are disabled by default and require explicit caller opt-in plus a verified semantic binding to a trusted Hadith record. Unverified bindings and contexts for a different semantic unit are ineligible. Context selection does not create lexical identity, mutate Evidence Plane records, or itself count as successful recall.
