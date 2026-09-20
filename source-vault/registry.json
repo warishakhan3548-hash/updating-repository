@@ -42,6 +42,24 @@
       "notes": "Licence ambiguity requires resolution before promotion: the official download page presents GNU GPL/verbatim-copy terms, while the official FAQ also describes the data as research/non-commercial. Treat as non-production until the project obtains clarification or a clearly compatible authoritative licence basis."
     },
     {
+      "source_id": "morphology.quranmorph.2025",
+      "category": "morphology",
+      "source_name": "QuranMorph",
+      "original_url": "https://sina.birzeit.edu/quran/",
+      "version": "2025-publication-unpinned",
+      "status": "awaiting-artifact",
+      "licence_id": "CC-BY-4.0",
+      "redistribution_allowed": true,
+      "modification_allowed": true,
+      "attribution_required": true,
+      "vault_artifact": null,
+      "licence_snapshot": null,
+      "provenance": null,
+      "sha256": null,
+      "byte_size": null,
+      "notes": "Official SinaLab resource catalogue labels the Quran morphology dataset CC-BY-4.0, and the 2025 authors describe 77,429 word-level tokens with lemma/POS annotations and chapter:verse:word coordinates. The official download form currently grants the free edition only to users affiliated with a recognized company, university, or institution using a professional official email. No exact artifact was acquired or mirrored in this project. The paper reports 6,235 verses while the current Tanzil Evidence Plane has 6,236 ayah coordinates, so exact-byte coordinate coverage and alignment must be verified before any production promotion or word-tap integration."
+    },
+    {
       "source_id": "hadith.hadeethenc.ar.current",
       "category": "hadith",
       "source_name": "HadeethEnc",
