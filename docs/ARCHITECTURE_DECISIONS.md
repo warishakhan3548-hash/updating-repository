@@ -140,3 +140,12 @@ A source may be `awaiting-artifact`, contain preserved snapshot metadata, or be 
 
 `latest_upstream_version_required` is a separate boolean. It controls whether an approved pack needs a source-bound signed freshness review; it does not grant archival rights. Mutable release requirements remain outside immutable acquisition provenance so later policy review does not rewrite preserved source history.
 
+
+
+## ADR-026 — Rare-word rescue is a scheduler-neutral policy over trusted semantic units
+
+Rare-word rescue operates only after a trusted semantic unit exists and only after the user's event history shows personal struggle. Corpus rarity or exposure scarcity alone must never create a learning obligation. The first policy version ranks eligible units with the transparent product heuristic `forgetting risk × exposure scarcity × personal relevance`, while due/not-due ownership remains with a replaceable scheduler adapter.
+
+When a due weak unit is predicted to appear naturally in the user's reading path within the configured window, the policy may prefer that verified Quran encounter instead of creating a duplicate explicit drill. Merely displaying the encounter is not successful recall and must not create a positive review event. Explicit review outcomes remain the durable memory evidence.
+
+Context selection is deterministic and evidence-gated: familiar verified Quran context is preferred early, then selection rotates toward least-used/least-recent verified contexts. Hadith contexts are opt-in and remain unavailable until a verified Hadith record exists. This policy never manufactures TokenID/LexemeID/SenseID, never mutates Evidence Plane data, and remains dormant in the reader until a production-approved word/gloss source can resolve trusted semantic units.
