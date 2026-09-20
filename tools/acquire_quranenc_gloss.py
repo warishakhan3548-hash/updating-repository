@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """One-shot, fail-closed capture of QuranEnc arabic_seraj v1.0.0.
 
-This tool is acquisition infrastructure only. It preserves upstream bytes exactly
-and records provenance. It does not promote the source, build a runtime pack, or
-modify Quran text.
+The official bulk CSV endpoint is not reliably available to cloud CI. QuranEnc
+also documents a Surah API, so this acquisition tool preserves the exact 114
+Surah response bodies plus the official index/source/terms pages.
+
+This is acquisition infrastructure only. It does not promote the source, build a
+runtime pack, create lexical identities, or modify Quran text.
 """
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
-import io
 import json
 import os
 import re
@@ -34,12 +35,17 @@ SOURCE_NAME = (
 )
 TRANSLATION_KEY = "arabic_seraj"
 EXPECTED_VERSION = "1.0.0"
+EXPECTED_AYAH_COUNT = 6236
 RESOURCE_TITLE = "Arabic Language - Meanings of Words"
 RESOURCE_BOOK = "As-Siraj fi Bayan Gharib Al-Quran"
 SOURCE_INDEX_URL = "https://quranenc.com/en/home"
 SOURCE_PAGE_URL = "https://quranenc.com/en/browse/arabic_seraj"
-CSV_URL = "https://quranenc.com/en/home/download/csv/arabic_seraj"
 TERMS_URL = "https://quranenc.com/en/home/about/terms-and-conditions"
+SURA_URL_TEMPLATE = (
+    "https://quranenc.com/api/v1/translation/sura/"
+    + TRANSLATION_KEY
+    + "/{sura}"
+)
 LICENCE_ID = "quranenc-republication-terms"
 DEFAULT_OUTPUT = Path(
     "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0"
@@ -80,6 +86,15 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _canonical_json_bytes(value: object) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True).encode(
+            "utf-8"
+        )
+        + b"\n"
+    )
+
+
 def _require_quranenc_https(url: str, label: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS:
@@ -100,7 +115,7 @@ def fetch_https(url: str) -> Download:
     retryable_statuses = {429, 500, 502, 503, 504}
     for attempt in range(1, 5):
         try:
-            with urlopen(request, timeout=45) as response:  # nosec B310: host is allow-listed
+            with urlopen(request, timeout=45) as response:  # nosec B310: allow-listed host
                 final_url = response.geturl()
                 _require_quranenc_https(final_url, "final URL")
                 status = int(getattr(response, "status", response.getcode()))
@@ -178,42 +193,56 @@ def validate_source_index(raw: bytes) -> dict:
     }
 
 
-def validate_csv_envelope(raw: bytes) -> None:
-    stripped = raw.lstrip().lower()
-    if stripped.startswith((b"<html", b"<!doctype html")):
-        raise CaptureError("CSV endpoint returned HTML instead of CSV")
+def _walk_objects(value: object):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_objects(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_objects(child)
 
+
+def validate_sura_response(raw: bytes, expected_sura: int) -> list[int]:
     try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise CaptureError("CSV is not UTF-8/UTF-8-BOM") from exc
+        payload = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CaptureError(
+            f"Surah {expected_sura}: response is not valid UTF-8 JSON"
+        ) from exc
 
-    sample = text[:16384]
-    try:
-        dialect = csv.Sniffer().sniff(sample)
-    except csv.Error as exc:
-        raise CaptureError("CSV delimiter could not be identified") from exc
+    rows = [
+        item
+        for item in _walk_objects(payload)
+        if {"sura", "aya", "translation"}.issubset(item)
+    ]
+    if not rows:
+        raise CaptureError(f"Surah {expected_sura}: no ayah translation rows found")
 
-    rows = csv.reader(io.StringIO(text), dialect)
-    try:
-        header = next(rows)
-    except StopIteration as exc:
-        raise CaptureError("CSV has no rows") from exc
-
-    if len(header) < 3:
-        raise CaptureError("CSV header has fewer than three columns")
-
-    # Acquisition is intentionally less opinionated than promotion. We only
-    # reject obvious wrong/empty artifacts here; exact schema and coordinate
-    # mapping are audited after the immutable bytes are captured.
-    observed = 0
+    ayahs: list[int] = []
     for row in rows:
-        if row:
-            observed += 1
-        if observed >= 100:
-            break
-    if observed < 100:
-        raise CaptureError("CSV has too few data rows to be the Quran resource")
+        try:
+            sura = int(row["sura"])
+            aya = int(row["aya"])
+        except (TypeError, ValueError) as exc:
+            raise CaptureError(
+                f"Surah {expected_sura}: non-numeric coordinate"
+            ) from exc
+        if sura != expected_sura or aya < 1:
+            raise CaptureError(
+                f"Surah {expected_sura}: unexpected coordinate {sura}:{aya}"
+            )
+        if not isinstance(row.get("translation"), str):
+            raise CaptureError(
+                f"Surah {expected_sura}:{aya}: translation is not text"
+            )
+        ayahs.append(aya)
+
+    if len(ayahs) != len(set(ayahs)):
+        raise CaptureError(f"Surah {expected_sura}: duplicate ayah rows")
+    if sorted(ayahs) != list(range(1, max(ayahs) + 1)):
+        raise CaptureError(f"Surah {expected_sura}: non-contiguous ayah sequence")
+    return sorted(ayahs)
 
 
 def _download_record(download: Download, relative_path: str) -> dict:
@@ -246,13 +275,21 @@ def _safe_capture_member(root: Path, raw: object) -> Path:
     return path
 
 
-def _canonical_json_bytes(value: object) -> bytes:
-    return (
-        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True).encode(
-            "utf-8"
-        )
-        + b"\n"
-    )
+def _build_snapshot_manifest(
+    sura_records: list[dict],
+    metadata_record: dict,
+) -> dict:
+    return {
+        "schema_version": 1,
+        "snapshot_type": "quranenc-sura-api-response-set",
+        "source_id": SOURCE_ID,
+        "translation_key": TRANSLATION_KEY,
+        "version": EXPECTED_VERSION,
+        "record_count": EXPECTED_AYAH_COUNT,
+        "sura_count": 114,
+        "upstream_metadata": metadata_record,
+        "suras": sura_records,
+    }
 
 
 def capture(
@@ -276,32 +313,55 @@ def capture(
     try:
         source_index = fetcher(SOURCE_INDEX_URL)
         metadata_record = validate_source_index(source_index.body)
-
-        csv_download = fetcher(CSV_URL)
-        validate_csv_envelope(csv_download.body)
-
         terms = fetcher(TERMS_URL)
         source_page = fetcher(SOURCE_PAGE_URL)
 
-        files: list[tuple[str, Download]] = [
-            ("raw/arabic_seraj.csv", csv_download),
+        external_files: list[tuple[str, Download]] = [
             ("SOURCE_INDEX.html", source_index),
             ("LICENSE_SOURCE.html", terms),
             ("SOURCE_PAGE.html", source_page),
         ]
+        sura_records: list[dict] = []
+        total_ayahs = 0
 
-        for relative, download in files:
+        for sura in range(1, 115):
+            url = SURA_URL_TEMPLATE.format(sura=sura)
+            download = fetcher(url)
+            ayahs = validate_sura_response(download.body, sura)
+            total_ayahs += len(ayahs)
+            relative = f"raw/suras/{sura:03d}.json"
+            external_files.append((relative, download))
+            record = _download_record(download, relative)
+            record["sura"] = sura
+            record["ayah_count"] = len(ayahs)
+            record["first_ayah"] = ayahs[0]
+            record["last_ayah"] = ayahs[-1]
+            sura_records.append(record)
+
+        if total_ayahs != EXPECTED_AYAH_COUNT:
+            raise CaptureError(
+                "QuranEnc API coordinate count mismatch: "
+                f"expected {EXPECTED_AYAH_COUNT}, got {total_ayahs}"
+            )
+
+        for relative, download in external_files:
             destination = stage / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(download.body)
 
+        snapshot_manifest = _build_snapshot_manifest(
+            sura_records=sura_records,
+            metadata_record=metadata_record,
+        )
+        snapshot_bytes = _canonical_json_bytes(snapshot_manifest)
+        (stage / "raw" / "api-snapshot-manifest.json").write_bytes(snapshot_bytes)
+
         timestamp = retrieved_at or datetime.now(timezone.utc).replace(
             microsecond=0
         ).isoformat().replace("+00:00", "Z")
-
-        primary_rel = (
+        snapshot_rel = (
             "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/"
-            "raw/arabic_seraj.csv"
+            "raw/api-snapshot-manifest.json"
         )
         licence_rel = (
             "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/"
@@ -315,25 +375,29 @@ def capture(
             "original_url": SOURCE_PAGE_URL,
             "version": EXPECTED_VERSION,
             "retrieved_at": timestamp,
-            "sha256": sha256_bytes(csv_download.body),
-            "byte_size": len(csv_download.body),
             "licence_id": LICENCE_ID,
             "redistribution_allowed": True,
             "modification_allowed": False,
             "attribution_required": True,
             "licence_snapshot": licence_rel,
-            "project_mirror": primary_rel,
             "translation_key": TRANSLATION_KEY,
+            "snapshot_type": "quranenc-sura-api-response-set",
+            "snapshot_manifest": snapshot_rel,
+            "snapshot_manifest_sha256": sha256_bytes(snapshot_bytes),
+            "snapshot_manifest_byte_size": len(snapshot_bytes),
+            "record_count": total_ayahs,
+            "sura_count": 114,
             "upstream_metadata": metadata_record,
             "capture_files": [
                 _download_record(download, relative)
-                for relative, download in files
+                for relative, download in external_files
             ],
             "promotion_status": "captured-unreviewed",
             "promotion_note": (
-                "Exact upstream bytes are preserved. Production promotion "
-                "requires independent licence-scope, CSV schema, coordinate, "
-                "content, and freshness review."
+                "Exact upstream Surah API response bytes are preserved. "
+                "Production promotion requires a multi-file Source Vault gate, "
+                "independent licence/freshness review, and exact coordinate/"
+                "content alignment against the trusted Quran Evidence Plane."
             ),
         }
         provenance_bytes = _canonical_json_bytes(provenance)
@@ -341,10 +405,16 @@ def capture(
 
         checksum_entries = [
             (relative, sha256_bytes(download.body))
-            for relative, download in files
+            for relative, download in external_files
         ]
-        checksum_entries.append(
-            ("provenance.json", sha256_bytes(provenance_bytes))
+        checksum_entries.extend(
+            [
+                (
+                    "raw/api-snapshot-manifest.json",
+                    sha256_bytes(snapshot_bytes),
+                ),
+                ("provenance.json", sha256_bytes(provenance_bytes)),
+            ]
         )
         checksums = "".join(
             f"{digest}  {relative}\n"
@@ -381,6 +451,9 @@ def validate_existing(output: Path) -> dict:
         "modification_allowed": False,
         "attribution_required": True,
         "translation_key": TRANSLATION_KEY,
+        "snapshot_type": "quranenc-sura-api-response-set",
+        "record_count": EXPECTED_AYAH_COUNT,
+        "sura_count": 114,
         "promotion_status": "captured-unreviewed",
     }
     mismatched = [
@@ -391,32 +464,26 @@ def validate_existing(output: Path) -> dict:
             "captured provenance metadata mismatch: " + ", ".join(mismatched)
         )
 
-    csv_path = output / "raw" / "arabic_seraj.csv"
     source_index_path = output / "SOURCE_INDEX.html"
     terms_path = output / "LICENSE_SOURCE.html"
     source_page_path = output / "SOURCE_PAGE.html"
-
-    for path in (csv_path, source_index_path, terms_path, source_page_path):
+    for path in (source_index_path, terms_path, source_page_path):
         if not path.is_file() or path.stat().st_size < 1:
             raise CaptureError(f"captured evidence file is missing/empty: {path.name}")
 
-    csv_bytes = csv_path.read_bytes()
-    validate_csv_envelope(csv_bytes)
     metadata_record = validate_source_index(source_index_path.read_bytes())
-
     if provenance.get("upstream_metadata") != metadata_record:
         raise CaptureError("source-index metadata does not match provenance")
-    if provenance.get("sha256") != sha256_bytes(csv_bytes):
-        raise CaptureError("primary CSV SHA-256 does not match provenance")
-    if provenance.get("byte_size") != len(csv_bytes):
-        raise CaptureError("primary CSV byte size does not match provenance")
 
     records = provenance.get("capture_files")
-    if not isinstance(records, list) or len(records) != 4:
-        raise CaptureError("provenance capture_files must contain four records")
+    if not isinstance(records, list) or len(records) != 117:
+        raise CaptureError("provenance capture_files must contain 117 upstream responses")
 
     seen: set[str] = set()
     checksum_entries: list[tuple[str, str]] = []
+    sura_manifest_records: list[dict] = []
+    total_ayahs = 0
+
     for record in records:
         if not isinstance(record, dict):
             raise CaptureError("capture_files entry is not an object")
@@ -436,6 +503,41 @@ def validate_existing(output: Path) -> dict:
         _require_quranenc_https(record.get("requested_url", ""), "requested URL")
         _require_quranenc_https(record.get("final_url", ""), "final URL")
         checksum_entries.append((str(relative), digest))
+
+        if isinstance(relative, str) and relative.startswith("raw/suras/"):
+            sura = record.get("sura")
+            if not isinstance(sura, int) or sura not in range(1, 115):
+                raise CaptureError(f"{relative}: invalid Surah metadata")
+            ayahs = validate_sura_response(body, sura)
+            if record.get("ayah_count") != len(ayahs):
+                raise CaptureError(f"{relative}: ayah count mismatch")
+            total_ayahs += len(ayahs)
+            sura_manifest_records.append(record)
+
+    if len(sura_manifest_records) != 114:
+        raise CaptureError("capture does not contain exactly 114 Surah responses")
+    if total_ayahs != EXPECTED_AYAH_COUNT:
+        raise CaptureError(
+            f"captured ayah total mismatch: {total_ayahs}"
+        )
+
+    snapshot_path = output / "raw" / "api-snapshot-manifest.json"
+    snapshot_bytes = snapshot_path.read_bytes()
+    snapshot = json.loads(snapshot_bytes.decode("utf-8"))
+    expected_snapshot = _build_snapshot_manifest(
+        sura_records=sorted(sura_manifest_records, key=lambda item: item["sura"]),
+        metadata_record=metadata_record,
+    )
+    if snapshot != expected_snapshot:
+        raise CaptureError("API snapshot manifest does not match captured responses")
+    if snapshot_bytes != _canonical_json_bytes(snapshot):
+        raise CaptureError("API snapshot manifest is not canonical project JSON")
+    snapshot_hash = sha256_bytes(snapshot_bytes)
+    if provenance.get("snapshot_manifest_sha256") != snapshot_hash:
+        raise CaptureError("snapshot manifest SHA-256 does not match provenance")
+    if provenance.get("snapshot_manifest_byte_size") != len(snapshot_bytes):
+        raise CaptureError("snapshot manifest byte size does not match provenance")
+    checksum_entries.append(("raw/api-snapshot-manifest.json", snapshot_hash))
 
     provenance_bytes = provenance_path.read_bytes()
     if provenance_bytes != _canonical_json_bytes(provenance):
@@ -476,14 +578,16 @@ def main() -> int:
             if args.validate_existing
             else capture(args.output)
         )
-    except (CaptureError, OSError, ValueError) as exc:
+    except (CaptureError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"QuranEnc capture FAILED: {exc}")
         return 1
 
     action = "verification" if args.validate_existing else "capture"
     print(
         f"QuranEnc {action} OK: "
-        f"{provenance['byte_size']} bytes, {provenance['sha256']}"
+        f"{provenance['sura_count']} Surahs, "
+        f"{provenance['record_count']} ayahs, "
+        f"snapshot {provenance['snapshot_manifest_sha256']}"
     )
     return 0
 
