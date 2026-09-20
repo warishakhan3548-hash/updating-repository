@@ -13,6 +13,7 @@ import unittest
 
 from tools.capture_quranenc_gloss import (
     BASE_URL,
+    BROWSE_URL,
     CaptureError,
     EXPECTED_AYAH_COUNTS,
     FetchResult,
@@ -126,6 +127,17 @@ class FakeFetcher:
                 "text/html",
                 b"<html>QuranEnc terms</html>",
             )
+        if url == BROWSE_URL:
+            return FetchResult(
+                url,
+                final,
+                self.status,
+                "text/html",
+                (
+                    b"<html>Arabic Language - "
+                    b"Meanings of Words</html>"
+                ),
+            )
         prefix = (
             f"{BASE_URL}/api/v1/"
             "translation/sura/"
@@ -222,6 +234,25 @@ class CaptureTests(unittest.TestCase):
                     .read_bytes()
                     .startswith(b"<html>")
                 )
+                self.assertTrue(
+                    (
+                        dest
+                        / "SOURCE_PAGE.html"
+                    )
+                    .read_bytes()
+                    .startswith(b"<html>")
+                )
+                self.assertEqual(
+                    hashlib.sha256(
+                        (
+                            dest
+                            / "SOURCE_PAGE.html"
+                        ).read_bytes()
+                    ).hexdigest(),
+                    manifest[
+                        "source_page_snapshot"
+                    ]["sha256"],
+                )
                 tar_bytes = (
                     dest
                     / "raw-snapshot.tar"
@@ -272,6 +303,28 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(
             hashes[0], hashes[1]
         )
+
+    def test_naive_timestamp_fails_closed(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(
+                CaptureError,
+                "timezone-aware",
+            ):
+                capture_snapshot(
+                    root,
+                    fetcher=FakeFetcher(),
+                    now=datetime(
+                        2026, 9, 20, 18, 30
+                    ),
+                )
+            self.assertFalse(
+                (
+                    root / VAULT_RELATIVE
+                ).exists()
+            )
 
     def test_version_mismatch_leaves_no_snapshot(
         self,
