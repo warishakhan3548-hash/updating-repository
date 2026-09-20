@@ -14,7 +14,7 @@ Phase 0A–0C is operational and the first Quran evidence source has passed the 
 
 **Not production-approved yet:** Quranic Arabic Corpus morphology, Hadith datasets, QUL resources and other optional content. See `source-vault/registry.json`.
 
-This is not yet a finished reader application. Reader UI, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+A minimal offline Android reader now projects the verified ayah-only content contract. Morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows still wait on their required trusted data foundations.
 
 ## Architecture boundaries
 
@@ -38,6 +38,7 @@ The ayah-only core intentionally does not manufacture canonical token/morphology
 The main branch runs:
 
 ```bash
+python -m pip install -r requirements-trust.txt
 python tools/vault_gate.py source-vault/registry.json
 python tools/pack_gate.py source-vault/registry.json
 python tools/validate_schemas.py
@@ -45,3 +46,5 @@ python -m unittest discover -s tests -v
 ```
 
 GitHub Actions executes the same foundation checks on pushes and pull requests. Remote Actions are pinned to full commit SHAs, and the write-capable pack publisher revalidates the exact committed tree before pushing because `GITHUB_TOKEN`-generated pushes do not trigger ordinary push workflows.
+
+Approved content packs use canonical Ed25519-signed manifests checked against immutable versioned project trust roots. No production signing key is provisioned yet, so the current Quran pack remains safely candidate/unsigned rather than receiving a ceremonial “approved” label without real key custody.
