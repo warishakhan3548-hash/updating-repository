@@ -24,7 +24,6 @@ Use TUF-style version, hash, signature and rollback principles rather than ad-ho
 ## ADR-008 — Runtime packs cannot outrun Source Vault trust
 A runtime content pack may only reference a `production-approved` Source Vault entry. CI cross-checks the pack's source ID, version, vault path, source hash and licence against the registry, then verifies the built artifact's own hash and byte size. `approved` packs require signature metadata. This turns provenance from documentation into an executable release boundary.
 
-
 ## ADR-009 — Ayah-only Quran core until morphology passes the Source Vault gate
 The first Quran core stores source-faithful ayah evidence and derived search lanes only. It does not manufacture canonical token, segment, lexeme or morphology identities by whitespace splitting. Word-level linguistic identities wait for a legally compatible morphology source that independently passes the Source Vault gate and mapping invariants.
 
@@ -34,3 +33,8 @@ For a source whose preserved artifact embeds its required notice, the runtime pa
 ## ADR-011 — Trusted build workflows are content dependencies
 Remote GitHub Actions used by evidence/content builds are pinned to full commit SHAs and guarded by tests. A workflow that commits generated evidence artifacts with `GITHUB_TOKEN` must validate the exact committed tree before push; it must not assume that its bot-generated push will trigger another ordinary `push` workflow.
 
+## ADR-012 — Reader Core owns the trust contract; Android is a native projection
+`tools/reader_core.py` defines the reader invariants and reference behavior around Quran coordinates, source-faithful display text and non-canonical tap anchors. Android implements those same invariants natively rather than embedding Python or creating a second content model. Conformance tests bind both implementations to the same `quran-core` manifest and prohibit normalized display text or canonical word identity in the ayah-only phase.
+
+## ADR-013 — Candidate Quran packs may power debug readers, never release builds
+The Android project may bundle the current unsigned `candidate` pack for development validation, but only in the debug source set. The release variant is disabled while the pinned Quran pack is not approved/signed. The app manifest also declares no direct network permission, keeping the core read path local by construction.
