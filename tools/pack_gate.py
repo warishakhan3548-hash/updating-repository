@@ -26,6 +26,28 @@ class PackGateError(RuntimeError):
     pass
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise PackGateError(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
+
+
+def _load_json_object(path: Path, label: str) -> dict:
+    try:
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PackGateError(f"invalid {label}: {path}") from exc
+    if not isinstance(value, dict):
+        raise PackGateError(f"{label} root must be a JSON object: {path}")
+    return value
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -64,7 +86,7 @@ def _safe_repo_file(root: Path, raw: object, field: str, prefix: str) -> Path:
 def _load_sources(registry_path: Path) -> tuple[Path, dict[str, dict]]:
     registry_path = registry_path.resolve()
     root = registry_path.parents[1]
-    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    registry = _load_json_object(registry_path, "source registry")
     if registry.get("schema_version") != 1:
         raise PackGateError("unsupported source registry schema_version")
     sources = registry.get("sources")
@@ -114,12 +136,9 @@ def _validate_canonical_binding(
     if sha256_file(canonical_manifest_path) != canonical_manifest_hash:
         raise PackGateError(f"{manifest_path}: canonical manifest SHA-256 mismatch")
 
-    try:
-        canonical_manifest = json.loads(
-            canonical_manifest_path.read_text(encoding="utf-8")
-        )
-    except (OSError, json.JSONDecodeError) as exc:
-        raise PackGateError(f"{manifest_path}: invalid canonical manifest") from exc
+    canonical_manifest = _load_json_object(
+        canonical_manifest_path, "canonical manifest"
+    )
 
     artifact = _safe_repo_file(
         root, canonical["artifact_path"], "canonical.artifact_path", "canonical"
@@ -202,7 +221,7 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     except ValueError as exc:
         raise PackGateError("manifest must be under content-packs/") from exc
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = _load_json_object(manifest_path, "pack manifest")
     required = [
         "pack_id",
         "schema_version",
@@ -300,10 +319,7 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         provenance_path = _safe_repo_file(
             root, source.get("provenance"), "source provenance", "source-vault"
         )
-        try:
-            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise PackGateError(f"{manifest_path}: invalid source provenance") from exc
+        provenance = _load_json_object(provenance_path, "source provenance")
 
         expected_v2 = {
             "source_url": source.get("original_url"),
@@ -412,6 +428,14 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
                 pack_metadata,
             )
 
+    if manifest["pack_id"] == "quran-core" and manifest["schema_version"] in {2, 3}:
+        try:
+            verify_quran_core_pack(root, manifest, artifact)
+        except QuranPackSemanticError as exc:
+            raise PackGateError(
+                f"{manifest_path}: Quran semantic verification failed: {exc}"
+            ) from exc
+
     signature = manifest["signature"]
     if not isinstance(signature, dict):
         raise PackGateError(f"{manifest_path}: signature must be an object")
@@ -426,13 +450,6 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
                 f"{manifest_path}: approved pack signature verification failed: {exc}"
             ) from exc
 
-    if manifest["pack_id"] == "quran-core" and manifest["schema_version"] in {2, 3}:
-        try:
-            verify_quran_core_pack(root, manifest, artifact)
-        except QuranPackSemanticError as exc:
-            raise PackGateError(
-                f"{manifest_path}: Quran semantic verification failed: {exc}"
-            ) from exc
 
 
 def validate_all(registry_path: Path) -> int:
