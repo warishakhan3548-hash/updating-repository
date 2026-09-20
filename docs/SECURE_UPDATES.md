@@ -23,8 +23,10 @@ The verifier uses Ed25519 against project-controlled public keys in `policy/trus
 
 Release key IDs are SHA-256 fingerprints of the canonical public-key descriptor. Threshold policy is supported, and verification fails closed on unknown, unauthorized, duplicate or malformed signatures, public-key/key-ID mismatch, invalid cryptography, insufficient signatures, or an inactive trust root.
 
+Approved manifests now also require a positive integer `release_sequence`. The value is inside the signed payload, so changing release order after signing invalidates approval. This provides the deterministic ordering primitive needed for later rollback resistance without pretending that client-side rollback protection already exists.
+
 The repository trust root is deliberately `bootstrap-required`: no real release public key has been enrolled and no private signing key is stored in GitHub. Existing candidate packs therefore remain candidates until durable offline key custody and independent backup are established.
 
 ## Still blocked before automatic network updates
 
-Cryptographic authenticity is not the whole update system. Automatic remote pack updates remain disabled until the project has persistent rollback/freshness state, atomic activation/recovery tests, and a reviewed key-rotation/revocation protocol. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.
+Cryptographic authenticity and a signed ordering primitive are not the whole update system. Automatic remote pack updates remain disabled until the project persists the highest accepted `release_sequence`, handles freshness/expiry, tests atomic activation/recovery, and reviews key-rotation/revocation protocol. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.
