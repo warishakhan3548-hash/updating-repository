@@ -92,3 +92,13 @@ The research now converges on four durable choices: immutable source/display dat
 | --- | --- | --- | --- | --- |
 | fact | RFC 8032 discusses cryptographic contexts as a way to separate signature uses between protocols and recommends a constant protocol-defined context where that mode is used; pure Ed25519 itself has no context input. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Keep widely supported pure Ed25519, but prepend a fixed project-owned byte domain to the manifest message before signing/verifying so release signatures cannot be interpreted as raw signatures over an unrelated protocol payload. |
 | decision | No production release key or approved signed pack exists yet, so defining the v1 application-domain prefix now does not invalidate any production trust history. | repository audit | high | Freeze the prefix before the offline key-bootstrap/signing ceremony and cover it with regression tests. |
+
+
+## Android anti-rollback persistence update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | Android's framework `AtomicFile` is available from API 17 and implements fail-safe atomic file replacement; callers must serialize concurrent access. | https://developer.android.com/reference/android/util/AtomicFile | high | The minSdk-24 reader can persist one small monotonic trust record without adding another storage dependency; guard it with one process lock. |
+| fact | Files under `Context.getNoBackupFilesDir()` are excluded from Android automatic backup/restore. | https://developer.android.com/reference/android/content/Context#getNoBackupFilesDir() and https://developer.android.com/identity/data/autobackup | high | Keep highest-accepted content release state outside cloud backup so restoring an old backup cannot silently rewind it. |
+| fact | Android package updates normally require a non-lower `versionCode` and matching signing identity. | https://developer.android.com/studio/publish/versioning and https://developer.android.com/google/play/app-updates | high | App-package downgrade protection is useful defense in depth, but content ordering remains explicit and independent through the signed `release_sequence`. |
+| inference | Persisting the sequence only after the exact bundled bytes pass runtime hashing and activate prevents an unusable/corrupt candidate from advancing trust state merely because metadata was present. | repository threat-model review | high | Check sequence before replacement, verify bytes, activate, then atomically record the accepted maximum; fail closed on corrupt trust state. |
