@@ -144,6 +144,15 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         )
         if sha256_file(notice) != notice_hash:
             raise PackGateError(f"{manifest_path}: notice_sha256 mismatch")
+        if manifest["review_status"] == "approved":
+            required_notice_hash = _lower_sha256(
+                source.get("required_notice_sha256"),
+                "source required_notice_sha256",
+            )
+            if notice_hash != required_notice_hash:
+                raise PackGateError(
+                    f"{manifest_path}: attribution notice does not match Source Vault policy"
+                )
 
     artifact = _safe_repo_file(root, manifest["artifact_path"], "artifact_path", "content-packs")
     expected_hash = _lower_sha256(manifest["built_sha256"], "built_sha256")
