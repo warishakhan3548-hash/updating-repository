@@ -119,6 +119,8 @@ class PackGateTests(unittest.TestCase):
                             "key_id": "release-key-1",
                             "algorithm": "ed25519",
                             "status": "active",
+                            "min_release_sequence": 1,
+                            "max_release_sequence": None,
                             "public_key_base64": base64.b64encode(public_key).decode(
                                 "ascii"
                             ),
