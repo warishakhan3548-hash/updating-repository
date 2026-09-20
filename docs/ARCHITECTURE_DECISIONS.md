@@ -38,3 +38,7 @@ Remote GitHub Actions used by evidence/content builds are pinned to full commit 
 ## ADR-012 — Exact-byte integrity and semantic fidelity are separate gates
 
 A runtime pack SHA-256 identifies exact shipped bytes, not whether those bytes still faithfully represent preserved sacred evidence. For provenance-bound Quran packs (manifest schema v2), promotion therefore reconstructs Source Vault evidence, opens the SQLite artifact read-only, verifies the canonical schema and source assertion/runtime metadata, compares all Quran display/search rows with independently derived expectations, and rejects undeclared morphology/Hadith evidence. Historical schema-v1 candidates remain immutable under their historical contract rather than being rewritten in place.
+
+## ADR-013 — Ed25519 release signatures with project-owned threshold policy
+
+Approved content packs are authenticated with Ed25519 against `policy/trusted_pack_keys.json` only after ordinary source/provenance and applicable semantic-fidelity gates pass. The signed payload is a restricted deterministic JSON representation of the entire manifest except its signature container, with a domain separator and no floats. The policy supports stable key IDs, active/retired/revoked states and a signature threshold. A signed positive `release_sequence` is the future device anti-rollback ordering primitive. Private release keys never enter Git; no production key is enrolled yet, so existing candidate packs remain unapproved.
