@@ -44,6 +44,9 @@ class _SearchScreenState extends State<SearchScreen> {
   String _error = '', _catalogError = '';
   int _generation = 0, _catalogGeneration = 0;
   ScanResult? _scan;
+  String? _bulkQuery;
+  String get _effectiveQuery => _bulkQuery ?? _query.text;
+
   late Object _observedSnapshot;
   late Object _observedRecords;
   late DateTime _observedDay;
@@ -160,6 +163,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _onlineDebounce?.cancel();
     _publishedHits = SearchHitPublication.empty;
     _scan = null;
+    _bulkQuery = null;
     _resetBrowseWindow();
     _catalogHits = [];
     _catalogLoading = false;
@@ -206,7 +210,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _search({bool preserveResults = false}) {
     final generation = ++_generation;
-    final typedQuery = _query.text;
+    final typedQuery = _effectiveQuery;
     if (!mounted) return Future<void>.value();
     setState(() {
       // Snapshot/day refreshes keep the last valid cards on screen while the
@@ -323,8 +327,10 @@ class _SearchScreenState extends State<SearchScreen> {
     _onlineDebounce?.cancel();
     _resetBrowseWindow();
     setState(() {
-      // Query meaning changed. Remove old cards immediately rather than leaving
-      // a stale medicine tappable during the short debounce.
+      // Typing explicitly leaves pasted-list mode. Query meaning changed, so
+      // remove old cards immediately rather than leaving a stale medicine
+      // tappable during the short debounce.
+      _bulkQuery = null;
       _publishedHits = SearchHitPublication.empty;
       _loading = true;
       _error = '';
@@ -342,7 +348,23 @@ class _SearchScreenState extends State<SearchScreen> {
     _onlineDebounce?.cancel();
     _resetBrowseWindow();
     setState(() {
+      _bulkQuery = null;
       _query.text = value;
+      _scan = null;
+      _clearCatalog();
+    });
+    unawaited(_search());
+  }
+
+  void _setBulkQuery(String value) {
+    _debounce?.cancel();
+    _onlineDebounce?.cancel();
+    _resetBrowseWindow();
+    setState(() {
+      // Keep a large invoice/list out of the single-line EditableText hot path.
+      // Search still receives the complete text through dedicated query state.
+      _query.clear();
+      _bulkQuery = value;
       _scan = null;
       _clearCatalog();
     });
@@ -450,6 +472,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _resetBrowseWindow();
     setState(() {
       _scan = result;
+      _bulkQuery = null;
       _query.text = result.barcode.isNotEmpty ? result.barcode : result.text;
       _catalogHits = [];
       _catalogError = '';
@@ -479,6 +502,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _bulk() async {
     var draft = _query.text;
+    final pastedList = _bulkQuery;
+    if (pastedList != null) draft = pastedList;
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -509,7 +534,7 @@ class _SearchScreenState extends State<SearchScreen> {
         ],
       ),
     );
-    if (result != null && mounted) _setQuery(result);
+    if (result != null && mounted) _setBulkQuery(result);
   }
 
   void _openCatalogCandidate(MedicineCatalogCandidate candidate) {
@@ -541,6 +566,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final controller = widget.controller;
     final settings = controller.settings;
     final today = controller.today;
+    final activeQuery = _effectiveQuery.trim();
     final title = widget.database
         ? 'Medicine Database'
         : widget.scope == SearchScope.all
@@ -659,6 +685,42 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   ),
                 ),
+                if (_bulkQuery != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: GlassPanel(
+                      tint: primarySoft,
+                      accentColor: primary,
+                      radius: 16,
+                      elevation: .55,
+                      padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.playlist_add_check_rounded,
+                            color: primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 9),
+                          const Expanded(
+                            child: Text(
+                              'Pasted medicine list active · local inventory search',
+                              style: TextStyle(
+                                color: primaryDeep,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Clear pasted list',
+                            onPressed: () => _setQuery(''),
+                            icon: const Icon(Icons.close_rounded, size: 20),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -842,14 +904,14 @@ class _SearchScreenState extends State<SearchScreen> {
             !_catalogLoading)
           SliverToBoxAdapter(
             child: EmptyState(
-              title: _query.text.trim().isEmpty
+              title: activeQuery.isEmpty
                   ? 'No medicines here yet'
                   : 'No matching medicines',
               message: _scan != null && widget.database
                   ? _onlineMode
                         ? 'This scan was not matched confidently in your database or public medicine catalogs. You can still add it manually and review the pack.'
                         : 'This scan was not matched confidently in your database. Turn on Online search to check public medicine catalogs, or add it manually.'
-                  : widget.database && _query.text.trim().isNotEmpty
+                  : widget.database && activeQuery.isNotEmpty
                   ? _onlineMode
                         ? 'No local or online match was found. Try another spelling or add the medicine manually.'
                         : 'No local match. Turn on Online search to look for medicine identity and strength options, or add it manually.'
@@ -912,7 +974,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   onTap: () => openEditor(context, controller, record: record),
                   matchLabel: hit.uncertain
                       ? '${hit.confidence} confidence · ${hit.reason} · check name & strength'
-                      : _query.text.trim().isEmpty
+                      : activeQuery.isEmpty
                       ? null
                       : '${hit.confidence} confidence · ${hit.reason}',
                 );
@@ -925,9 +987,9 @@ class _SearchScreenState extends State<SearchScreen> {
             child: Column(
               children: [
                 Text(
-                  _hits.length == 150 && _query.text.isNotEmpty
+                  _hits.length == 150 && activeQuery.isNotEmpty
                       ? 'Showing the best 150 matches. Refine your search for more.'
-                      : _query.text.trim().isEmpty &&
+                      : activeQuery.isEmpty &&
                             !_browseExhausted &&
                             _hits.isNotEmpty
                       ? 'Showing ${_hits.length} stock entries'
@@ -935,7 +997,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 12, color: muted),
                 ),
-                if (_query.text.trim().isEmpty &&
+                if (activeQuery.isEmpty &&
                     !_browseExhausted &&
                     _hits.isNotEmpty) ...[
                   const SizedBox(height: 6),
