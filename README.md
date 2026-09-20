@@ -28,6 +28,7 @@ The reader is intentionally narrow: source-faithful Arabic, local navigation and
 - AI may expand queries or reason over exported evidence; it cannot author Evidence Plane truth.
 - Normal content builds use project-controlled snapshots, never an uncontrolled upstream `latest`.
 - Release approval is fail-closed: approved manifests require a signed positive `release_sequence` and must pass the authoritative pack gate plus project-controlled Ed25519 trust policy.
+- Android release clients keep non-exportable atomic acceptance state for the highest accepted signed sequence and exact manifest/content hashes, rejecting rollback or same-sequence byte conflicts. This does not enable remote updates.
 
 ## Current Quran core
 
@@ -35,7 +36,7 @@ The reader is intentionally narrow: source-faithful Arabic, local navigation and
 
 `tools/build_quran_canonical.py` creates `canonical/quran-core/1.0.0/ayahs.jsonl`, whose SHA-256 is the durable semantic anchor. `tools/build_quran_core.py` then builds `content-packs/quran-core/1.1.0/content.sqlite` from that canonical layer using manifest schema v3.
 
-The Android debug reader bundles this 1.1.0 candidate directly. Release builds remain blocked because the current trust root is still `bootstrap-required` and the pack is not approved/signed. No private release key is stored in GitHub.
+The Android debug reader bundles this 1.1.0 candidate directly. Release builds remain blocked because the current trust root is still `bootstrap-required` and the pack is not approved/signed. No private release key is stored in GitHub. The client anti-rollback store remains dormant for this unsigned candidate and only records release-approved packs.
 
 The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level linguistic identities wait for a legally preserved, production-approved source.
 
