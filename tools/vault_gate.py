@@ -346,7 +346,6 @@ def validate_registry(registry_path: Path) -> None:
         if status != "production-approved" and not snapshot_fields_present:
             continue
 
-        missing_snapshot_fields = []
         for field in ("source_name", "version", "licence_id"):
             if not isinstance(source.get(field), str) or not source[field]:
                 raise VaultGateError(
