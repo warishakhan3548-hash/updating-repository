@@ -109,6 +109,47 @@ class UserBackupTests(unittest.TestCase):
         connection.close()
         return path
 
+    def rewrite_backup_database(
+        self,
+        source_backup,
+        output_backup,
+        mutate,
+    ):
+        with zipfile.ZipFile(source_backup, "r") as original:
+            manifest = json.loads(
+                original.read(MANIFEST_ENTRY)
+            )
+            database_bytes = original.read(DATABASE_ENTRY)
+
+        database_path = self.root / "crafted-user.sqlite"
+        database_path.write_bytes(database_bytes)
+        connection = sqlite3.connect(database_path)
+        try:
+            mutate(connection)
+            connection.commit()
+        finally:
+            connection.close()
+
+        database_bytes = database_path.read_bytes()
+        manifest["database"]["byte_size"] = len(database_bytes)
+        manifest["database"]["sha256"] = hashlib.sha256(
+            database_bytes
+        ).hexdigest()
+
+        with zipfile.ZipFile(
+            output_backup,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+        ) as output:
+            output.writestr(
+                MANIFEST_ENTRY,
+                json.dumps(manifest),
+            )
+            output.writestr(
+                DATABASE_ENTRY,
+                database_bytes,
+            )
+
     def test_round_trip_preserves_user_database_and_manifest_hash(self):
         source = self.make_v2()
         backup = self.root / "learning.aarisbackup"
@@ -253,6 +294,108 @@ class UserBackupTests(unittest.TestCase):
             "SHA-256 mismatch",
         ):
             inspect_backup(bad)
+
+    def test_valid_hash_cannot_hide_extra_persistent_trigger(self):
+        source = self.make_v2()
+        valid = self.root / "valid.aarisbackup"
+        export_backup(
+            source,
+            valid,
+            created_at_utc="2026-09-21T00:10:00Z",
+        )
+        crafted = self.root / "extra-trigger.aarisbackup"
+
+        def mutate(connection):
+            connection.execute(
+                """
+                CREATE TRIGGER unexpected_note_trigger
+                AFTER INSERT ON note
+                BEGIN
+                  SELECT 1;
+                END
+                """
+            )
+
+        self.rewrite_backup_database(
+            valid,
+            crafted,
+            mutate,
+        )
+
+        with self.assertRaisesRegex(
+            UserBackupError,
+            "persistent schema",
+        ):
+            inspect_backup(crafted)
+
+    def test_valid_hash_cannot_hide_modified_required_trigger(self):
+        source = self.make_v2()
+        valid = self.root / "valid.aarisbackup"
+        export_backup(
+            source,
+            valid,
+            created_at_utc="2026-09-21T00:10:00Z",
+        )
+        crafted = self.root / "changed-trigger.aarisbackup"
+
+        def mutate(connection):
+            connection.execute(
+                "DROP TRIGGER review_event_no_delete"
+            )
+            connection.executescript(
+                """
+                CREATE TRIGGER review_event_no_delete
+                BEFORE DELETE ON review_event
+                BEGIN
+                  SELECT 1;
+                END;
+                """
+            )
+
+        self.rewrite_backup_database(
+            valid,
+            crafted,
+            mutate,
+        )
+
+        with self.assertRaisesRegex(
+            UserBackupError,
+            "persistent schema",
+        ):
+            inspect_backup(crafted)
+
+    def test_migrated_v2_matches_canonical_backup_schema(self):
+        legacy = self.root / "migrated.sqlite"
+        connection = sqlite3.connect(legacy)
+        connection.executescript(
+            (ROOT / "schemas" / "user_v1.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        connection.executescript(
+            (
+                ROOT
+                / "schemas"
+                / "migrations"
+                / "user_v1_to_v2.sql"
+            ).read_text(encoding="utf-8")
+        )
+        connection.close()
+
+        backup = self.root / "migrated.aarisbackup"
+        manifest = export_backup(
+            legacy,
+            backup,
+            created_at_utc="2026-09-21T00:10:00Z",
+        )
+        self.assertEqual(
+            2,
+            manifest["database"]["user_schema_version"],
+        )
+        self.assertEqual(
+            manifest,
+            inspect_backup(backup),
+        )
 
     def test_unsupported_user_schema_version_fails_export(self):
         source = self.make_v2()
