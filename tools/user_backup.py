@@ -20,13 +20,9 @@ FORMAT_VERSION = 1
 MANIFEST_ENTRY = "manifest.json"
 DATABASE_ENTRY = "user.sqlite"
 SUPPORTED_USER_SCHEMA_VERSIONS = {2}
-REQUIRED_USER_TABLES = {
-    "exposure_event",
-    "review_event",
-    "memory_state_cache",
-    "bookmark",
-    "note",
-    "preference",
+SCHEMA_ROOT = Path(__file__).resolve().parents[1] / "schemas"
+USER_SCHEMA_FILES = {
+    2: SCHEMA_ROOT / "user_v2.sql",
 }
 MAX_MANIFEST_BYTES = 64 * 1024
 MAX_DATABASE_BYTES = 1024 * 1024 * 1024
@@ -87,6 +83,67 @@ def _connect_read_only(path: Path) -> sqlite3.Connection:
         ) from exc
 
 
+def _normalize_schema_sql(value: str | None) -> str:
+    if value is None:
+        return ""
+    return " ".join(value.split())
+
+
+def _schema_contract(
+    connection: sqlite3.Connection,
+) -> tuple[tuple[str, str, str, str], ...]:
+    rows = connection.execute(
+        """
+        SELECT type, name, tbl_name, sql
+        FROM sqlite_schema
+        ORDER BY type, name
+        """
+    ).fetchall()
+    return tuple(
+        (
+            str(object_type),
+            str(name),
+            str(table_name),
+            _normalize_schema_sql(sql),
+        )
+        for object_type, name, table_name, sql in rows
+    )
+
+
+def _expected_schema_contract(
+    user_version: int,
+) -> tuple[tuple[str, str, str, str], ...]:
+    schema_path = USER_SCHEMA_FILES.get(user_version)
+    if schema_path is None or not schema_path.is_file():
+        raise UserBackupError(
+            "canonical user schema definition is unavailable "
+            f"for version {user_version}"
+        )
+
+    expected = sqlite3.connect(":memory:")
+    try:
+        expected.executescript(
+            schema_path.read_text(encoding="utf-8")
+        )
+        expected_version = int(
+            expected.execute(
+                "PRAGMA user_version"
+            ).fetchone()[0]
+        )
+        if expected_version != user_version:
+            raise UserBackupError(
+                "canonical user schema version does not match "
+                f"expected version {user_version}"
+            )
+        return _schema_contract(expected)
+    except sqlite3.Error as exc:
+        raise UserBackupError(
+            f"cannot load canonical user schema: {exc}"
+        ) from exc
+    finally:
+        expected.close()
+
+
 def _validate_user_database(path: Path) -> int:
     if not path.is_file():
         raise UserBackupError(
@@ -127,17 +184,14 @@ def _validate_user_database(path: Path) -> int:
                     f"unsupported user schema version: {user_version}"
                 )
 
-            tables = {
-                row[0]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_schema WHERE type='table'"
-                )
-            }
-            missing = sorted(REQUIRED_USER_TABLES - tables)
-            if missing:
+            actual_schema = _schema_contract(connection)
+            expected_schema = _expected_schema_contract(
+                user_version
+            )
+            if actual_schema != expected_schema:
                 raise UserBackupError(
-                    "user database is missing required tables: "
-                    + ", ".join(missing)
+                    "user database persistent schema does not "
+                    "match the canonical schema contract"
                 )
         except sqlite3.Error as exc:
             raise UserBackupError(
