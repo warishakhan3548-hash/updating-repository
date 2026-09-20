@@ -18,15 +18,7 @@
           "source_name": {"type": "string"},
           "original_url": {"type": "string"},
           "version": {"type": "string"},
-          "status": {
-            "enum": [
-              "research-candidate",
-              "awaiting-artifact",
-              "awaiting-licence",
-              "production-approved",
-              "rejected"
-            ]
-          },
+          "status": {"enum": ["research-candidate", "awaiting-artifact", "awaiting-licence", "production-approved", "rejected"]},
           "licence_id": {"type": ["string", "null"]},
           "redistribution_allowed": {"type": ["boolean", "null"]},
           "modification_allowed": {"type": ["boolean", "null"]},
@@ -37,6 +29,8 @@
           "sha256": {"type": ["string", "null"]},
           "licence_sha256": {"type": ["string", "null"]},
           "provenance_sha256": {"type": ["string", "null"]},
+          "required_notice_path": {"type": ["string", "null"]},
+          "required_notice_sha256": {"type": ["string", "null"]},
           "byte_size": {"type": ["integer", "null"], "minimum": 1},
           "notes": {"type": "string"}
         },
