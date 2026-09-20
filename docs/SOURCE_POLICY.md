@@ -35,7 +35,9 @@ A `production-approved` source must set `commercial_use_allowed: true`. Unknown 
 
 ## Archival-retention gate
 
-A source-specific term that requires republishers to remain on the latest upstream version is **not automatically compatible** with a public immutable historical Source Vault. If the project must retain old snapshots for reproducibility but the licence does not clearly permit continued archival redistribution of those older versions, keep the source `awaiting-licence` until written clarification, a compatible archival grant, or a replacement source resolves the conflict. Acquisition tooling must fail closed before network download when the registry has not cleared the source for capture.
+Redistribution permission and historical-retention permission are reviewed separately. Before a source may become `awaiting-artifact`, have any snapshot bytes preserved under project control, or become `production-approved`, the registry must explicitly record `historical_snapshot_retention_status=verified-allowed`. An unresolved or disallowed result stays metadata-only and cannot enter the immutable public Source Vault.
+
+A source-specific term that requires republishers to remain on the latest upstream version is a particularly important warning sign, but the archival check is universal rather than limited to those sources. If the project must retain old snapshots for reproducibility but the licence does not clearly permit continued archival redistribution of those older versions, keep the source `awaiting-licence` until written clarification, a compatible archival grant, or a replacement source resolves the conflict. Acquisition tooling must fail closed before network download when the registry has not cleared the source for capture.
 
 ## Release-time source obligations
 
