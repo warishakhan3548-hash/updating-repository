@@ -93,7 +93,15 @@ For any such source, the registry remains `awaiting-licence` until the project h
 
 This keeps “we may republish the current version” separate from “we may permanently mirror every historical version,” which are different legal and durability questions.
 
-## ADR-019 — Approximate Quran spelling search is a strict-miss fallback
+## ADR-020 — Multi-file evidence snapshots use a checksum-set root
+
+After a source has independently cleared the licence/archival gate, an inherently multi-file release may be preserved without concatenating or rewriting its upstream bytes. The Source Vault supports a generic `sha256-set` artifact kind in addition to the existing single-file artifact.
+
+The root artifact is a project-owned checksum ledger whose own SHA-256 and byte size are recorded in the registry. Every ledger member must use one canonical relative POSIX path, remain inside the same immutable snapshot directory and match its recorded SHA-256. Absolute/traversal paths, non-canonical path spellings, symlinked ledgers or members, duplicate members and self-reference fail closed.
+
+This is a preservation-integrity primitive, not a licence or promotion shortcut. Runtime builders still require `production-approved`, verified redistribution and historical-retention rights, licence/provenance binding, applicable release-time source requirements and all existing pack gates. Source-specific validators remain responsible for semantic invariants such as Quran/Hadith coordinates, editions and record shape.
+
+## ADR-021 — Approximate Quran spelling search is a strict-miss fallback
 
 Quran search preserves a strict-first trust ladder. NFC/diacritic-free exact containment remains the first retrieval path. Only when that path returns no rows may the app apply the versioned `arabic-query-variant-v1` substitutions for a deliberately small set of Arabic orthographic and South-Asian keyboard variants.
 
