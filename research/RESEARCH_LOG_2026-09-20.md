@@ -65,3 +65,14 @@ The research now converges on four durable choices: immutable source/display dat
 | type | claim | source | confidence | product implication |
 | --- | --- | --- | --- | --- |
 | fact | SQLite stores file-level structural/version metadata such as the file change counter and the SQLite version that most recently modified the database. A runtime SQLite SHA-256 identifies exact file bytes but does not by itself prove semantic fidelity to an external preserved source. | https://sqlite.org/fileformat.html | high | Keep byte-integrity checking, but independently compare schema and Quran evidence rows/search lanes back to the pinned Source Vault before promotion. |
+
+## Pack-signing research update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | RFC 8032 specifies Ed25519/EdDSA and provides public verification test vectors; Ed25519 public keys are 32 octets and signatures are 64 octets. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Use standard Ed25519 verification and regression-test against published vectors; never implement novel signature mathematics. |
+| fact | TUF root metadata binds trusted key IDs to roles and supports signature thresholds; signed update metadata is separate from target-file hashes. | https://theupdateframework.io/docs/metadata/ | high | Keep project-controlled public-key trust and threshold policy separate from content SHA-256/provenance gates. |
+| fact | Deterministic canonical representation is required when structured data is signed; RFC 8785 documents this problem and a JSON canonicalization approach. | https://www.rfc-editor.org/rfc/rfc8785.html | high | Define and version exact signing bytes. The project uses a deliberately narrower manifest format rather than claiming full JCS conformance. |
+| fact | The current PyPI release of `cryptography` is 50.0.1 (2026-08-25), and its official API supports Ed25519 public-key verification. | https://pypi.org/project/cryptography/ and https://cryptography.io/en/latest/hazmat/primitives/asymmetric/ed25519/ | high | Pin the verifier dependency exactly and keep it behind a replaceable signing interface; it is software infrastructure, not Evidence Plane content. |
+| design | A signed monotonic `release_sequence` is included now, while highest-accepted-sequence persistence belongs to the future device activation layer. | project architecture synthesis | high | The build gate can authenticate rollback metadata without pretending to own per-device anti-rollback state. |
+\n
