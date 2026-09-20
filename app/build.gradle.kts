@@ -21,6 +21,14 @@ fun manifestString(key: String): String {
         ?: error("Quran pack manifest is missing string field: $key")
 }
 
+fun manifestTopLevelPositiveLongOrZero(key: String): Long {
+    val pattern = Regex(
+        """(?m)^  "${Regex.escape(key)}"\s*:\s*([0-9]+)\s*,?\s*$""",
+    )
+    val raw = pattern.find(manifestText)?.groupValues?.get(1) ?: return 0L
+    return raw.toLongOrNull()?.takeIf { it > 0L } ?: 0L
+}
+
 fun File.sha256(): String {
     val digest = MessageDigest.getInstance("SHA-256")
     inputStream().use { input ->
@@ -38,6 +46,7 @@ val packVersion = manifestString("content_version")
 val packSha256 = manifestString("built_sha256")
 val packReviewStatus = manifestString("review_status")
 val packSourceSha256 = manifestString("source_sha256")
+val packReleaseSequence = manifestTopLevelPositiveLongOrZero("release_sequence")
 
 android {
     namespace = "com.aaris.quran"
@@ -53,6 +62,11 @@ android {
         buildConfigField("String", "QURAN_PACK_SHA256", "\"$packSha256\"")
         buildConfigField("String", "QURAN_SOURCE_SHA256", "\"$packSourceSha256\"")
         buildConfigField("String", "QURAN_PACK_REVIEW_STATUS", "\"$packReviewStatus\"")
+        buildConfigField(
+            "long",
+            "QURAN_PACK_RELEASE_SEQUENCE",
+            "${packReleaseSequence}L",
+        )
         buildConfigField(
             "boolean",
             "QURAN_PACK_RELEASE_READY",
