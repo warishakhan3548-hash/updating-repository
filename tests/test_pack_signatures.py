@@ -289,9 +289,13 @@ class PackSignatureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             private, public, key_id = self._key(12)
+            _, active_public, active_id = self._key(17)
             keyring = self._write_keyring(
                 root,
-                [(key_id, public, "retired", 2, 4)],
+                [
+                    (key_id, public, "retired", 2, 4),
+                    (active_id, active_public, "active", 5, None),
+                ],
                 state="active",
             )
 
