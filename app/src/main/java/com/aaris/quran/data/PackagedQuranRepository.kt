@@ -12,6 +12,10 @@ import kotlinx.coroutines.withContext
 class PackagedQuranRepository(
     private val context: Context,
 ) : QuranRepository {
+    private val releaseSequenceStore: ReleaseSequenceStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        ReleaseSequenceStore(File(context.noBackupFilesDir, "trust"))
+    }
+
     private val installedPack: File by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         require(BuildConfig.DEBUG || BuildConfig.QURAN_PACK_RELEASE_READY) {
             "Production reader refuses an unapproved or unsigned Quran pack"
@@ -69,6 +73,15 @@ class PackagedQuranRepository(
         }
 
     private fun installVerifiedPack(): File {
+        val releaseSequence = if (BuildConfig.DEBUG) {
+            null
+        } else {
+            val candidate = BuildConfig.QURAN_PACK_RELEASE_SEQUENCE
+            ReleaseSequencePolicy.requireValidCandidate(candidate)
+            releaseSequenceStore.requireAcceptable(candidate)
+            candidate
+        }
+
         val directory = File(
             context.noBackupFilesDir,
             "content/quran-core/${BuildConfig.QURAN_PACK_VERSION}",
@@ -79,6 +92,7 @@ class PackagedQuranRepository(
 
         val target = File(directory, "content.sqlite")
         if (target.isFile && target.sha256() == BuildConfig.QURAN_PACK_SHA256) {
+            releaseSequence?.let(releaseSequenceStore::recordAccepted)
             return target
         }
 
@@ -98,6 +112,7 @@ class PackagedQuranRepository(
             check(target.delete()) { "Cannot replace invalid local Quran pack" }
         }
         check(temporary.renameTo(target)) { "Cannot activate verified local Quran pack" }
+        releaseSequence?.let(releaseSequenceStore::recordAccepted)
         return target
     }
 
