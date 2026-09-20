@@ -220,6 +220,11 @@
     "byte_reproducibility_scope": {
       "type": "string",
       "minLength": 1
+    },
+    "release_sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
     }
   },
   "dependentRequired": {
@@ -300,7 +305,7 @@
             ],
             "properties": {
               "format": {
-                "const": "aaris-pack-signature-v1"
+                "const": "aaris-pack-signature-v2"
               },
               "role": {
                 "const": "content-pack-release"
@@ -334,7 +339,10 @@
             },
             "additionalProperties": false
           }
-        }
+        },
+        "required": [
+          "release_sequence"
+        ]
       }
     }
   ]
