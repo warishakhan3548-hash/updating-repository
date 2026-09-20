@@ -70,7 +70,12 @@
       "sha256": null,
       "byte_size": null,
       "notes": "Licence ambiguity requires resolution before promotion: the official download page presents GNU GPL/verbatim-copy terms, while the official FAQ also describes the data as research/non-commercial. Treat as non-production until the project obtains clarification or a clearly compatible authoritative licence basis.",
-      "commercial_use_allowed": false
+      "commercial_use_allowed": false,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://corpus.quran.com/download/",
+        "historical_snapshot_retention_status": "unresolved"
+      }
     },
     {
       "source_id": "morphology.quranmorph.2025",
@@ -137,7 +142,12 @@
       "sha256": null,
       "byte_size": null,
       "notes": "Not suitable as a critical permanent mirrored source under the Developer Terms updated 2026-09-14, including redistribution/storage constraints. May be an optional online integration where those terms are satisfied.",
-      "commercial_use_allowed": null
+      "commercial_use_allowed": null,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://api-docs.quran.foundation/legal/developer-terms/",
+        "historical_snapshot_retention_status": "verified-not-allowed"
+      }
     },
     {
       "source_id": "quran.qul.resources",
@@ -156,7 +166,12 @@
       "sha256": null,
       "byte_size": null,
       "notes": "Evaluate individual resources only. Official QUL morphology pages expose downloadable word-location keyed datasets, while the QUL FAQ requires checking dataset-specific licensing for commercial use. The QUL repository MIT licence is not treated as blanket permission for aggregated dataset bytes.",
-      "commercial_use_allowed": null
+      "commercial_use_allowed": null,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://qul.tarteel.ai/resources",
+        "historical_snapshot_retention_status": "unresolved"
+      }
     },
     {
       "source_id": "morphology.qul.word-lemma.resource-75",
@@ -175,7 +190,12 @@
       "sha256": null,
       "byte_size": null,
       "notes": "Technically suitable candidate: QUL documents a downloadable SQLite mapping lemmas to word_location keys. No artifact is mirrored because the inspected resource page does not state a dataset licence and QUL's FAQ requires resource-specific licence review before commercial production use.",
-      "commercial_use_allowed": null
+      "commercial_use_allowed": null,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://qul.tarteel.ai/resources/morphology/75",
+        "historical_snapshot_retention_status": "unresolved"
+      }
     },
     {
       "source_id": "morphology.qul.word-root.resource-76",
@@ -194,7 +214,36 @@
       "sha256": null,
       "byte_size": null,
       "notes": "Technically suitable candidate: QUL documents a downloadable SQLite mapping roots to word_location keys. No artifact is mirrored because the inspected resource page does not state a dataset licence and QUL's FAQ requires resource-specific licence review before commercial production use.",
-      "commercial_use_allowed": null
+      "commercial_use_allowed": null,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://qul.tarteel.ai/resources/morphology/76",
+        "historical_snapshot_retention_status": "unresolved"
+      }
+    },
+    {
+      "source_id": "morphology.masaq.v5",
+      "category": "morphology",
+      "source_name": "MASAQ: Morphologically-Analyzed and Syntactically-Annotated Quran Dataset",
+      "original_url": "https://data.mendeley.com/datasets/9yvrzxktmr/5",
+      "version": "5",
+      "status": "awaiting-licence",
+      "licence_id": "CC-BY-4.0-observed-on-v5-rights-chain-unverified",
+      "redistribution_allowed": null,
+      "modification_allowed": null,
+      "attribution_required": true,
+      "vault_artifact": null,
+      "licence_snapshot": null,
+      "provenance": null,
+      "sha256": null,
+      "byte_size": null,
+      "notes": "Mendeley Data version 5 identifies this full-Quran morphology/syntax dataset as CC BY 4.0. The same dataset record later changed version 6 to CC BY-NC 3.0, while the associated publication and the dataset's Tanzil-derived source-text history create a rights-chain question that this project has not independently resolved. A prior CC grant may remain effective for rights the licensor actually controlled, but this project will not infer downstream rights over third-party material. Do not capture or mirror bytes until the exact version-5 file licence scope, contributor authority, embedded third-party content, commercial-use rights, and durable historical-retention rights are cleared. If cleared, preserve and hash the exact v5 artifact and align its coordinates to the Tanzil Evidence Plane; never substitute its Quran text for the canonical source.",
+      "commercial_use_allowed": null,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://data.mendeley.com/datasets/compare/9yvrzxktmr",
+        "historical_snapshot_retention_status": "unresolved"
+      }
     },
     {
       "source_id": "quran-gloss.qul.english-wbw.resource-92",
