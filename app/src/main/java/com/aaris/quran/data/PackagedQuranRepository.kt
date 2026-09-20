@@ -18,35 +18,37 @@ class PackagedQuranRepository(
     }
 
     private val installedPack: File by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        require(BuildConfig.DEBUG || BuildConfig.QURAN_PACK_RELEASE_READY) {
-            "Production reader refuses an unapproved or unsigned Quran pack"
-        }
-
-        val releaseSequence = if (BuildConfig.DEBUG) {
-            null
-        } else {
-            check(BuildConfig.QURAN_PACK_RELEASE_READY) {
-                "Release reader requires an approved Quran pack"
+        synchronized(PACK_ACTIVATION_PROCESS_LOCK) {
+                require(BuildConfig.DEBUG || BuildConfig.QURAN_PACK_RELEASE_READY) {
+                "Production reader refuses an unapproved or unsigned Quran pack"
             }
-            val candidate = BuildConfig.QURAN_PACK_RELEASE_SEQUENCE
-            check(candidate in 1..MAX_SIGNED_RELEASE_SEQUENCE) {
-                "Approved Quran pack is missing a valid signed release sequence"
-            }
-            activationStateStore.requireAcceptable(
-                releaseSequence = candidate,
-                packSha256 = BuildConfig.QURAN_PACK_SHA256,
-            )
-            candidate
-        }
 
-        val installed = installVerifiedPack()
-        releaseSequence?.let { accepted ->
-            activationStateStore.accept(
-                releaseSequence = accepted,
-                packSha256 = BuildConfig.QURAN_PACK_SHA256,
-            )
+            val releaseSequence = if (BuildConfig.DEBUG) {
+                null
+            } else {
+                check(BuildConfig.QURAN_PACK_RELEASE_READY) {
+                    "Release reader requires an approved Quran pack"
+                }
+                val candidate = BuildConfig.QURAN_PACK_RELEASE_SEQUENCE
+                check(candidate in 1..MAX_SIGNED_RELEASE_SEQUENCE) {
+                    "Approved Quran pack is missing a valid signed release sequence"
+                }
+                activationStateStore.requireAcceptable(
+                    releaseSequence = candidate,
+                    packSha256 = BuildConfig.QURAN_PACK_SHA256,
+                )
+                candidate
+            }
+
+            val installed = installVerifiedPack()
+            releaseSequence?.let { accepted ->
+                activationStateStore.accept(
+                    releaseSequence = accepted,
+                    packSha256 = BuildConfig.QURAN_PACK_SHA256,
+                )
+            }
+                installed
         }
-        installed
     }
 
     override suspend fun ayahsForSurah(surah: Int): List<QuranAyah> =
