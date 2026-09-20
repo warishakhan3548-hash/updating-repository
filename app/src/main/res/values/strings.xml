@@ -1,3 +1,21 @@
 <resources>
     <string name="app_name">Aaris Quran</string>
+    <string name="reader_title">Quran</string>
+    <string name="search_quran">Search Quran</string>
+    <string name="surah_button">Surah %1$d ▾</string>
+    <string name="current_surah_state">Current surah</string>
+    <string name="loading_quran">Loading Quran</string>
+    <string name="searching_quran">Searching Quran</string>
+    <string name="try_again">Try again</string>
+    <string name="previous_surah">Previous Surah</string>
+    <string name="next_surah">Next Surah</string>
+    <string name="no_reliable_match">No reliable match found.</string>
+    <string name="approximate_spelling_match">Approximate spelling match</string>
+    <string name="search_result_coordinate">Surah %1$d • Ayah %2$d</string>
+    <string name="choose_surah">Choose Surah</string>
+    <string name="surah_current">Surah %1$d — current</string>
+    <string name="surah_number">Surah %1$d</string>
+    <string name="close">Close</string>
+    <string name="ayah_number">Ayah %1$d</string>
+    <string name="ayah_accessibility_description">Surah %1$d, ayah %2$d. %3$s</string>
 </resources>
