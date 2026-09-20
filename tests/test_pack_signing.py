@@ -235,6 +235,15 @@ class PackSigningTests(unittest.TestCase):
         with self.assertRaisesRegex(PackSignatureError, "floats are forbidden"):
             signature_payload(manifest)
 
+    def test_invalid_unicode_surrogate_is_rejected(self):
+        manifest = self._manifest()
+        manifest["source_attribution"] = "\ud800"
+        with self.assertRaisesRegex(
+            PackSignatureError,
+            "valid Unicode scalar values",
+        ):
+            signature_payload(manifest)
+
 
 if __name__ == "__main__":
     unittest.main()
