@@ -224,7 +224,8 @@
     "release_sequence": {
       "type": "integer",
       "minimum": 1,
-      "description": "Monotonic signed release ordering primitive; required for approved packs."
+      "description": "Monotonic signed release ordering primitive; required for approved packs.",
+      "maximum": 9007199254740991
     }
   },
   "dependentRequired": {
