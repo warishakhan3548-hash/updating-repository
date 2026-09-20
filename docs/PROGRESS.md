@@ -27,6 +27,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - Ed25519 release-authenticity gate with deterministic signed-manifest bytes, content-derived key IDs, threshold policy, unauthorized/duplicate-key rejection, and project-controlled public trust-root storage;
 - release-key lifecycle policy with active/retired/revoked states and signed release-sequence validity windows, preserving historical verification without allowing retired/revoked keys to authorize future releases;
 - Android release builds delegate to the same authoritative pack gate instead of trusting signature-shaped metadata;
+- Android production activation persists the highest accepted signed `release_sequence` with `AtomicFile` under `noBackupFilesDir`, rejects lower bundled releases before activation, and leaves debug candidates outside that trust state;
 - trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
 
 ## Production Source Vault
@@ -78,14 +79,14 @@ Automated coverage now checks Source Vault integrity, licence/provenance consist
 
 Schema-v2 Quran semantic regression coverage now tampers with Quran text and SQLite schema, recomputes the runtime artifact SHA-256, and requires promotion to fail. Recomputing `built_sha256` after changing Quran text or SQLite schema does not make the pack valid.
 
-Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows. Signing regression coverage verifies valid Ed25519 approval, post-signing tamper failure, unauthorized/duplicate keys, signed release ordering, retired-key historical windows, revoked-key rejection, active-threshold viability, malformed/bootstrap trust roots, strict JSON/domain separation, and Android release delegation to the authoritative pack gate.
+Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows. Signing regression coverage verifies valid Ed25519 approval, post-signing tamper failure, unauthorized/duplicate keys, signed release ordering, retired-key historical windows, revoked-key rejection, active-threshold viability, malformed/bootstrap trust roots, strict JSON/domain separation, Android release delegation to the authoritative pack gate, monotonic runtime release ordering, and activation-before-persistence ordering.
 
 No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
 ## Next safe milestones
 
 1. Bootstrap durable offline release-key custody and independent backup, commit only the public trust material, then sign/review a new immutable Quran-core release candidate for production approval.
-2. Persist the highest accepted signed `release_sequence` and add freshness/recovery state before enabling any automatic remote content-update channel.
+2. Add freshness/expiry metadata, reviewed recovery semantics and a minSdk-24-compatible on-device signature verifier before enabling any automatic remote content-update channel.
 3. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
 4. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
 5. Resolve QAC licensing or choose a legally clearer morphology source, and preserve an edition-aware Hadith source before production Hadith search.
