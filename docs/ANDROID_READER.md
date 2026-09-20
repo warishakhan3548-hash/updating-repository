@@ -24,7 +24,7 @@ The copied database is opened with Android SQLite `OPEN_READONLY`. Display queri
 
 Debug builds may exercise the current candidate pack so UI work can proceed.
 
-Non-debug runtime code refuses a pack whose `review_status` is not `approved`, matching the canonical Reader Core production guard. In addition, the candidate pack is not placed in the release source set at all.
+Non-debug runtime activation is currently disabled entirely. An `approved` label alone is not trusted: production activation must remain blocked until the repository has a real trusted-key cryptographic signature verifier. In addition, the candidate pack is not placed in the release source set at all.
 
 These development pins are not a replacement for the future signed content activation/update chain. A production Quran release remains blocked until the pack review/signing policy is satisfied.
 
