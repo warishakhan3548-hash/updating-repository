@@ -30,6 +30,8 @@ The gate records and verifies:
 - licence snapshot SHA-256;
 - provenance-file SHA-256;
 - source/version/licence/mirror fields cross-checked between registry and provenance;
+- redistribution, modification and attribution permissions cross-checked between registry and provenance;
+- the archived licence snapshot path cross-checked between registry and provenance;
 - a timezone-aware retrieval timestamp;
 - mandatory release rules from `policy/license_policy.json`.
 
