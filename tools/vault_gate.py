@@ -162,7 +162,7 @@ def _safe_vault_file(root: Path, raw: object, source_id: str, field: str) -> Pat
     return path
 
 
-def _validate_checksum_set(artifact: Path, source_id: str) -> int:
+def _validate_checksum_set(artifact: Path, source_id: str) -> set[Path]:
     if artifact.is_symlink():
         raise VaultGateError(
             f"{source_id}: checksum-set artifact must not be a symlink"
@@ -181,6 +181,7 @@ def _validate_checksum_set(artifact: Path, source_id: str) -> int:
     snapshot_root = artifact.parent.resolve()
     seen_paths: set[str] = set()
     seen_targets: set[Path] = set()
+    members: set[Path] = set()
 
     for line_number, line in enumerate(lines, start=1):
         match = CHECKSUM_LINE_RE.fullmatch(line)
@@ -236,13 +237,99 @@ def _validate_checksum_set(artifact: Path, source_id: str) -> int:
                 f"{source_id}: checksum-set aliases the same file more than once"
             )
         seen_targets.add(resolved)
+        members.add(member)
 
         if sha256_file(member) != expected_hash:
             raise VaultGateError(
                 f"{source_id}: checksum-set member SHA-256 mismatch: {normalized}"
             )
 
-    return len(lines)
+    return members
+
+
+def _validate_checksum_audit_file(
+    root: Path,
+    artifact: Path,
+    provenance: dict,
+    source_id: str,
+) -> Path | None:
+    raw = provenance.get("checksum_file")
+    if raw in (None, ""):
+        return None
+
+    checksum = _safe_vault_file(
+        root,
+        raw,
+        source_id,
+        "provenance.checksum_file",
+    )
+    if checksum.is_symlink():
+        raise VaultGateError(
+            f"{source_id}: provenance checksum_file must not be a symlink"
+        )
+    if checksum.parent != artifact.parent:
+        raise VaultGateError(
+            f"{source_id}: provenance checksum_file must share the artifact directory"
+        )
+    try:
+        lines = checksum.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise VaultGateError(
+            f"{source_id}: provenance checksum_file must be UTF-8"
+        ) from exc
+    if len(lines) != 1:
+        raise VaultGateError(
+            f"{source_id}: provenance checksum_file must contain exactly one entry"
+        )
+    match = CHECKSUM_LINE_RE.fullmatch(lines[0])
+    if (
+        match is None
+        or match.group(1) != sha256_file(artifact)
+        or match.group(2) != artifact.name
+    ):
+        raise VaultGateError(
+            f"{source_id}: provenance checksum_file does not match the pinned artifact"
+        )
+    return checksum
+
+
+def _validate_vault_inventory(
+    root: Path,
+    registry_path: Path,
+    accounted_files: set[Path],
+) -> None:
+    vault_root = root / "source-vault"
+    expected = {
+        path.relative_to(root).as_posix()
+        for path in accounted_files
+    }
+    expected.add(registry_path.relative_to(root).as_posix())
+
+    readme = vault_root / "README.md"
+    if readme.exists():
+        expected.add(readme.relative_to(root).as_posix())
+
+    actual: set[str] = set()
+    for path in vault_root.rglob("*"):
+        if path.is_symlink():
+            raise VaultGateError(
+                "Source Vault must not contain symlinks: "
+                + path.relative_to(root).as_posix()
+            )
+        if path.is_file():
+            actual.add(path.relative_to(root).as_posix())
+
+    unregistered = sorted(actual - expected)
+    if unregistered:
+        raise VaultGateError(
+            "unregistered file under source-vault: " + unregistered[0]
+        )
+
+    missing = sorted(expected - actual)
+    if missing:
+        raise VaultGateError(
+            "accounted Source Vault file is missing: " + missing[0]
+        )
 
 
 def validate_registry(registry_path: Path) -> None:
@@ -262,6 +349,7 @@ def validate_registry(registry_path: Path) -> None:
         raise VaultGateError("Registry sources must be a list")
 
     seen: set[str] = set()
+    accounted_files: set[Path] = set()
     for source in sources:
         if not isinstance(source, dict):
             raise VaultGateError("Each source registry entry must be an object")
@@ -411,8 +499,9 @@ def validate_registry(registry_path: Path) -> None:
             raise VaultGateError(f"{source_id}: artifact byte_size mismatch")
         if sha256_file(artifact) != expected_hash:
             raise VaultGateError(f"{source_id}: artifact SHA-256 mismatch")
+        checksum_set_members: set[Path] = set()
         if artifact_kind == "sha256-set":
-            _validate_checksum_set(artifact, source_id)
+            checksum_set_members = _validate_checksum_set(artifact, source_id)
         if sha256_file(licence) != expected_licence_hash:
             raise VaultGateError(
                 f"{source_id}: licence snapshot SHA-256 mismatch"
@@ -469,6 +558,28 @@ def validate_registry(registry_path: Path) -> None:
             raise VaultGateError(
                 f"{source_id}: provenance does not match registry for {mismatched}"
             )
+
+        checksum_file = _validate_checksum_audit_file(
+            root,
+            artifact,
+            provenance,
+            source_id,
+        )
+        if artifact_kind != "file" and checksum_file is not None:
+            raise VaultGateError(
+                f"{source_id}: sha256-set artifact must not declare a second checksum_file"
+            )
+
+        accounted_files.update({artifact, licence, provenance_path})
+        accounted_files.update(checksum_set_members)
+        if checksum_file is not None:
+            if checksum_file in {artifact, licence, provenance_path}:
+                raise VaultGateError(
+                    f"{source_id}: checksum_file must be distinct from artifact/licence/provenance"
+                )
+            accounted_files.add(checksum_file)
+
+    _validate_vault_inventory(root, registry_path, accounted_files)
 
 
 if __name__ == "__main__":

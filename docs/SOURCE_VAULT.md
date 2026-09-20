@@ -31,6 +31,19 @@ Because this repository is project-controlled redistribution infrastructure, a p
 
 Acquisition tools that write into `source-vault/` must consult the registry **before making any network request**. A source in `awaiting-licence` is not capture-authorized. This prevents a review-only downloader from accidentally turning unresolved third-party rights into a public project-controlled mirror. The central vault gate independently rejects any `awaiting-licence` entry that already declares preserved snapshot bytes, and any source with `historical_snapshot_retention_status: unresolved` must remain `awaiting-licence`.
 
+## Closed-world inventory contract
+
+The vault is now validated as a **closed inventory**, not merely as a list of files the registry happens to mention. After per-source integrity checks, CI recursively inventories `source-vault/` and fails if it finds any unregistered file or any symlink.
+
+Accounted files are limited to:
+
+- the registry and the vault README;
+- each preserved source's registered artifact, licence snapshot and provenance;
+- members named by a validated `sha256-set` ledger;
+- an optional provenance-declared single-file `checksum_file`, which must live beside the artifact and exactly bind that artifact's SHA-256 and filename.
+
+This prevents unresolved/rejected sources, abandoned acquisition output, or accidental copied datasets from hiding bytes inside project-controlled Source Vault storage without passing the same licence, retention, provenance and checksum gates.
+
 ## Multi-file snapshot contract
 
 Some legally cleared sources are naturally a versioned set of files rather than one blob. Do not concatenate or rewrite those source bytes merely to satisfy the single-file gate.
