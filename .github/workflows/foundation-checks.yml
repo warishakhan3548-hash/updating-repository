@@ -1,0 +1,24 @@
+name: Foundation checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Source Vault gate
+        run: python tools/vault_gate.py source-vault/registry.json
+      - name: Foundation tests
+        run: python -m unittest discover -s tests -v
