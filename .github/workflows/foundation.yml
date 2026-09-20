@@ -29,5 +29,7 @@ jobs:
         run: python tools/validate_schemas.py
       - name: Quran search golden baseline
         run: python tools/quran_search_eval.py --assert-baseline
+      - name: One-edit Quran typo experiment
+        run: python tools/quran_search_one_edit_experiment.py --assert-experiment
       - name: Foundation unit tests
         run: python -m unittest discover -s tests -v
