@@ -294,49 +294,30 @@ class UserBackupTests(unittest.TestCase):
                 destination,
             )
 
-    def test_manifest_user_version_must_match_database(self):
-        source = self.make_v2()
-        valid = self.root / "valid.aarisbackup"
-        export_backup(
-            source,
-            valid,
-            created_at_utc="2026-09-21T00:10:00Z",
+    def test_legacy_v1_database_must_migrate_before_export(self):
+        legacy = self.root / "legacy.sqlite"
+        connection = sqlite3.connect(legacy)
+        connection.executescript(
+            (ROOT / "schemas" / "user_v1.sql").read_text(
+                encoding="utf-8"
+            )
         )
-        bad = self.root / "version-mismatch.aarisbackup"
-
-        with zipfile.ZipFile(
-            valid,
-            "r",
-        ) as original:
-            manifest = json.loads(
-                original.read(MANIFEST_ENTRY)
-            )
-            database = original.read(
-                DATABASE_ENTRY
-            )
-
-        manifest["database"][
-            "user_schema_version"
-        ] = 1
-
-        with zipfile.ZipFile(
-            bad,
-            "w",
-        ) as output:
-            output.writestr(
-                MANIFEST_ENTRY,
-                json.dumps(manifest),
-            )
-            output.writestr(
-                DATABASE_ENTRY,
-                database,
-            )
+        self.assertEqual(
+            0,
+            connection.execute(
+                "PRAGMA user_version"
+            ).fetchone()[0],
+        )
+        connection.close()
 
         with self.assertRaisesRegex(
             UserBackupError,
-            "user_version does not match",
+            "unsupported user schema version: 0",
         ):
-            inspect_backup(bad)
+            export_backup(
+                legacy,
+                self.root / "legacy.aarisbackup",
+            )
 
 
 if __name__ == "__main__":
