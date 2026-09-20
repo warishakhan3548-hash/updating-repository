@@ -33,6 +33,10 @@ For the Tanzil Quran pack, notice text is derived from comment lines in the exac
 - `reviewed`: technically/content reviewed.
 - `approved`: reserved for a pack whose cryptographic signature has actually been verified against a trusted project key.
 
-**Current fail-closed rule:** the repository does not yet contain the trusted-key cryptographic verifier required for an `approved` pack. Therefore `tools/pack_gate.py` rejects every `approved` manifest, even if it contains plausible-looking `algorithm`, `key_id`, and `value` fields. Mere field presence is not a signature check. Promotion remains blocked until a real verifier and key-rotation policy are implemented and tested.
+An `approved` pack additionally requires a positive signed `release_sequence` and a `signature` object using payload contract `aaris-pack-manifest-v1`. `tools/pack_signatures.py` verifies Ed25519 signatures against an immutable versioned trust root under `policy/trusted-pack-keys/`; only distinct active trusted keys count toward the configured threshold. The entire manifest except the top-level `signature` object is canonicalized and signed, so changing content identity, hashes, provenance, dependencies, review status or release sequence invalidates the signature.
 
-Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for rollback and reproducibility.
+**Current fail-closed rule:** cryptographic verification is implemented, but no production release public key has been provisioned. `root-v1.json` is an intentionally unsatisfiable bootstrap trust root with zero active keys. The current Quran pack therefore remains `candidate`/unsigned until an offline-managed release key is provisioned in a new immutable root version and an explicit review/signing ceremony is completed. Private signing keys must never be committed to the repository.
+
+A signed `release_sequence` makes rollback state tamper-evident, but future network-delivered updates still require the client to persist its highest accepted sequence and reject older signed packs. Remote pack updates remain out of scope until that client-side anti-rollback state exists. See `docs/TRUSTED_PACK_KEYS.md`.
+
+Content versions and trust-root versions are immutable. Stronger trust contracts use new versions rather than rewriting historical artifacts. Previous verified release packs remain available for rollback and reproducibility.
