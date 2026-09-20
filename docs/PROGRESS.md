@@ -55,7 +55,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0: `awaiting-licence`; its published republication conditions include staying updated to newer source versions, and immutable public redistribution of superseded historical snapshots is not yet clearly authorized. No bytes are captured while that question remains unresolved.
 - Quranic Arabic Corpus v0.4: `awaiting-licence` because official materials create a commercial-use/terms ambiguity.
 - QuranMorph (SinaLab/Birzeit, 2025): `awaiting-artifact`. Official catalogue licensing is materially clearer at CC BY 4.0, but the free-edition download is currently affiliation-gated; no exact bytes/version are mirrored, and the paper's 6,235-verse count still requires exact coordinate alignment against the 6,236-ayah Tanzil Evidence Plane.
-- HadeethEnc Arabic: official version check reports v1.7.0; still a research candidate pending exact artifact preservation plus edition/collection mapping and numbering provenance.
+- HadeethEnc Arabic v1.7.0: `awaiting-licence`. Official republication terms require downstream copies to track newer versions, but indefinite public retention of superseded immutable snapshots is not yet clearly authorized. No HadeethEnc bytes are mirrored; edition/collection/numbering provenance remains a separate later gate.
 - QUL resources: official morphology downloads expose word-location keyed lemma/root/stem data, but QUL's FAQ explicitly requires checking dataset-specific licensing for commercial use and the inspected morphology pages do not expose a dataset licence; no bytes are mirrored.
 - Quran Foundation API: not accepted as the permanent mirrored evidence foundation under current developer terms.
 
