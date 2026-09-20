@@ -108,6 +108,9 @@ void main() {
       );
       expect(find.text('Drotaverine'), findsOneWidget);
       expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
     },
   );
 }
