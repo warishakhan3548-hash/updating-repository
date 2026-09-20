@@ -31,11 +31,6 @@ void main() {
       controller,
       startImmediately: false,
     );
-    addTearDown(() {
-      autopilot.dispose();
-      controller.dispose();
-    });
-
     var opens = 0;
     await tester.pumpWidget(
       MaterialApp(
@@ -61,6 +56,11 @@ void main() {
     await tester.tap(all);
     await tester.pump();
     expect(opens, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    autopilot.dispose();
+    controller.dispose();
+    await tester.pump();
   });
 
   test('Text buttons use the app font instead of the default block font', () {

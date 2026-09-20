@@ -82,7 +82,11 @@ void main() {
       expect(find.text('8d'), findsNothing);
       expect(find.text('5 Days Left'), findsOneWidget);
       expect(find.text('8 Days Left'), findsNothing);
-      expect(find.byIcon(Icons.sync_rounded), findsOneWidget);
+      final selectorBusy = find.descendant(
+        of: find.byType(PopupMenuButton<int>).first,
+        matching: find.byIcon(Icons.sync_rounded),
+      );
+      expect(selectorBusy, findsOneWidget);
 
       storage.release();
       await tester.pumpAndSettle();
@@ -90,7 +94,7 @@ void main() {
       expect(controller.settings.shortDays, 5);
       expect(find.text('5d'), findsOneWidget);
       expect(find.text('5 Days Left'), findsOneWidget);
-      expect(find.byIcon(Icons.sync_rounded), findsNothing);
+      expect(selectorBusy, findsNothing);
     } finally {
       storage.release();
       autopilot.dispose();
