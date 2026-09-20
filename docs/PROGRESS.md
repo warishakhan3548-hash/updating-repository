@@ -27,6 +27,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - Ed25519 release-authenticity gate with deterministic signed-manifest bytes, content-derived key IDs, threshold policy, unauthorized/duplicate-key rejection, and project-controlled public trust-root storage;
 - release-key lifecycle policy with active/retired/revoked states and signed release-sequence validity windows, preserving historical verification without allowing retired/revoked keys to authorize future releases;
 - Android release builds delegate to the same authoritative pack gate instead of trusting signature-shaped metadata;
+- Android reader CI runs Android/Compose lint alongside JVM tests and debug assembly, so framework lint errors block integration rather than being left to manual IDE review;
 - trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
 
 ## Production Source Vault
