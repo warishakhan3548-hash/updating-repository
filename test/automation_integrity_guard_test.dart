@@ -176,6 +176,35 @@ void main() {
       );
       expect(archiveResult.records['b']!.archived, isTrue);
     });
+
+    test('note-only review does not scan unrelated inventory rows', () {
+      final a = _lot('a', expiry: '2027-01');
+      final b = _lot('b', expiry: '2027-02');
+      final changed = a.patch({'notes': 'Verified shelf label'});
+
+      final block = inventoryIntegrityMutationBlock(
+        before: _NoFullScanMap({a.id: a, b.id: b}),
+        after: _NoFullScanMap({changed.id: changed, b.id: b}),
+        touchedStockIds: <String>[a.id],
+        today: today,
+      );
+
+      expect(block, isNull);
+    });
+
+    test('unanchored quantity movement stays row-local', () {
+      final a = _lot('a', barcode: '', batch: '');
+      final changed = a.patch({'quantity': 11});
+
+      final block = inventoryIntegrityMutationBlock(
+        before: _NoFullScanMap({a.id: a}),
+        after: _NoFullScanMap({changed.id: changed}),
+        touchedStockIds: <String>[a.id],
+        today: today,
+      );
+
+      expect(block, isNull);
+    });
   });
 
   group('autonomous scanner identity firewall', () {
