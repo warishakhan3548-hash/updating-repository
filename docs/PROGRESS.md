@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader on the trusted read-only Reader Core boundary. The next data-foundation increment adds a source-faithful canonical Quran JSONL layer so long-lived semantic reproducibility does not depend on SQLite byte identity.
+Phase 0A–0C is executable and Phase 1 has a minimal offline Android reader on the trusted read-only Reader Core boundary. The source-faithful canonical Quran JSONL layer is now integrated, and the current trust increment adds real repository-side release-signature verification without prematurely enabling Android production activation.
 
 ## Completed
 
@@ -23,7 +23,10 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
 - GitHub Actions foundation checks and deterministic pack build workflow;
-- fail-closed release authenticity gate: `approved` packs are rejected until their cryptographic signatures can be verified against trusted project keys.
+- real Ed25519 trusted-key release verifier with deterministic domain-separated manifest payloads, signature thresholds, active/retired/revoked key states and signed release-sequence windows;
+- strict signed-JSON rules for cross-runtime parity: ASCII object keys, duplicate-key rejection, no floats and safe-range integers;
+- production trust root intentionally contains no release public key yet, so current candidates cannot become `approved`;
+- Android production activation remains fail-closed until device-side signature verification and persisted anti-rollback state exist.
 
 ## Production Source Vault
 
@@ -67,7 +70,7 @@ Candidate does not mean release-approved. Version 1.0.4 strengthens the runtime 
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The 1.0.4 publish workflow ran 44 tests successfully and passed the content-pack gate before pushing the generated pack. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
+Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The 1.0.4 publish workflow ran 44 tests successfully and passed the content-pack gate before pushing the generated pack. CI also rejects movable remote Action references, pins external Actions to full commit SHAs, exactly pins the release-verifier dependency, validates the trusted-key policy, and requires future generated-pack commits to revalidate signing policy, Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
 
 Schema-v2 Quran semantic regression coverage now tampers with Quran text and SQLite schema, recomputes the runtime artifact SHA-256, and requires promotion to fail. Recomputing `built_sha256` after changing Quran text or SQLite schema does not make the pack valid.
 
@@ -77,12 +80,13 @@ No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device te
 
 ## Next safe milestones
 
-1. Implement and test the trusted-key content-pack signature verifier (canonical signed payload, key IDs/rotation and rollback metadata), then review/sign/promote the Quran core pack.
-2. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
-3. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
-4. Resolve QAC licensing or choose a legally clearer morphology source.
-5. Preserve an edition-aware Hadith source before production Hadith search.
-6. Add an independent backup/archive for critical Source Vault artifacts.
+1. Conduct an offline production release-key ceremony, enroll only reviewed public key material, and create a **new immutable** signed Quran candidate; do not rewrite an existing candidate merely to add a signature.
+2. Implement the same signature contract plus highest-accepted-`release_sequence` persistence, atomic activation and explicit recovery on Android before enabling release builds.
+3. Complete accessibility/device validation for the minimal reader and connect future word taps only to provenance-backed linguistic evidence.
+4. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
+5. Resolve QAC licensing or choose a legally clearer morphology source.
+6. Preserve an edition-aware Hadith source before production Hadith search.
+7. Add an independent backup/archive for critical Source Vault artifacts.
 
 One-shot acquisition/backfill workflows are removed after successful promotion of their outputs; provenance and Git history retain the audit trail.
 
