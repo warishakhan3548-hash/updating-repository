@@ -7,11 +7,14 @@
     "require_licence_snapshot": true,
     "require_project_controlled_artifact": true,
     "forbid_runtime_upstream_download": true,
-    "forbid_unknown_licence_in_release": true
+    "forbid_unknown_licence_in_release": true,
+    "require_commercial_use_allowed": true
   },
   "commercial_build": {
     "unknown_licence": "fail",
     "redistribution_false": "fail",
-    "source_specific_terms": "manual-review"
+    "source_specific_terms": "manual-review",
+    "commercial_use_unknown": "fail",
+    "commercial_use_false": "fail"
   }
 }

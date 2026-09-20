@@ -109,8 +109,14 @@ The fallback is query/search-lane logic only: it never rewrites `original_text`,
 
 This keeps source truth and search convenience separate while improving recall for common keyboard/script variation without introducing a heavyweight search dependency or silently broadening confidence.
 
+## ADR-022 — Commercial-use permission is an independent release gate
 
-## ADR-022 — Search golden sets are immutable versioned contracts
+Redistribution permission does not imply permission to ship content in a commercial build. The Source Vault registry records `commercial_use_allowed` separately from redistribution, modification and attribution requirements. A source may remain useful for research with a false or unknown commercial-use value, but it cannot be `production-approved` or feed a runtime pack unless commercial use is explicitly verified as allowed.
+
+The gate is deliberately enforced twice: Source Vault validation blocks an invalid production classification, and the runtime pack gate independently rejects a production source whose commercial-use permission is not true. Historical provenance files and runtime packs are not rewritten merely to backfill this new review dimension; the immutable archived licence snapshot remains the legal evidence, while the current registry records the reviewed release decision.
+
+
+## ADR-023 — Search golden sets are immutable versioned contracts
 
 A labelled retrieval benchmark is part of the product's reproducibility record. Once a golden-set version has been used to define a supported retrieval floor, changing its relevance judgments, required metrics or runtime interpretation creates a new golden-set version instead of silently replacing the old file's meaning.
 

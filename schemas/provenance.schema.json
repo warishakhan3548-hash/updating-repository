@@ -25,6 +25,7 @@
     "byte_size": {"type": "integer", "minimum": 1},
     "licence_id": {"type": "string", "minLength": 1},
     "redistribution_allowed": {"type": "boolean"},
+    "commercial_use_allowed": {"type": ["boolean", "null"]},
     "modification_allowed": {"type": ["boolean", "null"]},
     "attribution": {"type": ["string", "null"]},
     "known_restrictions": {"type": "array", "items": {"type": "string"}},

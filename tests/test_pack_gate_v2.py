@@ -44,6 +44,7 @@ class PackGateV2Tests(unittest.TestCase):
                     "status": "production-approved",
                     "licence_id": "Example-License",
                     "redistribution_allowed": True,
+                    "commercial_use_allowed": True,
                     "attribution_required": True,
                     "vault_artifact": "source-vault/quran/example/2.0/raw.txt",
                     "licence_snapshot": "source-vault/quran/example/2.0/LICENSE.txt",
