@@ -103,7 +103,47 @@
       }
     },
     "signature": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "unsigned",
+            "signed"
+          ]
+        },
+        "payload_format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signatures": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "algorithm",
+              "key_id",
+              "value"
+            ],
+            "properties": {
+              "algorithm": {
+                "type": "string",
+                "minLength": 1
+              },
+              "key_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
     },
     "notice_path": {
       "type": "string",
@@ -220,6 +260,10 @@
     "byte_reproducibility_scope": {
       "type": "string",
       "minLength": 1
+    },
+    "release_sequence": {
+      "type": "integer",
+      "minimum": 1
     }
   },
   "dependentRequired": {
