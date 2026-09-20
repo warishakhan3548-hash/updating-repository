@@ -1,0 +1,63 @@
+name: Android reader checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'content-packs/quran-core/1.0.3/**'
+      - 'tests/test_android_reader_contract.py'
+      - '.github/workflows/android-reader.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'content-packs/quran-core/1.0.3/**'
+      - 'tests/test_android_reader_contract.py'
+      - '.github/workflows/android-reader.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-reader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Verify embedded pack contract
+        run: python -m unittest discover -s tests -p 'test_android_reader_contract.py' -v
+
+      - name: Recheck evidence pack gate
+        run: |
+          python tools/vault_gate.py source-vault/registry.json
+          python tools/pack_gate.py source-vault/registry.json content-packs/quran-core/1.0.3/manifest.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 37
+        run: sdkmanager 'platforms;android-37' 'build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Compile, test and assemble reader
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
