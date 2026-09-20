@@ -303,8 +303,7 @@ def validate_registry(registry_path: Path) -> None:
                 "project-controlled snapshot bytes"
             )
         if (
-            retention_status is not None
-            and retention_status != "verified-allowed"
+            retention_status == "verified-not-allowed"
             and snapshot_fields_present
         ):
             raise VaultGateError(
