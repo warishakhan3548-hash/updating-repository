@@ -100,3 +100,12 @@ After a source has independently cleared the licence/archival gate, an inherentl
 The root artifact is a project-owned checksum ledger whose own SHA-256 and byte size are recorded in the registry. Every ledger member must use one canonical relative POSIX path, remain inside the same immutable snapshot directory and match its recorded SHA-256. Absolute/traversal paths, non-canonical path spellings, symlinked ledgers or members, duplicate members and self-reference fail closed.
 
 This is a preservation-integrity primitive, not a licence or promotion shortcut. Runtime builders still require `production-approved`, verified redistribution and historical-retention rights, licence/provenance binding, applicable release-time source requirements and all existing pack gates. Source-specific validators remain responsible for semantic invariants such as Quran/Hadith coordinates, editions and record shape.
+
+
+## ADR-021 — Historical-retention permission gates every preserved source
+
+Redistribution permission and permission to keep an immutable historical copy are separate assertions. The Source Vault therefore requires explicit `historical_snapshot_retention_status=verified-allowed` before a source may enter `awaiting-artifact`, before any source bytes may be registered as preserved, and before a source may be `production-approved`.
+
+The existing `release_requirements` object now represents both archival-retention review and any release-time freshness obligation. `latest_upstream_version_required` is a boolean: a source such as Tanzil may permit durable historical redistribution without requiring every release to use upstream latest, while a source such as QuranEnc may impose a latest-version obligation and still remain blocked because historical retention is unresolved.
+
+Release/freshness policy is intentionally not copied into immutable acquisition provenance. Provenance records what exact artifact was obtained, from where, when, under which archived terms and hashes. The registry records the current legal/release interpretation, while an approved pack that is legally required to track upstream latest carries a separately signed `source_release_review`. This keeps evidence bytes reproducible without freezing a mutable compliance judgment into source identity.
