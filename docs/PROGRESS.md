@@ -23,7 +23,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
 - GitHub Actions foundation checks and deterministic pack build workflow;
-- fail-closed release authenticity gate: `approved` packs are rejected until their cryptographic signatures can be verified against trusted project keys.
+- trusted-key release authenticity gate using ECDSA P-256/SHA-256, whole-manifest authentication, threshold/scoped public-key policy, signed release sequences, and adversarial verification tests; the production key policy remains intentionally empty so approval still fails closed.
 
 ## Production Source Vault
 
@@ -77,7 +77,7 @@ No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device te
 
 ## Next safe milestones
 
-1. Implement and test the trusted-key content-pack signature verifier (canonical signed payload, key IDs/rotation and rollback metadata), then review/sign/promote the Quran core pack.
+1. Perform an explicit offline release-key ceremony, enroll only the reviewed public key/fingerprint, complete content review, and publish a **new immutable** signed Quran-core version; do not rewrite the existing candidate.
 2. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
 3. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
 4. Resolve QAC licensing or choose a legally clearer morphology source.
