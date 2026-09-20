@@ -46,8 +46,12 @@ Historical schema-v1/v2 packs remain immutable and verifiable under their own co
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: reserved for a pack whose cryptographic signature has actually been verified against a trusted project key.
+- `approved`: source/provenance and applicable semantic gates passed, then the configured Ed25519 signature threshold verified.
 
-**Current fail-closed rule:** the repository does not yet contain the trusted-key cryptographic verifier required for an `approved` pack. Therefore `tools/pack_gate.py` rejects every `approved` manifest, even if it contains plausible-looking `algorithm`, `key_id`, and `value` fields. Mere field presence is not a signature check. Promotion remains blocked until a real verifier and key-rotation policy are implemented and tested.
+For `approved`, `tools/pack_gate.py` delegates to `tools/pack_signing.py` only after ordinary integrity and Quran semantic-fidelity checks pass. The manifest must contain a positive signed `release_sequence`, payload format `aaris-pack-json-v1`, and enough valid signatures from non-revoked keys in `policy/trusted_pack_keys.json` to meet `signature_threshold`.
+
+The production key policy intentionally contains no public release keys today. Therefore no current pack can become `approved`, and signature-shaped strings alone never pass. Private release keys stay outside Git; see `docs/PACK_SIGNING.md` for payload canonicalization, key lifecycle and rollback metadata.
+
+A signed `release_sequence` authenticates ordering metadata, but future network-delivered activation must also persist the highest accepted sequence on each device. Repository verification does not pretend to provide device-side rollback memory.
 
 Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for rollback and reproducibility.
