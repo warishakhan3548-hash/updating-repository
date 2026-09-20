@@ -46,8 +46,10 @@ Historical schema-v1/v2 packs remain immutable and verifiable under their own co
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: reserved for a pack whose cryptographic signature has actually been verified against a trusted project key.
+- `approved`: source/provenance, runtime integrity, applicable sacred-content semantic checks, and the configured trusted-key signature threshold have all passed.
 
-**Current fail-closed rule:** the repository does not yet contain the trusted-key cryptographic verifier required for an `approved` pack. Therefore `tools/pack_gate.py` rejects every `approved` manifest, even if it contains plausible-looking `algorithm`, `key_id`, and `value` fields. Mere field presence is not a signature check. Promotion remains blocked until a real verifier and key-rotation policy are implemented and tested.
+An `approved` manifest must carry a positive cross-runtime-safe `release_sequence` inside the signed payload plus one or more Ed25519 signatures using payload format `aaris-pack-json-v1`. `tools/pack_gate.py` verifies Quran semantic fidelity **before** release authorization and then verifies signatures against `policy/trusted_pack_keys.json`. Signature-shaped strings, unknown keys, revoked keys, out-of-window retired keys, duplicate JSON fields, and insufficient thresholds fail closed.
+
+The production key policy intentionally contains no release public key yet, so no current candidate can become `approved`. A reviewed public key must be enrolled after an offline key ceremony, and an already-published candidate is never rewritten in place merely to add a signature. See `PACK_SIGNING.md`.
 
 Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for rollback and reproducibility.
