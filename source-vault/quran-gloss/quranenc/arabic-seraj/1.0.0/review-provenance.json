@@ -1,0 +1,27 @@
+{
+  "attribution_required": true,
+  "byte_size": 62974,
+  "capture_checksums": "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/sha256.txt",
+  "capture_provenance": "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/provenance.json",
+  "capture_provenance_sha256": "a34107eb5edc90122bbdfcb5906639e69d19f5cf3a038e08e66709c510132b82",
+  "capture_status": "captured-unreviewed",
+  "licence_id": "quranenc-republication-terms",
+  "licence_snapshot": "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/LICENSE_SOURCE.html",
+  "modification_allowed": false,
+  "notes": "Registry overlay only. The original capture provenance and source bytes remain unchanged. Production use remains blocked until historical-retention permission and latest-version review requirements are cleared.",
+  "original_url": "https://quranenc.com/en/browse/arabic_seraj",
+  "project_mirror": "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/raw/api-snapshot-manifest.json",
+  "redistribution_allowed": true,
+  "release_requirements": {
+    "historical_snapshot_retention_status": "unresolved",
+    "latest_upstream_version_required": true,
+    "version_check_url": "https://quranenc.com/api/v1/translations/list/ar?localization=en"
+  },
+  "retrieved_at": "2026-09-20T18:41:05Z",
+  "review_status": "legal-retention-unresolved",
+  "schema_version": 1,
+  "sha256": "8cbc4f5f41298e438f7862fff1eba309ffdab254ca240257bd5b652631f2396c",
+  "source_id": "quran-gloss.quranenc.arabic-seraj.v1.0.0",
+  "source_name": "QuranEnc Arabic Language - Meanings of Words (As-Siraj fi Bayan Gharib Al-Quran)",
+  "version": "1.0.0"
+}
