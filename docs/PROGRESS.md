@@ -1,4 +1,4 @@
-# Progress — 2026-09-20
+# Progress — 2026-09-21
 
 ## Current phase
 
@@ -10,6 +10,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - Source Vault registry, licence firewall, provenance checks and immutable-source policy;
 - app-owned canonical IDs and canonical SQLite content/user schemas;
 - Evidence Plane update/delete protection and append-only learning-event history;
+- versioned `user.sqlite` schema v2 plus a conservative v1→v2 migration that preserves append-only history, canonicalizes only exact Again/Hard/Good/Easy review grades, records scheduler/context metadata for new reviews, and keeps scheduler state rebuildable;
 - edition-aware Hadith/grade data model and multi-lane search architecture with abstention;
 - AI trust boundary, evidence-export/verify-back design and pack-manifest gate;
 - exact Tanzil Quran Text v1.1 Uthmani snapshot preserved under project control;
@@ -22,6 +23,8 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - schema-v2 Quran promotion independently verifies Source Vault semantic fidelity: canonical SQLite schema, source assertions/metadata, all 6,236 display rows, recomputed search lanes, and absence of undeclared morphology/Hadith evidence;
 - read-only Reader Core with stable `QuranCoordinate` navigation, production pack-approval guard, source-faithful `original_text` projection, and ephemeral UI tap anchors that never become canonical TokenIDs;
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
+- strict local ayah-level Quran search over the existing provenance-bound Unicode/diacritic-free lanes, version-locked to `arabic-search-v1`, with source-faithful result rendering, query cancellation/debounce and explicit zero-result abstention;
+- versioned `quran-search-golden-v1` evaluation set plus deterministic host evaluator for Recall@5/10, MRR, NDCG@10, negative false-positive rate and zero-result rate; CI protects the strict engine's supported exact/no-harakat/partial retrieval floor without pretending typo/fuzzy retrieval is already solved;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
 - GitHub Actions foundation checks and deterministic pack build workflow;
 - Ed25519 release-authenticity gate with deterministic signed-manifest bytes, content-derived key IDs, threshold policy, unauthorized/duplicate-key rejection, and project-controlled public trust-root storage;
@@ -32,6 +35,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - project-owned offline signer for encrypted out-of-repository PKCS#8 Ed25519 keys, public-key/key-ID inspection, active-role and sequence-window enforcement, additive threshold signatures, cryptographic self-check, and create-only signed-manifest output;
 - trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
 - primary-source audit identified QuranEnc `arabic_seraj` v1.0.0 as a promising verse-scoped difficult-word gloss source and defined a fail-closed gloss bridge that does not fabricate morphology or lexical IDs; source remains `awaiting-artifact`.
+- one-shot `tools/capture_quranenc_gloss.py` acquisition gate now pins QuranEnc `arabic_seraj` v1.0.0, preserves exact pre/post metadata + 114 Surah response byte streams + official terms, validates the complete 6,236-coordinate shape, rejects source drift/off-host redirects/partial capture/overwrite, and emits deterministic review-only snapshot metadata; it is not a normal-build dependency and does not promote the registry.
 
 ## Production Source Vault
 
@@ -47,7 +51,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 ### Still blocked from production
 
-- QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0: exact 114-Surah / 6,236-ayah API response bytes plus official index/source/terms pages have now been captured on the review branch under `source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/`. The candidate remains **non-production**: QuranEnc's requirement to update republished content to the latest issued version needs explicit review against this project's permanent immutable historical-archive policy before registry promotion.
+- QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0: `awaiting-artifact`; official version/republication terms are promising, but exact content and applicable terms bytes have not yet been preserved under project control.
 - Quranic Arabic Corpus v0.4: `awaiting-licence` because official materials create a commercial-use/terms ambiguity.
 - QuranMorph (SinaLab/Birzeit, 2025): `awaiting-artifact`. Official catalogue licensing is materially clearer at CC BY 4.0, but the free-edition download is currently affiliation-gated; no exact bytes/version are mirrored, and the paper's 6,235-verse count still requires exact coordinate alignment against the 6,236-ayah Tanzil Evidence Plane.
 - HadeethEnc Arabic: official version check reports v1.7.0; still a research candidate pending exact artifact preservation plus edition/collection mapping and numbering provenance.
@@ -80,20 +84,20 @@ Candidate does not mean release-approved. Version 1.1.0 adds the source-faithful
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2/v3 manifest binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, deterministic canonical/runtime generation, strict duplicate-free cross-runtime signed-JSON rules, threshold Ed25519 approval, and signed release ordering. The historical 1.0.4 publisher passed its release gate, and the schema-v3 publisher subsequently built, revalidated and pushed quran-core 1.1.0 from the exact main tree. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
+Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2/v3 manifest binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas including user-v2 migration coverage, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, deterministic canonical/runtime generation, strict duplicate-free cross-runtime signed-JSON rules, threshold Ed25519 approval, and signed release ordering. The historical 1.0.4 publisher passed its release gate, and the schema-v3 publisher subsequently built, revalidated and pushed quran-core 1.1.0 from the exact main tree. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
 
 Schema-v2 Quran semantic regression coverage now tampers with Quran text and SQLite schema, recomputes the runtime artifact SHA-256, and requires promotion to fail. Recomputing `built_sha256` after changing Quran text or SQLite schema does not make the pack valid.
 
-Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows. Signing regression coverage verifies valid Ed25519 approval, post-signing tamper failure, unauthorized/duplicate keys, signed release ordering, retired-key historical windows, revoked-key rejection, active-threshold viability, malformed/bootstrap trust roots, strict JSON/domain separation, and Android release delegation to the authoritative pack gate.
+Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows. Android JVM coverage also locks representative `arabic-search-v1` query-normalization vectors while the search UI remains fail-closed on normalization-version mismatch. Signing regression coverage verifies valid Ed25519 approval, post-signing tamper failure, unauthorized/duplicate keys, signed release ordering, retired-key historical windows, revoked-key rejection, active-threshold viability, malformed/bootstrap trust roots, strict JSON/domain separation, and Android release delegation to the authoritative pack gate.
 
-No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
+Quran search now has an executable host-side golden benchmark. Its host SQLite latency is diagnostic only and is not presented as low-end Android performance. No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly. The learning-ledger change establishes durable inputs only; it does not claim that FSRS retention quality has been measured.
 
 ## Next safe milestones
 
 1. Perform the real offline release-key custody ceremony using the audited signer workflow: generate the key on a trusted offline machine, make an independent encrypted backup, separately review/activate only its public trust material, then create/review/sign a new immutable Quran-core production candidate. No production key has been generated by this repository or CI.
 2. Add freshness/expiry metadata, explicit recovery behavior and a reviewed on-device signature verifier before enabling any automatic remote content-update channel; bundled-release highest-sequence persistence is now implemented.
 3. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
-4. Preserve the exact QuranEnc Arabic Meanings of Words v1.0.0 source/terms snapshot, validate it, and only then prototype the verse-scoped gloss pack; do not infer morphology or lexical IDs from it or from AI.
+4. Run the reviewed one-shot QuranEnc Arabic Meanings of Words v1.0.0 capture on a trusted network-enabled environment, inspect the exact source/terms snapshot and checksums, promote it only in a separate reviewed registry change, and only then prototype the verse-scoped gloss pack; do not infer morphology or lexical IDs from it or from AI.
 5. Obtain QuranMorph through an authorized publisher path and verify its exact artifact, licence snapshot, checksum, and 6,236-ayah coordinate alignment; keep QAC/QUL blocked unless their own gates clear. Preserve an edition-aware Hadith source before production Hadith search.
 6. Add an independent backup/archive for critical Source Vault artifacts and trust-root history.
 
