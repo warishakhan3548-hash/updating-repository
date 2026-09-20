@@ -8,7 +8,7 @@ This repository builds trust and reproducibility before UI breadth. Critical ext
 
 ## Current phase
 
-Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. The deterministic Quran core builder is the bridge into early Phase 1.
+Phase 0A–0C is operational, the first Quran evidence source has passed the production Source Vault gate, and a minimal offline Android reader exists over the read-only Quran core. A deterministic canonical Quran JSONL layer now sits between preserved source bytes and future schema-v3 runtime packs.
 
 **Production-approved today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
 
@@ -29,15 +29,17 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 
 `tools/quran_core.py` validates the pinned Tanzil artifact and the complete 114-surah / 6,236-ayah coordinate sequence while keeping original display text separate from derived search normalization.
 
-`tools/build_quran_core.py` deterministically builds the current `quran-core` 1.0.4 candidate under `content-packs/` using provenance-bound manifest schema v2, including SQLite content, manifest and the source-derived Tanzil attribution notice. The pack contains 6,236 ayahs, keeps display Arabic separate from search-normalized lanes, and remains unsigned/candidate until release review and signing. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
+The published `quran-core` 1.0.4 candidate remains immutable under provenance-bound manifest schema v2. The current builder can also generate the next schema-v3 pack through the canonical JSONL layer; runtime SQLite never replaces the preserved Source Vault or canonical evidence artifact. Every Quran pack keeps display Arabic separate from search-normalized lanes.
 
-The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.
+The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source. Approved packs additionally require real Ed25519 verification against the project trusted-public-key policy; that policy intentionally contains no production key yet, so no unsigned candidate is cosmetically promoted.
 
 ## Validation
 
 The main branch runs:
 
 ```bash
+python -m pip install --disable-pip-version-check -r requirements-foundation.txt
+python tools/pack_signing.py policy/trusted_pack_keys.json
 python tools/vault_gate.py source-vault/registry.json
 python tools/pack_gate.py source-vault/registry.json
 python tools/validate_schemas.py

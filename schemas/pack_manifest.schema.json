@@ -220,6 +220,10 @@
     "byte_reproducibility_scope": {
       "type": "string",
       "minLength": 1
+    },
+    "release_sequence": {
+      "type": "integer",
+      "minimum": 1
     }
   },
   "dependentRequired": {
@@ -275,6 +279,23 @@
           "canonical",
           "build_toolchain",
           "byte_reproducibility_scope"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "const": "approved"
+          }
+        },
+        "required": [
+          "review_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "release_sequence"
         ]
       }
     }

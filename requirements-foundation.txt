@@ -1,0 +1,3 @@
+# Build/security dependency only; never a Quran/Hadith evidence source.
+# Exact version pin keeps CI behavior stable while the verifier interface remains replaceable.
+cryptography==50.0.1

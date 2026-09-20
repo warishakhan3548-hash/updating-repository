@@ -13,10 +13,12 @@ Before activation:
 7. atomically switch the active-pack pointer;
 8. retain the prior verified pack for rollback.
 
-The design follows TUF principles—trusted metadata, freshness, integrity and rollback resistance—without importing unnecessary machinery before real update distribution exists.
+The design follows TUF principles—trusted metadata, integrity and rollback resistance—without importing unnecessary machinery before real update distribution exists.
 
 ## Current implementation status
 
-Hash and provenance validation are implemented, but trusted-key cryptographic signature verification is not yet implemented. Therefore the content-pack gate deliberately rejects every manifest marked `approved`, even when signature-shaped fields are present. This prevents unsigned or fake-signed content from crossing the production Reader activation boundary.
+Source Vault, licence/provenance, runtime hash/size, canonical-binding and importer-independent Quran semantic validation run before trusted-key Ed25519 signature verification. An `approved` manifest must carry a positive signed `release_sequence` and satisfy `signature_threshold` in `policy/trusted_pack_keys.json`. See `PACK_SIGNING.md`.
 
-The next signing milestone must define the signed payload/canonicalization, trusted public-key storage, key IDs and rotation, verification algorithm, rollback metadata, and regression tests before any pack may be promoted to `approved`.
+The trusted-key policy currently contains **no production public keys**, so no pack can yet become `approved`. A production private key must be generated and protected outside Git; only its reviewed public key may be enrolled.
+
+Device-side persistence of the highest accepted `release_sequence`, atomic activation and explicit recovery handling remain future runtime work. The repository gate authenticates rollback-ordering metadata but does not pretend to provide per-device rollback protection.

@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader on the trusted read-only Reader Core boundary. The next data-foundation increment adds a source-faithful canonical Quran JSONL layer so long-lived semantic reproducibility does not depend on SQLite byte identity.
+Phase 0A–0C is executable and Phase 1 has a minimal offline Android reader on the trusted read-only Reader Core boundary. The source-faithful canonical Quran JSONL layer is now integrated, and the release gate is being hardened with real trusted-key signature verification without promoting any unsigned pack.
 
 ## Completed
 
@@ -23,7 +23,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
 - GitHub Actions foundation checks and deterministic pack build workflow;
-- fail-closed release authenticity gate: `approved` packs are rejected until their cryptographic signatures can be verified against trusted project keys.
+- trusted release authenticity gate: `approved` packs require real Ed25519 verification against a project-controlled threshold key policy; the production key registry remains intentionally empty, so unsigned or fake-signed packs still fail closed.
 
 ## Production Source Vault
 
@@ -77,7 +77,7 @@ No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device te
 
 ## Next safe milestones
 
-1. Implement and test the trusted-key content-pack signature verifier (canonical signed payload, key IDs/rotation and rollback metadata), then review/sign/promote the Quran core pack.
+1. Perform a reviewed offline release-key ceremony, enroll only the public key, create a new immutable signed Quran-core candidate, and add device-side highest-sequence persistence before remote content activation is allowed.
 2. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
 3. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
 4. Resolve QAC licensing or choose a legally clearer morphology source.
@@ -89,4 +89,4 @@ One-shot acquisition/backfill workflows are removed after successful promotion o
 
 ### Canonical v3 integration status
 
-The integration branch introduces manifest schema v3 and a deterministic `canonical/quran-core/1.0.0/ayahs.jsonl` build step. It preserves schema-v2 verification for the current published 1.0.4 candidate. The intended next generated runtime candidate is `quran-core 1.1.0`; this document does not claim that artifact is published until the protected main workflow actually builds, validates, commits, and pushes it.
+Manifest schema v3 and the deterministic `canonical/quran-core/1.0.0/ayahs.jsonl` build step are integrated on main. Schema-v2 verification remains supported for the current published 1.0.4 candidate. The intended next generated runtime candidate is `quran-core 1.1.0`; this document does not claim that artifact is published until the protected main workflow builds, validates, commits and pushes it.
