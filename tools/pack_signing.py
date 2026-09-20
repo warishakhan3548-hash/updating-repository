@@ -26,11 +26,16 @@ class PackSignatureError(RuntimeError):
 
 
 def _json_string(value: str) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise PackSignatureError(
+            "signed manifest strings must contain valid Unicode scalar values"
+        ) from exc
 
 
 def _canonical_json(value: Any) -> bytes:
