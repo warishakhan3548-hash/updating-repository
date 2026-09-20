@@ -33,11 +33,15 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 
 The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.
 
+Approved content packs now require real Ed25519 verification against the project trusted public-key policy. No production release key is enrolled yet, so `quran-core 1.0.4` remains an unsigned candidate rather than being cosmetically promoted.
+
 ## Validation
 
 The main branch runs:
 
 ```bash
+python -m pip install --disable-pip-version-check -r requirements-foundation.txt
+python tools/pack_signing.py policy/trusted_pack_keys.json
 python tools/vault_gate.py source-vault/registry.json
 python tools/pack_gate.py source-vault/registry.json
 python tools/validate_schemas.py
