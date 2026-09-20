@@ -9,7 +9,7 @@ The screen only:
 1. opens the already-built `quran-core` pack locally;
 2. renders `quran_ayah.original_text`;
 3. navigates Surahs with obvious previous/next controls plus a direct 1–114 chooser;
-4. performs UI-only tap hit testing for future verified word details.
+4. keeps word help unavailable until provenance-backed word-level content is installed and an equivalent accessible action can ship with touch.
 
 There is no network permission, account, analytics SDK, translation guess, morphology guess, or AI call.
 
@@ -31,15 +31,19 @@ Runtime also rejects a manifest that was not marked release-ready at build time.
 
 Only `ayah_id`, `surah`, `ayah`, and `original_text` enter the UI model. Search-normalized columns do not.
 
-## Tap boundary
+## Word-help boundary
 
-`SurfaceTapAnchorResolver` mirrors the existing Reader Core's ephemeral `ui-surface:` contract. It returns display-character offsets only. It does not create or persist TokenID, LexemeID, lemma, root, sense, grammar, or meaning.
+The low-level Reader Core may retain non-canonical span utilities for future verified content, but the Android reader currently exposes no word-tap gesture or placeholder word-detail panel.
 
-Until a legally preserved word-level source passes the Source Vault gate, authoritative word details remain withheld.
+Until a legally preserved word-level source passes the Source Vault gate, authoritative TokenID, lemma, root, sense, grammar and meaning details remain withheld. When word help is enabled, the same action must be reachable through accessibility focus/custom actions as well as touch.
 
 ## Accessibility
 
-Primary navigation controls have at least 48dp interactive height. The current Surah label is also an obvious button that opens a dismissible 1–114 chooser, avoiding dozens of repeated taps without introducing unverified Surah-name content. Quran text uses content-driven RTL direction, each ayah has a screen-reader description with its coordinate, safe drawing insets are respected, and navigation never depends on a gesture.
+Primary navigation controls have at least 48dp interactive height. The current Surah label is also an obvious button that opens a dismissible 1–114 chooser, avoiding dozens of repeated taps without introducing unverified Surah-name content. Quran text uses content-driven RTL direction and `sp` typography, each ayah has a screen-reader description with its coordinate, safe drawing insets are respected, and navigation never depends on a gesture.
+
+The Quran title and Surah chooser title are semantic headings. Loading/search progress indicators expose contextual labels. Completed load/search errors carry Compose error semantics and polite live-region announcements; the completed no-result state is also polite. Approximate spelling matches remain visibly labelled and expose the same status semantically. Transient search/loading updates are not assertive live regions.
+
+These are code-level accessibility contracts, not a claim of device conformance. TalkBack, Switch Access, large-font/reflow and representative-device validation remain required.
 
 ## Build toolchain
 
