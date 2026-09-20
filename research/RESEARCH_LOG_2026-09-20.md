@@ -65,3 +65,15 @@ The research now converges on four durable choices: immutable source/display dat
 | type | claim | source | confidence | product implication |
 | --- | --- | --- | --- | --- |
 | fact | SQLite stores file-level structural/version metadata such as the file change counter and the SQLite version that most recently modified the database. A runtime SQLite SHA-256 identifies exact file bytes but does not by itself prove semantic fidelity to an external preserved source. | https://sqlite.org/fileformat.html | high | Keep byte-integrity checking, but independently compare schema and Quran evidence rows/search lanes back to the pinned Source Vault before promotion. |
+
+
+## Release-authentication research update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | The current TUF specification published by the project is v1.0.33. TUF root metadata assigns trusted keys and signature thresholds to roles; timestamp/snapshot metadata contributes freshness and rollback/freeze resistance. | https://theupdateframework.io/specification/latest/ and https://theupdateframework.io/docs/metadata/ and https://theupdateframework.io/docs/security/ | high | Keep release trust separate from file hashes, support threshold/rotation semantics, and persist anti-rollback state on clients before network distribution. |
+| fact | RFC 8032 specifies Ed25519 and includes public verification test vectors; an Ed25519 public key is 32 octets and a signature is 64 octets. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Use standard Ed25519 verification and RFC test vectors; do not invent signature mathematics. |
+| fact | RFC 8785 exists because cryptographic operations over JSON need invariant representations and requires JSON data suitable for deterministic canonicalization, including unique object property names. | https://www.rfc-editor.org/rfc/rfc8785.html | high | Define exact signing bytes and reject ambiguous duplicate fields. The project deliberately uses a smaller ASCII-key/no-float/safe-integer format rather than claiming full JCS compliance. |
+| fact | PyCA `cryptography` 50.0.1 was released 2026-08-25 and its official API provides Ed25519 public-key verification. | https://pypi.org/project/cryptography/ and https://cryptography.io/en/latest/hazmat/primitives/asymmetric/ed25519/ | high | Pin 50.0.1 exactly in foundation CI and keep the library behind a project-owned verifier contract. |
+| finding | The pre-existing workflow pin test used over-escaped regular expressions, so it could fail to detect movable `uses:` references even though the intended policy was correct. | repository audit | high | Correct the regex and retain regression coverage so trusted evidence builds really enforce immutable Action pins. |
+| design | Repository publication authenticates a signed `release_sequence`, while Android remains blocked until it independently verifies the manifest and persists the highest accepted sequence. | project architecture synthesis | high | Do not confuse server/build authorization with device rollback protection; both are required before production activation. |
