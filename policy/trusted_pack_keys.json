@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "signature_threshold": 1,
+  "keys": [],
+  "notes": "No production release key is enrolled yet. Private keys must never be committed. Reviewed Ed25519 public keys require release-sequence bounds; retired keys must have a finite historical maximum and revoked keys never verify."
+}
