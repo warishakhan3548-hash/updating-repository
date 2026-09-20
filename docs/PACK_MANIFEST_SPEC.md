@@ -91,3 +91,5 @@ Some redistributable sources impose obligations that can change release eligibil
 ```
 
 The pack gate validates this object against the Source Vault registry and the exact archived licence hash. Candidate/reviewed packs remain reproducible without a live upstream check; the attestation is required only for release approval. Since the manifest signature covers every top-level field except `signature`, the release review cannot be changed after signing without invalidating the signature.
+
+A `source_release_review` never overrides Source Vault retention eligibility. If the source's `historical_snapshot_retention_status` is not `verified-allowed`, the source itself is not eligible for production promotion and no signed pack review can make it releasable.

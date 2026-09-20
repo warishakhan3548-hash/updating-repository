@@ -74,3 +74,7 @@ That creates two distinct invariants:
 2. **Release-eligibility invariant:** before approving a newly distributed pack from a source with a latest-version condition, explicitly verify the official upstream version and bind that review into the signed pack manifest.
 
 The implementation records this as `release_requirements` on the Source Vault entry and `source_release_review` on an approved pack. It intentionally does not make normal builds query QuranEnc, does not make historical snapshots self-destruct with time, and does not claim that software can replace legal/source review. If the official version advances, the old snapshot remains archived but is not sufficient by itself for a new release; the new upstream bytes must pass the Source Vault workflow as a new version.
+
+### Historical snapshot retention remains a separate blocker
+
+The inspected QuranEnc terms establish conditions for republication and require updating to the latest issued version, but they do not clearly establish permission for this project to keep superseded editions indefinitely available in a public immutable redistribution mirror. The project therefore records `historical_snapshot_retention_status: unresolved` for this source and fails production promotion until that permission is verified or a legally compatible preservation design is adopted. This is intentionally stricter than the current-version attestation: freshness review can prove which version was current at approval, but it cannot create archival rights that the source terms do not clearly grant.
