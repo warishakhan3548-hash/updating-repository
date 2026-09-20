@@ -84,3 +84,9 @@ The Learning Plane stores review events as durable user history and treats sched
 This contract deliberately does not serialize FSRS equations, parameter vectors or library-specific card objects into permanent event identity. A future scheduler may replay the same preserved events into a different cache implementation.
 
 The v1→v2 migration never guesses the meaning of an unknown historical outcome. Exact canonical grade strings are mapped; all other legacy outcomes remain verbatim with no canonical grade. Historical rows stay append-only.
+
+## ADR-019 — Archival permission gates acquisition; source freshness gates release
+
+A permission to republish the current upstream version does not by itself establish permission to keep superseded versions indefinitely in a publicly redistributed immutable Source Vault. Therefore a source whose historical snapshot retention is unresolved remains `awaiting-licence`, and acquisition tooling must fail closed before network download.
+
+After historical retention is explicitly verified, the source may move to `awaiting-artifact` and be captured immutably. Any separate obligation to stay on the latest upstream version is enforced later through the signed `source_release_review` release gate. Release-time freshness review cannot substitute for archival permission, and archival permission cannot substitute for release-time freshness.
