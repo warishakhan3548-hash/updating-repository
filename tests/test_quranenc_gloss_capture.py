@@ -21,6 +21,7 @@ from tools.capture_quranenc_gloss import (
     VAULT_RELATIVE,
     capture_snapshot,
 )
+from tools.verify_quranenc_gloss_snapshot import verify_snapshot
 
 
 def enc(obj):
@@ -272,6 +273,45 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(
             hashes[0], hashes[1]
         )
+
+    def test_captured_snapshot_revalidates_offline(self):
+        now = datetime(
+            2026,
+            9,
+            20,
+            18,
+            30,
+            tzinfo=timezone.utc,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            capture_snapshot(
+                root,
+                fetcher=FakeFetcher(),
+                now=now,
+            )
+            provenance = verify_snapshot(root)
+            self.assertEqual(
+                "candidate-unreviewed",
+                provenance["review_status"],
+            )
+
+    def test_offline_verifier_detects_post_capture_tamper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dest = capture_snapshot(
+                root,
+                fetcher=FakeFetcher(),
+            )
+            licence = dest / "LICENSE_SOURCE.html"
+            licence.write_bytes(
+                licence.read_bytes() + b"tamper"
+            )
+            with self.assertRaisesRegex(
+                CaptureError,
+                "licence snapshot byte size mismatch",
+            ):
+                verify_snapshot(root)
 
     def test_version_mismatch_leaves_no_snapshot(
         self,
