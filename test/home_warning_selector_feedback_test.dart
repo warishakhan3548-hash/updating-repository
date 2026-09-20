@@ -4,7 +4,6 @@ import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:aaris_pharmacy/state/autopilot_supervisor.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
-import 'package:aaris_pharmacy/ui/design.dart';
 import 'package:aaris_pharmacy/ui/home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
