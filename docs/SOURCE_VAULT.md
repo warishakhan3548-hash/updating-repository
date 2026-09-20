@@ -29,6 +29,8 @@ Because this repository is project-controlled redistribution infrastructure, a p
 
 Acquisition tools that write into `source-vault/` must consult the registry **before making any network request**. A source in `awaiting-licence` is not capture-authorized. This prevents a review-only downloader from accidentally turning unresolved third-party rights into a public project-controlled mirror.
 
+A historical review capture can exist without becoming a registered Source Vault dependency. If bytes were captured before a stricter legal gate landed, they are **quarantined**: registry artifact/hash fields stay null, release builders cannot consume them, no new capture is permitted, and an offline verifier may check their integrity only so the project can detect accidental mutation while legal disposition is resolved. File existence alone never implies production approval.
+
 ## Production promotion contract
 
 A `production-approved` registry entry fails closed unless the project has a consistent source identity, verified redistribution permission, explicit modification/attribution flags, a project-controlled artifact, a non-empty licence snapshot and provenance file, and hashes that still match all three preserved files.
