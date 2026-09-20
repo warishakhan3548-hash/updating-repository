@@ -36,6 +36,7 @@ class AndroidReaderTrustTests(unittest.TestCase):
             'rootProject.file("content-packs/quran-core/1.1.0")',
             build,
         )
+        self.assertNotIn("content-packs/quran-core/1.0.4", build)
 
         manifest_path = (
             ROOT
@@ -50,7 +51,10 @@ class AndroidReaderTrustTests(unittest.TestCase):
         self.assertEqual("candidate", manifest["review_status"])
         self.assertEqual("unsigned", manifest["signature"]["status"])
         self.assertEqual(6236, manifest["record_count"])
-        self.assertIn("canonical", manifest)
+        self.assertEqual(
+            "canonical/quran-core/1.0.0/ayahs.jsonl",
+            manifest["canonical"]["artifact_path"],
+        )
 
     def test_reader_has_no_direct_network_permission(self):
         manifest = MANIFEST.read_text(encoding="utf-8")
