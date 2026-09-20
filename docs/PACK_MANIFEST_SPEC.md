@@ -29,8 +29,10 @@ For the Tanzil Quran pack, notice text is derived from comment lines in the exac
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: reserved for a pack whose cryptographic signature has actually been verified against a trusted project key.
+- `approved`: cryptographically verified against the project trusted-key threshold.
 
-**Current fail-closed rule:** the repository does not yet contain the trusted-key cryptographic verifier required for an `approved` pack. Therefore `tools/pack_gate.py` rejects every `approved` manifest, even if it contains plausible-looking `algorithm`, `key_id`, and `value` fields. Mere field presence is not a signature check. Promotion remains blocked until a real verifier and key-rotation policy are implemented and tested.
+For `approved`, `tools/pack_gate.py` delegates to `tools/pack_signing.py`. The manifest must carry a positive signed `release_sequence` plus an Ed25519 signature block using payload format `aaris-pack-json-v1`; enough non-revoked keys from `policy/trusted_pack_keys.json` must verify to meet `signature_threshold`.
+
+The production trusted-key policy is intentionally empty today, so no current pack is approvable yet. Presence of signature-shaped strings alone never passes the gate. See `PACK_SIGNING.md` for canonical payload, rotation and rollback-metadata rules.
 
 Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for rollback and reproducibility.
