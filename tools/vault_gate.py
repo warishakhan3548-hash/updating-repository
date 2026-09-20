@@ -26,6 +26,16 @@ REQUIRED_RELEASE_RULES = {
     "forbid_unknown_licence_in_release",
 }
 
+PRESERVED_SNAPSHOT_FIELDS = (
+    "vault_artifact",
+    "licence_snapshot",
+    "provenance",
+    "sha256",
+    "licence_sha256",
+    "provenance_sha256",
+    "byte_size",
+)
+
 
 class VaultGateError(RuntimeError):
     pass
@@ -139,13 +149,29 @@ def validate_registry(registry_path: Path) -> None:
         if status not in ALLOWED_STATUSES:
             raise VaultGateError(f"{source_id}: invalid status {status!r}")
 
-        if status != "production-approved":
+        snapshot_fields_present = [
+            field
+            for field in PRESERVED_SNAPSHOT_FIELDS
+            if source.get(field) not in (None, "")
+        ]
+        if status != "production-approved" and not snapshot_fields_present:
             continue
+
+        missing_snapshot_fields = [
+            field
+            for field in PRESERVED_SNAPSHOT_FIELDS
+            if source.get(field) in (None, "")
+        ]
+        if missing_snapshot_fields:
+            raise VaultGateError(
+                f"{source_id}: preserved snapshot metadata is incomplete; "
+                f"missing {missing_snapshot_fields}"
+            )
 
         for field in ("source_name", "version", "licence_id"):
             if not isinstance(source.get(field), str) or not source[field]:
                 raise VaultGateError(
-                    f"{source_id}: missing production metadata {field}"
+                    f"{source_id}: missing preserved source metadata {field}"
                 )
 
         original_url = source.get("original_url")
@@ -156,12 +182,12 @@ def validate_registry(registry_path: Path) -> None:
             or not parsed_url.netloc
         ):
             raise VaultGateError(
-                f"{source_id}: production original_url must be an absolute https URL"
+                f"{source_id}: preserved original_url must be an absolute https URL"
             )
 
         if source.get("redistribution_allowed") is not True:
             raise VaultGateError(
-                f"{source_id}: production source lacks verified redistribution permission"
+                f"{source_id}: preserved source lacks verified redistribution permission"
             )
         if not isinstance(source.get("modification_allowed"), bool):
             raise VaultGateError(
