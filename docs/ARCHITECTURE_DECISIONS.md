@@ -38,3 +38,6 @@ Remote GitHub Actions used by evidence/content builds are pinned to full commit 
 ## ADR-012 — Exact-byte integrity and semantic fidelity are separate gates
 
 A runtime pack SHA-256 identifies exact shipped bytes, not whether those bytes still faithfully represent preserved sacred evidence. For provenance-bound Quran packs (manifest schema v2), promotion therefore reconstructs Source Vault evidence, opens the SQLite artifact read-only, verifies the canonical schema and source assertion/runtime metadata, compares all Quran display/search rows with independently derived expectations, and rejects undeclared morphology/Hadith evidence. Historical schema-v1 candidates remain immutable under their historical contract rather than being rewritten in place.
+
+## ADR-013 — Pack approval uses immutable trust roots and canonical signed manifests
+A pack may become `approved` only after Ed25519 verification against a versioned immutable project trust root. The signature covers the canonical manifest minus its signature envelope, including provenance, artifact hashes, review status and a monotonically meaningful `release_sequence`. Trust-root changes create new root versions; private signing keys never enter the repository. Network-delivered updates remain disabled until clients also persist highest-seen release state so a valid old signature cannot be used for rollback.
