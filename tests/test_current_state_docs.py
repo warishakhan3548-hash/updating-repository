@@ -179,6 +179,44 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertIsNone(source["provenance"])
         self.assertIsNone(source["sha256"])
 
+    def test_eqtb_v1_stays_metadata_only_pending_rights_chain_review(self):
+        registry = json.loads(
+            (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
+        )
+        by_id = {item["source_id"]: item for item in registry["sources"]}
+        source = by_id["morphology.eqtb.v1"]
+
+        self.assertEqual("1", source["version"])
+        self.assertEqual("awaiting-licence", source["status"])
+        self.assertEqual(
+            "https://data.mendeley.com/datasets/rk96pn66m4/1",
+            source["original_url"],
+        )
+        self.assertIsNone(source["redistribution_allowed"])
+        self.assertIsNone(source["commercial_use_allowed"])
+        self.assertIsNone(source["modification_allowed"])
+        self.assertTrue(source["attribution_required"])
+        self.assertEqual(
+            "unresolved",
+            source["release_requirements"]["historical_snapshot_retention_status"],
+        )
+        self.assertIsNone(source["vault_artifact"])
+        self.assertIsNone(source["licence_snapshot"])
+        self.assertIsNone(source["provenance"])
+        self.assertIsNone(source["sha256"])
+        self.assertIsNone(source["byte_size"])
+        self.assertIn("third-party", source["notes"].lower())
+        self.assertIn("Quranic Arabic Corpus", source["notes"])
+
+        for manifest_path in (ROOT / "content-packs").glob("**/manifest.json"):
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertNotEqual(
+                source["source_id"],
+                manifest.get("source_id"),
+                f"{manifest_path} must not consume rights-unresolved EQTB data",
+            )
+
+
     def test_tanzil_production_source_is_commercially_usable(self):
         registry = json.loads(
             (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
