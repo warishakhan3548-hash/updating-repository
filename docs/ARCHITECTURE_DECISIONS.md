@@ -59,3 +59,12 @@ The current Ed25519 verifier is a repository/build-time boundary. Android platfo
 Release-key rotation must not force deletion of the public key needed to verify an old approved pack, but retaining an old key must not let a later compromise authorize new releases. Trusted release keys therefore have active/retired/revoked lifecycle state and signed release-sequence validity windows. Retired keys require a finite maximum sequence; revoked keys never count. The active release role must still contain enough active keys to satisfy its threshold.
 
 This is repository-side trust policy. It complements, but does not replace, the future client requirement to persist the highest accepted release sequence and freshness state.
+
+
+## ADR-016 — Persist accepted release ordering outside backup
+
+Bundled production Quran releases persist the highest accepted signed `release_sequence` in Android `noBackupFilesDir`, using the framework `AtomicFile` primitive and one process lock. A production candidate must be at least that sequence before it can replace the local content pack.
+
+The state advances only after the bundled SQLite bytes pass the runtime SHA-256 check and activation succeeds. Corrupt state fails closed instead of being silently reset. Debug candidate builds do not read or write production anti-rollback state.
+
+Keeping this small trust record outside automatic backup prevents a restored cloud backup from silently rewinding remembered release ordering. Uninstall/data-clear can still erase it, so this is a bundled-release rollback barrier rather than hardware-backed anti-tamper storage or a complete remote-update protocol.
