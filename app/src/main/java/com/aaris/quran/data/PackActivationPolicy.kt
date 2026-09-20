@@ -1,6 +1,7 @@
 package com.aaris.quran.data
 
 private val SHA256_HEX = Regex("^[0-9a-f]{64}$")
+internal const val MAX_SIGNED_RELEASE_SEQUENCE = 9_007_199_254_740_991L
 
 internal data class PackActivationState(
     val highestReleaseSequence: Long,
@@ -13,15 +14,18 @@ internal object PackActivationPolicy {
         candidateSequence: Long,
         candidateSha256: String,
     ): PackActivationState {
-        require(candidateSequence > 0L) {
-            "release sequence must be positive"
+        require(candidateSequence in 1..MAX_SIGNED_RELEASE_SEQUENCE) {
+            "release sequence must be a positive cross-runtime-safe integer"
         }
         require(SHA256_HEX.matches(candidateSha256)) {
             "pack SHA-256 must be lowercase hexadecimal"
         }
 
         if (current != null) {
-            check(current.highestReleaseSequence > 0L && SHA256_HEX.matches(current.packSha256)) {
+            check(
+                current.highestReleaseSequence in 1..MAX_SIGNED_RELEASE_SEQUENCE &&
+                    SHA256_HEX.matches(current.packSha256)
+            ) {
                 "stored pack activation state is invalid"
             }
             check(candidateSequence >= current.highestReleaseSequence) {
