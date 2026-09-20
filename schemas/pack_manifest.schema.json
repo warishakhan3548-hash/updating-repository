@@ -27,7 +27,14 @@
       "minLength": 1
     },
     "schema_version": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "content_schema_version": {
+      "type": "integer",
+      "minimum": 1
     },
     "content_version": {
       "type": "string",
@@ -90,6 +97,14 @@
       "type": "integer",
       "minimum": 1
     },
+    "notice_path": {
+      "type": "string",
+      "pattern": "^content-packs/"
+    },
+    "notice_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "dependencies": {
       "type": "array",
       "uniqueItems": true,
@@ -101,15 +116,110 @@
     "signature": {
       "type": "object"
     },
-    "notice_path": {
-      "type": "string",
-      "pattern": "^content-packs/"
+    "canonical": {
+      "type": "object",
+      "required": [
+        "canonical_id",
+        "canonical_version",
+        "generator_version",
+        "manifest_path",
+        "manifest_sha256",
+        "artifact_path",
+        "artifact_sha256",
+        "artifact_byte_size",
+        "record_count"
+      ],
+      "properties": {
+        "canonical_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generator_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest_path": {
+          "type": "string",
+          "pattern": "^canonical/"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "artifact_path": {
+          "type": "string",
+          "pattern": "^canonical/"
+        },
+        "artifact_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "artifact_byte_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "record_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
     },
-    "notice_sha256": {
+    "build_toolchain": {
+      "type": "object",
+      "required": [
+        "python_implementation",
+        "python_version",
+        "sqlite_version"
+      ],
+      "properties": {
+        "python_implementation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "python_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sqlite_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "byte_reproducibility_scope": {
       "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
+      "minLength": 1
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": 2
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "required": [
+          "content_schema_version",
+          "canonical",
+          "build_toolchain",
+          "byte_reproducibility_scope"
+        ]
+      }
+    }
+  ],
+  "additionalProperties": true,
   "dependentRequired": {
     "notice_path": [
       "notice_sha256"
@@ -117,6 +227,5 @@
     "notice_sha256": [
       "notice_path"
     ]
-  },
-  "additionalProperties": true
+  }
 }
