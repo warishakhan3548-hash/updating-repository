@@ -701,10 +701,16 @@ class AiService {
     required bool stream,
   }) {
     final history = conversation.trim();
+    final minimalAddOverride = ownerAcceptsMinimalAdd(
+      instruction: instruction,
+      conversation: history,
+    );
     final payload = [
       data.content,
       if (history.isNotEmpty)
         'RECENT CONVERSATION (use for follow-ups and owner-provided facts; earlier AI guesses are not evidence. Use the current snapshot IDs and revision):\n$history',
+      if (minimalAddOverride)
+        'AARIS TURN POLICY (derived from the owner\'s current instruction and prior OWNER lines):\n$minimalAddOwnerOverrideDirective',
       'OWNER REQUEST:\n$instruction',
     ].join('\n\n');
     return AiProviderAdapter.forConfiguration(config).request(

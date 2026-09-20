@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:aaris_pharmacy/domain/local_ai_protocol.dart';
 import 'package:aaris_pharmacy/services/local_ai_runtime.dart';
 import 'package:aaris_pharmacy/services/local_chat_turn.dart';
@@ -44,6 +46,41 @@ class _BudgetEngine implements LlamaEngine {
 }
 
 void main() {
+  test('local chat carries the minimal-add owner override into the model turn', () async {
+    final context = LocalInventoryContext(
+      records: const [],
+      sales: const [],
+      revision: 5,
+      today: DateTime.utc(2026, 9, 20),
+    );
+    String? captured;
+    final result = await runLocalChatTurn(
+      context: context,
+      instruction: 'Mujhe kuch nahi pata, bas add kar do',
+      conversation:
+          'Owner: Cefixime 200mg add kar do\n'
+          'Assistant: Quantity aur form bata do.',
+      conversationLimit: 2000,
+      outputTokens: 256,
+      inventoryRows: 2,
+      checkCurrent: () {},
+      generate: (payload, budget) async {
+        captured = payload;
+        return '{"reply":"Prepared","actions":[{"op":"add","fields":{"name":"Cefixime","strength":"200mg"}}]}';
+      },
+    );
+
+    final modelInput = jsonDecode(captured!) as Map<String, dynamic>;
+    expect(modelInput['aarisTurnPolicy'], contains('Do not ask again for optional fields'));
+    expect(modelInput['aarisTurnPolicy'], contains('Omitted quantity means unknown'));
+    final envelope = jsonDecode(result) as Map<String, dynamic>;
+    final action = (envelope['actions'] as List).single as Map<String, dynamic>;
+    final fields = action['fields'] as Map<String, dynamic>;
+    expect(fields['name'], 'Cefixime');
+    expect(fields['strength'], '200mg');
+    expect(fields.containsKey('quantity'), isFalse);
+  });
+
   test('eight sequential chats recover native context admission without unloading a healthy model', () async {
     final engine = _BudgetEngine();
     final runtime = LocalAiRuntime(engine: engine);

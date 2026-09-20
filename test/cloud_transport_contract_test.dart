@@ -174,6 +174,47 @@ void main() {
     });
   }
 
+  test('cloud chat emits deterministic minimal-add turn policy after owner override', () async {
+    var calls = 0;
+    final service = AiService(
+      clientFactory: () => MockClient((request) async {
+        calls++;
+        final body = jsonDecode(request.body) as Map;
+        final input = body['messages'][1]['content'] as String;
+        expect(input, contains('AARIS TURN POLICY'));
+        expect(input, contains('Do not ask again for optional fields'));
+        expect(input, contains('Omitted quantity means unknown, never zero'));
+        expect(
+          input,
+          contains('OWNER REQUEST:\nArey jodo aur mujhey kuchh nahi pata'),
+        );
+        return _answer(_compatible, '{"reply":"Prepared","actions":[]}');
+      }),
+    );
+
+    final result = await service.ask(
+      _compatible,
+      () => PharmacyExport(
+        revision: 3,
+        records: const [],
+        today: DateTime.utc(2026, 9, 20),
+      ),
+      'Arey jodo aur mujhey kuchh nahi pata',
+      conversation:
+          'Owner: Cefixime 200mg add kar do\n'
+          'Assistant: Quantity aur form bata do.',
+      localContext: LocalInventoryContext(
+        records: const [],
+        sales: const [],
+        revision: 3,
+        today: DateTime.utc(2026, 9, 20),
+      ),
+    );
+
+    expect(result, contains('Prepared'));
+    expect(calls, 1);
+  });
+
   test(
     'chat tolerates a compatible provider that rejects only streaming',
     () async {

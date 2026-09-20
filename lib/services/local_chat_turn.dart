@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import '../domain/ai_protocol.dart';
 import '../domain/local_ai_protocol.dart';
 import '../domain/local_context_budget.dart';
 
@@ -97,11 +98,17 @@ Future<String> runLocalChatTurn({
     while (true) {
       checkCurrent();
       onRound?.call(round);
+      final minimalAddOverride = ownerAcceptsMinimalAdd(
+        instruction: instruction,
+        conversation: history,
+      );
       final input = socialOnly
           ? instruction.trim()
           : jsonEncode({
               'ownerRequest': instruction,
               'recentConversation': history,
+              if (minimalAddOverride)
+                'aarisTurnPolicy': minimalAddOwnerOverrideDirective,
               if (results.isNotEmpty) ...{
                 'toolResults': results,
                 'remainingReadCalls': 4 - round,
