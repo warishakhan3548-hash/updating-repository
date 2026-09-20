@@ -8,6 +8,14 @@ import sqlite3
 import sys
 from pathlib import Path
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.verify_quran_core_pack import (
+    QuranPackSemanticError,
+    verify_quran_core_pack,
+)
+
 
 class PackGateError(RuntimeError):
     pass
@@ -408,6 +416,20 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
             raise PackGateError(
                 f"{manifest_path}: approved pack requires signature algorithm/key_id/value"
             )
+        # Signature-shaped strings are not cryptographic verification. Until a
+        # trusted-key verifier exists, production approval must fail closed.
+        raise PackGateError(
+            f"{manifest_path}: approved packs are disabled until cryptographic "
+            "signature verification is implemented"
+        )
+
+    if manifest["pack_id"] == "quran-core" and manifest["schema_version"] in {2, 3}:
+        try:
+            verify_quran_core_pack(root, manifest, artifact)
+        except QuranPackSemanticError as exc:
+            raise PackGateError(
+                f"{manifest_path}: Quran semantic verification failed: {exc}"
+            ) from exc
 
 
 def validate_all(registry_path: Path) -> int:
