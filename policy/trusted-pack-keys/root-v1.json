@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "role": "content-pack-release",
+  "version": 1,
+  "threshold": 1,
+  "keys": {},
+  "status": "bootstrap-unconfigured",
+  "notes": "No production release public key is provisioned yet. This immutable bootstrap root intentionally cannot approve a pack; provision a new root version with an offline-managed release key before first approval."
+}
