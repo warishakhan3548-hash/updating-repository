@@ -46,7 +46,7 @@ class ContentPackAcceptanceStore(context: Context) {
         releaseSequence: Long,
         manifestSha256: String,
         contentSha256: String,
-    ) = synchronized(lock) {
+    ) = synchronized(PROCESS_LOCK) {
         validatePackId(packId)
         val candidate = ContentPackAcceptanceRecord(
             releaseSequence = releaseSequence,
@@ -153,7 +153,7 @@ class ContentPackAcceptanceStore(context: Context) {
             output.writeUTF(record.contentSha256)
             output.flush()
             atomicFile.finishWrite(stream)
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             atomicFile.failWrite(stream)
             throw SecurityException("Cannot commit content-pack acceptance state", error)
         }
