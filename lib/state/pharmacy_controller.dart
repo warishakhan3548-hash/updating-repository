@@ -121,8 +121,21 @@ class ReviewedSale {
   String get stockId => record.id;
 }
 
-bool _sameReviewedMedicine(Medicine live, Medicine reviewed) =>
-    mapEquals(live.toJson(), reviewed.toJson());
+bool _sameReviewedMedicine(Medicine live, Medicine reviewed) {
+  final left = live.toJson()..remove('intakeHistory');
+  final right = reviewed.toJson()..remove('intakeHistory');
+  if (!mapEquals(left, right)) return false;
+  if (live.intakeHistory.length != reviewed.intakeHistory.length) return false;
+  for (var index = 0; index < live.intakeHistory.length; index++) {
+    if (!mapEquals(
+      live.intakeHistory[index].toJson(),
+      reviewed.intakeHistory[index].toJson(),
+    )) {
+      return false;
+    }
+  }
+  return true;
+}
 
 bool _sameStatsMedicineProjection(Medicine before, Medicine after) {
   if (before.archived != after.archived) return false;
