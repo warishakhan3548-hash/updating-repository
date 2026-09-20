@@ -45,3 +45,21 @@ Rules:
 - when a legally verified morphology source later exists, add an explicit mapping overlay from the preserved gloss assertion to canonical lexical entities instead of rewriting the raw assertion.
 
 This bridge is intentionally asymmetric: it can answer some “what does this difficult expression mean here?” taps early, while full morphology waits for a properly licensed source.
+
+## Acquisition gate implementation
+
+`tools/capture_quranenc_gloss.py` is the one-shot acquisition boundary for this candidate. It is intentionally **not** part of normal builds and does not mutate `source-vault/registry.json`.
+
+The capture is fail-closed:
+
+- pin `arabic_seraj` to version `1.0.0` before acquisition;
+- preserve the exact translation-list response before and after capture and abort if the selected metadata changes;
+- capture the exact 114 Surah API response byte streams without editing them;
+- validate the complete ordered 6,236-coordinate Quran shape before publishing a snapshot directory;
+- preserve the exact official QuranEnc terms page bytes alongside the source payload;
+- reject non-HTTPS/off-QuranEnc redirects, non-200 responses, oversized/empty responses, coordinate gaps and destination overwrites;
+- build a deterministic raw tar plus request-level SHA-256/size metadata, a candidate provenance record and checksums;
+- leave the result explicitly `captured-unreviewed` until a human/source review promotes the registry entry.
+
+This repository still has **no preserved QuranEnc production artifact**. The source remains `awaiting-artifact` until the real capture is run in a trusted network-enabled environment, the resulting bytes and terms are reviewed, and the registry is updated in a separate reviewed change. A runtime gloss importer must not precede that promotion.
+
