@@ -30,3 +30,7 @@ The first Quran core stores source-faithful ayah evidence and derived search lan
 
 ## ADR-010 — Runtime attribution is derived from preserved evidence
 For a source whose preserved artifact embeds its required notice, the runtime pack derives its notice from that pinned artifact rather than a separately hand-maintained paraphrase. Provenance attribution and source URL are bound into runtime metadata. Pack artifacts and notices must resolve inside their own immutable manifest directory so one pack cannot borrow another pack's evidence or notice by path or symlink.
+
+## ADR-011 — Trusted build workflows are content dependencies
+Remote GitHub Actions used by evidence/content builds are pinned to full commit SHAs and guarded by tests. A workflow that commits generated evidence artifacts with `GITHUB_TOKEN` must validate the exact committed tree before push; it must not assume that its bot-generated push will trigger another ordinary `push` workflow.
+
