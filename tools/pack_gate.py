@@ -136,12 +136,34 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
             raise PackGateError(f"{manifest_path}: {field} does not match Source Vault")
     _lower_sha256(manifest["source_sha256"], "source_sha256")
 
-    if source.get("attribution_required") is True:
-        notice_path = manifest.get("notice_path")
-        notice_hash = _lower_sha256(manifest.get("notice_sha256"), "notice_sha256")
+    notice_path = manifest.get("notice_path")
+    notice_sha256 = manifest.get("notice_sha256")
+    notice_path_missing = notice_path in (None, "")
+    notice_sha_missing = notice_sha256 in (None, "")
+
+    if source.get("attribution_required") is True and (
+        notice_path_missing or notice_sha_missing
+    ):
+        raise PackGateError(
+            f"{manifest_path}: attribution-required source needs notice_path and notice_sha256"
+        )
+
+    if notice_path_missing != notice_sha_missing:
+        raise PackGateError(
+            f"{manifest_path}: notice_path and notice_sha256 must be provided together"
+        )
+
+    if not notice_path_missing:
+        notice_hash = _lower_sha256(notice_sha256, "notice_sha256")
         notice = _safe_repo_file(
             root, notice_path, "notice_path", "content-packs"
         )
+        if notice.parent != manifest_path.parent:
+            raise PackGateError(
+                f"{manifest_path}: notice_path must stay inside manifest pack directory"
+            )
+        if notice.stat().st_size < 1:
+            raise PackGateError(f"{manifest_path}: attribution notice is empty")
         if sha256_file(notice) != notice_hash:
             raise PackGateError(f"{manifest_path}: notice_sha256 mismatch")
 
