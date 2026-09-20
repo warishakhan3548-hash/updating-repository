@@ -36,6 +36,7 @@ class ReaderViewModel(
         val request = ++generation
         _uiState.value = _uiState.value.copy(
             surah = surah,
+            ayahs = emptyList(),
             loading = true,
             error = null,
         )
