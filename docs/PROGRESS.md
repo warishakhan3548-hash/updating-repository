@@ -17,7 +17,7 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - 114-surah / 6,236-ayah coordinate invariants;
 - display Arabic separated from derived search-normalized lanes;
 - deterministic Quran-core importer with byte-reproducibility coverage;
-- complete candidate Quran core pack published at `content-packs/quran-core/1.0.0/`;
+- complete candidate Quran core pack published at `content-packs/quran-core/1.0.1/`;
 - GitHub Actions foundation checks and deterministic pack build workflow.
 
 ## Production Source Vault
@@ -42,21 +42,23 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 ## Quran core candidate pack
 
 - pack: `quran-core`
-- content version: `1.0.0`
-- artifact: `content-packs/quran-core/1.0.0/content.sqlite`
+- content version: `1.0.1`
+- artifact: `content-packs/quran-core/1.0.1/content.sqlite`
 - artifact bytes: `4599808`
-- artifact SHA-256: `fc2033d607ed0209f9f8a9aeeed8d701cc4cb2d65ca39653143e5ddd37f35076`
+- artifact SHA-256: `34df2de57790226382d7693f1f64df78a78d446b83754d714e72787cc32f7b58`
 - records: `6236`
-- importer: `quran-core-importer-1`
+- importer: `quran-core-importer-2`
 - search normalization: `arabic-search-v1`
 - review status: `candidate`
 - signature status: unsigned
+- attribution notice: `content-packs/quran-core/1.0.1/NOTICE.txt`
+- notice SHA-256: `83cc1310c83bf3c67fb9b403c5939b4109a2cea9295fe6f610a756846ad9b7be`
 
-Candidate does not mean release-approved. Promotion must still pass review/signing policy.
+Candidate does not mean release-approved. Promotion must still pass review/signing policy. The superseded 1.0.0 candidate was removed from the current tree after 1.0.1 added explicit Tanzil attribution packaging.
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, pack/source identity binding, SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility.
+Automated coverage now checks Source Vault integrity, licence/provenance consistency, pack/source identity binding, required attribution-notice hashing, SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The Evidence foundation workflow passed after the attribution-notice gate and regression tests were added.
 
 No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
