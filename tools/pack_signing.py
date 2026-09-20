@@ -59,6 +59,10 @@ def _canonical_json(value: Any) -> bytes:
     if isinstance(value, dict):
         if any(not isinstance(key, str) for key in value):
             raise PackSignatureError("signed manifest object keys must be strings")
+        if any(not key.isascii() for key in value):
+            raise PackSignatureError(
+                "signed manifest object keys must be ASCII for cross-runtime ordering"
+            )
         items = []
         for key in sorted(value):
             items.append(_json_string(key) + b":" + _canonical_json(value[key]))
@@ -138,9 +142,10 @@ def _load_policy(path: Path) -> tuple[int, dict[str, dict[str, Any]]]:
             isinstance(min_sequence, bool)
             or not isinstance(min_sequence, int)
             or min_sequence < 1
+            or min_sequence > MAX_SAFE_INTEGER
         ):
             raise PackSignatureError(
-                f"{key_id}: min_release_sequence must be a positive integer"
+                f"{key_id}: min_release_sequence must be a positive safe integer"
             )
 
         max_sequence = entry.get("max_release_sequence")
@@ -148,6 +153,7 @@ def _load_policy(path: Path) -> tuple[int, dict[str, dict[str, Any]]]:
             isinstance(max_sequence, bool)
             or not isinstance(max_sequence, int)
             or max_sequence < min_sequence
+            or max_sequence > MAX_SAFE_INTEGER
         ):
             raise PackSignatureError(
                 f"{key_id}: max_release_sequence must be null or >= min_release_sequence"
@@ -189,9 +195,10 @@ def verify_manifest_signature(
         isinstance(release_sequence, bool)
         or not isinstance(release_sequence, int)
         or release_sequence < 1
+        or release_sequence > MAX_SAFE_INTEGER
     ):
         raise PackSignatureError(
-            "approved pack requires positive integer release_sequence"
+            "approved pack requires positive safe integer release_sequence"
         )
 
     signature_block = manifest.get("signature")
