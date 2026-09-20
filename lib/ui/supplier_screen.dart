@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../domain/medicine.dart';
@@ -8,14 +10,33 @@ import 'design.dart';
 import 'editor_screen.dart';
 import 'supplier_editor.dart';
 
-class SupplierScreen extends StatelessWidget {
+class SupplierScreen extends StatefulWidget {
   const SupplierScreen({super.key, required this.controller});
 
   final PharmacyController controller;
 
-  Future<void> _add(BuildContext context) async {
+  @override
+  State<SupplierScreen> createState() => _SupplierScreenState();
+}
+
+class _SupplierScreenState extends State<SupplierScreen> {
+  PharmacyController get controller => widget.controller;
+
+  bool _routeOpening = false;
+
+  Future<void> _runExclusiveRoute(Future<void> Function() action) async {
+    if (_routeOpening || !mounted) return;
+    setState(() => _routeOpening = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _routeOpening = false);
+    }
+  }
+
+  Future<void> _add() => _runExclusiveRoute(() async {
     final id = await openSupplierEditor(context, controller);
-    if (!context.mounted || id == null) return;
+    if (!mounted || id == null) return;
     final supplier = controller.snapshot.suppliers[id];
     if (supplier == null) return;
     await Navigator.of(context).push<void>(
@@ -26,13 +47,24 @@ class SupplierScreen extends StatelessWidget {
         ),
       ),
     );
-  }
+  });
+
+  Future<void> _openSupplier(Supplier supplier) => _runExclusiveRoute(
+    () => Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => SupplierDetailScreen(
+          controller: controller,
+          supplierId: supplier.id,
+        ),
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Supplier details')),
     floatingActionButton: FloatingActionButton.extended(
-      onPressed: () => _add(context),
+      onPressed: _routeOpening ? null : () => unawaited(_add()),
       icon: const Icon(Icons.add_rounded),
       label: const Text('Add supplier'),
     ),
@@ -70,7 +102,7 @@ class SupplierScreen extends StatelessWidget {
                   icon: Icons.local_shipping_outlined,
                 ),
                 FilledButton.icon(
-                  onPressed: () => _add(context),
+                  onPressed: _routeOpening ? null : () => unawaited(_add()),
                   icon: const Icon(Icons.add_rounded),
                   label: const Text('Add first supplier'),
                 ),
@@ -100,14 +132,9 @@ class SupplierScreen extends StatelessWidget {
                   elevation: 0,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(24),
-                    onTap: () => Navigator.of(context).push<void>(
-                      MaterialPageRoute(
-                        builder: (_) => SupplierDetailScreen(
-                          controller: controller,
-                          supplierId: supplier.id,
-                        ),
-                      ),
-                    ),
+                    onTap: _routeOpening
+                        ? null
+                        : () => unawaited(_openSupplier(supplier)),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Row(
