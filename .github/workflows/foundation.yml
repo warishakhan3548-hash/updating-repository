@@ -23,6 +23,8 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r requirements-ci.txt
       - name: Source Vault gate
         run: python tools/vault_gate.py source-vault/registry.json
+      - name: Quarantined QuranEnc snapshot integrity
+        run: python tools/capture_quranenc_gloss.py --validate-existing
       - name: Content pack promotion gate
         run: python tools/pack_gate.py source-vault/registry.json
       - name: SQLite schema validation
