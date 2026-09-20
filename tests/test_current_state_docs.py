@@ -155,9 +155,18 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         source = by_id["hadith.hadeethenc.ar.current"]
 
         self.assertEqual("1.7.0-observed-2026-09-20", source["version"])
-        self.assertEqual("research-candidate", source["status"])
+        self.assertEqual("awaiting-licence", source["status"])
+        self.assertIsNone(source["redistribution_allowed"])
+        self.assertIsNone(source["commercial_use_allowed"])
         self.assertIsNone(source["vault_artifact"])
         self.assertIsNone(source["sha256"])
+        self.assertTrue(
+            source["release_requirements"]["latest_upstream_version_required"]
+        )
+        self.assertEqual(
+            "unresolved",
+            source["release_requirements"]["historical_snapshot_retention_status"],
+        )
 
 
     def test_manifest_spec_tracks_signature_domain(self):
