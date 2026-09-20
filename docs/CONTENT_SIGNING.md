@@ -20,7 +20,7 @@ This prevents a human-friendly label from silently being rebound to different ke
 
 ## Signed payload
 
-The signed payload is the complete manifest with the top-level `signature` property removed, prefixed by the domain separator `AARIS-CONTENT-PACK-SIGNATURE-V1\\n`.
+The signed payload is the complete manifest with the top-level `signature` property removed, prefixed by the domain separator `AARIS-CONTENT-PACK-SIGNATURE-V1\n`.
 
 The project-owned canonicalization contract is intentionally narrower than general JSON:
 
