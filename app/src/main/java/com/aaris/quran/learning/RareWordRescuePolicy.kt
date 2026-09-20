@@ -116,6 +116,7 @@ object RareWordRescuePolicy {
     ): List<RescuePlan> =
         candidates
             .map { plan(it, config) }
+            .filter { it.action != RescueAction.NONE }
             .sortedWith(
                 compareByDescending<RescuePlan> { it.learningNeed }
                     .thenBy { it.semanticUnitId },
