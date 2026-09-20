@@ -57,6 +57,40 @@ Before the first production approval:
 
 Never commit a seed, PEM private key, passphrase, recovery phrase or secret key material.
 
+## Offline signing tool
+
+`tools/offline_release_signer.py` makes the release ceremony reproducible without turning GitHub or CI into a key custodian. It never generates a production key and never writes private-key bytes. It accepts only an encrypted PKCS#8 Ed25519 PEM whose resolved path is outside this repository, and it prompts for the password interactively so a passphrase does not need to appear in command-line arguments.
+
+Generate the production key on the trusted offline machine, not in CI. With OpenSSL, one suitable interactive form is:
+
+```bash
+openssl genpkey -algorithm ED25519 -aes-256-cbc -out /offline/path/aaris-content-release.pem
+```
+
+Create and verify at least one independent encrypted backup before enrolling the key. Then inspect only the public identity:
+
+```bash
+python tools/offline_release_signer.py inspect-key /offline/path/aaris-content-release.pem
+```
+
+The command prints only the raw Ed25519 public key and the project-derived key ID. Use those public values in a separately reviewed trust-root change. Do not activate the trust policy until custody/recovery has actually been completed.
+
+The signer deliberately cannot turn a candidate into an approved pack. It signs only a manifest whose `review_status` is already `approved`, whose positive `release_sequence` is valid, and whose derived key ID is an active authorized release key within its sequence window. Signing writes a **new** output file and refuses to overwrite the source or an existing output.
+
+Example after review, trust-root activation, and creation of a new immutable approved pack version:
+
+```bash
+python tools/offline_release_signer.py sign \
+  /path/to/approved-manifest.json \
+  /offline/path/aaris-content-release.pem \
+  policy/trusted_pack_keys.json \
+  /path/to/signed-manifest.json
+```
+
+Threshold signatures are additive: another authorized offline key can sign the prior signed output into another new file. The top-level `signature` block is excluded from the authenticated payload, so every signer authorizes the same immutable manifest content rather than a previous signer's signature bytes. The final repository pack gate remains authoritative for threshold verification.
+
+The current `quran-core 1.1.0` remains candidate/unsigned. Do not mutate that immutable candidate in place merely to exercise this tool; the first production approval must be represented as a new reviewed immutable pack version.
+
 ## Rotation and revocation
 
 Every enrolled release public key carries explicit lifecycle metadata:
