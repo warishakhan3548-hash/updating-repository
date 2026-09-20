@@ -145,9 +145,9 @@ A source may be `awaiting-artifact`, contain preserved snapshot metadata, or be 
 
 The Learning Plane may use a suitable upcoming natural reading encounter instead of immediately interrupting the user with a standalone review, but only as a scheduling/presentation decision. The encounter itself does not become a successful retrieval event.
 
-`rare-word-rescue-v1` is a deterministic, replaceable policy over app-owned semantic identity, preserved struggle/review evidence, a scheduler projection and future verified natural-exposure predictions. Global rarity alone never enrolls a unit. Unknown retrievability stays unknown; when a scheduler review is already due, unknown or low retrievability fails closed to explicit review rather than assuming that reading will be enough.
+`rare-word-rescue-v1` is a deterministic, replaceable policy over app-owned semantic identity, preserved struggle/review evidence, a scheduler projection and future verified natural-exposure predictions. Global rarity alone never enrolls a unit. A due review may move to a predicted natural encounter only when the scheduler adapter explicitly authorizes that deferral; missing authorization fails closed to explicit review. Optional retrievability remains useful for ranking and diagnostics, but this policy does not impose one universal threshold over schedulers with different desired-retention targets.
 
-The v1 numerical thresholds are experimental policy parameters, not permanent user-history semantics and not literature-derived optima. They may be replaced after measured evaluation without rewriting append-only exposure/review history.
+The v1 enrollment thresholds are experimental policy parameters, not permanent user-history semantics and not literature-derived optima. Scheduler-specific retention and deferral rules remain behind the adapter. Both may evolve after measured evaluation without rewriting append-only exposure/review history.
 
 This policy does not create word identities. Until a provenance-backed word/gloss or morphology source clears the Source Vault and alignment gates, Quran word-level rescue remains dormant and the reader UI stays unchanged.
 
