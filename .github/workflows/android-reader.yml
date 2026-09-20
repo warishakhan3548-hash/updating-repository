@@ -25,5 +25,5 @@ jobs:
           gradle-version: '9.6.1'
       - name: Install Android SDK 36
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
-      - name: Build and test debug reader
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Lint, build and test debug reader
+        run: gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace

@@ -50,6 +50,12 @@ class WorkflowSupplyChainTests(unittest.TestCase):
 
         self.assertEqual([], failures, "\\n".join(failures))
 
+    def test_android_reader_ci_runs_lint_before_release_quality_claims(self) -> None:
+        text = self.workflow_text("android-reader.yml")
+        self.assertIn(":app:lintDebug", text)
+        self.assertIn(":app:testDebugUnitTest", text)
+        self.assertIn(":app:assembleDebug", text)
+
     def test_pack_builder_reruns_when_validation_tests_change(self) -> None:
         text = self.workflow_text("build-quran-core-pack.yml")
         self.assertIn("      - 'tests/**'\n", text)
