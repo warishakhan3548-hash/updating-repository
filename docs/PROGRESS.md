@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 0A–0C foundation is established. Production content is intentionally blocked until exact legally redistributable source artifacts are preserved under project control.
+Phase 0A–0C is established and executable. The first production Quran source is preserved and verified, and a deterministic Quran-core importer/builder now exists. Work is entering early Phase 1 without bypassing unresolved morphology or Hadith source gates.
 
 ## Completed
 
@@ -20,26 +20,60 @@ Phase 0A–0C foundation is established. Production content is intentionally blo
 - Quran and Hadith release invariants;
 - accessibility/performance baseline;
 - secure content-update lifecycle;
-- executable Source Vault gate and schema validator;
+- executable Source Vault and content-pack promotion gates;
+- licence-policy fail-closed enforcement;
+- source registry schema and provenance cross-checking;
+- Evidence Plane immutability triggers;
 - regression tests and GitHub Actions foundation workflow;
-- primary-source research log and licence matrix.
+- primary-source research log and licence matrix;
+- exact Tanzil Quran Text v1.1 Uthmani source snapshot preserved under project control;
+- deterministic Quran-core parsing/build path with separate display/search fields;
+- full 114-surah / 6,236-ayah coordinate validation;
+- byte-reproducibility test for identical Quran pack inputs.
 
-## Validation performed
+## Production Source Vault status
 
-The Source Vault gate, both SQLite schemas and nine foundation behavioral checks were executed successfully in a reconstructed local validation workspace. The environment could not perform a clean GitHub clone because outbound DNS was unavailable, so this result is not represented as a GitHub Actions green check.
+### Production-approved
 
-## Production data status
+**Tanzil Quran Text v1.1 — Uthmani**
 
-There are currently **zero production-approved external datasets**.
+- preserved artifact: `source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/quran-uthmani.txt`
+- exact artifact SHA-256: `4b91f9e6e8ac645d039e4ed85b3be492e795232a31cd22d668ac58238722e26f`
+- exact byte size: `1384612`
+- licence snapshot: `LICENSE_SOURCE.html`
+- licence snapshot SHA-256: `1ef7fbb0454f64ed4cceb838337808969711155f36147d1b357fc083336f4c68`
+- provenance SHA-256: `733a938c4f54f082bf7f4e0b1d9bff7ce21afedceeba199294e872a428a57505`
+- redistribution: allowed as verbatim copies under the archived Tanzil terms, with attribution/source-link requirements; modification of the Quran text is not allowed.
 
-- Tanzil Quran Text v1.1: licence/release terms researched; exact selected artifact, licence snapshot and SHA-256 not yet preserved.
-- Quranic Arabic Corpus v0.4: official terms researched; exact artifact not yet preserved.
-- HadeethEnc: research candidate only pending edition/numbering and exact-version verification.
-- QUL resources: per-resource licensing/provenance review required.
-- Quran Foundation API: explicitly not a critical Source Vault dependency under current developer terms.
+### Still blocked from production
 
-## Next safe milestone
+- **Quranic Arabic Corpus v0.4:** `awaiting-licence`. Its official download page and official FAQ create a material commercial-use/terms ambiguity, so morphology remains blocked pending clarification or a clearly compatible authoritative licence basis.
+- **HadeethEnc:** research candidate only. Exact version, edition/collection mapping, numbering provenance and preserved artifact still need review.
+- **QUL resources:** per-resource licence/provenance review required; no blanket promotion.
+- **Quran Foundation API:** not a critical Source Vault dependency under its current developer terms.
 
-Acquire the exact chosen Quran source artifact through its official download flow, preserve its exact bytes and licence snapshot under project control, compute SHA-256/size, create provenance, run the vault gate, then write the pinned importer and Quran integrity tests against that preserved snapshot.
+## Validation status
 
-Do not begin the production reader with copied/random Quran text while this gate is unresolved.
+The latest verified main-branch foundation run is green. Automated checks cover:
+
+- Source Vault integrity and policy enforcement;
+- content-pack promotion rules;
+- SQLite schema validation;
+- sacred/source Evidence Plane immutability;
+- append-only user learning events;
+- separation of display text from search-normalized text;
+- complete Quran coordinate count/ordering;
+- preserved Tanzil artifact hash/size validation;
+- deterministic Quran pack build reproducibility.
+
+No Hadith search quality benchmark or device performance benchmark is claimed yet because those production systems are not built far enough to measure honestly.
+
+## Next safe milestones
+
+1. Produce/review the first candidate `quran-core` runtime pack from the pinned Tanzil snapshot and promote only after manifest/integrity review.
+2. Build the minimal reader around immutable Quran evidence: stable navigation, excellent RTL, and anchored word-tap plumbing without inventing morphology.
+3. Resolve QAC licensing before making it a production morphology dependency; otherwise choose a legally clearer alternative.
+4. Acquire and preserve an edition-aware Hadith source before implementing production Hadith search.
+5. Add an independent off-GitHub backup/archive for truly critical Source Vault artifacts.
+
+Do not fill missing morphology, glosses or Hadith evidence from AI memory.

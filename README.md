@@ -4,25 +4,42 @@ A local-first, evidence-first Quran and Hadith comprehension system.
 
 **North star:** Read → get stuck → tap → understand → keep reading.
 
-This repository deliberately begins with the trust foundation before production content or UI. Critical external content is not a runtime/build dependency until its exact legally redistributable artifact is preserved in the project-controlled Source Vault with provenance, licence snapshot and SHA-256.
+This repository builds trust and reproducibility before UI breadth. Critical external content is not a runtime/build dependency until its exact legally redistributable artifact is preserved in the project-controlled Source Vault with provenance, a licence snapshot and integrity checks.
 
 ## Current phase
 
-Phase 0A–0C: Source Vault policy, semantic kernel, canonical schemas, validation gates, deterministic Quran-core builder and research baseline.
+Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. The deterministic Quran core builder is the bridge into early Phase 1.
 
-The exact Tanzil Uthmani v1.1 Quran source used by the project is now **production-approved and preserved** in the Source Vault with licence/provenance hashes. No Hadith dataset is production-approved yet. The derived `quran-core` runtime pack is built only from the pinned vault snapshot and is promoted separately.
+**Production-approved today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
+
+**Not production-approved yet:** Quranic Arabic Corpus morphology, Hadith datasets, QUL resources and other optional content. See `source-vault/registry.json`.
+
+This is not yet a finished reader application. Reader UI, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
 
 ## Architecture boundaries
 
-- `content.sqlite`: replaceable, signed read-only content packs.
+- `content.sqlite`: replaceable read-only content packs generated from pinned Source Vault artifacts.
 - `user.sqlite`: precious local learning history and notes.
 - Evidence Plane: immutable source-faithful Quran/Hadith records and attributed assertions.
 - Learning Plane: glosses, exposure/review events, scheduler state and derived comprehension.
 - AI may expand queries or reason over exported evidence; it cannot author Evidence Plane truth.
+- Normal content builds use project-controlled snapshots, never an uncontrolled upstream `latest`.
 
-Run foundation checks with:
+## Current Quran core
+
+`tools/quran_core.py` validates the pinned Tanzil artifact and the complete 114-surah / 6,236-ayah coordinate sequence while keeping original display text separate from derived search normalization.
+
+`tools/build_quran_core.py` deterministically builds a candidate SQLite pack and manifest under `content-packs/`. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
+
+## Validation
+
+The main branch runs:
 
 ```bash
-python -m unittest discover -s tests -v
 python tools/vault_gate.py source-vault/registry.json
+python tools/pack_gate.py source-vault/registry.json
+python tools/validate_schemas.py
+python -m unittest discover -s tests -v
 ```
+
+GitHub Actions executes the same foundation checks on pushes and pull requests.
