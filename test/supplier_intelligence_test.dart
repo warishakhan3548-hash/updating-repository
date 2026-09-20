@@ -185,7 +185,7 @@ void main() {
     );
 
     expect(advice[productKey]?.supplierId, supplierA.id);
-    expect(advice[productKey]?.reason, contains('usable shelf-life'));
+    expect(advice[productKey]?.reason, contains('remaining shelf-life'));
   });
 
   test('receive evidence is atomic with stock and Undo restores prior learning', () async {
