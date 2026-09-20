@@ -65,3 +65,13 @@ The research now converges on four durable choices: immutable source/display dat
 | type | claim | source | confidence | product implication |
 | --- | --- | --- | --- | --- |
 | fact | SQLite stores file-level structural/version metadata such as the file change counter and the SQLite version that most recently modified the database. A runtime SQLite SHA-256 identifies exact file bytes but does not by itself prove semantic fidelity to an external preserved source. | https://sqlite.org/fileformat.html | high | Keep byte-integrity checking, but independently compare schema and Quran evidence rows/search lanes back to the pinned Source Vault before promotion. |
+
+
+## Pack-signature implementation update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | Android documents SHA256withECDSA support from API 11, while platform Ed25519 support begins at API 33. | https://developer.android.com/reference/java/security/Signature | high | With minSdk 24, P-256/SHA-256 can be verified by the platform without adding a crypto provider; Ed25519 would require a bundled fallback on older supported devices. |
+| fact | TUF separates trusted signing keys/roles from artifact hashes and models rollback/key-compromise defenses using versioned signed metadata and key rotation/revocation. | https://theupdateframework.io/spec/ and https://theupdateframework.io/docs/security/ | high | Keep signature verification, key lifecycle and release ordering explicit even before a full network update protocol exists. |
+| fact | The Python cryptography project supports ECDSA signing/verification and SubjectPublicKeyInfo key serialization; the foundation verifier pins version 50.0.1 as a replaceable build-time adapter. | https://cryptography.io/en/stable/hazmat/primitives/asymmetric/ec/ | high | Use a small audited adapter in CI/repository tooling while keeping the signed payload and key policy app-owned. |
+| inference | Whole-manifest signing is safer than signing only the runtime SQLite digest because schema-v3 canonical identity, provenance, toolchain data and release_sequence should be authenticated together. | repository threat-model synthesis | high | Sign the deterministic manifest payload minus its signature block, after semantic/provenance gates pass. |
