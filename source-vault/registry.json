@@ -22,7 +22,12 @@
       "notes": "Exact Tanzil Uthmani v1.1 txt-2 artifact preserved from the official Tanzil endpoint with pause marks, sajdah signs and rub-el-hizb signs. Sequential tanween and optional tatweel features were not requested.",
       "licence_sha256": "1ef7fbb0454f64ed4cceb838337808969711155f36147d1b357fc083336f4c68",
       "provenance_sha256": "733a938c4f54f082bf7f4e0b1d9bff7ce21afedceeba199294e872a428a57505",
-      "commercial_use_allowed": true
+      "commercial_use_allowed": true,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://tanzil.net/updates/",
+        "historical_snapshot_retention_status": "verified-allowed"
+      }
     },
     {
       "source_id": "quran-gloss.quranenc.arabic-seraj.v1.0.0",
@@ -84,7 +89,12 @@
       "sha256": null,
       "byte_size": null,
       "notes": "Official SinaLab resource catalogue labels the Quran morphology dataset CC-BY-4.0, and the 2025 authors describe 77,429 word-level tokens with lemma/POS annotations and chapter:verse:word coordinates. The official download form currently grants the free edition only to users affiliated with a recognized company, university, or institution using a professional official email. No exact artifact was acquired or mirrored in this project. The paper reports 6,235 verses while the current Tanzil Evidence Plane has 6,236 ayah coordinates, so exact-byte coordinate coverage and alignment must be verified before any production promotion or word-tap integration.",
-      "commercial_use_allowed": true
+      "commercial_use_allowed": true,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://sina.birzeit.edu/quran/",
+        "historical_snapshot_retention_status": "verified-allowed"
+      }
     },
     {
       "source_id": "hadith.hadeethenc.ar.current",
