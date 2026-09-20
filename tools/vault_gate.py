@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,9 @@ ALLOWED_STATUSES = {
     "production-approved",
     "rejected",
 }
+
+ALLOWED_ARTIFACT_KINDS = {"file", "sha256-set"}
+CHECKSUM_LINE_RE = re.compile(r"^([0-9a-f]{64})  ([^\\r\\n]+)$")
 
 REQUIRED_RELEASE_RULES = {
     "require_production_approved",
@@ -120,6 +124,75 @@ def _safe_vault_file(root: Path, raw: object, source_id: str, field: str) -> Pat
     return path
 
 
+def _validate_checksum_set(artifact: Path, source_id: str) -> int:
+    try:
+        text = artifact.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise VaultGateError(
+            f"{source_id}: checksum-set artifact must be UTF-8"
+        ) from exc
+
+    lines = text.splitlines()
+    if not lines:
+        raise VaultGateError(f"{source_id}: checksum-set artifact is empty")
+
+    snapshot_root = artifact.parent.resolve()
+    seen_paths: set[str] = set()
+    seen_targets: set[Path] = set()
+
+    for line_number, line in enumerate(lines, start=1):
+        match = CHECKSUM_LINE_RE.fullmatch(line)
+        if match is None:
+            raise VaultGateError(
+                f"{source_id}: invalid checksum-set line {line_number}"
+            )
+        expected_hash, raw_path = match.groups()
+        if "\\" in raw_path:
+            raise VaultGateError(
+                f"{source_id}: checksum-set member must use POSIX separators"
+            )
+        rel = Path(raw_path)
+        if rel.is_absolute() or not rel.parts or ".." in rel.parts or "." in rel.parts:
+            raise VaultGateError(
+                f"{source_id}: unsafe checksum-set member path {raw_path!r}"
+            )
+        normalized = rel.as_posix()
+        if normalized in seen_paths:
+            raise VaultGateError(
+                f"{source_id}: duplicate checksum-set member {normalized}"
+            )
+        seen_paths.add(normalized)
+
+        member = artifact.parent / rel
+        if not member.is_file():
+            raise VaultGateError(
+                f"{source_id}: missing checksum-set member {normalized}"
+            )
+        try:
+            resolved = member.resolve()
+            resolved.relative_to(snapshot_root)
+        except ValueError as exc:
+            raise VaultGateError(
+                f"{source_id}: checksum-set member resolves outside snapshot root"
+            ) from exc
+        if resolved == artifact.resolve():
+            raise VaultGateError(
+                f"{source_id}: checksum-set artifact cannot include itself"
+            )
+        if resolved in seen_targets:
+            raise VaultGateError(
+                f"{source_id}: checksum-set aliases the same file more than once"
+            )
+        seen_targets.add(resolved)
+
+        if sha256_file(member) != expected_hash:
+            raise VaultGateError(
+                f"{source_id}: checksum-set member SHA-256 mismatch: {normalized}"
+            )
+
+    return len(lines)
+
+
 def validate_registry(registry_path: Path) -> None:
     registry_path = registry_path.resolve()
     if registry_path.parent.name != "source-vault":
@@ -148,6 +221,12 @@ def validate_registry(registry_path: Path) -> None:
         status = source.get("status")
         if status not in ALLOWED_STATUSES:
             raise VaultGateError(f"{source_id}: invalid status {status!r}")
+
+        artifact_kind = source.get("artifact_kind", "file")
+        if artifact_kind not in ALLOWED_ARTIFACT_KINDS:
+            raise VaultGateError(
+                f"{source_id}: invalid artifact_kind {artifact_kind!r}"
+            )
 
         snapshot_fields_present = [
             field
@@ -236,6 +315,8 @@ def validate_registry(registry_path: Path) -> None:
             raise VaultGateError(f"{source_id}: artifact byte_size mismatch")
         if sha256_file(artifact) != expected_hash:
             raise VaultGateError(f"{source_id}: artifact SHA-256 mismatch")
+        if artifact_kind == "sha256-set":
+            _validate_checksum_set(artifact, source_id)
         if sha256_file(licence) != expected_licence_hash:
             raise VaultGateError(
                 f"{source_id}: licence snapshot SHA-256 mismatch"
@@ -259,6 +340,8 @@ def validate_registry(registry_path: Path) -> None:
             "licence_snapshot",
             "project_mirror",
         ]
+        if artifact_kind != "file":
+            required.append("artifact_kind")
         missing = [key for key in required if provenance.get(key) in (None, "")]
         if missing:
             raise VaultGateError(f"{source_id}: provenance missing {missing}")
@@ -279,6 +362,8 @@ def validate_registry(registry_path: Path) -> None:
             "licence_snapshot": source["licence_snapshot"],
             "project_mirror": source["vault_artifact"],
         }
+        if artifact_kind != "file":
+            expected_provenance["artifact_kind"] = artifact_kind
         mismatched = [
             key
             for key, expected in expected_provenance.items()
