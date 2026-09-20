@@ -1,12 +1,18 @@
 import json
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
 
 from tools.build_quran_core import build_pack, sha256_file
+from tools.quran_canonical import (
+    build_canonical,
+    load_canonical,
+    sha256_file as sha256_canonical_file,
+)
 from tools.quran_core import (
     EXPECTED_AYAH_COUNTS,
     load_production_source,
@@ -42,7 +48,10 @@ class QuranCoreTests(unittest.TestCase):
 
     def _copy_fixture_root(self, destination: Path) -> None:
         (destination / "schemas").mkdir(parents=True)
-        shutil.copy2(ROOT / "schemas" / "content_v1.sql", destination / "schemas" / "content_v1.sql")
+        shutil.copy2(
+            ROOT / "schemas" / "content_v1.sql",
+            destination / "schemas" / "content_v1.sql",
+        )
 
         source, artifact, _ = load_production_source(ROOT)
         artifact_rel = Path(source["vault_artifact"])
@@ -60,10 +69,7 @@ class QuranCoreTests(unittest.TestCase):
         copied_provenance.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / provenance_rel, copied_provenance)
 
-        registry = {
-            "schema_version": 1,
-            "sources": [source],
-        }
+        registry = {"schema_version": 1, "sources": [source]}
         registry_path = destination / "source-vault" / "registry.json"
         registry_path.parent.mkdir(parents=True, exist_ok=True)
         registry_path.write_text(
@@ -71,25 +77,82 @@ class QuranCoreTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_direct_builder_cli_can_import_repo_tools(self):
-        completed = subprocess.run(
-            [sys.executable, str(ROOT / "tools" / "build_quran_core.py"), "--help"],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        self.assertIn("pack directory", completed.stdout)
+    def test_direct_builder_clis_can_import_repo_tools(self):
+        for script in ("build_quran_canonical.py", "build_quran_core.py"):
+            completed = subprocess.run(
+                [sys.executable, str(ROOT / "tools" / script), "--help"],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("repository root", completed.stdout)
 
-    def test_builder_is_byte_reproducible_for_identical_inputs(self):
+    def test_canonical_artifact_is_byte_reproducible(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
             root_a = Path(first)
             root_b = Path(second)
             self._copy_fixture_root(root_a)
             self._copy_fixture_root(root_b)
 
-            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.0.1"))
-            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.0.1"))
+            artifact_a, manifest_a = build_canonical(root_a)
+            artifact_b, manifest_b = build_canonical(root_b)
+
+            self.assertEqual(sha256_canonical_file(artifact_a), sha256_canonical_file(artifact_b))
+            self.assertEqual(sha256_canonical_file(manifest_a), sha256_canonical_file(manifest_b))
+
+            canonical = load_canonical(root_a)
+            self.assertEqual(len(canonical.rows), 6236)
+            self.assertEqual(canonical.rows[0].ayah_id, "qa:001:001")
+            self.assertEqual(canonical.rows[-1].ayah_id, "qa:114:006")
+
+    def test_runtime_pack_is_built_from_canonical_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._copy_fixture_root(root)
+            build_canonical(root)
+            db_path, manifest_path = build_pack(
+                root, Path("content-packs/quran-core/1.1.0")
+            )
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["schema_version"], 2)
+            self.assertEqual(manifest["content_schema_version"], 1)
+            self.assertEqual(manifest["record_count"], 6236)
+            self.assertEqual(
+                manifest["canonical"]["artifact_sha256"],
+                sha256_canonical_file(root / manifest["canonical"]["artifact_path"]),
+            )
+            self.assertTrue(manifest["build_toolchain"]["python_version"])
+            self.assertTrue(manifest["build_toolchain"]["sqlite_version"])
+
+            with sqlite3.connect(db_path) as connection:
+                payload = json.loads(
+                    connection.execute(
+                        "SELECT payload_json FROM source_assertion WHERE source_id = ?",
+                        ("quran.tanzil.uthmani.v1.1",),
+                    ).fetchone()[0]
+                )
+            self.assertEqual(
+                payload["canonical_artifact"],
+                manifest["canonical"]["artifact_path"],
+            )
+            self.assertEqual(
+                payload["canonical_sha256"],
+                manifest["canonical"]["artifact_sha256"],
+            )
+
+    def test_runtime_pack_is_byte_reproducible_with_same_toolchain(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            root_a = Path(first)
+            root_b = Path(second)
+            self._copy_fixture_root(root_a)
+            self._copy_fixture_root(root_b)
+            build_canonical(root_a)
+            build_canonical(root_b)
+
+            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.1.0"))
+            db_b, _ = build_pack(root_b, Path("content-packs/quran-core/1.1.0"))
 
             self.assertEqual(sha256_file(db_a), sha256_file(db_b))
             manifest = json.loads(manifest_a.read_text(encoding="utf-8"))
@@ -97,7 +160,7 @@ class QuranCoreTests(unittest.TestCase):
             self.assertTrue(notice.is_file())
             self.assertEqual(sha256_file(notice), manifest["notice_sha256"])
             self.assertIn("Tanzil Quran Text", notice.read_text(encoding="utf-8"))
-            self.assertIn("Copyright (C) 2007-2021 Tanzil Project", notice.read_text(encoding="utf-8"))
+            self.assertIn("canonical JSONL hash", manifest["byte_reproducibility_scope"])
 
 
 if __name__ == "__main__":
