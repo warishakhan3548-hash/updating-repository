@@ -123,3 +123,11 @@ A labelled retrieval benchmark is part of the product's reproducibility record. 
 `quran-search-golden-v1` therefore remains the historical strict-search baseline. `quran-search-golden-v2` is the active spelling-fallback benchmark and explicitly binds both the pack-side `arabic-search-v1` normalization contract and the runtime `arabic-query-variant-v1` contract. Evaluation fails closed if the runtime binding is absent or does not match the implementation.
 
 This keeps benchmark history auditable across search-engine evolution and prevents a newer engine from appearing to have passed an older benchmark whose labels or thresholds were retrospectively changed.
+
+## ADR-024 — Unresolved archival rights block capture, not only release
+
+A source whose republication terms require downstream copies to stay current may still be legally ambiguous for an immutable public Source Vault. When `historical_snapshot_retention_status` is `unresolved`, the source registry must use `awaiting-licence`; it may not be softened to `research-candidate` or `awaiting-artifact` merely because current-version republication is otherwise allowed.
+
+`awaiting-licence` is also a **no-bytes** state in project-controlled public storage. The central Source Vault gate rejects any preserved snapshot metadata under that status. This makes the legal boundary independent of source-specific download scripts and prevents a future acquisition path from accidentally publishing bytes before archival rights are established.
+
+Once archival retention is explicitly `verified-allowed`, the source may advance to artifact acquisition/review. Any separate ongoing obligation to ship only the latest upstream version remains enforced later by the signed source-release review. Current-version permission, historical archival permission, evidence quality and release freshness are therefore four distinct gates.
