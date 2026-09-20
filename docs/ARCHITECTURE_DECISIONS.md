@@ -30,3 +30,6 @@ The first Quran core stores source-faithful ayah evidence and derived search lan
 
 ## ADR-010 — Runtime attribution is derived from preserved evidence
 For a source whose preserved artifact embeds its required notice, the runtime pack derives its notice from that pinned artifact rather than a separately hand-maintained paraphrase. Provenance attribution and source URL are bound into runtime metadata. Pack artifacts and notices must resolve inside their own immutable manifest directory so one pack cannot borrow another pack's evidence or notice by path or symlink.
+
+## ADR-011 — Exact-byte integrity and semantic fidelity are separate gates
+A runtime pack SHA-256 identifies exact shipped bytes, but it does not by itself prove that those bytes faithfully represent the preserved sacred source. Quran pack promotion therefore performs a second, importer-independent semantic check: reopen the SQLite artifact read-only, verify canonical schema and database integrity, reconstruct expected rows and source notice/attribution from the production-approved Source Vault artifact, then compare original Arabic, derived search lanes and source assertions. A process that changes evidence and merely recomputes a file hash must still fail.
