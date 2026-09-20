@@ -19,7 +19,7 @@ BACKUP_FORMAT = "aaris-user-backup"
 FORMAT_VERSION = 1
 MANIFEST_ENTRY = "manifest.json"
 DATABASE_ENTRY = "user.sqlite"
-SUPPORTED_USER_SCHEMA_VERSIONS = {1, 2}
+SUPPORTED_USER_SCHEMA_VERSIONS = {2}
 REQUIRED_USER_TABLES = {
     "exposure_event",
     "review_event",
