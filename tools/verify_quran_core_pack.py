@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Independent semantic verifier for provenance-bound quran-core packs.
 
-The manifest/artifact hashes identify exact bytes. This module verifies a
-separate property: a schema-v2 quran-core SQLite pack still represents the
-production-approved Source Vault evidence and the reviewed canonical schema.
+Outer hashes prove byte identity. This verifier proves a different property:
+the runtime Quran pack still represents the exact production-approved Source
+Vault text and reviewed canonical schema. Schema-v3 packs additionally prove
+that their canonical JSONL layer is source-faithful before SQLite is trusted.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tools.quran_canonical import QuranCanonicalError, load_canonical
 from tools.quran_core import (
     SEARCH_NORMALIZATION_VERSION,
     SOURCE_ID,
@@ -27,7 +29,7 @@ from tools.quran_core import (
 )
 
 PACK_ID = "quran-core"
-SEMANTIC_SCHEMA_VERSION = 2
+SUPPORTED_SEMANTIC_SCHEMA_VERSIONS = {2, 3}
 SOURCE_ASSERTION_ID = "sa:quran.tanzil.uthmani.v1.1"
 
 
@@ -47,12 +49,7 @@ def _safe_pack_file(root: Path, raw: object, field: str) -> Path:
     if not isinstance(raw, str) or not raw:
         raise QuranPackSemanticError(f"missing {field}")
     rel = Path(raw)
-    if (
-        rel.is_absolute()
-        or ".." in rel.parts
-        or not rel.parts
-        or rel.parts[0] != "content-packs"
-    ):
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts or rel.parts[0] != "content-packs":
         raise QuranPackSemanticError(f"{field} must stay under content-packs/")
     path = root / rel
     if not path.is_file():
@@ -60,9 +57,7 @@ def _safe_pack_file(root: Path, raw: object, field: str) -> Path:
     try:
         path.resolve().relative_to((root / "content-packs").resolve())
     except ValueError as exc:
-        raise QuranPackSemanticError(
-            f"{field} resolves outside content-packs/"
-        ) from exc
+        raise QuranPackSemanticError(f"{field} resolves outside content-packs/") from exc
     return path.resolve()
 
 
@@ -86,20 +81,48 @@ def _source_evidence(root: Path) -> tuple[dict, list, dict[str, str]]:
     if not isinstance(attribution, str) or not attribution:
         raise QuranPackSemanticError("source provenance is missing attribution")
     if source_url != source.get("original_url"):
-        raise QuranPackSemanticError(
-            "source provenance URL does not match Source Vault registry"
-        )
+        raise QuranPackSemanticError("source provenance URL does not match Source Vault registry")
     if not isinstance(licence_url, str) or not licence_url:
         raise QuranPackSemanticError("source provenance is missing licence_url")
 
-    derived = {
+    return source, rows, {
         "notice": notice,
         "notice_sha256": hashlib.sha256(notice.encode("utf-8")).hexdigest(),
         "attribution": attribution,
         "source_url": source_url,
         "licence_url": licence_url,
     }
-    return source, rows, derived
+
+
+def _verify_canonical_layer(
+    root: Path,
+    manifest: dict[str, Any],
+) -> None:
+    canonical = manifest.get("canonical")
+    if not isinstance(canonical, dict):
+        raise QuranPackSemanticError("schema-v3 quran-core is missing canonical binding")
+    raw_manifest_path = canonical.get("manifest_path")
+    if not isinstance(raw_manifest_path, str) or not raw_manifest_path:
+        raise QuranPackSemanticError("schema-v3 canonical manifest_path is missing")
+    try:
+        loaded = load_canonical(root, Path(raw_manifest_path))
+    except (OSError, ValueError, json.JSONDecodeError, QuranCanonicalError) as exc:
+        raise QuranPackSemanticError(f"canonical Source Vault fidelity failed: {exc}") from exc
+
+    expected = {
+        "canonical_id": loaded.manifest["canonical_id"],
+        "canonical_version": loaded.manifest["canonical_version"],
+        "generator_version": loaded.manifest["generator_version"],
+        "artifact_path": loaded.manifest["artifact_path"],
+        "artifact_sha256": loaded.manifest["artifact_sha256"],
+        "artifact_byte_size": loaded.manifest["artifact_byte_size"],
+        "record_count": loaded.manifest["record_count"],
+    }
+    mismatched = [key for key, value in expected.items() if canonical.get(key) != value]
+    if mismatched:
+        raise QuranPackSemanticError(
+            f"schema-v3 canonical pack binding mismatch: {mismatched}"
+        )
 
 
 def _verify_manifest_contract(
@@ -110,28 +133,21 @@ def _verify_manifest_contract(
     derived: dict[str, str],
 ) -> Path:
     if manifest.get("pack_id") != PACK_ID:
+        raise QuranPackSemanticError(f"semantic verifier only supports pack_id={PACK_ID!r}")
+    schema_version = manifest.get("schema_version")
+    if schema_version not in SUPPORTED_SEMANTIC_SCHEMA_VERSIONS:
         raise QuranPackSemanticError(
-            f"semantic verifier only supports pack_id={PACK_ID!r}"
-        )
-    if manifest.get("schema_version") != SEMANTIC_SCHEMA_VERSION:
-        raise QuranPackSemanticError(
-            f"quran-core semantic verification requires schema_version "
-            f"{SEMANTIC_SCHEMA_VERSION}"
+            f"quran-core semantic verification supports schema versions "
+            f"{sorted(SUPPORTED_SEMANTIC_SCHEMA_VERSIONS)}"
         )
     if manifest.get("source_id") != SOURCE_ID:
         raise QuranPackSemanticError("quran-core source_id mismatch")
     if manifest.get("record_count") != len(expected_rows):
-        raise QuranPackSemanticError(
-            "quran-core manifest record_count does not match Source Vault rows"
-        )
+        raise QuranPackSemanticError("quran-core manifest record_count does not match Source Vault rows")
     if manifest.get("dependencies") != []:
-        raise QuranPackSemanticError(
-            "quran-core must not claim undeclared pack dependencies"
-        )
+        raise QuranPackSemanticError("quran-core must not claim undeclared pack dependencies")
     if manifest.get("search_normalization_version") != SEARCH_NORMALIZATION_VERSION:
-        raise QuranPackSemanticError(
-            "quran-core search normalization version mismatch"
-        )
+        raise QuranPackSemanticError("quran-core search normalization version mismatch")
     if not isinstance(manifest.get("content_version"), str) or not manifest["content_version"]:
         raise QuranPackSemanticError("quran-core content_version is missing")
     if not isinstance(manifest.get("importer_version"), str) or not manifest["importer_version"]:
@@ -158,15 +174,13 @@ def _verify_manifest_contract(
                 f"quran-core manifest {field} does not match Source Vault evidence"
             )
 
+    if schema_version == 3:
+        _verify_canonical_layer(root, manifest)
+
     artifact = _safe_pack_file(root, manifest.get("artifact_path"), "artifact_path")
     notice_path = _safe_pack_file(root, manifest.get("notice_path"), "notice_path")
-    manifest_path = root / "content-packs" / PACK_ID / manifest["content_version"] / "manifest.json"
-    # Do not require the caller's manifest to live at this conventional path;
-    # do require artifact + notice to be siblings, matching pack locality.
     if artifact.parent != notice_path.parent:
-        raise QuranPackSemanticError(
-            "quran-core notice must travel beside the SQLite artifact"
-        )
+        raise QuranPackSemanticError("quran-core notice must travel beside the SQLite artifact")
     if notice_path.read_text(encoding="utf-8") != derived["notice"]:
         raise QuranPackSemanticError(
             "quran-core NOTICE.txt does not exactly match preserved source notice"
@@ -222,16 +236,14 @@ def _verify_metadata(
     derived: dict[str, str],
     row_count: int,
 ) -> None:
-    rows = connection.execute(
-        "SELECT key, value FROM pack_metadata ORDER BY key"
-    ).fetchall()
+    rows = connection.execute("SELECT key, value FROM pack_metadata ORDER BY key").fetchall()
     metadata = {key: value for key, value in rows}
     if len(metadata) != len(rows):
         raise QuranPackSemanticError("duplicate pack_metadata keys detected")
 
     required = {
         "pack_id": PACK_ID,
-        "schema_version": str(SEMANTIC_SCHEMA_VERSION),
+        "schema_version": str(manifest["schema_version"]),
         "content_version": manifest["content_version"],
         "source_id": SOURCE_ID,
         "source_version": source["version"],
@@ -247,6 +259,16 @@ def _verify_metadata(
         "search_normalization_version": SEARCH_NORMALIZATION_VERSION,
         "quran_coordinate_count": str(row_count),
     }
+    if manifest["schema_version"] == 3:
+        canonical = manifest["canonical"]
+        required.update({
+            "content_schema_version": str(manifest["content_schema_version"]),
+            "canonical_id": canonical["canonical_id"],
+            "canonical_version": canonical["canonical_version"],
+            "canonical_sha256": canonical["artifact_sha256"],
+            "canonical_generator_version": canonical["generator_version"],
+        })
+
     mismatched = [key for key, value in required.items() if metadata.get(key) != value]
     if mismatched:
         raise QuranPackSemanticError(
@@ -256,6 +278,7 @@ def _verify_metadata(
 
 def _verify_source_assertion(
     connection: sqlite3.Connection,
+    manifest: dict[str, Any],
     source: dict[str, Any],
     derived: dict[str, str],
 ) -> None:
@@ -294,6 +317,11 @@ def _verify_source_assertion(
         "source_provenance_sha256": source["provenance_sha256"],
         "source_notice_sha256": derived["notice_sha256"],
     }
+    if manifest["schema_version"] == 3:
+        expected_payload.update({
+            "canonical_artifact": manifest["canonical"]["artifact_path"],
+            "canonical_sha256": manifest["canonical"]["artifact_sha256"],
+        })
     if payload != expected_payload:
         raise QuranPackSemanticError("quran-core source assertion payload mismatch")
 
@@ -325,8 +353,8 @@ def _verify_quran_rows(connection: sqlite3.Connection, expected_rows: list) -> N
         )
         if actual != expected_tuple:
             raise QuranPackSemanticError(
-                f"quran-core semantic mismatch at "
-                f"{expected.surah}:{expected.ayah} (row {index})"
+                f"quran-core semantic mismatch at {expected.surah}:{expected.ayah} "
+                f"(row {index})"
             )
 
 
@@ -395,7 +423,7 @@ def verify_quran_core_pack(
             )
         _verify_canonical_schema(root, connection)
         _verify_metadata(connection, manifest, source, derived, len(expected_rows))
-        _verify_source_assertion(connection, source, derived)
+        _verify_source_assertion(connection, manifest, source, derived)
         _verify_quran_rows(connection, expected_rows)
         _verify_no_unexpected_evidence(connection)
     except (json.JSONDecodeError, sqlite3.Error) as exc:
@@ -415,17 +443,17 @@ def _version_key(path: Path) -> tuple[int, ...]:
         ) from exc
 
 
-def latest_schema_v2_manifest(root: Path) -> Path:
+def latest_semantic_manifest(root: Path) -> Path:
     candidates = []
     for path in (root / "content-packs" / PACK_ID).glob("*/manifest.json"):
         try:
             manifest = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if manifest.get("schema_version") == SEMANTIC_SCHEMA_VERSION:
+        if manifest.get("schema_version") in SUPPORTED_SEMANTIC_SCHEMA_VERSIONS:
             candidates.append(path)
     if not candidates:
-        raise QuranPackSemanticError("no schema-v2 quran-core manifest found")
+        raise QuranPackSemanticError("no semantically verifiable quran-core manifest found")
     return max(candidates, key=_version_key)
 
 
@@ -436,7 +464,7 @@ def main() -> None:
             "usage: python tools/verify_quran_core_pack.py [manifest.json]"
         )
     manifest_path = (
-        Path(sys.argv[1]) if len(sys.argv) == 2 else latest_schema_v2_manifest(root)
+        Path(sys.argv[1]) if len(sys.argv) == 2 else latest_semantic_manifest(root)
     )
     if not manifest_path.is_absolute():
         manifest_path = root / manifest_path

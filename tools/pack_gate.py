@@ -74,6 +74,121 @@ def _load_sources(registry_path: Path) -> tuple[Path, dict[str, dict]]:
     return root, by_id
 
 
+
+def _validate_canonical_binding(
+    root: Path,
+    manifest: dict,
+    manifest_path: Path,
+    pack_metadata: dict[str, str],
+) -> None:
+    canonical = manifest.get("canonical")
+    if not isinstance(canonical, dict):
+        raise PackGateError(f"{manifest_path}: schema v3 requires canonical binding")
+
+    required = (
+        "canonical_id",
+        "canonical_version",
+        "generator_version",
+        "manifest_path",
+        "manifest_sha256",
+        "artifact_path",
+        "artifact_sha256",
+        "artifact_byte_size",
+        "record_count",
+    )
+    missing = [key for key in required if canonical.get(key) in (None, "")]
+    if missing:
+        raise PackGateError(f"{manifest_path}: canonical missing {missing}")
+
+    canonical_manifest_path = _safe_repo_file(
+        root, canonical["manifest_path"], "canonical.manifest_path", "canonical"
+    )
+    canonical_manifest_hash = _lower_sha256(
+        canonical["manifest_sha256"], "canonical.manifest_sha256"
+    )
+    if sha256_file(canonical_manifest_path) != canonical_manifest_hash:
+        raise PackGateError(f"{manifest_path}: canonical manifest SHA-256 mismatch")
+
+    try:
+        canonical_manifest = json.loads(
+            canonical_manifest_path.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PackGateError(f"{manifest_path}: invalid canonical manifest") from exc
+
+    artifact = _safe_repo_file(
+        root, canonical["artifact_path"], "canonical.artifact_path", "canonical"
+    )
+    if artifact.resolve().parent != canonical_manifest_path.parent:
+        raise PackGateError(
+            f"{manifest_path}: canonical artifact must resolve inside its manifest directory"
+        )
+    artifact_hash = _lower_sha256(
+        canonical["artifact_sha256"], "canonical.artifact_sha256"
+    )
+    artifact_size = canonical["artifact_byte_size"]
+    if not isinstance(artifact_size, int) or artifact_size < 1:
+        raise PackGateError(f"{manifest_path}: invalid canonical artifact_byte_size")
+    if artifact.stat().st_size != artifact_size:
+        raise PackGateError(f"{manifest_path}: canonical artifact byte-size mismatch")
+    if sha256_file(artifact) != artifact_hash:
+        raise PackGateError(f"{manifest_path}: canonical artifact SHA-256 mismatch")
+
+    expected = {
+        "canonical_id": canonical.get("canonical_id"),
+        "canonical_version": canonical.get("canonical_version"),
+        "generator_version": canonical.get("generator_version"),
+        "artifact_path": canonical.get("artifact_path"),
+        "artifact_sha256": canonical.get("artifact_sha256"),
+        "artifact_byte_size": canonical.get("artifact_byte_size"),
+        "record_count": canonical.get("record_count"),
+        "source_id": manifest.get("source_id"),
+        "source_name": manifest.get("source_name"),
+        "source_version": manifest.get("source_version"),
+        "source_vault_path": manifest.get("source_vault_path"),
+        "source_sha256": manifest.get("source_sha256"),
+        "source_url": manifest.get("source_url"),
+        "source_licence_sha256": manifest.get("source_licence_sha256"),
+        "source_provenance_sha256": manifest.get("source_provenance_sha256"),
+        "licence": manifest.get("licence"),
+    }
+    for field, value in expected.items():
+        if canonical_manifest.get(field) != value:
+            raise PackGateError(
+                f"{manifest_path}: canonical manifest {field} does not match pack/source binding"
+            )
+
+    if canonical.get("record_count") != manifest.get("record_count"):
+        raise PackGateError(f"{manifest_path}: canonical record_count mismatch")
+
+    toolchain = manifest.get("build_toolchain")
+    if not isinstance(toolchain, dict):
+        raise PackGateError(f"{manifest_path}: schema v3 requires build_toolchain")
+    for field in ("python_implementation", "python_version", "sqlite_version"):
+        if not isinstance(toolchain.get(field), str) or not toolchain[field]:
+            raise PackGateError(f"{manifest_path}: invalid build_toolchain.{field}")
+
+    scope = manifest.get("byte_reproducibility_scope")
+    if not isinstance(scope, str) or not scope.strip():
+        raise PackGateError(f"{manifest_path}: missing byte_reproducibility_scope")
+
+    expected_metadata = {
+        "content_schema_version": str(manifest["content_schema_version"]),
+        "canonical_id": canonical["canonical_id"],
+        "canonical_version": canonical["canonical_version"],
+        "canonical_sha256": canonical["artifact_sha256"],
+        "canonical_generator_version": canonical["generator_version"],
+    }
+    mismatched = [
+        key
+        for key, value in expected_metadata.items()
+        if pack_metadata.get(key) != value
+    ]
+    if mismatched:
+        raise PackGateError(
+            f"{manifest_path}: embedded canonical metadata mismatch: {mismatched}"
+        )
+
 def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     root, sources = _load_sources(registry_path)
     manifest_path = manifest_path.resolve()
@@ -105,9 +220,9 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     missing = [key for key in required if manifest.get(key) in (None, "")]
     if missing:
         raise PackGateError(f"{manifest_path}: missing {missing}")
-    if manifest["schema_version"] not in {1, 2}:
+    if manifest["schema_version"] not in {1, 2, 3}:
         raise PackGateError(f"{manifest_path}: unsupported schema_version")
-    if manifest["schema_version"] == 2:
+    if manifest["schema_version"] in {2, 3}:
         required_v2 = [
             "source_url",
             "source_attribution",
@@ -119,7 +234,19 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         ]
         missing_v2 = [key for key in required_v2 if manifest.get(key) in (None, "")]
         if missing_v2:
-            raise PackGateError(f"{manifest_path}: missing schema v2 fields {missing_v2}")
+            raise PackGateError(f"{manifest_path}: missing schema v2+ fields {missing_v2}")
+    if manifest["schema_version"] == 3:
+        required_v3 = [
+            "content_schema_version",
+            "canonical",
+            "build_toolchain",
+            "byte_reproducibility_scope",
+        ]
+        missing_v3 = [key for key in required_v3 if manifest.get(key) in (None, "")]
+        if missing_v3:
+            raise PackGateError(f"{manifest_path}: missing schema v3 fields {missing_v3}")
+        if not isinstance(manifest["content_schema_version"], int) or manifest["content_schema_version"] < 1:
+            raise PackGateError(f"{manifest_path}: invalid content_schema_version")
     if not isinstance(manifest["record_count"], int) or manifest["record_count"] < 0:
         raise PackGateError(f"{manifest_path}: invalid record_count")
     if manifest["review_status"] not in {"candidate", "reviewed", "approved"}:
@@ -158,7 +285,7 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
             raise PackGateError(f"{manifest_path}: {field} does not match Source Vault")
     _lower_sha256(manifest["source_sha256"], "source_sha256")
 
-    if manifest["schema_version"] == 2:
+    if manifest["schema_version"] in {2, 3}:
         source_licence_hash = _lower_sha256(
             source.get("licence_sha256"), "registry licence_sha256"
         )
@@ -235,7 +362,7 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     if sha256_file(artifact) != expected_hash:
         raise PackGateError(f"{manifest_path}: built_sha256 mismatch")
 
-    if manifest["schema_version"] == 2:
+    if manifest["schema_version"] in {2, 3}:
         try:
             notice_text = notice.read_text(encoding="utf-8")
             uri = f"file:{artifact.as_posix()}?mode=ro"
@@ -250,7 +377,7 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
 
         expected_metadata = {
             "pack_id": manifest["pack_id"],
-            "schema_version": "2",
+            "schema_version": str(manifest["schema_version"]),
             "content_version": manifest["content_version"],
             "source_id": source_id,
             "source_version": source["version"],
@@ -272,35 +399,37 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
             raise PackGateError(
                 f"{manifest_path}: embedded pack metadata mismatch: {mismatched}"
             )
-
-    if manifest["pack_id"] == "quran-core" and manifest["schema_version"] == 2:
-        try:
-            verify_quran_core_pack(root, manifest, artifact)
-        except QuranPackSemanticError as exc:
-            raise PackGateError(
-                f"{manifest_path}: Quran semantic verification failed: {exc}"
-            ) from exc
+        if manifest["schema_version"] == 3:
+            _validate_canonical_binding(
+                root,
+                manifest,
+                manifest_path,
+                pack_metadata,
+            )
 
     signature = manifest["signature"]
     if not isinstance(signature, dict):
         raise PackGateError(f"{manifest_path}: signature must be an object")
     if manifest["review_status"] == "approved":
         required_signature = ("algorithm", "key_id", "value")
-        if any(
-            not isinstance(signature.get(key), str) or not signature[key]
-            for key in required_signature
-        ):
+        if any(not isinstance(signature.get(key), str) or not signature[key] for key in required_signature):
             raise PackGateError(
                 f"{manifest_path}: approved pack requires signature algorithm/key_id/value"
             )
-        # Presence of signature-looking strings is not verification. Until this gate
-        # has a real trusted-key verifier, accepting an "approved" manifest would
-        # create a false trust boundary: any caller could place arbitrary text in
-        # algorithm/key_id/value and bypass ReaderCore's production activation guard.
+        # Signature-shaped strings are not cryptographic verification. Until a
+        # trusted-key verifier exists, production approval must fail closed.
         raise PackGateError(
             f"{manifest_path}: approved packs are disabled until cryptographic "
             "signature verification is implemented"
         )
+
+    if manifest["pack_id"] == "quran-core" and manifest["schema_version"] in {2, 3}:
+        try:
+            verify_quran_core_pack(root, manifest, artifact)
+        except QuranPackSemanticError as exc:
+            raise PackGateError(
+                f"{manifest_path}: Quran semantic verification failed: {exc}"
+            ) from exc
 
 
 def validate_all(registry_path: Path) -> int:
