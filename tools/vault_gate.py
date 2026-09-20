@@ -297,6 +297,18 @@ def validate_registry(registry_path: Path) -> None:
             for field in PRESERVED_SNAPSHOT_FIELDS
             if source.get(field) not in (None, "")
         ]
+        if snapshot_fields_present and len(snapshot_fields_present) != len(
+            PRESERVED_SNAPSHOT_FIELDS
+        ):
+            missing_snapshot_fields = [
+                field
+                for field in PRESERVED_SNAPSHOT_FIELDS
+                if source.get(field) in (None, "")
+            ]
+            raise VaultGateError(
+                f"{source_id}: preserved snapshot metadata is incomplete; "
+                f"missing {missing_snapshot_fields}"
+            )
         if status == "awaiting-licence" and snapshot_fields_present:
             raise VaultGateError(
                 f"{source_id}: awaiting-licence source must not preserve "
