@@ -20,12 +20,14 @@ When and only when strict retrieval returns no rows, the reader may run the quer
 
 This baseline still does **not** claim edit-distance typo tolerance, conceptual, root, morphology or AI-expanded retrieval. Those remain evaluation-gated behind the labelled golden set. Empty retrieval is allowed to abstain with **No reliable match found**.
 
-## Executable golden set — 2026-09-21
+## Executable golden sets — 2026-09-21
 
-The first labelled Quran retrieval benchmark is now executable at `evaluation/quran_search_golden_v1.json` through `tools/quran_search_eval.py`. It is bound to `quran-core 1.1.0` and `arabic-search-v1`, and it measures the existing strict engine rather than introducing a second production search implementation.
+Golden benchmarks are append-only/versioned contracts rather than mutable filenames. `evaluation/quran_search_golden_v1.json` preserves the original strict-search baseline exactly as it existed before the spelling fallback was promoted. It remains historical evidence and is not silently reinterpreted under newer retrieval behavior.
+
+The active benchmark is `evaluation/quran_search_golden_v2.json` through `tools/quran_search_eval.py`. It is bound to `quran-core 1.1.0`, pack search normalization `arabic-search-v1`, and runtime query-variant contract `arabic-query-variant-v1`. A missing or mismatched runtime binding fails evaluation before metrics are accepted.
 
 Exact-source, diacritic-free and partial-phrase queries are derived at evaluation time from the verified runtime pack using canonical Ayah IDs. Explicit typo, orthographic and keyboard-variant strings are treated only as simulated user queries, never as Quran display evidence. Deliberate no-answer cases measure false positives and preserve abstention.
 
-CI enforces Recall@5 = 1.0 for exact-source, diacritic-free and partial-phrase categories and now also for the constrained orthographic and South-Asian keyboard categories, while retaining a zero false-positive rate for labelled no-answer cases. The fallback is evaluated as a distinct `approximate_spelling` match mode. Edit-distance typo cases remain measured but are not promoted as a supported capability. Any future FTS5, trigram, edit-distance, morphology or AI-expanded lane must demonstrate a measured gain without degrading exact retrieval, abstention or source-faithful rendering.
+CI enforces Recall@5 = 1.0 for exact-source, diacritic-free, partial-phrase, constrained orthographic and South-Asian keyboard categories, while retaining a zero false-positive rate for labelled no-answer cases. The fallback is evaluated as a distinct `approximate_spelling` match mode. Edit-distance typo cases remain measured but are not promoted as a supported capability. Any future FTS5, trigram, edit-distance, morphology or AI-expanded lane must create a new benchmark version when its supported contract or relevance judgments change and must demonstrate a measured gain without degrading exact retrieval, abstention or source-faithful rendering.
 
 The evaluator emits Recall@5, Recall@10, MRR, NDCG@10, negative false-positive rate and zero-result rate. Host SQLite p50/p95 are diagnostic only; low-end Android latency remains a separate device measurement.

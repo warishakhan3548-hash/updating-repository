@@ -108,3 +108,12 @@ Quran search preserves a strict-first trust ladder. NFC/diacritic-free exact con
 The fallback is query/search-lane logic only: it never rewrites `original_text`, never mutates the canonical Quran artifact, and never changes the source-bound `arabic-search-v1` pack contract. Fallback hits are explicitly labelled **Approximate spelling match** in the reader. Unsupported edit-distance typos continue to abstain unless a future measured lane passes the golden-set gate.
 
 This keeps source truth and search convenience separate while improving recall for common keyboard/script variation without introducing a heavyweight search dependency or silently broadening confidence.
+
+
+## ADR-022 — Search golden sets are immutable versioned contracts
+
+A labelled retrieval benchmark is part of the product's reproducibility record. Once a golden-set version has been used to define a supported retrieval floor, changing its relevance judgments, required metrics or runtime interpretation creates a new golden-set version instead of silently replacing the old file's meaning.
+
+`quran-search-golden-v1` therefore remains the historical strict-search baseline. `quran-search-golden-v2` is the active spelling-fallback benchmark and explicitly binds both the pack-side `arabic-search-v1` normalization contract and the runtime `arabic-query-variant-v1` contract. Evaluation fails closed if the runtime binding is absent or does not match the implementation.
+
+This keeps benchmark history auditable across search-engine evolution and prevents a newer engine from appearing to have passed an older benchmark whose labels or thresholds were retrospectively changed.
