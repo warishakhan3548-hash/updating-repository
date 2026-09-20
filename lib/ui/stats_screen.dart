@@ -1,15 +1,40 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../domain/sales_overview.dart';
 import '../state/pharmacy_controller.dart';
 import 'design.dart';
 
-class StatsScreen extends StatelessWidget {
+class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key, required this.controller});
 
   final PharmacyController controller;
 
+  @override
+  State<StatsScreen> createState() => _StatsScreenState();
+}
+
+class _StatsScreenState extends State<StatsScreen> {
+  PharmacyController get controller => widget.controller;
+
+  bool _routeOpening = false;
+
   String _money(int paise) => '₹${(paise / 100).toStringAsFixed(2)}';
+
+  Future<void> _openTracker() async {
+    if (_routeOpening || !mounted) return;
+    setState(() => _routeOpening = true);
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => _SoldMedicineTrackerScreen(controller: controller),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _routeOpening = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) => ActiveListenableBuilder(
@@ -78,11 +103,7 @@ class StatsScreen extends StatelessWidget {
               ? 'No recorded sales yet'
               : '${top.name} · ${top.unitsSold} units sold',
           icon: Icons.bar_chart_rounded,
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => _SoldMedicineTrackerScreen(controller: controller),
-            ),
-          ),
+          onTap: _routeOpening ? null : () => unawaited(_openTracker()),
         ),
       ];
 
