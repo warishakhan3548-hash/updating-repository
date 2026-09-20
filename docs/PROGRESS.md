@@ -23,7 +23,8 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
 - GitHub Actions foundation checks and deterministic pack build workflow;
-- fail-closed release authenticity gate: `approved` packs are rejected until their cryptographic signatures can be verified against trusted project keys.
+- trusted-key Ed25519 release verifier with deterministic signed payload, threshold policy, key lifecycle/sequence windows and real signature tests;
+- empty-by-default production trust root: no pack can become `approved` until a reviewed public key is explicitly enrolled after an offline key ceremony.
 
 ## Production Source Vault
 
@@ -77,12 +78,13 @@ No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device te
 
 ## Next safe milestones
 
-1. Implement and test the trusted-key content-pack signature verifier (canonical signed payload, key IDs/rotation and rollback metadata), then review/sign/promote the Quran core pack.
-2. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
-3. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
-4. Resolve QAC licensing or choose a legally clearer morphology source.
-5. Preserve an edition-aware Hadith source before production Hadith search.
-6. Add an independent backup/archive for critical Source Vault artifacts.
+1. Complete the protected canonical-v3 publisher run for the next immutable Quran candidate, then perform content review and an offline release-key ceremony before signing any new approved version.
+2. Design/test min-API-compatible Android verification and client rollback/freshness state before enabling downloadable production pack activation.
+3. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
+4. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
+5. Resolve QAC licensing or choose a legally clearer morphology source.
+6. Preserve an edition-aware Hadith source before production Hadith search.
+7. Add an independent backup/archive for critical Source Vault artifacts.
 
 One-shot acquisition/backfill workflows are removed after successful promotion of their outputs; provenance and Git history retain the audit trail.
 
