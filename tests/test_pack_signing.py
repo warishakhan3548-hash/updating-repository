@@ -15,6 +15,7 @@ from tools.pack_signing import (
     signature_payload,
     verify_ed25519_signature,
     verify_manifest_signature,
+    validate_trusted_key_policy,
 )
 
 
@@ -234,6 +235,20 @@ class PackSigningTests(unittest.TestCase):
         manifest["unsafe_float"] = 1.5
         with self.assertRaisesRegex(PackSignatureError, "floats are forbidden"):
             signature_payload(manifest)
+
+    def test_duplicate_policy_fields_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "trusted_pack_keys.json"
+            path.write_text(
+                '{"schema_version":1,"schema_version":1,'
+                '"signature_threshold":1,"keys":[]}',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                PackSignatureError,
+                "duplicate trusted-key policy field",
+            ):
+                validate_trusted_key_policy(path)
 
     def test_invalid_unicode_surrogate_is_rejected(self):
         manifest = self._manifest()
