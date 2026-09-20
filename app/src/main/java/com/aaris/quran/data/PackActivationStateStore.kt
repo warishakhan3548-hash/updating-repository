@@ -21,6 +21,17 @@ internal class PackActivationStateStore(
         atomicFile = AtomicFile(stateFile)
     }
 
+    fun requireAcceptable(
+        releaseSequence: Long,
+        packSha256: String,
+    ) {
+        PackActivationPolicy.accept(
+            current = read(),
+            candidateSequence = releaseSequence,
+            candidateSha256 = packSha256,
+        )
+    }
+
     fun accept(
         releaseSequence: Long,
         packSha256: String,
