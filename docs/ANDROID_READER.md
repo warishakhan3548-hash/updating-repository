@@ -15,7 +15,7 @@ There is no network permission, account, analytics SDK, translation guess, morph
 
 ## Content activation
 
-The Android build points its asset source directly at `content-packs/quran-core/1.0.4/`; no second Quran database is committed.
+The Android build points its asset source directly at `content-packs/quran-core/1.1.0/`; no second Quran database is committed.
 
 Gradle hashes `content.sqlite` before every Android build. At first runtime use the asset is copied into `noBackupFilesDir`, hashed again, and opened with Android SQLite `OPEN_READONLY`.
 
@@ -51,3 +51,5 @@ Pinned as of 2026-09-20:
 ## Current limitation
 
 The UI uses the device Arabic font. A bundled Quran font will only be added after its exact artifact, licence, provenance and redistribution rights are preserved under project control and rendering is regression-tested.
+
+The bundled debug candidate is now `quran-core 1.1.0`, whose manifest uses canonical schema v3 and is bound to `canonical/quran-core/1.0.0/ayahs.jsonl`. It remains a candidate, so release builds still fail closed until a production trust root is bootstrapped and the pack is separately approved and signed.
