@@ -37,6 +37,11 @@ class PackGateTests(unittest.TestCase):
                             "licence_id": "Example-License",
                             "redistribution_allowed": True,
                             "commercial_use_allowed": True,
+                            "release_requirements": {
+                                "latest_upstream_version_required": False,
+                                "version_check_url": "https://example.invalid/versions",
+                                "historical_snapshot_retention_status": "verified-allowed",
+                            },
                             "vault_artifact": "source-vault/quran/example/1.0/raw.txt",
                             "sha256": source_hash,
                         }
@@ -425,6 +430,18 @@ class PackGateTests(unittest.TestCase):
             ):
                 validate_manifest(manifest, registry)
 
+
+    def test_non_latest_source_rejects_unnecessary_release_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["source_release_review"] = {"source_id": "quran.example.v1"}
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError, "only valid when the source requires"
+            ):
+                validate_manifest(manifest, registry)
 
     def test_latest_version_requirement_does_not_expire_candidate_builds(self):
         with tempfile.TemporaryDirectory() as tmp:
