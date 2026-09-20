@@ -11,6 +11,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tools.pack_signatures import PackSignatureError, verify_manifest_signatures
 from tools.verify_quran_core_pack import (
     QuranPackSemanticError,
     verify_quran_core_pack,
@@ -285,22 +286,23 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     if not isinstance(signature, dict):
         raise PackGateError(f"{manifest_path}: signature must be an object")
     if manifest["review_status"] == "approved":
-        required_signature = ("algorithm", "key_id", "value")
-        if any(
-            not isinstance(signature.get(key), str) or not signature[key]
-            for key in required_signature
-        ):
+        trust_root_version = signature.get("trust_root_version")
+        if not isinstance(trust_root_version, int) or trust_root_version < 1:
             raise PackGateError(
-                f"{manifest_path}: approved pack requires signature algorithm/key_id/value"
+                f"{manifest_path}: approved pack requires positive trust_root_version"
             )
-        # Presence of signature-looking strings is not verification. Until this gate
-        # has a real trusted-key verifier, accepting an "approved" manifest would
-        # create a false trust boundary: any caller could place arbitrary text in
-        # algorithm/key_id/value and bypass ReaderCore's production activation guard.
-        raise PackGateError(
-            f"{manifest_path}: approved packs are disabled until cryptographic "
-            "signature verification is implemented"
+        trust_root = (
+            root
+            / "policy"
+            / "trusted-pack-keys"
+            / f"root-v{trust_root_version}.json"
         )
+        try:
+            verify_manifest_signatures(manifest, trust_root)
+        except PackSignatureError as exc:
+            raise PackGateError(
+                f"{manifest_path}: signature verification failed: {exc}"
+            ) from exc
 
 
 def validate_all(registry_path: Path) -> int:
