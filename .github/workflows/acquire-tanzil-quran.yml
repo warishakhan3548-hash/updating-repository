@@ -162,6 +162,7 @@ jobs:
               "vault_artifact": artifact.as_posix(),
               "licence_snapshot": licence.as_posix(),
               "checksum_file": checksum_path.as_posix(),
+              "project_mirror": artifact.as_posix(),
           }
           provenance_path.write_text(
               json.dumps(provenance, ensure_ascii=False, indent=2) + "\n",
@@ -222,4 +223,5 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add source-vault
           git commit -m 'Mirror Tanzil Quran Text v1.1 Uthmani source'
+          git pull --rebase origin main
           git push origin HEAD:main
