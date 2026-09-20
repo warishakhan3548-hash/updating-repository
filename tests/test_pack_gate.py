@@ -98,6 +98,19 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaises(PackGateError):
                 validate_manifest(manifest, registry)
 
+    def test_manifest_duplicate_json_keys_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, manifest, _ = self._fixture(Path(tmp))
+            raw = manifest.read_text(encoding="utf-8")
+            raw = raw.replace(
+                '"pack_id": "quran-example"',
+                '"pack_id": "quran-example", "pack_id": "shadow-pack"',
+                1,
+            )
+            manifest.write_text(raw, encoding="utf-8")
+            with self.assertRaisesRegex(PackGateError, "duplicate JSON object key"):
+                validate_manifest(manifest, registry)
+
     def test_source_identity_must_match_vault_registry(self):
         with tempfile.TemporaryDirectory() as tmp:
             registry, manifest, _ = self._fixture(Path(tmp))
@@ -112,6 +125,7 @@ class PackGateTests(unittest.TestCase):
             registry, manifest, _ = self._fixture(Path(tmp))
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
+            data["release_sequence"] = 1
             manifest.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(
                 PackGateError, "approved pack signature verification failed"
@@ -167,6 +181,7 @@ class PackGateTests(unittest.TestCase):
 
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
+            data["release_sequence"] = 1
             data["signature"] = {
                 "format": "aaris-pack-signature-v1",
                 "role": "content-pack-release",
