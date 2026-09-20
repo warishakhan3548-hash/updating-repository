@@ -52,9 +52,9 @@ android {
         buildConfigField("String", "QURAN_PACK_SHA256", "\"$packSha256\"")
         buildConfigField("String", "QURAN_SOURCE_SHA256", "\"$packSourceSha256\"")
         buildConfigField("String", "QURAN_PACK_REVIEW_STATUS", "\"$packReviewStatus\"")
-        // The repository pack gate deliberately rejects every approved pack until
-        // trusted-key cryptographic signature verification exists. Android must not
-        // weaken that boundary by treating signature-shaped manifest strings as proof.
+        // Repository publication now verifies real trusted-key Ed25519 signatures,
+        // but Android production activation remains fail-closed until this client
+        // independently verifies the signed manifest and persists anti-rollback state.
         buildConfigField("boolean", "QURAN_PACK_RELEASE_READY", "false")
     }
 
@@ -112,15 +112,15 @@ tasks.named("preBuild").configure {
 
 val verifyReleaseQuranPack by tasks.registering {
     group = "verification"
-    description = "Fail closed until an approved pack has trusted-key cryptographic verification."
+    description = "Fail closed until Android verifies signed pack metadata and anti-rollback state."
 
     doLast {
         check(packReviewStatus == "approved") {
             "Release build blocked: quran-core $packVersion is $packReviewStatus, not approved"
         }
         error(
-            "Release build blocked: trusted-key cryptographic content-pack signature " +
-                "verification is not implemented"
+            "Release build blocked: Android device-side trusted-key signature " +
+                "verification and anti-rollback persistence are not implemented"
         )
     }
 }
