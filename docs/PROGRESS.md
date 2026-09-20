@@ -29,7 +29,8 @@ Phase 0A–0C is established and executable. The first production Quran source i
 - exact Tanzil Quran Text v1.1 Uthmani source snapshot preserved under project control;
 - deterministic Quran-core parsing/build path with separate display/search fields;
 - full 114-surah / 6,236-ayah coordinate validation;
-- byte-reproducibility test for identical Quran pack inputs.
+- byte-reproducibility test for identical Quran pack inputs;
+- candidate `quran-core` 1.0.0 runtime pack built from the pinned Tanzil snapshot, with both manifest and `content.sqlite` committed.
 
 ## Production Source Vault status
 
@@ -54,7 +55,7 @@ Phase 0A–0C is established and executable. The first production Quran source i
 
 ## Validation status
 
-The latest verified main-branch foundation run is green. Automated checks cover:
+The Quran-core publish workflow rebuilt the pack from pinned inputs and completed its validation sequence successfully: Source Vault gate OK, SQLite schemas PASS, 31 unit tests passed, and the content-pack gate passed before publishing the binary. Automated checks cover:
 
 - Source Vault integrity and policy enforcement;
 - content-pack promotion rules;
@@ -70,7 +71,7 @@ No Hadith search quality benchmark or device performance benchmark is claimed ye
 
 ## Next safe milestones
 
-1. Produce/review the first candidate `quran-core` runtime pack from the pinned Tanzil snapshot and promote only after manifest/integrity review.
+1. Review the candidate `quran-core` 1.0.0 pack and add real release-signing/rollback metadata before changing its manifest from `candidate`/unsigned to an approved distributable pack.
 2. Build the minimal reader around immutable Quran evidence: stable navigation, excellent RTL, and anchored word-tap plumbing without inventing morphology.
 3. Resolve QAC licensing before making it a production morphology dependency; otherwise choose a legally clearer alternative.
 4. Acquire and preserve an edition-aware Hadith source before implementing production Hadith search.
