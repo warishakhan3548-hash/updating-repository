@@ -8,7 +8,7 @@ This repository builds trust and reproducibility before UI breadth. Critical ext
 
 ## Current phase
 
-Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. The deterministic Quran core builder is the bridge into early Phase 1.
+Phase 0A–0C is operational. The first Quran Evidence Plane source has passed the Source Vault gate, `quran-core` 1.0.1 is the current candidate runtime pack, and the next pipeline version introduces an app-owned canonical Quran artifact between Source Vault bytes and SQLite.
 
 **Production-approved today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
 
@@ -18,28 +18,27 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 
 ## Architecture boundaries
 
-- `content.sqlite`: replaceable read-only content packs generated from pinned Source Vault artifacts.
+- `source-vault/`: immutable legally verified external source bytes + licence/provenance.
+- `canonical/`: deterministic app-owned semantic representation generated from approved Source Vault snapshots.
+- `content-packs/`: replaceable optimized runtime artifacts generated from canonical data.
 - `user.sqlite`: precious local learning history and notes.
 - Evidence Plane: immutable source-faithful Quran/Hadith records and attributed assertions.
 - Learning Plane: glosses, exposure/review events, scheduler state and derived comprehension.
 - AI may expand queries or reason over exported evidence; it cannot author Evidence Plane truth.
 - Normal content builds use project-controlled snapshots, never an uncontrolled upstream `latest`.
 
-## Current Quran core
+## Quran core pipeline
 
 `tools/quran_core.py` validates the pinned Tanzil artifact and the complete 114-surah / 6,236-ayah coordinate sequence while keeping original display text separate from derived search normalization.
 
-`tools/build_quran_core.py` deterministically builds a candidate SQLite pack and manifest under `content-packs/`. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
+`tools/quran_canonical.py` creates and verifies deterministic canonical JSONL with stable app-owned ayah IDs and exact Source Vault bindings.
+
+`tools/build_quran_core.py` builds SQLite only from the validated canonical artifact. Manifest schema v2 records source identity, canonical hashes, runtime hash, attribution notice hash and the Python/SQLite build toolchain.
+
+SQLite pack hashes protect published bytes. Long-term semantic reproducibility is anchored to the deterministic canonical artifact rather than assuming every future SQLite version emits identical physical bytes.
 
 ## Validation
 
-The main branch runs:
+The main branch runs `tools/vault_gate.py`, `tools/pack_gate.py`, `tools/validate_schemas.py`, and the full unit-test suite.
 
-```bash
-python tools/vault_gate.py source-vault/registry.json
-python tools/pack_gate.py source-vault/registry.json
-python tools/validate_schemas.py
-python -m unittest discover -s tests -v
-```
-
-GitHub Actions executes the same foundation checks on pushes and pull requests.
+Trust-critical GitHub Actions are pinned to immutable commit SHAs and the Python build patch version is pinned. The Quran build workflow publishes new derived artifacts only from a stable `main`.
