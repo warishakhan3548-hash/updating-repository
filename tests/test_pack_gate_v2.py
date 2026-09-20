@@ -46,6 +46,11 @@ class PackGateV2Tests(unittest.TestCase):
                     "redistribution_allowed": True,
                     "commercial_use_allowed": True,
                     "attribution_required": True,
+                    "release_requirements": {
+                        "latest_upstream_version_required": False,
+                        "version_check_url": "https://example.invalid/versions",
+                        "historical_snapshot_retention_status": "verified-allowed",
+                    },
                     "vault_artifact": "source-vault/quran/example/2.0/raw.txt",
                     "licence_snapshot": "source-vault/quran/example/2.0/LICENSE.txt",
                     "provenance": "source-vault/quran/example/2.0/provenance.json",
