@@ -5,7 +5,7 @@
 | Tanzil Quran Text v1.1 | Quran Evidence Plane source | **production-approved** | Exact Uthmani `txt-2` snapshot is preserved in Source Vault. Official terms allow verbatim copying/distribution with attribution/source link and prohibit changing the Quran text. |
 | Quranic Arabic Corpus v0.4 | morphology candidate | **awaiting-licence** | Official download presents GNU GPL/verbatim-copy terms, while the official FAQ also says research/non-commercial use. This conflict must be resolved before production redistribution/commercial use; no artifact promotion. |
 | Quran Foundation APIs | optional online integration | **rejected as critical vault source** | Current developer terms make it unsuitable as the permanent mirrored evidence foundation. |
-| QUL / Tarteel resources | per-resource discovery | **awaiting-licence** | Each resource's origin and licence must be verified independently; no blanket approval. |
+| QUL / Tarteel resources | per-resource discovery | **awaiting-licence** | Official QUL morphology pages expose downloadable word-location keyed lemma/root/stem resources, but QUL's FAQ says commercial use requires checking dataset-specific licensing and the inspected morphology pages do not expose a dataset licence. Repository MIT licensing must not be treated as blanket data licensing. |
 | HadeethEnc | Hadith research candidate | **research-candidate** | Republication terms are promising, but exact version, source edition/numbering provenance and preserved artifact are still required before Evidence Plane promotion. |
 | Sunnah.com API | comparison/research candidate | **research-only** | Useful for research/API comparison, but not a durable mirrored offline foundation while an authoritative offline dump is unavailable. |
 
