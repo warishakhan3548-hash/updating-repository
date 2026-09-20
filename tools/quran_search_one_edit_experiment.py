@@ -248,6 +248,20 @@ def assert_one_edit(report: dict[str, Any]) -> None:
     if report["metrics"]["negative_false_positive_rate"] != 0.0:
         raise QuranSearchEvalError("labelled no-answer false positive")
 
+    one_edit_cases = [
+        case
+        for case in report["cases"]
+        if case["match_mode"] == "approximate_one_edit"
+    ]
+    if not one_edit_cases:
+        raise QuranSearchEvalError(
+            "experiment must recover at least one residual miss via one-edit fallback"
+        )
+    if any(case["category"] != "typo" for case in one_edit_cases):
+        raise QuranSearchEvalError(
+            "one-edit fallback displaced a non-typo baseline category"
+        )
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
