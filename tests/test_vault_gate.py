@@ -46,7 +46,9 @@ class VaultGateTests(unittest.TestCase):
         )
         return path
 
-    def _valid_snapshot(self, root: Path):
+    def _valid_snapshot(
+        self, root: Path, *, status: str = "production-approved"
+    ):
         base = root / "source-vault" / "quran" / "example" / "1.0"
         (base / "raw").mkdir(parents=True)
         artifact = base / "raw" / "source.txt"
@@ -76,7 +78,7 @@ class VaultGateTests(unittest.TestCase):
             "source_name": "Example Source",
             "original_url": "https://example.invalid/source",
             "version": "1.0",
-            "status": "production-approved",
+            "status": status,
             "redistribution_allowed": True,
             "modification_allowed": False,
             "attribution_required": True,
@@ -100,6 +102,40 @@ class VaultGateTests(unittest.TestCase):
                 {"source_id": "candidate", "status": "awaiting-artifact"},
             )
             validate_registry(path)
+
+    def test_valid_non_production_preserved_snapshot_is_verified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(
+                root, status="research-candidate"
+            )
+            validate_registry(self._registry(root, source))
+
+    def test_non_production_partial_snapshot_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {
+                    "source_id": "candidate",
+                    "status": "research-candidate",
+                    "vault_artifact": "source-vault/quran/candidate/raw.txt",
+                },
+            )
+            with self.assertRaisesRegex(
+                VaultGateError, "preserved snapshot metadata is incomplete"
+            ):
+                validate_registry(path)
+
+    def test_tampered_non_production_snapshot_fails_hash_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, artifact, _ = self._valid_snapshot(
+                root, status="research-candidate"
+            )
+            path = self._registry(root, source)
+            artifact.write_bytes(b"tampered example!")
+            with self.assertRaisesRegex(VaultGateError, "artifact SHA-256 mismatch"):
+                validate_registry(path)
 
     def test_production_source_without_mirror_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
