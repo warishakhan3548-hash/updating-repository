@@ -95,7 +95,7 @@ class QuranCoreTests(unittest.TestCase):
             root = Path(tmp)
             self._copy_fixture_root(root)
             db_path, manifest_path = build_pack(
-                root, Path("content-packs/quran-core/1.0.3")
+                root, Path("content-packs/quran-core/1.0.4")
             )
             source, artifact, _ = load_production_source(root)
             expected_notice = extract_tanzil_notice(artifact)
@@ -105,11 +105,17 @@ class QuranCoreTests(unittest.TestCase):
             with sqlite3.connect(db_path) as connection:
                 metadata = dict(connection.execute("SELECT key, value FROM pack_metadata"))
 
-            self.assertEqual(manifest["content_version"], "1.0.3")
+            self.assertEqual(manifest["content_version"], "1.0.4")
+            self.assertEqual(manifest["schema_version"], 2)
             self.assertEqual(notice_path.read_text(encoding="utf-8"), expected_notice)
             self.assertEqual(metadata["source_notice"], expected_notice)
             self.assertEqual(metadata["source_attribution"], provenance["attribution"])
             self.assertEqual(metadata["source_url"], source["original_url"])
+            self.assertEqual(metadata["source_licence_url"], provenance["licence_url"])
+            self.assertEqual(metadata["source_licence_sha256"], source["licence_sha256"])
+            self.assertEqual(
+                metadata["source_provenance_sha256"], source["provenance_sha256"]
+            )
             notice_hash = hashlib.sha256(expected_notice.encode("utf-8")).hexdigest()
             self.assertEqual(manifest["notice_sha256"], notice_hash)
             self.assertEqual(manifest["source_notice_sha256"], notice_hash)
@@ -131,8 +137,8 @@ class QuranCoreTests(unittest.TestCase):
             self._copy_fixture_root(root_a)
             self._copy_fixture_root(root_b)
 
-            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.0.3"))
-            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.0.3"))
+            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.0.4"))
+            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.0.4"))
 
             self.assertEqual(sha256_file(db_a), sha256_file(db_b))
             manifest = json.loads(manifest_a.read_text(encoding="utf-8"))

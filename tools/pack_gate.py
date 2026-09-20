@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -96,8 +97,21 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     missing = [key for key in required if manifest.get(key) in (None, "")]
     if missing:
         raise PackGateError(f"{manifest_path}: missing {missing}")
-    if manifest["schema_version"] != 1:
+    if manifest["schema_version"] not in {1, 2}:
         raise PackGateError(f"{manifest_path}: unsupported schema_version")
+    if manifest["schema_version"] == 2:
+        required_v2 = [
+            "source_url",
+            "source_attribution",
+            "source_licence_url",
+            "source_licence_sha256",
+            "source_provenance_sha256",
+            "notice_path",
+            "notice_sha256",
+        ]
+        missing_v2 = [key for key in required_v2 if manifest.get(key) in (None, "")]
+        if missing_v2:
+            raise PackGateError(f"{manifest_path}: missing schema v2 fields {missing_v2}")
     if not isinstance(manifest["record_count"], int) or manifest["record_count"] < 0:
         raise PackGateError(f"{manifest_path}: invalid record_count")
     if manifest["review_status"] not in {"candidate", "reviewed", "approved"}:
@@ -135,6 +149,38 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         if manifest[field] != value:
             raise PackGateError(f"{manifest_path}: {field} does not match Source Vault")
     _lower_sha256(manifest["source_sha256"], "source_sha256")
+
+    if manifest["schema_version"] == 2:
+        source_licence_hash = _lower_sha256(
+            source.get("licence_sha256"), "registry licence_sha256"
+        )
+        source_provenance_hash = _lower_sha256(
+            source.get("provenance_sha256"), "registry provenance_sha256"
+        )
+        provenance_path = _safe_repo_file(
+            root, source.get("provenance"), "source provenance", "source-vault"
+        )
+        try:
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise PackGateError(f"{manifest_path}: invalid source provenance") from exc
+
+        expected_v2 = {
+            "source_url": source.get("original_url"),
+            "source_attribution": provenance.get("attribution"),
+            "source_licence_url": provenance.get("licence_url"),
+            "source_licence_sha256": source_licence_hash,
+            "source_provenance_sha256": source_provenance_hash,
+        }
+        for field, value in expected_v2.items():
+            if not isinstance(value, str) or not value:
+                raise PackGateError(
+                    f"{manifest_path}: Source Vault lacks required schema v2 {field}"
+                )
+            if manifest[field] != value:
+                raise PackGateError(
+                    f"{manifest_path}: {field} does not match Source Vault provenance"
+                )
 
     notice_path = manifest.get("notice_path")
     notice_sha256 = manifest.get("notice_sha256")
@@ -180,6 +226,44 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         raise PackGateError(f"{manifest_path}: built_byte_size mismatch")
     if sha256_file(artifact) != expected_hash:
         raise PackGateError(f"{manifest_path}: built_sha256 mismatch")
+
+    if manifest["schema_version"] == 2:
+        try:
+            notice_text = notice.read_text(encoding="utf-8")
+            uri = f"file:{artifact.as_posix()}?mode=ro"
+            with sqlite3.connect(uri, uri=True) as connection:
+                pack_metadata = dict(
+                    connection.execute("SELECT key, value FROM pack_metadata").fetchall()
+                )
+        except (UnicodeDecodeError, sqlite3.Error) as exc:
+            raise PackGateError(
+                f"{manifest_path}: invalid schema v2 embedded metadata"
+            ) from exc
+
+        expected_metadata = {
+            "pack_id": manifest["pack_id"],
+            "schema_version": "2",
+            "content_version": manifest["content_version"],
+            "source_id": source_id,
+            "source_version": source["version"],
+            "source_sha256": source["sha256"],
+            "source_url": manifest["source_url"],
+            "source_attribution": manifest["source_attribution"],
+            "source_licence_url": manifest["source_licence_url"],
+            "source_licence_sha256": manifest["source_licence_sha256"],
+            "source_provenance_sha256": manifest["source_provenance_sha256"],
+            "source_notice_sha256": manifest["notice_sha256"],
+            "source_notice": notice_text,
+        }
+        mismatched = [
+            key
+            for key, value in expected_metadata.items()
+            if pack_metadata.get(key) != value
+        ]
+        if mismatched:
+            raise PackGateError(
+                f"{manifest_path}: embedded pack metadata mismatch: {mismatched}"
+            )
 
     signature = manifest["signature"]
     if not isinstance(signature, dict):
