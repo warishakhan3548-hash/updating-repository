@@ -15,7 +15,7 @@ Each pack manifest includes:
 - signature metadata;
 - when attribution is required, a pack-local `notice_path` and exact `notice_sha256`.
 
-`tools/pack_gate.py` fails closed when the source is not production-approved, when source identity/hash/path/licence drift from the Source Vault registry, or when the built artifact's bytes no longer match its manifest.
+`tools/pack_gate.py` fails closed when the source is not production-approved, when source identity/hash/path/licence drift from the Source Vault registry, or when the built artifact's bytes no longer match its manifest. Quran core packs additionally pass importer-independent semantic verification against the preserved source and canonical schema; refreshing a manifest hash after altering sacred/source evidence cannot promote the pack.
 
 For a Source Vault entry with `attribution_required=true`, the manifest must carry both `notice_path` and `notice_sha256`. The notice must be non-empty, remain inside the same immutable pack-version directory as the manifest, and match the declared SHA-256. If optional notice metadata is present for another source, the path/hash pair is still validated together.
 
