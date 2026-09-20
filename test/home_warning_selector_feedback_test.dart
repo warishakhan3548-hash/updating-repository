@@ -90,10 +90,6 @@ void main() {
       expect(controller.settings.shortDays, 5);
       expect(find.text('5d'), findsOneWidget);
       expect(find.text('5 Days Left'), findsOneWidget);
-      expect(
-        tester.widget<MedicineCard>(find.byType(MedicineCard)).settings.shortDays,
-        5,
-      );
       expect(find.byIcon(Icons.sync_rounded), findsNothing);
     } finally {
       storage.release();

@@ -2,6 +2,7 @@ import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:aaris_pharmacy/domain/supplier.dart';
 import 'package:aaris_pharmacy/domain/tracking.dart';
+import 'package:aaris_pharmacy/state/autopilot_supervisor.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
 import 'package:aaris_pharmacy/ui/demand_history_sheet.dart';
 import 'package:aaris_pharmacy/ui/design.dart';
@@ -21,15 +22,29 @@ void main() {
         backgroundSearch: false,
       );
 
+  AarisAutopilotSupervisor pausedAutopilot(PharmacyController controller) {
+    final supervisor = AarisAutopilotSupervisor(
+      controller,
+      startImmediately: false,
+    );
+    supervisor.setLifecycleActive(false);
+    return supervisor;
+  }
+
   testWidgets('Home stays frame-quiet for supplier-only writes', (tester) async {
     final controller = controllerWith(InventorySnapshot());
     await controller.initialize();
+    final autopilot = pausedAutopilot(controller);
 
     await tester.pumpWidget(
       MaterialApp(
         theme: pharmacyTheme(),
         home: Scaffold(
-          body: HomeScreen(controller: controller, onDatabase: () {}),
+          body: HomeScreen(
+            controller: controller,
+            autopilot: autopilot,
+            onOpenWorkQueue: () {},
+          ),
         ),
       ),
     );
@@ -65,10 +80,11 @@ void main() {
     );
 
     await tester.pumpWidget(const SizedBox.shrink());
+    autopilot.dispose();
     controller.dispose();
   });
 
-  testWidgets('Home ignores counter-only writes but rebuilds visible stock facts', (
+  testWidgets('Home ignores hidden writes but rebuilds visible status facts', (
     tester,
   ) async {
     final medicine = Medicine(
@@ -83,12 +99,17 @@ void main() {
       InventorySnapshot(records: <String, Medicine>{medicine.id: medicine}),
     );
     await controller.initialize();
+    final autopilot = pausedAutopilot(controller);
 
     await tester.pumpWidget(
       MaterialApp(
         theme: pharmacyTheme(),
         home: Scaffold(
-          body: HomeScreen(controller: controller, onDatabase: () {}),
+          body: HomeScreen(
+            controller: controller,
+            autopilot: autopilot,
+            onOpenWorkQueue: () {},
+          ),
         ),
       ),
     );
@@ -119,10 +140,27 @@ void main() {
     );
     await tester.pump();
 
-    expect(tester.widget<Text>(title), isNot(same(before)));
-    expect(find.text('Shelf B'), findsOneWidget);
+    expect(
+      tester.widget<Text>(title),
+      same(before),
+      reason: 'Location is no longer rendered by Home itself.',
+    );
+
+    live = controller.snapshot.records[medicine.id]!;
+    await controller.save(
+      live.patch(<String, dynamic>{'expiry': '2027-12-31'}),
+      expectedRevision: controller.snapshot.revision,
+    );
+    await tester.pump();
+
+    expect(
+      tester.widget<Text>(title),
+      isNot(same(before)),
+      reason: 'Expiry still drives Home warning counts.',
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
+    autopilot.dispose();
     controller.dispose();
   });
 

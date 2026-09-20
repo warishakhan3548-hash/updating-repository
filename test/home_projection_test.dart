@@ -36,14 +36,9 @@ void main() {
     expect(projection.monthExpiryCount, 1);
     expect(projection.soldCount, 1);
     expect(projection.uniqueMedicines, 5);
-    expect(projection.attention.map((medicine) => medicine.id), [
-      'expired',
-      'short',
-      'month',
-    ]);
   });
 
-  test('home dependency equality ignores hidden stock counters only', () {
+  test('home dependency equality ignores all hidden operational facts', () {
     final base = Medicine(
       id: 'projection-input',
       name: 'Projection Input',
@@ -74,10 +69,15 @@ void main() {
     expect(
       sameHomeProjectionInput(
         base,
-        base.patch(<String, dynamic>{'location': 'Shelf B'}),
+        base.patch(<String, dynamic>{
+          'location': 'Shelf B',
+          'brand': 'Other Brand',
+          'manufacturer': 'Other Maker',
+          'salt': 'Other Salt',
+        }),
       ),
-      isFalse,
-      reason: 'Home renders the stock address.',
+      isTrue,
+      reason: 'These facts now belong to Today Work/details, not Home counts.',
     );
     expect(
       sameHomeProjectionInput(
@@ -89,29 +89,4 @@ void main() {
     );
   });
 
-  test('home attention remains bounded and prioritizes expired before warnings', () {
-    final records = [
-      stock('month-a', name: 'Month A', expiry: '2026-10-01'),
-      stock('short-a', name: 'Short A', expiry: '2026-09-12'),
-      stock('expired-old', name: 'Expired old', expiry: '2026-08-01'),
-      stock('expired-new', name: 'Expired new', expiry: '2026-09-06'),
-      stock('short-b', name: 'Short B', expiry: '2026-09-09'),
-      stock('month-b', name: 'Month B', expiry: '2026-10-20'),
-      stock('month-c', name: 'Month C', expiry: '2026-10-25'),
-    ];
-
-    final projection = HomeInventoryProjection.build(
-      medicines: records,
-      settings: contractSettings,
-      today: contractToday,
-    );
-
-    expect(projection.attention.length, 4);
-    expect(projection.attention[0].id, 'expired-new');
-    expect(projection.attention[1].id, 'expired-old');
-    expect(
-      projection.attention.skip(2).map((medicine) => medicine.id),
-      ['short-b', 'short-a'],
-    );
-  });
 }
