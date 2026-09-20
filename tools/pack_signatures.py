@@ -25,6 +25,14 @@ class PackSignatureError(RuntimeError):
 
 
 def _validate_signed_json(value: Any, path: str = "$") -> None:
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise PackSignatureError(
+                f"invalid Unicode scalar value in signed metadata at {path}"
+            ) from exc
+        return
     if isinstance(value, float):
         raise PackSignatureError(
             f"floating-point value is not allowed in signed metadata at {path}"
@@ -144,6 +152,19 @@ def _load_keyring(path: Path) -> dict[str, Any]:
     return data
 
 
+def _positive_release_sequence(value: object, field: str) -> int:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 1
+        or value > MAX_SAFE_INTEGER
+    ):
+        raise PackSignatureError(
+            f"{field} must be a positive cross-runtime-safe integer"
+        )
+    return value
+
+
 def validate_trusted_key_policy(
     path: Path,
     *,
@@ -189,6 +210,16 @@ def validate_trusted_key_policy(
             raise PackSignatureError("invalid trusted key id")
         if not isinstance(key, dict):
             raise PackSignatureError(f"invalid trusted key {key_id}")
+        if set(key) != {
+            "algorithm",
+            "public_key",
+            "status",
+            "min_release_sequence",
+            "max_release_sequence",
+        }:
+            raise PackSignatureError(
+                f"trusted key {key_id} has unexpected or missing fields"
+            )
         if key.get("algorithm") != "ed25519":
             raise PackSignatureError(
                 f"unsupported trusted-key algorithm for {key_id}"
@@ -201,16 +232,50 @@ def validate_trusted_key_policy(
                 f"trusted key id mismatch for {key_id}"
             )
 
+        status = key.get("status")
+        if status not in {"active", "retired", "revoked"}:
+            raise PackSignatureError(
+                f"invalid trusted key status for {key_id}"
+            )
+        minimum = _positive_release_sequence(
+            key.get("min_release_sequence"),
+            f"{key_id}.min_release_sequence",
+        )
+        maximum = key.get("max_release_sequence")
+        if maximum is not None:
+            maximum = _positive_release_sequence(
+                maximum,
+                f"{key_id}.max_release_sequence",
+            )
+            if maximum < minimum:
+                raise PackSignatureError(
+                    f"{key_id}.max_release_sequence is below minimum"
+                )
+        if status == "active" and maximum is not None:
+            raise PackSignatureError(
+                f"active trusted key {key_id} must not have max_release_sequence"
+            )
+        if status == "retired" and maximum is None:
+            raise PackSignatureError(
+                f"retired trusted key {key_id} requires max_release_sequence"
+            )
+
     authorized = set(key_ids)
     missing = [key_id for key_id in key_ids if key_id not in keys]
     if missing:
         raise PackSignatureError(
             f"release role references missing trusted key {missing[0]}"
         )
-    if state == "active" and threshold > len(key_ids):
-        raise PackSignatureError(
-            "release signature threshold exceeds authorized key count"
-        )
+    if state == "active":
+        active_authorized = [
+            key_id
+            for key_id in key_ids
+            if keys[key_id]["status"] == "active"
+        ]
+        if threshold > len(active_authorized):
+            raise PackSignatureError(
+                "release signature threshold exceeds active authorized key count"
+            )
     return keys, authorized, threshold
 
 
@@ -252,15 +317,10 @@ def verify_approved_manifest(
             "signature verification is only defined for approved packs"
         )
 
-    release_sequence = manifest.get("release_sequence")
-    if (
-        isinstance(release_sequence, bool)
-        or not isinstance(release_sequence, int)
-        or release_sequence < 1
-    ):
-        raise PackSignatureError(
-            "approved pack requires positive integer release_sequence"
-        )
+    release_sequence = _positive_release_sequence(
+        manifest.get("release_sequence"),
+        "release_sequence",
+    )
 
     signature_block = manifest.get("signature")
     if not isinstance(signature_block, dict):
@@ -318,12 +378,25 @@ def verify_approved_manifest(
             )
         seen.add(key_id)
 
+        key = keys[key_id]
+        if key["status"] == "revoked":
+            raise PackSignatureError(
+                "pack signature key is revoked"
+            )
+        minimum = key["min_release_sequence"]
+        maximum = key["max_release_sequence"]
+        if release_sequence < minimum or (
+            maximum is not None and release_sequence > maximum
+        ):
+            raise PackSignatureError(
+                "pack signature key is outside its trusted release-sequence window"
+            )
+
         signature = _decode_hex(
             value,
             expected_bytes=64,
             field="signature value",
         )
-        key = keys[key_id]
         public_key = _decode_hex(
             key.get("public_key"),
             expected_bytes=32,
