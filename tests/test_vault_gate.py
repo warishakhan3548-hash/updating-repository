@@ -15,6 +15,7 @@ class VaultGateTests(unittest.TestCase):
             "require_production_approved": True,
             "require_redistribution_allowed": True,
             "require_commercial_use_allowed": True,
+            "require_historical_snapshot_retention_allowed": True,
             "require_exact_sha256": True,
             "require_licence_snapshot": True,
             "require_project_controlled_artifact": True,
@@ -86,6 +87,11 @@ class VaultGateTests(unittest.TestCase):
             "modification_allowed": False,
             "attribution_required": True,
             "licence_id": "example-licence",
+            "release_requirements": {
+                "latest_upstream_version_required": False,
+                "version_check_url": "https://example.invalid/versions",
+                "historical_snapshot_retention_status": "verified-allowed",
+            },
             "vault_artifact": "source-vault/quran/example/1.0/raw/source.txt",
             "licence_snapshot": "source-vault/quran/example/1.0/LICENSE.txt",
             "provenance": "source-vault/quran/example/1.0/provenance.json",
@@ -99,7 +105,7 @@ class VaultGateTests(unittest.TestCase):
         return source, artifact, provenance_path
 
     def _valid_checksum_set(
-        self, root: Path, *, status: str = "awaiting-licence"
+        self, root: Path, *, status: str = "research-candidate"
     ):
         base = root / "source-vault" / "quran-gloss" / "example" / "1.0"
         raw = base / "raw"
@@ -157,6 +163,11 @@ class VaultGateTests(unittest.TestCase):
             "modification_allowed": False,
             "attribution_required": True,
             "licence_id": "example-licence",
+            "release_requirements": {
+                "latest_upstream_version_required": False,
+                "version_check_url": "https://example.invalid/versions",
+                "historical_snapshot_retention_status": "verified-allowed",
+            },
             "vault_artifact": (
                 "source-vault/quran-gloss/example/1.0/sha256.txt"
             ),
@@ -179,9 +190,20 @@ class VaultGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._registry(
                 Path(tmp),
-                {"source_id": "candidate", "status": "awaiting-artifact"},
+                {"source_id": "candidate", "status": "research-candidate"},
             )
             validate_registry(path)
+
+    def test_awaiting_artifact_requires_archival_retention_clearance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {"source_id": "candidate", "status": "awaiting-artifact"},
+            )
+            with self.assertRaisesRegex(
+                VaultGateError, "verified historical snapshot retention permission"
+            ):
+                validate_registry(path)
 
     def test_valid_non_production_preserved_snapshot_is_verified(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -290,6 +312,7 @@ class VaultGateTests(unittest.TestCase):
             ):
                 validate_registry(self._registry(root, source))
 
+
     def test_production_source_with_unknown_commercial_permission_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -299,6 +322,7 @@ class VaultGateTests(unittest.TestCase):
                 VaultGateError, "verified commercial-use permission"
             ):
                 validate_registry(self._registry(root, source))
+
 
     def test_tampered_artifact_fails_hash_check(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -419,6 +443,20 @@ class VaultGateTests(unittest.TestCase):
             with self.assertRaises(VaultGateError):
                 validate_registry(path)
 
+    def test_historical_retention_policy_cannot_be_weakened(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root)
+            path = self._registry(root, source)
+            self._policy(
+                root,
+                require_historical_snapshot_retention_allowed=False,
+            )
+            with self.assertRaisesRegex(
+                VaultGateError, "Licence policy weakens mandatory release rules"
+            ):
+                validate_registry(path)
+
     def test_latest_version_release_requirement_requires_https_check_url(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._registry(
@@ -454,26 +492,70 @@ class VaultGateTests(unittest.TestCase):
                 validate_registry(path)
 
 
-    def test_preserved_latest_version_requirement_is_bound_into_provenance(self):
+
+    def test_unresolved_historical_retention_requires_awaiting_licence_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {
+                    "source_id": "candidate",
+                    "status": "research-candidate",
+                    "release_requirements": {
+                        "latest_upstream_version_required": True,
+                        "version_check_url": "https://example.invalid/versions",
+                        "historical_snapshot_retention_status": "unresolved",
+                    },
+                },
+            )
+            with self.assertRaisesRegex(
+                VaultGateError,
+                "unresolved historical snapshot retention requires status 'awaiting-licence'",
+            ):
+                validate_registry(path)
+
+    def test_unresolved_historical_retention_allows_metadata_only_awaiting_licence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {
+                    "source_id": "candidate",
+                    "status": "awaiting-licence",
+                    "release_requirements": {
+                        "latest_upstream_version_required": True,
+                        "version_check_url": "https://example.invalid/versions",
+                        "historical_snapshot_retention_status": "unresolved",
+                    },
+                },
+            )
+            validate_registry(path)
+
+    def test_awaiting_licence_source_cannot_preserve_snapshot_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root, status="awaiting-licence")
+            path = self._registry(root, source)
+            with self.assertRaisesRegex(
+                VaultGateError,
+                "awaiting-licence source must not preserve project-controlled snapshot bytes",
+            ):
+                validate_registry(path)
+
+    def test_release_requirements_are_not_acquisition_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source, _, provenance_path = self._valid_snapshot(root)
-            requirements = {
+            path = self._registry(root, source)
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            self.assertNotIn("release_requirements", provenance)
+            validate_registry(path)
+
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["sources"][0]["release_requirements"] = {
                 "latest_upstream_version_required": True,
                 "version_check_url": "https://example.invalid/versions",
                 "historical_snapshot_retention_status": "verified-allowed",
             }
-            source["release_requirements"] = requirements
-            path = self._registry(root, source)
-            with self.assertRaisesRegex(
-                VaultGateError, "provenance does not match registry"
-            ):
-                validate_registry(path)
-
-            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-            provenance["release_requirements"] = requirements
-            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
-            self._refresh_provenance_hash(path, provenance_path)
+            path.write_text(json.dumps(data), encoding="utf-8")
             validate_registry(path)
 
 

@@ -8,6 +8,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 - product north star, Evidence Plane / Learning Plane boundary, privacy and offline-first contracts;
 - Source Vault registry, licence firewall, provenance checks and immutable-source policy;
+- universal historical-retention gate: capture-ready, preserved and production sources must explicitly prove durable archival retention; latest-version release obligations remain separate signed review policy rather than immutable acquisition provenance;
 - app-owned canonical IDs and canonical SQLite content/user schemas;
 - Evidence Plane update/delete protection and append-only learning-event history;
 - versioned `user.sqlite` schema v2 plus a conservative v1→v2 migration that preserves append-only history, canonicalizes only exact Again/Hard/Good/Easy review grades, records scheduler/context metadata for new reviews, and keeps scheduler state rebuildable;
