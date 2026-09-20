@@ -290,15 +290,20 @@ def validate_registry(registry_path: Path) -> None:
                 f"{source_id}: production source requires verified historical "
                 "snapshot retention permission"
             )
-        if (
-            release_requirements is not None
-            and release_requirements["historical_snapshot_retention_status"]
-            == "unresolved"
-            and status != "awaiting-licence"
-        ):
+        retention_status = (
+            release_requirements["historical_snapshot_retention_status"]
+            if release_requirements is not None
+            else None
+        )
+        if retention_status == "unresolved" and status != "awaiting-licence":
             raise VaultGateError(
                 f"{source_id}: unresolved historical snapshot retention "
                 "requires status 'awaiting-licence'"
+            )
+        if retention_status == "verified-not-allowed" and status != "rejected":
+            raise VaultGateError(
+                f"{source_id}: denied historical snapshot retention "
+                "requires status 'rejected'"
             )
 
         snapshot_fields_present = [
@@ -310,6 +315,15 @@ def validate_registry(registry_path: Path) -> None:
             raise VaultGateError(
                 f"{source_id}: awaiting-licence source must not preserve "
                 "project-controlled snapshot bytes"
+            )
+        if (
+            retention_status is not None
+            and retention_status != "verified-allowed"
+            and snapshot_fields_present
+        ):
+            raise VaultGateError(
+                f"{source_id}: source must not preserve project-controlled "
+                "snapshot bytes without verified historical retention permission"
             )
         if status != "production-approved" and not snapshot_fields_present:
             continue
