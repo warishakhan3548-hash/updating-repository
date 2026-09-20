@@ -21,7 +21,7 @@ Schema v2 retains all v1 checks and additionally requires:
 
 `tools/pack_gate.py` loads the pinned Source Vault provenance and requires those values to match it. For SQLite packs, the same source identity, attribution, licence/provenance hashes, notice hash, and exact notice text must also exist inside `pack_metadata`.
 
-This closes an important trust gap: a caller cannot replace a required notice or attribution with arbitrary text, recompute local hashes, and still pass the gate if those values no longer match the preserved Source Vault record.
+This closes an important trust gap: a caller cannot replace a required notice or attribution with arbitrary text, recompute local hashes, and still pass the gate if those values no longer match the preserved Source Vault record.\n\nFor `quran-core`, schema v2 also activates importer-independent semantic verification: canonical SQLite schema identity, source assertion, required runtime metadata, all 6,236 Quran display rows, recomputed search lanes, and absence of undeclared morphology/Hadith evidence. This prevents a changed runtime database from becoming valid merely because its `built_sha256` was recomputed.
 
 For the Tanzil Quran pack, notice text is derived from comment lines in the exact preserved production artifact. The importer does not author substitute licence wording.
 
