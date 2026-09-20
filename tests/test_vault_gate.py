@@ -264,6 +264,11 @@ class VaultGateTests(unittest.TestCase):
                 {
                     "source_id": "candidate",
                     "status": "research-candidate",
+                    "release_requirements": {
+                        "latest_upstream_version_required": False,
+                        "version_check_url": "https://example.invalid/versions",
+                        "historical_snapshot_retention_status": "verified-allowed",
+                    },
                     "vault_artifact": "source-vault/quran/candidate/raw.txt",
                 },
             )
