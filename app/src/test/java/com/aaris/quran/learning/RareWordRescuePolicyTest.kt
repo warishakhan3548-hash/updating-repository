@@ -89,6 +89,18 @@ class RareWordRescuePolicyTest {
     }
 
     @Test
+    fun rankExcludesUnitsWithoutPersonalStruggle() {
+        val ranked = RareWordRescuePolicy.rank(
+            listOf(
+                RescueCandidate("lx:rare-only", false, true, 1.0, 1.0, null),
+                RescueCandidate("lx:personal", true, true, 0.5, 1.0, null),
+            ),
+        )
+
+        assertEquals(listOf("lx:personal"), ranked.map { it.semanticUnitId })
+    }
+
+    @Test
     fun exposureScarcityIsBoundedAndTransparent() {
         assertEquals(0.0, RareWordRescuePolicy.exposureScarcity(0.0), 0.0)
         assertEquals(0.5, RareWordRescuePolicy.exposureScarcity(12.0), 1e-9)
