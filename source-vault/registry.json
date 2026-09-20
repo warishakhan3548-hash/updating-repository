@@ -63,7 +63,7 @@
       "source_id": "quran.quran-foundation.api",
       "category": "quran",
       "source_name": "Quran Foundation APIs",
-      "original_url": "https://api-docs.quran.com/legal/developer-terms/",
+      "original_url": "https://api-docs.quran.foundation/legal/developer-terms/",
       "version": "terms-2026-09-14",
       "status": "rejected",
       "licence_id": "developer-terms",
@@ -75,7 +75,7 @@
       "provenance": null,
       "sha256": null,
       "byte_size": null,
-      "notes": "Not suitable as a critical permanent mirrored source under current storage/redistribution terms. May be an optional online integration subject to terms."
+      "notes": "Not suitable as a critical permanent mirrored source under the Developer Terms updated 2026-09-14, including redistribution/storage constraints. May be an optional online integration where those terms are satisfied."
     },
     {
       "source_id": "quran.qul.resources",
