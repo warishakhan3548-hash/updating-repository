@@ -39,8 +39,6 @@ internal fun evaluateContentPackAcceptance(
 
 class ContentPackAcceptanceStore(context: Context) {
     private val noBackupRoot = context.applicationContext.noBackupFilesDir
-    private val lock = Any()
-
     fun checkAndRecord(
         packId: String,
         releaseSequence: Long,
