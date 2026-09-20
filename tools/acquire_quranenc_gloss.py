@@ -146,7 +146,8 @@ def validate_translation_metadata(raw: bytes) -> dict:
 
 
 def validate_csv_envelope(raw: bytes) -> None:
-    if raw.lstrip().startswith((b"<html", b"<!DOCTYPE html", b"<!doctype html")):
+    stripped = raw.lstrip().lower()
+    if stripped.startswith((b"<html", b"<!doctype html")):
         raise CaptureError("CSV endpoint returned HTML instead of CSV")
 
     try:
@@ -194,6 +195,31 @@ def _download_record(download: Download, relative_path: str) -> dict:
         "byte_size": len(download.body),
         "sha256": sha256_bytes(download.body),
     }
+
+
+def _safe_capture_member(root: Path, raw: object) -> Path:
+    if not isinstance(raw, str) or not raw:
+        raise CaptureError("capture file path is missing")
+    relative = Path(raw)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise CaptureError(f"unsafe capture file path: {raw!r}")
+    path = root / relative
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise CaptureError(f"capture file escaped root: {raw!r}") from exc
+    if not path.is_file():
+        raise CaptureError(f"missing captured file: {raw}")
+    return path
+
+
+def _canonical_json_bytes(value: object) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True).encode(
+            "utf-8"
+        )
+        + b"\n"
+    )
 
 
 def capture(
@@ -283,15 +309,7 @@ def capture(
                 "content, and freshness review."
             ),
         }
-        provenance_bytes = (
-            json.dumps(
-                provenance,
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            ).encode("utf-8")
-            + b"\n"
-        )
+        provenance_bytes = _canonical_json_bytes(provenance)
         (stage / "provenance.json").write_bytes(provenance_bytes)
 
         checksum_entries = [
@@ -314,9 +332,101 @@ def capture(
         raise
 
 
+def validate_existing(output: Path) -> dict:
+    output = output.resolve()
+    if not output.is_dir():
+        raise CaptureError(f"captured Source Vault directory is missing: {output}")
+
+    provenance_path = output / "provenance.json"
+    try:
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CaptureError("captured provenance.json is invalid") from exc
+
+    expected = {
+        "schema_version": 1,
+        "source_id": SOURCE_ID,
+        "source_name": SOURCE_NAME,
+        "original_url": SOURCE_PAGE_URL,
+        "version": EXPECTED_VERSION,
+        "licence_id": LICENCE_ID,
+        "redistribution_allowed": True,
+        "modification_allowed": False,
+        "attribution_required": True,
+        "translation_key": TRANSLATION_KEY,
+        "promotion_status": "captured-unreviewed",
+    }
+    mismatched = [
+        key for key, value in expected.items() if provenance.get(key) != value
+    ]
+    if mismatched:
+        raise CaptureError(
+            "captured provenance metadata mismatch: " + ", ".join(mismatched)
+        )
+
+    csv_path = output / "raw" / "arabic_seraj.csv"
+    metadata_path = output / "raw" / "translations-list-ar.json"
+    terms_path = output / "LICENSE_SOURCE.html"
+    source_page_path = output / "SOURCE_PAGE.html"
+
+    for path in (csv_path, metadata_path, terms_path, source_page_path):
+        if not path.is_file() or path.stat().st_size < 1:
+            raise CaptureError(f"captured evidence file is missing/empty: {path.name}")
+
+    csv_bytes = csv_path.read_bytes()
+    validate_csv_envelope(csv_bytes)
+    validate_translation_metadata(metadata_path.read_bytes())
+
+    if provenance.get("sha256") != sha256_bytes(csv_bytes):
+        raise CaptureError("primary CSV SHA-256 does not match provenance")
+    if provenance.get("byte_size") != len(csv_bytes):
+        raise CaptureError("primary CSV byte size does not match provenance")
+
+    records = provenance.get("capture_files")
+    if not isinstance(records, list) or len(records) != 4:
+        raise CaptureError("provenance capture_files must contain four records")
+
+    seen: set[str] = set()
+    checksum_entries: list[tuple[str, str]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise CaptureError("capture_files entry is not an object")
+        relative = record.get("path")
+        if relative in seen:
+            raise CaptureError(f"duplicate capture file record: {relative!r}")
+        seen.add(relative)
+        path = _safe_capture_member(output, relative)
+        body = path.read_bytes()
+        if record.get("byte_size") != len(body):
+            raise CaptureError(f"{relative}: byte size mismatch")
+        digest = sha256_bytes(body)
+        if record.get("sha256") != digest:
+            raise CaptureError(f"{relative}: SHA-256 mismatch")
+        if record.get("http_status") != 200:
+            raise CaptureError(f"{relative}: captured HTTP status is not 200")
+        _require_quranenc_https(record.get("requested_url", ""), "requested URL")
+        _require_quranenc_https(record.get("final_url", ""), "final URL")
+        checksum_entries.append((str(relative), digest))
+
+    provenance_bytes = provenance_path.read_bytes()
+    if provenance_bytes != _canonical_json_bytes(provenance):
+        raise CaptureError("provenance.json is not in canonical project format")
+    checksum_entries.append(("provenance.json", sha256_bytes(provenance_bytes)))
+
+    expected_checksums = "".join(
+        f"{digest}  {relative}\n"
+        for relative, digest in sorted(checksum_entries)
+    ).encode("utf-8")
+    actual_checksums = (output / "sha256.txt").read_bytes()
+    if actual_checksums != expected_checksums:
+        raise CaptureError("sha256.txt does not match preserved capture bytes")
+
+    return provenance
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Capture QuranEnc arabic_seraj v1.0.0 into Source Vault"
+        description="Capture or verify QuranEnc arabic_seraj v1.0.0 Source Vault bytes"
     )
     parser.add_argument(
         "--output",
@@ -324,16 +434,26 @@ def main() -> int:
         default=DEFAULT_OUTPUT,
         help="immutable Source Vault destination",
     )
+    parser.add_argument(
+        "--validate-existing",
+        action="store_true",
+        help="verify an already captured directory without network access",
+    )
     args = parser.parse_args()
 
     try:
-        provenance = capture(args.output)
+        provenance = (
+            validate_existing(args.output)
+            if args.validate_existing
+            else capture(args.output)
+        )
     except (CaptureError, OSError, ValueError) as exc:
         print(f"QuranEnc capture FAILED: {exc}")
         return 1
 
+    action = "verification" if args.validate_existing else "capture"
     print(
-        "QuranEnc capture OK: "
+        f"QuranEnc {action} OK: "
         f"{provenance['byte_size']} bytes, {provenance['sha256']}"
     )
     return 0
