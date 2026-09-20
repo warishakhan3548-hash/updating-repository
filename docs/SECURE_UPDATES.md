@@ -19,7 +19,7 @@ The design follows TUF principles—trusted metadata, freshness, integrity and r
 
 Hash, provenance, canonical-v3 binding and Quran semantic validation are already implemented. Trusted-key authenticity is now implemented for `approved` manifests in `tools/pack_signatures.py`.
 
-The verifier uses Ed25519 against project-controlled public keys in `policy/trusted_pack_keys.json`. The signed payload is the complete manifest with only the top-level `signature` field removed, serialized as deterministic UTF-8 JSON with sorted keys and compact separators. Floating-point values are rejected in signed metadata to avoid cross-language numeric canonicalization ambiguity.
+The verifier uses Ed25519 against project-controlled public keys in `policy/trusted_pack_keys.json`. The signed payload begins with the fixed application-domain prefix `AARIS-CONTENT-PACK-SIGNATURE-V1\\n`, followed by the complete manifest with only the top-level `signature` field removed and serialized as deterministic UTF-8 JSON with sorted keys and compact separators. Floating-point values are rejected in signed metadata to avoid cross-language numeric canonicalization ambiguity.
 
 Release key IDs are SHA-256 fingerprints of the canonical public-key descriptor. Threshold policy is supported. Enrolled keys are explicitly active, retired, or revoked and are bound to release-sequence validity windows; retired keys can remain available for historical verification without authorizing newer sequences, and revoked keys never count. An active policy must have enough active authorized keys to satisfy its threshold.
 
