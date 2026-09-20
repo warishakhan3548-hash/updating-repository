@@ -109,7 +109,7 @@ class QuranCoreTests(unittest.TestCase):
             provenance = json.loads((root / source["provenance"]).read_text(encoding="utf-8"))
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             notice_path = root / manifest["notice_path"]
-            with closing(sqlite3.connect(db_path)) as connection:
+            with closing(sqlite3.connect(db_path)) as connection, connection:
                 metadata = dict(connection.execute("SELECT key, value FROM pack_metadata"))
 
             self.assertEqual(manifest["content_version"], "1.1.0")
