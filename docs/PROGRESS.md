@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader on the trusted read-only Reader Core boundary. The next data-foundation increment adds a source-faithful canonical Quran JSONL layer so long-lived semantic reproducibility does not depend on SQLite byte identity.
+Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader on the trusted read-only Reader Core boundary. The source-faithful canonical Quran JSONL layer now separates durable semantics from SQLite byte identity, and release authenticity now has a real Ed25519 trusted-key verifier. Production approval remains deliberately blocked until offline release-key custody is bootstrapped.
 
 ## Completed
 
@@ -23,7 +23,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
 - GitHub Actions foundation checks and deterministic pack build workflow;
-- fail-closed release authenticity gate: `approved` packs are rejected until their cryptographic signatures can be verified against trusted project keys.
+- Ed25519 release-authenticity gate with deterministic signed-manifest bytes, content-derived key IDs, threshold policy, unauthorized/duplicate-key rejection, and project-controlled public trust-root storage;\n- Android release builds delegate to the same authoritative pack gate instead of trusting signature-shaped metadata;\n- trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
 
 ## Production Source Vault
 
@@ -71,18 +71,18 @@ Automated coverage now checks Source Vault integrity, licence/provenance consist
 
 Schema-v2 Quran semantic regression coverage now tampers with Quran text and SQLite schema, recomputes the runtime artifact SHA-256, and requires promotion to fail. Recomputing `built_sha256` after changing Quran text or SQLite schema does not make the pack valid.
 
-Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows.
+Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows. Signing regression coverage verifies valid Ed25519 approval, post-signing tamper failure, unauthorized/duplicate keys, threshold enforcement, malformed/bootstrap trust roots, and Android release delegation to the authoritative pack gate.
 
 No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
 ## Next safe milestones
 
-1. Implement and test the trusted-key content-pack signature verifier (canonical signed payload, key IDs/rotation and rollback metadata), then review/sign/promote the Quran core pack.
-2. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
-3. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
-4. Resolve QAC licensing or choose a legally clearer morphology source.
-5. Preserve an edition-aware Hadith source before production Hadith search.
-6. Add an independent backup/archive for critical Source Vault artifacts.
+1. Bootstrap durable offline release-key custody and independent backup, commit only the public trust material, then sign/review a new immutable Quran-core release candidate for production approval.
+2. Add persistent rollback/freshness state before enabling any automatic remote content-update channel.
+3. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
+4. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
+5. Resolve QAC licensing or choose a legally clearer morphology source, and preserve an edition-aware Hadith source before production Hadith search.
+6. Add an independent backup/archive for critical Source Vault artifacts and trust-root history.
 
 One-shot acquisition/backfill workflows are removed after successful promotion of their outputs; provenance and Git history retain the audit trail.
 

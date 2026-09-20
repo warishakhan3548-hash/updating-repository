@@ -17,6 +17,14 @@ The design follows TUF principles—trusted metadata, freshness, integrity and r
 
 ## Current implementation status
 
-Hash and provenance validation are implemented, but trusted-key cryptographic signature verification is not yet implemented. Therefore the content-pack gate deliberately rejects every manifest marked `approved`, even when signature-shaped fields are present. This prevents unsigned or fake-signed content from crossing the production Reader activation boundary.
+Hash, provenance, canonical-v3 binding and Quran semantic validation are already implemented. Trusted-key authenticity is now implemented for `approved` manifests in `tools/pack_signatures.py`.
 
-The next signing milestone must define the signed payload/canonicalization, trusted public-key storage, key IDs and rotation, verification algorithm, rollback metadata, and regression tests before any pack may be promoted to `approved`.
+The verifier uses Ed25519 against project-controlled public keys in `policy/trusted_pack_keys.json`. The signed payload is the complete manifest with only the top-level `signature` field removed, serialized as deterministic UTF-8 JSON with sorted keys and compact separators. Floating-point values are rejected in signed metadata to avoid cross-language numeric canonicalization ambiguity.
+
+Release key IDs are SHA-256 fingerprints of the canonical public-key descriptor. Threshold policy is supported, and verification fails closed on unknown, unauthorized, duplicate or malformed signatures, public-key/key-ID mismatch, invalid cryptography, insufficient signatures, or an inactive trust root.
+
+The repository trust root is deliberately `bootstrap-required`: no real release public key has been enrolled and no private signing key is stored in GitHub. Existing candidate packs therefore remain candidates until durable offline key custody and independent backup are established.
+
+## Still blocked before automatic network updates
+
+Cryptographic authenticity is not the whole update system. Automatic remote pack updates remain disabled until the project has persistent rollback/freshness state, atomic activation/recovery tests, and a reviewed key-rotation/revocation protocol. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.

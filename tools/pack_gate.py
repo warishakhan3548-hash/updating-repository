@@ -11,6 +11,11 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tools.pack_signatures import (
+    PackSignatureError,
+    validate_trusted_key_policy,
+    verify_approved_manifest,
+)
 from tools.verify_quran_core_pack import (
     QuranPackSemanticError,
     verify_quran_core_pack,
@@ -411,17 +416,15 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     if not isinstance(signature, dict):
         raise PackGateError(f"{manifest_path}: signature must be an object")
     if manifest["review_status"] == "approved":
-        required_signature = ("algorithm", "key_id", "value")
-        if any(not isinstance(signature.get(key), str) or not signature[key] for key in required_signature):
-            raise PackGateError(
-                f"{manifest_path}: approved pack requires signature algorithm/key_id/value"
+        try:
+            verify_approved_manifest(
+                manifest,
+                root / "policy" / "trusted_pack_keys.json",
             )
-        # Signature-shaped strings are not cryptographic verification. Until a
-        # trusted-key verifier exists, production approval must fail closed.
-        raise PackGateError(
-            f"{manifest_path}: approved packs are disabled until cryptographic "
-            "signature verification is implemented"
-        )
+        except PackSignatureError as exc:
+            raise PackGateError(
+                f"{manifest_path}: approved pack signature verification failed: {exc}"
+            ) from exc
 
     if manifest["pack_id"] == "quran-core" and manifest["schema_version"] in {2, 3}:
         try:
@@ -434,6 +437,14 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
 
 def validate_all(registry_path: Path) -> int:
     root, _ = _load_sources(registry_path)
+    try:
+        validate_trusted_key_policy(
+            root / "policy" / "trusted_pack_keys.json"
+        )
+    except PackSignatureError as exc:
+        raise PackGateError(
+            f"invalid trusted pack key policy: {exc}"
+        ) from exc
     manifests = sorted((root / "content-packs").glob("**/manifest.json"))
     for manifest in manifests:
         validate_manifest(manifest, registry_path)
