@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 0A–0C is executable. The first Quran Evidence Plane source is permanently mirrored, a deterministic Quran-core builder exists, and the first complete candidate runtime pack has been produced from pinned Source Vault bytes. Work can now enter the minimal Phase 1 reader without inventing morphology or Hadith evidence.
+Phase 0A–0C is executable and Phase 1 has started. The first Quran Evidence Plane source is permanently mirrored, a deterministic Quran-core builder exists, and a fail-closed read-only reader projection now consumes the validated local pack without inventing morphology or Hadith evidence.
 
 ## Completed
 
@@ -18,7 +18,7 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - display Arabic separated from derived search-normalized lanes;
 - deterministic Quran-core importer with byte-reproducibility coverage;
 - complete candidate Quran core pack published at `content-packs/quran-core/1.0.4/`, using provenance-bound manifest schema v2;
-- GitHub Actions foundation checks and deterministic pack build workflow.
+- GitHub Actions foundation checks and deterministic pack build workflow;\n- Phase 1 reader projection with pack validation, read-only/immutable SQLite opening and stable Surah/Ayah navigation;\n- display-safe reader model that exposes `original_text` but not search-normalized fields;\n- explicit word-tap gate: current ayah-only pack reports no verified word layer and no tokens are manufactured by whitespace splitting.
 
 ## Production Source Vault
 
@@ -62,7 +62,7 @@ Candidate does not mean release-approved. Version 1.0.4 strengthens the runtime 
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The 1.0.4 publish workflow ran 44 tests successfully and passed the content-pack gate before pushing the generated pack. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
+Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, deterministic pack reproducibility, reader display-field isolation, stable Surah navigation, query-only opening and the no-fabricated-token word-tap gate. The 1.0.4 publish workflow ran 44 tests successfully and passed the content-pack gate before pushing the generated pack. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
 
 No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
