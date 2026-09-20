@@ -476,7 +476,8 @@ class VaultGateTests(unittest.TestCase):
             }
             path = self._registry(root, source)
             with self.assertRaisesRegex(
-                VaultGateError, "verified historical snapshot retention permission"
+                VaultGateError,
+                "unresolved historical snapshot retention requires status 'awaiting-licence'",
             ):
                 validate_registry(path)
 
