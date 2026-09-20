@@ -43,7 +43,7 @@ PharmacyBackup _backup() {
 }
 
 void main() {
-  test('v3 backup round-trips with a deterministic SHA-256 integrity proof', () {
+  test('v4 backup round-trips with a deterministic SHA-256 integrity proof', () {
     final encoded = _backup().encode();
     final envelope = jsonDecode(encoded) as Map<String, dynamic>;
 
@@ -62,7 +62,7 @@ void main() {
     expect(parsed.legacyFormat, isFalse);
   });
 
-  test('v3 backup seals supplier profiles and exact stock links', () {
+  test('v4 backup seals supplier profiles and exact stock links', () {
     const supplier = Supplier(
       id: 'supplier-backup',
       name: 'ABC Distributor',
@@ -99,9 +99,18 @@ void main() {
     expect(() => PharmacyBackup.parse(tampered), throwsFormatException);
   });
 
-  test('previous v2 sealed backups remain importable', () {
+  test('previous v3 sealed backups with suppliers remain importable', () {
     final current = jsonDecode(_backup().encode()) as Map<String, dynamic>;
     current['schema'] = previousPharmacyBackupSchema;
+
+    final parsed = PharmacyBackup.parse(jsonEncode(current));
+    expect(parsed.records.values.single.id, 'stock-a');
+    expect(parsed.integrityVerified, isTrue);
+  });
+
+  test('older v2 sealed backups remain importable', () {
+    final current = jsonDecode(_backup().encode()) as Map<String, dynamic>;
+    current['schema'] = olderPharmacyBackupSchema;
     current.remove('suppliers');
     for (final raw in current['medicines'] as List<dynamic>) {
       (raw as Map<String, dynamic>).remove('supplierId');

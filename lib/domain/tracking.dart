@@ -2,6 +2,7 @@ import 'daily_demand.dart';
 import 'inventory.dart';
 import 'medicine.dart';
 import 'stock_projection.dart';
+import 'supplier.dart';
 
 class SaleEvent {
   SaleEvent({
@@ -202,6 +203,7 @@ class ReorderSuggestion {
     this.demand,
     this.projectedExpiryWaste = 0,
     this.safetyBufferUnits = 0,
+    this.planningLeadDays = leadDays,
   });
 
   final String productKey;
@@ -238,6 +240,7 @@ class ReorderSuggestion {
   final DailyDemandProfile? demand;
   final int projectedExpiryWaste;
   final int safetyBufferUnits;
+  final int planningLeadDays;
   static const leadDays = 7;
   static const targetDays = 30;
 
@@ -255,6 +258,7 @@ class TrackingStats {
     required Iterable<SaleEvent> sales,
     required this.range,
     DateTime? today,
+    Map<String, Supplier> suppliers = const <String, Supplier>{},
   }) {
     final stockDate = civilDay(today ?? range.end);
     final allRecords = medicines.toList(growable: false);
@@ -368,7 +372,16 @@ class TrackingStats {
         today: stockDate,
         demand: profile,
       );
-      const leadDays = ReorderSuggestion.leadDays;
+      final supplierLeadDays = <int>[];
+      for (final medicine in active) {
+        final supplier = suppliers[medicine.supplierId.trim()];
+        if (supplier == null) continue;
+        final configured = supplierPlanningLeadDays(supplier);
+        if (configured != null) supplierLeadDays.add(configured);
+      }
+      final leadDays = supplierLeadDays.isEmpty
+          ? ReorderSuggestion.leadDays
+          : supplierLeadDays.reduce((left, right) => left > right ? left : right);
       const targetDays = ReorderSuggestion.targetDays;
       final buffer = profile.bufferForDays(leadDays);
       final reorderPoint = profile.demandForDays(leadDays) + buffer;
@@ -471,6 +484,7 @@ class TrackingStats {
           demand: profile,
           projectedExpiryWaste: ceilStockUnits(targetWaste),
           safetyBufferUnits: ceilStockUnits(buffer),
+          planningLeadDays: leadDays,
         ),
       );
     }

@@ -4,6 +4,7 @@ import 'inventory.dart';
 import 'medicine.dart';
 import 'operations_plan.dart';
 import 'supplier.dart';
+import 'supplier_intelligence.dart';
 import 'tracking.dart';
 
 enum StockTaskGroup { urgent, order, supplier, details, movement }
@@ -22,6 +23,8 @@ class StockGuidance {
     this.step,
     this.demand,
     this.supplierId,
+    this.productKey,
+    this.urgencyDays,
   });
 
   final String key, title, action, reason;
@@ -30,6 +33,8 @@ class StockGuidance {
   final OperationsPlanStep? step;
   final DailyDemandProfile? demand;
   final String? supplierId;
+  final String? productKey;
+  final int? urgencyDays;
 
   bool get blocked => step?.blocked ?? false;
   bool get critical => step?.item.severity == AttentionSeverity.critical;
@@ -41,6 +46,8 @@ class StockGuidance {
     required DateTime today,
     int salesDays = 30,
     Map<String, DailyDemandProfile> dailyDemand = const {},
+    Map<String, SupplierPurchaseAdvice> supplierAdvice =
+        const <String, SupplierPurchaseAdvice>{},
   }) {
     final item = step.item;
     final stock = item.stockIds
@@ -49,6 +56,7 @@ class StockGuidance {
         .where((record) => !record.archived)
         .toList(growable: false);
     final order = item.isReorder ? orders[item.productKey] : null;
+    final advice = item.productKey == null ? null : supplierAdvice[item.productKey];
     final titles = stock.map((record) => record.title).toSet();
     final title =
         order?.title ??
@@ -76,6 +84,8 @@ class StockGuidance {
       AttentionKind.unknownQuantity => 'बचा हुआ स्टॉक दर्ज नहीं है',
       AttentionKind.zeroQuantityMismatch => 'स्टॉक 0 है · स्थिति जाँचें',
       AttentionKind.missingStockLocation => 'रैक या शेल्फ का नाम लिखें',
+      AttentionKind.missingSupplierLink =>
+        'supplier link नहीं है · return planning अधूरी है',
       AttentionKind.barcodeConflict => 'एक barcode पर अलग दवाएँ हैं',
       AttentionKind.conflictingLotFacts => 'एक ही पैक की जानकारी अलग है',
       AttentionKind.possibleDuplicateBatch => 'एक स्टॉक दो बार दर्ज हो सकता है',
@@ -98,6 +108,11 @@ class StockGuidance {
     if (step.blocked) {
       action = 'पहले ${stockActionLabel(step.prerequisites.first.kind)}';
       reason = item.isReorder ? 'ऑर्डर से पहले जानकारी पूरी करें' : reason;
+    } else if (order != null && advice != null) {
+      action = order.reviewRequired || order.suggestedQuantity == null
+          ? 'मात्रा जाँचें · ${advice.supplierName} compare करें'
+          : '${order.suggestedQuantity} यूनिट · ${advice.supplierName} से quote लें';
+      reason = '$reason\n${advice.reason}';
     } else if (!item.isReorder && record?.quantity != null) {
       reason = '${record!.quantity} यूनिट · $reason';
     } else if (!item.isReorder && stock.length > 1) {
@@ -110,6 +125,8 @@ class StockGuidance {
       reason: reason,
       group: item.isReorder
           ? StockTaskGroup.order
+          : item.kind == AttentionKind.missingSupplierLink
+          ? StockTaskGroup.supplier
           : item.severity == AttentionSeverity.critical ||
                 item.kind == AttentionKind.shortExpiry ||
                 item.kind == AttentionKind.expiryWastePressure
@@ -122,6 +139,9 @@ class StockGuidance {
           (item.kind == AttentionKind.expiryWastePressure
               ? dailyDemand[item.productKey]
               : null),
+      supplierId: advice?.supplierId,
+      productKey: item.productKey ?? record?.identity,
+      urgencyDays: order?.coverageDays?.floor() ?? day,
     );
   }
 }
@@ -152,10 +172,16 @@ List<StockGuidance> supplierReturnGuidance({
         group: StockTaskGroup.supplier,
         stockIds: List.unmodifiable(<String>[medicine.id]),
         supplierId: supplier.id,
+        productKey: medicine.identity,
+        urgencyDays: candidate.daysLeft,
       ),
     );
   }
   result.sort((a, b) {
+    final deadline = (a.urgencyDays ?? 1 << 20).compareTo(
+      b.urgencyDays ?? 1 << 20,
+    );
+    if (deadline != 0) return deadline;
     final supplier = (a.supplierId ?? '').compareTo(b.supplierId ?? '');
     if (supplier != 0) return supplier;
     return a.title.compareTo(b.title);
@@ -171,6 +197,7 @@ String stockActionLabel(AttentionKind kind) => switch (kind) {
   AttentionKind.unknownQuantity => 'स्टॉक गिनें',
   AttentionKind.zeroQuantityMismatch => 'बचा स्टॉक जाँचें',
   AttentionKind.missingStockLocation => 'रैक / शेल्फ लिखें',
+  AttentionKind.missingSupplierLink => 'Supplier जोड़ें',
   AttentionKind.barcodeConflict => 'Barcode जाँचें',
   AttentionKind.conflictingLotFacts => 'पैक की जानकारी जाँचें',
   AttentionKind.possibleDuplicateBatch => 'दोहरी entry जाँचें',
@@ -276,6 +303,8 @@ List<StockGuidance> stockMovementGuidance({
         group: StockTaskGroup.movement,
         stockIds: List.unmodifiable(stock.map((record) => record.id)),
         demand: demand,
+        productKey: movement.key,
+        urgencyDays: movement.coverageDays?.floor(),
       ),
     );
   }

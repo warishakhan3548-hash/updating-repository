@@ -193,6 +193,7 @@ OperationsLane _laneFor(AttentionKind kind) => switch (kind) {
   AttentionKind.unknownQuantity ||
   AttentionKind.unknownExpiry => OperationsLane.stock,
   AttentionKind.missingStockLocation => OperationsLane.location,
+  AttentionKind.missingSupplierLink => OperationsLane.purchasing,
   AttentionKind.shortExpiry || AttentionKind.expiryWastePressure =>
     OperationsLane.expiry,
   AttentionKind.urgentReorder || AttentionKind.reorderReview =>
@@ -210,6 +211,8 @@ String _actionFor(AttentionKind kind) => switch (kind) {
     'Confirm whether the row is truly SOLD or correct the physical quantity.',
   AttentionKind.missingStockLocation =>
     'Record the exact shelf/rack location so FEFO picking and retrieval can route to this stock without relying on memory.',
+  AttentionKind.missingSupplierLink =>
+    'Link the exact supplier so return-window and future purchasing guidance can use verified facts.',
   AttentionKind.barcodeConflict =>
     'Verify the physical packs and correct the barcode-to-medicine identity conflict.',
   AttentionKind.conflictingLotFacts =>

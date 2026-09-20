@@ -34,6 +34,35 @@ const _reservedSupplierLabels = <String>{
 bool isReservedSupplierCustomFieldLabel(String value) =>
     _reservedSupplierLabels.contains(_supplierKey(value));
 
+const _supplierLeadTimeLabels = <String>{
+  'leadtime',
+  'leadtimedays',
+  'deliverydays',
+  'deliveryleadtime',
+  'supplydays',
+  'restockdays',
+};
+
+/// Reads an optional operational lead-time fact from the existing flexible
+/// supplier fields. Conflicting aliases deliberately return null so purchasing
+/// falls back to the conservative default instead of choosing one silently.
+int? supplierPlanningLeadDays(Supplier supplier) {
+  final values = <int>{};
+  for (final field in supplier.customFields) {
+    if (!_supplierLeadTimeLabels.contains(_supplierKey(field.label))) continue;
+    final match = RegExp(
+      r'^\s*([0-9]{1,3})\s*(?:days?|day|din|दिन)?\s*$',
+      caseSensitive: false,
+      unicode: true,
+    ).firstMatch(field.value);
+    if (match == null) return null;
+    final value = int.tryParse(match.group(1)!);
+    if (value == null || value < 1 || value > 90) return null;
+    values.add(value);
+  }
+  return values.length == 1 ? values.single : null;
+}
+
 class SupplierCustomField {
   const SupplierCustomField({
     required this.id,

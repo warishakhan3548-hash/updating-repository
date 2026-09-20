@@ -480,6 +480,7 @@ class PharmacyController extends ChangeNotifier {
       sales: sales,
       range: range,
       today: date,
+      suppliers: snapshot.suppliers,
     );
     _trackingCache[key] = result;
     return result;
@@ -1114,6 +1115,22 @@ class PharmacyController extends ChangeNotifier {
       }
 
       var committedRecord = record;
+      if (live == null) {
+        final intake = appendStockIntakeEvidence(
+          medicine: record,
+          receivedAt: operationTime,
+          quantity: record.quantity ?? 0,
+          source: 'recorded',
+        );
+        if (intake.length != record.intakeHistory.length) {
+          committedRecord = Medicine.fromJson(<String, dynamic>{
+            ...record.toJson(),
+            'intakeHistory': intake
+                .map((evidence) => evidence.toJson())
+                .toList(growable: false),
+          });
+        }
+      }
       SaleEvent? soldDepletion;
       if (record.sold && live != null && !live.sold) {
         final soldQuantity = record.soldQuantity ?? live.quantity;
@@ -1372,6 +1389,19 @@ class PharmacyController extends ChangeNotifier {
         return null;
       }
       final changes = <String, dynamic>{'quantity': fresh.afterQuantity};
+      if (fresh.kind == StockAdjustmentKind.receive) {
+        final intake = appendStockIntakeEvidence(
+          medicine: live,
+          receivedAt: operationTime,
+          quantity: fresh.requestedQuantity,
+          source: 'receive',
+        );
+        if (intake.length != live.intakeHistory.length) {
+          changes['intakeHistory'] = intake
+              .map((evidence) => evidence.toJson())
+              .toList(growable: false);
+        }
+      }
       if (fresh.kind == StockAdjustmentKind.receive && live.sold) {
         changes.addAll({
           'sold': false,
@@ -1992,7 +2022,24 @@ class PharmacyController extends ChangeNotifier {
     DateTime operationTime,
   ) {
     if (change.operation != 'mark_sold' && change.operation != 'remove') {
-      return Medicine.fromJson(change.after.toJson());
+      var materialized = Medicine.fromJson(change.after.toJson());
+      if (change.operation == 'add' || change.operation == 'restock') {
+        final intake = appendStockIntakeEvidence(
+          medicine: materialized,
+          receivedAt: operationTime,
+          quantity: materialized.quantity ?? 0,
+          source: 'ai',
+        );
+        if (intake.length != materialized.intakeHistory.length) {
+          materialized = Medicine.fromJson(<String, dynamic>{
+            ...materialized.toJson(),
+            'intakeHistory': intake
+                .map((evidence) => evidence.toJson())
+                .toList(growable: false),
+          });
+        }
+      }
+      return materialized;
     }
 
     final reviewed = change.before;

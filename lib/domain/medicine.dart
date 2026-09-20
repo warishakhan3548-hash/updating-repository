@@ -26,6 +26,144 @@ DateTime civilDay(DateTime value) =>
 String dateText(DateTime value) =>
     '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 
+const maxStockIntakeEvidence = 12;
+
+class StockIntakeEvidence {
+  const StockIntakeEvidence({
+    required this.productKey,
+    required this.supplierId,
+    required this.quantity,
+    required this.receivedAt,
+    required this.expiry,
+    required this.source,
+    this.unitCostPaise,
+    this.batchNumber = '',
+  });
+
+  final String productKey;
+  final String supplierId;
+  final int quantity;
+  final DateTime receivedAt;
+  final DateTime expiry;
+  final String source;
+  final int? unitCostPaise;
+  final String batchNumber;
+
+  static const sources = <String>{'recorded', 'receive', 'ai'};
+
+  int get remainingShelfLifeDays =>
+      civilDay(expiry).difference(civilDay(receivedAt)).inDays;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'productKey': productKey,
+    'supplierId': supplierId,
+    'quantity': quantity,
+    'receivedAt': receivedAt.toUtc().toIso8601String(),
+    'expiry': dateText(expiry),
+    'source': source,
+    'unitCostPaise': unitCostPaise,
+    'batchNumber': batchNumber,
+  };
+
+  factory StockIntakeEvidence.fromJson(Map<String, dynamic> json) {
+    const allowed = <String>{
+      'productKey',
+      'supplierId',
+      'quantity',
+      'receivedAt',
+      'expiry',
+      'source',
+      'unitCostPaise',
+      'batchNumber',
+    };
+    if (json.keys.any((key) => !allowed.contains(key))) {
+      throw const FormatException('Stock intake evidence contains an unsupported field.');
+    }
+    final productKey = json['productKey'];
+    final supplierId = json['supplierId'];
+    final quantity = json['quantity'];
+    final receivedRaw = json['receivedAt'];
+    final expiryRaw = json['expiry'];
+    final source = json['source'];
+    final unitCost = json['unitCostPaise'];
+    final batch = json['batchNumber'] ?? '';
+    final receivedAt =
+        receivedRaw is String ? DateTime.tryParse(receivedRaw) : null;
+    final expiry = parseDate(expiryRaw, monthEnd: true);
+    if (productKey is! String ||
+        productKey.trim().isEmpty ||
+        productKey.length > 600 ||
+        supplierId is! String ||
+        supplierId.trim().isEmpty ||
+        supplierId.length > 300 ||
+        quantity is! int ||
+        quantity < 1 ||
+        quantity > 100000000 ||
+        receivedAt == null ||
+        receivedAt.year < 2000 ||
+        receivedAt.year > 2200 ||
+        expiry == null ||
+        source is! String ||
+        !sources.contains(source) ||
+        (unitCost != null &&
+            (unitCost is! int || unitCost < 0 || unitCost > 99999999999)) ||
+        batch is! String ||
+        batch.length > 300) {
+      throw const FormatException('Invalid stock intake evidence.');
+    }
+    if (civilDay(expiry).isBefore(civilDay(receivedAt))) {
+      throw const FormatException(
+        'Stock intake evidence cannot record already-expired stock.',
+      );
+    }
+    if (unitCost is int) stockValue(quantity, unitCost);
+    return StockIntakeEvidence(
+      productKey: productKey.trim(),
+      supplierId: supplierId.trim(),
+      quantity: quantity,
+      receivedAt: receivedAt.toUtc(),
+      expiry: expiry,
+      source: source,
+      unitCostPaise: unitCost as int?,
+      batchNumber: batch.trim(),
+    );
+  }
+}
+
+/// Adds one bounded immutable observation for a physical lot. Missing supplier,
+/// quantity or expiry facts are not guessed; the caller simply gets the existing
+/// evidence back unchanged.
+List<StockIntakeEvidence> appendStockIntakeEvidence({
+  required Medicine medicine,
+  required DateTime receivedAt,
+  required int quantity,
+  required String source,
+}) {
+  if (quantity < 1 ||
+      medicine.supplierId.trim().isEmpty ||
+      medicine.expiry == null ||
+      civilDay(medicine.expiry!).isBefore(civilDay(receivedAt))) {
+    return medicine.intakeHistory;
+  }
+  final next = <StockIntakeEvidence>[
+    ...medicine.intakeHistory,
+    StockIntakeEvidence(
+      productKey: medicine.identity,
+      supplierId: medicine.supplierId.trim(),
+      quantity: quantity,
+      receivedAt: receivedAt.toUtc(),
+      expiry: medicine.expiry!,
+      source: source,
+      unitCostPaise: medicine.unitPricePaise,
+      batchNumber: medicine.batchNumber.trim(),
+    ),
+  ];
+  if (next.length > maxStockIntakeEvidence) {
+    next.removeRange(0, next.length - maxStockIntakeEvidence);
+  }
+  return List<StockIntakeEvidence>.unmodifiable(next);
+}
+
 /// Strict civil dates. A printed YYYY-MM expiry means the last day of that month.
 DateTime? parseDate(
   Object? raw, {
@@ -246,6 +384,7 @@ class Medicine {
     this.soldAt,
     this.soldQuantity,
     this.soldUnitPricePaise,
+    this.intakeHistory = const <StockIntakeEvidence>[],
     this.revision = 1,
   });
 
@@ -271,6 +410,7 @@ class Medicine {
   final DateTime? archivedAt;
   final String archiveReason;
   final String? soldAt;
+  final List<StockIntakeEvidence> intakeHistory;
   final int revision;
 
   String get identity => medicineIdentity(name, strength, form);
@@ -315,6 +455,7 @@ class Medicine {
     'soldAt',
     'soldQuantity',
     'soldUnitPricePaise',
+    'intakeHistory',
     'revision',
   };
 
@@ -354,6 +495,10 @@ class Medicine {
     'soldAt': soldAt,
     'soldQuantity': soldQuantity,
     'soldUnitPricePaise': soldUnitPricePaise,
+    if (intakeHistory.isNotEmpty)
+      'intakeHistory': intakeHistory
+          .map((evidence) => evidence.toJson())
+          .toList(growable: false),
     'revision': revision,
   };
 
@@ -418,6 +563,19 @@ class Medicine {
       );
     final price = number('unitPricePaise', 99999999999);
     if (quantity != null && price != null) stockValue(quantity, price);
+    final intakeRaw = json['intakeHistory'] ?? const <dynamic>[];
+    if (intakeRaw is! List || intakeRaw.length > maxStockIntakeEvidence) {
+      throw const FormatException('Invalid stock intake history.');
+    }
+    final intakeHistory = <StockIntakeEvidence>[];
+    for (final raw in intakeRaw) {
+      if (raw is! Map) {
+        throw const FormatException('Invalid stock intake history.');
+      }
+      intakeHistory.add(
+        StockIntakeEvidence.fromJson(Map<String, dynamic>.from(raw)),
+      );
+    }
     return Medicine(
       id: id,
       name: name,
@@ -451,6 +609,7 @@ class Medicine {
       soldAt: json['soldAt'] as String?,
       soldQuantity: number('soldQuantity', 100000000),
       soldUnitPricePaise: number('soldUnitPricePaise', 99999999999),
+      intakeHistory: List<StockIntakeEvidence>.unmodifiable(intakeHistory),
       revision: number('revision', 2147483647) ?? 1,
     );
   }

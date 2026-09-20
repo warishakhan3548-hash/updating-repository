@@ -14,6 +14,7 @@ enum AttentionKind {
   expiryWastePressure,
   zeroQuantityMismatch,
   missingStockLocation,
+  missingSupplierLink,
   barcodeConflict,
   conflictingLotFacts,
   staleSoldMetadata,
@@ -231,6 +232,28 @@ class PharmacyAttentionReport {
             title: '${medicine.title} · stock location not recorded',
             detail:
                 '$cue · this active stock row has no Block, Row, Vertical or shelf location saved. Record where this exact stock is kept so FEFO picking and fast retrieval do not depend on memory.',
+            stockIds: [medicine.id],
+            productKey: medicine.identity,
+          ),
+        );
+      }
+
+      final supplierDecisionDays = medicine.daysLeft(day);
+      if (medicine.quantity != 0 &&
+          medicine.supplierId.trim().isEmpty &&
+          supplierDecisionDays != null &&
+          supplierDecisionDays >= 0 &&
+          supplierDecisionDays <= settings.monthDays) {
+        items.add(
+          AttentionItem(
+            key: 'supplier-missing:${medicine.id}',
+            kind: AttentionKind.missingSupplierLink,
+            severity: status == StockStatus.shortExpiry
+                ? AttentionSeverity.high
+                : AttentionSeverity.medium,
+            title: '${medicine.title} · supplier not linked',
+            detail:
+                '$cue · expiry/return planning is now relevant, but Aaris cannot check a supplier return window or learn future purchasing evidence until this exact stock row is linked to its real supplier.',
             stockIds: [medicine.id],
             productKey: medicine.identity,
           ),

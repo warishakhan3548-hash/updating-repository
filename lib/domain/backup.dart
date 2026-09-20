@@ -6,8 +6,9 @@ import 'medicine.dart';
 import 'supplier.dart';
 import 'tracking.dart';
 
-const pharmacyBackupSchema = 'aaris.pharmacy.backup.v3';
-const previousPharmacyBackupSchema = 'aaris.pharmacy.backup.v2';
+const pharmacyBackupSchema = 'aaris.pharmacy.backup.v4';
+const previousPharmacyBackupSchema = 'aaris.pharmacy.backup.v3';
+const olderPharmacyBackupSchema = 'aaris.pharmacy.backup.v2';
 const legacyPharmacyBackupSchema = 'aaris.pharmacy.backup.v1';
 const maxBackupCharacters = 64000000;
 const _backupIntegrityPrefix = 'sha256:';
@@ -120,8 +121,9 @@ class PharmacyBackup {
     final schema = decoded['schema'];
     final current = schema == pharmacyBackupSchema;
     final previous = schema == previousPharmacyBackupSchema;
+    final older = schema == olderPharmacyBackupSchema;
     final legacy = schema == legacyPharmacyBackupSchema;
-    if (!current && !previous && !legacy) {
+    if (!current && !previous && !older && !legacy) {
       throw const FormatException(
         'This is not a supported Aaris Pharmacy backup.',
       );
@@ -138,8 +140,8 @@ class PharmacyBackup {
     final allowed = <String>{
       'schema',
       ...basePayloadFields,
-      if (current) 'suppliers',
-      if (current || previous) 'integrity',
+      if (current || previous) 'suppliers',
+      if (current || previous || older) 'integrity',
     };
     if (decoded.keys.any((key) => !allowed.contains(key))) {
       throw const FormatException(
@@ -147,7 +149,7 @@ class PharmacyBackup {
       );
     }
     final integrity = decoded['integrity'];
-    if ((current || previous) &&
+    if ((current || previous || older) &&
         (integrity is! String ||
             !RegExp(r'^sha256:[a-f0-9]{64}$').hasMatch(integrity))) {
       throw const FormatException(
@@ -161,7 +163,9 @@ class PharmacyBackup {
         : null;
     final revision = decoded['sourceRevision'];
     final medicinesRaw = decoded['medicines'];
-    final suppliersRaw = current ? decoded['suppliers'] : const <dynamic>[];
+    final suppliersRaw = current || previous
+        ? decoded['suppliers']
+        : const <dynamic>[];
     final salesRaw = decoded['sales'];
     final soldValue = decoded['soldValue'];
     final unknownSold = decoded['unknownSold'];
@@ -265,14 +269,14 @@ class PharmacyBackup {
       sales: Map.unmodifiable(sales),
       soldValue: soldValue,
       unknownSold: unknownSold,
-      integrityStatus: current || previous
+      integrityStatus: current || previous || older
           ? BackupIntegrityStatus.verified
           : BackupIntegrityStatus.legacyUnsealed,
     );
-    if (current || previous) {
+    if (current || previous || older) {
       final payload = backup._canonicalPayload(
-        includeSuppliers: current,
-        includeSupplierLinks: current,
+        includeSuppliers: current || previous,
+        includeSupplierLinks: current || previous,
       );
       final expected =
           '$_backupIntegrityPrefix${backup._integrityDigest(payload)}';
@@ -552,7 +556,24 @@ bool _sameMedicineRestoreFacts(Medicine a, Medicine b) =>
     a.archiveReason == b.archiveReason &&
     a.soldAt == b.soldAt &&
     a.soldQuantity == b.soldQuantity &&
-    a.soldUnitPricePaise == b.soldUnitPricePaise;
+    a.soldUnitPricePaise == b.soldUnitPricePaise &&
+    _sameIntakeHistory(a.intakeHistory, b.intakeHistory);
+
+bool _sameIntakeHistory(
+  List<StockIntakeEvidence> a,
+  List<StockIntakeEvidence> b,
+) {
+  if (a.length != b.length) return false;
+  for (var index = 0; index < a.length; index++) {
+    final left = a[index].toJson();
+    final right = b[index].toJson();
+    if (left.length != right.length) return false;
+    for (final entry in left.entries) {
+      if (right[entry.key] != entry.value) return false;
+    }
+  }
+  return true;
+}
 
 bool _sameSupplierFacts(Supplier a, Supplier b) =>
     a.id == b.id &&

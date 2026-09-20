@@ -8,6 +8,7 @@ import '../domain/operations_plan.dart';
 import '../domain/sale_history_integrity.dart';
 import '../domain/stock_guidance.dart';
 import '../domain/supplier.dart';
+import '../domain/supplier_intelligence.dart';
 import '../domain/tracking.dart';
 import 'pharmacy_controller.dart';
 
@@ -351,6 +352,7 @@ Medicine _operationalMedicineProjection(Medicine medicine) => Medicine(
   soldAt: medicine.soldAt,
   soldQuantity: medicine.soldQuantity,
   soldUnitPricePaise: medicine.soldUnitPricePaise,
+  intakeHistory: medicine.intakeHistory,
   revision: medicine.revision,
 );
 
@@ -387,6 +389,7 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
     sales: recentSales,
     range: TrackingRange.lastDays(today, 30),
     today: today,
+    suppliers: suppliers,
   );
   final report = PharmacyAttentionReport.build(
     medicines: records,
@@ -407,6 +410,12 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
     for (final movement in tracking.movements.values)
       if (movement.demand != null) movement.key: movement.demand!,
   };
+  final purchaseAdvice = buildSupplierPurchaseAdvice(
+    medicines: records,
+    suppliers: suppliers,
+    reorder: tracking.reorder,
+    today: today,
+  );
   final supplierTasks = supplierReturnGuidance(
     candidates: supplierReturnCandidates(
       medicines: records,
@@ -423,12 +432,19 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
         orders: orders,
         today: today,
         dailyDemand: dailyDemand,
+        supplierAdvice: purchaseAdvice,
       ),
   ];
+  final plannedKeys = plannedTasks.map((task) => task.key).toSet();
+  final visiblePlannedTasks = plannedTasks.where((task) {
+    if (!task.blocked) return true;
+    final prerequisites = task.step?.prerequisites ?? const <AttentionItem>[];
+    return !prerequisites.any((item) => plannedKeys.contains(item.key));
+  }).toList(growable: false);
   final tasks = <StockGuidance>[
     // A supplier return deadline is the more specific action. Do not show a
     // second generic short-expiry/expiry-waste card for the same exact stock.
-    for (final task in plannedTasks)
+    for (final task in visiblePlannedTasks)
       if (!(task.stockIds.any(supplierDueIds.contains) &&
           (task.step?.item.kind == AttentionKind.shortExpiry ||
               task.step?.item.kind == AttentionKind.expiryWastePressure)))
@@ -456,10 +472,16 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
   final original = {for (var i = 0; i < tasks.length; i++) tasks[i].key: i};
   tasks.sort((a, b) {
     final order = priority(a).compareTo(priority(b));
-    return order != 0 ? order : original[a.key]!.compareTo(original[b.key]!);
+    if (order != 0) return order;
+    final deadline = (a.urgencyDays ?? 1 << 20).compareTo(
+      b.urgencyDays ?? 1 << 20,
+    );
+    if (deadline != 0) return deadline;
+    return original[a.key]!.compareTo(original[b.key]!);
   });
 
-  final next = plan.nextStep;
+  final nextTask = tasks.firstOrNull;
+  final next = nextTask?.step;
   return <String, dynamic>{
     'health': report.isEmpty
         ? 'clear'
@@ -473,12 +495,18 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
     'lowCount': report.low,
     'blockedCount': plan.blockedCount,
     'verificationCount': plan.verificationCount,
-    'nextTaskKey': next?.item.key ?? '',
-    'nextTaskTitle': next?.item.title ?? '',
-    'nextAction': next?.actionLabel ?? '',
-    'nextLane': next?.laneLabel ?? '',
+    'nextTaskKey': nextTask?.key ?? '',
+    'nextTaskTitle': nextTask?.title ?? '',
+    'nextAction': nextTask?.action ?? '',
+    'nextLane': nextTask == null
+        ? ''
+        : nextTask.group == StockTaskGroup.supplier
+        ? 'Supplier'
+        : next?.laneLabel ?? '',
     'nextKind': next?.item.kind.name ?? '',
-    'nextStockIds': List<String>.from(next?.item.stockIds ?? const <String>[]),
+    'nextStockIds': List<String>.from(
+      nextTask?.stockIds ?? const <String>[],
+    ),
     'tasks': tasks,
   };
 }
