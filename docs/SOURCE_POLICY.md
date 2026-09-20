@@ -24,3 +24,5 @@ A normal production build must not fetch an uncontrolled upstream `latest` resou
 - `rejected`: unsuitable due to trust, licensing or integrity.
 
 Durability never overrides copyright. Only `production-approved` entries may feed release content builders.
+
+A source-specific term that requires republishers to remain on the latest upstream version is **not automatically compatible** with a public immutable historical Source Vault. If the project must retain old snapshots for reproducibility but the licence does not clearly permit continued archival redistribution of those older versions, keep the source `awaiting-licence` until written clarification, a compatible archival grant, or a replacement source resolves the conflict. Acquisition tooling must fail closed before network download when the registry has not cleared the source for capture.
