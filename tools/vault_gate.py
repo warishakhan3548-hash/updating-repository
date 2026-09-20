@@ -18,7 +18,7 @@ ALLOWED_STATUSES = {
 }
 
 ALLOWED_ARTIFACT_KINDS = {"file", "sha256-set"}
-CHECKSUM_LINE_RE = re.compile(r"^([0-9a-f]{64})  ([^\\r\\n]+)$")
+CHECKSUM_LINE_RE = re.compile(r"^([0-9a-f]{64})  ([^\r\n]+)$")
 
 REQUIRED_RELEASE_RULES = {
     "require_production_approved",
