@@ -1,24 +1,28 @@
 # Research Log — 2026-09-20
 
-Facts were checked against primary/official sources where available. Marketing claims are treated as product descriptions, not scientific proof.
+Facts were checked against primary/official sources where available. Marketing claims are treated as product descriptions, not scientific proof. Architectural inference and experimental hypotheses are labelled separately.
 
-| Claim | Primary/official source | Confidence | Product implication |
-|---|---|---:|---|
-| Tanzil Quran text lists release v1.1 (2021-02-12); its text terms permit verbatim copy/distribution with attribution/source link and prohibit changes. | https://tanzil.net/download/ and https://tanzil.net/docs/Text_License | high | Strong Quran evidence candidate; exact selected artifact still must be captured and hashed. |
-| Quranic Arabic Corpus download identifies morphology v0.4 and states GNU GPL plus explicit verbatim/no-change and attribution conditions. | https://corpus.quran.com/download/ | high | Strong morphology candidate; exact official bytes remain a gate. |
-| Quran Foundation developer terms updated 2026-09-14 restrict redistribution and generally storage beyond one week except documented sync content. | https://api-docs.quran.com/legal/developer-terms/ | high | Optional online integration only; not the critical permanent mirror. |
-| QUL says resources are intended to be downloaded/packaged, while also identifying external resource origins. | https://qul.tarteel.ai/resources | high | Verify each resource's provenance/licence individually; no blanket approval. |
-| HadeethEnc permits re-publication under no-modification, attribution, versioning and update conditions. | https://hadeethenc.com/en | high | Hadith candidate; collection/edition/numbering provenance still needs production review. |
-| Sunnah.com exposes an API and says an offline dump is not yet available. | https://sunnah.com/developers | high | Research/comparison candidate, not a durable offline foundation today. |
-| SQLite FTS5 includes unicode61/trigram tokenizers and BM25 ranking. | https://sqlite.org/fts5.html | high | Strong boring baseline for measured multi-lane local retrieval. |
-| FSRS-6 models Difficulty, Stability and Retrievability and is actively versioned. | https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm | medium-high | Preserve events and wrap the scheduler so algorithm versions remain replaceable. |
-| Android recommends at least 48dp touch targets; WCAG 2.2 AA specifies 24x24 CSS px minimum with exceptions. | https://developer.android.com/guide/topics/ui/accessibility/views/apps-views and https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html | high | Use 48dp Android controls and expanded semantic hit regions for inline words. |
-| TUF publishes version/hash/signature/rollback-oriented update specifications. | https://theupdateframework.io/spec/ | high | Use its threat-model principles for content pack activation. |
-| SPDX maintains machine-readable licence identifiers and canonical licence texts. | https://spdx.org/licenses/ | high | Prefer SPDX IDs when source terms match exactly; preserve custom terms when they do not. |
-| Quran.com exposes focused study/word-detail flows in addition to reading. | https://quran.com/en/product-updates/new-study-mode-on-quran-com | high | In-context depth is valuable; our first tap should stay lighter and reading-anchored. |
-| Tarteel emphasizes recitation follow-along, voice search, mistake detection, memorization planning and active-recall testing. | https://tarteel.ai/ and https://support.tarteel.ai/en/collections/15105266-tarteel-features | high | Do not clone its memorization suite; borrow the principle that active recall is distinct from passive reading. |
-| Readlang's official flow is click-to-translate while reading, then optional saved-word flashcards/spaced repetition. | https://readlang.com/ and https://readlang.com/features | high | Supports the north-star pattern: comprehension assistance should not eject the user from reading. |
-| Quran Progress describes frequency-first Quran vocabulary plus spaced repetition. | https://www.quranprogress.com/en/ | medium | Useful comparison; independently reproduce corpus coverage before accepting numerical coverage claims. |
+| Type | Claim | Primary/official source | Confidence | Product implication |
+|---|---|---|---:|---|
+| fact | Tanzil Quran text lists release v1.1 (2021-02-12); its text terms permit verbatim copy/distribution with attribution/source link and prohibit changes. | https://tanzil.net/download/ and https://tanzil.net/docs/Text_License | high | Strong Quran evidence candidate; exact selected artifact still must be captured and hashed. |
+| fact | Quranic Arabic Corpus download identifies morphology v0.4 and states GNU licence plus explicit verbatim/no-change and attribution conditions. | https://corpus.quran.com/download/ | high | Strong morphology candidate; exact official bytes remain a gate. |
+| fact | Quran Foundation developer terms updated 2026-09-14 restrict redistribution and generally storage beyond one week except documented sync content/explicit permission. | https://api-docs.quran.com/legal/developer-terms/ | high | Optional online integration only; not the critical permanent mirror. |
+| fact | QuranEnc exposes versioned downloadable translations and permits re-publication subject to no-modification, source/publisher attribution, version and transcript conditions. | https://quranenc.com/en/home | high | Evaluate and preserve each exact translation/version independently. |
+| fact | QUL says resources are intended to be downloaded/packaged, while also identifying external resource origins. | https://qul.tarteel.ai/resources | high | Verify each resource's provenance/licence individually; no blanket approval. |
+| fact | HadeethEnc permits re-publication under no-modification, attribution, versioning and update conditions. | https://hadeethenc.com/en | high | Hadith candidate; collection/edition/numbering provenance still needs production review. |
+| fact | Sunnah.com exposes an API and says an offline dump is not yet available. | https://sunnah.com/developers | high | Research/comparison candidate, not a durable offline foundation today. |
+| fact | SQLite FTS5 includes unicode61/trigram tokenizers and BM25 ranking. | https://sqlite.org/fts5.html | high | Strong boring baseline for measured multi-lane local retrieval. |
+| fact | Unicode UAX #15 defines canonical normalization. | https://www.unicode.org/reports/tr15/ | high | Normalize only derived search lanes; original Arabic remains immutable display evidence. |
+| fact | FSRS-6 models Difficulty, Stability and Retrievability and is actively versioned. | https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm | medium-high | Preserve events and wrap the scheduler so algorithm versions remain replaceable. |
+| fact | Android recommends at least 48dp touch targets; WCAG 2.2 AA specifies 24x24 CSS px minimum with exceptions. | https://developer.android.com/guide/topics/ui/accessibility/views/apps-views and https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html | high | Use 48dp Android controls and expanded semantic hit regions for inline words. |
+| fact | TUF publishes version/hash/signature/rollback-oriented update specifications. | https://theupdateframework.io/spec/ | high | Use its threat-model principles for content pack activation. |
+| fact | SPDX maintains machine-readable licence identifiers and canonical licence texts. | https://spdx.org/licenses/ | high | Prefer SPDX IDs when source terms match exactly; preserve custom terms when they do not. |
+| fact | Quran.com exposes focused study/word-detail flows in addition to reading. | https://quran.com/en/product-updates/new-study-mode-on-quran-com | high | In-context depth is valuable; our first tap should stay lighter and reading-anchored. |
+| fact | Tarteel emphasizes recitation follow-along, voice search, mistake detection and active recall; its support material also acknowledges that mistake detection can flag false positives. | https://tarteel.ai/ and https://support.tarteel.ai/ | high | Machine detections need confidence plus confirm/reject history; they cannot become unquestionable learning truth. |
+| fact | Readlang uses click-to-translate reading plus saved contextual words/review; LingQ similarly combines contextual reading with tracked vocabulary/SRS. | https://readlang.com/features and https://www.lingq.com/en/learn-arabic-online/ | high | Supports reader-driven low-friction learning rather than a separate drill-first product. |
+| fact | Quran Progress describes frequency-first Quran vocabulary plus spaced repetition. | https://www.quranprogress.com/en/ | medium | Useful comparison; independently reproduce corpus coverage before accepting numerical coverage claims. |
+| inference | The best default comprehension assist is an anchored micro-gloss rather than navigation to a separate study screen. | synthesis of reader products + product north star | medium | Prototype and user-test before declaring final UX. |
+| hypothesis | Natural re-exposure in the user's reading path can sometimes substitute for forced rare-word review. | cognitive/product hypothesis | medium | Evaluate against retention and interruption metrics. |
 
 ## First-principles synthesis
 
@@ -33,4 +37,9 @@ Hadith research needs a different trust posture: multi-lane fuzzy retrieval with
 - per-resource QUL licences;
 - authoritative redistributable Hadith datasets with edition-level numbering provenance;
 - full HadeethEnc edition/collection mapping;
+- exact QuranEnc translation/version selection where translations are used;
 - fonts, audio and word/ayah timing sources with explicit redistribution rights.
+
+## Saturation conclusion
+
+The research now converges on four durable choices: immutable source/display data, contextual reader-first assistance, local event-preserving learning, and deterministic multi-lane retrieval with explicit uncertainty. Further research should answer concrete implementation/evaluation questions rather than accumulate features.
