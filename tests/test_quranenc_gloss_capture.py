@@ -17,6 +17,7 @@ from tools.capture_quranenc_gloss import (
     EXPECTED_AYAH_COUNTS,
     FetchResult,
     LIST_URL,
+    SOURCE_ID,
     TERMS_URL,
     VAULT_RELATIVE,
     capture_snapshot,
@@ -57,6 +58,43 @@ def meta(
                 "description": "x",
             },
         ]
+    )
+
+
+def authorize_capture(
+    root,
+    *,
+    status="awaiting-artifact",
+    redistribution_allowed=True,
+):
+    vault = root / "source-vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    (vault / "registry.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "sources": [
+                    {
+                        "source_id": SOURCE_ID,
+                        "version": "1.0.0",
+                        "status": status,
+                        "redistribution_allowed": (
+                            redistribution_allowed
+                        ),
+                        "modification_allowed": False,
+                        "attribution_required": True,
+                        "vault_artifact": None,
+                        "licence_snapshot": None,
+                        "provenance": None,
+                        "sha256": None,
+                        "licence_sha256": None,
+                        "provenance_sha256": None,
+                        "byte_size": None,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
     )
 
 
@@ -182,6 +220,7 @@ class CaptureTests(unittest.TestCase):
         for _ in range(2):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
+                authorize_capture(root)
                 dest = capture_snapshot(
                     root,
                     fetcher=FakeFetcher(),
@@ -278,6 +317,7 @@ class CaptureTests(unittest.TestCase):
     ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            authorize_capture(root)
             with self.assertRaisesRegex(
                 CaptureError,
                 "expected pinned",
@@ -299,6 +339,7 @@ class CaptureTests(unittest.TestCase):
     ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            authorize_capture(root)
             with self.assertRaisesRegex(
                 CaptureError,
                 "metadata changed during capture",
@@ -320,6 +361,7 @@ class CaptureTests(unittest.TestCase):
     ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            authorize_capture(root)
             with self.assertRaisesRegex(
                 CaptureError,
                 "coordinate mismatch",
@@ -340,6 +382,8 @@ class CaptureTests(unittest.TestCase):
         self,
     ):
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            authorize_capture(root)
             with self.assertRaisesRegex(
                 CaptureError,
                 (
@@ -348,7 +392,7 @@ class CaptureTests(unittest.TestCase):
                 ),
             ):
                 capture_snapshot(
-                    Path(tmp),
+                    root,
                     fetcher=FakeFetcher(
                         final_host=(
                             "evil.example"
@@ -360,15 +404,43 @@ class CaptureTests(unittest.TestCase):
         self,
     ):
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            authorize_capture(root)
             with self.assertRaisesRegex(
                 CaptureError,
                 "unexpected HTTP status",
             ):
                 capture_snapshot(
-                    Path(tmp),
+                    root,
                     fetcher=FakeFetcher(
                         status=503
                     ),
+                )
+
+    def test_awaiting_licence_blocks_before_network(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            authorize_capture(
+                root,
+                status="awaiting-licence",
+                redistribution_allowed=None,
+            )
+
+            def should_not_fetch(url):
+                self.fail(
+                    "network fetch attempted before "
+                    "licence authorization"
+                )
+
+            with self.assertRaisesRegex(
+                CaptureError,
+                "licence review must promote",
+            ):
+                capture_snapshot(
+                    root,
+                    fetcher=should_not_fetch,
                 )
 
 
