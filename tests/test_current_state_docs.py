@@ -68,14 +68,6 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertEqual("CC-BY-4.0", source["licence_id"])
         self.assertTrue(source["redistribution_allowed"])
         self.assertTrue(source["commercial_use_allowed"])
-        self.assertEqual(
-            {
-                "latest_upstream_version_required": False,
-                "version_check_url": "https://tanzil.net/updates/",
-                "historical_snapshot_retention_status": "verified-allowed",
-            },
-            source["release_requirements"],
-        )
         self.assertTrue(source["modification_allowed"])
         self.assertTrue(source["attribution_required"])
         self.assertEqual(
@@ -113,6 +105,14 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertEqual("production-approved", source["status"])
         self.assertTrue(source["redistribution_allowed"])
         self.assertTrue(source["commercial_use_allowed"])
+        self.assertEqual(
+            {
+                "latest_upstream_version_required": False,
+                "version_check_url": "https://tanzil.net/updates/",
+                "historical_snapshot_retention_status": "verified-allowed",
+            },
+            source["release_requirements"],
+        )
 
     def test_quranenc_gloss_candidate_remains_outside_production(self):
         registry = json.loads(
