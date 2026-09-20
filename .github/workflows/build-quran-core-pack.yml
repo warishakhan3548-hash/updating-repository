@@ -1,0 +1,71 @@
+name: Build Quran core content pack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-quran-core-pack.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-quran-core-1-0-0
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Move to latest main before deriving bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout -B main origin/main
+
+      - name: Validate preserved source and foundation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/vault_gate.py source-vault/registry.json
+          python tools/validate_schemas.py
+          python -m unittest discover -s tests -v
+
+      - name: Build deterministic Quran core pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/build_quran_core.py
+          python tools/pack_gate.py \
+            source-vault/registry.json \
+            content-packs/quran-core/1.0.0/manifest.json
+
+      - name: Commit only if main did not move during build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE_SHA="$(git rev-parse HEAD)"
+          git fetch origin main
+          REMOTE_SHA="$(git rev-parse origin/main)"
+          if [[ "$BASE_SHA" != "$REMOTE_SHA" ]]; then
+            echo "main moved during pack build ($BASE_SHA -> $REMOTE_SHA); refusing stale derived artifact." >&2
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add content-packs/quran-core/1.0.0
+          git commit -m 'Build Quran core content pack 1.0.0'
+          git push origin HEAD:main
