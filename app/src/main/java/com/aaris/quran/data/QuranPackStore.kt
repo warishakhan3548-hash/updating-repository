@@ -139,6 +139,6 @@ class QuranPackStore(context: Context) {
     private companion object {
         const val DATABASE_ASSET = "content.sqlite"
         const val MANIFEST_ASSET = "manifest.json"
-        const val DATABASE_FILE_NAME = "quran-core-1.0.1.sqlite"
+        const val DATABASE_FILE_NAME = "quran-core-1.0.3.sqlite"
     }
 }
