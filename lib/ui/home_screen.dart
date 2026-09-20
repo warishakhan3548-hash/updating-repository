@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../state/pharmacy_controller.dart';
@@ -26,16 +28,32 @@ class _HomeScreenState extends State<HomeScreen> {
   int? _pendingMonths;
   int _shortIntentGeneration = 0;
   int _monthIntentGeneration = 0;
+  bool _routeOpening = false;
 
   PharmacyController get controller => widget.controller;
   VoidCallback get onDatabase => widget.onDatabase;
 
-  void _open(BuildContext context, SearchScope scope) =>
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => SearchScreen(controller: controller, scope: scope),
-        ),
-      );
+  Future<void> _runExclusiveRoute(Future<void> Function() action) async {
+    if (_routeOpening || !mounted) return;
+    setState(() => _routeOpening = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _routeOpening = false);
+    }
+  }
+
+  Future<void> _open(SearchScope scope) => _runExclusiveRoute(
+    () => Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => SearchScreen(controller: controller, scope: scope),
+      ),
+    ),
+  );
+
+  Future<void> _edit({Medicine? record}) => _runExclusiveRoute(
+    () => openEditor(context, controller, record: record),
+  );
 
   Future<void> _setShortDays(BuildContext context, int value) async {
     final effective = _pendingShortDays ?? controller.settings.shortDays;
@@ -195,7 +213,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       initial: visibleSettings,
                     ),
                   ),
-                  onTap: () => _open(context, SearchScope.shortExpiry),
+                  onTap: () => unawaited(_open(SearchScope.shortExpiry)),
                 ),
                 _OverviewTile(
                   title:
@@ -218,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       initial: visibleSettings,
                     ),
                   ),
-                  onTap: () => _open(context, SearchScope.monthExpiry),
+                  onTap: () => unawaited(_open(SearchScope.monthExpiry)),
                 ),
                 _OverviewTile(
                   title: 'Sold Medicines',
@@ -227,7 +245,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icons.check_circle_outline_rounded,
                   color: amber,
                   background: warningSoft,
-                  onTap: () => _open(context, SearchScope.sold),
+                  onTap: () => unawaited(_open(SearchScope.sold)),
                 ),
                 _OverviewTile(
                   title: 'Expired Medicines',
@@ -236,7 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icons.event_busy_rounded,
                   color: red,
                   background: errorSoft,
-                  onTap: () => _open(context, SearchScope.expired),
+                  onTap: () => unawaited(_open(SearchScope.expired)),
                 ),
               ];
               final cardWidth =
@@ -285,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           const SizedBox(height: 22),
-          _ScanBanner(onTap: () => _open(context, SearchScope.all)),
+          _ScanBanner(onTap: () => unawaited(_open(SearchScope.all))),
           const SizedBox(height: 18),
           GlassPanel(
             tint: Colors.white,
@@ -315,7 +333,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 GlassIconButton(
                   tooltip: 'Add medicine',
-                  onPressed: () => openEditor(context, controller),
+                  onPressed: () => unawaited(_edit()),
                   icon: Icons.add_circle_outline_rounded,
                   size: 48,
                 ),
@@ -337,7 +355,7 @@ class _HomeScreenState extends State<HomeScreen> {
               action: RaisedActionButton(
                 icon: Icons.add_rounded,
                 label: 'Add medicine',
-                onPressed: () => openEditor(context, controller),
+                onPressed: () => unawaited(_edit()),
               ),
             )
           else if (attention.isEmpty)
@@ -365,7 +383,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   // a stale revision merely because Home avoided a repaint.
                   final live = controller.snapshot.records[m.id];
                   if (live != null) {
-                    openEditor(context, controller, record: live);
+                    unawaited(_edit(record: live));
                   }
                 },
               ),
