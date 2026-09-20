@@ -386,17 +386,31 @@ Map<String, dynamic> _decodePharmacyEnvelope(String input) {
   }
 
   // External chat apps often copy UI text such as "Worked for 43s" together
-  // with the JSON response. Find only objects that start with our protocol
-  // signature, then parse their balanced braces while respecting JSON strings.
-  // Unrelated prose/JSON above or below is ignored and never becomes authority.
-  final signature = RegExp(
-    r'\{\s*"schema"\s*:\s*"aaris\.pharmacy\.v1"',
+  // with the JSON response. Locate our schema property, then walk backwards over
+  // a bounded number of object starts until one decodes as the complete Aaris
+  // envelope. This keeps key order flexible without treating surrounding prose
+  // or unrelated JSON as authority.
+  final schemaProperty = RegExp(
+    r'"schema"\s*:\s*"aaris\.pharmacy\.v1"',
   );
+  final candidateStarts = <int>{};
+  for (final schemaMatch in schemaProperty.allMatches(text)) {
+    var cursor = schemaMatch.start;
+    var attempts = 0;
+    while (cursor > 0 && attempts < 64) {
+      final start = text.lastIndexOf('{', cursor - 1);
+      if (start < 0 || schemaMatch.start - start > 65536) break;
+      candidateStarts.add(start);
+      cursor = start;
+      attempts++;
+    }
+  }
+
   final candidates = <Map<String, dynamic>>[];
-  for (final match in signature.allMatches(text)) {
-    final end = _balancedJsonObjectEnd(text, match.start);
+  for (final start in candidateStarts.toList()..sort()) {
+    final end = _balancedJsonObjectEnd(text, start);
     if (end == null) continue;
-    final raw = text.substring(match.start, end);
+    final raw = text.substring(start, end);
     try {
       final decoded = jsonDecode(raw);
       if (decoded is Map && decoded['schema'] == pharmacySchema) {
