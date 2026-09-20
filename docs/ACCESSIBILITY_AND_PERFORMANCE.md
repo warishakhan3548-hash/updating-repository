@@ -23,6 +23,6 @@ These static/build checks are not a substitute for TalkBack, Switch Access, larg
 
 ## Performance measurement
 
-Do not invent achieved numbers. Benchmark representative low-end Android hardware for cold start, Quran render, word-tap response, search latency, memory usage and scroll smoothness.
+Do not invent achieved numbers. Benchmark representative low-end Android hardware for cold start, Quran render, future word-help response, search latency, memory usage and scroll smoothness.
 
 Prewarm only nearby word information when profiling proves it useful. Search and ranking work must be cancellable and kept off the UI thread where necessary.
