@@ -44,6 +44,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 ### Still blocked from production
 
 - Quranic Arabic Corpus v0.4: `awaiting-licence` because official materials create a commercial-use/terms ambiguity.
+- QuranMorph (SinaLab/Birzeit, 2025): `awaiting-artifact`. Official catalogue licensing is materially clearer at CC BY 4.0, but the free-edition download is currently affiliation-gated; no exact bytes/version are mirrored, and the paper's 6,235-verse count still requires exact coordinate alignment against the 6,236-ayah Tanzil Evidence Plane.
 - HadeethEnc: research candidate pending exact version, edition/collection mapping, numbering provenance and preserved artifact.
 - QUL resources: official morphology downloads expose word-location keyed lemma/root/stem data, but QUL's FAQ explicitly requires checking dataset-specific licensing for commercial use and the inspected morphology pages do not expose a dataset licence; no bytes are mirrored.
 - Quran Foundation API: not accepted as the permanent mirrored evidence foundation under current developer terms.
@@ -88,7 +89,7 @@ No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device te
 2. Persist the highest accepted signed `release_sequence` and add freshness/recovery state before enabling any automatic remote content-update channel.
 3. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
 4. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
-5. Resolve QAC licensing or choose a legally clearer morphology source, and preserve an edition-aware Hadith source before production Hadith search.
+5. Obtain QuranMorph through an authorized publisher path and verify its exact artifact, licence snapshot, checksum, and 6,236-ayah coordinate alignment; keep QAC/QUL blocked unless their own gates clear. Preserve an edition-aware Hadith source before production Hadith search.
 6. Add an independent backup/archive for critical Source Vault artifacts and trust-root history.
 
 One-shot acquisition/backfill workflows are removed after successful promotion of their outputs; provenance and Git history retain the audit trail.
