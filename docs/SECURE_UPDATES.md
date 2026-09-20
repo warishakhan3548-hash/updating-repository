@@ -29,7 +29,7 @@ The repository trust root is deliberately `bootstrap-required`: no real release 
 
 ## Still blocked before automatic network updates
 
-Cryptographic authenticity and a signed ordering primitive are not the whole update system. Automatic remote pack updates remain disabled until the project persists the highest accepted `release_sequence`, handles freshness/expiry, tests atomic activation/recovery, and reviews key-rotation/revocation protocol. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.
+Cryptographic authenticity, signed ordering and installed-app rollback state are not the whole update system. Automatic remote pack updates remain disabled until the project handles freshness/expiry, downloaded-pack staging, explicit activation/recovery tests, supported-API on-device signature verification, and remote key-rotation/revocation protocol. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.
 
 ## Installed-app rollback state
 
