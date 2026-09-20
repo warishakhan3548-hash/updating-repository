@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../state/pharmacy_controller.dart';
@@ -8,11 +10,45 @@ import 'home_screen.dart';
 import 'removed_stock_screen.dart';
 import 'supplier_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.controller});
+
   final PharmacyController controller;
 
-  Future<void> _removeAll(BuildContext context) async {
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  PharmacyController get controller => widget.controller;
+
+  bool _actionInProgress = false;
+
+  Future<void> _runExclusiveAction(Future<void> Function() action) async {
+    if (_actionInProgress || !mounted) return;
+    setState(() => _actionInProgress = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _actionInProgress = false);
+    }
+  }
+
+  Future<void> _open(WidgetBuilder builder) => _runExclusiveAction(
+    () => Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: builder),
+    ),
+  );
+
+  Future<void> _shareInventory() async {
+    try {
+      await sharePharmacy(controller.export());
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _removeAll() async {
     final review = controller.reviewArchiveAll();
     if (review.activeCount == 0) {
       showSaved(context, 'There is no active inventory to remove.');
@@ -37,7 +73,7 @@ class ProfileScreen extends StatelessWidget {
         ],
       ),
     );
-    if (first != true || !context.mounted) return;
+    if (first != true || !mounted) return;
     var phrase = '';
     final confirmed = await showDialog<bool>(
       context: context,
@@ -78,17 +114,17 @@ class ProfileScreen extends StatelessWidget {
         ),
       ),
     );
-    if (confirmed == true && context.mounted) {
+    if (confirmed == true && mounted) {
       try {
         await controller.applyArchiveAll(review);
-        if (context.mounted) {
+        if (mounted) {
           showSaved(
             context,
             '${review.activeCount} stock ${review.activeCount == 1 ? 'entry' : 'entries'} removed. Undo is available in Activity.',
           );
         }
       } catch (e) {
-        if (context.mounted) showError(context, e);
+        if (mounted) showError(context, e);
       }
     }
   }
@@ -149,7 +185,13 @@ class ProfileScreen extends StatelessWidget {
                   '${controller.settings.shortDays} days · ${controller.settings.months} months',
                 ),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => showWarningSettings(context, controller),
+                onTap: _actionInProgress
+                    ? null
+                    : () => unawaited(
+                        _runExclusiveAction(
+                          () => showWarningSettings(context, controller),
+                        ),
+                      ),
               ),
               ListTile(
                 leading: const DepthIcon(
@@ -161,24 +203,22 @@ class ProfileScreen extends StatelessWidget {
                   '${controller.snapshot.suppliers.length} saved · link exact stock from Medicine Details',
                 ),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => SupplierScreen(controller: controller),
-                  ),
-                ),
+                onTap: _actionInProgress
+                    ? null
+                    : () => unawaited(
+                        _open((_) => SupplierScreen(controller: controller)),
+                      ),
               ),
               ListTile(
                 leading: const DepthIcon(Icons.history_rounded, size: 40),
                 title: const Text('Activity & Undo'),
                 subtitle: const Text('See changes and undo the latest one'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => ActivityScreen(controller: controller),
-                  ),
-                ),
+                onTap: _actionInProgress
+                    ? null
+                    : () => unawaited(
+                        _open((_) => ActivityScreen(controller: controller)),
+                      ),
               ),
               ListTile(
                 leading: const DepthIcon(
@@ -192,36 +232,30 @@ class ProfileScreen extends StatelessWidget {
                   'Search history and review an exact row before restoring',
                 ),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => RemovedStockScreen(controller: controller),
-                  ),
-                ),
+                onTap: _actionInProgress
+                    ? null
+                    : () => unawaited(
+                        _open((_) => RemovedStockScreen(controller: controller)),
+                      ),
               ),
               ListTile(
                 leading: const DepthIcon(Icons.shield_outlined, size: 40),
                 title: const Text('Backup & Restore'),
                 subtitle: const Text('Full local data backup'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => BackupScreen(controller: controller),
-                  ),
-                ),
+                onTap: _actionInProgress
+                    ? null
+                    : () => unawaited(
+                        _open((_) => BackupScreen(controller: controller)),
+                      ),
               ),
               ListTile(
                 leading: const DepthIcon(Icons.ios_share_rounded, size: 40),
                 title: const Text('Export pharmacy inventory'),
                 subtitle: const Text('TXT facts and AI import instructions'),
-                onTap: () async {
-                  try {
-                    await sharePharmacy(controller.export());
-                  } catch (e) {
-                    if (context.mounted) showError(context, e);
-                  }
-                },
+                onTap: _actionInProgress
+                    ? null
+                    : () => unawaited(_runExclusiveAction(_shareInventory)),
               ),
             ],
           ),
@@ -235,7 +269,9 @@ class ProfileScreen extends StatelessWidget {
         ),
         const SizedBox(height: 22),
         OutlinedButton.icon(
-          onPressed: () => _removeAll(context),
+          onPressed: _actionInProgress
+              ? null
+              : () => unawaited(_runExclusiveAction(_removeAll)),
           icon: const Icon(Icons.archive_outlined, color: red),
           label: const Text(
             'Remove all inventory',
