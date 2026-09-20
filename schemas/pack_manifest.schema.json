@@ -226,6 +226,49 @@
       "minimum": 1,
       "description": "Monotonic signed release ordering primitive; required for approved packs.",
       "maximum": 9007199254740991
+    },
+    "source_release_review": {
+      "type": "object",
+      "required": [
+        "source_id",
+        "source_version",
+        "observed_upstream_version",
+        "version_check_url",
+        "checked_at",
+        "licence_sha256",
+        "latest_upstream_version_confirmed"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observed_upstream_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version_check_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "checked_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "licence_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "latest_upstream_version_confirmed": {
+          "const": true
+        }
+      },
+      "additionalProperties": false
     }
   },
   "dependentRequired": {

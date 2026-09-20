@@ -63,3 +63,14 @@ The capture is fail-closed:
 
 This repository still has **no preserved QuranEnc production artifact**. The source remains `awaiting-artifact` until the real capture is run in a trusted network-enabled environment, the resulting bytes and terms are reviewed, and the registry is updated in a separate reviewed change. A runtime gloss importer must not precede that promotion.
 
+
+## Follow-up — redistribution freshness boundary (verified 2026-09-21)
+
+Current primary-source review still shows **Arabic Language - Meanings of Words** as version **V1.0.0**. QuranEnc's API documentation exposes a version-bearing translations-list endpoint, and its published republication terms require publishers to update the translation according to the latest version issued by QuranEnc.
+
+That creates two distinct invariants:
+
+1. **Archive invariant:** keep every exact legally preserved snapshot forever so historical builds remain reproducible and no upstream deletion can erase our evidence trail.
+2. **Release-eligibility invariant:** before approving a newly distributed pack from a source with a latest-version condition, explicitly verify the official upstream version and bind that review into the signed pack manifest.
+
+The implementation records this as `release_requirements` on the Source Vault entry and `source_release_review` on an approved pack. It intentionally does not make normal builds query QuranEnc, does not make historical snapshots self-destruct with time, and does not claim that software can replace legal/source review. If the official version advances, the old snapshot remains archived but is not sufficient by itself for a new release; the new upstream bytes must pass the Source Vault workflow as a new version.

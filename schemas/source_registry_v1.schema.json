@@ -31,6 +31,30 @@
           "redistribution_allowed": {"type": ["boolean", "null"]},
           "modification_allowed": {"type": ["boolean", "null"]},
           "attribution_required": {"type": ["boolean", "null"]},
+          "release_requirements": {
+            "type": "object",
+            "required": [
+              "latest_upstream_version_required",
+              "version_check_url",
+              "historical_snapshot_retention_status"
+            ],
+            "properties": {
+              "latest_upstream_version_required": {"const": true},
+              "version_check_url": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://"
+              },
+              "historical_snapshot_retention_status": {
+                "enum": [
+                  "unresolved",
+                  "verified-allowed",
+                  "verified-not-allowed"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
           "vault_artifact": {"type": ["string", "null"]},
           "licence_snapshot": {"type": ["string", "null"]},
           "provenance": {"type": ["string", "null"]},

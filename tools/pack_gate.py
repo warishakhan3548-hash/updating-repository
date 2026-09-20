@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import datetime
 import hashlib
 import json
 import sqlite3
@@ -86,6 +87,95 @@ def _load_sources(registry_path: Path) -> tuple[Path, dict[str, dict]]:
         by_id[source_id] = source
     return root, by_id
 
+
+
+def _validate_source_release_review(
+    manifest: dict,
+    source: dict,
+    manifest_path: Path,
+) -> None:
+    requirements = source.get("release_requirements")
+    if requirements is None:
+        return
+    required_requirement_fields = {
+        "latest_upstream_version_required",
+        "version_check_url",
+        "historical_snapshot_retention_status",
+    }
+    if (
+        not isinstance(requirements, dict)
+        or set(requirements) != required_requirement_fields
+        or requirements.get("latest_upstream_version_required") is not True
+    ):
+        raise PackGateError(
+            f"{manifest_path}: invalid Source Vault release_requirements"
+        )
+    retention_status = requirements.get("historical_snapshot_retention_status")
+    if retention_status != "verified-allowed":
+        raise PackGateError(
+            f"{manifest_path}: source lacks verified historical snapshot retention permission"
+        )
+    version_check_url = requirements.get("version_check_url")
+    if not isinstance(version_check_url, str) or not version_check_url.startswith("https://"):
+        raise PackGateError(
+            f"{manifest_path}: invalid Source Vault release version_check_url"
+        )
+
+    review = manifest.get("source_release_review")
+    if review is None:
+        if manifest.get("review_status") == "approved":
+            raise PackGateError(
+                f"{manifest_path}: approved pack source requires source_release_review "
+                "confirming the latest upstream version"
+            )
+        return
+
+    required_review_fields = {
+        "source_id",
+        "source_version",
+        "observed_upstream_version",
+        "version_check_url",
+        "checked_at",
+        "licence_sha256",
+        "latest_upstream_version_confirmed",
+    }
+    if not isinstance(review, dict) or set(review) != required_review_fields:
+        raise PackGateError(
+            f"{manifest_path}: source_release_review has unexpected or missing fields"
+        )
+    licence_hash = _lower_sha256(
+        source.get("licence_sha256"), "registry licence_sha256"
+    )
+    expected = {
+        "source_id": source.get("source_id"),
+        "source_version": source.get("version"),
+        "observed_upstream_version": source.get("version"),
+        "version_check_url": version_check_url,
+        "licence_sha256": licence_hash,
+        "latest_upstream_version_confirmed": True,
+    }
+    mismatched = [
+        field for field, value in expected.items()
+        if review.get(field) != value
+    ]
+    if mismatched:
+        raise PackGateError(
+            f"{manifest_path}: source_release_review does not match Source Vault "
+            f"for {mismatched}"
+        )
+    checked_at = review.get("checked_at")
+    if not isinstance(checked_at, str) or not checked_at:
+        raise PackGateError(f"{manifest_path}: source_release_review checked_at missing")
+    try:
+        parsed = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise PackGateError(
+            f"{manifest_path}: source_release_review checked_at is not ISO-8601"
+        ) from exc
+    if parsed.tzinfo is None:
+        raise PackGateError(
+            f"{manifest_path}: source_release_review checked_at must include a timezone"
+        )
 
 
 def _validate_canonical_binding(
@@ -304,6 +394,7 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         if manifest[field] != value:
             raise PackGateError(f"{manifest_path}: {field} does not match Source Vault")
     _lower_sha256(manifest["source_sha256"], "source_sha256")
+    _validate_source_release_review(manifest, source, manifest_path)
 
     if manifest["schema_version"] in {2, 3}:
         source_licence_hash = _lower_sha256(
