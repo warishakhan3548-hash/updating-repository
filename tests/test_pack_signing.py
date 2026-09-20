@@ -235,6 +235,20 @@ class PackSigningTests(unittest.TestCase):
         with self.assertRaisesRegex(PackSignatureError, "floats are forbidden"):
             signature_payload(manifest)
 
+    def test_non_ascii_object_keys_are_rejected_for_cross_runtime_ordering(self) -> None:
+        manifest = self._manifest()
+        manifest["évidence"] = "not allowed as a signed object key"
+        with self.assertRaisesRegex(PackSignatureError, "object keys must be ASCII"):
+            signature_payload(manifest)
+
+    def test_release_sequence_must_fit_cross_runtime_safe_integer_range(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest()
+            manifest["release_sequence"] = 9_007_199_254_740_992
+            keys = self._policy(Path(tmp))
+            with self.assertRaisesRegex(PackSignatureError, "safe integer"):
+                verify_manifest_signature(manifest, keys)
+
 
 if __name__ == "__main__":
     unittest.main()
