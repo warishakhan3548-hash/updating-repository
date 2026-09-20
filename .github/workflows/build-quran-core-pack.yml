@@ -45,7 +45,7 @@ jobs:
 
             git fetch origin main
             git reset --hard origin/main
-            git clean -fd -- content-packs/quran-core/1.0.0
+            git clean -fdx -- content-packs/quran-core/1.0.0
 
             if [[ -f content-packs/quran-core/1.0.0/manifest.json ]]; then
               echo 'Quran core pack already exists on current main; validating existing immutable pack.'
