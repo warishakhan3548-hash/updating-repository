@@ -65,6 +65,93 @@ def _load_sources(registry_path: Path) -> tuple[Path, dict[str, dict]]:
     return root, by_id
 
 
+def _validate_canonical_binding(
+    root: Path,
+    manifest: dict,
+    source: dict,
+    manifest_path: Path,
+) -> None:
+    canonical = manifest.get("canonical")
+    if not isinstance(canonical, dict):
+        raise PackGateError(f"{manifest_path}: schema v2 requires canonical binding")
+
+    required = [
+        "canonical_id",
+        "canonical_version",
+        "generator_version",
+        "manifest_path",
+        "manifest_sha256",
+        "artifact_path",
+        "artifact_sha256",
+        "artifact_byte_size",
+        "record_count",
+    ]
+    missing = [key for key in required if canonical.get(key) in (None, "")]
+    if missing:
+        raise PackGateError(f"{manifest_path}: canonical missing {missing}")
+
+    canonical_manifest_path = _safe_repo_file(
+        root, canonical["manifest_path"], "canonical.manifest_path", "canonical"
+    )
+    canonical_manifest_hash = _lower_sha256(
+        canonical["manifest_sha256"], "canonical.manifest_sha256"
+    )
+    if sha256_file(canonical_manifest_path) != canonical_manifest_hash:
+        raise PackGateError(f"{manifest_path}: canonical manifest SHA-256 mismatch")
+
+    canonical_manifest = json.loads(
+        canonical_manifest_path.read_text(encoding="utf-8")
+    )
+    artifact = _safe_repo_file(
+        root, canonical["artifact_path"], "canonical.artifact_path", "canonical"
+    )
+    artifact_hash = _lower_sha256(
+        canonical["artifact_sha256"], "canonical.artifact_sha256"
+    )
+    artifact_size = canonical["artifact_byte_size"]
+    if not isinstance(artifact_size, int) or artifact_size < 1:
+        raise PackGateError(f"{manifest_path}: invalid canonical artifact_byte_size")
+    if artifact.stat().st_size != artifact_size:
+        raise PackGateError(f"{manifest_path}: canonical artifact byte-size mismatch")
+    if sha256_file(artifact) != artifact_hash:
+        raise PackGateError(f"{manifest_path}: canonical artifact SHA-256 mismatch")
+
+    expected_canonical = {
+        "canonical_id": canonical.get("canonical_id"),
+        "canonical_version": canonical.get("canonical_version"),
+        "generator_version": canonical.get("generator_version"),
+        "artifact_path": canonical.get("artifact_path"),
+        "artifact_sha256": canonical.get("artifact_sha256"),
+        "artifact_byte_size": canonical.get("artifact_byte_size"),
+        "record_count": canonical.get("record_count"),
+        "source_id": manifest.get("source_id"),
+        "source_name": manifest.get("source_name"),
+        "source_version": manifest.get("source_version"),
+        "source_vault_path": manifest.get("source_vault_path"),
+        "source_sha256": manifest.get("source_sha256"),
+        "licence": manifest.get("licence"),
+    }
+    for field, expected in expected_canonical.items():
+        if canonical_manifest.get(field) != expected:
+            raise PackGateError(
+                f"{manifest_path}: canonical manifest {field} does not match pack/source binding"
+            )
+
+    if canonical.get("record_count") != manifest.get("record_count"):
+        raise PackGateError(f"{manifest_path}: canonical record_count mismatch")
+
+    toolchain = manifest.get("build_toolchain")
+    if not isinstance(toolchain, dict):
+        raise PackGateError(f"{manifest_path}: schema v2 requires build_toolchain")
+    for field in ("python_implementation", "python_version", "sqlite_version"):
+        if not isinstance(toolchain.get(field), str) or not toolchain[field]:
+            raise PackGateError(f"{manifest_path}: invalid build_toolchain.{field}")
+
+    scope = manifest.get("byte_reproducibility_scope")
+    if not isinstance(scope, str) or not scope.strip():
+        raise PackGateError(f"{manifest_path}: missing byte_reproducibility_scope")
+
+
 def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     root, sources = _load_sources(registry_path)
     manifest_path = manifest_path.resolve()
@@ -96,7 +183,7 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     missing = [key for key in required if manifest.get(key) in (None, "")]
     if missing:
         raise PackGateError(f"{manifest_path}: missing {missing}")
-    if manifest["schema_version"] != 1:
+    if manifest["schema_version"] not in {1, 2}:
         raise PackGateError(f"{manifest_path}: unsupported schema_version")
     if not isinstance(manifest["record_count"], int) or manifest["record_count"] < 0:
         raise PackGateError(f"{manifest_path}: invalid record_count")
@@ -136,7 +223,9 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
             raise PackGateError(f"{manifest_path}: {field} does not match Source Vault")
     _lower_sha256(manifest["source_sha256"], "source_sha256")
 
-    artifact = _safe_repo_file(root, manifest["artifact_path"], "artifact_path", "content-packs")
+    artifact = _safe_repo_file(
+        root, manifest["artifact_path"], "artifact_path", "content-packs"
+    )
     expected_hash = _lower_sha256(manifest["built_sha256"], "built_sha256")
     expected_size = manifest["built_byte_size"]
     if not isinstance(expected_size, int) or expected_size < 1:
@@ -146,12 +235,26 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     if sha256_file(artifact) != expected_hash:
         raise PackGateError(f"{manifest_path}: built_sha256 mismatch")
 
+    notice_path = manifest.get("notice_path")
+    notice_hash = manifest.get("notice_sha256")
+    if notice_path is not None or notice_hash is not None:
+        notice = _safe_repo_file(root, notice_path, "notice_path", "content-packs")
+        expected_notice_hash = _lower_sha256(notice_hash, "notice_sha256")
+        if sha256_file(notice) != expected_notice_hash:
+            raise PackGateError(f"{manifest_path}: notice_sha256 mismatch")
+
+    if manifest["schema_version"] == 2:
+        _validate_canonical_binding(root, manifest, source, manifest_path)
+
     signature = manifest["signature"]
     if not isinstance(signature, dict):
         raise PackGateError(f"{manifest_path}: signature must be an object")
     if manifest["review_status"] == "approved":
         required_signature = ("algorithm", "key_id", "value")
-        if any(not isinstance(signature.get(key), str) or not signature[key] for key in required_signature):
+        if any(
+            not isinstance(signature.get(key), str) or not signature[key]
+            for key in required_signature
+        ):
             raise PackGateError(
                 f"{manifest_path}: approved pack requires signature algorithm/key_id/value"
             )
@@ -167,7 +270,9 @@ def validate_all(registry_path: Path) -> int:
 
 if __name__ == "__main__":
     try:
-        registry = Path(sys.argv[1] if len(sys.argv) > 1 else "source-vault/registry.json")
+        registry = Path(
+            sys.argv[1] if len(sys.argv) > 1 else "source-vault/registry.json"
+        )
         if len(sys.argv) > 2:
             count = 0
             for raw in sys.argv[2:]:
