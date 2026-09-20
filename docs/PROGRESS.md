@@ -45,7 +45,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 - Quranic Arabic Corpus v0.4: `awaiting-licence` because official materials create a commercial-use/terms ambiguity.
 - HadeethEnc: research candidate pending exact version, edition/collection mapping, numbering provenance and preserved artifact.
-- QUL resources: each resource requires its own licence/provenance review.
+- QUL resources: official morphology downloads expose word-location keyed lemma/root/stem data, but QUL's FAQ explicitly requires checking dataset-specific licensing for commercial use and the inspected morphology pages do not expose a dataset licence; no bytes are mirrored.
 - Quran Foundation API: not accepted as the permanent mirrored evidence foundation under current developer terms.
 
 ## Quran core candidate pack
@@ -74,7 +74,7 @@ Candidate does not mean release-approved. Version 1.1.0 adds the source-faithful
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The historical 1.0.4 publisher passed its release gate, and the schema-v3 publisher subsequently built, revalidated and pushed quran-core 1.1.0 from the exact main tree. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
+Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2/v3 manifest binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, deterministic canonical/runtime generation, strict duplicate-free cross-runtime signed-JSON rules, threshold Ed25519 approval, and signed release ordering. The historical 1.0.4 publisher passed its release gate, and the schema-v3 publisher subsequently built, revalidated and pushed quran-core 1.1.0 from the exact main tree. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
 
 Schema-v2 Quran semantic regression coverage now tampers with Quran text and SQLite schema, recomputes the runtime artifact SHA-256, and requires promotion to fail. Recomputing `built_sha256` after changing Quran text or SQLite schema does not make the pack valid.
 
@@ -96,4 +96,4 @@ One-shot acquisition/backfill workflows are removed after successful promotion o
 
 ### Canonical v3 integration status
 
-Manifest schema v3 is now on `main`. The protected publisher generated `canonical/quran-core/1.0.0/ayahs.jsonl` and `quran-core 1.1.0`, revalidated the exact committed tree, and pushed the immutable candidate. Schema-v2 1.0.4 remains preserved for historical verification; new reader work should target the schema-v3 candidate.
+Manifest schema v3 is now on `main`. The protected publisher generated `canonical/quran-core/1.0.0/ayahs.jsonl` and `quran-core 1.1.0`, revalidated the exact committed tree, and pushed the immutable candidate. Schema-v2 1.0.4 remains preserved for historical verification; the Android debug reader now targets the schema-v3 1.1.0 candidate.
