@@ -14,13 +14,13 @@ Purpose: find a legally preservable source that can make the north-star flow `Re
 
 Register `quran-gloss.quranenc.arabic-seraj.v1.0.0` as **awaiting-licence** until immutable historical redistribution is explicitly cleared.
 
-No QuranEnc content bytes are production-approved. The current Android reader must continue to abstain rather than invent a meaning when no verified local gloss pack is installed. A review branch captured the current v1.0.0 response set for audit, but those bytes are quarantined from `main` and cannot become a production dependency while historical-retention rights remain unresolved.
+No QuranEnc content bytes are production-approved. The current Android reader must continue to abstain rather than invent a meaning when no verified local gloss pack is installed. An exact v1.0.0 response set was captured for audit and is now preserved on `main` as `captured-unreviewed`. It is deliberately **not** bound into the production Source Vault registry and cannot become a runtime dependency while historical-retention rights remain unresolved.
 
-The next production acquisition step begins only after archival-rights clearance:
+The next production integration step begins only after archival-rights clearance:
 
 1. change the registry to `awaiting-artifact` only after `historical_snapshot_retention_status` is `verified-allowed`;
 2. use the official resource index to confirm `arabic_seraj` title/source/version at 1.0.0;
-3. capture the exact upstream response/file bytes for all required coordinates without editing them;
+3. verify the preserved exact response set against the canonical offline validator, or capture a newer upstream version if the source has advanced;
 4. preserve the applicable QuranEnc terms and resource-page snapshots;
 5. record retrieval timestamp, URLs/status, version, sizes and SHA-256 values;
 6. store the immutable snapshot under project control;
@@ -63,7 +63,7 @@ The capture is fail-closed:
 - build a deterministic raw tar plus request-level SHA-256/size metadata, a candidate provenance record and checksums;
 - leave the result explicitly `captured-unreviewed` until a human/source review promotes the registry entry.
 
-This repository still has **no production-approved QuranEnc artifact**. The source remains `awaiting-licence`; the canonical acquisition gate blocks before network access. The separately captured review snapshot must remain quarantined from production unless archival-rights review clears the source and a later Source Vault promotion passes all integrity gates.
+This repository has an exact **captured-unreviewed** QuranEnc v1.0.0 snapshot but still has **no production-approved QuranEnc artifact**. The source remains `awaiting-licence`; the canonical acquisition gate blocks new network capture, and the preserved review bytes must remain quarantined from runtime use unless archival-rights review clears the source and a later Source Vault promotion passes all integrity gates.
 
 
 ## Follow-up — redistribution freshness boundary (verified 2026-09-21)
