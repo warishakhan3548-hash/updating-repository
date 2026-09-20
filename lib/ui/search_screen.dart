@@ -993,9 +993,9 @@ class _SearchScreenState extends State<SearchScreen> {
             child: Column(
               children: [
                 Text(
-                  _hits.length == 150 && _query.text.isNotEmpty
+                  _hits.length == 150 && activeQuery.isNotEmpty
                       ? 'Showing the best 150 matches. Refine your search for more.'
-                      : _query.text.trim().isEmpty &&
+                      : activeQuery.isEmpty &&
                             !_browseExhausted &&
                             _hits.isNotEmpty
                       ? 'Showing ${_hits.length} stock entries'
@@ -1003,7 +1003,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 12, color: muted),
                 ),
-                if (_query.text.trim().isEmpty &&
+                if (activeQuery.isEmpty &&
                     !_browseExhausted &&
                     _hits.isNotEmpty) ...[
                   const SizedBox(height: 6),
