@@ -57,5 +57,14 @@ class CurrentStateDocumentationTests(unittest.TestCase):
             self.assertIsNot(source["redistribution_allowed"], True)
 
 
+    def test_manifest_spec_tracks_signature_domain(self):
+        spec = (ROOT / "docs" / "PACK_MANIFEST_SPEC.md").read_text(encoding="utf-8")
+        signing = (ROOT / "docs" / "CONTENT_SIGNING.md").read_text(encoding="utf-8")
+        domain = "AARIS-CONTENT-PACK-SIGNATURE-V1\\\\n"
+
+        self.assertIn(domain, spec)
+        self.assertIn(domain, signing)
+
+
 if __name__ == "__main__":
     unittest.main()
