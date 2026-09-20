@@ -95,6 +95,19 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertIsNone(source["sha256"])
         self.assertIsNone(source["byte_size"])
 
+        snapshot_path = (
+            ROOT
+            / "source-vault"
+            / "quran-gloss"
+            / "quranenc"
+            / "arabic-seraj"
+            / "1.0.0"
+        )
+        self.assertFalse(
+            snapshot_path.exists(),
+            "awaiting-licence QuranEnc bytes must not exist in the current Source Vault tree",
+        )
+
         for manifest_path in (ROOT / "content-packs").glob("**/manifest.json"):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertNotEqual(
