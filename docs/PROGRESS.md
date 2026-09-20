@@ -95,6 +95,8 @@ Quran search now has an executable host-side golden benchmark. Its host SQLite l
 
 ## Licence-firewall hardening
 
+Historical-snapshot retention is now enforced as a universal admission decision. Sources cannot move to `awaiting-artifact`, preserve project-controlled bytes, or become `production-approved` without explicit `verified-allowed` retention. `unresolved` maps to metadata-only `awaiting-licence`; `verified-not-allowed` maps to metadata-only `rejected`. Release-time “latest upstream version” review remains a separate boolean obligation and is not written back into immutable acquisition provenance.
+
 Commercial-use permission is represented independently from redistribution in the Source Vault registry. Production Source Vault validation and runtime pack promotion both fail closed unless `commercial_use_allowed` is explicitly true. QAC v0.4 is conservatively marked false from its official FAQ's non-commercial research condition; unknown candidates remain null rather than being inferred from repository or code licences. Existing preserved source/provenance bytes and Quran runtime packs were not rewritten.
 
 ## Next safe milestones
