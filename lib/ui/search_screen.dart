@@ -508,6 +508,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _bulk() async {
     var draft = _query.text;
+    final pastedList = _bulkQuery;
+    if (pastedList != null) draft = pastedList;
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
