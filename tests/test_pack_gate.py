@@ -149,6 +149,37 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaisesRegex(PackGateError, "notice_sha256 mismatch"):
                 validate_manifest(manifest, registry)
 
+    def test_artifact_cannot_borrow_bytes_from_another_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, built = self._fixture(root)
+            other = root / "content-packs" / "other-pack" / "1.0" / "content.sqlite"
+            other.parent.mkdir(parents=True)
+            other.write_bytes(built.read_bytes())
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["artifact_path"] = "content-packs/other-pack/1.0/content.sqlite"
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(PackGateError, "artifact_path must live beside"):
+                validate_manifest(manifest, registry)
+
+    def test_notice_cannot_borrow_attribution_from_another_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            registry_data = json.loads(registry.read_text(encoding="utf-8"))
+            registry_data["sources"][0]["attribution_required"] = True
+            registry.write_text(json.dumps(registry_data), encoding="utf-8")
+
+            notice = root / "content-packs" / "other-pack" / "1.0" / "NOTICE.txt"
+            notice.parent.mkdir(parents=True)
+            notice.write_text("required attribution", encoding="utf-8")
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["notice_path"] = "content-packs/other-pack/1.0/NOTICE.txt"
+            data["notice_sha256"] = hashlib.sha256(notice.read_bytes()).hexdigest()
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(PackGateError, "notice_path must live beside"):
+                validate_manifest(manifest, registry)
+
     def test_runtime_pack_symlink_cannot_escape_content_packs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
