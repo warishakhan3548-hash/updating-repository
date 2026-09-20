@@ -17,7 +17,7 @@ The app does **not** invent word meanings or morphology. Word tap remains blocke
 
 ## Build
 
-The Android build is pinned to AGP 9.4.0, Gradle 9.6.0 in CI, JDK 17, API 37 and Compose BOM 2026.09.00.
+The Android build is pinned to AGP 9.4.0, Gradle 9.6.0 in CI, JDK 17, stable Android 16 / API 36 and Compose BOM 2026.09.00. Android 17 / API 37 remains a preview SDK and is not a production build dependency.
 
 From this directory:
 
