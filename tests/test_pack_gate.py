@@ -4,7 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from tools.pack_gate import PackGateError, validate_manifest
+from tools.pack_signatures import (
+    canonical_manifest_payload,
+    key_id_for_ed25519_public_key,
+)
 
 
 class PackGateTests(unittest.TestCase):
@@ -100,14 +107,14 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaises(PackGateError):
                 validate_manifest(manifest, registry)
 
-    def test_approved_pack_requires_verified_signature_not_just_fields(self):
+    def test_approved_pack_rejects_unsigned_and_legacy_fake_signatures(self):
         with tempfile.TemporaryDirectory() as tmp:
             registry, manifest, _ = self._fixture(Path(tmp))
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
             manifest.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(
-                PackGateError, "approved pack requires signature"
+                PackGateError, "approved pack signature verification failed"
             ):
                 validate_manifest(manifest, registry)
 
@@ -118,10 +125,64 @@ class PackGateTests(unittest.TestCase):
             }
             manifest.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(
-                PackGateError,
-                "approved packs are disabled until cryptographic signature verification",
+                PackGateError, "requires signature format"
             ):
                 validate_manifest(manifest, registry)
+
+    def test_approved_pack_with_trusted_ed25519_signature_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+
+            private = Ed25519PrivateKey.from_private_bytes(bytes([9]) * 32)
+            public = private.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            ).hex()
+            key_id = key_id_for_ed25519_public_key(public)
+
+            policy = root / "policy"
+            policy.mkdir()
+            (policy / "trusted_pack_keys.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "state": "active",
+                        "keys": {
+                            key_id: {
+                                "algorithm": "ed25519",
+                                "public_key": public,
+                            }
+                        },
+                        "roles": {
+                            "content-pack-release": {
+                                "threshold": 1,
+                                "key_ids": [key_id],
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["review_status"] = "approved"
+            data["signature"] = {
+                "format": "aaris-pack-signature-v1",
+                "role": "content-pack-release",
+                "signatures": [],
+            }
+            data["signature"]["signatures"].append(
+                {
+                    "algorithm": "ed25519",
+                    "key_id": key_id,
+                    "value": private.sign(
+                        canonical_manifest_payload(data)
+                    ).hex(),
+                }
+            )
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            validate_manifest(manifest, registry)
 
 
     def test_attribution_required_pack_requires_notice(self):
