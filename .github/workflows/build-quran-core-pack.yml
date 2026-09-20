@@ -8,15 +8,19 @@ on:
       - 'source-vault/registry.json'
       - 'source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/**'
       - 'schemas/content_v1.sql'
+      - 'schemas/pack_manifest.schema.json'
       - 'tools/quran_core.py'
+      - 'tools/quran_canonical.py'
+      - 'tools/build_quran_canonical.py'
       - 'tools/build_quran_core.py'
+      - 'tools/pack_gate.py'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: build-quran-core-1-0-4
+  group: build-quran-core-1-1-0
   cancel-in-progress: false
 
 jobs:
@@ -30,44 +34,53 @@ jobs:
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.13'
+          python-version: '3.13.15'
 
       - name: Build and publish only from a stable main
         shell: bash
         run: |
           set -euo pipefail
 
+          CANONICAL_DIR='canonical/quran-core/1.0.0'
+          PACK_DIR='content-packs/quran-core/1.1.0'
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
           for attempt in 1 2 3 4 5; do
-            echo "Quran pack attempt $attempt"
+            echo "Quran canonical/pack attempt $attempt"
 
             git fetch origin main
             git reset --hard origin/main
-            git clean -fdx -- content-packs/quran-core/1.0.4
+            git clean -fdx -- "$CANONICAL_DIR" "$PACK_DIR"
 
-            if [[ -f content-packs/quran-core/1.0.4/manifest.json && -f content-packs/quran-core/1.0.4/content.sqlite && -f content-packs/quran-core/1.0.4/NOTICE.txt ]]; then
-              echo 'Quran core pack already exists on current main; validating existing immutable pack.'
+            canonical_complete=false
+            pack_complete=false
+            if [[ -f "$CANONICAL_DIR/manifest.json" && -f "$CANONICAL_DIR/ayahs.jsonl" ]]; then
+              canonical_complete=true
+            fi
+            if [[ -f "$PACK_DIR/manifest.json" && -f "$PACK_DIR/content.sqlite" && -f "$PACK_DIR/NOTICE.txt" ]]; then
+              pack_complete=true
+            fi
+
+            if [[ "$canonical_complete" == true && "$pack_complete" == true ]]; then
+              echo 'Canonical Quran layer and Quran core 1.1.0 already exist; validating immutable outputs.'
               python tools/vault_gate.py source-vault/registry.json
-              python tools/pack_gate.py \
-                source-vault/registry.json \
-                content-packs/quran-core/1.0.4/manifest.json
+              python tools/pack_gate.py                 source-vault/registry.json                 "$PACK_DIR/manifest.json"
               exit 0
             fi
 
-            if [[ -e content-packs/quran-core/1.0.4/manifest.json || -e content-packs/quran-core/1.0.4/content.sqlite || -e content-packs/quran-core/1.0.4/NOTICE.txt ]]; then
-              echo 'Partial Quran core pack detected; rebuilding the derived pack from pinned inputs.'
-              rm -rf content-packs/quran-core/1.0.4
+            if [[ -e "$CANONICAL_DIR" || -e "$PACK_DIR" ]]; then
+              echo 'Partial derived Quran outputs detected; rebuilding them from pinned Source Vault bytes.'
+              rm -rf "$CANONICAL_DIR" "$PACK_DIR"
             fi
 
             python tools/vault_gate.py source-vault/registry.json
             python tools/validate_schemas.py
             python -m unittest discover -s tests -v
+            python tools/build_quran_canonical.py
             python tools/build_quran_core.py
-            python tools/pack_gate.py \
-              source-vault/registry.json \
-              content-packs/quran-core/1.0.4/manifest.json
+            python tools/pack_gate.py               source-vault/registry.json               "$PACK_DIR/manifest.json"
 
             BASE_SHA="$(git rev-parse HEAD)"
             git fetch origin main
@@ -78,19 +91,17 @@ jobs:
               continue
             fi
 
-            git add content-packs/quran-core/1.0.4/manifest.json
-            git add content-packs/quran-core/1.0.4/NOTICE.txt
-            git add -f content-packs/quran-core/1.0.4/content.sqlite
-            git commit -m 'Build Quran core content pack 1.0.4'
+            git add "$CANONICAL_DIR/manifest.json" "$CANONICAL_DIR/ayahs.jsonl"
+            git add "$PACK_DIR/manifest.json" "$PACK_DIR/NOTICE.txt"
+            git add -f "$PACK_DIR/content.sqlite"
+            git commit -m 'Build Quran canonical layer and core pack 1.1.0'
 
             # GITHUB_TOKEN pushes do not trigger ordinary push workflows.
             # Revalidate the exact committed tree before it is allowed onto main.
             PACK_COMMIT_SHA="$(git rev-parse HEAD)"
-            echo "Validating committed Quran pack $PACK_COMMIT_SHA"
+            echo "Validating committed Quran canonical/pack $PACK_COMMIT_SHA"
             python tools/vault_gate.py source-vault/registry.json
-            python tools/pack_gate.py \
-              source-vault/registry.json \
-              content-packs/quran-core/1.0.4/manifest.json
+            python tools/pack_gate.py               source-vault/registry.json               "$PACK_DIR/manifest.json"
             python tools/validate_schemas.py
             python -m unittest discover -s tests -v
 
