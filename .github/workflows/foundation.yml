@@ -21,6 +21,8 @@ jobs:
           python-version: '3.13'
       - name: Install pinned foundation dependencies
         run: python -m pip install --disable-pip-version-check -r requirements-foundation.txt
+      - name: Trusted pack key policy
+        run: python tools/pack_signing.py policy/trusted_pack_keys.json
       - name: Source Vault gate
         run: python tools/vault_gate.py source-vault/registry.json
       - name: Content pack promotion gate
