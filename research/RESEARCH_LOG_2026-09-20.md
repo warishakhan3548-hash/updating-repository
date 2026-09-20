@@ -65,3 +65,14 @@ The research now converges on four durable choices: immutable source/display dat
 | type | claim | source | confidence | product implication |
 | --- | --- | --- | --- | --- |
 | fact | SQLite stores file-level structural/version metadata such as the file change counter and the SQLite version that most recently modified the database. A runtime SQLite SHA-256 identifies exact file bytes but does not by itself prove semantic fidelity to an external preserved source. | https://sqlite.org/fileformat.html | high | Keep byte-integrity checking, but independently compare schema and Quran evidence rows/search lanes back to the pinned Source Vault before promotion. |
+
+## Pack-signing implementation update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | TUF specification 1.0.36 was last modified 2026-08-05. It requires clients to ship trusted root keys, supports threshold signatures, recommends strongly protected/offline root private keys, and explicitly targets rollback, freeze and mix-and-match attacks. | https://theupdateframework.github.io/specification/latest/ | high | Keep project-owned public-key trust separate from artifact hashes; authenticate release ordering now and add persistent client anti-rollback state before remote updates. |
+| fact | RFC 8032 standardizes Ed25519 and publishes verification test vectors. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Verify with a standard implementation and pin tests to public vectors rather than inventing signature mathematics. |
+| fact | PyCA `cryptography` 50.0.1 was released 2026-08-25 and its documented Ed25519 API verifies signatures with a public key, raising `InvalidSignature` on failure. | https://pypi.org/project/cryptography/ and https://cryptography.io/en/latest/hazmat/primitives/asymmetric/ed25519/ | high | Use an exactly pinned, replaceable crypto adapter for repository release verification; it is infrastructure, not Evidence Plane content. |
+| design | The project signs the full manifest except its signature envelope using a versioned domain-separated restricted JSON format, with floats/cross-runtime-unsafe integers forbidden. | repository architecture synthesis | high | Android can later reproduce the exact bytes without depending on Python-specific serialization behavior. |
+| design | Retired signing keys have finite release-sequence ceilings; revoked keys never count; duplicate signatures from one key count once toward threshold. | repository architecture synthesis + TUF-inspired key lifecycle | high | Key rotation remains explicit and an exposed historical key cannot authorize arbitrarily newer releases after retirement. |
+| finding | Production key policy remains intentionally empty; the existing Quran pack is still candidate/unsigned. | repository audit | high | Do not manufacture a private key in CI merely to obtain an `approved` label; perform an offline release-key ceremony first. |
