@@ -25,9 +25,16 @@ android {
     }
 
     sourceSets {
-        getByName("main") {
-            assets.srcDir(rootProject.file("content-packs/quran-core/1.0.3"))
+        getByName("debug") {
+            assets.srcDir(rootProject.file("content-packs/quran-core/1.0.4"))
         }
+    }
+}
+
+androidComponents {
+    val release = selector().withBuildType("release")
+    beforeVariants(release) {
+        it.enable = false
     }
 }
 
