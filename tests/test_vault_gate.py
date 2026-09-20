@@ -275,6 +275,63 @@ class VaultGateTests(unittest.TestCase):
             with self.assertRaises(VaultGateError):
                 validate_registry(path)
 
+    def test_latest_version_release_requirement_requires_https_check_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {
+                    "source_id": "candidate",
+                    "status": "awaiting-artifact",
+                    "release_requirements": {
+                        "latest_upstream_version_required": True,
+                        "version_check_url": "http://example.invalid/versions",
+                        "historical_snapshot_retention_status": "unresolved",
+                    },
+                },
+            )
+            with self.assertRaisesRegex(
+                VaultGateError, "version_check_url must be an absolute https URL"
+            ):
+                validate_registry(path)
+
+    def test_production_source_blocks_unresolved_historical_snapshot_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root)
+            source["release_requirements"] = {
+                "latest_upstream_version_required": True,
+                "version_check_url": "https://example.invalid/versions",
+                "historical_snapshot_retention_status": "unresolved",
+            }
+            path = self._registry(root, source)
+            with self.assertRaisesRegex(
+                VaultGateError, "verified historical snapshot retention permission"
+            ):
+                validate_registry(path)
+
+
+    def test_preserved_latest_version_requirement_is_bound_into_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, provenance_path = self._valid_snapshot(root)
+            requirements = {
+                "latest_upstream_version_required": True,
+                "version_check_url": "https://example.invalid/versions",
+                "historical_snapshot_retention_status": "verified-allowed",
+            }
+            source["release_requirements"] = requirements
+            path = self._registry(root, source)
+            with self.assertRaisesRegex(
+                VaultGateError, "provenance does not match registry"
+            ):
+                validate_registry(path)
+
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["release_requirements"] = requirements
+            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            self._refresh_provenance_hash(path, provenance_path)
+            validate_registry(path)
+
 
 if __name__ == "__main__":
     unittest.main()

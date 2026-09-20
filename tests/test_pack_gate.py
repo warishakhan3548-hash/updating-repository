@@ -338,6 +338,132 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaisesRegex(PackGateError, "resolves outside content-packs"):
                 validate_manifest(manifest, registry)
 
+    def _add_latest_version_requirement(self, registry: Path) -> str:
+        data = json.loads(registry.read_text(encoding="utf-8"))
+        licence_sha = "a" * 64
+        data["sources"][0]["licence_sha256"] = licence_sha
+        data["sources"][0]["release_requirements"] = {
+            "latest_upstream_version_required": True,
+            "version_check_url": "https://example.invalid/versions",
+            "historical_snapshot_retention_status": "verified-allowed",
+        }
+        registry.write_text(json.dumps(data), encoding="utf-8")
+        return licence_sha
+
+    def _activate_test_release_key(self, root: Path, private: Ed25519PrivateKey) -> str:
+        public = private.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        ).hex()
+        key_id = key_id_for_ed25519_public_key(public)
+        policy = root / "policy"
+        policy.mkdir(exist_ok=True)
+        (policy / "trusted_pack_keys.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "state": "active",
+                    "keys": {
+                        key_id: {
+                            "algorithm": "ed25519",
+                            "public_key": public,
+                            "status": "active",
+                            "min_release_sequence": 1,
+                            "max_release_sequence": None,
+                        }
+                    },
+                    "roles": {
+                        "content-pack-release": {
+                            "threshold": 1,
+                            "key_ids": [key_id],
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return key_id
+
+    def test_pack_rejects_source_with_unresolved_historical_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            data = json.loads(registry.read_text(encoding="utf-8"))
+            data["sources"][0]["release_requirements"] = {
+                "latest_upstream_version_required": True,
+                "version_check_url": "https://example.invalid/versions",
+                "historical_snapshot_retention_status": "unresolved",
+            }
+            registry.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError, "verified historical snapshot retention permission"
+            ):
+                validate_manifest(manifest, registry)
+
+
+    def test_latest_version_requirement_does_not_expire_candidate_builds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            self._add_latest_version_requirement(registry)
+            validate_manifest(manifest, registry)
+
+    def test_latest_version_requirement_blocks_approved_pack_without_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            self._add_latest_version_requirement(registry)
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["review_status"] = "approved"
+            data["release_sequence"] = 1
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(PackGateError, "source_release_review"):
+                validate_manifest(manifest, registry)
+
+    def test_latest_version_review_is_bound_into_signed_approved_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            licence_sha = self._add_latest_version_requirement(registry)
+            private = Ed25519PrivateKey.from_private_bytes(bytes([11]) * 32)
+            key_id = self._activate_test_release_key(root, private)
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["review_status"] = "approved"
+            data["release_sequence"] = 1
+            data["source_release_review"] = {
+                "source_id": "quran.example.v1",
+                "source_version": "1.0",
+                "observed_upstream_version": "1.0",
+                "version_check_url": "https://example.invalid/versions",
+                "checked_at": "2026-09-21T00:00:00Z",
+                "licence_sha256": licence_sha,
+                "latest_upstream_version_confirmed": True,
+            }
+            data["signature"] = {
+                "format": "aaris-pack-signature-v1",
+                "role": "content-pack-release",
+                "signatures": [],
+            }
+            data["signature"]["signatures"].append(
+                {
+                    "algorithm": "ed25519",
+                    "key_id": key_id,
+                    "value": private.sign(canonical_manifest_payload(data)).hex(),
+                }
+            )
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            validate_manifest(manifest, registry)
+
+            data["source_release_review"]["observed_upstream_version"] = "1.0.1"
+            data["signature"]["signatures"][0]["value"] = private.sign(
+                canonical_manifest_payload(data)
+            ).hex()
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError, "source_release_review does not match Source Vault"
+            ):
+                validate_manifest(manifest, registry)
+
 
 if __name__ == "__main__":
     unittest.main()
