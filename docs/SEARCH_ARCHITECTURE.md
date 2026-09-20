@@ -27,3 +27,12 @@ Exact-source, diacritic-free and partial-phrase queries are derived at evaluatio
 CI currently enforces the regression floor that the strict engine actually promises: Recall@5 = 1.0 for exact-source, diacritic-free and partial-phrase categories, plus a zero false-positive rate for labelled no-answer cases. Typo, orthographic and keyboard categories are measured without being required to pass. Any future FTS5, trigram, edit-distance, morphology or AI-expanded lane must demonstrate a measured gain on the labelled set without degrading exact retrieval, abstention or source-faithful rendering.
 
 The evaluator emits Recall@5, Recall@10, MRR, NDCG@10, negative false-positive rate and zero-result rate. Host SQLite p50/p95 are diagnostic only; low-end Android latency remains a separate device measurement.
+
+
+## Conservative fuzzy experiment — 2026-09-21
+
+The next retrieval experiment remains evaluation-only and adds no new evidence or runtime dependency. `quran-conservative-fuzzy-v1` derives a search-only variant lane from the existing diacritic-free field by mapping a deliberately small set of common Quranic/keyboard forms (including alef-wasla/hamzated alef and Persian/South-Asian yeh/kaf/heh forms) to ordinary Arabic search characters.
+
+If no variant-normalized substring is found, the experiment permits a fuzzy fallback only for multi-word queries. Candidate words must form one contiguous window, every token must be identical or one edit away, and the **entire query may consume at most one edit total**. Single-word fuzzy queries abstain. This is intentionally much narrower than generic edit-distance search.
+
+The experiment is CI-gated against the existing labelled golden set. It is not promoted into Android merely because the host benchmark passes: exact/no-harakat/partial behavior and labelled no-answer abstention must remain intact, and low-end Android latency must be measured before runtime adoption. Source-faithful `original_text` remains the only renderable Quran text.
