@@ -211,6 +211,16 @@ def verify_approved_manifest(
             "signature verification is only defined for approved packs"
         )
 
+    release_sequence = manifest.get("release_sequence")
+    if (
+        isinstance(release_sequence, bool)
+        or not isinstance(release_sequence, int)
+        or release_sequence < 1
+    ):
+        raise PackSignatureError(
+            "approved pack requires positive integer release_sequence"
+        )
+
     signature_block = manifest.get("signature")
     if not isinstance(signature_block, dict):
         raise PackSignatureError(
