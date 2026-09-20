@@ -131,3 +131,13 @@ A source whose republication terms require downstream copies to stay current may
 `awaiting-licence` is also a **no-bytes** state in project-controlled public storage. The central Source Vault gate rejects any preserved snapshot metadata under that status. This makes the legal boundary independent of source-specific download scripts and prevents a future acquisition path from accidentally publishing bytes before archival rights are established.
 
 Once archival retention is explicitly `verified-allowed`, the source may advance to artifact acquisition/review. Any separate ongoing obligation to ship only the latest upstream version remains enforced later by the signed source-release review. Commercial-use permission remains a separate gate under ADR-022. Current-version permission, historical archival permission, commercial-use permission, evidence quality and release freshness are therefore distinct decisions.
+
+## ADR-025 — Universal archival clearance is a Source Vault admission rule
+
+Historical-retention permission is not merely a special case for sources with a “stay current” clause. Any source that may move to `awaiting-artifact`, preserve bytes under project control, or become `production-approved` must carry an explicit `historical_snapshot_retention_status=verified-allowed` decision.
+
+The separate `latest_upstream_version_required` field is a boolean release-time obligation. It may be false for an immutable snapshot whose licence permits long-term redistribution, or true when each approved release must additionally confirm that the preserved version is still current. A stay-current obligation never substitutes for archival permission.
+
+Current legal/admission review belongs in the mutable Source Vault registry and release policy. Immutable acquisition provenance continues to describe the exact artifact, source, licence snapshot and retrieval event; it is not rewritten merely because the project later adds a stricter admission dimension. Explicitly denied archival retention still requires `rejected`, while unresolved retention remains metadata-only and `awaiting-licence`.
+
+This makes the durability rule executable across generic registry validation, runtime pack promotion and source-specific acquisition tooling without changing sacred/source bytes.
