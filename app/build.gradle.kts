@@ -20,9 +20,6 @@ fun manifestString(key: String): String {
         ?: error("Quran pack manifest is missing string field: $key")
 }
 
-fun hasManifestString(key: String): Boolean =
-    Regex(""""${Regex.escape(key)}"\s*:\s*"[^"]+"""").containsMatchIn(manifestText)
-
 fun File.sha256(): String {
     val digest = MessageDigest.getInstance("SHA-256")
     inputStream().use { input ->
@@ -40,7 +37,6 @@ val packVersion = manifestString("content_version")
 val packSha256 = manifestString("built_sha256")
 val packReviewStatus = manifestString("review_status")
 val packSourceSha256 = manifestString("source_sha256")
-val releaseSignatureReady = listOf("algorithm", "key_id", "value").all(::hasManifestString)
 
 android {
     namespace = "com.aaris.quran"
@@ -56,11 +52,10 @@ android {
         buildConfigField("String", "QURAN_PACK_SHA256", "\"$packSha256\"")
         buildConfigField("String", "QURAN_SOURCE_SHA256", "\"$packSourceSha256\"")
         buildConfigField("String", "QURAN_PACK_REVIEW_STATUS", "\"$packReviewStatus\"")
-        buildConfigField(
-            "boolean",
-            "QURAN_PACK_RELEASE_READY",
-            (packReviewStatus == "approved" && releaseSignatureReady).toString(),
-        )
+        // The repository pack gate deliberately rejects every approved pack until
+        // trusted-key cryptographic signature verification exists. Android must not
+        // weaken that boundary by treating signature-shaped manifest strings as proof.
+        buildConfigField("boolean", "QURAN_PACK_RELEASE_READY", "false")
     }
 
     buildFeatures {
@@ -117,15 +112,16 @@ tasks.named("preBuild").configure {
 
 val verifyReleaseQuranPack by tasks.registering {
     group = "verification"
-    description = "Fail closed unless the bundled Quran pack is approved and signed."
+    description = "Fail closed until an approved pack has trusted-key cryptographic verification."
 
     doLast {
         check(packReviewStatus == "approved") {
             "Release build blocked: quran-core $packVersion is $packReviewStatus, not approved"
         }
-        check(releaseSignatureReady) {
-            "Release build blocked: approved Quran pack must carry algorithm/key_id/value signature fields"
-        }
+        error(
+            "Release build blocked: trusted-key cryptographic content-pack signature " +
+                "verification is not implemented"
+        )
     }
 }
 
