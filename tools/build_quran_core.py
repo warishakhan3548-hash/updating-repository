@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import platform
 import sqlite3
 import sys
 
@@ -14,18 +15,24 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tools.quran_canonical import (
+    DEFAULT_CANONICAL_MANIFEST,
+    load_canonical,
+    sha256_file as sha256_canonical_file,
+)
 from tools.quran_core import (
     SEARCH_NORMALIZATION_VERSION,
     SOURCE_ID,
     extract_tanzil_notice,
-    load_production_source,
     normalize_search_diacritic_free,
     normalize_search_unicode,
 )
 
 PACK_ID = "quran-core"
-CONTENT_VERSION = "1.0.4"
-IMPORTER_VERSION = "quran-core-importer-5"
+CONTENT_VERSION = "1.1.0"
+MANIFEST_SCHEMA_VERSION = 3
+CONTENT_SCHEMA_VERSION = 1
+IMPORTER_VERSION = "quran-core-importer-6"
 SOURCE_ASSERTION_ID = "sa:quran.tanzil.uthmani.v1.1"
 
 
@@ -41,7 +48,11 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
+def build_pack(
+    root: Path,
+    output_dir: Path,
+    canonical_manifest: Path = DEFAULT_CANONICAL_MANIFEST,
+) -> tuple[Path, Path]:
     root = root.resolve()
     if not output_dir.is_absolute():
         output_dir = root / output_dir
@@ -62,7 +73,10 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
         )
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    source, artifact, rows = load_production_source(root)
+    canonical = load_canonical(root, canonical_manifest)
+    source = canonical.source
+    artifact = canonical.source_artifact
+    rows = canonical.rows
     source_notice = extract_tanzil_notice(artifact)
     source_notice_sha256 = hashlib.sha256(source_notice.encode("utf-8")).hexdigest()
     provenance = json.loads((root / source["provenance"]).read_text(encoding="utf-8"))
@@ -103,6 +117,8 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
                 "source_licence_sha256": source["licence_sha256"],
                 "source_provenance_sha256": source["provenance_sha256"],
                 "source_notice_sha256": source_notice_sha256,
+                "canonical_artifact": canonical.manifest["artifact_path"],
+                "canonical_sha256": canonical.manifest["artifact_sha256"],
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -127,7 +143,8 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
 
         metadata = {
             "pack_id": PACK_ID,
-            "schema_version": "2",
+            "schema_version": str(MANIFEST_SCHEMA_VERSION),
+            "content_schema_version": str(CONTENT_SCHEMA_VERSION),
             "content_version": CONTENT_VERSION,
             "source_id": SOURCE_ID,
             "source_version": source["version"],
@@ -139,6 +156,10 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
             "source_provenance_sha256": source["provenance_sha256"],
             "source_notice": source_notice,
             "source_notice_sha256": source_notice_sha256,
+            "canonical_id": canonical.manifest["canonical_id"],
+            "canonical_version": canonical.manifest["canonical_version"],
+            "canonical_sha256": canonical.manifest["artifact_sha256"],
+            "canonical_generator_version": canonical.manifest["generator_version"],
             "importer_version": IMPORTER_VERSION,
             "search_normalization_version": SEARCH_NORMALIZATION_VERSION,
             "quran_coordinate_count": str(len(rows)),
@@ -194,9 +215,11 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
     notice_hash = sha256_file(notice_path)
     built_hash = sha256_file(db_path)
     built_size = db_path.stat().st_size
+    canonical_manifest_hash = sha256_canonical_file(canonical.manifest_path)
     manifest = {
         "pack_id": PACK_ID,
-        "schema_version": 2,
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "content_schema_version": CONTENT_SCHEMA_VERSION,
         "content_version": CONTENT_VERSION,
         "source_id": SOURCE_ID,
         "source_name": source["source_name"],
@@ -218,12 +241,33 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
         "built_sha256": built_hash,
         "built_byte_size": built_size,
         "dependencies": [],
-        "supersedes": "quran-core@1.0.3",
+        "supersedes": "quran-core@1.0.4",
         "signature": {"status": "unsigned"},
         "notice_path": notice_path.relative_to(root).as_posix(),
         "notice_sha256": notice_hash,
         "source_artifact_name": artifact.name,
         "search_normalization_version": SEARCH_NORMALIZATION_VERSION,
+        "canonical": {
+            "canonical_id": canonical.manifest["canonical_id"],
+            "canonical_version": canonical.manifest["canonical_version"],
+            "generator_version": canonical.manifest["generator_version"],
+            "manifest_path": canonical.manifest_path.relative_to(root).as_posix(),
+            "manifest_sha256": canonical_manifest_hash,
+            "artifact_path": canonical.manifest["artifact_path"],
+            "artifact_sha256": canonical.manifest["artifact_sha256"],
+            "artifact_byte_size": canonical.manifest["artifact_byte_size"],
+            "record_count": canonical.manifest["record_count"],
+        },
+        "build_toolchain": {
+            "python_implementation": platform.python_implementation(),
+            "python_version": platform.python_version(),
+            "sqlite_version": sqlite3.sqlite_version,
+        },
+        "byte_reproducibility_scope": (
+            "Byte identity is tested only for identical canonical input, importer code, "
+            "Python version and SQLite library version. The canonical JSONL hash is the "
+            "long-lived semantic reproducibility anchor."
+        ),
     }
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
@@ -241,13 +285,23 @@ def main() -> None:
         help="repository root",
     )
     parser.add_argument(
+        "--canonical-manifest",
+        type=Path,
+        default=DEFAULT_CANONICAL_MANIFEST,
+        help="canonical manifest, relative to repository root",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
-        default=Path("content-packs/quran-core/1.0.4"),
+        default=Path("content-packs/quran-core/1.1.0"),
         help="pack directory, relative to repository root",
     )
     args = parser.parse_args()
-    db_path, manifest_path = build_pack(args.root, args.output)
+    db_path, manifest_path = build_pack(
+        args.root,
+        args.output,
+        canonical_manifest=args.canonical_manifest,
+    )
     print(f"Built {db_path}")
     print(f"Manifest {manifest_path}")
 
