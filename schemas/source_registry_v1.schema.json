@@ -2,45 +2,22 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SourceVaultRegistryV1",
   "type": "object",
-  "required": [
-    "schema_version",
-    "sources"
-  ],
+  "required": ["schema_version", "sources"],
   "properties": {
-    "schema_version": {
-      "const": 1
-    },
-    "verified_at": {
-      "type": "string"
-    },
-    "production_rule": {
-      "type": "string"
-    },
+    "schema_version": {"const": 1},
+    "verified_at": {"type": "string"},
+    "production_rule": {"type": "string"},
     "sources": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": [
-          "source_id",
-          "status"
-        ],
+        "required": ["source_id", "status"],
         "properties": {
-          "source_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "category": {
-            "type": "string"
-          },
-          "source_name": {
-            "type": "string"
-          },
-          "original_url": {
-            "type": "string"
-          },
-          "version": {
-            "type": "string"
-          },
+          "source_id": {"type": "string", "minLength": 1},
+          "category": {"type": "string"},
+          "source_name": {"type": "string"},
+          "original_url": {"type": "string"},
+          "version": {"type": "string"},
           "status": {
             "enum": [
               "research-candidate",
@@ -50,76 +27,10 @@
               "rejected"
             ]
           },
-          "licence_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "redistribution_allowed": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "modification_allowed": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "attribution_required": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "vault_artifact": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "licence_snapshot": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provenance": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "sha256": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "licence_sha256": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provenance_sha256": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "byte_size": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "minimum": 1
-          },
-          "notes": {
-            "type": "string"
-          },
+          "licence_id": {"type": ["string", "null"]},
+          "redistribution_allowed": {"type": ["boolean", "null"]},
+          "modification_allowed": {"type": ["boolean", "null"]},
+          "attribution_required": {"type": ["boolean", "null"]},
           "release_requirements": {
             "type": "object",
             "required": [
@@ -127,9 +38,7 @@
               "version_check_url"
             ],
             "properties": {
-              "latest_upstream_version_required": {
-                "const": true
-              },
+              "latest_upstream_version_required": {"const": true},
               "version_check_url": {
                 "type": "string",
                 "format": "uri",
@@ -137,7 +46,15 @@
               }
             },
             "additionalProperties": false
-          }
+          },
+          "vault_artifact": {"type": ["string", "null"]},
+          "licence_snapshot": {"type": ["string", "null"]},
+          "provenance": {"type": ["string", "null"]},
+          "sha256": {"type": ["string", "null"]},
+          "licence_sha256": {"type": ["string", "null"]},
+          "provenance_sha256": {"type": ["string", "null"]},
+          "byte_size": {"type": ["integer", "null"], "minimum": 1},
+          "notes": {"type": "string"}
         },
         "additionalProperties": false
       }
