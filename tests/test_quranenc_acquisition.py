@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 import unittest
@@ -8,10 +7,11 @@ import unittest
 from tools.acquire_quranenc_gloss import (
     CSV_URL,
     EXPECTED_VERSION,
+    RESOURCE_BOOK,
+    RESOURCE_TITLE,
+    SOURCE_INDEX_URL,
     SOURCE_PAGE_URL,
     TERMS_URL,
-    TRANSLATION_KEY,
-    TRANSLATION_LIST_URL,
     CaptureError,
     Download,
     capture,
@@ -29,19 +29,13 @@ def _csv_bytes() -> bytes:
     return ("\n".join(rows) + "\n").encode("utf-8")
 
 
-def _metadata_bytes(version: str = EXPECTED_VERSION) -> bytes:
-    return json.dumps(
-        [
-            {
-                "key": TRANSLATION_KEY,
-                "language_iso_code": "ar",
-                "version": version,
-                "last_update": "2026-09-20",
-                "title": "Arabic Language - Meanings of Words",
-                "description": "test fixture",
-            }
-        ],
-        ensure_ascii=False,
+def _source_index(version: str = EXPECTED_VERSION) -> bytes:
+    return (
+        "<html><body>"
+        f"17/12/2025 - V{version}"
+        f"<h2>{RESOURCE_TITLE}</h2>"
+        f'<p>From the book "{RESOURCE_BOOK}".</p>'
+        "</body></html>"
     ).encode("utf-8")
 
 
@@ -60,14 +54,14 @@ def _download(url: str, body: bytes) -> Download:
 class QuranEncCaptureTests(unittest.TestCase):
     def setUp(self) -> None:
         self.csv = _csv_bytes()
-        self.metadata = _metadata_bytes()
+        self.index = _source_index()
         self.terms = b"<html><body>Terms and Policies</body></html>"
-        self.source_page = b"<html><body>arabic_seraj V1.0.0</body></html>"
+        self.source_page = b"<html><body>arabic_seraj</body></html>"
 
     def fetcher(self, url: str) -> Download:
         bodies = {
             CSV_URL: self.csv,
-            TRANSLATION_LIST_URL: self.metadata,
+            SOURCE_INDEX_URL: self.index,
             TERMS_URL: self.terms,
             SOURCE_PAGE_URL: self.source_page,
         }
@@ -87,8 +81,8 @@ class QuranEncCaptureTests(unittest.TestCase):
                 (output / "raw" / "arabic_seraj.csv").read_bytes(),
             )
             self.assertEqual(
-                self.metadata,
-                (output / "raw" / "translations-list-ar.json").read_bytes(),
+                self.index,
+                (output / "SOURCE_INDEX.html").read_bytes(),
             )
             self.assertEqual(
                 self.terms,
@@ -100,17 +94,21 @@ class QuranEncCaptureTests(unittest.TestCase):
             )
             self.assertEqual(sha256_bytes(self.csv), provenance["sha256"])
             self.assertEqual(len(self.csv), provenance["byte_size"])
+            self.assertEqual(
+                EXPECTED_VERSION,
+                provenance["upstream_metadata"]["version"],
+            )
             self.assertEqual("captured-unreviewed", provenance["promotion_status"])
 
             verified = validate_existing(output)
             self.assertEqual(provenance["sha256"], verified["sha256"])
 
     def test_wrong_upstream_version_fails_without_partial_vault(self) -> None:
-        bad_metadata = _metadata_bytes("1.0.1")
+        bad_index = _source_index("1.0.1")
 
         def fetcher(url: str) -> Download:
-            if url == TRANSLATION_LIST_URL:
-                return _download(url, bad_metadata)
+            if url == SOURCE_INDEX_URL:
+                return _download(url, bad_index)
             return self.fetcher(url)
 
         with tempfile.TemporaryDirectory() as tmp:
