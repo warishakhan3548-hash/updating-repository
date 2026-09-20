@@ -1,4 +1,4 @@
-# Progress — 2026-09-20
+# Progress — 2026-09-21
 
 ## Current phase
 
@@ -23,6 +23,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - read-only Reader Core with stable `QuranCoordinate` navigation, production pack-approval guard, source-faithful `original_text` projection, and ephemeral UI tap anchors that never become canonical TokenIDs;
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
 - strict local ayah-level Quran search over the existing provenance-bound Unicode/diacritic-free lanes, version-locked to `arabic-search-v1`, with source-faithful result rendering, query cancellation/debounce and explicit zero-result abstention;
+- versioned `quran-search-golden-v1` evaluation set plus deterministic host evaluator for Recall@5/10, MRR, NDCG@10, negative false-positive rate and zero-result rate; CI protects the strict engine's supported exact/no-harakat/partial retrieval floor without pretending typo/fuzzy retrieval is already solved;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
 - GitHub Actions foundation checks and deterministic pack build workflow;
 - Ed25519 release-authenticity gate with deterministic signed-manifest bytes, content-derived key IDs, threshold policy, unauthorized/duplicate-key rejection, and project-controlled public trust-root storage;
@@ -87,7 +88,7 @@ Schema-v2 Quran semantic regression coverage now tampers with Quran text and SQL
 
 Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows. Android JVM coverage also locks representative `arabic-search-v1` query-normalization vectors while the search UI remains fail-closed on normalization-version mismatch. Signing regression coverage verifies valid Ed25519 approval, post-signing tamper failure, unauthorized/duplicate keys, signed release ordering, retired-key historical windows, revoked-key rejection, active-threshold viability, malformed/bootstrap trust roots, strict JSON/domain separation, and Android release delegation to the authoritative pack gate.
 
-No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
+Quran search now has an executable host-side golden benchmark. Its host SQLite latency is diagnostic only and is not presented as low-end Android performance. No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
 ## Next safe milestones
 
