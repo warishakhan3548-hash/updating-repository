@@ -228,6 +228,9 @@ def validate_registry(registry_path: Path) -> None:
             "byte_size",
             "licence_id",
             "redistribution_allowed",
+            "modification_allowed",
+            "attribution_required",
+            "licence_snapshot",
             "project_mirror",
         ]
         missing = [key for key in required if provenance.get(key) in (None, "")]
@@ -245,6 +248,9 @@ def validate_registry(registry_path: Path) -> None:
             "byte_size": expected_size,
             "licence_id": source["licence_id"],
             "redistribution_allowed": True,
+            "modification_allowed": source["modification_allowed"],
+            "attribution_required": source["attribution_required"],
+            "licence_snapshot": source["licence_snapshot"],
             "project_mirror": source["vault_artifact"],
         }
         mismatched = [
