@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import hashlib
 import io
 import json
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from tools.capture_quranenc_gloss import (
     TERMS_URL,
     VAULT_RELATIVE,
     capture_snapshot,
+    validate_existing,
 )
 
 
@@ -495,6 +497,48 @@ class CaptureTests(unittest.TestCase):
                     root,
                     fetcher=should_not_fetch,
                 )
+
+
+    def test_preserved_review_candidate_revalidates_offline(self):
+        root = Path(__file__).resolve().parents[1]
+        with unittest.mock.patch(
+            "tools.capture_quranenc_gloss.urlopen",
+            side_effect=AssertionError(
+                "offline validation attempted network access"
+            ),
+        ):
+            provenance = validate_existing(root)
+
+        self.assertEqual(
+            "captured-unreviewed",
+            provenance["promotion_status"],
+        )
+        self.assertEqual(114, provenance["sura_count"])
+        self.assertEqual(6236, provenance["record_count"])
+        self.assertEqual(
+            "8cbc4f5f41298e438f7862fff1eba309ffdab254ca240257bd5b652631f2396c",
+            provenance["snapshot_manifest_sha256"],
+        )
+
+    def test_preserved_snapshot_tamper_is_detected_offline(self):
+        project_root = Path(__file__).resolve().parents[1]
+        source = project_root / VAULT_RELATIVE
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            destination = root / VAULT_RELATIVE
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source, destination)
+
+            first_sura = destination / "raw" / "suras" / "001.json"
+            first_sura.write_bytes(
+                first_sura.read_bytes() + b"tamper"
+            )
+
+            with self.assertRaisesRegex(
+                CaptureError,
+                "byte size mismatch|SHA-256",
+            ):
+                validate_existing(root)
 
 
 if __name__ == "__main__":
