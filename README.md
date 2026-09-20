@@ -29,7 +29,7 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 
 `tools/quran_core.py` validates the pinned Tanzil artifact and the complete 114-surah / 6,236-ayah coordinate sequence while keeping original display text separate from derived search normalization.
 
-`tools/build_quran_core.py` deterministically builds the current `quran-core` 1.0.4 candidate under `content-packs/` using provenance-bound manifest schema v2, including SQLite content, manifest and the source-derived Tanzil attribution notice. The pack contains 6,236 ayahs, keeps display Arabic separate from search-normalized lanes, and remains unsigned/candidate until release review and signing. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
+`tools/build_quran_canonical.py` first creates the deterministic source-faithful canonical Quran JSONL layer, and `tools/build_quran_core.py` derives the current `quran-core` 1.1.0 candidate under `content-packs/` using canonical-bound manifest schema v3. The pack contains 6,236 ayahs, keeps display Arabic separate from search-normalized lanes, binds runtime bytes back to the canonical/source evidence, and remains unsigned/candidate until release review and signing. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
 
 The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.
 
