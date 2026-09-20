@@ -43,3 +43,13 @@ Hadith research needs a different trust posture: multi-lane fuzzy retrieval with
 ## Saturation conclusion
 
 The research now converges on four durable choices: immutable source/display data, contextual reader-first assistance, local event-preserving learning, and deterministic multi-lane retrieval with explicit uncertainty. Further research should answer concrete implementation/evaluation questions rather than accumulate features.
+
+## Reproducibility hardening addendum — 2026-09-20
+
+| Type | Claim | Primary/official source | Confidence | Product implication |
+|---|---|---|---:|---|
+| fact | SQLite documents its database file format as stable, cross-platform and backwards compatible, but this is a compatibility promise rather than a guarantee that arbitrary future library/toolchain versions will generate byte-identical files. | https://www.sqlite.org/onefile.html and https://www.sqlite.org/fileformat.html | high | Treat a published SQLite SHA-256 as an integrity anchor; use a simple deterministic canonical artifact as the long-lived semantic reproduction anchor and record the exact pack build toolchain. |
+| fact | GitHub recommends pinning third-party Actions to full-length commit SHAs; full SHAs are the immutable action reference. | https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions | high | Pin checkout/setup actions by full SHA in trust-critical workflows rather than movable major tags. |
+| fact | Python 3.13.15 is an official CPython 3.13 maintenance release dated 2026-08-05. | https://www.python.org/downloads/release/python-31315/ | high | Pin the Quran content-build workflow to `3.13.15` instead of floating on `3.13`, and record the effective Python/SQLite versions in pack manifests. |
+| inference | A deterministic JSONL canonical layer provides a stronger long-lived audit/rebuild boundary than coupling runtime SQLite directly to an upstream text format. | synthesis of reproducible-build and durable-data requirements | high | Source Vault → canonical JSONL → runtime pack becomes the production path; upstream layout and runtime storage can evolve independently. |
+
