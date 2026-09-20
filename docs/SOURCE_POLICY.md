@@ -15,6 +15,8 @@ Critical external data must pass every gate before production use:
 
 A normal production build must not fetch an uncontrolled upstream `latest` resource.
 
+When a legally cleared upstream release is inherently multi-file, preserve the exact members and bind them with a project-controlled checksum ledger rather than concatenating or normalizing source bytes. The ledger becomes the stable Source Vault artifact root; its members are still verified individually before promotion.
+
 ## Statuses
 
 - `research-candidate`: useful for evaluation; never consumed by production builds.

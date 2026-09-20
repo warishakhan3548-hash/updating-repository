@@ -42,7 +42,7 @@
       "notes": "Official QuranEnc identifies arabic_seraj as v1.0.0 and permits republication only under source-specific conditions. Those terms include no content modification, attribution/version retention, transcript-information retention, and an obligation to update according to newer source versions. That ongoing-update condition is not yet proven compatible with this project's requirement to keep immutable historical snapshots publicly redistributable for long-term reproducibility. Do not capture or mirror production bytes until QuranEnc clarifies archival retention or an equivalent legally durable basis is documented. If archival permission is later cleared, the existing release_requirements still require a source-bound latest-version review before an approved pack may ship.",
       "release_requirements": {
         "latest_upstream_version_required": true,
-        "version_check_url": "https://quranenc.com/api/v1/translations/list/ar/?localization=en",
+        "version_check_url": "https://quranenc.com/en/home",
         "historical_snapshot_retention_status": "unresolved"
       }
     },
