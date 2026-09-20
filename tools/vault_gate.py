@@ -161,6 +161,10 @@ def _safe_vault_file(root: Path, raw: object, source_id: str, field: str) -> Pat
 
 
 def _validate_checksum_set(artifact: Path, source_id: str) -> int:
+    if artifact.is_symlink():
+        raise VaultGateError(
+            f"{source_id}: checksum-set artifact must not be a symlink"
+        )
     try:
         text = artifact.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
@@ -206,6 +210,10 @@ def _validate_checksum_set(artifact: Path, source_id: str) -> int:
         seen_paths.add(normalized)
 
         member = artifact.parent / rel
+        if member.is_symlink():
+            raise VaultGateError(
+                f"{source_id}: checksum-set member must not be a symlink: {normalized}"
+            )
         if not member.is_file():
             raise VaultGateError(
                 f"{source_id}: missing checksum-set member {normalized}"
