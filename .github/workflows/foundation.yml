@@ -21,6 +21,8 @@ jobs:
           python-version: '3.13'
       - name: Source Vault gate
         run: python tools/vault_gate.py source-vault/registry.json
+      - name: Content pack promotion gate
+        run: python tools/pack_gate.py source-vault/registry.json
       - name: SQLite schema validation
         run: python tools/validate_schemas.py
       - name: Foundation unit tests
