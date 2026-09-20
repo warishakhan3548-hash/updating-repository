@@ -3,7 +3,7 @@
 Critical external data must pass every gate before production use:
 
 1. identify origin and exact edition/version;
-2. verify redistribution, modification and attribution terms;
+2. verify redistribution, commercial-use, modification and attribution terms;
 3. download the exact artifact;
 4. preserve the exact bytes under project control;
 5. calculate SHA-256 and file size;
@@ -26,6 +26,12 @@ When a legally cleared upstream release is inherently multi-file, preserve the e
 - `rejected`: unsuitable due to trust, licensing or integrity.
 
 Durability never overrides copyright. Only `production-approved` entries may feed release content builders.
+
+## Commercial-use gate
+
+Redistribution permission and commercial-use permission are separate licence dimensions. A dataset may be legal to copy for research or non-commercial use while still being ineligible for a production release. The registry therefore records `commercial_use_allowed` independently.
+
+A `production-approved` source must set `commercial_use_allowed: true`. Unknown or false values fail closed in Source Vault validation, and the runtime pack gate checks the same condition again before any pack can ship. Do not infer commercial rights from popularity, repository visibility, a code licence, or redistribution permission.
 
 ## Archival-retention gate
 
