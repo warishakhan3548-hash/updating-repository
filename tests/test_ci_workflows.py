@@ -58,11 +58,12 @@ class WorkflowSupplyChainTests(unittest.TestCase):
 
         self.assertIn("python tools/build_quran_canonical.py", text[:commit_index])
         self.assertIn("python tools/build_quran_core.py", text[:commit_index])
+        self.assertIn("PACK_DIR=\'content-packs/quran-core/1.1.0\'", text[:commit_index])
 
         required = (
             "python tools/vault_gate.py source-vault/registry.json",
             "python tools/pack_gate.py",
-            "content-packs/quran-core/1.1.0/manifest.json",
+            "\"$PACK_DIR/manifest.json\"",
             "python tools/validate_schemas.py",
             "python -m unittest discover -s tests -v",
             "git status --porcelain",
