@@ -29,8 +29,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,7 +87,9 @@ fun ReaderScreen(
         Text(
             text = "Quran",
             style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .semantics { heading() },
         )
         OutlinedTextField(
             value = state.searchQuery,
@@ -100,7 +107,8 @@ fun ReaderScreen(
                 enabled = !state.isLoading,
                 modifier = Modifier
                     .padding(horizontal = 8.dp)
-                    .heightIn(min = 48.dp),
+                    .heightIn(min = 48.dp)
+                    .semantics { stateDescription = "Current surah" },
             ) {
                 Text(
                     text = "Surah ${state.surah} ▾",
@@ -121,14 +129,25 @@ fun ReaderScreen(
                         onOpenSearchResult = onOpenSearchResult,
                     )
                 }
-                state.isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                state.isLoading -> CircularProgressIndicator(
+                    Modifier
+                        .align(Alignment.Center)
+                        .semantics { contentDescription = "Loading Quran" },
+                )
                 state.errorMessage != null -> {
                     Column(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     ) {
-                        Text(state.errorMessage)
+                        val errorText = state.errorMessage
+                        Text(
+                            text = errorText,
+                            modifier = Modifier.semantics {
+                                error(errorText)
+                                liveRegion = LiveRegionMode.Polite
+                            },
+                        )
                         TextButton(
                             onClick = onRetry,
                             modifier = Modifier.heightIn(min = 48.dp),
@@ -195,14 +214,25 @@ private fun SearchResultsContent(
     when {
         state.isSearching -> {
             Box(Modifier.fillMaxSize()) {
-                CircularProgressIndicator(Modifier.align(Alignment.Center))
+                CircularProgressIndicator(
+                    Modifier
+                        .align(Alignment.Center)
+                        .semantics { contentDescription = "Searching Quran" },
+                )
             }
         }
         state.searchErrorMessage != null -> {
             Box(Modifier.fillMaxSize()) {
+                val errorText = state.searchErrorMessage
                 Text(
-                    text = state.searchErrorMessage,
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    text = errorText,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp)
+                        .semantics {
+                            error(errorText)
+                            liveRegion = LiveRegionMode.Polite
+                        },
                 )
             }
         }
@@ -210,7 +240,10 @@ private fun SearchResultsContent(
             Box(Modifier.fillMaxSize()) {
                 Text(
                     text = "No reliable match found.",
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite },
                 )
             }
         }
@@ -223,7 +256,15 @@ private fun SearchResultsContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp)
-                            .padding(horizontal = 8.dp),
+                            .padding(horizontal = 8.dp)
+                            .semantics {
+                                if (
+                                    hit.matchKind ==
+                                        QuranSearchMatchKind.APPROXIMATE_SPELLING
+                                ) {
+                                    stateDescription = "Approximate spelling match"
+                                }
+                            },
                     ) {
                         Column(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -267,7 +308,12 @@ private fun SurahChooserDialog(
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Choose Surah") },
+        title = {
+            Text(
+                text = "Choose Surah",
+                modifier = Modifier.semantics { heading() },
+            )
+        },
         text = {
             LazyColumn(
                 state = listState,
