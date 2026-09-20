@@ -1,0 +1,122 @@
+import hashlib
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from tools.pack_gate import PackGateError, validate_manifest
+
+
+class PackGateTests(unittest.TestCase):
+    def _fixture(self, root: Path, *, source_status: str = "production-approved"):
+        vault = root / "source-vault" / "quran" / "example" / "1.0"
+        vault.mkdir(parents=True)
+        source_artifact = vault / "raw.txt"
+        source_artifact.write_bytes(b"source bytes")
+        source_hash = hashlib.sha256(source_artifact.read_bytes()).hexdigest()
+
+        registry = root / "source-vault" / "registry.json"
+        registry.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "sources": [
+                        {
+                            "source_id": "quran.example.v1",
+                            "source_name": "Example Quran Source",
+                            "original_url": "https://example.invalid/quran",
+                            "version": "1.0",
+                            "status": source_status,
+                            "licence_id": "Example-License",
+                            "redistribution_allowed": True,
+                            "vault_artifact": "source-vault/quran/example/1.0/raw.txt",
+                            "sha256": source_hash,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        pack_dir = root / "content-packs" / "quran-example" / "1.0"
+        pack_dir.mkdir(parents=True)
+        built = pack_dir / "content.sqlite"
+        built.write_bytes(b"deterministic pack bytes")
+        built_hash = hashlib.sha256(built.read_bytes()).hexdigest()
+        manifest = pack_dir / "manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "pack_id": "quran-example",
+                    "schema_version": 1,
+                    "content_version": "1.0",
+                    "source_id": "quran.example.v1",
+                    "source_name": "Example Quran Source",
+                    "source_version": "1.0",
+                    "source_vault_path": "source-vault/quran/example/1.0/raw.txt",
+                    "source_sha256": source_hash,
+                    "licence": "Example-License",
+                    "edition": None,
+                    "importer_version": "fixture-1",
+                    "artifact_path": "content-packs/quran-example/1.0/content.sqlite",
+                    "record_count": 1,
+                    "review_status": "reviewed",
+                    "built_sha256": built_hash,
+                    "built_byte_size": built.stat().st_size,
+                    "dependencies": [],
+                    "signature": {"status": "unsigned"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return registry, manifest, built
+
+    def test_reviewed_pack_from_approved_source_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, manifest, _ = self._fixture(Path(tmp))
+            validate_manifest(manifest, registry)
+
+    def test_pack_from_unapproved_source_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, manifest, _ = self._fixture(
+                Path(tmp), source_status="awaiting-artifact"
+            )
+            with self.assertRaises(PackGateError):
+                validate_manifest(manifest, registry)
+
+    def test_tampered_runtime_pack_fails_hash_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, manifest, built = self._fixture(Path(tmp))
+            built.write_bytes(b"tampered")
+            with self.assertRaises(PackGateError):
+                validate_manifest(manifest, registry)
+
+    def test_source_identity_must_match_vault_registry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, manifest, _ = self._fixture(Path(tmp))
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["source_version"] = "latest"
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaises(PackGateError):
+                validate_manifest(manifest, registry)
+
+    def test_approved_pack_requires_signature_material(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, manifest, _ = self._fixture(Path(tmp))
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["review_status"] = "approved"
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaises(PackGateError):
+                validate_manifest(manifest, registry)
+
+            data["signature"] = {
+                "algorithm": "ed25519",
+                "key_id": "release-key-1",
+                "value": "fixture-signature",
+            }
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            validate_manifest(manifest, registry)
+
+
+if __name__ == "__main__":
+    unittest.main()
