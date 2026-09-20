@@ -19,7 +19,7 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - deterministic Quran-core importer with byte-reproducibility coverage;
 - complete candidate Quran core pack published at `content-packs/quran-core/1.0.4/`, using provenance-bound manifest schema v2;
 - read-only Reader Core with stable `QuranCoordinate` navigation, production pack-approval guard, source-faithful `original_text` projection, and ephemeral UI tap anchors that never become canonical TokenIDs;
-- GitHub Actions foundation checks and deterministic pack build workflow.
+- GitHub Actions foundation checks and deterministic pack build workflow;\n- fail-closed release authenticity gate: `approved` packs are rejected until their cryptographic signatures can be verified against trusted project keys.
 
 ## Production Source Vault
 
@@ -71,7 +71,7 @@ No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device te
 
 ## Next safe milestones
 
-1. Review/sign/promote the Quran core pack according to the release policy.
+1. Implement and test the trusted-key content-pack signature verifier (canonical signed payload, key IDs/rotation and rollback metadata), then review/sign/promote the Quran core pack.
 2. Build the minimal Android reader UI on the Reader Core contract: immutable Arabic rendering, stable Surah/Ayah navigation, RTL/accessibility semantics, and anchored word-tap hit testing.
 3. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
 4. Resolve QAC licensing or choose a legally clearer morphology source.

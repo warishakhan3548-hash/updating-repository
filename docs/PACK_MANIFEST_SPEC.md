@@ -29,6 +29,8 @@ For the Tanzil Quran pack, notice text is derived from comment lines in the exac
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: requires current signature material and release-policy checks.
+- `approved`: reserved for a pack whose cryptographic signature has actually been verified against a trusted project key.
+
+**Current fail-closed rule:** the repository does not yet contain the trusted-key cryptographic verifier required for an `approved` pack. Therefore `tools/pack_gate.py` rejects every `approved` manifest, even if it contains plausible-looking `algorithm`, `key_id`, and `value` fields. Mere field presence is not a signature check. Promotion remains blocked until a real verifier and key-rotation policy are implemented and tested.
 
 Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for rollback and reproducibility.

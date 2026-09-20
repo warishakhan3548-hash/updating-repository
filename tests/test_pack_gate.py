@@ -100,13 +100,15 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaises(PackGateError):
                 validate_manifest(manifest, registry)
 
-    def test_approved_pack_requires_signature_material(self):
+    def test_approved_pack_requires_verified_signature_not_just_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             registry, manifest, _ = self._fixture(Path(tmp))
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
             manifest.write_text(json.dumps(data), encoding="utf-8")
-            with self.assertRaises(PackGateError):
+            with self.assertRaisesRegex(
+                PackGateError, "approved pack requires signature"
+            ):
                 validate_manifest(manifest, registry)
 
             data["signature"] = {
@@ -115,8 +117,11 @@ class PackGateTests(unittest.TestCase):
                 "value": "fixture-signature",
             }
             manifest.write_text(json.dumps(data), encoding="utf-8")
-            validate_manifest(manifest, registry)
-
+            with self.assertRaisesRegex(
+                PackGateError,
+                "approved packs are disabled until cryptographic signature verification",
+            ):
+                validate_manifest(manifest, registry)
 
 
     def test_attribution_required_pack_requires_notice(self):
