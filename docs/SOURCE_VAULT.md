@@ -25,7 +25,9 @@ An unmirrored research candidate may remain metadata-only. Once **any** preserve
 
 The Source Vault gate validates preserved candidate snapshots before production promotion as well as production-approved snapshots. This prevents research/awaiting-review bytes from drifting silently between acquisition and later review. A preserved candidate still cannot feed a release content builder until its registry status is explicitly promoted to `production-approved`.
 
-Because this repository is project-controlled redistribution infrastructure, a preserved public snapshot must also have verified redistribution permission and explicit modification/attribution flags. If those rights are unresolved, keep the source metadata-only and do not mirror its bytes.
+Because this repository is project-controlled redistribution infrastructure, a preserved public snapshot must also have verified redistribution permission, explicit historical-retention clearance, and explicit modification/attribution flags. If any of those rights are unresolved, keep the source metadata-only and do not mirror its bytes. `awaiting-licence` and `rejected` are no-bytes states.
+
+`awaiting-artifact`, any preserved snapshot, and `production-approved` all require `release_requirements.historical_snapshot_retention_status=verified-allowed`. The separate `latest_upstream_version_required` boolean controls release-time freshness review; it is not a substitute for archival permission.
 
 Acquisition tools that write into `source-vault/` must consult the registry **before making any network request**. A source in `awaiting-licence` is not capture-authorized. This prevents a review-only downloader from accidentally turning unresolved third-party rights into a public project-controlled mirror. The central vault gate independently rejects any `awaiting-licence` entry that already declares preserved snapshot bytes, and any source with `historical_snapshot_retention_status: unresolved` must remain `awaiting-licence`.
 
@@ -46,7 +48,7 @@ This is an integrity format, not acquisition permission. A source must clear the
 
 ## Production promotion contract
 
-A `production-approved` registry entry fails closed unless the project has a consistent source identity, verified redistribution permission, verified commercial-use permission, explicit modification/attribution flags, a project-controlled artifact, a non-empty licence snapshot and provenance file, and hashes that still match all three preserved files.
+A `production-approved` registry entry fails closed unless the project has a consistent source identity, verified redistribution permission, verified commercial-use permission, verified historical-snapshot retention permission, explicit modification/attribution flags, a project-controlled artifact, a non-empty licence snapshot and provenance file, and hashes that still match all three preserved files.
 
 The gate records and verifies:
 
