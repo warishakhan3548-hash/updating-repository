@@ -46,8 +46,10 @@ Historical schema-v1/v2 packs remain immutable and verifiable under their own co
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: reserved for a pack whose cryptographic signature has actually been verified against a trusted project key.
+- `approved`: source/provenance/semantic gates passed and the trusted cryptographic signature threshold verified.
 
-**Current fail-closed rule:** the repository does not yet contain the trusted-key cryptographic verifier required for an `approved` pack. Therefore `tools/pack_gate.py` rejects every `approved` manifest, even if it contains plausible-looking `algorithm`, `key_id`, and `value` fields. Mere field presence is not a signature check. Promotion remains blocked until a real verifier and key-rotation policy are implemented and tested.
+For `approved`, `tools/pack_gate.py` completes source, licence, artifact, canonical and applicable semantic-fidelity checks first, then delegates to `tools/pack_signing.py`. The manifest must carry a positive signed `release_sequence` plus Ed25519 signatures using payload format `aaris-pack-json-v1`; enough non-revoked keys from `policy/trusted_pack_keys.json` must verify to meet `signature_threshold`.
+
+The production trusted-key policy is intentionally empty today, so no current pack is approvable yet. Signature-shaped strings alone never pass. See `PACK_SIGNING.md` for exact payload, key rotation and rollback-metadata rules. Android release activation remains separately fail-closed until equivalent trusted-key verification exists on-device.
 
 Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for rollback and reproducibility.
