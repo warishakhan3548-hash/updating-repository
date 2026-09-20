@@ -16,6 +16,7 @@ if __package__ in (None, ""):
 
 from tools.quran_core import (
     SEARCH_NORMALIZATION_VERSION,
+    extract_tanzil_notice_bytes,
     SOURCE_ID,
     load_production_source,
     normalize_search_diacritic_free,
@@ -23,9 +24,8 @@ from tools.quran_core import (
 )
 
 PACK_ID = "quran-core"
-CONTENT_VERSION = "1.0.1"
-IMPORTER_VERSION = "quran-core-importer-2"
-NOTICE_TEXT = """Tanzil Quran Text\nCopyright (C) 2007-2021 Tanzil Project\nLicense: Creative Commons Attribution 3.0\nSource: https://tanzil.net/\n\nPermission is granted to copy and distribute verbatim copies of the Quran text. Changing the Quran text is not allowed. The Tanzil Project must be clearly indicated as the source and linked so users can track text updates.\n"""
+CONTENT_VERSION = "1.0.2"
+IMPORTER_VERSION = "quran-core-importer-3"
 SOURCE_ASSERTION_ID = "sa:quran.tanzil.uthmani.v1.1"
 
 
@@ -152,8 +152,12 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
     finally:
         connection.close()
 
-    notice_path.write_text(NOTICE_TEXT, encoding="utf-8")
+    notice_path.write_bytes(extract_tanzil_notice_bytes(artifact))
     notice_hash = sha256_file(notice_path)
+    if notice_hash != source.get("required_notice_sha256"):
+        raise QuranPackError(
+            "derived attribution notice does not match Source Vault policy"
+        )
     built_hash = sha256_file(db_path)
     built_size = db_path.stat().st_size
     manifest = {
@@ -198,7 +202,7 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("content-packs/quran-core/1.0.1"),
+        default=Path("content-packs/quran-core/1.0.2"),
         help="pack directory, relative to repository root",
     )
     args = parser.parse_args()
