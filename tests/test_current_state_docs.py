@@ -57,6 +57,49 @@ class CurrentStateDocumentationTests(unittest.TestCase):
             self.assertIsNot(source["redistribution_allowed"], True)
 
 
+    def test_qul_wbw_gloss_candidates_remain_unmirrored(self):
+        registry = json.loads(
+            (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
+        )
+        by_id = {item["source_id"]: item for item in registry["sources"]}
+
+        candidates = {
+            "quran-gloss.qul.english-wbw.resource-92":
+                "https://qul.tarteel.ai/resources/translation/92",
+            "quran-gloss.qul.hindi-wbw.resource-44":
+                "https://qul.tarteel.ai/resources/translation/44",
+        }
+        for source_id, expected_url in candidates.items():
+            source = by_id[source_id]
+            self.assertEqual("quran-gloss", source["category"])
+            self.assertEqual("awaiting-licence", source["status"])
+            self.assertEqual(expected_url, source["original_url"])
+            self.assertEqual("dataset-specific-unverified", source["licence_id"])
+            self.assertIsNone(source["redistribution_allowed"])
+            self.assertIsNone(source["commercial_use_allowed"])
+            self.assertIsNone(source["modification_allowed"])
+            self.assertIsNone(source["attribution_required"])
+            self.assertIsNone(source["vault_artifact"])
+            self.assertIsNone(source["licence_snapshot"])
+            self.assertIsNone(source["provenance"])
+            self.assertIsNone(source["sha256"])
+            self.assertIsNone(source["byte_size"])
+            self.assertEqual(
+                "unresolved",
+                source["release_requirements"][
+                    "historical_snapshot_retention_status"
+                ],
+            )
+
+        for manifest_path in (ROOT / "content-packs").glob("**/manifest.json"):
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertNotIn(
+                manifest.get("source_id"),
+                candidates,
+                f"{manifest_path} must not consume unlicensed QUL WBW data",
+            )
+
+
     def test_quranmorph_remains_awaiting_exact_authorized_artifact(self):
         registry = json.loads(
             (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
