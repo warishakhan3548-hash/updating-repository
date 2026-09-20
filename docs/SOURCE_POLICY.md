@@ -27,7 +27,9 @@ Durability never overrides copyright. Only `production-approved` entries may fee
 
 ## Release-time source obligations
 
-Archival permission and current redistribution eligibility are separate questions. A preserved source snapshot remains immutable for reproducibility even when its licence imposes an ongoing release-time obligation such as “use/update to the latest upstream version”.
+Archival permission and current redistribution eligibility are separate questions. **Archival permission must be resolved before acquisition into a publicly redistributed immutable Source Vault.** If historical snapshot retention is unresolved, keep the source `awaiting-licence` and do not mirror its bytes. Only after archival retention is verified may acquisition proceed.
+
+A legally preserved source snapshot remains immutable for reproducibility even when its licence imposes an ongoing release-time obligation such as “use/update to the latest upstream version”.
 
 Such obligations are recorded as machine-readable `release_requirements` in the Source Vault registry. Normal offline builds do **not** contact upstream and historical candidate packs do not expire with wall-clock time. Instead, an `approved` pack from a source that requires the latest upstream version must carry a `source_release_review` that binds the source ID/version, exact archived licence hash, official version-check URL, review timestamp, and the observed upstream version. The final pack gate requires the observed version to equal the preserved source version. Because the review object is part of the manifest outside the signature block, release signatures authenticate that review together with the pack.
 
