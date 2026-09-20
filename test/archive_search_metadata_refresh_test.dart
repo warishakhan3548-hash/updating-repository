@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../lib/data/inventory_database.dart';
-import '../lib/domain/inventory.dart';
 import '../lib/domain/medicine.dart';
 import '../lib/domain/search.dart';
 import '../lib/domain/supplier.dart';
