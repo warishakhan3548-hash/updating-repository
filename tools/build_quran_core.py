@@ -7,6 +7,12 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import sys
+
+# Support both "python -m tools.build_quran_core" and direct CLI execution.
+# Direct script execution otherwise puts tools/ rather than the repository root on sys.path.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.quran_core import (
     SEARCH_NORMALIZATION_VERSION,

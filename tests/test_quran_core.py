@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -68,6 +70,16 @@ class QuranCoreTests(unittest.TestCase):
             json.dumps(registry, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+    def test_direct_builder_cli_can_import_repo_tools(self):
+        completed = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "build_quran_core.py"), "--help"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("pack directory", completed.stdout)
 
     def test_builder_is_byte_reproducible_for_identical_inputs(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
