@@ -10,6 +10,8 @@ on:
       - 'schemas/content_v1.sql'
       - 'tools/quran_core.py'
       - 'tools/build_quran_core.py'
+      - 'tools/verify_quran_core_pack.py'
+      - 'tools/pack_gate.py'
   workflow_dispatch:
 
 permissions:
