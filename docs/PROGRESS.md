@@ -29,7 +29,9 @@ Phase 0A–0C is established and executable. The first production Quran source i
 - exact Tanzil Quran Text v1.1 Uthmani source snapshot preserved under project control;
 - deterministic Quran-core parsing/build path with separate display/search fields;
 - full 114-surah / 6,236-ayah coordinate validation;
-- byte-reproducibility test for identical Quran pack inputs.
+- byte-reproducibility test for identical Quran pack inputs;
+- persisted candidate `quran-core/1.0.0` pack containing all 6,236 ayahs;
+- runtime pack manifest bound to the exact Source Vault SHA-256 and generated SQLite SHA-256.
 
 ## Production Source Vault status
 
@@ -52,9 +54,22 @@ Phase 0A–0C is established and executable. The first production Quran source i
 - **QUL resources:** per-resource licence/provenance review required; no blanket promotion.
 - **Quran Foundation API:** not a critical Source Vault dependency under its current developer terms.
 
+## Candidate Quran runtime pack
+
+`content-packs/quran-core/1.0.0` is now persisted as a **candidate**, not an approved release.
+
+- runtime SQLite size: `4599808` bytes
+- runtime SQLite SHA-256: `fc2033d607ed0209f9f8a9aeeed8d701cc4cb2d65ca39653143e5ddd37f35076`
+- Quran records: `6236`
+- source: `quran.tanzil.uthmani.v1.1`
+- review status: `candidate`
+- signature status: unsigned
+
+Candidate status is intentional. Promotion remains blocked until distribution attribution/notice handling, signing policy and release review are complete.
+
 ## Validation status
 
-The latest verified main-branch foundation run is green. Automated checks cover:
+Automated checks cover:
 
 - Source Vault integrity and policy enforcement;
 - content-pack promotion rules;
@@ -70,7 +85,7 @@ No Hadith search quality benchmark or device performance benchmark is claimed ye
 
 ## Next safe milestones
 
-1. Produce/review the first candidate `quran-core` runtime pack from the pinned Tanzil snapshot and promote only after manifest/integrity review.
+1. Review and harden distribution attribution/notice handling for the candidate Quran pack, then introduce signing before any `approved` promotion.
 2. Build the minimal reader around immutable Quran evidence: stable navigation, excellent RTL, and anchored word-tap plumbing without inventing morphology.
 3. Resolve QAC licensing before making it a production morphology dependency; otherwise choose a legally clearer alternative.
 4. Acquire and preserve an edition-aware Hadith source before implementing production Hadith search.
