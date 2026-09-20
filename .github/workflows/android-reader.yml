@@ -8,7 +8,7 @@ on:
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle.properties'
-      - 'content-packs/quran-core/1.0.1/**'
+      - 'content-packs/quran-core/1.0.3/**'
       - 'tests/test_android_reader_contract.py'
       - '.github/workflows/android-reader.yml'
   pull_request:
@@ -18,7 +18,7 @@ on:
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle.properties'
-      - 'content-packs/quran-core/1.0.1/**'
+      - 'content-packs/quran-core/1.0.3/**'
       - 'tests/test_android_reader_contract.py'
       - '.github/workflows/android-reader.yml'
   workflow_dispatch:
