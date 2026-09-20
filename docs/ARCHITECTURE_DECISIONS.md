@@ -114,3 +114,12 @@ This keeps source truth and search convenience separate while improving recall f
 Redistribution permission does not imply permission to ship content in a commercial build. The Source Vault registry records `commercial_use_allowed` separately from redistribution, modification and attribution requirements. A source may remain useful for research with a false or unknown commercial-use value, but it cannot be `production-approved` or feed a runtime pack unless commercial use is explicitly verified as allowed.
 
 The gate is deliberately enforced twice: Source Vault validation blocks an invalid production classification, and the runtime pack gate independently rejects a production source whose commercial-use permission is not true. Historical provenance files and runtime packs are not rewritten merely to backfill this new review dimension; the immutable archived licence snapshot remains the legal evidence, while the current registry records the reviewed release decision.
+
+
+## ADR-023 — Search golden sets are immutable versioned contracts
+
+A labelled retrieval benchmark is part of the product's reproducibility record. Once a golden-set version has been used to define a supported retrieval floor, changing its relevance judgments, required metrics or runtime interpretation creates a new golden-set version instead of silently replacing the old file's meaning.
+
+`quran-search-golden-v1` therefore remains the historical strict-search baseline. `quran-search-golden-v2` is the active spelling-fallback benchmark and explicitly binds both the pack-side `arabic-search-v1` normalization contract and the runtime `arabic-query-variant-v1` contract. Evaluation fails closed if the runtime binding is absent or does not match the implementation.
+
+This keeps benchmark history auditable across search-engine evolution and prevents a newer engine from appearing to have passed an older benchmark whose labels or thresholds were retrospectively changed.

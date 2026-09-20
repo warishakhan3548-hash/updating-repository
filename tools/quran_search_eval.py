@@ -37,7 +37,8 @@ else:
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PACK = ROOT / "content-packs" / "quran-core" / "1.1.0" / "content.sqlite"
-DEFAULT_GOLDEN = ROOT / "evaluation" / "quran_search_golden_v1.json"
+HISTORICAL_GOLDEN_V1 = ROOT / "evaluation" / "quran_search_golden_v1.json"
+DEFAULT_GOLDEN = ROOT / "evaluation" / "quran_search_golden_v2.json"
 
 
 class QuranSearchEvalError(RuntimeError):
@@ -293,6 +294,18 @@ def evaluate(
                 )
         if metadata.get("search_normalization_version") != SEARCH_NORMALIZATION_VERSION:
             raise QuranSearchEvalError("runtime normalizer does not match pack contract")
+
+        expected_runtime = golden.get("runtime")
+        if not isinstance(expected_runtime, dict):
+            raise QuranSearchEvalError("active golden set is missing runtime binding")
+        expected_variant_version = expected_runtime.get(
+            "query_variant_normalization_version"
+        )
+        if expected_variant_version != QUERY_VARIANT_NORMALIZATION_VERSION:
+            raise QuranSearchEvalError(
+                "golden-set query variant normalization version mismatch: "
+                f"{expected_variant_version!r} != {QUERY_VARIANT_NORMALIZATION_VERSION!r}"
+            )
 
         case_reports: list[dict[str, Any]] = []
         latencies_ms: list[float] = []

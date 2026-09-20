@@ -7,6 +7,8 @@ import unittest
 from tools.quran_search_eval import (
     DEFAULT_GOLDEN,
     DEFAULT_PACK,
+    HISTORICAL_GOLDEN_V1,
+    QUERY_VARIANT_NORMALIZATION_VERSION,
     QuranSearchEvalError,
     assert_baseline,
     evaluate,
@@ -19,7 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 class QuranSearchEvaluationTests(unittest.TestCase):
     def test_golden_set_is_versioned_and_category_complete(self):
         golden = load_golden(DEFAULT_GOLDEN)
-        self.assertEqual(golden["golden_set_id"], "quran-search-golden-v1")
+        self.assertEqual(golden["golden_set_id"], "quran-search-golden-v2")
+        self.assertEqual(
+            golden["runtime"]["query_variant_normalization_version"],
+            QUERY_VARIANT_NORMALIZATION_VERSION,
+        )
         self.assertEqual(golden["pack"]["pack_id"], "quran-core")
         self.assertEqual(golden["pack"]["content_version"], "1.1.0")
         self.assertEqual(
@@ -38,6 +44,39 @@ class QuranSearchEvaluationTests(unittest.TestCase):
                 "no_answer",
             }.issubset(categories)
         )
+
+    def test_historical_v1_remains_the_original_strict_baseline(self):
+        historical = load_golden(HISTORICAL_GOLDEN_V1)
+        self.assertEqual(historical["golden_set_id"], "quran-search-golden-v1")
+        minimums = historical["baseline_policy"]["minimum_recall_at_5_by_category"]
+        self.assertEqual(
+            set(minimums),
+            {"exact_source", "diacritic_free", "partial_phrase"},
+        )
+        self.assertNotIn("runtime", historical)
+        keyboard_case = next(
+            case
+            for case in historical["cases"]
+            if case["id"] == "keyboard-persian-yeh-baqarah-2-255"
+        )
+        self.assertEqual(keyboard_case["expected_ayah_ids"], ["qa:002:255"])
+
+    def test_active_golden_rejects_query_variant_version_drift(self):
+        golden = load_golden(DEFAULT_GOLDEN)
+        golden["runtime"]["query_variant_normalization_version"] = "unexpected-v999"
+        mismatch_path = ROOT / "evaluation" / ".mismatched-search-golden-v2.json"
+        try:
+            mismatch_path.write_text(
+                json.dumps(golden, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                QuranSearchEvalError,
+                "query variant normalization version mismatch",
+            ):
+                evaluate(DEFAULT_PACK, mismatch_path)
+        finally:
+            mismatch_path.unlink(missing_ok=True)
 
     def test_strict_baseline_preserves_supported_recall_and_abstention(self):
         report, golden = evaluate(DEFAULT_PACK, DEFAULT_GOLDEN)
