@@ -35,7 +35,7 @@ SOURCE_NAME = (
 TRANSLATION_KEY = "arabic_seraj"
 EXPECTED_VERSION = "1.0.0"
 BASE_URL = "https://quranenc.com"
-LIST_URL = f"{BASE_URL}/api/v1/translations/list/ar/?localization=en"
+LIST_URL = f"{BASE_URL}/api/v1/translations/list/ar?localization=en"
 TERMS_URL = f"{BASE_URL}/en/home/about/terms-and-conditions"
 BROWSE_URL = f"{BASE_URL}/en/browse/{TRANSLATION_KEY}"
 VAULT_RELATIVE = Path(
