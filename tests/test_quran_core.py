@@ -9,6 +9,7 @@ import unittest
 from tools.build_quran_core import build_pack, sha256_file
 from tools.quran_core import (
     EXPECTED_AYAH_COUNTS,
+    extract_tanzil_notice_bytes,
     load_production_source,
     normalize_search_diacritic_free,
     normalize_search_unicode,
@@ -60,6 +61,11 @@ class QuranCoreTests(unittest.TestCase):
         copied_provenance.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / provenance_rel, copied_provenance)
 
+        notice_rel = Path(source["required_notice_path"])
+        copied_notice = destination / notice_rel
+        copied_notice.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / notice_rel, copied_notice)
+
         registry = {
             "schema_version": 1,
             "sources": [source],
@@ -88,16 +94,19 @@ class QuranCoreTests(unittest.TestCase):
             self._copy_fixture_root(root_a)
             self._copy_fixture_root(root_b)
 
-            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.0.1"))
-            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.0.1"))
+            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.0.2"))
+            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.0.2"))
 
             self.assertEqual(sha256_file(db_a), sha256_file(db_b))
             manifest = json.loads(manifest_a.read_text(encoding="utf-8"))
             notice = root_a / manifest["notice_path"]
             self.assertTrue(notice.is_file())
             self.assertEqual(sha256_file(notice), manifest["notice_sha256"])
-            self.assertIn("Tanzil Quran Text", notice.read_text(encoding="utf-8"))
-            self.assertIn("Copyright (C) 2007-2021 Tanzil Project", notice.read_text(encoding="utf-8"))
+            notice_bytes = notice.read_bytes()
+            source, artifact, _ = load_production_source(ROOT)
+            self.assertEqual(notice_bytes, extract_tanzil_notice_bytes(artifact))
+            self.assertEqual(sha256_file(notice), source["required_notice_sha256"])
+            self.assertIn(b"Copyright (C) 2007-2026 Tanzil Project", notice_bytes)
 
 
 if __name__ == "__main__":
