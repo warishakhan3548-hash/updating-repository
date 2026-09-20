@@ -496,6 +496,30 @@ class CaptureTests(unittest.TestCase):
                     fetcher=should_not_fetch,
                 )
 
+    def test_public_repo_has_no_quranenc_snapshot_while_licence_is_unresolved(
+        self,
+    ):
+        root = Path(__file__).resolve().parents[1]
+        registry = json.loads(
+            (
+                root
+                / "source-vault"
+                / "registry.json"
+            ).read_text(encoding="utf-8")
+        )
+        source = next(
+            item
+            for item in registry["sources"]
+            if item.get("source_id") == SOURCE_ID
+        )
+        if source.get("status") == "awaiting-licence":
+            self.assertIsNone(source.get("redistribution_allowed"))
+            self.assertFalse(
+                (root / VAULT_RELATIVE).exists(),
+                "awaiting-licence QuranEnc bytes must not be "
+                "mirrored in the public Source Vault",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
