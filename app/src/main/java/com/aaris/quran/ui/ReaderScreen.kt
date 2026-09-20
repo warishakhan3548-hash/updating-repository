@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +51,7 @@ fun ReaderRoute(viewModel: ReaderViewModel, modifier: Modifier = Modifier) {
         state = state,
         onPreviousSurah = viewModel::previousSurah,
         onNextSurah = viewModel::nextSurah,
+        onSelectSurah = viewModel::selectSurah,
         onRetry = viewModel::retry,
         modifier = modifier,
     )
@@ -59,9 +62,12 @@ fun ReaderScreen(
     state: ReaderUiState,
     onPreviousSurah: () -> Unit,
     onNextSurah: () -> Unit,
+    onSelectSurah: (Int) -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var showSurahChooser by remember { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -72,11 +78,18 @@ fun ReaderScreen(
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
-        Text(
-            text = "Surah ${state.surah}",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(horizontal = 20.dp),
-        )
+        TextButton(
+            onClick = { showSurahChooser = true },
+            enabled = !state.isLoading,
+            modifier = Modifier
+                .padding(horizontal = 8.dp)
+                .heightIn(min = 48.dp),
+        ) {
+            Text(
+                text = "Surah ${state.surah} ▾",
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
 
         Box(
             modifier = Modifier
@@ -132,6 +145,66 @@ fun ReaderScreen(
             }
         }
     }
+
+    if (showSurahChooser) {
+        SurahChooserDialog(
+            currentSurah = state.surah,
+            onDismiss = { showSurahChooser = false },
+            onSelect = { surah ->
+                showSurahChooser = false
+                onSelectSurah(surah)
+            },
+        )
+    }
+}
+
+@Composable
+private fun SurahChooserDialog(
+    currentSurah: Int,
+    onDismiss: () -> Unit,
+    onSelect: (Int) -> Unit,
+) {
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = (currentSurah - 1).coerceIn(0, 113),
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose Surah") },
+        text = {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp),
+            ) {
+                items((1..114).toList(), key = { it }) { surah ->
+                    TextButton(
+                        onClick = { onSelect(surah) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                    ) {
+                        Text(
+                            text = if (surah == currentSurah) {
+                                "Surah $surah — current"
+                            } else {
+                                "Surah $surah"
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text("Close")
+            }
+        },
+    )
 }
 
 @Composable
