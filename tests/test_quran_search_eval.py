@@ -43,9 +43,24 @@ class QuranSearchEvaluationTests(unittest.TestCase):
         report, golden = evaluate(DEFAULT_PACK, DEFAULT_GOLDEN)
         assert_baseline(report, golden)
 
-        for category in ("exact_source", "diacritic_free", "partial_phrase"):
+        for category in (
+            "exact_source",
+            "diacritic_free",
+            "partial_phrase",
+            "orthographic_variant",
+            "keyboard_variant",
+        ):
             self.assertEqual(report["categories"][category]["recall_at_5"], 1.0)
 
+        approximate_cases = [
+            case
+            for case in report["cases"]
+            if case["category"] in {"orthographic_variant", "keyboard_variant"}
+        ]
+        self.assertTrue(approximate_cases)
+        self.assertTrue(
+            all(case["match_mode"] == "approximate_spelling" for case in approximate_cases)
+        )
         self.assertEqual(report["metrics"]["negative_false_positive_rate"], 0.0)
         self.assertIn("Host-side SQLite timing only", report["latency_scope"])
 
@@ -55,6 +70,10 @@ class QuranSearchEvaluationTests(unittest.TestCase):
         self.assertNotIn("query_text", serialized)
         self.assertNotIn("original_text", serialized)
         self.assertNotIn("search_diacritic_free", serialized)
+        self.assertEqual(
+            report["pack"]["query_variant_normalization_version"],
+            "arabic-query-variant-v1",
+        )
 
     def test_cli_asserts_the_regression_floor(self):
         completed = subprocess.run(
