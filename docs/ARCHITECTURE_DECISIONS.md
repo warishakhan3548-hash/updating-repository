@@ -92,3 +92,11 @@ A source may permit republication while still imposing conditions that are incom
 For any such source, the registry remains `awaiting-licence` until the project has a documented basis for immutable historical retention, such as explicit written permission or terms that clearly allow archival redistribution. Acquisition tooling that writes under `source-vault/` must consult that registry state before network download and fail closed while the source is not capture-authorized.
 
 This keeps “we may republish the current version” separate from “we may permanently mirror every historical version,” which are different legal and durability questions.
+
+## ADR-019 — Approximate Quran spelling search is a strict-miss fallback
+
+Quran search preserves a strict-first trust ladder. NFC/diacritic-free exact containment remains the first retrieval path. Only when that path returns no rows may the app apply the versioned `arabic-query-variant-v1` substitutions for a deliberately small set of Arabic orthographic and South-Asian keyboard variants.
+
+The fallback is query/search-lane logic only: it never rewrites `original_text`, never mutates the canonical Quran artifact, and never changes the source-bound `arabic-search-v1` pack contract. Fallback hits are explicitly labelled **Approximate spelling match** in the reader. Unsupported edit-distance typos continue to abstain unless a future measured lane passes the golden-set gate.
+
+This keeps source truth and search convenience separate while improving recall for common keyboard/script variation without introducing a heavyweight search dependency or silently broadening confidence.

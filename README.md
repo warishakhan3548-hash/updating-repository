@@ -16,7 +16,7 @@ Phase 0A–0C is operational and Phase 1 has a minimal offline Android reader on
 
 **Not production-approved yet:** QuranEnc Arabic difficult-word glosses (currently `awaiting-licence` because its “stay current” republication condition is not yet proven compatible with immutable historical public mirrors), Quranic Arabic Corpus/QuranMorph/QUL morphology, Hadith datasets and other optional content. See `source-vault/registry.json`.
 
-The reader is intentionally narrow: source-faithful Arabic, local navigation, strict local ayah search and safe UI-only tap anchors. Quran search now also has a versioned executable golden benchmark, so broader retrieval lanes must demonstrate measured gains before promotion. Morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+The reader is intentionally narrow: source-faithful Arabic, local navigation, strict local ayah search and safe UI-only tap anchors. A measured strict-miss fallback handles a small fixed set of Arabic orthographic and South-Asian keyboard variants and labels those hits as approximate; source text is never normalized for display. Quran search has a versioned executable golden benchmark, so broader fuzzy/retrieval lanes must demonstrate measured gains before promotion. Morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
 
 ## Architecture boundaries
 
