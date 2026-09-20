@@ -8,13 +8,13 @@ This repository builds trust and reproducibility before UI breadth. Critical ext
 
 ## Current phase
 
-Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. The deterministic Quran core builder is the bridge into early Phase 1.
+Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. A fail-closed, read-only Quran reader projection now starts Phase 1 on top of the deterministic Quran core pack.
 
 **Production-approved today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
 
 **Not production-approved yet:** Quranic Arabic Corpus morphology, Hadith datasets, QUL resources and other optional content. See `source-vault/registry.json`.
 
-This is not yet a finished reader application. Reader UI, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+This is not yet a finished Android reader application. The reader data boundary exists, but the visible RTL/accessibility surface, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows still follow their required trust gates.
 
 ## Architecture boundaries
 
@@ -31,7 +31,7 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 
 `tools/build_quran_core.py` deterministically builds the current `quran-core` 1.0.4 candidate under `content-packs/` using provenance-bound manifest schema v2, including SQLite content, manifest and the source-derived Tanzil attribution notice. The pack contains 6,236 ayahs, keeps display Arabic separate from search-normalized lanes, and remains unsigned/candidate until release review and signing. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
 
-The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.
+The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.\n\n`tools/reader_core.py` validates the local pack before opening it read-only, exposes only source-faithful `original_text` to the reader surface, provides stable Surah/Ayah navigation, and keeps word taps disabled until a future pack explicitly declares a complete verified token layer.
 
 ## Validation
 
