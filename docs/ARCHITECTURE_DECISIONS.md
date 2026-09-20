@@ -59,3 +59,11 @@ The current Ed25519 verifier is a repository/build-time boundary. Android platfo
 Release-key rotation must not force deletion of the public key needed to verify an old approved pack, but retaining an old key must not let a later compromise authorize new releases. Trusted release keys therefore have active/retired/revoked lifecycle state and signed release-sequence validity windows. Retired keys require a finite maximum sequence; revoked keys never count. The active release role must still contain enough active keys to satisfy its threshold.
 
 This is repository-side trust policy. It complements, but does not replace, the future client requirement to persist the highest accepted release sequence and freshness state.
+
+## ADR-016 — Verse-scoped verified glosses may precede full morphology
+
+The product may add a separate optional contextual-gloss pack before a complete morphology pack exists, but only when its exact source snapshot has passed the Source Vault gate. A source-provided verse phrase and contextual gloss remain an attributed assertion bound to `QuranCoordinate`; they do not manufacture `TokenID`, `LexemeID`, `SenseID`, root, lemma, or grammar.
+
+Reader tap resolution at this boundary is conservative: bind a gloss only when the preserved source phrase can be located deterministically and unambiguously against the source-faithful ayah. Fuzzy matching may help research/search, but it must not silently promote a fuzzy phrase alignment into Evidence Plane truth. If the mapping is absent or ambiguous, the UI abstains.
+
+This lets difficult-word comprehension improve independently of morphology licensing while preserving the long-term lexical model. When verified morphology later exists, an explicit mapping overlay may connect the unchanged gloss assertion to canonical lexical entities.
