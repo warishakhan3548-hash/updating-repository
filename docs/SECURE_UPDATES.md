@@ -17,6 +17,8 @@ The design follows TUF principles—trusted metadata, freshness, integrity and r
 
 ## Current implementation status
 
-Hash and provenance validation are implemented, but trusted-key cryptographic signature verification is not yet implemented. Therefore the content-pack gate deliberately rejects every manifest marked `approved`, even when signature-shaped fields are present. This prevents unsigned or fake-signed content from crossing the production Reader activation boundary.
+Hash/provenance and importer-independent Quran semantic validation run before trusted-key Ed25519 signature verification. Approved manifests must carry a positive signed `release_sequence` and satisfy `signature_threshold` in `policy/trusted_pack_keys.json`. See `PACK_SIGNING.md`.
 
-The next signing milestone must define the signed payload/canonicalization, trusted public-key storage, key IDs and rotation, verification algorithm, rollback metadata, and regression tests before any pack may be promoted to `approved`.
+The trusted-key policy currently contains **no production public keys**, so no pack can yet become `approved`. A production private key must be generated and protected outside Git; only its reviewed public key may be enrolled.
+
+Device-side persistence of the highest accepted `release_sequence`, atomic activation and explicit recovery handling remain future runtime work. The build gate authenticates rollback-ordering metadata but does not pretend to own per-device state.
