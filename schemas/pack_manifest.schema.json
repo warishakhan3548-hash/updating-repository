@@ -27,7 +27,10 @@
       "minLength": 1
     },
     "schema_version": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ]
     },
     "content_version": {
       "type": "string",
@@ -108,6 +111,30 @@
     "notice_sha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "source_attribution": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_licence_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "source_licence_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_provenance_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "supersedes": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "dependentRequired": {
@@ -118,5 +145,30 @@
       "notice_path"
     ]
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": 2
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "required": [
+          "source_url",
+          "source_attribution",
+          "source_licence_url",
+          "source_licence_sha256",
+          "source_provenance_sha256",
+          "notice_path",
+          "notice_sha256"
+        ]
+      }
+    }
+  ]
 }
