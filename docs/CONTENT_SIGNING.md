@@ -20,7 +20,7 @@ This prevents a human-friendly label from silently being rebound to different ke
 
 ## Signed payload
 
-The signed payload is the complete manifest with the top-level `signature` property removed. The remaining JSON is serialized as UTF-8 with sorted object keys, compact separators and no NaN/Infinity. Floating-point values are prohibited.
+The signed payload is the complete manifest with the top-level `signature` property removed. The remaining JSON is serialized as UTF-8 with sorted object keys, compact separators and no NaN/Infinity. Floating-point values are prohibited. Integers outside the cross-runtime safe range are rejected, strings must encode as valid UTF-8 Unicode scalar values, and duplicate object keys are rejected when trust-policy or evidence manifests are parsed.
 
 Signature arrays are excluded so independent authorized keys can sign the same immutable payload.
 
