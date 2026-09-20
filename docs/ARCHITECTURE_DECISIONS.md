@@ -84,3 +84,11 @@ The Learning Plane stores review events as durable user history and treats sched
 This contract deliberately does not serialize FSRS equations, parameter vectors or library-specific card objects into permanent event identity. A future scheduler may replay the same preserved events into a different cache implementation.
 
 The v1→v2 migration never guesses the meaning of an unknown historical outcome. Exact canonical grade strings are mapped; all other legacy outcomes remain verbatim with no canonical grade. Historical rows stay append-only.
+
+## ADR-019 — Multi-file evidence snapshots use a checksum-set root
+
+A critical source does not become less trustworthy merely because the publisher exposes it as many immutable files. The Source Vault therefore supports a generic `sha256-set` artifact kind in addition to the existing single-file artifact.
+
+The root artifact is a project-owned checksum ledger whose own SHA-256 and byte size are recorded in the registry. Every ledger member must use a relative POSIX path, remain inside the same immutable snapshot directory and match its recorded SHA-256. Path traversal, symlink escape, duplicate/aliased members and self-reference fail closed.
+
+This is a preservation primitive, not a promotion shortcut. A checksum-bound candidate may remain `research-candidate` or `awaiting-licence`; runtime builders still require `production-approved`, verified redistribution rights, licence/provenance binding and all existing pack gates. Source-specific importers remain separate from the generic integrity contract.
