@@ -75,4 +75,4 @@ The research now converges on four durable choices: immutable source/display dat
 | fact | Deterministic canonical representation is required when structured data is signed; RFC 8785 documents this problem and a JSON canonicalization approach. | https://www.rfc-editor.org/rfc/rfc8785.html | high | Define and version exact signing bytes. The project uses a deliberately narrower manifest format rather than claiming full JCS conformance. |
 | fact | The current PyPI release of `cryptography` is 50.0.1 (2026-08-25), and its official API supports Ed25519 public-key verification. | https://pypi.org/project/cryptography/ and https://cryptography.io/en/latest/hazmat/primitives/asymmetric/ed25519/ | high | Pin the verifier dependency exactly and keep it behind a replaceable signing interface; it is software infrastructure, not Evidence Plane content. |
 | design | A signed monotonic `release_sequence` is included now, while highest-accepted-sequence persistence belongs to the future device activation layer. | project architecture synthesis | high | The build gate can authenticate rollback metadata without pretending to own per-device anti-rollback state. |
-\n
+
