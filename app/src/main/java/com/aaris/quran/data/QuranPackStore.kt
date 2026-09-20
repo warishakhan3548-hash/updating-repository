@@ -133,7 +133,7 @@ class QuranPackStore(context: Context) {
                 digest.update(buffer, 0, read)
             }
         }
-        return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
+        return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
     }
 
     private companion object {
