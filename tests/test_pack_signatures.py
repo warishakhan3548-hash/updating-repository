@@ -8,6 +8,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tools.pack_signatures import (
+    MAX_SAFE_INTEGER,
+    SIGNATURE_PAYLOAD_DOMAIN,
     PackSignatureError,
     canonical_manifest_payload,
     key_id_for_ed25519_public_key,
@@ -25,12 +27,13 @@ class PackSignatureTests(unittest.TestCase):
         ).hex()
         return private, public, key_id_for_ed25519_public_key(public)
 
-    def _manifest(self):
+    def _manifest(self, release_sequence: int = 7):
         return {
             "pack_id": "quran-core",
-            "schema_version": 2,
+            "schema_version": 3,
             "content_version": "1.2.3",
             "review_status": "approved",
+            "release_sequence": release_sequence,
             "built_sha256": "ab" * 32,
             "built_byte_size": 123,
             "dependencies": [],
@@ -59,14 +62,17 @@ class PackSignatureTests(unittest.TestCase):
                         key_id: {
                             "algorithm": "ed25519",
                             "public_key": public,
+                            "status": status,
+                            "min_release_sequence": minimum,
+                            "max_release_sequence": maximum,
                         }
-                        for key_id, public in keys
+                        for key_id, public, status, minimum, maximum in keys
                     },
                     "roles": {
                         "content-pack-release": {
                             "threshold": threshold,
                             "key_ids": [
-                                key_id for key_id, _ in keys
+                                key_id for key_id, *_ in keys
                             ],
                         }
                     },
@@ -76,6 +82,9 @@ class PackSignatureTests(unittest.TestCase):
             encoding="utf-8",
         )
         return keyring
+
+    def _active(self, key_id, public, minimum=1):
+        return (key_id, public, "active", minimum, None)
 
     def _sign(self, manifest, private, key_id):
         signature = private.sign(
@@ -89,6 +98,19 @@ class PackSignatureTests(unittest.TestCase):
             }
         )
 
+    def test_payload_is_domain_separated_and_signature_block_excluded(self):
+        manifest = self._manifest()
+        before = canonical_manifest_payload(manifest)
+        self.assertTrue(before.startswith(SIGNATURE_PAYLOAD_DOMAIN))
+        manifest["signature"]["signatures"].append(
+            {
+                "algorithm": "ed25519",
+                "key_id": "x",
+                "value": "y",
+            }
+        )
+        self.assertEqual(before, canonical_manifest_payload(manifest))
+
     def test_valid_threshold_signature_verifies(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -96,7 +118,7 @@ class PackSignatureTests(unittest.TestCase):
             p2, pub2, id2 = self._key(2)
             keyring = self._write_keyring(
                 root,
-                [(id1, pub1), (id2, pub2)],
+                [self._active(id1, pub1), self._active(id2, pub2)],
                 threshold=2,
             )
             manifest = self._manifest()
@@ -112,7 +134,7 @@ class PackSignatureTests(unittest.TestCase):
             root = Path(tmp)
             private, public, key_id = self._key(3)
             keyring = self._write_keyring(
-                root, [(key_id, public)]
+                root, [self._active(key_id, public)]
             )
             manifest = self._manifest()
             self._sign(manifest, private, key_id)
@@ -122,28 +144,35 @@ class PackSignatureTests(unittest.TestCase):
             ):
                 verify_approved_manifest(manifest, keyring)
 
-    def test_signature_block_is_not_part_of_signed_payload(self):
-        manifest = self._manifest()
-        before = canonical_manifest_payload(manifest)
-        manifest["signature"]["signatures"].append(
-            {
-                "algorithm": "ed25519",
-                "key_id": "x",
-                "value": "y",
-            }
-        )
-        self.assertEqual(
-            before,
-            canonical_manifest_payload(manifest),
-        )
-
-    def test_unconfigured_keyring_fails_closed(self):
+    def test_release_sequence_is_signed_and_required(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             private, public, key_id = self._key(4)
             keyring = self._write_keyring(
+                root, [self._active(key_id, public)]
+            )
+            manifest = self._manifest(release_sequence=8)
+            self._sign(manifest, private, key_id)
+            manifest["release_sequence"] = 9
+            with self.assertRaisesRegex(
+                PackSignatureError, "invalid Ed25519"
+            ):
+                verify_approved_manifest(manifest, keyring)
+
+            missing = self._manifest()
+            missing.pop("release_sequence")
+            with self.assertRaisesRegex(
+                PackSignatureError, "release_sequence"
+            ):
+                verify_approved_manifest(missing, keyring)
+
+    def test_unconfigured_keyring_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private, public, key_id = self._key(5)
+            keyring = self._write_keyring(
                 root,
-                [(key_id, public)],
+                [self._active(key_id, public)],
                 state="bootstrap-required",
             )
             manifest = self._manifest()
@@ -156,11 +185,11 @@ class PackSignatureTests(unittest.TestCase):
     def test_duplicate_signature_key_cannot_satisfy_threshold(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            p1, pub1, id1 = self._key(5)
-            _, pub2, id2 = self._key(6)
+            p1, pub1, id1 = self._key(6)
+            _, pub2, id2 = self._key(7)
             keyring = self._write_keyring(
                 root,
-                [(id1, pub1), (id2, pub2)],
+                [self._active(id1, pub1), self._active(id2, pub2)],
                 threshold=2,
             )
             manifest = self._manifest()
@@ -178,10 +207,10 @@ class PackSignatureTests(unittest.TestCase):
     def test_unauthorized_signature_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _, trusted_pub, trusted_id = self._key(7)
-            attacker, _, attacker_id = self._key(8)
+            _, trusted_pub, trusted_id = self._key(8)
+            attacker, _, attacker_id = self._key(9)
             keyring = self._write_keyring(
-                root, [(trusted_id, trusted_pub)]
+                root, [self._active(trusted_id, trusted_pub)]
             )
             manifest = self._manifest()
             self._sign(manifest, attacker, attacker_id)
@@ -190,11 +219,75 @@ class PackSignatureTests(unittest.TestCase):
             ):
                 verify_approved_manifest(manifest, keyring)
 
-    def test_float_in_signed_payload_is_rejected(self):
+    def test_retired_key_is_bounded_to_historical_sequence_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private, public, key_id = self._key(10)
+            keyring = self._write_keyring(
+                root,
+                [(key_id, public, "retired", 3, 7)],
+            )
+            historical = self._manifest(release_sequence=7)
+            self._sign(historical, private, key_id)
+            self.assertEqual(
+                1,
+                verify_approved_manifest(historical, keyring),
+            )
+
+            future = self._manifest(release_sequence=8)
+            self._sign(future, private, key_id)
+            with self.assertRaisesRegex(
+                PackSignatureError, "release-sequence window"
+            ):
+                verify_approved_manifest(future, keyring)
+
+    def test_revoked_key_never_verifies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private, public, key_id = self._key(11)
+            keyring = self._write_keyring(
+                root,
+                [(key_id, public, "revoked", 1, None)],
+            )
+            manifest = self._manifest()
+            self._sign(manifest, private, key_id)
+            with self.assertRaisesRegex(
+                PackSignatureError, "revoked"
+            ):
+                verify_approved_manifest(manifest, keyring)
+
+    def test_active_key_cannot_have_future_ceiling(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, public, key_id = self._key(12)
+            keyring = self._write_keyring(
+                root,
+                [(key_id, public, "active", 1, 4)],
+            )
+            with self.assertRaisesRegex(
+                PackSignatureError, "must not have max_release_sequence"
+            ):
+                validate_trusted_key_policy(keyring)
+
+    def test_restricted_json_rejects_float_large_integer_and_surrogate(self):
         manifest = self._manifest()
         manifest["score"] = 0.5
         with self.assertRaisesRegex(
             PackSignatureError, "floating-point"
+        ):
+            canonical_manifest_payload(manifest)
+
+        manifest = self._manifest()
+        manifest["counter"] = MAX_SAFE_INTEGER + 1
+        with self.assertRaisesRegex(
+            PackSignatureError, "safe range"
+        ):
+            canonical_manifest_payload(manifest)
+
+        manifest = self._manifest()
+        manifest["source_attribution"] = "\ud800"
+        with self.assertRaisesRegex(
+            PackSignatureError, "Unicode scalar"
         ):
             canonical_manifest_payload(manifest)
 
@@ -207,10 +300,23 @@ class PackSignatureTests(unittest.TestCase):
         self.assertEqual(set(), authorized)
         self.assertEqual(1, threshold)
 
+    def test_policy_rejects_duplicate_json_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "trusted_pack_keys.json"
+            path.write_text(
+                '{"schema_version":1,"schema_version":1,"state":"bootstrap-required",'
+                '"keys":{},"roles":{"content-pack-release":{"threshold":1,"key_ids":[]}}}',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                PackSignatureError, "duplicate JSON object key"
+            ):
+                validate_trusted_key_policy(path)
+
     def test_bootstrap_policy_still_rejects_bad_key_fingerprint(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _, public, _ = self._key(10)
+            _, public, _ = self._key(13)
             keyring = root / "trusted_pack_keys.json"
             keyring.write_text(
                 json.dumps(
@@ -221,6 +327,9 @@ class PackSignatureTests(unittest.TestCase):
                             "0" * 64: {
                                 "algorithm": "ed25519",
                                 "public_key": public,
+                                "status": "active",
+                                "min_release_sequence": 1,
+                                "max_release_sequence": None,
                             }
                         },
                         "roles": {
