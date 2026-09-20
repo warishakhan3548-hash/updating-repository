@@ -64,6 +64,32 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def load_embedded_notice_bytes(path: Path) -> bytes:
+    """Extract the exact comment lines embedded in the preserved Tanzil artifact."""
+    raw = path.read_bytes()
+    notice = b"".join(
+        line for line in raw.splitlines(keepends=True) if line.startswith(b"#")
+    )
+    if not notice:
+        raise QuranSourceError("source artifact contains no embedded notice")
+    try:
+        decoded = notice.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise QuranSourceError("source artifact notice is not valid UTF-8") from exc
+    required_notice = (
+        "Tanzil Quran Text (Uthmani, Version 1.1)",
+        "Creative Commons Attribution 3.0",
+        "CHANGING IT IS NOT ALLOWED",
+        "tanzil.net",
+    )
+    for marker in required_notice:
+        if marker not in decoded:
+            raise QuranSourceError(
+                f"source artifact notice missing required marker: {marker}"
+            )
+    return notice
+
+
 def expected_coordinates() -> tuple[tuple[int, int], ...]:
     return tuple(
         (surah, ayah)
@@ -90,15 +116,8 @@ def normalize_search_diacritic_free(text: str) -> str:
 
 
 def load_tanzil_txt2(path: Path) -> list[AyahRow]:
+    load_embedded_notice_bytes(path)
     raw = path.read_text(encoding="utf-8")
-    required_notice = (
-        "Tanzil Quran Text (Uthmani, Version 1.1)",
-        "Creative Commons Attribution 3.0",
-        "CHANGING IT IS NOT ALLOWED",
-    )
-    for marker in required_notice:
-        if marker not in raw:
-            raise QuranSourceError(f"source artifact missing required marker: {marker}")
 
     rows: list[AyahRow] = []
     for line_number, line in enumerate(raw.splitlines(), start=1):
