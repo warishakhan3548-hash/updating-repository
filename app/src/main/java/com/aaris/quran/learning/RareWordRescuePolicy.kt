@@ -22,7 +22,6 @@ enum class RescueAction {
 
 data class RareWordRescueConfig(
     val version: String = "rare-word-rescue-v1",
-    val naturalSubstitutionMinRetrievability: Double = 0.60,
     val quickPeekEnrollmentThreshold: Int = 2,
 )
 
@@ -30,6 +29,7 @@ data class LearningSignals(
     val semanticUnitId: String,
     val isEnrolled: Boolean = false,
     val schedulerReviewDue: Boolean = false,
+    val schedulerAllowsNaturalSubstitution: Boolean = false,
     val retrievability: Double? = null,
     val predictedNaturalExposuresSoon: Int = 0,
     val explicitUnknownSinceSuccess: Int = 0,
@@ -82,7 +82,14 @@ object RareWordRescuePolicy {
 
         val reasons = linkedSetOf<String>()
         if (currentStruggle) reasons += "current_struggle"
-        if (signals.schedulerReviewDue) reasons += "scheduler_review_due"
+        if (signals.schedulerReviewDue) {
+            reasons += "scheduler_review_due"
+            reasons += if (signals.schedulerAllowsNaturalSubstitution) {
+                "scheduler_allows_natural_substitution"
+            } else {
+                "scheduler_requires_explicit_review"
+            }
+        }
         if (signals.retrievability == null) reasons += "retrievability_unknown"
         if (signals.predictedNaturalExposuresSoon > 0) {
             reasons += "natural_exposure_available"
@@ -101,7 +108,7 @@ object RareWordRescuePolicy {
                 RescueAction.HOLD
             }
 
-            canUseNaturalExposure(signals, currentStruggle, config) -> {
+            canUseNaturalExposure(signals, currentStruggle) -> {
                 reasons += "defer_interruptive_review"
                 RescueAction.NATURAL_EXPOSURE
             }
@@ -128,19 +135,19 @@ object RareWordRescuePolicy {
     private fun canUseNaturalExposure(
         signals: LearningSignals,
         currentStruggle: Boolean,
-        config: RareWordRescueConfig,
     ): Boolean {
         if (signals.predictedNaturalExposuresSoon <= 0) return false
 
-        val retrievability = signals.retrievability
-        if (retrievability != null) {
-            return retrievability >= config.naturalSubstitutionMinRetrievability
+        // A due review is scheduler-owned. The learning policy must not invent a universal
+        // retrievability floor because desired retention and scheduling policy are adapter
+        // concerns. Missing authorization therefore fails closed to explicit review.
+        if (signals.schedulerReviewDue) {
+            return signals.schedulerAllowsNaturalSubstitution
         }
 
-        // Fail closed for an already-due scheduler review when memory strength is unknown.
-        // A newly observed struggle may instead wait for an imminent natural encounter,
-        // because no scheduler evidence is being overridden in that case.
-        return currentStruggle && !signals.schedulerReviewDue
+        // A newly observed struggle that is not yet scheduler-due may use an imminent natural
+        // encounter as the next opportunity without fabricating successful recall evidence.
+        return currentStruggle
     }
 
     private fun validate(
@@ -151,9 +158,6 @@ object RareWordRescuePolicy {
             "semanticUnitId must be a non-blank app-owned canonical ID"
         }
         require(config.version.isNotBlank()) { "policy version must not be blank" }
-        require(config.naturalSubstitutionMinRetrievability in 0.0..1.0) {
-            "naturalSubstitutionMinRetrievability must be within 0..1"
-        }
         require(config.quickPeekEnrollmentThreshold >= 2) {
             "quickPeekEnrollmentThreshold must be at least 2"
         }
