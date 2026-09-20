@@ -6,6 +6,10 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "app" / "build.gradle.kts"
 MANIFEST = ROOT / "app" / "src" / "main" / "AndroidManifest.xml"
+READER_SCREEN = (
+    ROOT / "app" / "src" / "main" / "java" / "com" / "aaris"
+    / "quran" / "ui" / "ReaderScreen.kt"
+)
 
 
 class AndroidReaderTrustTests(unittest.TestCase):
@@ -92,6 +96,13 @@ class AndroidReaderTrustTests(unittest.TestCase):
 
         self.assertLess(preflight, activation)
         self.assertLess(activation, record)
+
+    def test_unverified_word_help_is_not_exposed_as_dead_end_gesture(self):
+        reader = READER_SCREEN.read_text(encoding="utf-8")
+
+        self.assertNotIn("detectTapGestures", reader)
+        self.assertNotIn("SurfaceTapAnchorResolver", reader)
+        self.assertNotIn("Verified word details are not installed yet.", reader)
 
     def test_reader_has_no_direct_network_permission(self):
         manifest = MANIFEST.read_text(encoding="utf-8")
