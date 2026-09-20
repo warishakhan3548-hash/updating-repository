@@ -94,7 +94,7 @@ For any such source, the registry remains `awaiting-licence` until the project h
 This keeps “we may republish the current version” separate from “we may permanently mirror every historical version,” which are different legal and durability questions.
 
 
-## ADR-019 — Compatibility spelling search is a labelled fallback, not evidence normalization
+## ADR-020 — Compatibility spelling search is a labelled fallback, not evidence normalization
 
 Quran search may apply a small, versioned spelling-compatibility fold only after the strict provenance-bound search lane abstains. The fold exists to bridge common orthographic and South-Asian keyboard code-point differences; it never changes stored Quran text, canonical artifacts, source hashes or display fields.
 
