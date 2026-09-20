@@ -1,3 +1,4 @@
+import groovy.json.JsonSlurper
 import java.io.File
 import java.security.MessageDigest
 import org.gradle.api.tasks.Exec
@@ -21,9 +22,21 @@ fun manifestString(key: String): String {
         ?: error("Quran pack manifest is missing string field: $key")
 }
 
-fun manifestLong(key: String): Long? {
-    val pattern = Regex(""""${Regex.escape(key)}"\s*:\s*(\d+)""")
-    return pattern.find(manifestText)?.groupValues?.get(1)?.toLongOrNull()
+fun manifestTopLevelReleaseSequenceOrZero(): Long {
+    val manifest = JsonSlurper().parseText(manifestText) as? Map<*, *>
+        ?: error("Quran pack manifest root must be a JSON object")
+    val raw = manifest["release_sequence"] ?: return 0L
+    val sequence = when (raw) {
+        is Int -> raw.toLong()
+        is Long -> raw
+        is java.math.BigInteger -> raw.longValueExact()
+        is java.math.BigDecimal -> raw.longValueExact()
+        else -> error("Quran pack release_sequence must be an integer")
+    }
+    require(sequence in 1..9_007_199_254_740_991L) {
+        "Quran pack release_sequence is outside the signed cross-runtime safe range"
+    }
+    return sequence
 }
 
 fun File.sha256(): String {
