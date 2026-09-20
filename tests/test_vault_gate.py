@@ -438,6 +438,37 @@ class VaultGateTests(unittest.TestCase):
             ):
                 validate_registry(path)
 
+    def test_awaiting_artifact_blocks_unresolved_historical_snapshot_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {
+                    "source_id": "candidate",
+                    "status": "awaiting-artifact",
+                    "release_requirements": {
+                        "latest_upstream_version_required": True,
+                        "version_check_url": "https://example.invalid/versions",
+                        "historical_snapshot_retention_status": "unresolved",
+                    },
+                },
+            )
+            with self.assertRaisesRegex(
+                VaultGateError,
+                "verified historical snapshot retention permission before capture",
+            ):
+                validate_registry(path)
+
+    def test_awaiting_licence_source_cannot_preserve_snapshot_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root, status="awaiting-licence")
+            path = self._registry(root, source)
+            with self.assertRaisesRegex(
+                VaultGateError,
+                "awaiting-licence source must not preserve project-controlled snapshot bytes",
+            ):
+                validate_registry(path)
+
     def test_production_source_blocks_unresolved_historical_snapshot_retention(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
