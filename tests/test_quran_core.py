@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 import shutil
+import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -68,6 +71,52 @@ class QuranCoreTests(unittest.TestCase):
             json.dumps(registry, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+    def test_builder_cli_executes_from_repository_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_root = Path(tmp)
+            self._copy_fixture_root(fixture_root)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "build_quran_core.py"),
+                    "--root",
+                    str(fixture_root),
+                    "--output",
+                    "content-packs/quran-core/1.0.0",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                msg=f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+            )
+            self.assertTrue(
+                (fixture_root / "content-packs/quran-core/1.0.0/content.sqlite").is_file()
+            )
+
+    def test_runtime_pack_embeds_verbatim_source_notice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_root = Path(tmp)
+            self._copy_fixture_root(fixture_root)
+            database, _ = build_pack(
+                fixture_root, Path("content-packs/quran-core/1.0.0")
+            )
+            connection = sqlite3.connect(database)
+            try:
+                notice = connection.execute(
+                    "SELECT value FROM pack_metadata WHERE key='source_notice_verbatim'"
+                ).fetchone()[0]
+            finally:
+                connection.close()
+            self.assertIn("Tanzil Quran Text (Uthmani, Version 1.1)", notice)
+            self.assertIn("Creative Commons Attribution 3.0", notice)
+            self.assertIn("CHANGING IT IS NOT ALLOWED", notice)
+            self.assertIn("tanzil.net", notice)
 
     def test_builder_is_byte_reproducible_for_identical_inputs(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
