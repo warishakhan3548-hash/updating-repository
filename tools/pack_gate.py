@@ -13,6 +13,7 @@ if __package__ in (None, ""):
 
 from tools.pack_signatures import (
     PackSignatureError,
+    load_strict_json_file,
     validate_trusted_key_policy,
     verify_approved_manifest,
 )
@@ -64,7 +65,13 @@ def _safe_repo_file(root: Path, raw: object, field: str, prefix: str) -> Path:
 def _load_sources(registry_path: Path) -> tuple[Path, dict[str, dict]]:
     registry_path = registry_path.resolve()
     root = registry_path.parents[1]
-    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    try:
+        registry = load_strict_json_file(
+            registry_path,
+            label="source registry",
+        )
+    except PackSignatureError as exc:
+        raise PackGateError(f"invalid source registry JSON: {exc}") from exc
     if registry.get("schema_version") != 1:
         raise PackGateError("unsupported source registry schema_version")
     sources = registry.get("sources")
@@ -115,11 +122,12 @@ def _validate_canonical_binding(
         raise PackGateError(f"{manifest_path}: canonical manifest SHA-256 mismatch")
 
     try:
-        canonical_manifest = json.loads(
-            canonical_manifest_path.read_text(encoding="utf-8")
+        canonical_manifest = load_strict_json_file(
+            canonical_manifest_path,
+            label="canonical manifest",
         )
-    except (OSError, json.JSONDecodeError) as exc:
-        raise PackGateError(f"{manifest_path}: invalid canonical manifest") from exc
+    except PackSignatureError as exc:
+        raise PackGateError(f"{manifest_path}: invalid canonical manifest: {exc}") from exc
 
     artifact = _safe_repo_file(
         root, canonical["artifact_path"], "canonical.artifact_path", "canonical"
@@ -202,7 +210,13 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     except ValueError as exc:
         raise PackGateError("manifest must be under content-packs/") from exc
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = load_strict_json_file(
+            manifest_path,
+            label="pack manifest",
+        )
+    except PackSignatureError as exc:
+        raise PackGateError(f"{manifest_path}: invalid manifest JSON: {exc}") from exc
     required = [
         "pack_id",
         "schema_version",
