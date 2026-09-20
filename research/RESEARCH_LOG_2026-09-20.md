@@ -65,3 +65,14 @@ The research now converges on four durable choices: immutable source/display dat
 | type | claim | source | confidence | product implication |
 | --- | --- | --- | --- | --- |
 | fact | SQLite stores file-level structural/version metadata such as the file change counter and the SQLite version that most recently modified the database. A runtime SQLite SHA-256 identifies exact file bytes but does not by itself prove semantic fidelity to an external preserved source. | https://sqlite.org/fileformat.html | high | Keep byte-integrity checking, but independently compare schema and Quran evidence rows/search lanes back to the pinned Source Vault before promotion. |
+
+
+## Android reader implementation update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | Android 16 API level 36 is a stable SDK platform; Android 17 API level 37 is still documented as a preview SDK requiring preview tooling. | https://developer.android.com/tools/releases/platforms and https://developer.android.com/about/versions/17/setup-sdk | high | Compile and target the initial reader on stable API 36 because it uses no Android 17-only API; preview SDK availability must not make trusted CI flaky. |
+| fact | Android Gradle Plugin 9.4.0 requires Gradle 9.6.0 and JDK 17, and defaults to SDK Build Tools 36.0.0. | https://developer.android.com/build/releases/agp-9-4-0-release-notes | high | Keep the reader toolchain pinned to this compatible set and avoid unnecessary build-tool churn. |
+| fact | Android accessibility guidance recommends at least 48dp touch targets; Compose Material/Foundation components provide useful default semantics but custom behavior still requires verification. | https://developer.android.com/develop/ui/compose/accessibility/api-defaults | high | Keep primary controls at least 48dp and treat on-device TalkBack/focus testing as a release gate. |
+| fact | Android apps need INTERNET permission to perform their own network operations. | https://developer.android.com/develop/connectivity/network-ops/connecting | high | Omit INTERNET/ACCESS_NETWORK_STATE so the Quran read path cannot silently become cloud-dependent; explicit external-browser intents remain separate. |
+| fact | Android SQLiteDatabase.OPEN_READONLY opens a database for reading only. | https://developer.android.com/reference/android/database/sqlite/SQLiteDatabase | high | Open verified Quran content read-only after integrity checks; later user state belongs in a separate writable store. |
