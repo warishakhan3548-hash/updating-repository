@@ -8,13 +8,14 @@ Each pack manifest includes:
 - `source_id`, source name/version/edition;
 - exact `source_vault_path` and `source_sha256`;
 - licence identifier;
+- source attribution/link and a notice path/hash when redistribution terms require attribution;
 - importer version;
 - runtime `artifact_path`, `record_count`, `built_sha256`, `built_byte_size`;
 - review status;
 - dependencies;
 - signature metadata.
 
-`tools/pack_gate.py` fails closed when the source is not production-approved, when source identity/hash/path/licence drift from the Source Vault registry, or when the built artifact's bytes no longer match its manifest.
+`tools/pack_gate.py` fails closed when the source is not production-approved, when source identity/hash/path/licence drift from the Source Vault registry, or when the built artifact's bytes no longer match its manifest. For attribution-required sources, the gate also verifies that the notice lives inside the same pack directory and that its SHA-256 matches the manifest.
 
 `candidate` and `reviewed` packs may be unsigned during development. A pack marked `approved` must carry signature algorithm, key ID and signature value. This creates the release boundary now while allowing the final signing implementation/key-management policy to remain replaceable.
 
