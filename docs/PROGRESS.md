@@ -17,7 +17,7 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - 114-surah / 6,236-ayah coordinate invariants;
 - display Arabic separated from derived search-normalized lanes;
 - deterministic Quran-core importer with byte-reproducibility coverage;
-- complete candidate Quran core pack published at `content-packs/quran-core/1.0.1/`;
+- complete candidate Quran core pack published at `content-packs/quran-core/1.0.1/`;\n- importer-independent Quran semantic verifier that reconstructs all 6,236 expected rows from the preserved Source Vault artifact;\n- tamper regression proving changed Quran text is rejected even when the altered SQLite file receives a freshly recomputed artifact SHA-256;
 - GitHub Actions foundation checks and deterministic pack build workflow.
 
 ## Production Source Vault
@@ -58,7 +58,7 @@ Candidate does not mean release-approved. Promotion must still pass review/signi
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, pack/source identity binding, required attribution-notice hashing, SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The Evidence foundation workflow passed after the attribution-notice gate and regression tests were added.
+Automated coverage now checks Source Vault integrity, licence/provenance consistency, pack/source identity binding, required attribution-notice hashing, SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. Quran pack validation additionally opens the shipped database read-only and checks SQLite integrity, exact release metadata, source assertion identity, required immutability guards, all 6,236 Quran display rows, recomputed search lanes, and the absence of undeclared morphology/Hadith evidence.
 
 No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
