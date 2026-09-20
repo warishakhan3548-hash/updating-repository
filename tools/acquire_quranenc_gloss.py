@@ -91,26 +91,43 @@ def fetch_https(url: str) -> Download:
         headers={
             "User-Agent": USER_AGENT,
             "Accept": "*/*",
+            "Accept-Encoding": "identity",
         },
     )
-    with urlopen(request, timeout=45) as response:  # nosec B310: host is allow-listed
-        final_url = response.geturl()
-        _require_quranenc_https(final_url, "final URL")
-        status = int(getattr(response, "status", response.getcode()))
-        if status != 200:
-            raise CaptureError(f"{url}: HTTP {status}")
-        body = response.read()
-        if not body:
-            raise CaptureError(f"{url}: empty response")
-        return Download(
-            requested_url=url,
-            final_url=final_url,
-            status=status,
-            content_type=response.headers.get("Content-Type"),
-            etag=response.headers.get("ETag"),
-            last_modified=response.headers.get("Last-Modified"),
-            body=body,
-        )
+
+    retryable_statuses = {429, 500, 502, 503, 504}
+    for attempt in range(1, 5):
+        try:
+            with urlopen(request, timeout=45) as response:  # nosec B310: host is allow-listed
+                final_url = response.geturl()
+                _require_quranenc_https(final_url, "final URL")
+                status = int(getattr(response, "status", response.getcode()))
+                if status != 200:
+                    raise CaptureError(f"{url}: HTTP {status}")
+                body = response.read()
+                if not body:
+                    raise CaptureError(f"{url}: empty response")
+                return Download(
+                    requested_url=url,
+                    final_url=final_url,
+                    status=status,
+                    content_type=response.headers.get("Content-Type"),
+                    etag=response.headers.get("ETag"),
+                    last_modified=response.headers.get("Last-Modified"),
+                    body=body,
+                )
+        except HTTPError as exc:
+            if exc.code in retryable_statuses and attempt < 4:
+                time.sleep(2 ** (attempt - 1))
+                continue
+            raise CaptureError(f"{url}: HTTP {exc.code}") from exc
+        except URLError as exc:
+            if attempt < 4:
+                time.sleep(2 ** (attempt - 1))
+                continue
+            raise CaptureError(f"{url}: network error: {exc.reason}") from exc
+
+    raise CaptureError(f"{url}: exhausted download retries")
 
 
 def validate_source_index(raw: bytes) -> dict:
