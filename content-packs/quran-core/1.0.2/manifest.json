@@ -1,0 +1,29 @@
+{
+  "artifact_path": "content-packs/quran-core/1.0.2/content.sqlite",
+  "built_byte_size": 4599808,
+  "built_sha256": "fbb8827d9a80b29087153178615ede039d15aa50c33c43b536ebcd8c9eaa531e",
+  "content_version": "1.0.2",
+  "dependencies": [],
+  "edition": "Uthmani",
+  "importer_version": "quran-core-importer-3",
+  "licence": "CC-BY-3.0-with-source-specific-no-modification-terms",
+  "notice_path": "content-packs/quran-core/1.0.2/NOTICE.txt",
+  "notice_sha256": "731ac0d39eb5081307625f5111b19bd8786c6646e695aa8fb0263ad701f41544",
+  "pack_id": "quran-core",
+  "record_count": 6236,
+  "review_status": "candidate",
+  "schema_version": 1,
+  "search_normalization_version": "arabic-search-v1",
+  "signature": {
+    "status": "unsigned"
+  },
+  "source_artifact_name": "quran-uthmani.txt",
+  "source_attribution": "Tanzil Project; link to https://tanzil.net/",
+  "source_id": "quran.tanzil.uthmani.v1.1",
+  "source_name": "Tanzil Quran Text",
+  "source_notice_sha256": "731ac0d39eb5081307625f5111b19bd8786c6646e695aa8fb0263ad701f41544",
+  "source_sha256": "4b91f9e6e8ac645d039e4ed85b3be492e795232a31cd22d668ac58238722e26f",
+  "source_url": "https://tanzil.net/pub/download/index.php?quranType=uthmani&outType=txt-2&agree=true&marks=true&sajdah=true&rub=true",
+  "source_vault_path": "source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/quran-uthmani.txt",
+  "source_version": "1.1"
+}
