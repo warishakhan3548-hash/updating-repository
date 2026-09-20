@@ -24,3 +24,13 @@ Every new v2 review must record exactly one canonical grade: `again`, `hard`, `g
 Bookmarks, notes and preferences live in the user database and belong in versioned export/import.
 
 Regression coverage lives in `tests/test_user_migrations.py`; `tools/validate_schemas.py` compiles both v1 and v2 so future migrations cannot silently orphan the current contract.
+
+## Portability
+
+The durable database now has a versioned portable backup contract documented in `docs/USER_DATA_PORTABILITY.md`.
+
+`tools/user_backup.py` exports a consistent SQLite snapshot through the SQLite backup API, binds it to a small manifest by SHA-256/byte size/`PRAGMA user_version`, and validates the completed archive before publication. Restore accepts only supported schemas and writes to a new destination path after archive and SQLite integrity checks.
+
+The backup deliberately keeps the existing SQLite schema as the sole owner of learning history. It does not serialize review/exposure rows into a parallel JSON model, and it does not include replaceable `content.sqlite` evidence packs.
+
+Regression coverage lives in `tests/test_user_backup.py`.
