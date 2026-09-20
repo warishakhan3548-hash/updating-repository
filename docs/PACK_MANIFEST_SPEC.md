@@ -46,7 +46,7 @@ Historical schema-v1/v2 packs remain immutable and verifiable under their own co
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: all ordinary gates pass and the manifest release signature verifies against the active project trust root.
+- `approved`: all ordinary gates pass, `release_sequence` is a positive integer, and the manifest release signature verifies against the active project trust root.
 
 Approved manifests use `aaris-pack-signature-v1`:
 
@@ -64,7 +64,7 @@ Approved manifests use `aaris-pack-signature-v1`:
 }
 ```
 
-The signed bytes are deterministic JSON for the entire manifest except the top-level `signature` field. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version and review status are therefore covered by the signature.
+The signed bytes are deterministic JSON for the entire manifest except the top-level `signature` field. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version, review status and `release_sequence` are therefore covered by the signature. The sequence is the monotonic ordering primitive for future anti-rollback state; current clients do not yet persist the highest accepted value for downloaded updates.
 
 `tools/pack_gate.py` delegates approved-manifest authenticity to `tools/pack_signatures.py`; signature-shaped strings are never sufficient. Trusted release public keys and threshold policy live in `policy/trusted_pack_keys.json`. Key IDs are derived from the public key, and private keys must remain outside the repository.
 

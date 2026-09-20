@@ -33,6 +33,12 @@ Signature format v1 deliberately uses a narrow, project-owned JSON contract rath
 
 These restrictions keep Arabic attribution or other Unicode string values intact while preventing a future verifier from authenticating different bytes because of duplicate names, numeric precision or property-ordering differences. If the format ever needs richer numeric/property-name semantics, introduce a new signature-format version rather than silently changing v1.
 
+## Release ordering
+
+Every approved manifest must carry a positive integer `release_sequence`. Because it is outside the excluded signature block, the sequence is authenticated by every release signature. It is an app-owned monotonic ordering primitive for future rollback protection and does not depend on semantic-version string parsing.
+
+The repository verifier checks that the value is a positive integer. Automatic downloaded-pack activation is still blocked until clients persist the highest accepted sequence and reject lower values except through an explicit recovery procedure.
+
 ## Bootstrap ceremony
 
 The repository intentionally starts with `state: bootstrap-required`.
@@ -62,3 +68,5 @@ Remote self-updating trust metadata is deliberately out of scope until rollback/
 ## Dependency boundary
 
 `cryptography` is pinned only for CI/release verification. Android runtime does not depend on Python or this package. The signature format, canonical payload and trust-root schema are project-owned contracts so the implementation library remains replaceable.
+
+The current bundled-release boundary verifies Ed25519 at build time. Android's platform Ed25519 `Signature` support begins at API 33 while this app supports older devices, so a future **on-device downloaded-pack verifier must not assume platform Ed25519 is available on every supported device**. Before remote updates ship, choose and test either a reviewed compatible Ed25519 implementation/provider or a versioned signature-format migration that has native support across the supported API range.
