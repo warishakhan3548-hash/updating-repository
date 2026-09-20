@@ -110,3 +110,13 @@ The research now converges on four durable choices: immutable source/display dat
 | --- | --- | --- | --- | --- |
 | fact | Android documents lint as a correctness tool and recommends fixing identified lint errors before production; Compose ships dedicated lint checks, and current Compose versions require a sufficiently recent AGP/Lint baseline. | https://developer.android.com/develop/ui/compose/tooling/lint | high | Run `:app:lintDebug` in the existing reader CI before claiming Phase-1 release quality; do not rely on developer IDE lint alone. |
 | fact | Compose testing is driven by the semantics tree used for accessibility, while full automated accessibility checks require device-side Compose test infrastructure. | https://developer.android.com/develop/ui/compose/testing and https://developer.android.com/reference/kotlin/androidx/compose/ui/test/junit4/ComposeTestRule | high | Add lint now as a deterministic CI gate, while keeping real API-34+ accessibility checks/device validation as a separate measured milestone rather than pretending lint proves accessibility. |
+
+## Android rollback-state update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | TUF defines rollback as presenting content older than a client has already seen and freshness as refusing obsolete trusted state. | https://theupdateframework.io/docs/security/ and https://theupdateframework.io/docs/metadata/ | high | A signed release sequence needs client-persisted acceptance state; signed ordering alone is not rollback resistance. |
+| fact | Android `getNoBackupFilesDir()` stores app-internal files excluded from automatic backup. | https://developer.android.com/reference/android/content/Context#getNoBackupFilesDir() | high | Store rollback acceptance state there so cloud restore does not silently restore an older highest-sequence value. |
+| fact | Android `AtomicFile` provides fail-safe replacement semantics for a file. | https://developer.android.com/reference/android/util/AtomicFile | high | Use it for the tiny rollback-state file and bundled pack replacement to avoid delete-then-write crash windows. |
+| inference | Adding DataStore solely for one monotonic sequence/hash record would add a dependency without improving the present trust model over a strict small `AtomicFile` record. | repository + Android storage synthesis | high | Keep the mechanism dependency-free until broader settings/state justify another storage layer. |
+| limitation | App-internal rollback state is erased by uninstall or clear-data and is not a hardware monotonic counter. | Android application-storage model | high | Do not claim protection against device-owner/root compromise or post-uninstall replay. |

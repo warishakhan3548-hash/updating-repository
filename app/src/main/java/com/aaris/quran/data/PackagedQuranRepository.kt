@@ -2,6 +2,7 @@ package com.aaris.quran.data
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.util.AtomicFile
 import com.aaris.quran.BuildConfig
 import com.aaris.quran.model.QuranAyah
 import java.io.File
@@ -12,11 +13,40 @@ import kotlinx.coroutines.withContext
 class PackagedQuranRepository(
     private val context: Context,
 ) : QuranRepository {
+    private val activationStateStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        PackActivationStateStore(context)
+    }
+
     private val installedPack: File by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         require(BuildConfig.DEBUG || BuildConfig.QURAN_PACK_RELEASE_READY) {
             "Production reader refuses an unapproved or unsigned Quran pack"
         }
-        installVerifiedPack()
+
+        val releaseSequence = if (BuildConfig.DEBUG) {
+            null
+        } else {
+            check(BuildConfig.QURAN_PACK_RELEASE_READY) {
+                "Release reader requires an approved Quran pack"
+            }
+            val candidate = BuildConfig.QURAN_PACK_RELEASE_SEQUENCE
+            check(candidate in 1..MAX_SIGNED_RELEASE_SEQUENCE) {
+                "Approved Quran pack is missing a valid signed release sequence"
+            }
+            activationStateStore.requireAcceptable(
+                releaseSequence = candidate,
+                packSha256 = BuildConfig.QURAN_PACK_SHA256,
+            )
+            candidate
+        }
+
+        val installed = installVerifiedPack()
+        releaseSequence?.let { accepted ->
+            activationStateStore.accept(
+                releaseSequence = accepted,
+                packSha256 = BuildConfig.QURAN_PACK_SHA256,
+            )
+        }
+        installed
     }
 
     override suspend fun ayahsForSurah(surah: Int): List<QuranAyah> =
@@ -82,7 +112,7 @@ class PackagedQuranRepository(
             return target
         }
 
-        val temporary = File(directory, "content.sqlite.tmp")
+        val temporary = File(directory, "content.sqlite.verified.tmp")
         temporary.delete()
         context.assets.open("content.sqlite").use { input ->
             temporary.outputStream().use { output -> input.copyTo(output) }
@@ -94,10 +124,21 @@ class PackagedQuranRepository(
             "Bundled Quran pack failed SHA-256 verification"
         }
 
-        if (target.exists()) {
-            check(target.delete()) { "Cannot replace invalid local Quran pack" }
+        val atomicTarget = AtomicFile(target)
+        val output = atomicTarget.startWrite()
+        try {
+            temporary.inputStream().use { input -> input.copyTo(output) }
+            atomicTarget.finishWrite(output)
+        } catch (failure: Throwable) {
+            atomicTarget.failWrite(output)
+            throw failure
+        } finally {
+            temporary.delete()
         }
-        check(temporary.renameTo(target)) { "Cannot activate verified local Quran pack" }
+
+        check(target.isFile && target.sha256() == BuildConfig.QURAN_PACK_SHA256) {
+            "Activated Quran pack failed post-write SHA-256 verification"
+        }
         return target
     }
 
