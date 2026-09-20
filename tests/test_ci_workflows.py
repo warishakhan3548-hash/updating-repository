@@ -56,9 +56,11 @@ class WorkflowSupplyChainTests(unittest.TestCase):
         push_index = text.index("git push origin HEAD:main", commit_index)
         post_commit = text[commit_index:push_index]
 
+        self.assertIn("python tools/build_quran_canonical.py", text[:commit_index])
+        self.assertIn("python tools/build_quran_core.py", text[:commit_index])
+
         required = (
             "python tools/vault_gate.py source-vault/registry.json",
-            "python tools/build_quran_canonical.py",
             "python tools/pack_gate.py",
             "content-packs/quran-core/1.1.0/manifest.json",
             "python tools/validate_schemas.py",
