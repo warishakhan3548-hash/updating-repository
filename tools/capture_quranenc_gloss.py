@@ -34,10 +34,20 @@ TRANSLATION_KEY = "arabic_seraj"
 EXPECTED_VERSION = "1.0.0"
 BASE_URL = "https://quranenc.com"
 LIST_URL = f"{BASE_URL}/api/v1/translations/list/ar/?localization=en"
-TERMS_URL = f"{BASE_URL}/en/home"
+TERMS_URL = f"{BASE_URL}/en/home/api"
 BROWSE_URL = f"{BASE_URL}/en/browse/{TRANSLATION_KEY}"
 VAULT_RELATIVE = Path(
     "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0"
+)
+REGISTRY_RELATIVE = Path("source-vault/registry.json")
+PRESERVED_SNAPSHOT_FIELDS = (
+    "vault_artifact",
+    "licence_snapshot",
+    "provenance",
+    "sha256",
+    "licence_sha256",
+    "provenance_sha256",
+    "byte_size",
 )
 ALLOWED_HOSTS = frozenset({"quranenc.com", "www.quranenc.com"})
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
@@ -287,6 +297,82 @@ def _record(
     }
 
 
+def _assert_capture_authorized(repo_root: Path) -> None:
+    registry_path = repo_root / REGISTRY_RELATIVE
+    try:
+        registry = json.loads(
+            registry_path.read_text(encoding="utf-8")
+        )
+    except FileNotFoundError as exc:
+        raise CaptureError(
+            "QuranEnc capture blocked: missing "
+            "source-vault/registry.json"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise CaptureError(
+            "QuranEnc capture blocked: invalid "
+            "source-vault/registry.json"
+        ) from exc
+
+    sources = registry.get("sources")
+    if not isinstance(sources, list):
+        raise CaptureError(
+            "QuranEnc capture blocked: registry sources "
+            "must be a list"
+        )
+    matches = [
+        source
+        for source in sources
+        if isinstance(source, dict)
+        and source.get("source_id") == SOURCE_ID
+    ]
+    if len(matches) != 1:
+        raise CaptureError(
+            "QuranEnc capture blocked: expected exactly "
+            f"one registry entry for {SOURCE_ID}"
+        )
+
+    source = matches[0]
+    if source.get("status") != "awaiting-artifact":
+        raise CaptureError(
+            "QuranEnc capture blocked: licence review must "
+            "promote registry status to 'awaiting-artifact' first"
+        )
+    if source.get("version") != EXPECTED_VERSION:
+        raise CaptureError(
+            "QuranEnc capture blocked: registry version does "
+            "not match the pinned acquisition version"
+        )
+
+    required_permissions = {
+        "redistribution_allowed": True,
+        "modification_allowed": False,
+        "attribution_required": True,
+    }
+    mismatched = [
+        field
+        for field, expected in required_permissions.items()
+        if source.get(field) is not expected
+    ]
+    if mismatched:
+        raise CaptureError(
+            "QuranEnc capture blocked: licence permissions "
+            "are not explicitly cleared: "
+            + ", ".join(mismatched)
+        )
+
+    present_snapshot_fields = [
+        field
+        for field in PRESERVED_SNAPSHOT_FIELDS
+        if source.get(field) not in (None, "")
+    ]
+    if present_snapshot_fields:
+        raise CaptureError(
+            "QuranEnc capture blocked: registry already "
+            "contains preserved snapshot metadata"
+        )
+
+
 def capture_snapshot(
     repo_root: Path,
     *,
@@ -294,6 +380,7 @@ def capture_snapshot(
     now: datetime | None = None,
 ) -> Path:
     repo_root = repo_root.resolve()
+    _assert_capture_authorized(repo_root)
     destination = repo_root / VAULT_RELATIVE
     if destination.exists():
         raise CaptureError(
