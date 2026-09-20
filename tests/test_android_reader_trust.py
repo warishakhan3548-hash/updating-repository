@@ -93,6 +93,21 @@ class AndroidReaderTrustTests(unittest.TestCase):
         self.assertLess(preflight, activation)
         self.assertLess(activation, record)
 
+    def test_pack_activation_uses_one_process_wide_mutex(self):
+        repository = (
+            ROOT / "app" / "src" / "main" / "java" / "com" / "aaris"
+            / "quran" / "data" / "PackagedQuranRepository.kt"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("synchronized(packActivationMonitor)", repository)
+        self.assertIn("val packActivationMonitor = Any()", repository)
+        preflight = repository.index("activationStateStore.requireAcceptable(")
+        activation = repository.index("val installed = installVerifiedPack()")
+        record = repository.index("activationStateStore.accept(", activation)
+        mutex = repository.index("synchronized(packActivationMonitor)")
+        self.assertLess(mutex, preflight)
+        self.assertLess(record, repository.index("override suspend fun ayahsForSurah"))
+
     def test_reader_has_no_direct_network_permission(self):
         manifest = MANIFEST.read_text(encoding="utf-8")
 
