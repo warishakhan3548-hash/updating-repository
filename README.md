@@ -8,13 +8,13 @@ This repository builds trust and reproducibility before UI breadth. Critical ext
 
 ## Current phase
 
-Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. The deterministic Quran core builder is the bridge into early Phase 1.
+Phase 0A–0C is operational, the first Quran evidence source has passed the production Source Vault gate, and Phase 1 has a minimal offline Android reader on the trusted read-only Reader Core boundary. Canonical Quran schema v3 now separates long-lived source-faithful semantics from runtime SQLite byte identity.
 
 **Production-approved today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
 
 **Not production-approved yet:** Quranic Arabic Corpus morphology, Hadith datasets, QUL resources and other optional content. See `source-vault/registry.json`.
 
-This is not yet a finished reader application. Reader UI, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+This is not yet a finished reader application. The current reader deliberately withholds word meanings and morphology because no word-level source has passed the legal Source Vault gate. Learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
 
 ## Architecture boundaries
 
@@ -29,9 +29,9 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 
 `tools/quran_core.py` validates the pinned Tanzil artifact and the complete 114-surah / 6,236-ayah coordinate sequence while keeping original display text separate from derived search normalization.
 
-`tools/build_quran_core.py` deterministically builds the current `quran-core` 1.0.4 candidate under `content-packs/` using provenance-bound manifest schema v2, including SQLite content, manifest and the source-derived Tanzil attribution notice. The pack contains 6,236 ayahs, keeps display Arabic separate from search-normalized lanes, and remains unsigned/candidate until release review and signing. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
+`tools/build_quran_core.py` deterministically builds the current `quran-core 1.1.0` candidate under `content-packs/` using provenance-bound manifest schema v3. It is bound to the canonical `canonical/quran-core/1.0.0/ayahs.jsonl` semantic artifact, contains 6,236 ayahs, keeps display Arabic separate from search-normalized lanes, and remains unsigned/candidate until release review and signing. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
 
-The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.
+The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source. QAC v0.4 remains blocked by conflicting official licence/use statements; QUL morphology is technically promising but remains blocked until resource-specific redistribution/commercial terms are explicit.
 
 ## Validation
 
