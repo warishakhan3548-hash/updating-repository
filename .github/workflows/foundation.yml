@@ -21,6 +21,8 @@ jobs:
           python-version: '3.13.15'
       - name: Install pinned release-verification dependency
         run: python -m pip install --disable-pip-version-check -r requirements-ci.txt
+      - name: Trusted pack key policy
+        run: python tools/pack_signatures.py policy/trusted_pack_keys.json
       - name: Source Vault gate
         run: python tools/vault_gate.py source-vault/registry.json
       - name: Content pack promotion gate
