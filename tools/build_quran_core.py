@@ -24,8 +24,8 @@ from tools.quran_core import (
 )
 
 PACK_ID = "quran-core"
-CONTENT_VERSION = "1.0.2"
-IMPORTER_VERSION = "quran-core-importer-3"
+CONTENT_VERSION = "1.0.3"
+IMPORTER_VERSION = "quran-core-importer-4"
 SOURCE_ASSERTION_ID = "sa:quran.tanzil.uthmani.v1.1"
 
 
@@ -222,7 +222,7 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("content-packs/quran-core/1.0.2"),
+        default=Path("content-packs/quran-core/1.0.3"),
         help="pack directory, relative to repository root",
     )
     args = parser.parse_args()

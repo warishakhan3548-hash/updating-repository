@@ -100,7 +100,7 @@ def extract_tanzil_notice(path: Path) -> str:
         if text.startswith(" "):
             text = text[1:]
         notice_lines.append(text)
-    notice = "\\n".join(notice_lines).strip() + "\\n"
+    notice = "\n".join(notice_lines).strip() + "\n"
     required = (
         "Tanzil Quran Text (Uthmani, Version 1.1)",
         "Creative Commons Attribution 3.0",
