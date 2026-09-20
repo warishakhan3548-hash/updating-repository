@@ -92,3 +92,12 @@ The research now converges on four durable choices: immutable source/display dat
 | --- | --- | --- | --- | --- |
 | fact | RFC 8032 discusses cryptographic contexts as a way to separate signature uses between protocols and recommends a constant protocol-defined context where that mode is used; pure Ed25519 itself has no context input. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Keep widely supported pure Ed25519, but prepend a fixed project-owned byte domain to the manifest message before signing/verifying so release signatures cannot be interpreted as raw signatures over an unrelated protocol payload. |
 | decision | No production release key or approved signed pack exists yet, so defining the v1 application-domain prefix now does not invalidate any production trust history. | repository audit | high | Freeze the prefix before the offline key-bootstrap/signing ceremony and cover it with regression tests. |
+
+
+## Release-key lifecycle update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | TUF uses trusted roles, key lists and signature thresholds, and its security guidance explicitly includes recovery from compromised keys rather than trusting one key forever. | https://theupdateframework.io/docs/metadata/ and https://theupdateframework.io/docs/faq/ | high | Keep threshold signing and make key rotation/revocation an explicit project-controlled trust operation. |
+| finding | Current main already authenticates a monotonic `release_sequence`, but its public-key policy does not distinguish active, retired and revoked keys or constrain an old key to a historical sequence range. | repository audit at main 26faec6f2dd514b9670930f6c0d52ee2e3f7f5f4 | high | Add lifecycle state and sequence windows to the existing trust root rather than creating a parallel signing system. |
+| inference | Retaining a retired public key is useful for reproducible verification of historical releases, but an unbounded retired key would let a later compromise authenticate a newly numbered release. | TUF-inspired key-compromise threat model | high | Retired keys require a finite maximum release sequence; revoked keys never count; active policy must still satisfy its threshold with active keys. |
