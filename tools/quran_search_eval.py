@@ -31,7 +31,24 @@ else:
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PACK = ROOT / "content-packs" / "quran-core" / "1.1.0" / "content.sqlite"
-DEFAULT_GOLDEN = ROOT / "evaluation" / "quran_search_golden_v1.json"
+DEFAULT_GOLDEN = ROOT / "evaluation" / "quran_search_golden_v2.json"
+
+QUERY_COMPATIBILITY_VERSION = "arabic-query-compat-v1"
+COMPATIBILITY_TRANSLATION = str.maketrans(
+    {
+        "ٱ": "ا",
+        "أ": "ا",
+        "إ": "ا",
+        "آ": "ا",
+        "ی": "ي",
+        "ہ": "ه",
+    }
+)
+COMPATIBILITY_SQL_EXPRESSION = (
+    "replace(replace(replace(replace(replace(replace("
+    "search_diacritic_free, 'ٱ', 'ا'), 'أ', 'ا'), 'إ', 'ا'), "
+    "'آ', 'ا'), 'ی', 'ي'), 'ہ', 'ه')"
+)
 
 
 class QuranSearchEvalError(RuntimeError):
@@ -87,6 +104,75 @@ def strict_search(
         ),
     )
     return [row[0] for row in rows]
+
+
+def normalize_query_compatibility(text: str) -> str:
+    """Apply the same conservative compatibility fold used by Android."""
+    return normalize_search_diacritic_free(text).translate(COMPATIBILITY_TRANSLATION)
+
+
+def compatibility_search(
+    connection: sqlite3.Connection,
+    query: str,
+    *,
+    limit: int = 50,
+) -> list[str]:
+    """Fallback search over a tiny versioned spelling-compatibility fold."""
+    if not 1 <= limit <= 100:
+        raise QuranSearchEvalError("search limit must be between 1 and 100")
+
+    compatibility_query = normalize_query_compatibility(query)
+    if not compatibility_query:
+        return []
+
+    rows = connection.execute(
+        f"""
+        WITH compatibility_candidates AS (
+            SELECT
+                ayah_id,
+                surah,
+                ayah,
+                {COMPATIBILITY_SQL_EXPRESSION} AS compatibility_text
+            FROM quran_ayah
+        )
+        SELECT ayah_id
+        FROM compatibility_candidates
+        WHERE instr(compatibility_text, ?) > 0
+        ORDER BY
+            CASE
+                WHEN compatibility_text = ? THEN 0
+                WHEN instr(compatibility_text, ?) = 1 THEN 1
+                ELSE 2
+            END,
+            length(compatibility_text),
+            surah,
+            ayah
+        LIMIT ?
+        """,
+        (
+            compatibility_query,
+            compatibility_query,
+            compatibility_query,
+            limit,
+        ),
+    )
+    return [row[0] for row in rows]
+
+
+def search_with_lane(
+    connection: sqlite3.Connection,
+    query: str,
+    *,
+    limit: int = 50,
+) -> tuple[list[str], str]:
+    strict = strict_search(connection, query, limit=limit)
+    if strict:
+        return strict, "strict"
+
+    compatible = compatibility_search(connection, query, limit=limit)
+    if compatible:
+        return compatible, "compatibility"
+    return [], "none"
 
 
 def _query_for_case(connection: sqlite3.Connection, case: dict[str, Any]) -> str:
@@ -230,13 +316,19 @@ def evaluate(
         if metadata.get("search_normalization_version") != SEARCH_NORMALIZATION_VERSION:
             raise QuranSearchEvalError("runtime normalizer does not match pack contract")
 
+        expected_runtime = golden.get("runtime")
+        if not isinstance(expected_runtime, dict):
+            raise QuranSearchEvalError("golden set is missing runtime binding")
+        if expected_runtime.get("query_compatibility_version") != QUERY_COMPATIBILITY_VERSION:
+            raise QuranSearchEvalError("golden-set query compatibility version mismatch")
+
         case_reports: list[dict[str, Any]] = []
         latencies_ms: list[float] = []
 
         for case in golden["cases"]:
             query = _query_for_case(connection, case)
             started = time.perf_counter()
-            ranked = strict_search(connection, query, limit=limit)
+            ranked, match_lane = search_with_lane(connection, query, limit=limit)
             elapsed_ms = (time.perf_counter() - started) * 1000.0
             latencies_ms.append(elapsed_ms)
 
@@ -248,6 +340,7 @@ def evaluate(
                     "category": case["category"],
                     "positive": positive,
                     "result_count": len(ranked),
+                    "match_lane": match_lane,
                     "top_10": ranked[:10],
                     "recall_at_5": _recall_at(ranked, expected, 5) if positive else None,
                     "recall_at_10": _recall_at(ranked, expected, 10) if positive else None,
@@ -305,6 +398,9 @@ def evaluate(
                 "search_normalization_version": metadata.get(
                     "search_normalization_version"
                 ),
+            },
+            "runtime": {
+                "query_compatibility_version": QUERY_COMPATIBILITY_VERSION,
             },
             "case_count": len(case_reports),
             "positive_case_count": len(positives),

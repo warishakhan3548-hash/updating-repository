@@ -9,6 +9,7 @@ import java.text.Normalizer
  */
 internal object ArabicSearchNormalizer {
     const val VERSION = "arabic-search-v1"
+    const val QUERY_COMPATIBILITY_VERSION = "arabic-query-compat-v1"
 
     private val removeRanges = arrayOf(
         0x0610..0x061A,
@@ -57,4 +58,26 @@ internal object ArabicSearchNormalizer {
             }
         }
     }
+    /**
+     * Conservative query/source compatibility fold used only after strict search abstains.
+     *
+     * The mapping is intentionally tiny and versioned. It never changes stored or
+     * rendered Quran text.
+     */
+    fun normalizeCompatibility(text: String): String {
+        val diacriticFree = normalizeDiacriticFree(text)
+        return buildString(diacriticFree.length) {
+            diacriticFree.forEach { char ->
+                append(
+                    when (char) {
+                        'ٱ', 'أ', 'إ', 'آ' -> 'ا'
+                        'ی' -> 'ي'
+                        'ہ' -> 'ه'
+                        else -> char
+                    },
+                )
+            }
+        }
+    }
+
 }

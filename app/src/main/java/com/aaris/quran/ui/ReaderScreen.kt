@@ -223,7 +223,8 @@ private fun SearchResultsContent(
         }
         else -> {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(state.searchResults, key = { it.ayahId }) { ayah ->
+                items(state.searchResults, key = { it.ayah.ayahId }) { hit ->
+                    val ayah = hit.ayah
                     TextButton(
                         onClick = { onOpenSearchResult(ayah) },
                         modifier = Modifier
@@ -239,6 +240,12 @@ private fun SearchResultsContent(
                                 text = "Surah ${ayah.surah} • Ayah ${ayah.ayah}",
                                 style = MaterialTheme.typography.labelMedium,
                             )
+                            if (hit.isApproximate) {
+                                Text(
+                                    text = "Approximate spelling match",
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
                             Text(
                                 text = ayah.originalText,
                                 style = MaterialTheme.typography.bodyLarge.copy(

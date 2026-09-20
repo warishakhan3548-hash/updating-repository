@@ -24,6 +24,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - read-only Reader Core with stable `QuranCoordinate` navigation, production pack-approval guard, source-faithful `original_text` projection, and ephemeral UI tap anchors that never become canonical TokenIDs;
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
 - strict local ayah-level Quran search over the existing provenance-bound Unicode/diacritic-free lanes, version-locked to `arabic-search-v1`, with source-faithful result rendering, query cancellation/debounce and explicit zero-result abstention;
+- conservative `arabic-query-compat-v1` fallback for alef variants, Farsi Yeh and Urdu Heh Goal, activated only after strict-search abstention; compatibility hits remain source-faithful and are visibly labelled approximate;
 - versioned `quran-search-golden-v1` evaluation set plus deterministic host evaluator for Recall@5/10, MRR, NDCG@10, negative false-positive rate and zero-result rate; CI protects the strict engine's supported exact/no-harakat/partial retrieval floor without pretending typo/fuzzy retrieval is already solved;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
 - GitHub Actions foundation checks and deterministic pack build workflow;

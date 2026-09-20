@@ -7,6 +7,7 @@ import unittest
 from tools.quran_search_eval import (
     DEFAULT_GOLDEN,
     DEFAULT_PACK,
+    QUERY_COMPATIBILITY_VERSION,
     QuranSearchEvalError,
     assert_baseline,
     evaluate,
@@ -19,7 +20,11 @@ ROOT = Path(__file__).resolve().parents[1]
 class QuranSearchEvaluationTests(unittest.TestCase):
     def test_golden_set_is_versioned_and_category_complete(self):
         golden = load_golden(DEFAULT_GOLDEN)
-        self.assertEqual(golden["golden_set_id"], "quran-search-golden-v1")
+        self.assertEqual(golden["golden_set_id"], "quran-search-golden-v2")
+        self.assertEqual(
+            golden["runtime"]["query_compatibility_version"],
+            QUERY_COMPATIBILITY_VERSION,
+        )
         self.assertEqual(golden["pack"]["pack_id"], "quran-core")
         self.assertEqual(golden["pack"]["content_version"], "1.1.0")
         self.assertEqual(
@@ -39,13 +44,32 @@ class QuranSearchEvaluationTests(unittest.TestCase):
             }.issubset(categories)
         )
 
-    def test_strict_baseline_preserves_supported_recall_and_abstention(self):
+    def test_evaluated_search_preserves_supported_recall_and_abstention(self):
         report, golden = evaluate(DEFAULT_PACK, DEFAULT_GOLDEN)
         assert_baseline(report, golden)
 
-        for category in ("exact_source", "diacritic_free", "partial_phrase"):
+        for category in (
+            "exact_source",
+            "diacritic_free",
+            "partial_phrase",
+            "orthographic_variant",
+            "keyboard_variant",
+        ):
             self.assertEqual(report["categories"][category]["recall_at_5"], 1.0)
 
+        compatibility_cases = [
+            case
+            for case in report["cases"]
+            if case["category"] in {"orthographic_variant", "keyboard_variant"}
+        ]
+        self.assertTrue(compatibility_cases)
+        self.assertTrue(
+            all(case["match_lane"] == "compatibility" for case in compatibility_cases)
+        )
+        self.assertEqual(
+            report["runtime"]["query_compatibility_version"],
+            QUERY_COMPATIBILITY_VERSION,
+        )
         self.assertEqual(report["metrics"]["negative_false_positive_rate"], 0.0)
         self.assertIn("Host-side SQLite timing only", report["latency_scope"])
 

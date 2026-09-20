@@ -92,3 +92,10 @@ A source may permit republication while still imposing conditions that are incom
 For any such source, the registry remains `awaiting-licence` until the project has a documented basis for immutable historical retention, such as explicit written permission or terms that clearly allow archival redistribution. Acquisition tooling that writes under `source-vault/` must consult that registry state before network download and fail closed while the source is not capture-authorized.
 
 This keeps “we may republish the current version” separate from “we may permanently mirror every historical version,” which are different legal and durability questions.
+
+
+## ADR-019 — Compatibility spelling search is a labelled fallback, not evidence normalization
+
+Quran search may apply a small, versioned spelling-compatibility fold only after the strict provenance-bound search lane abstains. The fold exists to bridge common orthographic and South-Asian keyboard code-point differences; it never changes stored Quran text, canonical artifacts, source hashes or display fields.
+
+Compatibility hits carry an explicit match kind through the repository/UI boundary and are labelled approximate to the user. New fold rules require labelled evaluation cases. Fuzzy edit-distance or semantic retrieval must remain separate measured lanes rather than being smuggled into this compatibility transform.

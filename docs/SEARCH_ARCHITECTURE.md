@@ -27,3 +27,18 @@ Exact-source, diacritic-free and partial-phrase queries are derived at evaluatio
 CI currently enforces the regression floor that the strict engine actually promises: Recall@5 = 1.0 for exact-source, diacritic-free and partial-phrase categories, plus a zero false-positive rate for labelled no-answer cases. Typo, orthographic and keyboard categories are measured without being required to pass. Any future FTS5, trigram, edit-distance, morphology or AI-expanded lane must demonstrate a measured gain on the labelled set without degrading exact retrieval, abstention or source-faithful rendering.
 
 The evaluator emits Recall@5, Recall@10, MRR, NDCG@10, negative false-positive rate and zero-result rate. Host SQLite p50/p95 are diagnostic only; low-end Android latency remains a separate device measurement.
+
+
+## Conservative query compatibility fallback — 2026-09-21
+
+The strict Quran lane remains authoritative and unchanged: exact/NFC and diacritic-free containment run first against the provenance-bound `arabic-search-v1` fields. Only when that strict lane returns zero results may the reader use `arabic-query-compat-v1`, a tiny query/source spelling-compatibility fold evaluated at runtime.
+
+Version 1 folds only:
+
+- Quranic alef wasla `ٱ` and alef-with-hamza/madda variants `أ إ آ` to bare `ا`;
+- Farsi Yeh `ی` to Arabic Yeh `ي`;
+- Urdu Heh Goal `ہ` to Arabic Heh `ه`.
+
+No stored Quran text, canonical JSONL or content-pack search field is rewritten. The compatibility lane is a retrieval aid only, uses deterministic SQLite `replace()` + `instr()`, and its results are labelled **Approximate spelling match** in the UI. Adding another fold requires a labelled golden-set case and regression review; typo/edit-distance search remains unimplemented.
+
+`quran-search-golden-v2` promotes orthographic and South-Asian keyboard variants into the required Recall@5 floor while retaining zero labelled negative false positives. Host SQLite latency remains diagnostic only; low-end Android measurement is still required before making a device-performance claim.

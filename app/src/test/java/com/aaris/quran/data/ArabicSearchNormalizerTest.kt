@@ -26,4 +26,24 @@ class ArabicSearchNormalizerTest {
             ArabicSearchNormalizer.normalizeUnicode("أ"),
         )
     }
+    @Test
+    fun foldsOnlyVersionedCompatibilityCharacters() {
+        assertEquals(
+            "فان مع العسر يسرا",
+            ArabicSearchNormalizer.normalizeCompatibility("فإن مع ٱلعسر يسرا"),
+        )
+        assertEquals(
+            "الحي القيوم",
+            ArabicSearchNormalizer.normalizeCompatibility("الحی القیوم"),
+        )
+        assertEquals(
+            "قل هو",
+            ArabicSearchNormalizer.normalizeCompatibility("قل ہو"),
+        )
+        assertEquals(
+            "ک ى",
+            ArabicSearchNormalizer.normalizeCompatibility("ک ى"),
+        )
+    }
+
 }

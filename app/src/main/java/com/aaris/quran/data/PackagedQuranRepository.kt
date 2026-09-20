@@ -5,6 +5,8 @@ import android.database.sqlite.SQLiteDatabase
 import android.util.AtomicFile
 import com.aaris.quran.BuildConfig
 import com.aaris.quran.model.QuranAyah
+import com.aaris.quran.model.QuranSearchHit
+import com.aaris.quran.model.QuranSearchMatchKind
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
@@ -104,7 +106,7 @@ class PackagedQuranRepository(
     override suspend fun searchAyahs(
         query: String,
         limit: Int,
-    ): List<QuranAyah> = withContext(Dispatchers.IO) {
+    ): List<QuranSearchHit> = withContext(Dispatchers.IO) {
         require(limit in 1..100) { "search limit must be between 1 and 100" }
 
         val unicodeQuery = ArabicSearchNormalizer.normalizeUnicode(query).trim()
@@ -129,7 +131,7 @@ class PackagedQuranRepository(
                 }
             }
 
-            database.rawQuery(
+            val strictHits = database.rawQuery(
                 """
                 SELECT ayah_id, surah, ayah, original_text
                 FROM quran_ayah
@@ -165,11 +167,76 @@ class PackagedQuranRepository(
                 buildList {
                     while (cursor.moveToNext()) {
                         add(
-                            QuranAyah(
-                                ayahId = cursor.getString(ayahIdIndex),
-                                surah = cursor.getInt(surahIndex),
-                                ayah = cursor.getInt(ayahIndex),
-                                originalText = cursor.getString(originalTextIndex),
+                            QuranSearchHit(
+                                ayah = QuranAyah(
+                                    ayahId = cursor.getString(ayahIdIndex),
+                                    surah = cursor.getInt(surahIndex),
+                                    ayah = cursor.getInt(ayahIndex),
+                                    originalText = cursor.getString(originalTextIndex),
+                                ),
+                                matchKind = QuranSearchMatchKind.STRICT,
+                            ),
+                        )
+                    }
+                }
+            }
+            if (strictHits.isNotEmpty()) return@withContext strictHits
+
+            val compatibilityQuery = ArabicSearchNormalizer.normalizeCompatibility(query)
+            if (compatibilityQuery.isBlank()) return@withContext emptyList()
+
+            val compatibilityExpression =
+                "replace(replace(replace(replace(replace(replace(" +
+                    "search_diacritic_free, 'ٱ', 'ا'), 'أ', 'ا'), 'إ', 'ا'), " +
+                    "'آ', 'ا'), 'ی', 'ي'), 'ہ', 'ه')"
+
+            database.rawQuery(
+                """
+                WITH compatibility_candidates AS (
+                    SELECT
+                        ayah_id,
+                        surah,
+                        ayah,
+                        original_text,
+                        $compatibilityExpression AS compatibility_text
+                    FROM quran_ayah
+                )
+                SELECT ayah_id, surah, ayah, original_text
+                FROM compatibility_candidates
+                WHERE instr(compatibility_text, ?) > 0
+                ORDER BY
+                    CASE
+                        WHEN compatibility_text = ? THEN 0
+                        WHEN instr(compatibility_text, ?) = 1 THEN 1
+                        ELSE 2
+                    END,
+                    length(compatibility_text),
+                    surah,
+                    ayah
+                LIMIT ?
+                """.trimIndent(),
+                arrayOf(
+                    compatibilityQuery,
+                    compatibilityQuery,
+                    compatibilityQuery,
+                    limit.toString(),
+                ),
+            ).use { cursor ->
+                val ayahIdIndex = cursor.getColumnIndexOrThrow("ayah_id")
+                val surahIndex = cursor.getColumnIndexOrThrow("surah")
+                val ayahIndex = cursor.getColumnIndexOrThrow("ayah")
+                val originalTextIndex = cursor.getColumnIndexOrThrow("original_text")
+                buildList {
+                    while (cursor.moveToNext()) {
+                        add(
+                            QuranSearchHit(
+                                ayah = QuranAyah(
+                                    ayahId = cursor.getString(ayahIdIndex),
+                                    surah = cursor.getInt(surahIndex),
+                                    ayah = cursor.getInt(ayahIndex),
+                                    originalText = cursor.getString(originalTextIndex),
+                                ),
+                                matchKind = QuranSearchMatchKind.COMPATIBILITY,
                             ),
                         )
                     }
