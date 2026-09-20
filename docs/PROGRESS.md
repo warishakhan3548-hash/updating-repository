@@ -8,6 +8,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 - product north star, Evidence Plane / Learning Plane boundary, privacy and offline-first contracts;
 - Source Vault registry, licence firewall, provenance checks and immutable-source policy;
+- universal historical-retention gate: capture-ready, preserved and production sources must explicitly prove durable archival retention, independently from any latest-version release obligation;
 - app-owned canonical IDs and canonical SQLite content/user schemas;
 - Evidence Plane update/delete protection and append-only learning-event history;
 - versioned `user.sqlite` schema v2 plus a conservative v1→v2 migration that preserves append-only history, canonicalizes only exact Again/Hard/Good/Easy review grades, records scheduler/context metadata for new reviews, and keeps scheduler state rebuildable;
@@ -95,6 +96,8 @@ Reader Core regression coverage checks read-only SQLite access, fail-closed coor
 Quran search now has an executable host-side golden benchmark. Its host SQLite latency is diagnostic only and is not presented as low-end Android performance. No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly. The learning-ledger change establishes durable inputs only; it does not claim that FSRS retention quality has been measured.
 
 ## Licence-firewall hardening
+
+Historical-retention permission is now explicit and universal: `awaiting-artifact`, any preserved snapshot, and every production source require `historical_snapshot_retention_status=verified-allowed`. Tanzil and QuranMorph record that clearance without inventing a latest-version release obligation; QuranEnc and HadeethEnc remain blocked with unresolved retention. These registry policy decisions do not rewrite immutable acquisition provenance.
 
 Commercial-use permission is represented independently from redistribution in the Source Vault registry. Production Source Vault validation and runtime pack promotion both fail closed unless `commercial_use_allowed` is explicitly true. QAC v0.4 is conservatively marked false from its official FAQ's non-commercial research condition; unknown candidates remain null rather than being inferred from repository or code licences. Existing preserved source/provenance bytes and Quran runtime packs were not rewritten.
 
