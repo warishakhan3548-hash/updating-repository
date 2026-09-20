@@ -27,17 +27,17 @@
       "source_name": "Quranic Arabic Corpus",
       "original_url": "https://corpus.quran.com/download/",
       "version": "0.4",
-      "status": "awaiting-artifact",
+      "status": "awaiting-licence",
       "licence_id": "GPL-with-source-specific-verbatim-no-change-terms",
-      "redistribution_allowed": true,
-      "modification_allowed": false,
+      "redistribution_allowed": null,
+      "modification_allowed": null,
       "attribution_required": true,
       "vault_artifact": null,
       "licence_snapshot": null,
       "provenance": null,
       "sha256": null,
       "byte_size": null,
-      "notes": "Official terms verified; official download flow requires contact email and exact bytes remain uncaptured."
+      "notes": "Licence ambiguity requires resolution before promotion: the official download page presents GNU GPL/verbatim-copy terms, while the official FAQ also describes the data as research/non-commercial. Treat as non-production until the project obtains clarification or a clearly compatible authoritative licence basis."
     },
     {
       "source_id": "hadith.hadeethenc.ar.current",
