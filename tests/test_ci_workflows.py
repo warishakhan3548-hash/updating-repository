@@ -52,14 +52,15 @@ class WorkflowSupplyChainTests(unittest.TestCase):
 
     def test_pack_builder_revalidates_the_committed_tree_before_push(self) -> None:
         text = self.workflow_text("build-quran-core-pack.yml")
-        commit_index = text.index("git commit -m 'Build Quran core content pack 1.0.4'")
+        commit_index = text.index("git commit -m 'Build Quran canonical layer and core pack 1.1.0'")
         push_index = text.index("git push origin HEAD:main", commit_index)
         post_commit = text[commit_index:push_index]
 
         required = (
             "python tools/vault_gate.py source-vault/registry.json",
+            "python tools/build_quran_canonical.py",
             "python tools/pack_gate.py",
-            "content-packs/quran-core/1.0.4/manifest.json",
+            "content-packs/quran-core/1.1.0/manifest.json",
             "python tools/validate_schemas.py",
             "python -m unittest discover -s tests -v",
             "git status --porcelain",
