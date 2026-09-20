@@ -29,12 +29,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android 17 platform
+      - name: Install Android 16 platform
         shell: bash
         run: |
           set -euo pipefail
           SDKMANAGER="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          "$SDKMANAGER" 'platforms;android-37'
+          "$SDKMANAGER" 'platforms;android-36'
 
       - uses: gradle/actions/setup-gradle@v4
         with:
