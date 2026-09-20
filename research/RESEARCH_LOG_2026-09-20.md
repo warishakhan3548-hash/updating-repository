@@ -22,12 +22,17 @@ Facts were checked against primary/official sources where available. Marketing c
 | fact | Tarteel emphasizes recitation follow-along, voice search, mistake detection and active recall; its support material also acknowledges that mistake detection can flag false positives. | https://tarteel.ai/ and https://support.tarteel.ai/ | high | Machine detections need confidence plus confirm/reject history; they cannot become unquestionable learning truth. |
 | fact | Readlang uses click-to-translate reading plus saved contextual words/review; LingQ similarly combines contextual reading with tracked vocabulary/SRS. | https://readlang.com/features and https://www.lingq.com/en/learn-arabic-online/ | high | Supports reader-driven low-friction learning rather than a separate drill-first product. |
 | fact | Quran Progress describes frequency-first Quran vocabulary plus spaced repetition. | https://www.quranprogress.com/en/ | medium | Useful comparison; independently reproduce corpus coverage before accepting numerical coverage claims. |
+| fact | Android's offline-first guidance says repositories with network access should always have a local data source and recommends the local data source as canonical source of truth for offline-first apps. | https://developer.android.com/topic/architecture/data-layer/offline-first | high | The reader consumes the verified local Quran pack as its canonical runtime source; no remote fallback is hidden in the read path. |
+| fact | Android Compose accessibility guidance says Material/Foundation components provide accessibility behavior and interactive targets should be at least 48dp; official testing guidance covers semantics, TalkBack and accessibility checks. | https://developer.android.com/develop/ui/compose/accessibility/api-defaults and https://developer.android.com/develop/ui/compose/accessibility/testing | high | Use standard Material controls and semantics first, scalable text, and keep real-device accessibility testing as a release gate. |
+| fact | Android Gradle Plugin 9 uses built-in Kotlin by default; current Android documentation lists the contemporary AGP toolchain and Compose setup. | https://developer.android.com/build/migrate-to-built-in-kotlin and https://developer.android.com/build/releases/gradle-plugin | high | Keep the Android shell small and current; avoid obsolete Kotlin Android plugin layering. |
 | inference | The best default comprehension assist is an anchored micro-gloss rather than navigation to a separate study screen. | synthesis of reader products + product north star | medium | Prototype and user-test before declaring final UX. |
 | hypothesis | Natural re-exposure in the user's reading path can sometimes substitute for forced rare-word review. | cognitive/product hypothesis | medium | Evaluate against retention and interruption metrics. |
 
 ## First-principles synthesis
 
 The main opportunity is not another feature dashboard. It is an invisible comprehension layer that learns how much explanation a person still needs and lets natural Quran encounters substitute for unnecessary drills.
+
+For the first production reader slice, the safest version of that principle is even simpler: render only verified Quran evidence and refuse to fabricate word identities or meanings before the required source exists. The reader should earn word-tap intelligence by adding trustworthy data, not by guessing token boundaries.
 
 Hadith research needs a different trust posture: multi-lane fuzzy retrieval with explicit abstention, edition-aware citations and attributed grade assertions. AI query expansion belongs outside the Evidence Plane.
 
@@ -38,7 +43,8 @@ Hadith research needs a different trust posture: multi-lane fuzzy retrieval with
 - authoritative redistributable Hadith datasets with edition-level numbering provenance;
 - full HadeethEnc edition/collection mapping;
 - exact QuranEnc translation/version selection where translations are used;
-- fonts, audio and word/ayah timing sources with explicit redistribution rights.
+- fonts, audio and word/ayah timing sources with explicit redistribution rights;
+- device-level TalkBack/large-font/RTL validation for the Phase 1 reader.
 
 ## Saturation conclusion
 
