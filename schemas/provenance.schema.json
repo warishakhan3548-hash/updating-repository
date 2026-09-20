@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Source provenance",
+  "type": "object",
+  "required": [
+    "source_id",
+    "source_name",
+    "original_url",
+    "version",
+    "retrieved_at",
+    "sha256",
+    "size_bytes",
+    "licence",
+    "redistribution_allowed",
+    "project_mirror"
+  ],
+  "properties": {
+    "source_id": {"type": "string", "minLength": 1},
+    "source_name": {"type": "string", "minLength": 1},
+    "original_url": {"type": "string", "format": "uri"},
+    "version": {"type": "string", "minLength": 1},
+    "edition": {"type": ["string", "null"]},
+    "retrieved_at": {"type": "string", "format": "date"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "size_bytes": {"type": "integer", "minimum": 1},
+    "licence": {"type": "string", "minLength": 1},
+    "redistribution_allowed": {"type": "boolean"},
+    "modification_allowed": {"type": ["boolean", "null"]},
+    "attribution": {"type": ["string", "null"]},
+    "known_restrictions": {"type": "array", "items": {"type": "string"}},
+    "project_mirror": {"type": "string", "minLength": 1},
+    "independent_backup": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}
