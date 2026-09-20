@@ -136,6 +136,20 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
             raise PackGateError(f"{manifest_path}: {field} does not match Source Vault")
     _lower_sha256(manifest["source_sha256"], "source_sha256")
 
+    if source.get("attribution_required") is True:
+        notice_path = _safe_repo_file(
+            root, manifest.get("notice_path"), "notice_path", "content-packs"
+        )
+        try:
+            notice_path.resolve().relative_to(manifest_path.parent)
+        except ValueError as exc:
+            raise PackGateError(
+                f"{manifest_path}: attribution notice must live inside its pack directory"
+            ) from exc
+        notice_hash = _lower_sha256(manifest.get("notice_sha256"), "notice_sha256")
+        if sha256_file(notice_path) != notice_hash:
+            raise PackGateError(f"{manifest_path}: notice_sha256 mismatch")
+
     artifact = _safe_repo_file(root, manifest["artifact_path"], "artifact_path", "content-packs")
     expected_hash = _lower_sha256(manifest["built_sha256"], "built_sha256")
     expected_size = manifest["built_byte_size"]
