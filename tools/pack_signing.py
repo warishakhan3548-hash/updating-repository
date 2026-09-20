@@ -25,6 +25,15 @@ class PackSignatureError(RuntimeError):
     pass
 
 
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PackSignatureError(f"duplicate JSON object key: {key!r}")
+        result[key] = value
+    return result
+
+
 def _json_string(value: str) -> bytes:
     return json.dumps(
         value,
@@ -37,8 +46,8 @@ def _canonical_json(value: Any) -> bytes:
     """Serialize the restricted manifest value set deterministically.
 
     The signing format rejects floats so different runtimes never disagree
-    about numeric rendering. Object keys are sorted by Unicode scalar value;
-    manifest schema keys are ASCII. Strings are preserved as supplied.
+    about numeric rendering. Object keys must be ASCII and are sorted
+    lexicographically. Strings are preserved as supplied.
     """
     if value is None:
         return b"null"
@@ -110,7 +119,10 @@ def verify_ed25519_signature(
 
 def _load_policy(path: Path) -> tuple[int, dict[str, dict[str, Any]]]:
     try:
-        policy = json.loads(path.read_text(encoding="utf-8"))
+        policy = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_json_object,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         raise PackSignatureError(f"cannot load trusted pack keys: {path}") from exc
 
