@@ -84,5 +84,47 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertIn(domain, signing)
 
 
+    def test_android_pack_activation_is_process_serialized(self):
+        repository = (
+            ROOT
+            / "app"
+            / "src"
+            / "main"
+            / "java"
+            / "com"
+            / "aaris"
+            / "quran"
+            / "data"
+            / "PackagedQuranRepository.kt"
+        ).read_text(encoding="utf-8")
+        store = (
+            ROOT
+            / "app"
+            / "src"
+            / "main"
+            / "java"
+            / "com"
+            / "aaris"
+            / "quran"
+            / "data"
+            / "PackActivationStateStore.kt"
+        ).read_text(encoding="utf-8")
+        secure_updates = (ROOT / "docs" / "SECURE_UPDATES.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("PACK_ACTIVATION_PROCESS_LOCK", store)
+        self.assertIn(
+            "synchronized(PACK_ACTIVATION_PROCESS_LOCK)",
+            store,
+        )
+        self.assertIn(
+            "synchronized(PACK_ACTIVATION_PROCESS_LOCK)",
+            repository,
+        )
+        self.assertIn("no locking semantics", secure_updates)
+        self.assertIn("process-wide lock", secure_updates)
+
+
 if __name__ == "__main__":
     unittest.main()
