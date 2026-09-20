@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "state": "bootstrap-required",
-  "description": "Project-controlled public trust root for content-pack release signatures. Private keys must never be committed.",
+  "description": "Project-controlled public trust root for content-pack release signatures. Private keys must never be committed. Authorized keys require lifecycle state plus signed release-sequence bounds.",
   "keys": {},
   "roles": {
     "content-pack-release": {
