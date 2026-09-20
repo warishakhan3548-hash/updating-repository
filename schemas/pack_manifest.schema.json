@@ -103,7 +103,67 @@
       }
     },
     "signature": {
-      "type": "object"
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "const": "unsigned"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "status",
+            "payload_format",
+            "signatures"
+          ],
+          "properties": {
+            "status": {
+              "const": "signed"
+            },
+            "payload_format": {
+              "const": "aaris-pack-json-v1"
+            },
+            "signatures": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "algorithm",
+                  "encoding",
+                  "key_id",
+                  "value"
+                ],
+                "properties": {
+                  "algorithm": {
+                    "const": "ecdsa-p256-sha256"
+                  },
+                  "encoding": {
+                    "const": "base64-der"
+                  },
+                  "key_id": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "notice_path": {
       "type": "string",
@@ -220,6 +280,10 @@
     "byte_reproducibility_scope": {
       "type": "string",
       "minLength": 1
+    },
+    "release_sequence": {
+      "type": "integer",
+      "minimum": 1
     }
   },
   "dependentRequired": {
@@ -276,6 +340,36 @@
           "build_toolchain",
           "byte_reproducibility_scope"
         ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "const": "approved"
+          }
+        },
+        "required": [
+          "review_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "release_sequence"
+        ],
+        "properties": {
+          "signature": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "signed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          }
+        }
       }
     }
   ]
