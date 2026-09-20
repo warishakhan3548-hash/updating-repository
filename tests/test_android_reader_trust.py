@@ -8,7 +8,7 @@ MANIFEST = ROOT / "app" / "src" / "main" / "AndroidManifest.xml"
 
 
 class AndroidReaderTrustTests(unittest.TestCase):
-    def test_release_does_not_treat_signature_fields_as_verification(self):
+    def test_release_remains_blocked_until_device_verifies_signature_and_rollback(self):
         build = BUILD.read_text(encoding="utf-8")
 
         self.assertNotIn("releaseSignatureReady", build)
@@ -18,9 +18,10 @@ class AndroidReaderTrustTests(unittest.TestCase):
             build,
         )
         self.assertIn(
-            "trusted-key cryptographic content-pack signature",
+            "Android device-side trusted-key signature",
             build,
         )
+        self.assertIn("anti-rollback persistence", build)
 
     def test_release_still_requires_approved_review_status_first(self):
         build = BUILD.read_text(encoding="utf-8")
