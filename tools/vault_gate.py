@@ -5,6 +5,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 ALLOWED_STATUSES = {
     "research-candidate",
@@ -36,6 +37,13 @@ def _safe_vault_file(root: Path, raw: object, source_id: str, field: str) -> Pat
     path = root / rel
     if not path.is_file():
         raise VaultGateError(f"{source_id}: missing file {rel}")
+    vault_root = (root / "source-vault").resolve()
+    try:
+        path.resolve().relative_to(vault_root)
+    except ValueError as exc:
+        raise VaultGateError(
+            f"{source_id}: {field} resolves outside source-vault/"
+        ) from exc
     return path
 
 
@@ -65,6 +73,17 @@ def validate_registry(registry_path: Path) -> None:
 
         if status != "production-approved":
             continue
+
+        original_url = source.get("original_url")
+        parsed_url = urlparse(original_url) if isinstance(original_url, str) else None
+        if (
+            parsed_url is None
+            or parsed_url.scheme != "https"
+            or not parsed_url.netloc
+        ):
+            raise VaultGateError(
+                f"{source_id}: production original_url must be an absolute https URL"
+            )
 
         if source.get("redistribution_allowed") is not True:
             raise VaultGateError(

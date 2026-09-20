@@ -39,6 +39,11 @@ def _safe_repo_file(root: Path, raw: object, field: str, prefix: str) -> Path:
     path = root / rel
     if not path.is_file():
         raise PackGateError(f"missing {field}: {rel}")
+    allowed_root = (root / prefix).resolve()
+    try:
+        path.resolve().relative_to(allowed_root)
+    except ValueError as exc:
+        raise PackGateError(f"{field} resolves outside {prefix}/") from exc
     return path
 
 

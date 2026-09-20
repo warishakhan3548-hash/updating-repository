@@ -118,5 +118,17 @@ class PackGateTests(unittest.TestCase):
             validate_manifest(manifest, registry)
 
 
+    def test_runtime_pack_symlink_cannot_escape_content_packs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, built = self._fixture(root)
+            outside = root / "outside.sqlite"
+            outside.write_bytes(built.read_bytes())
+            built.unlink()
+            built.symlink_to(outside)
+            with self.assertRaisesRegex(PackGateError, "resolves outside content-packs"):
+                validate_manifest(manifest, registry)
+
+
 if __name__ == "__main__":
     unittest.main()

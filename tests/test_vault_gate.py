@@ -114,5 +114,28 @@ class VaultGateTests(unittest.TestCase):
                 validate_registry(path)
 
 
+    def test_production_origin_must_be_absolute_https(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, provenance_path = self._valid_snapshot(root)
+            source["original_url"] = "http://example.invalid/source"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["original_url"] = source["original_url"]
+            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            with self.assertRaisesRegex(VaultGateError, "absolute https URL"):
+                validate_registry(self._registry(root, source))
+
+    def test_vault_artifact_symlink_cannot_escape_source_vault(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, artifact, _ = self._valid_snapshot(root)
+            outside = root / "outside.txt"
+            outside.write_bytes(artifact.read_bytes())
+            artifact.unlink()
+            artifact.symlink_to(outside)
+            with self.assertRaisesRegex(VaultGateError, "resolves outside source-vault"):
+                validate_registry(self._registry(root, source))
+
+
 if __name__ == "__main__":
     unittest.main()
