@@ -37,7 +37,7 @@ The exported snapshot is validated before publication:
 3. `PRAGMA integrity_check` must return `ok`;
 4. `PRAGMA user_version` must be a supported version;
 5. the complete persistent application schema must match the canonical repository schema for that `user_version`, including tables, explicit indexes and triggers;
-6. no unexpected application-defined view/trigger/table/index may be present;
+6. no unexpected persistent schema object may be present, including SQLite-named objects not created by the canonical schema;
 7. the database is hashed;
 8. the final archive is reopened and fully validated;
 9. only then is it moved into the requested output path.
@@ -59,7 +59,7 @@ Validation fails closed when:
 - `user_version` is unsupported or disagrees with the manifest;
 - the persistent application schema differs from the canonical schema for that version, including an added/removed/modified table, explicit index, view or trigger.
 
-The schema comparison deliberately ignores SQLite-owned internal objects whose names begin with `sqlite_`, but it fails closed on every application-defined persistent schema object. This prevents a correctly re-hashed archive from smuggling altered triggers or views into the database that the app later opens normally.
+The schema comparison includes SQLite-created persistent schema rows such as canonical auto-index entries rather than trusting an `sqlite_*` name prefix. This keeps the rule simple and fail-closed: the backed-up database must have the same persistent schema objects as a clean database built from the versioned canonical schema. Derived planner statistics are not part of the current user-v2 contract; if the app intentionally introduces them later, that must be versioned and tested rather than silently accepted. This prevents a correctly re-hashed archive from smuggling altered triggers or views into the database that the app later opens normally.
 
 The reference restore path writes only to a **new** destination database. It refuses to overwrite an existing SQLite database or publish next to leftover `-wal`, `-shm` or `-journal` sidecars.
 
