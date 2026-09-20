@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.io.InputStream
 import java.security.MessageDigest
 
 data class QuranAyah(
@@ -63,6 +64,7 @@ class QuranPackStore(context: Context) {
     }
 
     suspend fun packInfo(): QuranPackInfo = withContext(Dispatchers.IO) {
+        ensureVerifiedDatabase()
         val manifest = readManifest()
         QuranPackInfo(
             contentVersion = manifest.getString("content_version"),
@@ -88,15 +90,41 @@ class QuranPackStore(context: Context) {
         }
 
         val manifest = readManifest()
-        check(manifest.getString("pack_id") == "quran-core") {
+        check(manifest.getString("pack_id") == PACK_ID) {
             "Unexpected Quran pack id"
+        }
+        check(manifest.getString("content_version") == EXPECTED_CONTENT_VERSION) {
+            "Unexpected Quran content-pack version"
+        }
+        check(manifest.getString("source_id") == EXPECTED_SOURCE_ID) {
+            "Unexpected Quran source id"
+        }
+        check(manifest.getString("source_name") == EXPECTED_SOURCE_NAME) {
+            "Unexpected Quran source name"
+        }
+        check(manifest.getString("source_version") == EXPECTED_SOURCE_VERSION) {
+            "Unexpected Quran source version"
+        }
+        check(manifest.getString("source_sha256") == EXPECTED_SOURCE_SHA256) {
+            "Unexpected Quran source SHA-256"
+        }
+        check(manifest.getString("built_sha256") == EXPECTED_DATABASE_SHA256) {
+            "Unexpected Quran runtime-pack SHA-256"
+        }
+        check(manifest.getString("notice_sha256") == EXPECTED_NOTICE_SHA256) {
+            "Unexpected Quran attribution-notice SHA-256"
+        }
+        check(manifest.getString("source_notice_sha256") == EXPECTED_NOTICE_SHA256) {
+            "Runtime notice is not bound to the preserved source notice"
         }
         check(manifest.getInt("record_count") == 6236) {
             "Unexpected Quran ayah count in pack manifest"
         }
+        check(sha256Asset(NOTICE_ASSET) == EXPECTED_NOTICE_SHA256) {
+            "Bundled Quran attribution notice SHA-256 mismatch"
+        }
 
-        val expectedHash = manifest.getString("built_sha256")
-        if (!databaseFile.isFile || sha256(databaseFile) != expectedHash) {
+        if (!databaseFile.isFile || sha256(databaseFile) != EXPECTED_DATABASE_SHA256) {
             databaseFile.parentFile?.mkdirs()
             val temp = File(databaseFile.parentFile, "${databaseFile.name}.tmp")
             temp.delete()
@@ -105,7 +133,7 @@ class QuranPackStore(context: Context) {
                     input.copyTo(output)
                 }
             }
-            check(sha256(temp) == expectedHash) {
+            check(sha256(temp) == EXPECTED_DATABASE_SHA256) {
                 temp.delete()
                 "Bundled Quran pack SHA-256 mismatch"
             }
@@ -123,22 +151,41 @@ class QuranPackStore(context: Context) {
         return JSONObject(text)
     }
 
-    private fun sha256(file: File): String {
+    private fun sha256(file: File): String =
+        file.inputStream().use { input -> sha256(input) }
+
+    private fun sha256Asset(name: String): String =
+        appContext.assets.open(name).use { input -> sha256(input) }
+
+    private fun sha256(input: InputStream): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                digest.update(buffer, 0, read)
-            }
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            digest.update(buffer, 0, read)
         }
-        return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return digest.digest().joinToString(separator = "") { byte ->
+            "%02x".format(byte.toInt() and 0xff)
+        }
     }
 
     private companion object {
+        const val PACK_ID = "quran-core"
+        const val EXPECTED_CONTENT_VERSION = "1.0.3"
+        const val EXPECTED_SOURCE_ID = "quran.tanzil.uthmani.v1.1"
+        const val EXPECTED_SOURCE_NAME = "Tanzil Quran Text"
+        const val EXPECTED_SOURCE_VERSION = "1.1"
+        const val EXPECTED_SOURCE_SHA256 =
+            "4b91f9e6e8ac645d039e4ed85b3be492e795232a31cd22d668ac58238722e26f"
+        const val EXPECTED_DATABASE_SHA256 =
+            "7acfb731c59ff2bc404752372eda8f30d16f38fa8c282aa4887ccb2fd8a2a025"
+        const val EXPECTED_NOTICE_SHA256 =
+            "d52680db446c36e9f7878c704e1db6eee16328f854671276fc63533fb73f3483"
+
         const val DATABASE_ASSET = "content.sqlite"
         const val MANIFEST_ASSET = "manifest.json"
+        const val NOTICE_ASSET = "NOTICE.txt"
         const val DATABASE_FILE_NAME = "quran-core-1.0.3.sqlite"
     }
 }
