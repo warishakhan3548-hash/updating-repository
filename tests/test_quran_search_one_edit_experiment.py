@@ -48,11 +48,20 @@ class QuranSearchOneEditExperimentTests(unittest.TestCase):
         )
 
         typo_modes = {
-            row["match_mode"]
+            row["id"]: row["match_mode"]
             for row in report["cases"]
             if row["category"] == "typo"
         }
-        self.assertEqual({"approximate_one_edit"}, typo_modes)
+        # The pre-existing spelling fallback already resolves the Fatiha case;
+        # this experiment is valuable only if it adds the still-missing Ahad case.
+        self.assertEqual(
+            "approximate_spelling",
+            typo_modes["typo-fatiha-alamin"],
+        )
+        self.assertEqual(
+            "approximate_one_edit",
+            typo_modes["typo-ikhlas-ahad"],
+        )
 
         serialized = json.dumps(report, ensure_ascii=False)
         self.assertNotIn("query_text", serialized)
