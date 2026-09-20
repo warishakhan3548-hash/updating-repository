@@ -7,7 +7,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val quranPackDir = rootProject.file("content-packs/quran-core/1.0.4")
+val quranPackDir = rootProject.file("content-packs/quran-core/1.1.0")
 val quranPackManifest = quranPackDir.resolve("manifest.json")
 val quranPackDatabase = quranPackDir.resolve("content.sqlite")
 val quranPackNotice = quranPackDir.resolve("NOTICE.txt")
