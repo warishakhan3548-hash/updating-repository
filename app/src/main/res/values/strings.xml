@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Aaris Quran</string>
+    <string name="quran_title">Quran</string>
+    <string name="surah_number">Surah %1$d</string>
+    <string name="previous_surah">Previous</string>
+    <string name="next_surah">Next</string>
+    <string name="loading_quran">Loading Quran…</string>
+    <string name="content_verification_failed">Quran content could not be verified.</string>
+    <string name="source_tanzil">Source: Tanzil Project · Quran Text v1.1</string>
+</resources>
