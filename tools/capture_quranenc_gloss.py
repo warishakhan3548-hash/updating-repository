@@ -150,13 +150,34 @@ def _json(data: bytes, *, label: str):
 
 
 def _translation_entries(payload) -> list[dict]:
-    if not isinstance(payload, list) or not all(
-        isinstance(item, dict) for item in payload
-    ):
-        raise CaptureError(
-            "translation list API returned an unexpected shape"
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        candidates = [
+            payload.get("result"),
+            payload.get("translations"),
+            payload.get("data"),
+        ]
+        rows = next(
+            (
+                item for item in candidates
+                if isinstance(item, list)
+            ),
+            None,
         )
-    return payload
+        if rows is None:
+            raise CaptureError(
+                "translation list API returned an unexpected object shape"
+            )
+    else:
+        raise CaptureError(
+            "translation list API returned an unexpected JSON shape"
+        )
+    if not all(isinstance(item, dict) for item in rows):
+        raise CaptureError(
+            "translation list API contains a non-object row"
+        )
+    return rows
 
 
 def _selected_translation(
