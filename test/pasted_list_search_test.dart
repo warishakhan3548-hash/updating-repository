@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/data/inventory_database.dart';
 import '../lib/domain/inventory.dart';
 import '../lib/state/pharmacy_controller.dart';
+import '../lib/ui/design.dart';
 import '../lib/ui/search_screen.dart';
 import 'domain_contract.dart';
 
@@ -70,8 +71,20 @@ void main() {
         find.text('Pasted medicine list active · local inventory search'),
         findsOneWidget,
       );
-      expect(find.text('1 stock entry'), findsOneWidget);
-      expect(find.text('Load more'), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is MedicineCard && widget.record.id == first.id,
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is MedicineCard && widget.record.id == second.id,
+        ),
+        findsNothing,
+      );
 
       await tester.tap(find.text('Paste list'));
       await tester.pumpAndSettle();
