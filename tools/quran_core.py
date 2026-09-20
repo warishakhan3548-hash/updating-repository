@@ -89,16 +89,29 @@ def normalize_search_diacritic_free(text: str) -> str:
     return " ".join(stripped.split())
 
 
-def load_tanzil_txt2(path: Path) -> list[AyahRow]:
+def load_tanzil_notice(path: Path) -> str:
+    """Return the verbatim comment-based source notice embedded in the preserved artifact."""
     raw = path.read_text(encoding="utf-8")
+    notice = "\n".join(
+        line for line in raw.splitlines() if line.startswith("#")
+    ).strip()
     required_notice = (
         "Tanzil Quran Text (Uthmani, Version 1.1)",
         "Creative Commons Attribution 3.0",
         "CHANGING IT IS NOT ALLOWED",
+        "tanzil.net",
     )
-    for marker in required_notice:
-        if marker not in raw:
-            raise QuranSourceError(f"source artifact missing required marker: {marker}")
+    for required in required_notice:
+        if required not in notice:
+            raise QuranSourceError(
+                f"source artifact notice missing required marker: {required}"
+            )
+    return notice
+
+
+def load_tanzil_txt2(path: Path) -> list[AyahRow]:
+    raw = path.read_text(encoding="utf-8")
+    load_tanzil_notice(path)
 
     rows: list[AyahRow] = []
     for line_number, line in enumerate(raw.splitlines(), start=1):
