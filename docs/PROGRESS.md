@@ -23,7 +23,9 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
 - GitHub Actions foundation checks and deterministic pack build workflow;
-- Ed25519 release-authenticity gate with deterministic signed-manifest bytes, content-derived key IDs, threshold policy, unauthorized/duplicate-key rejection, and project-controlled public trust-root storage;\n- Android release builds delegate to the same authoritative pack gate instead of trusting signature-shaped metadata;\n- trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
+- Ed25519 release-authenticity gate with deterministic signed-manifest bytes, content-derived key IDs, threshold policy, unauthorized/duplicate-key rejection, and project-controlled public trust-root storage;
+- Android release builds delegate to the same authoritative pack gate instead of trusting signature-shaped metadata;
+- trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
 
 ## Production Source Vault
 
@@ -47,23 +49,27 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 ## Quran core candidate pack
 
 - pack: `quran-core`
-- content version: `1.0.4`
-- manifest schema: `2`
-- artifact: `content-packs/quran-core/1.0.4/content.sqlite`
+- content version: `1.1.0`
+- manifest schema: `3`
+- artifact: `content-packs/quran-core/1.1.0/content.sqlite`
 - artifact bytes: `4599808`
-- artifact SHA-256: `492fcc4caa33b5ba64c94abce4d5f78d00232a99b777ea5e3bd70c338e19fa09`
+- artifact SHA-256: `c4c5d9e4819a11b06c24fda045bf583bd541d6e9285cd68a298e6f7c776acb61`
 - records: `6236`
-- importer: `quran-core-importer-5`
+- importer: `quran-core-importer-6`
+- canonical artifact: `canonical/quran-core/1.0.0/ayahs.jsonl`
+- canonical SHA-256: `ae0682ac00e85009dec44293a6436ac04c6834d2de38b6ab0f4afc9843278e04`
+- canonical records: `6236`
 - search normalization: `arabic-search-v1`
 - review status: `candidate`
 - signature status: unsigned
-- source-derived attribution notice: `content-packs/quran-core/1.0.4/NOTICE.txt`
+- source-derived attribution notice: `content-packs/quran-core/1.1.0/NOTICE.txt`
 - notice SHA-256: `d52680db446c36e9f7878c704e1db6eee16328f854671276fc63533fb73f3483`
 - source licence SHA-256: `1ef7fbb0454f64ed4cceb838337808969711155f36147d1b357fc083336f4c68`
 - source provenance SHA-256: `733a938c4f54f082bf7f4e0b1d9bff7ce21afedceeba199294e872a428a57505`
-- supersedes: `quran-core@1.0.3`
+- supersedes: `quran-core@1.0.4`
 
-Candidate does not mean release-approved. Version 1.0.4 strengthens the runtime trust boundary without changing Quran source text: the manifest is bound to Source Vault attribution/licence/provenance metadata, and the gate cross-checks the same identity plus exact notice text/hash inside SQLite `pack_metadata`.
+Candidate does not mean release-approved. Version 1.1.0 is the current derived runtime candidate and adds a deterministic canonical Quran JSONL binding without changing the preserved Tanzil Quran source text. Android development builds consume this canonical-bound candidate; release packaging remains fail-closed until the pack is independently reviewed and cryptographically approved.
+
 
 ## Validation status
 
@@ -89,4 +95,4 @@ One-shot acquisition/backfill workflows are removed after successful promotion o
 
 ### Canonical v3 integration status
 
-The integration branch introduces manifest schema v3 and a deterministic `canonical/quran-core/1.0.0/ayahs.jsonl` build step. It preserves schema-v2 verification for the current published 1.0.4 candidate. The intended next generated runtime candidate is `quran-core 1.1.0`; this document does not claim that artifact is published until the protected main workflow actually builds, validates, commits, and pushes it.
+Manifest schema v3 and deterministic `canonical/quran-core/1.0.0/ayahs.jsonl` are now on main. The protected publisher successfully built, validated, committed and pushed `quran-core 1.1.0`; schema-v2 verification remains available for immutable historical 1.0.4.
