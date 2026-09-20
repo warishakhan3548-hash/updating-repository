@@ -59,8 +59,17 @@ class WorkflowSupplyChainTests(unittest.TestCase):
         self.assertIn("python tools/build_quran_canonical.py", text[:commit_index])
         self.assertIn("python tools/build_quran_core.py", text[:commit_index])
         self.assertIn("PACK_DIR=\'content-packs/quran-core/1.1.0\'", text[:commit_index])
+        self.assertIn(
+            "python -m pip install --disable-pip-version-check -r requirements-foundation.txt",
+            text[:commit_index],
+        )
+        self.assertIn(
+            "python tools/pack_signing.py policy/trusted_pack_keys.json",
+            text[:commit_index],
+        )
 
         required = (
+            "python tools/pack_signing.py policy/trusted_pack_keys.json",
             "python tools/vault_gate.py source-vault/registry.json",
             "python tools/pack_gate.py",
             "\"$PACK_DIR/manifest.json\"",
@@ -71,6 +80,29 @@ class WorkflowSupplyChainTests(unittest.TestCase):
         for marker in required:
             with self.subTest(marker=marker):
                 self.assertIn(marker, post_commit)
+
+    def test_foundation_installs_and_validates_trust_verifier(self) -> None:
+        text = self.workflow_text("foundation.yml")
+        self.assertIn(
+            "python -m pip install --disable-pip-version-check -r requirements-foundation.txt",
+            text,
+        )
+        self.assertIn(
+            "python tools/pack_signing.py policy/trusted_pack_keys.json",
+            text,
+        )
+
+    def test_foundation_crypto_dependency_is_exactly_pinned(self) -> None:
+        requirements = (ROOT / "requirements-foundation.txt").read_text(
+            encoding="utf-8"
+        )
+        pins = [
+            line.strip()
+            for line in requirements.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(["cryptography==50.0.1"], pins)
+
 
 
 if __name__ == "__main__":
