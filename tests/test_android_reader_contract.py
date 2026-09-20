@@ -33,6 +33,10 @@ class AndroidReaderContractTests(unittest.TestCase):
         self.assertIn("original_text", store)
         self.assertNotIn("search_diacritic_free", store)
         self.assertIn('manifest.getString("built_sha256")', store)
+        self.assertIn("EXPECTED_SOURCE_SHA256", store)
+        self.assertIn("EXPECTED_DATABASE_SHA256", store)
+        self.assertIn("EXPECTED_NOTICE_SHA256", store)
+        self.assertIn("sha256Asset(NOTICE_ASSET)", store)
 
     def test_manifest_keeps_core_reader_private_and_rtl_capable(self):
         manifest = (
