@@ -13,10 +13,12 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -30,11 +32,11 @@ SOURCE_NAME = (
 )
 TRANSLATION_KEY = "arabic_seraj"
 EXPECTED_VERSION = "1.0.0"
+RESOURCE_TITLE = "Arabic Language - Meanings of Words"
+RESOURCE_BOOK = "As-Siraj fi Bayan Gharib Al-Quran"
+SOURCE_INDEX_URL = "https://quranenc.com/en/home"
 SOURCE_PAGE_URL = "https://quranenc.com/en/browse/arabic_seraj"
 CSV_URL = "https://quranenc.com/en/home/download/csv/arabic_seraj"
-TRANSLATION_LIST_URL = (
-    "https://quranenc.com/api/v1/translations/list/ar?localization=en"
-)
 TERMS_URL = "https://quranenc.com/en/home/about/terms-and-conditions"
 LICENCE_ID = "quranenc-republication-terms"
 DEFAULT_OUTPUT = Path(
@@ -60,6 +62,16 @@ class Download:
     etag: str | None
     last_modified: str | None
     body: bytes
+
+
+class _TextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        if data.strip():
+            self.parts.append(data)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -101,48 +113,50 @@ def fetch_https(url: str) -> Download:
         )
 
 
-def _walk_objects(value: object):
-    if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            yield from _walk_objects(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _walk_objects(child)
-
-
-def _normalized_version(value: object) -> str:
-    if not isinstance(value, str):
-        return ""
-    return value.strip().removeprefix("V").removeprefix("v")
-
-
-def validate_translation_metadata(raw: bytes) -> dict:
+def validate_source_index(raw: bytes) -> dict:
     try:
-        payload = json.loads(raw.decode("utf-8-sig"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise CaptureError("translation-list response is not valid UTF-8 JSON") from exc
+        html = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise CaptureError("QuranEnc source index is not UTF-8") from exc
 
-    matches = [
-        item
-        for item in _walk_objects(payload)
-        if item.get("key") == TRANSLATION_KEY
-    ]
-    if len(matches) != 1:
+    parser = _TextExtractor()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception as exc:
+        raise CaptureError("QuranEnc source index HTML could not be parsed") from exc
+
+    text = " ".join(" ".join(parser.parts).split())
+    title_at = text.find(RESOURCE_TITLE)
+    if title_at < 0:
         raise CaptureError(
-            f"expected exactly one {TRANSLATION_KEY!r} metadata record; "
-            f"found {len(matches)}"
+            f"official source index does not list {RESOURCE_TITLE!r}"
         )
 
-    record = matches[0]
-    if record.get("language_iso_code") != "ar":
-        raise CaptureError("arabic_seraj metadata is not tagged as Arabic")
-    if _normalized_version(record.get("version")) != EXPECTED_VERSION:
+    before = text[max(0, title_at - 160):title_at]
+    after = text[title_at:title_at + 420]
+    versions = re.findall(r"\b[Vv]?(\d+\.\d+\.\d+)\b", before)
+    if not versions:
+        raise CaptureError("resource version is not adjacent to its source-index title")
+
+    observed_version = versions[-1]
+    if observed_version != EXPECTED_VERSION:
         raise CaptureError(
             "upstream version changed: "
-            f"expected {EXPECTED_VERSION}, got {record.get('version')!r}"
+            f"expected {EXPECTED_VERSION}, got {observed_version!r}"
         )
-    return record
+    if RESOURCE_BOOK not in after:
+        raise CaptureError(
+            "source-index title is not followed by the expected As-Siraj attribution"
+        )
+
+    return {
+        "key": TRANSLATION_KEY,
+        "language_iso_code": "ar",
+        "version": observed_version,
+        "title": RESOURCE_TITLE,
+        "description": f'From the book "{RESOURCE_BOOK}".',
+    }
 
 
 def validate_csv_envelope(raw: bytes) -> None:
@@ -241,8 +255,8 @@ def capture(
     )
 
     try:
-        metadata = fetcher(TRANSLATION_LIST_URL)
-        metadata_record = validate_translation_metadata(metadata.body)
+        source_index = fetcher(SOURCE_INDEX_URL)
+        metadata_record = validate_source_index(source_index.body)
 
         csv_download = fetcher(CSV_URL)
         validate_csv_envelope(csv_download.body)
@@ -252,7 +266,7 @@ def capture(
 
         files: list[tuple[str, Download]] = [
             ("raw/arabic_seraj.csv", csv_download),
-            ("raw/translations-list-ar.json", metadata),
+            ("SOURCE_INDEX.html", source_index),
             ("LICENSE_SOURCE.html", terms),
             ("SOURCE_PAGE.html", source_page),
         ]
@@ -291,13 +305,7 @@ def capture(
             "licence_snapshot": licence_rel,
             "project_mirror": primary_rel,
             "translation_key": TRANSLATION_KEY,
-            "upstream_metadata": {
-                "key": metadata_record.get("key"),
-                "language_iso_code": metadata_record.get("language_iso_code"),
-                "version": metadata_record.get("version"),
-                "last_update": metadata_record.get("last_update"),
-                "title": metadata_record.get("title"),
-            },
+            "upstream_metadata": metadata_record,
             "capture_files": [
                 _download_record(download, relative)
                 for relative, download in files
@@ -365,18 +373,20 @@ def validate_existing(output: Path) -> dict:
         )
 
     csv_path = output / "raw" / "arabic_seraj.csv"
-    metadata_path = output / "raw" / "translations-list-ar.json"
+    source_index_path = output / "SOURCE_INDEX.html"
     terms_path = output / "LICENSE_SOURCE.html"
     source_page_path = output / "SOURCE_PAGE.html"
 
-    for path in (csv_path, metadata_path, terms_path, source_page_path):
+    for path in (csv_path, source_index_path, terms_path, source_page_path):
         if not path.is_file() or path.stat().st_size < 1:
             raise CaptureError(f"captured evidence file is missing/empty: {path.name}")
 
     csv_bytes = csv_path.read_bytes()
     validate_csv_envelope(csv_bytes)
-    validate_translation_metadata(metadata_path.read_bytes())
+    metadata_record = validate_source_index(source_index_path.read_bytes())
 
+    if provenance.get("upstream_metadata") != metadata_record:
+        raise CaptureError("source-index metadata does not match provenance")
     if provenance.get("sha256") != sha256_bytes(csv_bytes):
         raise CaptureError("primary CSV SHA-256 does not match provenance")
     if provenance.get("byte_size") != len(csv_bytes):
