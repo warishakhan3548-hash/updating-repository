@@ -16,3 +16,10 @@ A release containing Quran text must fail if any applicable invariant fails:
 - import is deterministic from the pinned vault snapshot.
 
 Source bytes are never corrected in place. Corrections or interpretive overlays live separately and are attributed.
+
+## Runtime provenance binding
+
+- attribution notices must preserve the pinned source wording and line structure;
+- schema-v2 Quran packs bind source URL, attribution, licence/provenance hashes and notice hash back to the Source Vault;
+- SQLite `pack_metadata` must carry the same notice and provenance identity as the manifest;
+- changing this trust contract requires a new immutable content version rather than rewriting an older pack.
