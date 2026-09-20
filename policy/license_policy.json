@@ -3,6 +3,7 @@
   "release_rules": {
     "require_production_approved": true,
     "require_redistribution_allowed": true,
+    "require_historical_snapshot_retention_allowed": true,
     "require_exact_sha256": true,
     "require_licence_snapshot": true,
     "require_project_controlled_artifact": true,
