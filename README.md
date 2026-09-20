@@ -8,13 +8,15 @@ This repository builds trust and reproducibility before UI breadth. Critical ext
 
 ## Current phase
 
-Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. The deterministic Quran core builder is the bridge into early Phase 1.
+Phase 0A–0C is operational and Phase 1 has a minimal offline Android reader on the trusted read-only Reader Core boundary.
 
-**Production-approved today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
+**Production-approved source today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
+
+**Current Quran runtime candidate:** `quran-core 1.1.0` (manifest schema v3), generated from the project-controlled Tanzil snapshot through the deterministic canonical Quran JSONL layer. It contains 6,236 ayahs and remains `candidate` / unsigned.
 
 **Not production-approved yet:** Quranic Arabic Corpus morphology, Hadith datasets, QUL resources and other optional content. See `source-vault/registry.json`.
 
-This is not yet a finished reader application. Reader UI, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+The reader is intentionally narrow: source-faithful Arabic, local navigation and safe UI-only tap anchors. Morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
 
 ## Architecture boundaries
 
@@ -22,22 +24,27 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 - `user.sqlite`: precious local learning history and notes.
 - Evidence Plane: immutable source-faithful Quran/Hadith records and attributed assertions.
 - Learning Plane: glosses, exposure/review events, scheduler state and derived comprehension.
+- Canonical Quran JSONL: long-lived semantic reproducibility anchor between Source Vault and SQLite runtime bytes.
 - AI may expand queries or reason over exported evidence; it cannot author Evidence Plane truth.
 - Normal content builds use project-controlled snapshots, never an uncontrolled upstream `latest`.
+- Release approval is fail-closed: approved manifests must pass the authoritative pack gate and project-controlled Ed25519 trust policy.
 
 ## Current Quran core
 
 `tools/quran_core.py` validates the pinned Tanzil artifact and the complete 114-surah / 6,236-ayah coordinate sequence while keeping original display text separate from derived search normalization.
 
-`tools/build_quran_core.py` deterministically builds the current `quran-core` 1.0.4 candidate under `content-packs/` using provenance-bound manifest schema v2, including SQLite content, manifest and the source-derived Tanzil attribution notice. The pack contains 6,236 ayahs, keeps display Arabic separate from search-normalized lanes, and remains unsigned/candidate until release review and signing. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
+`tools/build_quran_canonical.py` creates `canonical/quran-core/1.0.0/ayahs.jsonl`, whose SHA-256 is the durable semantic anchor. `tools/build_quran_core.py` then builds `content-packs/quran-core/1.1.0/content.sqlite` from that canonical layer using manifest schema v3.
 
-The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.
+The Android debug reader bundles this 1.1.0 candidate directly. Release builds remain blocked because the current trust root is still `bootstrap-required` and the pack is not approved/signed. No private release key is stored in GitHub.
+
+The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level linguistic identities wait for a legally preserved, production-approved source.
 
 ## Validation
 
 The main branch runs:
 
 ```bash
+python -m pip install --disable-pip-version-check -r requirements-ci.txt
 python tools/vault_gate.py source-vault/registry.json
 python tools/pack_gate.py source-vault/registry.json
 python tools/validate_schemas.py
