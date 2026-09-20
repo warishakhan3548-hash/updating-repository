@@ -22,3 +22,5 @@ Every new v2 review must record exactly one canonical grade: `again`, `hard`, `g
 `event_schema_version` distinguishes migrated historical rows from new rows. The v1→v2 migration preserves unknown legacy outcomes verbatim and deliberately leaves their canonical grade unset rather than guessing.
 
 Bookmarks, notes and preferences live in the user database and belong in versioned export/import.
+
+Regression coverage lives in `tests/test_user_migrations.py`; `tools/validate_schemas.py` compiles both v1 and v2 so future migrations cannot silently orphan the current contract.
