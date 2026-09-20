@@ -95,6 +95,81 @@ class VaultGateTests(unittest.TestCase):
         }
         return source, artifact, provenance_path
 
+    def _valid_checksum_set(
+        self, root: Path, *, status: str = "awaiting-licence"
+    ):
+        base = root / "source-vault" / "quran-gloss" / "example" / "1.0"
+        raw = base / "raw"
+        raw.mkdir(parents=True)
+        first = raw / "001.json"
+        second = raw / "002.json"
+        first.write_bytes(b'{"sura":1}\n')
+        second.write_bytes(b'{"sura":2}\n')
+
+        checksum = base / "sha256.txt"
+        entries = [
+            ("raw/001.json", hashlib.sha256(first.read_bytes()).hexdigest()),
+            ("raw/002.json", hashlib.sha256(second.read_bytes()).hexdigest()),
+        ]
+        checksum.write_text(
+            "".join(f"{digest}  {path}\n" for path, digest in entries),
+            encoding="utf-8",
+        )
+        digest = hashlib.sha256(checksum.read_bytes()).hexdigest()
+
+        licence = base / "LICENSE.txt"
+        licence.write_text("example multi-file licence", encoding="utf-8")
+        provenance = {
+            "source_id": "example-multi",
+            "source_name": "Example Multi Source",
+            "original_url": "https://example.invalid/multi",
+            "version": "1.0",
+            "retrieved_at": "2026-09-21T00:00:00Z",
+            "artifact_kind": "sha256-set",
+            "sha256": digest,
+            "byte_size": checksum.stat().st_size,
+            "licence_id": "example-licence",
+            "redistribution_allowed": True,
+            "modification_allowed": False,
+            "attribution_required": True,
+            "licence_snapshot": (
+                "source-vault/quran-gloss/example/1.0/LICENSE.txt"
+            ),
+            "project_mirror": (
+                "source-vault/quran-gloss/example/1.0/sha256.txt"
+            ),
+        }
+        provenance_path = base / "provenance.json"
+        provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+        source = {
+            "source_id": "example-multi",
+            "source_name": "Example Multi Source",
+            "original_url": "https://example.invalid/multi",
+            "version": "1.0",
+            "status": status,
+            "artifact_kind": "sha256-set",
+            "redistribution_allowed": True,
+            "modification_allowed": False,
+            "attribution_required": True,
+            "licence_id": "example-licence",
+            "vault_artifact": (
+                "source-vault/quran-gloss/example/1.0/sha256.txt"
+            ),
+            "licence_snapshot": (
+                "source-vault/quran-gloss/example/1.0/LICENSE.txt"
+            ),
+            "provenance": (
+                "source-vault/quran-gloss/example/1.0/provenance.json"
+            ),
+            "sha256": digest,
+            "licence_sha256": hashlib.sha256(licence.read_bytes()).hexdigest(),
+            "provenance_sha256": hashlib.sha256(
+                provenance_path.read_bytes()
+            ).hexdigest(),
+            "byte_size": checksum.stat().st_size,
+        }
+        return source, first, checksum
+
     def test_non_production_candidate_can_remain_unmirrored(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._registry(
@@ -110,6 +185,50 @@ class VaultGateTests(unittest.TestCase):
                 root, status="research-candidate"
             )
             validate_registry(self._registry(root, source))
+
+    def test_valid_non_production_checksum_set_is_verified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_checksum_set(root)
+            validate_registry(self._registry(root, source))
+
+    def test_checksum_set_member_tamper_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, first, _ = self._valid_checksum_set(root)
+            path = self._registry(root, source)
+            first.write_bytes(b'{"sura":999}\n')
+            with self.assertRaisesRegex(
+                VaultGateError, "checksum-set member SHA-256 mismatch"
+            ):
+                validate_registry(path)
+
+    def test_checksum_set_member_symlink_cannot_escape_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, first, _ = self._valid_checksum_set(root)
+            path = self._registry(root, source)
+            outside = root / "outside.json"
+            outside.write_bytes(first.read_bytes())
+            first.unlink()
+            first.symlink_to(outside)
+            with self.assertRaisesRegex(
+                VaultGateError, "resolves outside snapshot root"
+            ):
+                validate_registry(path)
+
+    def test_invalid_artifact_kind_fails_even_without_mirror(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {
+                    "source_id": "candidate",
+                    "status": "awaiting-artifact",
+                    "artifact_kind": "tarball-magic",
+                },
+            )
+            with self.assertRaisesRegex(VaultGateError, "invalid artifact_kind"):
+                validate_registry(path)
 
     def test_non_production_partial_snapshot_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
