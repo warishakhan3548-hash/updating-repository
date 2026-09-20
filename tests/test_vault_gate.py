@@ -487,7 +487,7 @@ class VaultGateTests(unittest.TestCase):
             }
             path = self._registry(root, source)
             with self.assertRaisesRegex(
-                VaultGateError, "verified historical snapshot retention permission"
+                VaultGateError, "unresolved historical snapshot retention"
             ):
                 validate_registry(path)
 
