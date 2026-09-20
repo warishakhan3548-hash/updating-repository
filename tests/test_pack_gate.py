@@ -83,6 +83,23 @@ class PackGateTests(unittest.TestCase):
             registry, manifest, _ = self._fixture(Path(tmp))
             validate_manifest(manifest, registry)
 
+    def test_pack_manifest_duplicate_json_key_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, manifest, _ = self._fixture(Path(tmp))
+            text = manifest.read_text(encoding="utf-8")
+            manifest.write_text(
+                text.replace(
+                    "{",
+                    '{"pack_id":"ambiguous",',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                PackGateError, "duplicate JSON object key"
+            ):
+                validate_manifest(manifest, registry)
+
     def test_pack_from_unapproved_source_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             registry, manifest, _ = self._fixture(
