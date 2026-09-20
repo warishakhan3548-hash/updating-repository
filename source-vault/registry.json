@@ -88,9 +88,9 @@
       "source_name": "HadeethEnc",
       "original_url": "https://hadeethenc.com/en",
       "version": "1.7.0-observed-2026-09-20",
-      "status": "research-candidate",
+      "status": "awaiting-licence",
       "licence_id": "custom-republication-terms",
-      "redistribution_allowed": true,
+      "redistribution_allowed": null,
       "modification_allowed": false,
       "attribution_required": true,
       "vault_artifact": null,
@@ -98,7 +98,12 @@
       "provenance": null,
       "sha256": null,
       "byte_size": null,
-      "notes": "Official HadeethEnc version-check endpoint reports Arabic translation v1.7.0 and the download surface exposes Arabic Excel/PDF under republication terms. Keep research-only until the exact v1.7.0 artifact, edition/collection/numbering provenance, licence snapshot, checksums and project-controlled mirror are preserved and reviewed."
+      "notes": "Official HadeethEnc currently reports Arabic translation v1.7.0 and its download surface serves Arabic Excel/PDF. The published terms permit download/republication subject to verbatim-content, attribution/version/transcript and other conditions, but also require updating according to newer source versions. That ongoing-update obligation is not yet proven compatible with this project's immutable public historical Source Vault. Do not download or mirror production bytes until HadeethEnc clarifies historical snapshot retention or another legally durable basis is documented. Even after archival permission is cleared, edition/collection/numbering provenance must be verified before Hadith Evidence Plane promotion.",
+      "release_requirements": {
+        "latest_upstream_version_required": true,
+        "version_check_url": "https://hadeethenc.com/en/check/ar/v1.3.0",
+        "historical_snapshot_retention_status": "unresolved"
+      }
     },
     {
       "source_id": "quran.quran-foundation.api",
