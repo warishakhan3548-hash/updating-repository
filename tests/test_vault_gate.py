@@ -99,7 +99,7 @@ class VaultGateTests(unittest.TestCase):
         return source, artifact, provenance_path
 
     def _valid_checksum_set(
-        self, root: Path, *, status: str = "awaiting-licence"
+        self, root: Path, *, status: str = "research-candidate"
     ):
         base = root / "source-vault" / "quran-gloss" / "example" / "1.0"
         raw = base / "raw"
@@ -450,6 +450,54 @@ class VaultGateTests(unittest.TestCase):
             path = self._registry(root, source)
             with self.assertRaisesRegex(
                 VaultGateError, "verified historical snapshot retention permission"
+            ):
+                validate_registry(path)
+
+
+    def test_unresolved_historical_retention_requires_awaiting_licence_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {
+                    "source_id": "candidate",
+                    "status": "research-candidate",
+                    "release_requirements": {
+                        "latest_upstream_version_required": True,
+                        "version_check_url": "https://example.invalid/versions",
+                        "historical_snapshot_retention_status": "unresolved",
+                    },
+                },
+            )
+            with self.assertRaisesRegex(
+                VaultGateError,
+                "unresolved historical snapshot retention requires status 'awaiting-licence'",
+            ):
+                validate_registry(path)
+
+    def test_unresolved_historical_retention_allows_metadata_only_awaiting_licence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._registry(
+                Path(tmp),
+                {
+                    "source_id": "candidate",
+                    "status": "awaiting-licence",
+                    "release_requirements": {
+                        "latest_upstream_version_required": True,
+                        "version_check_url": "https://example.invalid/versions",
+                        "historical_snapshot_retention_status": "unresolved",
+                    },
+                },
+            )
+            validate_registry(path)
+
+    def test_awaiting_licence_source_cannot_preserve_snapshot_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root, status="awaiting-licence")
+            path = self._registry(root, source)
+            with self.assertRaisesRegex(
+                VaultGateError,
+                "awaiting-licence source must not preserve project-controlled snapshot bytes",
             ):
                 validate_registry(path)
 
