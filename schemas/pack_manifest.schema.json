@@ -102,7 +102,45 @@
       }
     },
     "signature": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "payload_version": {
+          "type": "string"
+        },
+        "trust_root_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "signatures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "algorithm",
+              "key_id",
+              "value"
+            ],
+            "properties": {
+              "algorithm": {
+                "const": "ed25519"
+              },
+              "key_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{128}$"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": true
     },
     "notice_path": {
       "type": "string",
@@ -135,6 +173,10 @@
     "supersedes": {
       "type": "string",
       "minLength": 1
+    },
+    "release_sequence": {
+      "type": "integer",
+      "minimum": 1
     }
   },
   "dependentRequired": {
@@ -168,6 +210,40 @@
           "notice_path",
           "notice_sha256"
         ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "const": "approved"
+          }
+        },
+        "required": [
+          "review_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "release_sequence"
+        ],
+        "properties": {
+          "signature": {
+            "required": [
+              "payload_version",
+              "trust_root_version",
+              "signatures"
+            ],
+            "properties": {
+              "payload_version": {
+                "const": "aaris-pack-manifest-v1"
+              },
+              "signatures": {
+                "minItems": 1
+              }
+            }
+          }
+        }
       }
     }
   ]
