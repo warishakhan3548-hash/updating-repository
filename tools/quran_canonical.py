@@ -111,6 +111,9 @@ def build_canonical(
         "source_version": source["version"],
         "source_vault_path": source["vault_artifact"],
         "source_sha256": source["sha256"],
+        "source_url": source["original_url"],
+        "source_licence_sha256": source["licence_sha256"],
+        "source_provenance_sha256": source["provenance_sha256"],
         "licence": source["licence_id"],
         "edition": "Uthmani",
         "source_artifact_name": source_artifact.name,
@@ -147,6 +150,9 @@ def load_canonical(
         "source_version",
         "source_vault_path",
         "source_sha256",
+        "source_url",
+        "source_licence_sha256",
+        "source_provenance_sha256",
         "licence",
         "edition",
     }
@@ -169,6 +175,9 @@ def load_canonical(
         "source_version": source["version"],
         "source_vault_path": source["vault_artifact"],
         "source_sha256": source["sha256"],
+        "source_url": source["original_url"],
+        "source_licence_sha256": source["licence_sha256"],
+        "source_provenance_sha256": source["provenance_sha256"],
         "licence": source["licence_id"],
     }
     for field, expected in expected_source.items():
