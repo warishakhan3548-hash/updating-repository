@@ -50,6 +50,10 @@ class WorkflowSupplyChainTests(unittest.TestCase):
 
         self.assertEqual([], failures, "\\n".join(failures))
 
+    def test_pack_builder_reruns_when_validation_tests_change(self) -> None:
+        text = self.workflow_text("build-quran-core-pack.yml")
+        self.assertIn("      - 'tests/**'\n", text)
+
     def test_foundation_crypto_dependency_is_exactly_pinned(self) -> None:
         requirements = (ROOT / "requirements-foundation.txt").read_text(
             encoding="utf-8"
