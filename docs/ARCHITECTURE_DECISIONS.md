@@ -110,14 +110,6 @@ The fallback is query/search-lane logic only: it never rewrites `original_text`,
 This keeps source truth and search convenience separate while improving recall for common keyboard/script variation without introducing a heavyweight search dependency or silently broadening confidence.
 
 
-## ADR-024 — Historical-retention permission gates every preserved source
-
-Redistribution permission and permission to keep an immutable historical copy are separate assertions. The Source Vault therefore requires explicit `historical_snapshot_retention_status=verified-allowed` before a source may enter `awaiting-artifact`, before any source bytes may be registered as preserved, and before a source may be `production-approved`.
-
-The existing `release_requirements` object now represents both archival-retention review and any release-time freshness obligation. `latest_upstream_version_required` is a boolean: a source such as Tanzil may permit durable historical redistribution without requiring every release to use upstream latest, while a source such as QuranEnc may impose a latest-version obligation and still remain blocked because historical retention is unresolved.
-
-Release/freshness policy is intentionally not copied into immutable acquisition provenance. Provenance records what exact artifact was obtained, from where, when, under which archived terms and hashes. The registry records the current legal/release interpretation, while an approved pack that is legally required to track upstream latest carries a separately signed `source_release_review`. This keeps evidence bytes reproducible without freezing a mutable compliance judgment into source identity.
-
 ## ADR-022 — Commercial-use permission is an independent release gate
 
 Redistribution permission does not imply permission to ship content in a commercial build. The Source Vault registry records `commercial_use_allowed` separately from redistribution, modification and attribution requirements. A source may remain useful for research with a false or unknown commercial-use value, but it cannot be `production-approved` or feed a runtime pack unless commercial use is explicitly verified as allowed.
@@ -132,3 +124,12 @@ A labelled retrieval benchmark is part of the product's reproducibility record. 
 `quran-search-golden-v1` therefore remains the historical strict-search baseline. `quran-search-golden-v2` is the active spelling-fallback benchmark and explicitly binds both the pack-side `arabic-search-v1` normalization contract and the runtime `arabic-query-variant-v1` contract. Evaluation fails closed if the runtime binding is absent or does not match the implementation.
 
 This keeps benchmark history auditable across search-engine evolution and prevents a newer engine from appearing to have passed an older benchmark whose labels or thresholds were retrospectively changed.
+
+
+## ADR-024 — Historical-retention permission gates every preserved source
+
+Redistribution permission and permission to keep an immutable historical copy are separate assertions. The Source Vault therefore requires explicit `historical_snapshot_retention_status=verified-allowed` before a source may enter `awaiting-artifact`, before any source bytes may be registered as preserved, and before a source may be `production-approved`.
+
+The existing `release_requirements` object now represents both archival-retention review and any release-time freshness obligation. `latest_upstream_version_required` is a boolean: a source such as Tanzil may permit durable historical redistribution without requiring every release to use upstream latest, while a source such as QuranEnc may impose a latest-version obligation and still remain blocked because historical retention is unresolved.
+
+Release/freshness policy is intentionally not copied into immutable acquisition provenance. Provenance records what exact artifact was obtained, from where, when, under which archived terms and hashes. The registry records the current legal/release interpretation, while an approved pack that is legally required to track upstream latest carries a separately signed `source_release_review`. This keeps evidence bytes reproducible without freezing a mutable compliance judgment into source identity.
