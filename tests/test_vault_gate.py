@@ -159,7 +159,6 @@ class VaultGateTests(unittest.TestCase):
             provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
             provenance["original_url"] = source["original_url"]
             provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
-            self._refresh_provenance_hash(path, provenance_path)
             with self.assertRaisesRegex(VaultGateError, "absolute https URL"):
                 validate_registry(self._registry(root, source))
 
