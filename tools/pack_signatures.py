@@ -22,24 +22,43 @@ class PackSignatureError(RuntimeError):
     pass
 
 
-def _reject_float(value: Any, path: str = "$") -> None:
+MAX_SAFE_INTEGER = 9_007_199_254_740_991
+
+
+def _reject_nonportable_json(value: Any, path: str = "$") -> None:
     if isinstance(value, float):
         raise PackSignatureError(
             f"floating-point value is not allowed in signed metadata at {path}"
         )
+    if isinstance(value, int) and not isinstance(value, bool):
+        if abs(value) > MAX_SAFE_INTEGER:
+            raise PackSignatureError(
+                f"integer is outside the cross-runtime safe range at {path}"
+            )
     if isinstance(value, dict):
         for key, child in value.items():
             if not isinstance(key, str):
                 raise PackSignatureError(f"non-string JSON object key at {path}")
-            _reject_float(child, f"{path}.{key}")
+            _reject_nonportable_json(child, f"{path}.{key}")
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            _reject_float(child, f"{path}[{index}]")
+            _reject_nonportable_json(child, f"{path}[{index}]")
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PackSignatureError(
+                f"duplicate JSON object key in trusted pack key policy: {key}"
+            )
+        result[key] = value
+    return result
 
 
 def canonical_json_bytes(value: Any) -> bytes:
     """Serialize a restricted JSON value deterministically for signatures."""
-    _reject_float(value)
+    _reject_nonportable_json(value)
     try:
         text = json.dumps(
             value,
@@ -52,7 +71,12 @@ def canonical_json_bytes(value: Any) -> bytes:
         raise PackSignatureError(
             "signed metadata is not canonicalizable JSON"
         ) from exc
-    return text.encode("utf-8")
+    try:
+        return text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise PackSignatureError(
+            "signed metadata strings must contain valid Unicode scalar values"
+        ) from exc
 
 
 def canonical_manifest_payload(manifest: dict[str, Any]) -> bytes:
@@ -89,7 +113,10 @@ def _load_keyring(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise PackSignatureError(f"missing trusted pack key policy: {path}")
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PackSignatureError("invalid trusted pack key policy JSON") from exc
     if (
