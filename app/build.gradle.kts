@@ -1,5 +1,6 @@
 import java.io.File
 import java.security.MessageDigest
+import org.gradle.api.tasks.Exec
 
 plugins {
     id("com.android.application")
@@ -52,10 +53,16 @@ android {
         buildConfigField("String", "QURAN_PACK_SHA256", "\"$packSha256\"")
         buildConfigField("String", "QURAN_SOURCE_SHA256", "\"$packSourceSha256\"")
         buildConfigField("String", "QURAN_PACK_REVIEW_STATUS", "\"$packReviewStatus\"")
-        // The repository pack gate deliberately rejects every approved pack until
-        // trusted-key cryptographic signature verification exists. Android must not
-        // weaken that boundary by treating signature-shaped manifest strings as proof.
-        buildConfigField("boolean", "QURAN_PACK_RELEASE_READY", "false")
+    }
+
+    buildTypes {
+        getByName("debug") {
+            buildConfigField("boolean", "QURAN_PACK_RELEASE_READY", "false")
+        }
+        getByName("release") {
+            // Release packaging is fail-closed behind verifyReleaseQuranPack below.
+            buildConfigField("boolean", "QURAN_PACK_RELEASE_READY", "true")
+        }
     }
 
     buildFeatures {
@@ -110,18 +117,31 @@ tasks.named("preBuild").configure {
     dependsOn(verifyBundledQuranPack)
 }
 
-val verifyReleaseQuranPack by tasks.registering {
+val verifyReleaseQuranPack by tasks.registering(Exec::class) {
     group = "verification"
-    description = "Fail closed until an approved pack has trusted-key cryptographic verification."
+    description = "Require an approved Quran pack with a verified trusted-key signature."
 
-    doLast {
+    val manifestRelativePath = quranPackManifest
+        .relativeTo(rootProject.projectDir)
+        .invariantSeparatorsPath
+    workingDir(rootProject.projectDir)
+    commandLine(
+        providers.gradleProperty("pythonCommand").orElse("python").get(),
+        "tools/pack_gate.py",
+        "source-vault/registry.json",
+        manifestRelativePath,
+    )
+
+    doFirst {
         check(packReviewStatus == "approved") {
             "Release build blocked: quran-core $packVersion is $packReviewStatus, not approved"
         }
-        error(
-            "Release build blocked: trusted-key cryptographic content-pack signature " +
-                "verification is not implemented"
-        )
+        check(rootProject.file("policy/trusted_pack_keys.json").isFile) {
+            "Release build blocked: trusted content-pack key policy is missing"
+        }
+        check(rootProject.file("requirements-foundation.txt").isFile) {
+            "Release build blocked: pinned verifier dependency file is missing"
+        }
     }
 }
 
