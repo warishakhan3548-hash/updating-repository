@@ -27,6 +27,17 @@ The Source Vault gate validates preserved candidate snapshots before production 
 
 Because this repository is project-controlled redistribution infrastructure, a preserved public snapshot must also have verified redistribution permission and explicit modification/attribution flags. If those rights are unresolved, keep the source metadata-only and do not mirror its bytes.
 
+## Multi-file snapshot contract
+
+Some trustworthy upstream sources are naturally a set of exact files rather than one blob. Do not concatenate or normalize those source bytes merely to satisfy a single-file preservation model.
+
+Registry entries may use `artifact_kind: "sha256-set"`. In that mode, `vault_artifact` points to an immutable UTF-8 checksum ledger under the snapshot directory. Every ledger member is verified individually by exact SHA-256 and must stay inside that directory. Path traversal, absolute paths, non-POSIX paths, duplicate members, symlink escape, aliases and self-reference fail closed. The checksum ledger itself, licence snapshot and provenance remain independently hash-bound by the registry.
+
+This mechanism does not promote a candidate or settle copyright. Production builders still require explicit `production-approved` status and every source-specific licence/release obligation.
+
+The preserved QuranEnc `arabic_seraj` v1.0.0 review snapshot is additionally checked by `tools/verify_quranenc_snapshot.py`, which validates its exact 119-member checksum set, source/provenance metadata, API manifest, 114 Surah files and 6,236 ordered coordinates without network access. It remains outside production while historical archival-retention permission is unresolved.
+
+
 ## Production promotion contract
 
 A `production-approved` registry entry fails closed unless the project has a consistent source identity, verified redistribution permission, explicit modification/attribution flags, a project-controlled artifact, a non-empty licence snapshot and provenance file, and hashes that still match all three preserved files.
