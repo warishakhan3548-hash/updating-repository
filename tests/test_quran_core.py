@@ -19,6 +19,7 @@ from tools.quran_core import (
     EXPECTED_AYAH_COUNTS,
     extract_tanzil_notice,
     load_production_source,
+    normalize_search_constrained_variant,
     normalize_search_diacritic_free,
     normalize_search_unicode,
 )
@@ -64,6 +65,18 @@ class QuranCoreTests(unittest.TestCase):
         self.assertEqual(normalize_search_unicode(original), original)
         self.assertEqual(normalize_search_diacritic_free(original), "ٱلحمد")
         self.assertEqual(original, "ٱلْحَمْدُ ۞")
+
+    def test_constrained_query_normalization_is_query_only_and_conservative(self):
+        original = "فَإِنَّ مَعَ ٱلْعُسْرِ يُسْرًا"
+        self.assertEqual(
+            normalize_search_constrained_variant(original),
+            "فان مع العسر يسرا",
+        )
+        self.assertEqual(
+            normalize_search_constrained_variant("الحی القیوم قل ہو ملک"),
+            "الحي القيوم قل هو ملك",
+        )
+        self.assertEqual(original, "فَإِنَّ مَعَ ٱلْعُسْرِ يُسْرًا")
 
     def _copy_fixture_root(self, destination: Path) -> None:
         (destination / "schemas").mkdir(parents=True)

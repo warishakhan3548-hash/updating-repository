@@ -10,6 +10,21 @@ import unicodedata
 
 SOURCE_ID = "quran.tanzil.uthmani.v1.1"
 SEARCH_NORMALIZATION_VERSION = "arabic-search-v1"
+QUERY_VARIANT_NORMALIZATION_VERSION = "arabic-query-variant-v1"
+
+# Query-only fallback substitutions. These never rewrite source/display Quran text.
+# Keep this intentionally small: it targets common Arabic orthography and South-Asian
+# keyboard substitutions, and is only used after strict search returns no result.
+CONSTRAINED_QUERY_VARIANTS = (
+    ("ٱ", "ا"),  # ALEF WASLA -> ALEF
+    ("أ", "ا"),  # ALEF WITH HAMZA ABOVE -> ALEF
+    ("إ", "ا"),  # ALEF WITH HAMZA BELOW -> ALEF
+    ("آ", "ا"),  # ALEF WITH MADDA -> ALEF
+    ("ى", "ي"),  # ALEF MAKSURA -> YEH
+    ("ی", "ي"),  # FARSI YEH -> ARABIC YEH
+    ("ک", "ك"),  # KEHEH -> ARABIC KAF
+    ("ہ", "ه"),  # HEH GOAL -> ARABIC HEH
+)
 
 EXPECTED_AYAH_COUNTS = (
     7, 286, 200, 176, 120, 165, 206, 75, 129, 109, 123, 111, 43, 52,
@@ -87,6 +102,14 @@ def normalize_search_diacritic_free(text: str) -> str:
     canonical = normalize_search_unicode(text)
     stripped = "".join(ch for ch in canonical if not _remove_for_diacritic_lane(ch))
     return " ".join(stripped.split())
+
+
+def normalize_search_constrained_variant(text: str) -> str:
+    """Normalize a query/source search lane for conservative approximate matching."""
+    normalized = normalize_search_diacritic_free(text)
+    for source, target in CONSTRAINED_QUERY_VARIANTS:
+        normalized = normalized.replace(source, target)
+    return normalized
 
 
 def extract_tanzil_notice(path: Path) -> str:

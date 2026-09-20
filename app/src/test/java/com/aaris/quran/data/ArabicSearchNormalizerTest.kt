@@ -20,6 +20,24 @@ class ArabicSearchNormalizerTest {
     }
 
     @Test
+    fun constrainedVariantNormalizesArabicOrthographyWithoutChangingInput() {
+        val original = "فَإِنَّ مَعَ ٱلْعُسْرِ يُسْرًا"
+        assertEquals(
+            "فان مع العسر يسرا",
+            ArabicSearchNormalizer.normalizeConstrainedVariant(original),
+        )
+        assertEquals("فَإِنَّ مَعَ ٱلْعُسْرِ يُسْرًا", original)
+    }
+
+    @Test
+    fun constrainedVariantNormalizesSouthAsianKeyboardLetters() {
+        assertEquals(
+            "الحي القيوم قل هو ملك",
+            ArabicSearchNormalizer.normalizeConstrainedVariant("الحی القیوم قل ہو ملک"),
+        )
+    }
+
+    @Test
     fun canonicalEquivalentUnicodeQueriesNormalizeEqually() {
         assertEquals(
             ArabicSearchNormalizer.normalizeUnicode("أ"),

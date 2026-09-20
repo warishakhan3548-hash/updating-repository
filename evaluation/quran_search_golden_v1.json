@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "golden_set_id": "quran-search-golden-v1",
-  "purpose": "Measured regression and future-lane evaluation for deterministic Quran retrieval. Source-derived queries are generated from the verified runtime pack and are never rendered as replacement Quran text.",
+  "purpose": "Measured regression and future-lane evaluation for deterministic Quran retrieval. Strict retrieval runs first; a constrained, versioned query-only spelling fallback runs only after strict abstention. Source-derived queries are never rendered as replacement Quran text.",
   "pack": {
     "pack_id": "quran-core",
     "content_version": "1.1.0",
@@ -18,11 +18,13 @@
       "no_answer"
     ],
     "minimum_recall_at_5_by_category": {
-      "exact_source": 1.0,
-      "diacritic_free": 1.0,
-      "partial_phrase": 1.0
+      "exact_source": 1,
+      "diacritic_free": 1,
+      "partial_phrase": 1,
+      "orthographic_variant": 1,
+      "keyboard_variant": 1
     },
-    "maximum_negative_false_positive_rate": 0.0
+    "maximum_negative_false_positive_rate": 0
   },
   "cases": [
     {
@@ -30,102 +32,142 @@
       "category": "exact_source",
       "query_from_ayah_id": "qa:001:002",
       "query_derivation": "source_exact",
-      "expected_ayah_ids": ["qa:001:002"]
+      "expected_ayah_ids": [
+        "qa:001:002"
+      ]
     },
     {
       "id": "exact-baqarah-2-255",
       "category": "exact_source",
       "query_from_ayah_id": "qa:002:255",
       "query_derivation": "source_exact",
-      "expected_ayah_ids": ["qa:002:255"]
+      "expected_ayah_ids": [
+        "qa:002:255"
+      ]
     },
     {
       "id": "exact-ikhlas-112-1",
       "category": "exact_source",
       "query_from_ayah_id": "qa:112:001",
       "query_derivation": "source_exact",
-      "expected_ayah_ids": ["qa:112:001"]
+      "expected_ayah_ids": [
+        "qa:112:001"
+      ]
     },
     {
       "id": "no-harakat-kahf-18-10",
       "category": "diacritic_free",
       "query_from_ayah_id": "qa:018:010",
       "query_derivation": "diacritic_free",
-      "expected_ayah_ids": ["qa:018:010"]
+      "expected_ayah_ids": [
+        "qa:018:010"
+      ]
     },
     {
       "id": "no-harakat-nur-24-35",
       "category": "diacritic_free",
       "query_from_ayah_id": "qa:024:035",
       "query_derivation": "diacritic_free",
-      "expected_ayah_ids": ["qa:024:035"]
+      "expected_ayah_ids": [
+        "qa:024:035"
+      ]
     },
     {
       "id": "no-harakat-zumar-39-53",
       "category": "diacritic_free",
       "query_from_ayah_id": "qa:039:053",
       "query_derivation": "diacritic_free",
-      "expected_ayah_ids": ["qa:039:053"]
+      "expected_ayah_ids": [
+        "qa:039:053"
+      ]
     },
     {
       "id": "partial-hujurat-49-13",
       "category": "partial_phrase",
       "query_from_ayah_id": "qa:049:013",
       "query_derivation": "word_slice_diacritic_free",
-      "word_slice": [0, 8],
-      "expected_ayah_ids": ["qa:049:013"]
+      "word_slice": [
+        0,
+        8
+      ],
+      "expected_ayah_ids": [
+        "qa:049:013"
+      ]
     },
     {
       "id": "partial-duha-93-3",
       "category": "partial_phrase",
       "query_from_ayah_id": "qa:093:003",
       "query_derivation": "word_slice_diacritic_free",
-      "word_slice": [0, 5],
-      "expected_ayah_ids": ["qa:093:003"]
+      "word_slice": [
+        0,
+        5
+      ],
+      "expected_ayah_ids": [
+        "qa:093:003"
+      ]
     },
     {
       "id": "partial-anbiya-21-87",
       "category": "partial_phrase",
       "query_from_ayah_id": "qa:021:087",
       "query_derivation": "word_slice_diacritic_free",
-      "word_slice": [0, 8],
-      "expected_ayah_ids": ["qa:021:087"]
+      "word_slice": [
+        0,
+        8
+      ],
+      "expected_ayah_ids": [
+        "qa:021:087"
+      ]
     },
     {
       "id": "typo-fatiha-alamin",
       "category": "typo",
       "query": "الحمد لله رب العلمين",
-      "expected_ayah_ids": ["qa:001:002"]
+      "expected_ayah_ids": [
+        "qa:001:002"
+      ]
     },
     {
       "id": "typo-ikhlas-ahad",
       "category": "typo",
       "query": "قل هو الله احدد",
-      "expected_ayah_ids": ["qa:112:001"]
+      "expected_ayah_ids": [
+        "qa:112:001"
+      ]
     },
     {
       "id": "orthographic-inshirah-94-5",
       "category": "orthographic_variant",
       "query": "فان مع العسر يسرا",
-      "expected_ayah_ids": ["qa:094:005"]
+      "expected_ayah_ids": [
+        "qa:094:005"
+      ]
     },
     {
       "id": "orthographic-duha-93-1",
       "category": "orthographic_variant",
       "query": "والضحى",
-      "expected_ayah_ids": ["qa:093:001"]
+      "expected_ayah_ids": [
+        "qa:093:001"
+      ]
     },
     {
-      "id": "keyboard-persian-yeh-baqarah-2-255",
+      "id": "keyboard-persian-yeh-hayy-qayyum",
       "category": "keyboard_variant",
       "query": "الحی القیوم",
-      "expected_ayah_ids": ["qa:002:255"]
+      "expected_ayah_ids": [
+        "qa:003:002",
+        "qa:002:255"
+      ]
     },
     {
       "id": "keyboard-heh-goal-ikhlas-112-1",
       "category": "keyboard_variant",
       "query": "قل ہو الله أحد",
-      "expected_ayah_ids": ["qa:112:001"]
+      "expected_ayah_ids": [
+        "qa:112:001"
+      ]
     },
     {
       "id": "negative-latin-nonsense",

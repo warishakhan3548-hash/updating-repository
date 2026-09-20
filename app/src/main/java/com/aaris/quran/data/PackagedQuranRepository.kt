@@ -1,6 +1,7 @@
 package com.aaris.quran.data
 
 import android.content.Context
+import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.util.AtomicFile
 import com.aaris.quran.BuildConfig
@@ -104,7 +105,7 @@ class PackagedQuranRepository(
     override suspend fun searchAyahs(
         query: String,
         limit: Int,
-    ): List<QuranAyah> = withContext(Dispatchers.IO) {
+    ): List<QuranSearchHit> = withContext(Dispatchers.IO) {
         require(limit in 1..100) { "search limit must be between 1 and 100" }
 
         val unicodeQuery = ArabicSearchNormalizer.normalizeUnicode(query).trim()
@@ -129,7 +130,7 @@ class PackagedQuranRepository(
                 }
             }
 
-            database.rawQuery(
+            val strict = database.rawQuery(
                 """
                 SELECT ayah_id, surah, ayah, original_text
                 FROM quran_ayah
@@ -158,25 +159,64 @@ class PackagedQuranRepository(
                     limit.toString(),
                 ),
             ).use { cursor ->
-                val ayahIdIndex = cursor.getColumnIndexOrThrow("ayah_id")
-                val surahIndex = cursor.getColumnIndexOrThrow("surah")
-                val ayahIndex = cursor.getColumnIndexOrThrow("ayah")
-                val originalTextIndex = cursor.getColumnIndexOrThrow("original_text")
-                buildList {
-                    while (cursor.moveToNext()) {
-                        add(
-                            QuranAyah(
-                                ayahId = cursor.getString(ayahIdIndex),
-                                surah = cursor.getInt(surahIndex),
-                                ayah = cursor.getInt(ayahIndex),
-                                originalText = cursor.getString(originalTextIndex),
-                            ),
-                        )
-                    }
-                }
+                cursor.toSearchHits(QuranSearchMatchKind.STRICT)
+            }
+            if (strict.isNotEmpty()) return@withContext strict
+
+            val variantQuery = ArabicSearchNormalizer.normalizeConstrainedVariant(query)
+            if (variantQuery.isBlank()) return@withContext emptyList()
+            val variantExpression = ArabicSearchNormalizer.constrainedVariantSql(
+                "search_diacritic_free",
+            )
+            database.rawQuery(
+                """
+                SELECT ayah_id, surah, ayah, original_text
+                FROM quran_ayah
+                WHERE instr($variantExpression, ?) > 0
+                ORDER BY
+                    CASE
+                        WHEN $variantExpression = ? THEN 0
+                        WHEN instr($variantExpression, ?) = 1 THEN 1
+                        ELSE 2
+                    END,
+                    length(search_diacritic_free),
+                    surah,
+                    ayah
+                LIMIT ?
+                """.trimIndent(),
+                arrayOf(
+                    variantQuery,
+                    variantQuery,
+                    variantQuery,
+                    limit.toString(),
+                ),
+            ).use { cursor ->
+                cursor.toSearchHits(QuranSearchMatchKind.APPROXIMATE_SPELLING)
             }
         } finally {
             database.close()
+        }
+    }
+
+    private fun Cursor.toSearchHits(matchKind: QuranSearchMatchKind): List<QuranSearchHit> {
+        val ayahIdIndex = getColumnIndexOrThrow("ayah_id")
+        val surahIndex = getColumnIndexOrThrow("surah")
+        val ayahIndex = getColumnIndexOrThrow("ayah")
+        val originalTextIndex = getColumnIndexOrThrow("original_text")
+        return buildList {
+            while (moveToNext()) {
+                add(
+                    QuranSearchHit(
+                        ayah = QuranAyah(
+                            ayahId = getString(ayahIdIndex),
+                            surah = getInt(surahIndex),
+                            ayah = getInt(ayahIndex),
+                            originalText = getString(originalTextIndex),
+                        ),
+                        matchKind = matchKind,
+                    ),
+                )
+            }
         }
     }
 

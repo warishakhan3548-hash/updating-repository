@@ -9,6 +9,7 @@ import java.text.Normalizer
  */
 internal object ArabicSearchNormalizer {
     const val VERSION = "arabic-search-v1"
+    const val QUERY_VARIANT_VERSION = "arabic-query-variant-v1"
 
     private val removeRanges = arrayOf(
         0x0610..0x061A,
@@ -30,6 +31,17 @@ internal object ArabicSearchNormalizer {
 
     fun normalizeUnicode(text: String): String =
         Normalizer.normalize(text, Normalizer.Form.NFC)
+
+    internal val constrainedVariantPairs = listOf(
+        'ٱ' to 'ا',
+        'أ' to 'ا',
+        'إ' to 'ا',
+        'آ' to 'ا',
+        'ى' to 'ي',
+        'ی' to 'ي',
+        'ک' to 'ك',
+        'ہ' to 'ه',
+    )
 
     fun normalizeDiacriticFree(text: String): String {
         val canonical = normalizeUnicode(text)
@@ -55,6 +67,21 @@ internal object ArabicSearchNormalizer {
                     append(char)
                 }
             }
+        }
+    }
+
+    fun normalizeConstrainedVariant(text: String): String {
+        var normalized = normalizeDiacriticFree(text)
+        constrainedVariantPairs.forEach { (source, target) ->
+            normalized = normalized.replace(source, target)
+        }
+        return normalized
+    }
+
+    fun constrainedVariantSql(column: String): String {
+        require(column == "search_diacritic_free")
+        return constrainedVariantPairs.fold(column) { expression, (source, target) ->
+            "replace($expression, '$source', '$target')"
         }
     }
 }
