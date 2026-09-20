@@ -59,9 +59,15 @@ Never commit a seed, PEM private key, passphrase, recovery phrase or secret key 
 
 ## Rotation and revocation
 
-For bundled application releases, trust-root changes are code-reviewed repository changes. Add the replacement public key before depending on it; where practical use an overlap period/threshold so one compromised key alone cannot authorize a pack.
+Every enrolled release public key carries explicit lifecycle metadata:
 
-A lost or suspected-compromised private key must be removed from the release role before subsequent packs are approved.
+- `status`: `active`, `retired`, or `revoked`;
+- `min_release_sequence`: the first release sequence the key may authenticate;
+- `max_release_sequence`: null for an active key, finite for a retired key.
+
+For bundled application releases, trust-root changes are code-reviewed repository changes. Add the replacement public key as `active` before depending on it. After an overlap release, keep the previous public key for historical verification but mark it `retired` and cap its maximum sequence at the last release it was authorized to sign. A later compromise of that retired private key therefore cannot authorize a future release sequence.
+
+A lost or suspected-compromised private key becomes `revoked`; revoked signatures never count toward the release threshold. An active trust policy must retain enough active authorized keys to satisfy its configured threshold.
 
 Remote self-updating trust metadata is deliberately out of scope until rollback/freshness state and a stronger update protocol are implemented.
 
