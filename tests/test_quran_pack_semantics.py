@@ -56,6 +56,14 @@ class QuranPackSemanticTests(unittest.TestCase):
                     WHERE surah = 1 AND ayah = 1
                     """
                 )
+                connection.execute(
+                    """
+                    CREATE TRIGGER quran_ayah_no_update
+                    BEFORE UPDATE ON quran_ayah BEGIN
+                      SELECT RAISE(ABORT, 'quran evidence is immutable');
+                    END
+                    """
+                )
                 connection.commit()
             finally:
                 connection.close()
