@@ -158,9 +158,9 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         notice = _safe_repo_file(
             root, notice_path, "notice_path", "content-packs"
         )
-        if notice.parent != manifest_path.parent:
+        if notice.resolve().parent != manifest_path.parent:
             raise PackGateError(
-                f"{manifest_path}: notice_path must stay inside manifest pack directory"
+                f"{manifest_path}: notice_path must resolve inside manifest pack directory"
             )
         if notice.stat().st_size < 1:
             raise PackGateError(f"{manifest_path}: attribution notice is empty")
@@ -168,6 +168,10 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
             raise PackGateError(f"{manifest_path}: notice_sha256 mismatch")
 
     artifact = _safe_repo_file(root, manifest["artifact_path"], "artifact_path", "content-packs")
+    if artifact.resolve().parent != manifest_path.parent:
+        raise PackGateError(
+            f"{manifest_path}: artifact_path must resolve inside manifest pack directory"
+        )
     expected_hash = _lower_sha256(manifest["built_sha256"], "built_sha256")
     expected_size = manifest["built_byte_size"]
     if not isinstance(expected_size, int) or expected_size < 1:
