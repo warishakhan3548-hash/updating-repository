@@ -8,13 +8,6 @@ import 'medicine.dart';
 /// Keeping this dependency contract explicit lets frequent stock-counter writes
 /// stay off the dashboard's O(N) projection/rebuild path without hiding any
 /// field that the dashboard actually presents.
-bool _sameCivilDate(DateTime? before, DateTime? after) {
-  if (before == null || after == null) return before == null && after == null;
-  return before.year == after.year &&
-      before.month == after.month &&
-      before.day == after.day;
-}
-
 bool sameHomeProjectionInput(Medicine before, Medicine after) =>
     before.id == after.id &&
     before.name == after.name &&
@@ -23,7 +16,7 @@ bool sameHomeProjectionInput(Medicine before, Medicine after) =>
     before.salt == after.salt &&
     before.strength == after.strength &&
     before.form == after.form &&
-    _sameCivilDate(before.expiry, after.expiry) &&
+    sameCivilDate(before.expiry, after.expiry) &&
     before.expiryMonthOnly == after.expiryMonthOnly &&
     before.sold == after.sold &&
     before.archived == after.archived &&
