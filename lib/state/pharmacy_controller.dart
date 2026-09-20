@@ -1877,28 +1877,62 @@ class PharmacyController extends ChangeNotifier {
         'Inventory changed after this backup was reviewed. Review it again before restoring.',
       );
     }
+
+    // Freeze the exact reviewed local side before introducing cooperative
+    // yields. Every later comparison/removal decision must use this snapshot,
+    // never whichever state happens to be current after a frame boundary.
+    final reviewedSnapshot = snapshot;
+    void ensureReviewStillCurrent() {
+      if (_disposed) throw StateError('App is closed.');
+      if (!identical(snapshot, reviewedSnapshot) ||
+          snapshot.revision != review.currentRevision) {
+        throw StateError(
+          'Inventory changed while this backup restore was preparing. Review it again before restoring.',
+        );
+      }
+    }
+
+    // Let the confirmation sheet retire and the Restoring indicator paint
+    // before a large backup begins CPU preparation on the UI isolate.
+    await Future<void>.delayed(Duration.zero);
+    ensureReviewStillCurrent();
+
+    const preparationBatchSize = 512;
+    var processed = 0;
     final restored = <Medicine>[];
     final restoreStartedAt = clock();
+
     for (final record in review.backup.records.values) {
-      final current = snapshot.records[record.id];
+      final current = reviewedSnapshot.records[record.id];
       if (current == null) {
         // On a fresh phone there is no stale local row to invalidate, so reuse
         // the already validated immutable record instead of cloning the entire
         // imported stock set in memory.
         restored.add(record);
+      } else {
+        restored.add(
+          Medicine.fromJson({
+            ...record.toJson(),
+            'revision': current.revision > record.revision
+                ? current.revision + 1
+                : record.revision + 1,
+          }),
+        );
+      }
+      if (++processed % preparationBatchSize == 0) {
+        await Future<void>.delayed(Duration.zero);
+        ensureReviewStillCurrent();
+      }
+    }
+
+    for (final record in reviewedSnapshot.records.values) {
+      if (review.backup.records.containsKey(record.id)) {
+        if (++processed % preparationBatchSize == 0) {
+          await Future<void>.delayed(Duration.zero);
+          ensureReviewStillCurrent();
+        }
         continue;
       }
-      restored.add(
-        Medicine.fromJson({
-          ...record.toJson(),
-          'revision': current.revision > record.revision
-              ? current.revision + 1
-              : record.revision + 1,
-        }),
-      );
-    }
-    for (final record in snapshot.records.values) {
-      if (review.backup.records.containsKey(record.id)) continue;
       if (!record.archived) {
         var archived = archiveMedicine(
           record,
@@ -1916,10 +1950,15 @@ class PharmacyController extends ChangeNotifier {
         // a foreign key to a supplier intentionally absent from the backup.
         restored.add(record.patch({'supplierId': ''}));
       }
+      if (++processed % preparationBatchSize == 0) {
+        await Future<void>.delayed(Duration.zero);
+        ensureReviewStillCurrent();
+      }
     }
+
     final restoredSuppliers = <Supplier>[];
     for (final supplier in review.backup.suppliers.values) {
-      final current = snapshot.suppliers[supplier.id];
+      final current = reviewedSnapshot.suppliers[supplier.id];
       restoredSuppliers.add(
         current == null
             ? supplier
@@ -1930,19 +1969,62 @@ class PharmacyController extends ChangeNotifier {
                     : supplier.revision + 1,
               }),
       );
+      if (++processed % preparationBatchSize == 0) {
+        await Future<void>.delayed(Duration.zero);
+        ensureReviewStillCurrent();
+      }
     }
 
     // Rows preserved only as Removed history must not keep a dangling supplier
     // link when a full backup intentionally omits that supplier.
-    for (var i = 0; i < restored.length; i++) {
-      final record = restored[i];
+    for (var index = 0; index < restored.length; index++) {
+      final record = restored[index];
       if (record.archived &&
           record.supplierId.isNotEmpty &&
           !review.backup.suppliers.containsKey(record.supplierId)) {
-        restored[i] = record.patch({'supplierId': ''});
+        restored[index] = record.patch({'supplierId': ''});
+      }
+      if (++processed % preparationBatchSize == 0) {
+        await Future<void>.delayed(Duration.zero);
+        ensureReviewStillCurrent();
       }
     }
 
+    // Sales can outnumber stock rows substantially. Materialize the mutation in
+    // the same bounded batches so a large historical backup keeps yielding
+    // frames instead of turning the final toList() into another long stall.
+    final restoredSales = <SaleEvent>[];
+    for (final sale in review.backup.sales.values) {
+      restoredSales.add(sale);
+      if (++processed % preparationBatchSize == 0) {
+        await Future<void>.delayed(Duration.zero);
+        ensureReviewStillCurrent();
+      }
+    }
+
+    final removeSupplierIds = <String>[];
+    for (final id in reviewedSnapshot.suppliers.keys) {
+      if (!review.backup.suppliers.containsKey(id)) {
+        removeSupplierIds.add(id);
+      }
+      if (++processed % preparationBatchSize == 0) {
+        await Future<void>.delayed(Duration.zero);
+        ensureReviewStillCurrent();
+      }
+    }
+
+    final removeSaleIds = <String>[];
+    for (final id in reviewedSnapshot.sales.keys) {
+      if (!review.backup.sales.containsKey(id)) {
+        removeSaleIds.add(id);
+      }
+      if (++processed % preparationBatchSize == 0) {
+        await Future<void>.delayed(Duration.zero);
+        ensureReviewStillCurrent();
+      }
+    }
+
+    ensureReviewStillCurrent();
     await _commit(
       InventoryMutation(
         expectedRevision: review.currentRevision,
@@ -1950,13 +2032,9 @@ class PharmacyController extends ChangeNotifier {
             'Restored backup · ${review.activeMedicines} active medicines · ${review.sales} sales',
         upserts: restored,
         upsertSuppliers: restoredSuppliers,
-        upsertSales: review.backup.sales.values.toList(),
-        removeSupplierIds: snapshot.suppliers.keys
-            .where((id) => !review.backup.suppliers.containsKey(id))
-            .toList(),
-        removeSaleIds: snapshot.sales.keys
-            .where((id) => !review.backup.sales.containsKey(id))
-            .toList(),
+        upsertSales: restoredSales,
+        removeSupplierIds: removeSupplierIds,
+        removeSaleIds: removeSaleIds,
         settings: review.backup.settings,
         soldValueOverride: review.backup.soldValue,
         unknownSoldOverride: review.backup.unknownSold,
