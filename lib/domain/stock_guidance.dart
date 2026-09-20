@@ -125,8 +125,6 @@ class StockGuidance {
       reason: reason,
       group: item.isReorder
           ? StockTaskGroup.order
-          : item.kind == AttentionKind.missingSupplierLink
-          ? StockTaskGroup.supplier
           : item.severity == AttentionSeverity.critical ||
                 item.kind == AttentionKind.shortExpiry ||
                 item.kind == AttentionKind.expiryWastePressure

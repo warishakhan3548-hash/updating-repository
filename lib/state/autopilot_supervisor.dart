@@ -480,19 +480,48 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
     return original[a.key]!.compareTo(original[b.key]!);
   });
 
+  var visibleIssues = 0;
+  var visibleCritical = 0;
+  var visibleHigh = 0;
+  var visibleMedium = 0;
+  var visibleLow = 0;
+  for (final task in tasks) {
+    if (task.group == StockTaskGroup.movement) continue;
+    visibleIssues++;
+    final severity = task.step?.item.severity;
+    if (severity == null) {
+      if ((task.urgencyDays ?? 1 << 20) <= settings.shortDays) {
+        visibleHigh++;
+      } else {
+        visibleMedium++;
+      }
+      continue;
+    }
+    switch (severity) {
+      case AttentionSeverity.critical:
+        visibleCritical++;
+      case AttentionSeverity.high:
+        visibleHigh++;
+      case AttentionSeverity.medium:
+        visibleMedium++;
+      case AttentionSeverity.low:
+        visibleLow++;
+    }
+  }
+
   final nextTask = tasks.firstOrNull;
   final next = nextTask?.step;
   return <String, dynamic>{
-    'health': report.isEmpty
+    'health': visibleIssues == 0
         ? 'clear'
-        : report.critical > 0
+        : visibleCritical > 0
         ? 'critical'
         : 'attention',
-    'issueCount': report.items.length,
-    'criticalCount': report.critical,
-    'highCount': report.high,
-    'mediumCount': report.medium,
-    'lowCount': report.low,
+    'issueCount': visibleIssues,
+    'criticalCount': visibleCritical,
+    'highCount': visibleHigh,
+    'mediumCount': visibleMedium,
+    'lowCount': visibleLow,
     'blockedCount': plan.blockedCount,
     'verificationCount': plan.verificationCount,
     'nextTaskKey': nextTask?.key ?? '',

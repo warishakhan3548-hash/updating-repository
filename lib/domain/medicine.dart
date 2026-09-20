@@ -141,7 +141,6 @@ List<StockIntakeEvidence> appendStockIntakeEvidence({
 }) {
   if (quantity < 1 ||
       medicine.archived ||
-      medicine.sold ||
       medicine.supplierId.trim().isEmpty ||
       medicine.expiry == null ||
       civilDay(medicine.expiry!).isBefore(civilDay(receivedAt))) {
@@ -621,6 +620,29 @@ class Medicine {
     ...changes,
     'id': id,
     'revision': revision + 1,
+  });
+}
+
+/// A pharmacist/AI correction to receipt-defining facts makes older intake
+/// evidence ambiguous for supplier learning. Normal quantity/location edits do
+/// not affect it, and explicit Restock/Receive paths intentionally append a new
+/// observation instead of calling this guard.
+Medicine invalidateIntakeEvidenceAfterFactCorrection(
+  Medicine before,
+  Medicine after,
+) {
+  if (before.intakeHistory.isEmpty) return after;
+  final changed =
+      before.identity != after.identity ||
+      before.supplierId.trim() != after.supplierId.trim() ||
+      before.batchNumber.trim() != after.batchNumber.trim() ||
+      before.expiry != after.expiry ||
+      before.expiryMonthOnly != after.expiryMonthOnly ||
+      before.unitPricePaise != after.unitPricePaise;
+  if (!changed) return after;
+  return Medicine.fromJson(<String, dynamic>{
+    ...after.toJson(),
+    'intakeHistory': const <dynamic>[],
   });
 }
 

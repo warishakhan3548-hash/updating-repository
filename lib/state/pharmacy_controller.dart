@@ -1114,8 +1114,10 @@ class PharmacyController extends ChangeNotifier {
         );
       }
 
-      var committedRecord = record;
-      if (live == null) {
+      var committedRecord = live == null
+          ? record
+          : invalidateIntakeEvidenceAfterFactCorrection(live, record);
+      if (live == null && !record.sold) {
         final intake = appendStockIntakeEvidence(
           medicine: record,
           receivedAt: operationTime,
@@ -1137,7 +1139,7 @@ class PharmacyController extends ChangeNotifier {
         final soldUnitPrice =
             record.soldUnitPricePaise ?? live.unitPricePaise;
         committedRecord = Medicine.fromJson(<String, dynamic>{
-          ...record.toJson(),
+          ...committedRecord.toJson(),
           // A caller may carry preview/editor metadata captured earlier.
           // The durable SOLD transition owns one authoritative commit instant
           // for the medicine row, sale ledger and audit event.
@@ -2023,6 +2025,12 @@ class PharmacyController extends ChangeNotifier {
   ) {
     if (change.operation != 'mark_sold' && change.operation != 'remove') {
       var materialized = Medicine.fromJson(change.after.toJson());
+      if (change.operation == 'update' && change.before != null) {
+        materialized = invalidateIntakeEvidenceAfterFactCorrection(
+          change.before!,
+          materialized,
+        );
+      }
       if (change.operation == 'add' || change.operation == 'restock') {
         final intake = appendStockIntakeEvidence(
           medicine: materialized,
