@@ -92,9 +92,9 @@
       "source_name": "HadeethEnc",
       "original_url": "https://hadeethenc.com/en",
       "version": "1.7.0-observed-2026-09-20",
-      "status": "research-candidate",
+      "status": "awaiting-licence",
       "licence_id": "custom-republication-terms",
-      "redistribution_allowed": true,
+      "redistribution_allowed": null,
       "modification_allowed": false,
       "attribution_required": true,
       "vault_artifact": null,
@@ -102,8 +102,13 @@
       "provenance": null,
       "sha256": null,
       "byte_size": null,
-      "notes": "Official HadeethEnc version-check endpoint reports Arabic translation v1.7.0 and the download surface exposes Arabic Excel/PDF under republication terms. Keep research-only until the exact v1.7.0 artifact, edition/collection/numbering provenance, licence snapshot, checksums and project-controlled mirror are preserved and reviewed.",
-      "commercial_use_allowed": null
+      "notes": "Official HadeethEnc currently identifies Arabic v1.7.0 and its download surface permits republication only under source-specific conditions, including no modification, attribution/version retention, transcript-information retention, and an obligation to update according to newer source versions. That ongoing-update condition is not yet proven compatible with this project's requirement to keep immutable historical snapshots publicly redistributable for long-term reproducibility. Do not capture or mirror source bytes until HadeethEnc clarifies archival retention or an equivalent legally durable basis is documented. If archival permission later clears, preserve the exact then-current artifact and terms, verify edition/collection/numbering provenance, and apply the separate latest-version release review before any production pack ships.",
+      "commercial_use_allowed": null,
+      "release_requirements": {
+        "latest_upstream_version_required": true,
+        "version_check_url": "https://hadeethenc.com/en/check/ar/v1.7.0",
+        "historical_snapshot_retention_status": "unresolved"
+      }
     },
     {
       "source_id": "quran.quran-foundation.api",
