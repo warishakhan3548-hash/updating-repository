@@ -6,7 +6,7 @@ preserved Quran source → verified content pack → read-only local database �
 
 ## Current reader boundary
 
-The Android app packages the repository's quran-core 1.0.1 directory directly as a development asset. It does not download Quran text at runtime and it does not request Internet access.
+The Android app packages the repository's quran-core 1.0.3 directory directly as a development asset. It does not download Quran text at runtime and it does not request Internet access.
 
 At first use, QuranPackStore:
 
@@ -23,7 +23,7 @@ The runtime SQLite copy is replaceable content. Personal learning data remains a
 
 ## Candidate-pack rule
 
-quran-core 1.0.1 is still marked candidate and unsigned. The reader may use it for development and verification, but this work does not promote it to a release-approved content pack and does not invent signing material.
+quran-core 1.0.3 is still marked candidate and unsigned. The reader may use it for development and verification, but this work does not promote it to a release-approved content pack and does not invent signing material.
 
 Production distribution remains blocked on the real review/signing policy.
 
