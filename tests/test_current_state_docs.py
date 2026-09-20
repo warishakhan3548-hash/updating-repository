@@ -66,5 +66,46 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertIn(domain, signing)
 
 
+    def test_android_client_tracks_monotonic_pack_acceptance(self):
+        build = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+        repository = (
+            ROOT
+            / "app"
+            / "src"
+            / "main"
+            / "java"
+            / "com"
+            / "aaris"
+            / "quran"
+            / "data"
+            / "PackagedQuranRepository.kt"
+        ).read_text(encoding="utf-8")
+        store = (
+            ROOT
+            / "app"
+            / "src"
+            / "main"
+            / "java"
+            / "com"
+            / "aaris"
+            / "quran"
+            / "security"
+            / "ContentPackAcceptanceStore.kt"
+        ).read_text(encoding="utf-8")
+        design = (ROOT / "docs" / "CLIENT_PACK_ACCEPTANCE.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("QURAN_PACK_RELEASE_SEQUENCE", build)
+        self.assertIn("QURAN_PACK_MANIFEST_SHA256", build)
+        self.assertIn("recordReleaseAcceptanceIfNeeded", repository)
+        self.assertIn("AtomicFile", store)
+        self.assertIn("noBackupFilesDir", store)
+        self.assertIn("PROCESS_LOCK", store)
+        self.assertIn("REJECT_ROLLBACK", store)
+        self.assertIn("REJECT_EQUIVOCATION", store)
+        self.assertIn("does not enable remote updates", design)
+
+
 if __name__ == "__main__":
     unittest.main()
