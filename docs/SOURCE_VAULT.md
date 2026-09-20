@@ -45,3 +45,7 @@ The gate records and verifies:
 - mandatory release rules from `policy/license_policy.json`.
 
 `schemas/source_registry_v1.schema.json` documents the registry shape. `tools/vault_gate.py` remains the executable conditional authority for production promotion.
+
+## Existing review-only legal hold
+
+The already-preserved QuranEnc `arabic_seraj` v1.0.0 directory is a review-only exception created before the registry was reclassified. It is not referenced by the registry's production artifact/provenance fields and must not feed a content pack. Its continued public retention, or any future version capture, is part of the unresolved archival-rights review. This exception does not weaken the forward acquisition rule: an `awaiting-licence` source is not capture-authorized.
