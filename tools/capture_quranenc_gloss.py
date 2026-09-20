@@ -763,6 +763,281 @@ def capture_snapshot(
     return destination
 
 
+
+def _parse_sha256_file(raw: str) -> dict[str, str]:
+    checksums: dict[str, str] = {}
+    for line_number, line in enumerate(
+        raw.splitlines(), start=1
+    ):
+        if not line:
+            continue
+        if "  " not in line:
+            raise CaptureError(
+                f"sha256.txt line {line_number} is malformed"
+            )
+        digest, relative = line.split("  ", 1)
+        if (
+            len(digest) != 64
+            or any(
+                char not in "0123456789abcdef"
+                for char in digest
+            )
+        ):
+            raise CaptureError(
+                f"sha256.txt line {line_number} has invalid SHA-256"
+            )
+        path = Path(relative)
+        if (
+            path.is_absolute()
+            or ".." in path.parts
+            or relative in checksums
+        ):
+            raise CaptureError(
+                f"sha256.txt line {line_number} has unsafe/duplicate path"
+            )
+        checksums[relative] = digest
+    return checksums
+
+
+def validate_preserved_snapshot(
+    repo_root: Path,
+) -> Path:
+    repo_root = repo_root.resolve()
+    root = repo_root / VAULT_RELATIVE
+    if not root.is_dir():
+        raise CaptureError(
+            f"preserved review snapshot is missing: {root}"
+        )
+
+    checksum_path = root / "sha256.txt"
+    try:
+        checksums = _parse_sha256_file(
+            checksum_path.read_text(encoding="utf-8")
+        )
+    except FileNotFoundError as exc:
+        raise CaptureError(
+            "preserved review snapshot is missing sha256.txt"
+        ) from exc
+
+    expected_paths = {
+        "LICENSE_SOURCE.html",
+        "SOURCE_INDEX.html",
+        "SOURCE_PAGE.html",
+        "provenance.json",
+        "raw/api-snapshot-manifest.json",
+        *{
+            f"raw/suras/{surah:03d}.json"
+            for surah in range(1, 115)
+        },
+    }
+    if set(checksums) != expected_paths:
+        missing = sorted(expected_paths - set(checksums))
+        extra = sorted(set(checksums) - expected_paths)
+        raise CaptureError(
+            "preserved checksum inventory mismatch: "
+            f"missing={missing}, extra={extra}"
+        )
+
+    raw_by_path: dict[str, bytes] = {}
+    for relative, expected_hash in checksums.items():
+        path = root / relative
+        try:
+            body = path.read_bytes()
+        except FileNotFoundError as exc:
+            raise CaptureError(
+                f"preserved file is missing: {relative}"
+            ) from exc
+        actual_hash = sha256_bytes(body)
+        if actual_hash != expected_hash:
+            raise CaptureError(
+                f"preserved file hash mismatch: {relative}"
+            )
+        raw_by_path[relative] = body
+
+    selected = _selected_translation(
+        raw_by_path["SOURCE_INDEX.html"]
+    )
+    if selected["version"] != EXPECTED_VERSION:
+        raise CaptureError(
+            "preserved source index version mismatch"
+        )
+    _validate_terms(
+        raw_by_path["LICENSE_SOURCE.html"]
+    )
+    _validate_source_page(
+        raw_by_path["SOURCE_PAGE.html"]
+    )
+
+    manifest_bytes = raw_by_path[
+        "raw/api-snapshot-manifest.json"
+    ]
+    manifest = _json(
+        manifest_bytes,
+        label="preserved API snapshot manifest",
+    )
+    if not isinstance(manifest, dict):
+        raise CaptureError(
+            "preserved API snapshot manifest must be an object"
+        )
+    expected_manifest = {
+        "schema_version": 1,
+        "snapshot_type": "quranenc-sura-api-response-set",
+        "source_id": SOURCE_ID,
+        "translation_key": TRANSLATION_KEY,
+        "version": EXPECTED_VERSION,
+        "sura_count": 114,
+        "record_count": sum(EXPECTED_AYAH_COUNTS),
+    }
+    mismatched = [
+        key
+        for key, value in expected_manifest.items()
+        if manifest.get(key) != value
+    ]
+    if mismatched:
+        raise CaptureError(
+            "preserved API snapshot manifest mismatch: "
+            + ", ".join(mismatched)
+        )
+    if manifest.get("upstream_metadata") != selected:
+        raise CaptureError(
+            "preserved upstream metadata does not match SOURCE_INDEX.html"
+        )
+
+    suras = manifest.get("suras")
+    if not isinstance(suras, list) or len(suras) != 114:
+        raise CaptureError(
+            "preserved API snapshot manifest must contain 114 Surahs"
+        )
+    for surah, expected_count in enumerate(
+        EXPECTED_AYAH_COUNTS,
+        start=1,
+    ):
+        record = suras[surah - 1]
+        if not isinstance(record, dict):
+            raise CaptureError(
+                f"preserved Surah manifest row {surah} is invalid"
+            )
+        relative = f"raw/suras/{surah:03d}.json"
+        body = raw_by_path[relative]
+        expected_url = (
+            f"{BASE_URL}/api/v1/translation/sura/"
+            f"{TRANSLATION_KEY}/{surah}"
+        )
+        required = {
+            "sura": surah,
+            "path": relative,
+            "ayah_count": expected_count,
+            "first_ayah": 1,
+            "last_ayah": expected_count,
+            "http_status": 200,
+            "requested_url": expected_url,
+            "final_url": expected_url,
+            "byte_size": len(body),
+            "sha256": sha256_bytes(body),
+        }
+        bad = [
+            key
+            for key, value in required.items()
+            if record.get(key) != value
+        ]
+        if bad:
+            raise CaptureError(
+                f"preserved Surah {surah} manifest mismatch: "
+                + ", ".join(bad)
+            )
+        _validate_https_quranenc(
+            record["requested_url"],
+            label=f"preserved Surah {surah} requested URL",
+        )
+        _validate_https_quranenc(
+            record["final_url"],
+            label=f"preserved Surah {surah} final URL",
+        )
+        validate_sura(
+            body,
+            surah,
+            expected_count,
+        )
+
+    provenance = _json(
+        raw_by_path["provenance.json"],
+        label="preserved provenance",
+    )
+    if not isinstance(provenance, dict):
+        raise CaptureError(
+            "preserved provenance must be an object"
+        )
+    expected_provenance = {
+        "schema_version": 1,
+        "source_id": SOURCE_ID,
+        "translation_key": TRANSLATION_KEY,
+        "version": EXPECTED_VERSION,
+        "snapshot_type": "quranenc-sura-api-response-set",
+        "sura_count": 114,
+        "record_count": sum(EXPECTED_AYAH_COUNTS),
+        "promotion_status": "captured-unreviewed",
+        "snapshot_manifest_sha256": sha256_bytes(
+            manifest_bytes
+        ),
+        "snapshot_manifest_byte_size": len(
+            manifest_bytes
+        ),
+        "upstream_metadata": selected,
+    }
+    bad_provenance = [
+        key
+        for key, value in expected_provenance.items()
+        if provenance.get(key) != value
+    ]
+    if bad_provenance:
+        raise CaptureError(
+            "preserved provenance mismatch: "
+            + ", ".join(bad_provenance)
+        )
+
+    capture_files = provenance.get("capture_files")
+    if not isinstance(capture_files, list):
+        raise CaptureError(
+            "preserved provenance capture_files must be a list"
+        )
+    capture_by_path = {
+        item.get("path"): item
+        for item in capture_files
+        if isinstance(item, dict)
+    }
+    expected_capture_paths = (
+        expected_paths
+        - {
+            "provenance.json",
+            "raw/api-snapshot-manifest.json",
+        }
+    )
+    if set(capture_by_path) != expected_capture_paths:
+        raise CaptureError(
+            "preserved provenance capture-file inventory mismatch"
+        )
+    for relative in expected_capture_paths:
+        record = capture_by_path[relative]
+        body = raw_by_path[relative]
+        if (
+            record.get("byte_size") != len(body)
+            or record.get("sha256") != sha256_bytes(body)
+            or record.get("http_status") != 200
+        ):
+            raise CaptureError(
+                f"preserved provenance mismatch: {relative}"
+            )
+        _validate_https_quranenc(
+            record.get("requested_url", ""),
+            label=f"preserved {relative} requested URL",
+        )
+        _validate_https_quranenc(
+            record.get("final_url", ""),
+            label=f"preserved {relative} final URL",
+        )
+
+    return root
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -772,6 +1047,14 @@ def main() -> int:
             "snapshot. This does not update "
             "source-vault/registry.json."
         )
+    )
+    parser.add_argument(
+        "--validate-existing",
+        action="store_true",
+        help=(
+            "validate the preserved review snapshot offline "
+            "instead of making any network request"
+        ),
     )
     parser.add_argument(
         "--repo-root",
@@ -788,9 +1071,14 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
-        destination = capture_snapshot(
-            args.repo_root
-        )
+        if args.validate_existing:
+            destination = validate_preserved_snapshot(
+                args.repo_root
+            )
+        else:
+            destination = capture_snapshot(
+                args.repo_root
+            )
     except (
         OSError,
         CaptureError,
@@ -799,10 +1087,16 @@ def main() -> int:
             f"QuranEnc capture FAILED: {exc}"
         )
         return 1
-    print(
-        "QuranEnc capture complete "
-        f"(review required): {destination}"
-    )
+    if args.validate_existing:
+        print(
+            "QuranEnc preserved review snapshot "
+            f"validation OK: {destination}"
+        )
+    else:
+        print(
+            "QuranEnc capture complete "
+            f"(review required): {destination}"
+        )
     return 0
 
 
