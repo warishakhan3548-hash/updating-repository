@@ -32,9 +32,6 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Install pinned foundation dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements-foundation.txt
-
       - name: Build and publish only from a stable main
         shell: bash
         run: |
@@ -49,6 +46,11 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             git clean -fdx -- content-packs/quran-core/1.0.4
+
+            # Install from the exact tree being validated, not the workflow's
+            # potentially stale initial checkout if main moved during this run.
+            python -m pip install --disable-pip-version-check -r requirements-foundation.txt
+            python tools/pack_signing.py policy/trusted_pack_keys.json
 
             if [[ -f content-packs/quran-core/1.0.4/manifest.json && -f content-packs/quran-core/1.0.4/content.sqlite && -f content-packs/quran-core/1.0.4/NOTICE.txt ]]; then
               echo 'Quran core pack already exists on current main; validating existing immutable pack.'
@@ -90,6 +92,7 @@ jobs:
             # Revalidate the exact committed tree before it is allowed onto main.
             PACK_COMMIT_SHA="$(git rev-parse HEAD)"
             echo "Validating committed Quran pack $PACK_COMMIT_SHA"
+            python tools/pack_signing.py policy/trusted_pack_keys.json
             python tools/vault_gate.py source-vault/registry.json
             python tools/pack_gate.py \
               source-vault/registry.json \
