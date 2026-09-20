@@ -8,7 +8,7 @@ This repository builds trust and reproducibility before UI breadth. Critical ext
 
 ## Current phase
 
-Phase 0A–0C is operational and the first Quran evidence source has passed the production Source Vault gate. The deterministic Quran core builder is the bridge into early Phase 1.
+Phase 0A–0C is operational, the canonical Quran layer is published, and Phase 1 has a minimal offline Android reader over the trusted read-only content boundary.
 
 **Production-approved today:** Tanzil Quran Text v1.1, exact pinned Uthmani `txt-2` snapshot.
 
@@ -29,7 +29,7 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 
 `tools/quran_core.py` validates the pinned Tanzil artifact and the complete 114-surah / 6,236-ayah coordinate sequence while keeping original display text separate from derived search normalization.
 
-`tools/build_quran_core.py` deterministically builds the current `quran-core` 1.0.4 candidate under `content-packs/` using provenance-bound manifest schema v2, including SQLite content, manifest and the source-derived Tanzil attribution notice. The pack contains 6,236 ayahs, keeps display Arabic separate from search-normalized lanes, and remains unsigned/candidate until release review and signing. Candidate packs are immutable build outputs and must pass the content-pack gate before promotion.
+`tools/build_quran_core.py` now builds the current `quran-core` 1.1.0 candidate through the deterministic canonical Quran JSONL layer using manifest schema v3. The pack contains 6,236 ayahs, binds runtime SQLite back to canonical and Source Vault hashes, keeps display Arabic separate from search-normalized lanes, and remains unsigned/candidate until release review and signing. Historical 1.0.4 remains immutable under schema v2.
 
 The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level morphology waits for a legally preserved, production-approved source.
 
@@ -38,6 +38,7 @@ The ayah-only core intentionally does not manufacture canonical token/morphology
 The main branch runs:
 
 ```bash
+python -m pip install --disable-pip-version-check -r requirements-ci.txt
 python tools/vault_gate.py source-vault/registry.json
 python tools/pack_gate.py source-vault/registry.json
 python tools/validate_schemas.py
