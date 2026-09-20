@@ -17,3 +17,13 @@ Golden-set metrics: Recall@5, Recall@10, MRR, NDCG@10, false-positive rate, zero
 The Android reader now has one deliberately strict offline Quran lane over the existing `quran-core 1.1.0` derived fields. Query normalization is version-locked to `arabic-search-v1`; a pack/runtime mismatch fails closed. Retrieval uses literal SQLite `instr` containment over NFC and diacritic-free lanes, with exact/prefix matches ordered before broader containment. Results expose canonical ayah coordinates and render only `original_text`.
 
 This baseline does **not** claim fuzzy, conceptual, root, morphology, typo-tolerant or AI-expanded retrieval. Those remain evaluation-gated behind the labelled golden set. Empty retrieval is allowed to abstain with **No reliable match found**.
+
+## Executable golden set — 2026-09-21
+
+The first labelled Quran retrieval benchmark is now executable at `evaluation/quran_search_golden_v1.json` through `tools/quran_search_eval.py`. It is bound to `quran-core 1.1.0` and `arabic-search-v1`, and it measures the existing strict engine rather than introducing a second production search implementation.
+
+Exact-source, diacritic-free and partial-phrase queries are derived at evaluation time from the verified runtime pack using canonical Ayah IDs. Explicit typo, orthographic and keyboard-variant strings are treated only as simulated user queries, never as Quran display evidence. Deliberate no-answer cases measure false positives and preserve abstention.
+
+CI currently enforces the regression floor that the strict engine actually promises: Recall@5 = 1.0 for exact-source, diacritic-free and partial-phrase categories, plus a zero false-positive rate for labelled no-answer cases. Typo, orthographic and keyboard categories are measured without being required to pass. Any future FTS5, trigram, edit-distance, morphology or AI-expanded lane must demonstrate a measured gain on the labelled set without degrading exact retrieval, abstention or source-faithful rendering.
+
+The evaluator emits Recall@5, Recall@10, MRR, NDCG@10, negative false-positive rate and zero-result rate. Host SQLite p50/p95 are diagnostic only; low-end Android latency remains a separate device measurement.
