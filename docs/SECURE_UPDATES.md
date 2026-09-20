@@ -25,7 +25,7 @@ Release key IDs are SHA-256 fingerprints of the canonical public-key descriptor.
 
 Approved manifests now also require a positive integer `release_sequence`. The value is inside the signed payload, so changing release order after signing invalidates approval. This provides the deterministic ordering primitive needed for later rollback resistance without pretending that client-side rollback protection already exists.
 
-The repository trust root is deliberately `bootstrap-required`: no real release public key has been enrolled and no private signing key is stored in GitHub. Existing candidate packs therefore remain candidates until durable offline key custody and independent backup are established.
+The repository trust root is deliberately `bootstrap-required`: no real release public key has been enrolled and no private signing key is stored in GitHub. The project now has a fail-closed offline signer that consumes only encrypted out-of-repository Ed25519 private keys and can add authorized signatures to manifests that were already approved, but tooling readiness is not key custody. Existing candidate packs therefore remain candidates until durable offline key generation, independent backup and separate public trust-root review are completed.
 
 ## Still blocked before automatic network updates
 
