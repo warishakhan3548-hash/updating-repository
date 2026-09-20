@@ -65,13 +65,13 @@ Candidate does not mean release-approved. Version 1.0.4 strengthens the runtime 
 
 Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The 1.0.4 publish workflow ran 44 tests successfully and passed the content-pack gate before pushing the generated pack. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
 
-Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows.
+Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows.\n\nPack-signing regression coverage uses RFC 8032 test material to verify real Ed25519 signatures, tamper rejection, deterministic payload generation, threshold enforcement, retired-key historical verification, revoked-key rejection and mandatory signed release sequencing. The production trusted-key registry contains no key material yet.
 
 No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
 ## Next safe milestones
 
-1. Implement and test the trusted-key content-pack signature verifier (canonical signed payload, key IDs/rotation and rollback metadata), then review/sign/promote the Quran core pack.
+1. Conduct an offline production release-key ceremony, enroll only the reviewed public key, then create/review/sign a new immutable Quran core version; do not rewrite 1.0.4.
 2. Build the minimal Android reader UI on the Reader Core contract: immutable Arabic rendering, stable Surah/Ayah navigation, RTL/accessibility semantics, and anchored word-tap hit testing.
 3. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
 4. Resolve QAC licensing or choose a legally clearer morphology source.
