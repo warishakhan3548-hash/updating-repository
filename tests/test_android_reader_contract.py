@@ -57,7 +57,9 @@ class AndroidReaderContractTests(unittest.TestCase):
         self.assertIn('manifest.getInt("schema_version")', source)
         self.assertIn('manifest.getString("review_status")', source)
         self.assertIn("if (!BuildConfig.DEBUG)", source)
-        self.assertIn('reviewStatus == "approved"', source)
+        self.assertIn("if (!BuildConfig.DEBUG)", source)
+        self.assertIn("cryptographic signature verification", source)
+        self.assertNotIn('reviewStatus == "approved"', source)
 
     def test_android_adapter_is_read_only_and_projects_original_text_only(self):
         source = REPOSITORY.read_text(encoding="utf-8")
