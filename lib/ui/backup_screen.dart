@@ -28,7 +28,7 @@ class _BackupScreenState extends State<BackupScreen> {
   String _error = '';
 
   Future<void> _share() async {
-    if (_sharing) return;
+    if (_sharing || _restoring) return;
     setState(() {
       _sharing = true;
       _error = '';
@@ -151,7 +151,7 @@ class _BackupScreenState extends State<BackupScreen> {
 
   Future<void> _restore() async {
     final review = _review;
-    if (review == null || _restoring) return;
+    if (review == null || _restoring || _sharing || _reading) return;
     final impact = review.impact;
     var phrase = '';
     final confirmed = await showDialog<bool>(
@@ -227,10 +227,12 @@ class _BackupScreenState extends State<BackupScreen> {
     );
     if (confirmed != true || !mounted) return;
     setState(() => _restoring = true);
+    var completed = false;
     try {
       await widget.controller.restoreBackup(review);
       if (mounted) {
         final messenger = ScaffoldMessenger.maybeOf(context);
+        completed = true;
         Navigator.pop(context);
         showSavedWithMessenger(
           messenger,
@@ -240,7 +242,7 @@ class _BackupScreenState extends State<BackupScreen> {
     } catch (error) {
       if (mounted) showError(context, error);
     } finally {
-      if (mounted) setState(() => _restoring = false);
+      if (!completed && mounted) setState(() => _restoring = false);
     }
   }
 
@@ -282,7 +284,7 @@ class _BackupScreenState extends State<BackupScreen> {
                   backgroundColor: primarySoft,
                   foregroundColor: ink,
                 ),
-                onPressed: _sharing ? null : () => unawaited(_share()),
+                onPressed: _sharing || _restoring ? null : () => unawaited(_share()),
                 icon: const Icon(Icons.ios_share_rounded),
                 label: Text(_sharing ? 'Creating backup…' : 'Export full backup'),
               ),
@@ -323,7 +325,7 @@ class _BackupScreenState extends State<BackupScreen> {
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: _reading ? null : () => unawaited(_pick()),
+            onPressed: _reading || _restoring ? null : () => unawaited(_pick()),
             icon: const Icon(Icons.file_open_outlined),
             label: Text(
               _reading ? 'Reading & verifying backup…' : 'Import backup file',
@@ -496,7 +498,9 @@ class _BackupScreenState extends State<BackupScreen> {
           ),
           const SizedBox(height: 14),
           FilledButton.icon(
-            onPressed: _restoring ? null : () => unawaited(_restore()),
+            onPressed: _restoring || _sharing || _reading
+                ? null
+                : () => unawaited(_restore()),
             icon: const Icon(Icons.arrow_forward_rounded),
             label: Text(_restoring ? 'Restoring…' : 'Next'),
           ),
