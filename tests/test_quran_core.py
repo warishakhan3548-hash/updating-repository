@@ -9,6 +9,11 @@ import tempfile
 import unittest
 
 from tools.build_quran_core import build_pack, sha256_file
+from tools.quran_canonical import (
+    build_canonical,
+    load_canonical,
+    sha256_file as sha256_canonical_file,
+)
 from tools.quran_core import (
     EXPECTED_AYAH_COUNTS,
     extract_tanzil_notice,
@@ -94,8 +99,9 @@ class QuranCoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self._copy_fixture_root(root)
+            build_canonical(root)
             db_path, manifest_path = build_pack(
-                root, Path("content-packs/quran-core/1.0.4")
+                root, Path("content-packs/quran-core/1.1.0")
             )
             source, artifact, _ = load_production_source(root)
             expected_notice = extract_tanzil_notice(artifact)
@@ -105,8 +111,9 @@ class QuranCoreTests(unittest.TestCase):
             with sqlite3.connect(db_path) as connection:
                 metadata = dict(connection.execute("SELECT key, value FROM pack_metadata"))
 
-            self.assertEqual(manifest["content_version"], "1.0.4")
-            self.assertEqual(manifest["schema_version"], 2)
+            self.assertEqual(manifest["content_version"], "1.1.0")
+            self.assertEqual(manifest["schema_version"], 3)
+            self.assertEqual(manifest["content_schema_version"], 1)
             self.assertEqual(notice_path.read_text(encoding="utf-8"), expected_notice)
             self.assertEqual(metadata["source_notice"], expected_notice)
             self.assertEqual(metadata["source_attribution"], provenance["attribution"])
@@ -119,16 +126,48 @@ class QuranCoreTests(unittest.TestCase):
             notice_hash = hashlib.sha256(expected_notice.encode("utf-8")).hexdigest()
             self.assertEqual(manifest["notice_sha256"], notice_hash)
             self.assertEqual(manifest["source_notice_sha256"], notice_hash)
+            self.assertEqual(
+                metadata["canonical_sha256"],
+                manifest["canonical"]["artifact_sha256"],
+            )
+            self.assertEqual(
+                manifest["canonical"]["artifact_sha256"],
+                sha256_canonical_file(root / manifest["canonical"]["artifact_path"]),
+            )
+            self.assertTrue(manifest["build_toolchain"]["python_version"])
+            self.assertTrue(manifest["build_toolchain"]["sqlite_version"])
 
-    def test_direct_builder_cli_can_import_repo_tools(self):
-        completed = subprocess.run(
-            [sys.executable, str(ROOT / "tools" / "build_quran_core.py"), "--help"],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        self.assertIn("pack directory", completed.stdout)
+    def test_direct_builder_clis_can_import_repo_tools(self):
+        for script in ("build_quran_canonical.py", "build_quran_core.py"):
+            completed = subprocess.run(
+                [sys.executable, str(ROOT / "tools" / script), "--help"],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("repository root", completed.stdout)
+
+    def test_canonical_artifact_is_byte_reproducible(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            root_a = Path(first)
+            root_b = Path(second)
+            self._copy_fixture_root(root_a)
+            self._copy_fixture_root(root_b)
+            artifact_a, manifest_a = build_canonical(root_a)
+            artifact_b, manifest_b = build_canonical(root_b)
+            self.assertEqual(
+                sha256_canonical_file(artifact_a),
+                sha256_canonical_file(artifact_b),
+            )
+            self.assertEqual(
+                sha256_canonical_file(manifest_a),
+                sha256_canonical_file(manifest_b),
+            )
+            canonical = load_canonical(root_a)
+            self.assertEqual(len(canonical.rows), 6236)
+            self.assertEqual(canonical.rows[0].ayah_id, "qa:001:001")
+            self.assertEqual(canonical.rows[-1].ayah_id, "qa:114:006")
 
     def test_builder_is_byte_reproducible_for_identical_inputs(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
@@ -136,9 +175,11 @@ class QuranCoreTests(unittest.TestCase):
             root_b = Path(second)
             self._copy_fixture_root(root_a)
             self._copy_fixture_root(root_b)
+            build_canonical(root_a)
+            build_canonical(root_b)
 
-            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.0.4"))
-            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.0.4"))
+            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.1.0"))
+            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.1.0"))
 
             self.assertEqual(sha256_file(db_a), sha256_file(db_b))
             manifest = json.loads(manifest_a.read_text(encoding="utf-8"))
@@ -149,6 +190,10 @@ class QuranCoreTests(unittest.TestCase):
             self.assertEqual(
                 notice.read_text(encoding="utf-8"),
                 extract_tanzil_notice(source_artifact),
+            )
+            self.assertIn(
+                "canonical JSONL hash",
+                manifest["byte_reproducibility_scope"],
             )
 
 
