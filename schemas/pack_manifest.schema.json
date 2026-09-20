@@ -29,7 +29,8 @@
     "schema_version": {
       "enum": [
         1,
-        2
+        2,
+        3
       ]
     },
     "content_version": {
@@ -135,6 +136,90 @@
     "supersedes": {
       "type": "string",
       "minLength": 1
+    },
+    "content_schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "canonical": {
+      "type": "object",
+      "required": [
+        "canonical_id",
+        "canonical_version",
+        "generator_version",
+        "manifest_path",
+        "manifest_sha256",
+        "artifact_path",
+        "artifact_sha256",
+        "artifact_byte_size",
+        "record_count"
+      ],
+      "properties": {
+        "canonical_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generator_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest_path": {
+          "type": "string",
+          "pattern": "^canonical/"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "artifact_path": {
+          "type": "string",
+          "pattern": "^canonical/"
+        },
+        "artifact_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "artifact_byte_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "record_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "build_toolchain": {
+      "type": "object",
+      "required": [
+        "python_implementation",
+        "python_version",
+        "sqlite_version"
+      ],
+      "properties": {
+        "python_implementation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "python_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sqlite_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "byte_reproducibility_scope": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "dependentRequired": {
@@ -151,7 +236,10 @@
       "if": {
         "properties": {
           "schema_version": {
-            "const": 2
+            "enum": [
+              2,
+              3
+            ]
           }
         },
         "required": [
@@ -167,6 +255,26 @@
           "source_provenance_sha256",
           "notice_path",
           "notice_sha256"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": 3
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "required": [
+          "content_schema_version",
+          "canonical",
+          "build_toolchain",
+          "byte_reproducibility_scope"
         ]
       }
     }
