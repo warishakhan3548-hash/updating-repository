@@ -9,7 +9,7 @@ Add a deliberately small, versioned spelling-compatibility fallback after the ex
 | Claim | Primary source | Verified | Confidence | Product implication |
 |---|---|---:|---|---|
 | Unicode 18.0 identifies U+0671 as ARABIC LETTER ALEF WASLA and marks it as Quranic Arabic. | https://www.unicode.org/Public/18.0.0/charts/nameslist/0600/ | 2026-09-21 | high | A query-side/source-side compatibility fold may bridge bare alef and wasla spelling without rewriting display text. |
-| Unicode 18.0 identifies U+06CC as ARABIC LETTER FARSI YEH and notes Arabic/Persian/Urdu/Kashmiri use; it cross-references Arabic Yeh U+064A. | https://www.unicode.org/Public/18.0.0/charts/nameslist/0600/ | 2026-09-21 | high | A narrowly-scoped Farsi-Yeh→Arabic-Yeh search fold is justified for keyboard compatibility. |
+| Unicode 18.0 identifies U+06CC as ARABIC LETTER FARSI YEH and relates its forms to both U+0649 ALEF MAKSURA and U+064A ARABIC YEH; the core specification notes the final/isolated form correspondence explicitly. | https://www.unicode.org/Public/18.0.0/charts/nameslist/0600/ ; https://unicode.org/versions/Unicode18.0.0/core-spec/chapter-9/ | 2026-09-21 | high | The fallback must place Farsi Yeh plus the source-side dotless-yeh form in one search-only equivalence class, while strict search remains authoritative. |
 | Unicode 18.0 identifies U+06C1 as ARABIC LETTER HEH GOAL used in Urdu. | https://www.unicode.org/Public/18.0.0/charts/nameslist/0600/ | 2026-09-21 | high | A narrowly-scoped Heh-Goal→Arabic-Heh search fold is justified for Urdu keyboards. |
 | SQLite documents deterministic built-in `instr(X,Y)` substring matching and `replace(X,Y,Z)` substitution. | https://sqlite.org/lang_corefunc.html | 2026-09-21 | high | The fallback can remain local and dependency-free over the existing 6,236-row Quran table. |
 | QUL still requires resource-specific licensing review for production/commercial use. | https://qul.tarteel.ai/docs/faq | 2026-09-21 | high | No QUL morphology bytes are promoted by this search change. |
@@ -26,10 +26,10 @@ The compatibility mapping is intentionally not a general Arabic normalizer. Each
 `arabic-query-compat-v1` folds only:
 
 - `ٱ أ إ آ` → `ا`
-- `ی` → `ي`
+- `ی` / `ى` → `ي`
 - `ہ` → `ه`
 
-The host evaluator mirrors the Android SQL. `quran-search-golden-v2` requires Recall@5 = 1.0 for exact, diacritic-free, partial phrase, orthographic-variant and keyboard-variant categories while preserving a zero labelled negative false-positive rate.
+The host evaluator mirrors the Android SQL. The U+0649 fold is deliberately confined to this strict-miss compatibility lane because ALEF MAKSURA remains a distinct source character; it is never used to rewrite Quran display or Evidence Plane text. `quran-search-golden-v2` requires Recall@5 = 1.0 for exact, diacritic-free, partial phrase, orthographic-variant and keyboard-variant categories while preserving a zero labelled negative false-positive rate.
 
 Compatibility results are explicitly labelled **Approximate spelling match** and render only the original Quran source text.
 
