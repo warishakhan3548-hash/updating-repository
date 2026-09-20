@@ -43,3 +43,8 @@ A runtime pack SHA-256 identifies exact shipped bytes, not whether those bytes s
 ## ADR-013 — Canonical Quran semantics are the long-lived reproducibility anchor
 
 Runtime SQLite byte identity is useful but can depend on the pinned Python/SQLite toolchain. Quran evidence therefore has a deterministic canonical JSONL layer between Source Vault and runtime packs. Schema-v3 packs bind to that canonical manifest/artifact, while promotion independently proves that every canonical ayah exactly matches the preserved Source Vault row and that every runtime Quran row/search lane still derives from the same evidence. Recomputing hashes after changing sacred text is not sufficient to restore validity.
+
+
+## ADR-014 — Approved packs require trusted-key Ed25519 verification
+
+Pack authenticity is a separate gate after Source Vault, licence/provenance, canonical binding and semantic fidelity. Approved manifests sign the whole manifest except the signature container using the project-owned `aaris-pack-json-v1` payload and Ed25519. Trusted public keys live in a reviewed project policy with thresholds and release-sequence windows; private release keys never enter Git. The production key registry is intentionally empty until an offline key ceremony. This is a minimal release-authentication layer informed by TUF principles, not a claim to implement TUF freshness, delegation or client rollback protection.
