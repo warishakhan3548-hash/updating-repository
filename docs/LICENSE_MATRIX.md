@@ -24,3 +24,11 @@
 - attribution required: yes.
 
 The registry and executable Source Vault gate are authoritative for promotion state; this document is a human-readable summary.
+
+## Commercial-use release gate
+
+Commercial permission is machine-readable and independent from redistribution permission. Production-approved sources must set `commercial_use_allowed: true`; unknown or false values fail both the Source Vault gate and the runtime pack gate.
+
+The Quranic Arabic Corpus v0.4 is explicitly `commercial_use_allowed: false` because its official FAQ currently limits downloaded research data to non-commercial research use, while the separate official download page also presents GPL/verbatim-copy terms. The source therefore remains blocked pending clarification rather than treating redistribution language as commercial authorization.
+
+Tanzil Quran Text v1.1 is `commercial_use_allowed: true` under its archived CC BY 3.0/source-specific terms, which allow verbatim use in websites or applications without a non-commercial restriction. QuranMorph is also recorded `true` under its declared CC BY 4.0 licence, but remains `awaiting-artifact` and cannot ship until exact authorized bytes and coordinate alignment pass the normal gates. Candidates whose commercial status has not been independently verified remain `null`, not guessed.
