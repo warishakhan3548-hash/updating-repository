@@ -71,3 +71,23 @@ The signed bytes are the fixed application-domain prefix `AARIS-CONTENT-PACK-SIG
 The current trust-root state is `bootstrap-required`, so verifier availability does **not** promote existing candidates. A real offline release key and independent backup must be established first.
 
 Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for reproducibility and later rollback support.
+
+## Source release review
+
+Some redistributable sources impose obligations that can change release eligibility without changing the archived bytes. When the Source Vault entry declares `release_requirements.latest_upstream_version_required=true`, an `approved` manifest must contain:
+
+```json
+{
+  "source_release_review": {
+    "source_id": "source-id",
+    "source_version": "1.0.0",
+    "observed_upstream_version": "1.0.0",
+    "version_check_url": "https://official.example/versions",
+    "checked_at": "2026-09-21T00:00:00Z",
+    "licence_sha256": "<64 lowercase hex>",
+    "latest_upstream_version_confirmed": true
+  }
+}
+```
+
+The pack gate validates this object against the Source Vault registry and the exact archived licence hash. Candidate/reviewed packs remain reproducible without a live upstream check; the attestation is required only for release approval. Since the manifest signature covers every top-level field except `signature`, the release review cannot be changed after signing without invalidating the signature.
