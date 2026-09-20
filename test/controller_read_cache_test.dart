@@ -114,12 +114,28 @@ void main() {
           'Warning preferences change scope semantics, not the searchable medicine dataset.',
     );
 
-    final live = controller.snapshot.records[medicine.id]!;
+    var live = controller.snapshot.records[medicine.id]!;
     await controller.save(
       live.patch(<String, dynamic>{'quantity': 9}),
       expectedRevision: controller.snapshot.revision,
     );
-    expect(controller.debugSearchDatasetEpoch, initialEpoch + 1);
+    expect(
+      controller.debugSearchDatasetEpoch,
+      initialEpoch,
+      reason:
+          'Quantity is a stock counter and does not change searchable medicine facts.',
+    );
+
+    live = controller.snapshot.records[medicine.id]!;
+    await controller.save(
+      live.patch(<String, dynamic>{'notes': 'Searchable shelf note'}),
+      expectedRevision: controller.snapshot.revision,
+    );
+    expect(
+      controller.debugSearchDatasetEpoch,
+      initialEpoch + 1,
+      reason: 'Searchable medicine facts must still advance the dataset epoch.',
+    );
   });
 
   test('fallback fuzzy index survives metadata-only snapshot writes', () async {
