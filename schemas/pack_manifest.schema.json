@@ -110,5 +110,13 @@
       "pattern": "^[a-f0-9]{64}$"
     }
   },
+  "dependentRequired": {
+    "notice_path": [
+      "notice_sha256"
+    ],
+    "notice_sha256": [
+      "notice_path"
+    ]
+  },
   "additionalProperties": true
 }
