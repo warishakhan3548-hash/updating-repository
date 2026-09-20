@@ -13,6 +13,7 @@ from tools.pack_signing import (
     PAYLOAD_FORMAT,
     PackSignatureError,
     signature_payload,
+    validate_trusted_key_policy,
     verify_ed25519_signature,
     verify_manifest_signature,
 )
@@ -218,9 +219,8 @@ class PackSigningTests(unittest.TestCase):
                 '"signature_threshold":2,"keys":[]}',
                 encoding="utf-8",
             )
-            manifest = self._manifest()
             with self.assertRaisesRegex(PackSignatureError, "duplicate JSON object key"):
-                verify_manifest_signature(manifest, path)
+                validate_trusted_key_policy(path)
 
     def test_threshold_is_enforced(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
