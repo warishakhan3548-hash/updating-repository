@@ -18,6 +18,8 @@ Facts were checked against primary/official sources where available. Marketing c
 | fact | Current FSRS documentation still centers the D/S/R model and FSRS-6, while the ecosystem already contains newer-version implementations/benchmark references. | https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm and https://github.com/open-spaced-repetition/awesome-fsrs | medium-high | Preserve raw review events and keep FSRS behind an adapter; never make one scheduler version part of the permanent user-data schema. |
 | fact | Android recommends at least 48dp touch targets; WCAG 2.2 AA specifies 24x24 CSS px minimum with exceptions. | https://developer.android.com/guide/topics/ui/accessibility/views/apps-views and https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html | high | Use 48dp Android controls and expanded semantic hit regions for inline words. |
 | fact | Android's offline-first architecture guidance keeps a local data source as the canonical source of truth for higher layers. | https://developer.android.com/topic/architecture/data-layer/offline-first | high | Reader UI should project the local verified content pack; network access stays off the critical read path. |
+| fact | Compose Material/Foundation APIs provide accessibility semantics for standard controls and Android guidance requires at least 48dp interactive targets; manual TalkBack testing remains necessary. | https://developer.android.com/develop/ui/compose/accessibility/api-defaults and https://developer.android.com/codelabs/jetpack-compose-accessibility | high | Use standard Material controls, scalable text and explicit semantics; do not claim accessibility complete from static checks alone. |
+| fact | AGP 9.4 supports API 37 with Gradle 9.6/JDK 17; AGP 9 uses built-in Kotlin and can load a newer KGP from the top-level buildscript. Current Compose setup documents the Kotlin Compose compiler plugin and BOM-based dependency alignment. | https://developer.android.com/build/releases/agp-9-4-0-release-notes and https://developer.android.com/build/migrate-to-built-in-kotlin and https://developer.android.com/develop/ui/compose/setup-compose-dependencies-and-compiler | high | Keep the Android shell current and small; compile the exact toolchain in CI instead of assuming compatibility. |
 | fact | TUF publishes version/hash/signature/rollback-oriented update specifications. | https://theupdateframework.io/spec/ | high | Use its threat-model principles for content pack activation. |
 | fact | GitHub states that pinning an Action to a full-length commit SHA is the only way to consume it as an immutable release. | https://docs.github.com/en/actions/reference/security/secure-use | high | Pin every remote Action/reusable workflow used by trusted evidence builds and reject movable refs in CI. |
 | fact | Events caused by a repository `GITHUB_TOKEN` normally do not create another workflow run, including a workflow pushing a commit that another workflow listens for via `push`. | https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow | high | A pack-publishing workflow must validate the exact generated commit itself instead of relying on a second push-triggered foundation workflow. |
@@ -34,6 +36,8 @@ Facts were checked against primary/official sources where available. Marketing c
 
 The main opportunity is not another feature dashboard. It is an invisible comprehension layer that learns how much explanation a person still needs and lets natural Quran encounters substitute for unnecessary drills.
 
+The first Android reader is deliberately less clever than the future system: it proves immutable local reading and provenance first. Word-tap spans may be transient UI geometry, but linguistic identity and meaning must wait for an approved token-level source rather than being guessed from whitespace or AI.
+
 Hadith research needs a different trust posture: multi-lane fuzzy retrieval with explicit abstention, edition-aware citations and attributed grade assertions. AI query expansion belongs outside the Evidence Plane.
 
 ## Open research gates
@@ -43,7 +47,8 @@ Hadith research needs a different trust posture: multi-lane fuzzy retrieval with
 - authoritative redistributable Hadith datasets with edition-level numbering provenance;
 - full HadeethEnc edition/collection mapping;
 - exact QuranEnc translation/version selection where translations are used;
-- fonts, audio and word/ayah timing sources with explicit redistribution rights.
+- fonts, audio and word/ayah timing sources with explicit redistribution rights;
+- device-level TalkBack, large-font, RTL and low-end performance validation for the Android reader.
 
 ## Saturation conclusion
 
