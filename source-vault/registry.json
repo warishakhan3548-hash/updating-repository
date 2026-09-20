@@ -93,7 +93,43 @@
       "provenance": null,
       "sha256": null,
       "byte_size": null,
-      "notes": "Evaluate individual resources; QUL aggregates resources with differing upstream origins and terms."
+      "notes": "Evaluate individual resources only. Official QUL morphology pages expose downloadable word-location keyed datasets, while the QUL FAQ requires checking dataset-specific licensing for commercial use. The QUL repository MIT licence is not treated as blanket permission for aggregated dataset bytes."
+    },
+    {
+      "source_id": "morphology.qul.word-lemma.resource-75",
+      "category": "morphology",
+      "source_name": "QUL Word lemma",
+      "original_url": "https://qul.tarteel.ai/resources/morphology/75",
+      "version": "resource-75-unpinned-2026-09-20",
+      "status": "awaiting-licence",
+      "licence_id": "dataset-specific-unverified",
+      "redistribution_allowed": null,
+      "modification_allowed": null,
+      "attribution_required": null,
+      "vault_artifact": null,
+      "licence_snapshot": null,
+      "provenance": null,
+      "sha256": null,
+      "byte_size": null,
+      "notes": "Technically suitable candidate: QUL documents a downloadable SQLite mapping lemmas to word_location keys. No artifact is mirrored because the inspected resource page does not state a dataset licence and QUL's FAQ requires resource-specific licence review before commercial production use."
+    },
+    {
+      "source_id": "morphology.qul.word-root.resource-76",
+      "category": "morphology",
+      "source_name": "QUL Word root",
+      "original_url": "https://qul.tarteel.ai/resources/morphology/76",
+      "version": "resource-76-unpinned-2026-09-20",
+      "status": "awaiting-licence",
+      "licence_id": "dataset-specific-unverified",
+      "redistribution_allowed": null,
+      "modification_allowed": null,
+      "attribution_required": null,
+      "vault_artifact": null,
+      "licence_snapshot": null,
+      "provenance": null,
+      "sha256": null,
+      "byte_size": null,
+      "notes": "Technically suitable candidate: QUL documents a downloadable SQLite mapping roots to word_location keys. No artifact is mirrored because the inspected resource page does not state a dataset licence and QUL's FAQ requires resource-specific licence review before commercial production use."
     }
   ]
 }
