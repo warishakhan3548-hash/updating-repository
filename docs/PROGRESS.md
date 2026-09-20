@@ -17,7 +17,7 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - 114-surah / 6,236-ayah coordinate invariants;
 - display Arabic separated from derived search-normalized lanes;
 - deterministic Quran-core importer with byte-reproducibility coverage;
-- complete candidate Quran core pack published at `content-packs/quran-core/1.0.2/`;
+- complete candidate Quran core pack published at `content-packs/quran-core/1.0.2/`;\n- importer-independent Quran semantic verifier reconstructs all 6,236 expected rows plus Source Vault-derived notice/attribution and canonical schema;\n- adversarial regressions reject Quran-text and SQLite-schema tampering even when the altered database receives a freshly recomputed artifact SHA-256;
 - GitHub Actions foundation checks and deterministic pack build workflow.
 
 ## Production Source Vault
@@ -58,7 +58,7 @@ Candidate does not mean release-approved. Promotion must still pass review/signi
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, pack/source identity binding, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The Evidence foundation workflow passed after the attribution-notice gate and regression tests were added.
+Automated coverage checks Source Vault integrity, licence/provenance consistency, pack/source identity binding, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. Quran pack promotion additionally opens the shipped database read-only and verifies canonical schema identity, all 6,236 source/display rows, recomputed search lanes, exact source assertion metadata, Source Vault-derived notice/attribution, and absence of undeclared morphology/Hadith evidence.
 
 No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
