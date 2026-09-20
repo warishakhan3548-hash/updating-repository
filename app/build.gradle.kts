@@ -1,5 +1,6 @@
 import java.io.File
 import java.security.MessageDigest
+import org.gradle.api.tasks.Exec
 
 plugins {
     id("com.android.application")
@@ -20,9 +21,6 @@ fun manifestString(key: String): String {
         ?: error("Quran pack manifest is missing string field: $key")
 }
 
-fun hasManifestString(key: String): Boolean =
-    Regex(""""${Regex.escape(key)}"\s*:\s*"[^"]+"""").containsMatchIn(manifestText)
-
 fun File.sha256(): String {
     val digest = MessageDigest.getInstance("SHA-256")
     inputStream().use { input ->
@@ -40,7 +38,6 @@ val packVersion = manifestString("content_version")
 val packSha256 = manifestString("built_sha256")
 val packReviewStatus = manifestString("review_status")
 val packSourceSha256 = manifestString("source_sha256")
-val releaseSignatureReady = listOf("algorithm", "key_id", "value").all(::hasManifestString)
 
 android {
     namespace = "com.aaris.quran"
@@ -59,7 +56,7 @@ android {
         buildConfigField(
             "boolean",
             "QURAN_PACK_RELEASE_READY",
-            (packReviewStatus == "approved" && releaseSignatureReady).toString(),
+            (packReviewStatus == "approved").toString(),
         )
     }
 
@@ -115,18 +112,35 @@ tasks.named("preBuild").configure {
     dependsOn(verifyBundledQuranPack)
 }
 
-val verifyReleaseQuranPack by tasks.registering {
+val verifyReleaseQuranPack by tasks.registering(Exec::class) {
     group = "verification"
-    description = "Fail closed unless the bundled Quran pack is approved and signed."
+    description =
+        "Run the authoritative project pack gate, including trusted-key signature verification."
+    workingDir(rootProject.projectDir)
+    inputs.files(
+        quranPackManifest,
+        quranPackDatabase,
+        quranPackNotice,
+        rootProject.file("source-vault/registry.json"),
+        rootProject.file("policy/trusted_pack_keys.json"),
+        rootProject.file("tools/pack_gate.py"),
+        rootProject.file("tools/pack_signatures.py"),
+    )
 
-    doLast {
+    doFirst {
         check(packReviewStatus == "approved") {
             "Release build blocked: quran-core $packVersion is $packReviewStatus, not approved"
         }
-        check(releaseSignatureReady) {
-            "Release build blocked: approved Quran pack must carry algorithm/key_id/value signature fields"
-        }
     }
+
+    val pythonExecutable =
+        providers.gradleProperty("pythonExecutable").orElse("python3")
+    commandLine(
+        pythonExecutable.get(),
+        rootProject.file("tools/pack_gate.py").absolutePath,
+        rootProject.file("source-vault/registry.json").absolutePath,
+        quranPackManifest.absolutePath,
+    )
 }
 
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
