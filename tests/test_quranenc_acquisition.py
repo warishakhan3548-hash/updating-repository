@@ -159,7 +159,7 @@ class QuranEncCaptureTests(unittest.TestCase):
             primary = output / "raw" / "suras" / "001.json"
             primary.write_bytes(primary.read_bytes() + b"tamper\n")
 
-            with self.assertRaisesRegex(CaptureError, "SHA-256"):
+            with self.assertRaisesRegex(CaptureError, "byte size mismatch|SHA-256"):
                 validate_existing(output)
 
     def test_retryable_http_failure_is_reported_after_bounded_retries(self) -> None:
