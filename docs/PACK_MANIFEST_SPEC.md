@@ -64,7 +64,9 @@ Approved manifests use `aaris-pack-signature-v1`:
 }
 ```
 
-The signed bytes are deterministic JSON for the entire manifest except the top-level `signature` field. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version and review status are therefore covered by the signature.
+An approved manifest also requires a positive cross-runtime-safe `release_sequence`. The signed bytes are a domain-separated deterministic representation of the entire manifest except the top-level `signature` field. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version, review status and release sequence are therefore covered by the signature.
+
+The signing representation rejects duplicate JSON fields, non-ASCII object keys, floating-point values and integers outside the cross-runtime safe range. These restrictions keep the Python verifier reproducible in a future non-Python client without claiming full RFC 8785/JCS compatibility.
 
 `tools/pack_gate.py` delegates approved-manifest authenticity to `tools/pack_signatures.py`; signature-shaped strings are never sufficient. Trusted release public keys and threshold policy live in `policy/trusted_pack_keys.json`. Key IDs are derived from the public key, and private keys must remain outside the repository.
 
