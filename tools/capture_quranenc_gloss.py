@@ -17,8 +17,10 @@ from pathlib import Path
 import tarfile
 import tempfile
 from typing import Callable, Iterable
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+import time
 
 if __package__:
     from tools.quran_core import EXPECTED_AYAH_COUNTS
@@ -33,8 +35,8 @@ SOURCE_NAME = (
 TRANSLATION_KEY = "arabic_seraj"
 EXPECTED_VERSION = "1.0.0"
 BASE_URL = "https://quranenc.com"
-LIST_URL = f"{BASE_URL}/api/v1/translations/list/ar/?localization=en"
-TERMS_URL = f"{BASE_URL}/en/home"
+LIST_URL = f"{BASE_URL}/api/v1/translations/list/ar?localization=en"
+TERMS_URL = f"{BASE_URL}/en/home/about/terms-and-conditions"
 BROWSE_URL = f"{BASE_URL}/en/browse/{TRANSLATION_KEY}"
 VAULT_RELATIVE = Path(
     "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0"
@@ -79,23 +81,42 @@ def fetch_https(url: str, *, timeout: float = 30.0) -> FetchResult:
         headers={
             "User-Agent": "Aaris-Quran-SourceVault-Capture/1.0",
             "Accept": "application/json,text/html;q=0.9,*/*;q=0.1",
+            "Accept-Encoding": "identity",
         },
     )
-    with urlopen(req, timeout=timeout) as response:  # nosec B310
-        status = int(getattr(response, "status", response.getcode()))
-        final_url = response.geturl()
-        _validate_https_quranenc(final_url, label="final URL")
-        if status != 200:
+    retryable_statuses = {429, 500, 502, 503, 504}
+    for attempt in range(1, 5):
+        try:
+            with urlopen(req, timeout=timeout) as response:  # nosec B310
+                status = int(getattr(response, "status", response.getcode()))
+                final_url = response.geturl()
+                _validate_https_quranenc(final_url, label="final URL")
+                if status != 200:
+                    raise CaptureError(
+                        f"unexpected HTTP status {status} for {url}"
+                    )
+                body = response.read(MAX_RESPONSE_BYTES + 1)
+                if len(body) > MAX_RESPONSE_BYTES:
+                    raise CaptureError(
+                        f"response exceeds {MAX_RESPONSE_BYTES} bytes: {url}"
+                    )
+                content_type = response.headers.get("Content-Type")
+            return FetchResult(url, final_url, status, content_type, body)
+        except HTTPError as exc:
+            if exc.code in retryable_statuses and attempt < 4:
+                time.sleep(2 ** (attempt - 1))
+                continue
             raise CaptureError(
-                f"unexpected HTTP status {status} for {url}"
-            )
-        body = response.read(MAX_RESPONSE_BYTES + 1)
-        if len(body) > MAX_RESPONSE_BYTES:
+                f"HTTP {exc.code} while fetching {url}"
+            ) from exc
+        except URLError as exc:
+            if attempt < 4:
+                time.sleep(2 ** (attempt - 1))
+                continue
             raise CaptureError(
-                f"response exceeds {MAX_RESPONSE_BYTES} bytes: {url}"
-            )
-        content_type = response.headers.get("Content-Type")
-    return FetchResult(url, final_url, status, content_type, body)
+                f"network error while fetching {url}: {exc.reason}"
+            ) from exc
+    raise CaptureError(f"exhausted download retries for {url}")
 
 
 def _validate_result(result: FetchResult, *, label: str) -> None:
@@ -128,13 +149,34 @@ def _json(data: bytes, *, label: str):
 
 
 def _translation_entries(payload) -> list[dict]:
-    if not isinstance(payload, list) or not all(
-        isinstance(item, dict) for item in payload
-    ):
-        raise CaptureError(
-            "translation list API returned an unexpected shape"
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        candidates = [
+            payload.get("result"),
+            payload.get("translations"),
+            payload.get("data"),
+        ]
+        rows = next(
+            (
+                item for item in candidates
+                if isinstance(item, list)
+            ),
+            None,
         )
-    return payload
+        if rows is None:
+            raise CaptureError(
+                "translation list API returned an unexpected object shape"
+            )
+    else:
+        raise CaptureError(
+            "translation list API returned an unexpected JSON shape"
+        )
+    if not all(isinstance(item, dict) for item in rows):
+        raise CaptureError(
+            "translation list API contains a non-object row"
+        )
+    return rows
 
 
 def _selected_translation(
