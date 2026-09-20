@@ -21,7 +21,8 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - schema-v2 Quran promotion independently verifies Source Vault semantic fidelity: canonical SQLite schema, source assertions/metadata, all 6,236 display rows, recomputed search lanes, and absence of undeclared morphology/Hadith evidence;
 - read-only Reader Core with stable `QuranCoordinate` navigation, production pack-approval guard, source-faithful `original_text` projection, and ephemeral UI tap anchors that never become canonical TokenIDs;
 - GitHub Actions foundation checks and deterministic pack build workflow;
-- fail-closed release authenticity gate: `approved` packs are rejected until their cryptographic signatures can be verified against trusted project keys.
+- fail-closed release authenticity gate with canonical signed manifests, Ed25519 verification, immutable versioned trust roots, distinct-key thresholds and signed `release_sequence` metadata;
+- production signing remains intentionally unprovisioned: the bootstrap trust root has no active key, so the existing Quran pack cannot be promoted by fabricated signature fields.
 
 ## Production Source Vault
 
@@ -65,7 +66,7 @@ Candidate does not mean release-approved. Version 1.0.4 strengthens the runtime 
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The 1.0.4 publish workflow ran 44 tests successfully and passed the content-pack gate before pushing the generated pack. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
+Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, deterministic pack reproducibility, signed-manifest tampering, trusted-key identity, revoked keys, duplicate signatures and signature-threshold behavior. The 1.0.4 publish workflow ran 44 tests successfully and passed the content-pack gate before pushing the generated pack. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
 
 Schema-v2 Quran semantic regression coverage now tampers with Quran text and SQLite schema, recomputes the runtime artifact SHA-256, and requires promotion to fail. Recomputing `built_sha256` after changing Quran text or SQLite schema does not make the pack valid.
 
@@ -75,11 +76,11 @@ No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device te
 
 ## Next safe milestones
 
-1. Implement and test the trusted-key content-pack signature verifier (canonical signed payload, key IDs/rotation and rollback metadata), then review/sign/promote the Quran core pack.
-2. Build the minimal Android reader UI on the Reader Core contract: immutable Arabic rendering, stable Surah/Ayah navigation, RTL/accessibility semantics, and anchored word-tap hit testing.
-3. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
-4. Resolve QAC licensing or choose a legally clearer morphology source.
-5. Preserve an edition-aware Hadith source before production Hadith search.
+1. Provision the first real release public key in a new immutable trust-root version using an offline/private-key ceremony, then independently review/sign a new immutable Quran pack version; do not rewrite 1.0.4.
+2. Add durable client-side highest-seen `release_sequence` state before enabling any network-delivered content-pack updates.
+3. Complete Android reader device validation for TalkBack, large text, RTL and representative low-end performance.
+4. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
+5. Resolve QAC licensing or choose a legally clearer morphology source, and preserve an edition-aware Hadith source before production Hadith search.
 6. Add an independent backup/archive for critical Source Vault artifacts.
 
 One-shot acquisition/backfill workflows are removed after successful promotion of their outputs; provenance and Git history retain the audit trail.
