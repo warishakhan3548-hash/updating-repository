@@ -390,8 +390,9 @@ def capture(
             "upstream_metadata": metadata_record,
             "capture_files": [
                 _download_record(download, relative)
-                for relative, download in external_files
-            ],
+                for relative, download in external_files[:3]
+            ]
+            + sura_records,
             "promotion_status": "captured-unreviewed",
             "promotion_note": (
                 "Exact upstream Surah API response bytes are preserved. "
