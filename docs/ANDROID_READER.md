@@ -19,7 +19,7 @@ The Android build points its asset source directly at `content-packs/quran-core/
 
 Gradle hashes `content.sqlite` before every Android build. At first runtime use the asset is copied into `noBackupFilesDir`, hashed again, and opened with Android SQLite `OPEN_READONLY`.
 
-Debug builds may exercise the candidate pack. Release builds fail closed while the pack is a candidate, and an `approved` manifest still remains blocked until its signature is cryptographically verified against trusted project keys. Signature-shaped metadata alone is never treated as verification. Runtime also rejects every non-release-ready pack outside debug builds.
+Debug builds may exercise the candidate pack. Release builds fail closed while the pack is a candidate. For an `approved` pack, Gradle invokes the repository content-pack gate, which performs Source Vault, semantic and trusted-key cryptographic verification before release packaging. Signature-shaped metadata alone is never treated as verification. Runtime also rejects every non-release-ready pack outside debug builds.
 
 ## Runtime architecture
 
@@ -51,3 +51,10 @@ Pinned as of 2026-09-20:
 ## Current limitation
 
 The UI uses the device Arabic font. A bundled Quran font will only be added after its exact artifact, licence, provenance and redistribution rights are preserved under project control and rendering is regression-tested.
+
+
+## Release verifier prerequisite
+
+The release gate uses the pinned Python security adapter in `requirements-foundation.txt`. Build environments that intentionally produce release artifacts must install that file first. Debug Android builds do not need the verifier package.
+
+No production public key is enrolled today, so the current candidate remains deliberately non-releaseable. Future downloaded pack updates will need a native Android signature verifier and persisted anti-rollback sequence; the current build-time gate protects only content bundled into a signed APK.
