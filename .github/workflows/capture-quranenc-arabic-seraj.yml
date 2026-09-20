@@ -1,0 +1,70 @@
+name: Capture QuranEnc arabic_seraj v1.0.0
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/capture-quranenc-arabic-seraj.yml'
+      - 'tools/acquire_quranenc_gloss.py'
+      - 'tests/test_quranenc_acquisition.py'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: capture-quranenc-arabic-seraj-v1-0-0
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'source-vault/quranenc-arabic-seraj-v1-0-0-20260920'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.13.15'
+
+      - name: Test acquisition boundary
+        run: python -m unittest tests/test_quranenc_acquisition.py -v
+
+      - name: Capture exact QuranEnc bytes once
+        shell: bash
+        run: |
+          set -euo pipefail
+          VAULT='source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0'
+
+          if [[ -d "$VAULT" ]]; then
+            echo 'Immutable QuranEnc snapshot already exists; validating only.'
+            python tools/acquire_quranenc_gloss.py --validate-existing
+            exit 0
+          fi
+
+          python tools/acquire_quranenc_gloss.py
+          python tools/acquire_quranenc_gloss.py --validate-existing
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$VAULT"
+          git commit -m 'Capture QuranEnc arabic_seraj v1.0.0 source bytes'
+
+          # Validate the exact commit that is about to be pushed. GITHUB_TOKEN
+          # pushes do not reliably trigger another ordinary workflow run.
+          python tools/acquire_quranenc_gloss.py --validate-existing
+          python -m unittest tests/test_quranenc_acquisition.py -v
+
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo 'Validation changed the committed capture; refusing to push.' >&2
+            git status --short >&2
+            exit 1
+          fi
+
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
