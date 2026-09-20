@@ -2,6 +2,7 @@ import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/attention.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
 import 'package:aaris_pharmacy/domain/operations_plan.dart';
+import 'package:aaris_pharmacy/domain/stock_guidance.dart';
 import 'package:aaris_pharmacy/domain/tracking.dart';
 import 'package:aaris_pharmacy/state/autopilot_supervisor.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
@@ -276,6 +277,68 @@ void main() {
 
         expect(supervisor.digest.highCount, greaterThanOrEqualTo(1));
         expect(supervisor.digest.nextKind, AttentionKind.futureSaleHistory);
+      },
+    );
+
+    test(
+      'movement-only advice keeps health clear without inventing a next task',
+      () async {
+        final medicine = Medicine.fromJson(<String, dynamic>{
+          'id': 'movement-only',
+          'name': 'Paracetamol',
+          'strength': '500mg',
+          'form': 'Tablet',
+          'expiry': '2027-12-31',
+          'quantity': 100,
+          'location': 'Rack A',
+        });
+        final sales = <String, SaleEvent>{
+          for (var day = 1; day <= 20; day++)
+            'movement-sale-$day': SaleEvent(
+              id: 'movement-sale-$day',
+              stockId: medicine.id,
+              medicineName: medicine.name,
+              strength: medicine.strength,
+              form: medicine.form,
+              salt: medicine.salt,
+              quantity: 1,
+              occurredAt: DateTime(2026, 9, day, 10),
+            ),
+        };
+        final controller = PharmacyController(
+          MemoryInventoryStorage(
+            InventorySnapshot(
+              records: <String, Medicine>{medicine.id: medicine},
+              sales: sales,
+            ),
+          ),
+          clock: () => DateTime(2026, 9, 20, 12),
+          backgroundSearch: false,
+        );
+        await controller.initialize();
+        final supervisor = AarisAutopilotSupervisor(
+          controller,
+          debounce: Duration.zero,
+        );
+        addTearDown(() {
+          supervisor.dispose();
+          controller.dispose();
+        });
+
+        for (var attempt = 0; attempt < 50; attempt++) {
+          if (supervisor.currentWorkQueue != null) break;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+
+        expect(supervisor.digest.health, AarisAutopilotHealth.clear);
+        expect(supervisor.digest.issueCount, 0);
+        expect(supervisor.digest.hasNextTask, isFalse);
+        expect(
+          supervisor.currentWorkQueue?.tasks.any(
+            (task) => task.group == StockTaskGroup.movement,
+          ),
+          isTrue,
+        );
       },
     );
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:aaris_pharmacy/data/inventory_database.dart';
+import 'package:aaris_pharmacy/state/autopilot_supervisor.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
 import 'package:aaris_pharmacy/ui/home_screen.dart';
 import 'package:flutter/material.dart';
@@ -50,7 +51,9 @@ class _BlockingStorage implements InventoryStorage {
 Future<void> _disposeHarness(
   WidgetTester tester,
   PharmacyController controller,
+  AarisAutopilotSupervisor autopilot,
 ) async {
+  autopilot.dispose();
   controller.dispose();
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pump();
@@ -78,12 +81,20 @@ void main() {
         backgroundSearch: false,
       );
       await controller.initialize();
+      final autopilot = AarisAutopilotSupervisor(
+        controller,
+        startImmediately: false,
+      );
 
       try {
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
-              body: HomeScreen(controller: controller, onDatabase: () {}),
+              body: HomeScreen(
+                controller: controller,
+                autopilot: autopilot,
+                onOpenWorkQueue: () {},
+              ),
             ),
           ),
         );
@@ -104,7 +115,7 @@ void main() {
         expect(controller.settings.months, 2);
         expect(controller.snapshot.revision, 2);
       } finally {
-        await _disposeHarness(tester, controller);
+        await _disposeHarness(tester, controller, autopilot);
       }
     },
   );
@@ -122,12 +133,20 @@ void main() {
         backgroundSearch: false,
       );
       await controller.initialize();
+      final autopilot = AarisAutopilotSupervisor(
+        controller,
+        startImmediately: false,
+      );
 
       try {
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
-              body: HomeScreen(controller: controller, onDatabase: () {}),
+              body: HomeScreen(
+                controller: controller,
+                autopilot: autopilot,
+                onOpenWorkQueue: () {},
+              ),
             ),
           ),
         );
@@ -162,7 +181,7 @@ void main() {
       } finally {
         storage.releaseFirstCommit();
         storage.releaseSecondCommit();
-        await _disposeHarness(tester, controller);
+        await _disposeHarness(tester, controller, autopilot);
       }
     },
   );
@@ -175,12 +194,20 @@ void main() {
         backgroundSearch: false,
       );
       await controller.initialize();
+      final autopilot = AarisAutopilotSupervisor(
+        controller,
+        startImmediately: false,
+      );
 
       try {
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
-              body: HomeScreen(controller: controller, onDatabase: () {}),
+              body: HomeScreen(
+                controller: controller,
+                autopilot: autopilot,
+                onOpenWorkQueue: () {},
+              ),
             ),
           ),
         );
@@ -205,7 +232,7 @@ void main() {
         expect(controller.settings.shortDays, 5);
         expect(controller.settings.months, 3);
       } finally {
-        await _disposeHarness(tester, controller);
+        await _disposeHarness(tester, controller, autopilot);
       }
     },
   );
@@ -219,12 +246,20 @@ void main() {
         backgroundSearch: false,
       );
       await controller.initialize();
+      final autopilot = AarisAutopilotSupervisor(
+        controller,
+        startImmediately: false,
+      );
 
       try {
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
-              body: HomeScreen(controller: controller, onDatabase: () {}),
+              body: HomeScreen(
+                controller: controller,
+                autopilot: autopilot,
+                onOpenWorkQueue: () {},
+              ),
             ),
           ),
         );
@@ -248,7 +283,7 @@ void main() {
         expect(controller.settings.shortDays, 8);
         expect(controller.settings.months, 2);
       } finally {
-        await _disposeHarness(tester, controller);
+        await _disposeHarness(tester, controller, autopilot);
       }
     },
   );

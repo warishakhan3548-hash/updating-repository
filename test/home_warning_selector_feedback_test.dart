@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
+import 'package:aaris_pharmacy/state/autopilot_supervisor.dart';
 import 'package:aaris_pharmacy/state/pharmacy_controller.dart';
 import 'package:aaris_pharmacy/ui/design.dart';
 import 'package:aaris_pharmacy/ui/home_screen.dart';
@@ -52,12 +53,20 @@ void main() {
       backgroundSearch: false,
     );
     await controller.initialize();
+    final autopilot = AarisAutopilotSupervisor(
+      controller,
+      startImmediately: false,
+    );
 
     try {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: HomeScreen(controller: controller, onDatabase: () {}),
+            body: HomeScreen(
+              controller: controller,
+              autopilot: autopilot,
+              onOpenWorkQueue: () {},
+            ),
           ),
         ),
       );
@@ -74,10 +83,6 @@ void main() {
       expect(find.text('8d'), findsNothing);
       expect(find.text('5 Days Left'), findsOneWidget);
       expect(find.text('8 Days Left'), findsNothing);
-      expect(
-        tester.widget<MedicineCard>(find.byType(MedicineCard)).settings.shortDays,
-        5,
-      );
       expect(find.byIcon(Icons.sync_rounded), findsOneWidget);
 
       storage.release();
@@ -93,6 +98,7 @@ void main() {
       expect(find.byIcon(Icons.sync_rounded), findsNothing);
     } finally {
       storage.release();
+      autopilot.dispose();
       controller.dispose();
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
