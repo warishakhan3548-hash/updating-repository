@@ -1,6 +1,8 @@
+import hashlib
 import json
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -9,6 +11,7 @@ import unittest
 from tools.build_quran_core import build_pack, sha256_file
 from tools.quran_core import (
     EXPECTED_AYAH_COUNTS,
+    extract_tanzil_notice,
     load_production_source,
     normalize_search_diacritic_free,
     normalize_search_unicode,
@@ -33,6 +36,14 @@ class QuranCoreTests(unittest.TestCase):
         self.assertEqual(len(rows), 6236)
         self.assertEqual((rows[0].surah, rows[0].ayah), (1, 1))
         self.assertEqual((rows[-1].surah, rows[-1].ayah), (114, 6))
+
+    def test_notice_is_derived_from_preserved_source(self):
+        source, artifact, _ = load_production_source(ROOT)
+        notice = extract_tanzil_notice(artifact)
+        self.assertTrue(source["attribution_required"])
+        self.assertIn("Tanzil Quran Text (Uthmani, Version 1.1)", notice)
+        self.assertIn("Creative Commons Attribution 3.0", notice)
+        self.assertIn("CHANGING IT IS NOT ALLOWED", notice)
 
     def test_search_normalization_never_mutates_display_input(self):
         original = "ٱلْحَمْدُ ۞"
@@ -71,6 +82,30 @@ class QuranCoreTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def test_runtime_pack_carries_source_notice_and_attribution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._copy_fixture_root(root)
+            db_path, manifest_path = build_pack(
+                root, Path("content-packs/quran-core/1.0.2")
+            )
+            source, artifact, _ = load_production_source(root)
+            expected_notice = extract_tanzil_notice(artifact)
+            provenance = json.loads((root / source["provenance"]).read_text(encoding="utf-8"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            notice_path = root / manifest["notice_path"]
+            with sqlite3.connect(db_path) as connection:
+                metadata = dict(connection.execute("SELECT key, value FROM pack_metadata"))
+
+            self.assertEqual(manifest["content_version"], "1.0.2")
+            self.assertEqual(notice_path.read_text(encoding="utf-8"), expected_notice)
+            self.assertEqual(metadata["source_notice"], expected_notice)
+            self.assertEqual(metadata["source_attribution"], provenance["attribution"])
+            self.assertEqual(metadata["source_url"], source["original_url"])
+            notice_hash = hashlib.sha256(expected_notice.encode("utf-8")).hexdigest()
+            self.assertEqual(manifest["notice_sha256"], notice_hash)
+            self.assertEqual(manifest["source_notice_sha256"], notice_hash)
+
     def test_direct_builder_cli_can_import_repo_tools(self):
         completed = subprocess.run(
             [sys.executable, str(ROOT / "tools" / "build_quran_core.py"), "--help"],
@@ -88,16 +123,19 @@ class QuranCoreTests(unittest.TestCase):
             self._copy_fixture_root(root_a)
             self._copy_fixture_root(root_b)
 
-            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.0.1"))
-            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.0.1"))
+            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.0.2"))
+            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.0.2"))
 
             self.assertEqual(sha256_file(db_a), sha256_file(db_b))
             manifest = json.loads(manifest_a.read_text(encoding="utf-8"))
             notice = root_a / manifest["notice_path"]
             self.assertTrue(notice.is_file())
             self.assertEqual(sha256_file(notice), manifest["notice_sha256"])
-            self.assertIn("Tanzil Quran Text", notice.read_text(encoding="utf-8"))
-            self.assertIn("Copyright (C) 2007-2021 Tanzil Project", notice.read_text(encoding="utf-8"))
+            _, source_artifact, _ = load_production_source(root_a)
+            self.assertEqual(
+                notice.read_text(encoding="utf-8"),
+                extract_tanzil_notice(source_artifact),
+            )
 
 
 if __name__ == "__main__":
