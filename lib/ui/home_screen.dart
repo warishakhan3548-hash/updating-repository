@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../state/autopilot_supervisor.dart';
 import '../state/pharmacy_controller.dart';
 import '../domain/home_projection.dart';
+import '../domain/stock_guidance.dart';
 import '../domain/inventory.dart';
 import '../domain/medicine.dart';
 import 'design.dart';
@@ -14,10 +16,12 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.controller,
-    required this.onDatabase,
+    required this.autopilot,
+    required this.onOpenWorkQueue,
   });
   final PharmacyController controller;
-  final VoidCallback onDatabase;
+  final AarisAutopilotSupervisor autopilot;
+  final VoidCallback onOpenWorkQueue;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -31,7 +35,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _routeOpening = false;
 
   PharmacyController get controller => widget.controller;
-  VoidCallback get onDatabase => widget.onDatabase;
 
   Future<void> _runExclusiveRoute(Future<void> Function() action) async {
     if (_routeOpening || !mounted) return;
@@ -164,7 +167,6 @@ class _HomeScreenState extends State<HomeScreen> {
               today: controller.today,
             )
           : controller.homeProjection;
-      final attention = projection.attention;
       final visibleShortDays = visibleSettings.shortDays;
       final visibleMonths = visibleSettings.months;
       return ListView(
@@ -348,14 +350,47 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
+          _TodayWorkPreview(
+            autopilot: widget.autopilot,
+            onOpenWorkQueue: widget.onOpenWorkQueue,
+            emptyInventory: projection.isEmpty,
+            onAddMedicine: _edit,
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class _TodayWorkPreview extends StatelessWidget {
+  const _TodayWorkPreview({
+    required this.autopilot,
+    required this.onOpenWorkQueue,
+    required this.emptyInventory,
+    required this.onAddMedicine,
+  });
+
+  final AarisAutopilotSupervisor autopilot;
+  final VoidCallback onOpenWorkQueue;
+  final bool emptyInventory;
+  final VoidCallback onAddMedicine;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<AarisAutopilotWorkQueue>(
+    valueListenable: autopilot.workQueue,
+    builder: (context, queue, _) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           SectionHeading(
-            'Attention first',
-            action: TextButton(
-              onPressed: onDatabase,
-              child: const Text('View all →'),
+            'आज के काम',
+            action: TextButton.icon(
+              onPressed: onOpenWorkQueue,
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+              label: const Text('सभी देखें'),
             ),
           ),
-          if (projection.isEmpty)
+          if (emptyInventory)
             EmptyState(
               title: 'Start with your first medicine',
               message:
@@ -363,43 +398,180 @@ class _HomeScreenState extends State<HomeScreen> {
               action: RaisedActionButton(
                 icon: Icons.add_rounded,
                 label: 'Add medicine',
-                onPressed: _edit,
+                onPressed: onAddMedicine,
               ),
             )
-          else if (attention.isEmpty)
-            const Surface(
+          else if (!identical(autopilot.currentWorkQueue, queue))
+            Surface(
               child: Row(
                 children: [
-                  Icon(Icons.check_circle_outline, color: green),
-                  SizedBox(width: 12),
+                  if (queue.status == AarisAutopilotWorkQueueStatus.degraded)
+                    const Icon(Icons.sync_problem_rounded, color: amber)
+                  else
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2.4),
+                    ),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: Text('No stock needs an expiry review today.'),
+                    child: Text(
+                      queue.status == AarisAutopilotWorkQueueStatus.degraded
+                          ? 'काम की सूची अभी तैयार नहीं हो सकी। खोलकर दोबारा जाँचें।'
+                          : 'आज के काम अपडेट हो रहे हैं…',
+                    ),
                   ),
                 ],
               ),
             )
           else
-            ...attention.map(
-              (m) => MedicineCard(
-                record: m,
-                settings: visibleSettings,
-                today: controller.today,
-                onTap: () {
-                  // A cached Home projection may intentionally retain its row
-                  // object across quantity/price-only writes. Resolve the exact
-                  // live stock ID at interaction time so the editor never opens
-                  // a stale revision merely because Home avoided a repaint.
-                  final live = controller.snapshot.records[m.id];
-                  if (live != null) {
-                    _edit(live);
-                  }
-                },
-              ),
+            _ReadyTodayWork(
+              tasks: queue.tasks,
+              onOpenWorkQueue: onOpenWorkQueue,
             ),
         ],
       );
     },
   );
+}
+
+class _ReadyTodayWork extends StatelessWidget {
+  const _ReadyTodayWork({
+    required this.tasks,
+    required this.onOpenWorkQueue,
+  });
+
+  final List<StockGuidance> tasks;
+  final VoidCallback onOpenWorkQueue;
+
+  @override
+  Widget build(BuildContext context) {
+    final operational = tasks
+        .where((task) => task.group != StockTaskGroup.movement)
+        .toList(growable: false);
+    final advisory = tasks
+        .where((task) => task.group == StockTaskGroup.movement)
+        .toList(growable: false);
+    final source = operational.isNotEmpty ? operational : advisory;
+    final preview = source.take(3).toList(growable: false);
+
+    if (source.isEmpty) {
+      return const Surface(
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_outline_rounded, color: green),
+            SizedBox(width: 12),
+            Expanded(child: Text('अभी कोई जरूरी काम नहीं है।')),
+          ],
+        ),
+      );
+    }
+
+    final summary = operational.isNotEmpty
+        ? advisory.isEmpty
+              ? '${operational.length} काम · प्राथमिकता के क्रम में'
+              : '${operational.length} काम · ${advisory.length} सुझाव'
+        : '${advisory.length} सुझाव · अभी कोई जरूरी correction नहीं';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            summary,
+            style: const TextStyle(color: muted, fontSize: 12),
+          ),
+        ),
+        for (final task in preview)
+          _HomeWorkRow(task: task, onTap: onOpenWorkQueue),
+        if (source.length > preview.length)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '+${source.length - preview.length} और · सभी काम देखने के लिए ऊपर टैप करें',
+              style: const TextStyle(color: muted, fontSize: 11),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _HomeWorkRow extends StatelessWidget {
+  const _HomeWorkRow({required this.task, required this.onTap});
+
+  final StockGuidance task;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = task.critical
+        ? red
+        : task.blocked
+        ? amber
+        : task.group == StockTaskGroup.movement
+        ? accent
+        : primary;
+    final icon = switch (task.group) {
+      StockTaskGroup.urgent => Icons.timer_outlined,
+      StockTaskGroup.order => Icons.add_shopping_cart_rounded,
+      StockTaskGroup.supplier => Icons.assignment_return_outlined,
+      StockTaskGroup.details => Icons.edit_note_rounded,
+      StockTaskGroup.movement => Icons.insights_outlined,
+    };
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: color.withValues(alpha: .12)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 22),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      task.action,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      task.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: ink,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right_rounded, color: color, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _OverviewTile extends StatelessWidget {

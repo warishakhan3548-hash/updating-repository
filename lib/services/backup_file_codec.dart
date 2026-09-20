@@ -9,8 +9,9 @@ import '../domain/medicine.dart';
 import '../domain/supplier.dart';
 import '../domain/tracking.dart';
 
-const pharmacyPortableBackupSchema = 'aaris.pharmacy.portable.v4';
-const previousPortableBackupSchema = 'aaris.pharmacy.portable.v3';
+const pharmacyPortableBackupSchema = 'aaris.pharmacy.portable.v5';
+const previousPortableBackupSchema = 'aaris.pharmacy.portable.v4';
+const olderPortableBackupSchema = 'aaris.pharmacy.portable.v3';
 const portableBackupIntegrityPrefix = 'sha256-chain:';
 const maxPortableBackupBytes = 1024 * 1024 * 1024;
 const maxPortableBackupLineBytes = 8 * 1024 * 1024;
@@ -29,7 +30,8 @@ class PortableBackupCodec {
       return decoded is Map &&
           decoded['type'] == 'header' &&
           (decoded['schema'] == pharmacyPortableBackupSchema ||
-              decoded['schema'] == previousPortableBackupSchema);
+              decoded['schema'] == previousPortableBackupSchema ||
+              decoded['schema'] == olderPortableBackupSchema);
     } catch (_) {
       return false;
     }
@@ -207,11 +209,15 @@ class PortableBackupCodec {
         portableSchema = row['schema'] is String ? row['schema'] as String : null;
         if (type != 'header' ||
             (portableSchema != pharmacyPortableBackupSchema &&
-                portableSchema != previousPortableBackupSchema)) {
+                portableSchema != previousPortableBackupSchema &&
+                portableSchema != olderPortableBackupSchema)) {
           throw const FormatException(
             'This is not a supported Aaris Pharmacy portable backup.',
           );
         }
+        final hasSuppliers =
+            portableSchema == pharmacyPortableBackupSchema ||
+            portableSchema == previousPortableBackupSchema;
         final allowed = <String>{
           'type',
           'schema',
@@ -221,7 +227,7 @@ class PortableBackupCodec {
           'soldValue',
           'unknownSold',
           'medicineCount',
-          if (portableSchema == pharmacyPortableBackupSchema) 'supplierCount',
+          if (hasSuppliers) 'supplierCount',
           'saleCount',
         };
         if (row.keys.any((key) => !allowed.contains(key))) {
@@ -234,9 +240,7 @@ class PortableBackupCodec {
         final soldValueRaw = row['soldValue'];
         final unknownSoldRaw = row['unknownSold'];
         final medicineCountRaw = row['medicineCount'];
-        final supplierCountRaw = portableSchema == pharmacyPortableBackupSchema
-            ? row['supplierCount']
-            : 0;
+        final supplierCountRaw = hasSuppliers ? row['supplierCount'] : 0;
         final saleCountRaw = row['saleCount'];
         sourceRevision = revisionRaw is int ? revisionRaw : null;
         soldValue = soldValueRaw is int ? soldValueRaw : null;
@@ -283,11 +287,14 @@ class PortableBackupCodec {
       }
 
       if (type == 'end') {
+        final hasSuppliers =
+            portableSchema == pharmacyPortableBackupSchema ||
+            portableSchema == previousPortableBackupSchema;
         final allowed = <String>{
           'type',
           'integrity',
           'medicineCount',
-          if (portableSchema == pharmacyPortableBackupSchema) 'supplierCount',
+          if (hasSuppliers) 'supplierCount',
           'saleCount',
         };
         if (row.keys.any((key) => !allowed.contains(key))) {
@@ -295,9 +302,7 @@ class PortableBackupCodec {
         }
         final integrity = row['integrity'];
         final footerMedicines = row['medicineCount'];
-        final footerSuppliers = portableSchema == pharmacyPortableBackupSchema
-            ? row['supplierCount']
-            : 0;
+        final footerSuppliers = hasSuppliers ? row['supplierCount'] : 0;
         final footerSales = row['saleCount'];
         final expectedIntegrity =
             '$portableBackupIntegrityPrefix${_hex(chain!)}';
@@ -324,7 +329,8 @@ class PortableBackupCodec {
 
       chain = _advanceDigest(chain!, lineBytes);
       if (type == 'supplier') {
-        if (portableSchema != pharmacyPortableBackupSchema) {
+        if (portableSchema != pharmacyPortableBackupSchema &&
+            portableSchema != previousPortableBackupSchema) {
           throw const FormatException(
             'Legacy portable backups cannot contain supplier rows.',
           );

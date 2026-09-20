@@ -509,7 +509,12 @@ Map<String, dynamic> _evaluateAutopilot(Map<String, dynamic> payload) {
     }
   }
 
-  final nextTask = tasks.firstOrNull;
+  // Movement rows are useful advisory context, but they are not attention
+  // issues and must not become a contradictory "next task" while health is
+  // clear. Keep them in the queue, not in the operational digest.
+  final nextTask = tasks
+      .where((task) => task.group != StockTaskGroup.movement)
+      .firstOrNull;
   final next = nextTask?.step;
   return <String, dynamic>{
     'health': visibleIssues == 0

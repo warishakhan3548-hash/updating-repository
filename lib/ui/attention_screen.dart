@@ -284,6 +284,10 @@ class _AttentionScreenState extends State<AttentionScreen> {
                 }
 
                 final tasks = queue.tasks;
+                final operationalCount = tasks
+                    .where((task) => task.group != StockTaskGroup.movement)
+                    .length;
+                final advisoryCount = tasks.length - operationalCount;
                 final visible = _filter == 0
                     ? tasks
                     : tasks
@@ -311,7 +315,11 @@ class _AttentionScreenState extends State<AttentionScreen> {
                             Text(
                               tasks.isEmpty
                                   ? 'अभी सब ठीक है'
-                                  : '${tasks.length} छोटे काम · दवा पर टैप करें',
+                                  : operationalCount == 0
+                                  ? '$advisoryCount सुझाव · अभी कोई जरूरी काम नहीं'
+                                  : advisoryCount == 0
+                                  ? '$operationalCount काम · प्राथमिकता के क्रम में'
+                                  : '$operationalCount काम · $advisoryCount सुझाव',
                               style: const TextStyle(
                                 color: muted,
                                 fontSize: 13,

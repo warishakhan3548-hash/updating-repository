@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'domain/app_brain.dart';
@@ -5,7 +7,6 @@ import 'domain/inventory.dart';
 import 'state/autopilot_supervisor.dart';
 import 'state/pharmacy_controller.dart';
 import 'ui/attention_screen.dart';
-import 'ui/autopilot_beacon.dart';
 import 'ui/brain_screen.dart';
 import 'ui/design.dart';
 import 'ui/home_screen.dart';
@@ -177,7 +178,8 @@ class _ShellState extends State<_Shell> {
       () => switch (tab) {
         0 => HomeScreen(
           controller: c,
-          onDatabase: () => _selectTab(1),
+          autopilot: widget.autopilot,
+          onOpenWorkQueue: () => unawaited(_openAutopilotQueue()),
         ),
         1 => SearchScreen(
           controller: c,
@@ -216,11 +218,6 @@ class _ShellState extends State<_Shell> {
                 ),
               ),
             ),
-            if (tab == 0)
-              AarisAutopilotBeacon(
-                supervisor: widget.autopilot,
-                onOpenWorkQueue: _openAutopilotQueue,
-              ),
           ],
         ),
       ),

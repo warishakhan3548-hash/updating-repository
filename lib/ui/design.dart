@@ -776,7 +776,11 @@ ThemeData pharmacyTheme() => ThemeData(
       foregroundColor: primary,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      textStyle: const TextStyle(fontWeight: FontWeight.w800),
+      textStyle: const TextStyle(
+        fontFamily: 'Manrope',
+        fontFamilyFallback: ['NotoSansDevanagari'],
+        fontWeight: FontWeight.w800,
+      ),
     ),
   ),
   iconButtonTheme: IconButtonThemeData(
