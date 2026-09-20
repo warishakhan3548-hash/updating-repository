@@ -24,6 +24,24 @@
       "provenance_sha256": "733a938c4f54f082bf7f4e0b1d9bff7ce21afedceeba199294e872a428a57505"
     },
     {
+      "source_id": "quran-gloss.quranenc.arabic-seraj.v1.0.0",
+      "category": "quran-gloss",
+      "source_name": "QuranEnc Arabic Language - Meanings of Words (As-Siraj fi Bayan Gharib Al-Quran)",
+      "original_url": "https://quranenc.com/en/browse/arabic_seraj",
+      "version": "1.0.0",
+      "status": "awaiting-artifact",
+      "licence_id": "quranenc-republication-terms",
+      "redistribution_allowed": true,
+      "modification_allowed": false,
+      "attribution_required": true,
+      "vault_artifact": null,
+      "licence_snapshot": null,
+      "provenance": null,
+      "sha256": null,
+      "byte_size": null,
+      "notes": "Official QuranEnc lists this verse-scoped Arabic difficult-word resource as v1.0.0 and its API/republishing policy is version-aware. The content is a promising low-friction contextual-gloss source, not a morphology or Quran-text authority. No production bytes are consumed until an exact versioned upstream response/file set plus the applicable terms are preserved under project control with hashes and provenance."
+    },
+    {
       "source_id": "morphology.qac.v0.4",
       "category": "morphology",
       "source_name": "Quranic Arabic Corpus",
@@ -64,7 +82,7 @@
       "category": "hadith",
       "source_name": "HadeethEnc",
       "original_url": "https://hadeethenc.com/en",
-      "version": "current-unpinned",
+      "version": "1.7.0-observed-2026-09-20",
       "status": "research-candidate",
       "licence_id": "custom-republication-terms",
       "redistribution_allowed": true,
@@ -75,7 +93,7 @@
       "provenance": null,
       "sha256": null,
       "byte_size": null,
-      "notes": "Do not promote until exact version, collection/edition/numbering provenance and artifact are verified."
+      "notes": "Official HadeethEnc version-check endpoint reports Arabic translation v1.7.0 and the download surface exposes Arabic Excel/PDF under republication terms. Keep research-only until the exact v1.7.0 artifact, edition/collection/numbering provenance, licence snapshot, checksums and project-controlled mirror are preserved and reviewed."
     },
     {
       "source_id": "quran.quran-foundation.api",

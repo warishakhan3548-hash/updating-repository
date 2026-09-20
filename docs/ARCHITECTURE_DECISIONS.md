@@ -68,3 +68,11 @@ Production release private keys remain outside the repository and CI. The projec
 Signing authority is separated from content review: the signer refuses manifests that are not already `approved`, requires the key to be active and authorized for the signed release-sequence window, refuses duplicate signatures by the same key, and creates a new output file instead of overwriting an input.
 
 Threshold signing is additive because the top-level signature block is intentionally excluded from the signed payload. This keeps the release ceremony reproducible and library-replaceable without making private-key generation, key custody, review approval, or repository mutation a hidden side effect of the signing tool.
+
+## ADR-017 — Verse-scoped verified glosses may precede full morphology
+
+The product may add a separate optional contextual-gloss pack before a complete morphology pack exists, but only when its exact source snapshot has passed the Source Vault gate. A source-provided verse phrase and contextual gloss remain an attributed assertion bound to `QuranCoordinate`; they do not manufacture `TokenID`, `LexemeID`, `SenseID`, root, lemma, or grammar.
+
+Reader tap resolution at this boundary is conservative: bind a gloss only when the preserved source phrase can be located deterministically and unambiguously against the source-faithful ayah. Fuzzy matching may help research/search, but it must not silently promote a fuzzy phrase alignment into Evidence Plane truth. If the mapping is absent or ambiguous, the UI abstains.
+
+This lets difficult-word comprehension improve independently of morphology licensing while preserving the long-term lexical model. When verified morphology later exists, an explicit mapping overlay may connect the unchanged gloss assertion to canonical lexical entities.

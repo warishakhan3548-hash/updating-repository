@@ -75,6 +75,45 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertIn("6,236", source["notes"])
 
 
+    def test_quranenc_gloss_candidate_remains_outside_production(self):
+        registry = json.loads(
+            (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
+        )
+        by_id = {item["source_id"]: item for item in registry["sources"]}
+        source = by_id["quran-gloss.quranenc.arabic-seraj.v1.0.0"]
+
+        self.assertEqual("1.0.0", source["version"])
+        self.assertEqual("awaiting-artifact", source["status"])
+        self.assertTrue(source["redistribution_allowed"])
+        self.assertFalse(source["modification_allowed"])
+        self.assertTrue(source["attribution_required"])
+        self.assertIsNone(source["vault_artifact"])
+        self.assertIsNone(source["licence_snapshot"])
+        self.assertIsNone(source["provenance"])
+        self.assertIsNone(source["sha256"])
+        self.assertIsNone(source["byte_size"])
+
+        for manifest_path in (ROOT / "content-packs").glob("**/manifest.json"):
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertNotEqual(
+                source["source_id"],
+                manifest.get("source_id"),
+                f"{manifest_path} must not consume unpreserved QuranEnc glosses",
+            )
+
+    def test_hadeethenc_observed_version_is_not_promoted(self):
+        registry = json.loads(
+            (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
+        )
+        by_id = {item["source_id"]: item for item in registry["sources"]}
+        source = by_id["hadith.hadeethenc.ar.current"]
+
+        self.assertEqual("1.7.0-observed-2026-09-20", source["version"])
+        self.assertEqual("research-candidate", source["status"])
+        self.assertIsNone(source["vault_artifact"])
+        self.assertIsNone(source["sha256"])
+
+
     def test_manifest_spec_tracks_signature_domain(self):
         spec = (ROOT / "docs" / "PACK_MANIFEST_SPEC.md").read_text(encoding="utf-8")
         signing = (ROOT / "docs" / "CONTENT_SIGNING.md").read_text(encoding="utf-8")
