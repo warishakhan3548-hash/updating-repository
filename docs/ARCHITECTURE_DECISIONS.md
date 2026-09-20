@@ -114,3 +114,11 @@ This keeps source truth and search convenience separate while improving recall f
 Redistribution permission does not imply permission to ship content in a commercial build. The Source Vault registry records `commercial_use_allowed` separately from redistribution, modification and attribution requirements. A source may remain useful for research with a false or unknown commercial-use value, but it cannot be `production-approved` or feed a runtime pack unless commercial use is explicitly verified as allowed.
 
 The gate is deliberately enforced twice: Source Vault validation blocks an invalid production classification, and the runtime pack gate independently rejects a production source whose commercial-use permission is not true. Historical provenance files and runtime packs are not rewritten merely to backfill this new review dimension; the immutable archived licence snapshot remains the legal evidence, while the current registry records the reviewed release decision.
+
+## ADR-023 — Unresolved archival rights block capture, not only release
+
+A source whose republication terms require downstream copies to stay current may still be legally ambiguous for an immutable public Source Vault. When `historical_snapshot_retention_status` is `unresolved`, the source registry must use `awaiting-licence`; it may not be softened to `research-candidate` or `awaiting-artifact` merely because current-version republication is otherwise allowed.
+
+`awaiting-licence` is also a **no-bytes** state in project-controlled public storage. The central Source Vault gate rejects any preserved snapshot metadata under that status. This makes the legal boundary independent of source-specific download scripts and prevents a future acquisition path from accidentally publishing bytes before archival rights are established.
+
+Once archival retention is explicitly `verified-allowed`, the source may advance to artifact acquisition/review. Any separate ongoing obligation to ship only the latest upstream version remains enforced later by the signed source-release review. Commercial-use permission remains a separate gate under ADR-022. Current-version permission, historical archival permission, commercial-use permission, evidence quality and release freshness are therefore distinct decisions.
