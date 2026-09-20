@@ -22,11 +22,12 @@ Canonicalization is deliberately narrow:
 
 - UTF-8;
 - no Unicode normalization;
-- object keys sorted deterministically;
-- array order preserved;
-- integers only within the cross-runtime safe integer range;
-- floats forbidden;
-- JSON strings encoded deterministically.
+- every JSON object key must be ASCII and duplicate object keys are rejected;
+- object keys are sorted lexicographically;
+- array order is preserved;
+- integers must fit the cross-runtime safe integer range;
+- floats are forbidden;
+- JSON string values are UTF-8 encoded deterministically and are not Unicode-normalized.
 
 This is a project-owned restricted format, not a claim of full RFC 8785/JCS conformance. The restriction keeps the payload simple enough to implement identically on Android later.
 
@@ -54,7 +55,7 @@ An approved manifest uses this shape conceptually:
 
 `release_sequence` is inside the signed payload. It is the rollback-ordering primitive for future device activation. A device must persist the highest accepted sequence and reject lower sequences except through an explicit recovery procedure.
 
-The repository build gate validates that the sequence is a positive integer. Persistent device-side anti-rollback state is not implemented yet.
+The repository build gate validates that the sequence is a positive cross-runtime-safe integer. Persistent device-side anti-rollback state is not implemented yet.
 
 ## Trusted public keys
 
@@ -97,6 +98,8 @@ Compromise response:
 4. require clients to reject the compromised key and older sequence.
 
 Changing trusted keys is a security-sensitive code review event.
+
+This is intentionally a narrow release-authentication layer, not a claim of full TUF implementation. If downloadable updates are introduced later, TUF-style root/targets/snapshot/timestamp metadata, expiry and delegated roles can be layered above this contract without changing Quran/Hadith Evidence Plane identities.
 
 ## Current state
 
