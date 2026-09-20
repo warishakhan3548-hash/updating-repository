@@ -17,8 +17,8 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - 114-surah / 6,236-ayah coordinate invariants;
 - display Arabic separated from derived search-normalized lanes;
 - deterministic Quran-core importer with byte-reproducibility coverage;
-- complete candidate Quran core pack published at `content-packs/quran-core/1.0.4/`, using provenance-bound manifest schema v2;
-- schema-v2 Quran promotion independently verifies Source Vault semantic fidelity: canonical SQLite schema, source assertions/metadata, all 6,236 display rows, recomputed search lanes, and absence of undeclared morphology/Hadith evidence;
+- complete canonical-bound Quran core candidate published at `content-packs/quran-core/1.1.0/`, using provenance-bound manifest schema v3;
+- schema-v2/v3 Quran promotion independently verifies Source Vault semantic fidelity: canonical SQLite schema, source assertions/metadata, all 6,236 display rows, recomputed search lanes, and absence of undeclared morphology/Hadith evidence;
 - read-only Reader Core with stable `QuranCoordinate` navigation, production pack-approval guard, source-faithful `original_text` projection, and ephemeral UI tap anchors that never become canonical TokenIDs;
 - minimal offline Android reader with RTL/source-faithful Arabic rendering and debug-only candidate-pack loading;
 - canonical Quran v3 builder/validator that inserts deterministic JSONL between Source Vault and runtime SQLite and rejects re-hashed canonical text drift;
@@ -41,29 +41,32 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 - Quranic Arabic Corpus v0.4: `awaiting-licence` because official materials create a commercial-use/terms ambiguity.
 - HadeethEnc: research candidate pending exact version, edition/collection mapping, numbering provenance and preserved artifact.
-- QUL resources: each resource requires its own licence/provenance review.
+- QUL resources: current official morphology downloads expose word-location keyed lemma/root/stem data, but the QUL FAQ explicitly requires checking dataset-specific licensing for commercial use and the inspected morphology pages do not expose a dataset licence; no bytes are mirrored.
 - Quran Foundation API: not accepted as the permanent mirrored evidence foundation under current developer terms.
 
 ## Quran core candidate pack
 
 - pack: `quran-core`
-- content version: `1.0.4`
-- manifest schema: `2`
-- artifact: `content-packs/quran-core/1.0.4/content.sqlite`
+- content version: `1.1.0`
+- manifest schema: `3`
+- artifact: `content-packs/quran-core/1.1.0/content.sqlite`
 - artifact bytes: `4599808`
-- artifact SHA-256: `492fcc4caa33b5ba64c94abce4d5f78d00232a99b777ea5e3bd70c338e19fa09`
+- artifact SHA-256: `c4c5d9e4819a11b06c24fda045bf583bd541d6e9285cd68a298e6f7c776acb61`
 - records: `6236`
-- importer: `quran-core-importer-5`
+- importer: `quran-core-importer-6`
 - search normalization: `arabic-search-v1`
 - review status: `candidate`
 - signature status: unsigned
-- source-derived attribution notice: `content-packs/quran-core/1.0.4/NOTICE.txt`
+- canonical artifact: `canonical/quran-core/1.0.0/ayahs.jsonl`
+- canonical SHA-256: `ae0682ac00e85009dec44293a6436ac04c6834d2de38b6ab0f4afc9843278e04`
+- canonical manifest SHA-256: `3aa49f92faca8e010df128b451f76ff1bd27b6bb7333942b2a105586e6f580af`
+- source-derived attribution notice: `content-packs/quran-core/1.1.0/NOTICE.txt`
 - notice SHA-256: `d52680db446c36e9f7878c704e1db6eee16328f854671276fc63533fb73f3483`
 - source licence SHA-256: `1ef7fbb0454f64ed4cceb838337808969711155f36147d1b357fc083336f4c68`
 - source provenance SHA-256: `733a938c4f54f082bf7f4e0b1d9bff7ce21afedceeba199294e872a428a57505`
-- supersedes: `quran-core@1.0.3`
+- supersedes: `quran-core@1.0.4`
 
-Candidate does not mean release-approved. Version 1.0.4 strengthens the runtime trust boundary without changing Quran source text: the manifest is bound to Source Vault attribution/licence/provenance metadata, and the gate cross-checks the same identity plus exact notice text/hash inside SQLite `pack_metadata`.
+Candidate does not mean release-approved. Version 1.1.0 adds the source-faithful canonical JSONL semantic anchor while preserving the same Tanzil evidence bytes. The production trust root remains `bootstrap-required`, so no current pack is approved.
 
 ## Validation status
 
@@ -87,6 +90,7 @@ No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device te
 One-shot acquisition/backfill workflows are removed after successful promotion of their outputs; provenance and Git history retain the audit trail.
 
 
-### Canonical v3 integration status
+### Canonical v3 current state
 
-The integration branch introduces manifest schema v3 and a deterministic `canonical/quran-core/1.0.0/ayahs.jsonl` build step. It preserves schema-v2 verification for the current published 1.0.4 candidate. The intended next generated runtime candidate is `quran-core 1.1.0`; this document does not claim that artifact is published until the protected main workflow actually builds, validates, commits, and pushes it.
+Canonical schema v3 is now on `main`. The protected publisher created `quran-core 1.1.0` and its canonical JSONL artifact, so this is no longer an integration-branch-only plan. Future word-level packs remain blocked until a legally preservable morphology source passes the Source Vault gate.
+
