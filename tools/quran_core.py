@@ -10,6 +10,11 @@ import unicodedata
 
 SOURCE_ID = "quran.tanzil.uthmani.v1.1"
 SEARCH_NORMALIZATION_VERSION = "arabic-search-v1"
+REQUIRED_SOURCE_NOTICE_MARKERS = (
+    "Tanzil Quran Text (Uthmani, Version 1.1)",
+    "Creative Commons Attribution 3.0",
+    "CHANGING IT IS NOT ALLOWED",
+)
 
 EXPECTED_AYAH_COUNTS = (
     7, 286, 200, 176, 120, 165, 206, 75, 129, 109, 123, 111, 43, 52,
@@ -89,14 +94,21 @@ def normalize_search_diacritic_free(text: str) -> str:
     return " ".join(stripped.split())
 
 
+def extract_source_notice(path: Path) -> str:
+    """Extract preserved comment notice text without rewriting source wording."""
+    raw = path.read_text(encoding="utf-8")
+    notice = "\n".join(
+        line for line in raw.splitlines() if line.startswith("#")
+    ).strip() + "\n"
+    for marker in REQUIRED_SOURCE_NOTICE_MARKERS:
+        if marker not in notice:
+            raise QuranSourceError(f"source notice missing required marker: {marker}")
+    return notice
+
+
 def load_tanzil_txt2(path: Path) -> list[AyahRow]:
     raw = path.read_text(encoding="utf-8")
-    required_notice = (
-        "Tanzil Quran Text (Uthmani, Version 1.1)",
-        "Creative Commons Attribution 3.0",
-        "CHANGING IT IS NOT ALLOWED",
-    )
-    for marker in required_notice:
+    for marker in REQUIRED_SOURCE_NOTICE_MARKERS:
         if marker not in raw:
             raise QuranSourceError(f"source artifact missing required marker: {marker}")
 
