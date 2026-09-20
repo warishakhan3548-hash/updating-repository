@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:aaris_pharmacy/data/inventory_database.dart';
 import 'package:aaris_pharmacy/domain/automation_guard.dart';
 import 'package:aaris_pharmacy/domain/medicine.dart';
@@ -29,6 +31,32 @@ Medicine _lot(
 InventorySnapshot _snapshot(Medicine a, Medicine b) => InventorySnapshot(
   records: {a.id: a, b.id: b},
 );
+
+class _NoFullScanMap extends MapBase<String, Medicine> {
+  _NoFullScanMap(this._delegate);
+
+  final Map<String, Medicine> _delegate;
+
+  @override
+  Medicine? operator [](Object? key) => _delegate[key];
+
+  @override
+  void operator []=(String key, Medicine value) =>
+      throw UnsupportedError('read only');
+
+  @override
+  void clear() => throw UnsupportedError('read only');
+
+  @override
+  Iterable<String> get keys => _delegate.keys;
+
+  @override
+  Iterable<Medicine> get values =>
+      throw StateError('unexpected full inventory scan');
+
+  @override
+  Medicine? remove(Object? key) => throw UnsupportedError('read only');
+}
 
 void main() {
   final today = DateTime(2026, 9, 10);
