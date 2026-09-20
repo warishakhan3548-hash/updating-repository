@@ -16,7 +16,7 @@ Phase 0A–0C is operational and Phase 1 has a minimal offline Android reader on
 
 **Not production-approved yet:** QuranEnc Arabic difficult-word glosses (currently `awaiting-licence` because its “stay current” republication condition is not yet proven compatible with immutable historical public mirrors), Quranic Arabic Corpus/QuranMorph/QUL morphology, Hadith datasets and other optional content. See `source-vault/registry.json`.
 
-The reader is intentionally narrow: source-faithful Arabic, local navigation, strict local ayah search and safe UI-only tap anchors. A measured strict-miss fallback handles a small fixed set of Arabic orthographic and South-Asian keyboard variants and labels those hits as approximate; source text is never normalized for display. Quran search has a versioned executable golden benchmark, so broader fuzzy/retrieval lanes must demonstrate measured gains before promotion. Morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+The reader is intentionally narrow: source-faithful Arabic, local navigation and strict local ayah search. It does not expose a word-tap action until a provenance-backed word/gloss pack can actually answer that tap. A measured strict-miss fallback handles a small fixed set of Arabic orthographic and South-Asian keyboard variants and labels those hits as approximate; source text is never normalized for display. Quran search has a versioned executable golden benchmark, so broader fuzzy/retrieval lanes must demonstrate measured gains before promotion. Morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
 
 ## Architecture boundaries
 
@@ -37,7 +37,7 @@ The reader is intentionally narrow: source-faithful Arabic, local navigation, st
 
 The Android debug reader bundles this 1.1.0 candidate directly. Release builds remain blocked because the current trust root is still `bootstrap-required` and the pack is not approved/signed. No private release key is stored in GitHub.
 
-The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. Word-level linguistic identities wait for a legally preserved, production-approved source.
+The ayah-only core intentionally does not manufacture canonical token/morphology identities by whitespace splitting. A low-level ephemeral span helper remains isolated in Reader Core for future alignment experiments, but the Android UI does not present those spans as tappable words. Word-level linguistic identities and visible word help wait for a legally preserved, production-approved source.
 
 ## Validation
 

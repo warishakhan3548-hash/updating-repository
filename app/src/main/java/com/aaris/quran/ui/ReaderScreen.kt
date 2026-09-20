@@ -1,6 +1,5 @@
 package com.aaris.quran.ui
 
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +19,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,16 +29,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -316,25 +307,6 @@ private fun SurahChooserDialog(
 
 @Composable
 private fun AyahRow(ayah: QuranAyah) {
-    var layoutResult by remember(ayah.ayahId) { mutableStateOf<TextLayoutResult?>(null) }
-    var selectedAnchor by remember(ayah.ayahId) { mutableStateOf<SurfaceTapAnchor?>(null) }
-
-    val displayText: AnnotatedString = remember(ayah.originalText, selectedAnchor) {
-        buildAnnotatedString {
-            append(ayah.originalText)
-            selectedAnchor?.let { anchor ->
-                addStyle(
-                    SpanStyle(
-                        fontWeight = FontWeight.SemiBold,
-                        textDecoration = TextDecoration.Underline,
-                    ),
-                    anchor.start,
-                    anchor.end,
-                )
-            }
-        }
-    }
-
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
@@ -344,42 +316,18 @@ private fun AyahRow(ayah: QuranAyah) {
             style = MaterialTheme.typography.labelMedium,
         )
         Text(
-            text = displayText,
+            text = ayah.originalText,
             style = MaterialTheme.typography.bodyLarge.copy(
                 fontSize = 32.sp,
                 lineHeight = 54.sp,
                 textDirection = TextDirection.ContentOrRtl,
             ),
-            onTextLayout = { layoutResult = it },
             modifier = Modifier
                 .fillMaxWidth()
                 .semantics {
                     contentDescription =
                         "Surah ${ayah.surah}, ayah ${ayah.ayah}. ${ayah.originalText}"
-                }
-                .pointerInput(ayah.ayahId, ayah.originalText) {
-                    detectTapGestures { position ->
-                        val offset = layoutResult?.getOffsetForPosition(position)
-                            ?: return@detectTapGestures
-                        selectedAnchor = SurfaceTapAnchorResolver.resolve(
-                            ayah.ayahId,
-                            ayah.originalText,
-                            offset,
-                        )
-                    }
                 },
         )
-
-        selectedAnchor?.let { anchor ->
-            Surface(tonalElevation = 1.dp, shape = MaterialTheme.shapes.small) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(anchor.surface, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Verified word details are not installed yet.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-        }
     }
 }
