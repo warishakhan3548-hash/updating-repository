@@ -8,17 +8,18 @@ MANIFEST = ROOT / "app" / "src" / "main" / "AndroidManifest.xml"
 
 
 class AndroidReaderTrustTests(unittest.TestCase):
-    def test_release_does_not_treat_signature_fields_as_verification(self):
+    def test_release_delegates_to_authoritative_cryptographic_pack_gate(self):
         build = BUILD.read_text(encoding="utf-8")
 
         self.assertNotIn("releaseSignatureReady", build)
         self.assertNotIn("hasManifestString", build)
+        self.assertIn('rootProject.file("tools/pack_gate.py")', build)
         self.assertIn(
-            'buildConfigField("boolean", "QURAN_PACK_RELEASE_READY", "false")',
+            'rootProject.file("policy/trusted_pack_keys.json")',
             build,
         )
         self.assertIn(
-            "trusted-key cryptographic content-pack signature",
+            'tasks.matching { it.name == "preReleaseBuild" }',
             build,
         )
 
