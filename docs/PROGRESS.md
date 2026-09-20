@@ -35,7 +35,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - project-owned offline signer for encrypted out-of-repository PKCS#8 Ed25519 keys, public-key/key-ID inspection, active-role and sequence-window enforcement, additive threshold signatures, cryptographic self-check, and create-only signed-manifest output;
 - trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
 - primary-source audit identified QuranEnc `arabic_seraj` v1.0.0 as a promising verse-scoped difficult-word gloss source and defined a fail-closed gloss bridge that does not fabricate morphology or lexical IDs; source remains `awaiting-artifact`.
-- one-shot `tools/capture_quranenc_gloss.py` acquisition gate now pins QuranEnc `arabic_seraj` v1.0.0, preserves exact pre/post metadata + 114 Surah response byte streams + official terms, validates the complete 6,236-coordinate shape, rejects source drift/off-host redirects/partial capture/overwrite, and emits deterministic review-only snapshot metadata; it is not a normal-build dependency and does not promote the registry.
+- canonical `tools/capture_quranenc_gloss.py` acquisition gate now uses QuranEnc's documented per-Surah API after live testing disproved the translation-list/bulk-CSV assumptions; it pins the official index to `arabic_seraj` v1.0.0, preserves exact 114 Surah responses + official index/source/terms bytes, validates the exact per-Surah coordinate distribution and all 6,236 ayahs, supports network-free revalidation/tamper detection, and remains review-only/non-production.
 
 ## Production Source Vault
 
