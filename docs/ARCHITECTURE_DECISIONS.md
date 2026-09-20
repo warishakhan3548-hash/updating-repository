@@ -76,3 +76,12 @@ The product may add a separate optional contextual-gloss pack before a complete 
 Reader tap resolution at this boundary is conservative: bind a gloss only when the preserved source phrase can be located deterministically and unambiguously against the source-faithful ayah. Fuzzy matching may help research/search, but it must not silently promote a fuzzy phrase alignment into Evidence Plane truth. If the mapping is absent or ambiguous, the UI abstains.
 
 This lets difficult-word comprehension improve independently of morphology licensing while preserving the long-term lexical model. When verified morphology later exists, an explicit mapping overlay may connect the unchanged gloss assertion to canonical lexical entities.
+
+## ADR-018 — Ongoing-update licences do not automatically satisfy immutable archival mirroring
+
+A source may permit republication while still imposing conditions that are incompatible with a public immutable Source Vault. In particular, a requirement to update redistributed content to each newer upstream version does not by itself grant permission to keep older versions publicly redistributed forever for reproducible builds.
+
+For any such source, the registry remains `awaiting-licence` until the project has a documented basis for immutable historical retention (for example, explicit written permission or terms that clearly allow archival redistribution). Acquisition tooling that writes under `source-vault/` must consult that registry state before network download and fail closed while the source is not capture-authorized.
+
+This keeps “we may republish the current version” separate from “we may permanently mirror every historical version,” which are different legal and durability questions.
+
