@@ -190,6 +190,39 @@ class PackSignatureTests(unittest.TestCase):
             ):
                 verify_approved_manifest(manifest, keyring)
 
+    def test_duplicate_keyring_json_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "trusted_pack_keys.json"
+            path.write_text(
+                '{"schema_version":1,"schema_version":1,'
+                '"state":"bootstrap-required","keys":{},'
+                '"roles":{"content-pack-release":{"threshold":1,"key_ids":[]}}}',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                PackSignatureError,
+                "duplicate JSON object key",
+            ):
+                validate_trusted_key_policy(path)
+
+    def test_invalid_unicode_in_signed_payload_is_rejected(self):
+        manifest = self._manifest()
+        manifest["source_name"] = "\ud800"
+        with self.assertRaisesRegex(
+            PackSignatureError,
+            "valid Unicode scalar values",
+        ):
+            canonical_manifest_payload(manifest)
+
+    def test_unsafe_integer_in_signed_payload_is_rejected(self):
+        manifest = self._manifest()
+        manifest["built_byte_size"] = 9_007_199_254_740_992
+        with self.assertRaisesRegex(
+            PackSignatureError,
+            "cross-runtime safe range",
+        ):
+            canonical_manifest_payload(manifest)
+
     def test_float_in_signed_payload_is_rejected(self):
         manifest = self._manifest()
         manifest["score"] = 0.5
