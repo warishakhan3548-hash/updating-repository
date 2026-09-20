@@ -32,6 +32,9 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Install pinned foundation dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-foundation.txt
+
       - name: Build and publish only from a stable main
         shell: bash
         run: |
