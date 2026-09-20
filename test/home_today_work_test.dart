@@ -29,17 +29,12 @@ void main() {
     await controller.initialize();
     final autopilot = AarisAutopilotSupervisor(
       controller,
-      debounce: Duration.zero,
+      startImmediately: false,
     );
     addTearDown(() {
       autopilot.dispose();
       controller.dispose();
     });
-
-    for (var attempt = 0; attempt < 50; attempt++) {
-      if (autopilot.currentWorkQueue != null) break;
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
 
     var opens = 0;
     await tester.pumpWidget(
@@ -58,7 +53,8 @@ void main() {
 
     expect(find.text('आज के काम'), findsOneWidget);
     expect(find.text('Attention first'), findsNothing);
-    expect(find.text('Expiry जोड़ें'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('आज के काम अपडेट हो रहे हैं…'), findsOneWidget);
 
     final all = find.text('सभी देखें');
     await tester.ensureVisible(all);

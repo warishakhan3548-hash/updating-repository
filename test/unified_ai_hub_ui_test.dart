@@ -85,7 +85,9 @@ void main() {
       );
 
       final app = File('lib/app.dart').readAsStringSync();
-      expect(app, contains('if (tab == 0)'));
+      expect(app, contains('autopilot: widget.autopilot'));
+      expect(app, contains('onOpenWorkQueue: () => unawaited(_openAutopilotQueue())'));
+      expect(app, isNot(contains('AarisAutopilotBeacon(')));
       expect(app, isNot(contains('Positioned(')));
 
       final deleteRoute = RegExp(

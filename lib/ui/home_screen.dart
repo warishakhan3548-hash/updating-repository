@@ -408,11 +408,7 @@ class _TodayWorkPreview extends StatelessWidget {
                   if (queue.status == AarisAutopilotWorkQueueStatus.degraded)
                     const Icon(Icons.sync_problem_rounded, color: amber)
                   else
-                    const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2.4),
-                    ),
+                    const Icon(Icons.sync_rounded, color: primary, size: 20),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
