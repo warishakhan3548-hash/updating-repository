@@ -3,6 +3,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError
 
 from tools.acquire_quranenc_gloss import (
     CSV_URL,
@@ -15,6 +17,7 @@ from tools.acquire_quranenc_gloss import (
     CaptureError,
     Download,
     capture,
+    fetch_https,
     sha256_bytes,
     validate_existing,
 )
@@ -123,6 +126,22 @@ class QuranEncCaptureTests(unittest.TestCase):
             capture(output, self.fetcher)
             with self.assertRaisesRegex(CaptureError, "refusing to overwrite"):
                 capture(output, self.fetcher)
+
+    def test_retryable_http_failure_is_reported_after_bounded_retries(self) -> None:
+        failure = HTTPError(SOURCE_INDEX_URL, 503, "Service Unavailable", None, None)
+        with patch(
+            "tools.acquire_quranenc_gloss.urlopen",
+            side_effect=failure,
+        ) as mocked_urlopen, patch(
+            "tools.acquire_quranenc_gloss.time.sleep",
+        ):
+            with self.assertRaisesRegex(
+                CaptureError,
+                r"quranenc\.com/en/home: HTTP 503",
+            ):
+                fetch_https(SOURCE_INDEX_URL)
+
+        self.assertEqual(4, mocked_urlopen.call_count)
 
     def test_post_capture_tamper_is_detected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
