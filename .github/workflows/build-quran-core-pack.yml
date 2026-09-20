@@ -14,7 +14,10 @@ on:
       - 'tools/build_quran_canonical.py'
       - 'tools/build_quran_core.py'
       - 'tools/pack_gate.py'
+      - 'tools/pack_signing.py'
       - 'tools/verify_quran_core_pack.py'
+      - 'policy/trusted_pack_keys.json'
+      - 'requirements-foundation.txt'
   workflow_dispatch:
 
 permissions:
@@ -55,6 +58,12 @@ jobs:
             git reset --hard origin/main
             git clean -fdx -- "$CANONICAL_DIR" "$PACK_DIR"
 
+            # Validate with the exact verifier dependency and trust policy from
+            # the tree being built, so a raced main update cannot silently
+            # change verification behavior.
+            python -m pip install --disable-pip-version-check -r requirements-foundation.txt
+            python tools/pack_signing.py policy/trusted_pack_keys.json
+
             canonical_complete=false
             pack_complete=false
             if [[ -f "$CANONICAL_DIR/manifest.json" && -f "$CANONICAL_DIR/ayahs.jsonl" ]]; then
@@ -76,6 +85,7 @@ jobs:
               rm -rf "$CANONICAL_DIR" "$PACK_DIR"
             fi
 
+            python tools/pack_signing.py policy/trusted_pack_keys.json
             python tools/vault_gate.py source-vault/registry.json
             python tools/validate_schemas.py
             python -m unittest discover -s tests -v
@@ -101,6 +111,7 @@ jobs:
             # Revalidate the exact committed tree before it is allowed onto main.
             PACK_COMMIT_SHA="$(git rev-parse HEAD)"
             echo "Validating committed Quran canonical/pack $PACK_COMMIT_SHA"
+            python tools/pack_signing.py policy/trusted_pack_keys.json
             python tools/vault_gate.py source-vault/registry.json
             python tools/pack_gate.py               source-vault/registry.json               "$PACK_DIR/manifest.json"
             python tools/validate_schemas.py
