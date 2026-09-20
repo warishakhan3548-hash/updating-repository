@@ -31,6 +31,7 @@ class ReaderViewModel(
 
     fun previousSurah() = loadSurah((_state.value.surah - 1).coerceAtLeast(1))
     fun nextSurah() = loadSurah((_state.value.surah + 1).coerceAtMost(114))
+    fun selectSurah(surah: Int) = loadSurah(surah)
     fun retry() = loadSurah(_state.value.surah)
 
     private fun loadSurah(surah: Int) {
