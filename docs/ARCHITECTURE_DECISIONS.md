@@ -123,3 +123,12 @@ A labelled retrieval benchmark is part of the product's reproducibility record. 
 `quran-search-golden-v1` therefore remains the historical strict-search baseline. `quran-search-golden-v2` is the active spelling-fallback benchmark and explicitly binds both the pack-side `arabic-search-v1` normalization contract and the runtime `arabic-query-variant-v1` contract. Evaluation fails closed if the runtime binding is absent or does not match the implementation.
 
 This keeps benchmark history auditable across search-engine evolution and prevents a newer engine from appearing to have passed an older benchmark whose labels or thresholds were retrospectively changed.
+
+## ADR-024 — Archival retention is a universal source-admission gate
+
+Permission to redistribute a dataset today does not by itself prove that the project may keep every superseded version publicly mirrored forever. Historical-snapshot retention is therefore an explicit Source Vault admission decision for every source that is ready for acquisition or preservation, not only for sources whose terms include a “stay current” clause.
+
+A source may be `awaiting-artifact`, contain preserved snapshot metadata, or be `production-approved` only when `historical_snapshot_retention_status` is `verified-allowed`. `awaiting-licence` is metadata-only and cannot contain preserved bytes. The runtime pack gate independently checks the same archival clearance for production sources.
+
+`latest_upstream_version_required` remains a separate boolean release obligation. If true, an approved pack additionally needs a source-bound signed freshness review; if false, no such review is invented. These mutable release decisions live in the registry/manifest policy layer rather than being retroactively copied into immutable acquisition provenance. This keeps preserved bytes reproducible while allowing later legal or release-policy review to fail closed without rewriting history.
+
