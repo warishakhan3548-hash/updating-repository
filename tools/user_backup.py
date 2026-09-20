@@ -96,7 +96,6 @@ def _schema_contract(
         """
         SELECT type, name, tbl_name, sql
         FROM sqlite_schema
-        WHERE name NOT LIKE 'sqlite_%'
         ORDER BY type, name
         """
     ).fetchall()
