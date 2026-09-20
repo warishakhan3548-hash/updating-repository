@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tools.pack_signatures import (
+    DOMAIN_SEPARATOR,
     PackSignatureError,
     canonical_manifest_payload,
     key_id_for_ed25519_public_key,
@@ -31,6 +32,7 @@ class PackSignatureTests(unittest.TestCase):
             "schema_version": 2,
             "content_version": "1.2.3",
             "review_status": "approved",
+            "release_sequence": 1,
             "built_sha256": "ab" * 32,
             "built_byte_size": 123,
             "dependencies": [],
@@ -197,6 +199,63 @@ class PackSignatureTests(unittest.TestCase):
             PackSignatureError, "floating-point"
         ):
             canonical_manifest_payload(manifest)
+
+    def test_signed_payload_is_domain_separated_and_order_stable(self):
+        first = self._manifest()
+        second = dict(reversed(list(first.items())))
+        first_payload = canonical_manifest_payload(first)
+        second_payload = canonical_manifest_payload(second)
+
+        self.assertTrue(first_payload.startswith(DOMAIN_SEPARATOR))
+        self.assertEqual(first_payload, second_payload)
+
+    def test_release_sequence_is_mandatory_for_approved_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private, public, key_id = self._key(11)
+            keyring = self._write_keyring(root, [(key_id, public)])
+            manifest = self._manifest()
+            manifest.pop("release_sequence")
+            self._sign(manifest, private, key_id)
+            with self.assertRaisesRegex(
+                PackSignatureError, "release_sequence"
+            ):
+                verify_approved_manifest(manifest, keyring)
+
+    def test_release_sequence_must_fit_safe_integer_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private, public, key_id = self._key(12)
+            keyring = self._write_keyring(root, [(key_id, public)])
+            manifest = self._manifest()
+            manifest["release_sequence"] = 9_007_199_254_740_992
+            self._sign(manifest, private, key_id)
+            with self.assertRaisesRegex(
+                PackSignatureError, "safe integer"
+            ):
+                verify_approved_manifest(manifest, keyring)
+
+    def test_non_ascii_object_keys_are_rejected_from_signed_metadata(self):
+        manifest = self._manifest()
+        manifest["évidence"] = "ambiguous cross-runtime key ordering"
+        with self.assertRaisesRegex(
+            PackSignatureError, "non-ASCII JSON object key"
+        ):
+            canonical_manifest_payload(manifest)
+
+    def test_trusted_key_policy_rejects_duplicate_json_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            keyring = Path(tmp) / "trusted_pack_keys.json"
+            keyring.write_text(
+                '{"schema_version":1,"state":"bootstrap-required",'
+                '"state":"active","keys":{},"roles":{'
+                '"content-pack-release":{"threshold":1,"key_ids":[]}}}',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                PackSignatureError, "duplicate JSON object key"
+            ):
+                validate_trusted_key_policy(keyring)
 
     def test_repository_bootstrap_policy_is_structurally_valid(self):
         root = Path(__file__).resolve().parents[1]
