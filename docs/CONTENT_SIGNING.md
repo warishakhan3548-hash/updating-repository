@@ -20,9 +20,7 @@ This prevents a human-friendly label from silently being rebound to different ke
 
 ## Signed payload
 
-The signed payload is the complete manifest with the top-level `signature` property removed. The remaining JSON is serialized as UTF-8 with sorted object keys, compact separators and no NaN/Infinity. Floating-point values are prohibited. Integers outside the cross-runtime safe range are rejected, strings must encode as valid UTF-8 Unicode scalar values, and duplicate object keys are rejected when trust-policy or evidence manifests are parsed.
-
-Signature arrays are excluded so independent authorized keys can sign the same immutable payload.
+The signed payload is domain-separated with the constant byte prefix `AARIS-CONTENT-PACK-SIGNATURE-V1\\n`, followed by the complete manifest with the top-level `signature` property removed. The remaining JSON is serialized as UTF-8 with sorted object keys, compact separators and no NaN/Infinity. Floating-point values are prohibited. Integers outside the cross-runtime safe range are rejected, strings must encode as valid UTF-8 Unicode scalar values, and duplicate object keys are rejected when trust-policy or evidence manifests are parsed.\n\nThe v1 contract restricts JSON object property names inside signed metadata to ASCII. This keeps Python code-point ordering identical to Java/Kotlin/ECMAScript ordering without claiming full RFC 8785/JCS support. Unicode string **values**, including Arabic source names and attribution text, are preserved unchanged.\n\nSignature arrays are excluded so independent authorized keys can sign the same immutable payload.
 
 ## Bootstrap ceremony
 
