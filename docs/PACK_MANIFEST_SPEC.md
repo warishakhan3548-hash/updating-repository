@@ -21,18 +21,40 @@ Schema v2 retains all v1 checks and additionally requires:
 
 `tools/pack_gate.py` loads the pinned Source Vault provenance and requires those values to match it. For SQLite packs, the same source identity, attribution, licence/provenance hashes, notice hash, and exact notice text must also exist inside `pack_metadata`.
 
-This closes an important trust gap: a caller cannot replace a required notice or attribution with arbitrary text, recompute local hashes, and still pass the gate if those values no longer match the preserved Source Vault record.
-
-For `quran-core`, schema v2 also performs importer-independent semantic verification against the preserved Source Vault and canonical SQLite schema. Promotion verifies the source assertion, required runtime metadata, all 6,236 Quran `original_text` rows, recomputed search lanes, and that undeclared morphology/Hadith evidence is absent. A fresh outer file hash therefore cannot legitimize altered sacred text or schema drift.
+For `quran-core`, schema v2 additionally performs importer-independent semantic verification against the preserved Source Vault and canonical SQLite schema. Promotion verifies the source assertion, required runtime metadata, all 6,236 Quran `original_text` rows, recomputed search lanes, and absence of undeclared morphology/Hadith evidence. Recomputing only an outer file hash therefore cannot legitimize altered sacred text or schema drift.
 
 For the Tanzil Quran pack, notice text is derived from comment lines in the exact preserved production artifact. The importer does not author substitute licence wording.
 
-## Promotion
+## Promotion states
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: reserved for a pack whose cryptographic signature has actually been verified against a trusted project key.
+- `approved`: all ordinary gates pass and the manifest's release signature verifies against the active project trust root.
 
-**Current fail-closed rule:** the repository does not yet contain the trusted-key cryptographic verifier required for an `approved` pack. Therefore `tools/pack_gate.py` rejects every `approved` manifest, even if it contains plausible-looking `algorithm`, `key_id`, and `value` fields. Mere field presence is not a signature check. Promotion remains blocked until a real verifier and key-rotation policy are implemented and tested.
+An approved signature block uses:
 
-Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for rollback and reproducibility.
+```json
+{
+  "format": "aaris-pack-signature-v1",
+  "role": "content-pack-release",
+  "signatures": [
+    {
+      "algorithm": "ed25519",
+      "key_id": "<64-lowercase-hex-key-id>",
+      "value": "<128-lowercase-hex-signature>"
+    }
+  ]
+}
+```
+
+The signed bytes are deterministic JSON for the entire manifest **except** the top-level `signature` field. This means source identity, hashes, record counts, dependencies, content version, review status and all other manifest assertions are covered by the signature.
+
+`tools/pack_gate.py` delegates approved-manifest verification to `tools/pack_signatures.py`; mere presence of signature-looking strings is never sufficient.
+
+## Trust root
+
+Trusted release public keys and threshold policy live in `policy/trusted_pack_keys.json`. Key IDs are derived from the public key, not human-selected labels. Private keys must remain outside the repository.
+
+The current policy state is `bootstrap-required`, so no existing candidate pack is promoted merely because the verifier now exists.
+
+Content versions are immutable. Stronger trust contracts or changed source bytes use a new content version rather than rewriting an older pack. Previous verified release packs remain available for reproducibility and later rollback support.
