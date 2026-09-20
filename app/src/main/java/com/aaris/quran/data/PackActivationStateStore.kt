@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.AtomicFile
 import java.io.File
 
+internal val PACK_ACTIVATION_PROCESS_LOCK = Any()
+
 internal class PackActivationStateStore(
     context: Context,
 ) {
@@ -24,7 +26,7 @@ internal class PackActivationStateStore(
     fun requireAcceptable(
         releaseSequence: Long,
         packSha256: String,
-    ) {
+    ) = synchronized(PACK_ACTIVATION_PROCESS_LOCK) {
         PackActivationPolicy.accept(
             current = read(),
             candidateSequence = releaseSequence,
@@ -35,20 +37,20 @@ internal class PackActivationStateStore(
     fun accept(
         releaseSequence: Long,
         packSha256: String,
-    ) {
+    ) = synchronized(PACK_ACTIVATION_PROCESS_LOCK) {
         val current = read()
         val next = PackActivationPolicy.accept(
             current = current,
             candidateSequence = releaseSequence,
             candidateSha256 = packSha256,
         )
-        if (next == current) return
+        if (next == current) return@synchronized
 
         val output = atomicFile.startWrite()
         try {
             output.write(PackActivationStateCodec.encode(next))
             atomicFile.finishWrite(output)
-        } catch (failure: Throwable) {
+        } catch (failure: Exception) {
             atomicFile.failWrite(output)
             throw failure
         }
