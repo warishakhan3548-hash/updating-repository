@@ -76,3 +76,11 @@ The product may add a separate optional contextual-gloss pack before a complete 
 Reader tap resolution at this boundary is conservative: bind a gloss only when the preserved source phrase can be located deterministically and unambiguously against the source-faithful ayah. Fuzzy matching may help research/search, but it must not silently promote a fuzzy phrase alignment into Evidence Plane truth. If the mapping is absent or ambiguous, the UI abstains.
 
 This lets difficult-word comprehension improve independently of morphology licensing while preserving the long-term lexical model. When verified morphology later exists, an explicit mapping overlay may connect the unchanged gloss assertion to canonical lexical entities.
+
+## ADR-018 — Canonical review history outlives the scheduler
+
+The Learning Plane stores review events as durable user history and treats scheduler memory state as a rebuildable projection. New user-schema-v2 review rows record a canonical grade (again/hard/good/easy), the scheduler adapter and version used at the time, an optional content context reference, and the event-schema version.
+
+This contract deliberately does not serialize FSRS equations, parameter vectors or library-specific card objects into permanent event identity. A future scheduler may replay the same preserved events into a different cache implementation.
+
+The v1→v2 migration never guesses the meaning of an unknown historical outcome. Exact canonical grade strings are mapped; all other legacy outcomes remain verbatim with no canonical grade. Historical rows stay append-only.
