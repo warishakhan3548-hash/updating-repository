@@ -5,6 +5,8 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -153,6 +155,18 @@ class FakeFetcher:
 
 
 class CaptureTests(unittest.TestCase):
+    def test_direct_cli_help_runs_from_repo_root(self):
+        root = Path(__file__).resolve().parents[1]
+        completed = subprocess.run(
+            [sys.executable, "tools/capture_quranenc_gloss.py", "--help"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertIn("Capture the pinned QuranEnc", completed.stdout)
+
     def test_success_is_complete_review_only_and_deterministic(
         self,
     ):
