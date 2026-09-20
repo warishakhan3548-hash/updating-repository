@@ -39,7 +39,11 @@ Until a legally preserved word-level source passes the Source Vault gate, author
 
 ## Accessibility
 
-Primary navigation controls have at least 48dp interactive height. The current Surah label is also an obvious button that opens a dismissible 1–114 chooser, avoiding dozens of repeated taps without introducing unverified Surah-name content. Quran text uses content-driven RTL direction, each ayah has a screen-reader description with its coordinate, safe drawing insets are respected, and navigation never depends on a gesture.
+Primary navigation controls have at least 48dp interactive height. The current Surah label is also an obvious button that opens a dismissible 1–114 chooser, avoiding dozens of repeated taps without introducing unverified Surah-name content. Quran text uses content-driven RTL direction and `sp` typography, each ayah has a screen-reader description with its coordinate, safe drawing insets are respected, and navigation never depends on a gesture.
+
+The Quran title and Surah chooser title are semantic headings. Loading/search progress indicators expose contextual labels. Completed load/search errors carry Compose error semantics and polite live-region announcements; the completed no-result state is also polite. Approximate spelling matches remain visibly labelled and expose the same status semantically. Transient search/loading updates are not assertive live regions.
+
+These are code-level accessibility contracts, not a claim of device conformance. TalkBack, Switch Access, large-font/reflow and representative-device validation remain required.
 
 ## Build toolchain
 
