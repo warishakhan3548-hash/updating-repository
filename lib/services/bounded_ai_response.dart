@@ -1,6 +1,35 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+/// One monotonic budget for a complete provider response operation.
+///
+/// Callers may spend the same budget across connect/header wait, body
+/// consumption and a bounded retry. Reading [remaining] never restarts the
+/// clock, so a slow stage cannot silently grant the next stage a fresh window.
+class AiResponseDeadline {
+  AiResponseDeadline(this.limit) {
+    if (limit <= Duration.zero) {
+      throw ArgumentError.value(limit, 'limit', 'Must be positive.');
+    }
+    _watch.start();
+  }
+
+  final Duration limit;
+  final Stopwatch _watch = Stopwatch();
+
+  bool get expired => _watch.elapsed >= limit;
+
+  Duration get remaining {
+    final value = limit - _watch.elapsed;
+    if (value <= Duration.zero) {
+      throw TimeoutException('AI response deadline exceeded.');
+    }
+    return value;
+  }
+
+  Future<T> wait<T>(Future<T> work) => work.timeout(remaining);
+}
+
 /// Bounds bytes before UTF-8/SSE framing. A provider cannot keep a turn alive
 /// with heartbeat chunks or allocate an unlimited unterminated line.
 Stream<List<int>> boundedAiResponse(

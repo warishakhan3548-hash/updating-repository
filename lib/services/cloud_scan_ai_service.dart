@@ -85,6 +85,10 @@ class CloudScanAiService {
   String routeLabel(AiConfiguration config) =>
       '${config.providerLabel} · ${config.model.trim()}';
 
+  TimeoutException _deadlineFailure() => TimeoutException(
+    'Cloud scan AI response deadline expired. Deterministic OCR is still available and no inventory changes were made.',
+  );
+
   Future<MedicineScanDraft> refine(
     AiConfiguration config,
     MedicineScanDraft draft,
@@ -103,6 +107,7 @@ class CloudScanAiService {
       );
       config.uri;
       final adapter = AiProviderAdapter.forConfiguration(config);
+      final deadline = AiResponseDeadline(_responseTimeout);
       Object? lastTransient;
 
       for (var attempt = 0; attempt < 2; attempt++) {
@@ -110,17 +115,23 @@ class CloudScanAiService {
         final client = _clientFactory();
         _client = client;
         try {
-          final response = await client
-              .send(adapter.request(
+          final response = await deadline.wait(
+            client.send(
+              adapter.request(
                 config: config,
                 system: handoff.systemPrompt,
                 user: handoff.userPayload,
                 stream: false,
                 maxOutputTokens: 1000,
-              ))
-              .timeout(const Duration(seconds: 50));
+              ),
+            ),
+          );
           _checkEpoch(epoch);
-          final bytes = await _readBounded(response, epoch);
+          final bytes = await _readBounded(
+            response,
+            epoch,
+            deadline.remaining,
+          );
           _checkEpoch(epoch);
           if (response.statusCode < 200 || response.statusCode >= 300) {
             final failure = AiProviderFailure.http(response.statusCode);
@@ -135,14 +146,9 @@ class CloudScanAiService {
             final object = localJsonObject(modelText);
             return validateLocalScan(draft, object, sourceLimit: _sourceLimit);
           }
-        } on TimeoutException catch (error) {
+        } on TimeoutException {
           _checkEpoch(epoch);
-          lastTransient = error;
-          if (attempt == 1) {
-            throw TimeoutException(
-              'Cloud scan AI timed out twice. Deterministic OCR is still available and no inventory changes were made.',
-            );
-          }
+          throw _deadlineFailure();
         } on http.ClientException catch (error) {
           _checkEpoch(epoch);
           lastTransient = error;
@@ -158,7 +164,13 @@ class CloudScanAiService {
 
         _checkEpoch(epoch);
         if (attempt == 0) {
-          await Future<void>.delayed(const Duration(milliseconds: 300));
+          try {
+            await deadline.wait(
+              Future<void>.delayed(const Duration(milliseconds: 300)),
+            );
+          } on TimeoutException {
+            throw _deadlineFailure();
+          }
           _checkEpoch(epoch);
         }
       }
@@ -174,9 +186,10 @@ class CloudScanAiService {
   Future<List<int>> _readBounded(
     http.StreamedResponse response,
     int epoch,
+    Duration deadline,
   ) => collectAiResponse(
     response.stream,
-    deadline: _responseTimeout,
+    deadline: deadline,
     checkCurrent: () => _checkEpoch(epoch),
     maxBytes: _maxResponseBytes,
   );
