@@ -23,6 +23,19 @@ String medicineIdentity(String name, String strength, String form) => [
 
 DateTime civilDay(DateTime value) =>
     DateTime.utc(value.year, value.month, value.day);
+
+/// Calendar dates are domain facts, not moments in time.
+///
+/// UI date pickers can produce local DateTimes while persistence normalizes the
+/// same YYYY-MM-DD value to UTC. Compare their civil components so a harmless
+/// serialization round-trip cannot look like a medicine-date edit.
+bool sameCivilDate(DateTime? before, DateTime? after) {
+  if (before == null || after == null) return before == null && after == null;
+  return before.year == after.year &&
+      before.month == after.month &&
+      before.day == after.day;
+}
+
 String dateText(DateTime value) =>
     '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 
