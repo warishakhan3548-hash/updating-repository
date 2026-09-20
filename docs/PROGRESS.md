@@ -26,6 +26,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - GitHub Actions foundation checks and deterministic pack build workflow;
 - Ed25519 release-authenticity gate with deterministic signed-manifest bytes, content-derived key IDs, threshold policy, unauthorized/duplicate-key rejection, and project-controlled public trust-root storage;
 - Android release builds delegate to the same authoritative pack gate instead of trusting signature-shaped metadata;
+- Android release runtime persists the highest accepted signed release sequence plus exact pack SHA-256 under no-backup storage, rejects lower-sequence rollback and same-sequence byte collisions, and writes both pack replacement and rollback state atomically;
 - trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
 
 ## Production Source Vault
@@ -84,7 +85,7 @@ No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device te
 ## Next safe milestones
 
 1. Bootstrap durable offline release-key custody and independent backup, commit only the public trust material, then sign/review a new immutable Quran-core release candidate for production approval.
-2. Persist the highest accepted signed `release_sequence` and add freshness/recovery state before enabling any automatic remote content-update channel.
+2. Add freshness/expiry metadata, explicit recovery behavior and a reviewed on-device signature verifier before enabling any automatic remote content-update channel; bundled-release highest-sequence persistence is now implemented.
 3. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
 4. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
 5. Resolve QAC licensing or choose a legally clearer morphology source, and preserve an edition-aware Hadith source before production Hadith search.
