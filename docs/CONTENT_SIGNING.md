@@ -20,9 +20,18 @@ This prevents a human-friendly label from silently being rebound to different ke
 
 ## Signed payload
 
-The signed payload is the complete manifest with the top-level `signature` property removed. The remaining JSON is serialized as UTF-8 with sorted object keys, compact separators and no NaN/Infinity. Floating-point values are prohibited.
+The signed payload is the complete manifest with the top-level `signature` property removed. Signature arrays are excluded so independent authorized keys can sign the same immutable payload.
 
-Signature arrays are excluded so independent authorized keys can sign the same immutable payload.
+Signature format v1 deliberately uses a narrow, project-owned JSON contract rather than claiming full RFC 8785/JCS conformance:
+
+- duplicate object names are rejected before interpretation;
+- object-property names must be 7-bit ASCII, so Python/Java/Kotlin/ECMAScript sorting agrees without UTF-16 edge cases;
+- property names are recursively sorted and JSON is emitted as compact UTF-8;
+- floating-point values, NaN and Infinity are forbidden;
+- signed integers are limited to ±9,007,199,254,740,991, the exact cross-runtime safe range;
+- Unicode string **values** are preserved exactly as supplied; they are not normalized or transliterated.
+
+These restrictions keep Arabic attribution or other Unicode string values intact while preventing a future verifier from authenticating different bytes because of duplicate names, numeric precision or property-ordering differences. If the format ever needs richer numeric/property-name semantics, introduce a new signature-format version rather than silently changing v1.
 
 ## Bootstrap ceremony
 
