@@ -13,9 +13,11 @@ At first use, QuranPackStore:
 1. reads the bundled pack manifest;
 2. requires the expected Quran pack identity and 6,236-record contract;
 3. copies the SQLite artifact into noBackupFilesDir;
-4. calculates SHA-256 locally and compares it with the manifest;
-5. opens the verified database read-only;
-6. queries only quran_ayah.original_text for display.
+4. checks the compiled-in expected source ID/version/source SHA-256 and exact 1.0.3 runtime-pack SHA-256;
+5. verifies the bundled source-derived attribution notice SHA-256;
+6. copies the SQLite bytes only after those pins match, then verifies the copied database SHA-256;
+7. opens the verified database read-only;
+8. queries only quran_ayah.original_text for display.
 
 Search-normalized Quran fields are not part of the reader rendering path.
 
@@ -25,7 +27,7 @@ The runtime SQLite copy is replaceable content. Personal learning data remains a
 
 quran-core 1.0.3 is still marked candidate and unsigned. The reader may use it for development and verification, but this work does not promote it to a release-approved content pack and does not invent signing material.
 
-Production distribution remains blocked on the real review/signing policy.
+Production distribution remains blocked on the real review/signing policy. The compiled-in development pins are a fail-closed integrity control for this exact unsigned candidate; they are not a substitute for the future signed content-update chain.
 
 ## Reader interaction
 
