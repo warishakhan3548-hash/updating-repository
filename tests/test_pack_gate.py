@@ -170,6 +170,9 @@ class PackGateTests(unittest.TestCase):
                             key_id: {
                                 "algorithm": "ed25519",
                                 "public_key": public,
+                                "status": "active",
+                                "min_release_sequence": 1,
+                                "max_release_sequence": None,
                             }
                         },
                         "roles": {
