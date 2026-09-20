@@ -149,6 +149,45 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaisesRegex(PackGateError, "notice_sha256 mismatch"):
                 validate_manifest(manifest, registry)
 
+    def test_approved_notice_must_match_source_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            notice = root / "content-packs" / "quran-example" / "1.0" / "NOTICE.txt"
+            notice.write_text("wrong attribution", encoding="utf-8")
+            expected_notice = b"exact source attribution"
+
+            registry_data = json.loads(registry.read_text(encoding="utf-8"))
+            source = registry_data["sources"][0]
+            source["attribution_required"] = True
+            source["required_notice_sha256"] = hashlib.sha256(
+                expected_notice
+            ).hexdigest()
+            registry.write_text(json.dumps(registry_data), encoding="utf-8")
+
+            manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+            manifest_data["review_status"] = "approved"
+            manifest_data["signature"] = {
+                "algorithm": "ed25519",
+                "key_id": "release-key-1",
+                "value": "fixture-signature",
+            }
+            manifest_data["notice_path"] = "content-packs/quran-example/1.0/NOTICE.txt"
+            manifest_data["notice_sha256"] = hashlib.sha256(
+                notice.read_bytes()
+            ).hexdigest()
+            manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+            with self.assertRaisesRegex(PackGateError, "does not match Source Vault policy"):
+                validate_manifest(manifest, registry)
+
+            notice.write_bytes(expected_notice)
+            manifest_data["notice_sha256"] = hashlib.sha256(
+                notice.read_bytes()
+            ).hexdigest()
+            manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
+            validate_manifest(manifest, registry)
+
     def test_runtime_pack_symlink_cannot_escape_content_packs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
