@@ -46,7 +46,9 @@ Historical schema-v1/v2 packs remain immutable and verifiable under their own co
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: all ordinary gates pass and the manifest release signature verifies against the active project trust root.
+- `approved`: all ordinary gates pass, a positive monotonic `release_sequence` is present, and the manifest release signature verifies against the active project trust root.
+
+`release_sequence` is a security ordering primitive, separate from human-facing `content_version`. It is authenticated by the signature and is reserved for future persistent anti-rollback checks on the device. Candidate/reviewed historical packs do not need to be rewritten merely to acquire one.
 
 Approved manifests use `aaris-pack-signature-v1`:
 
@@ -64,9 +66,9 @@ Approved manifests use `aaris-pack-signature-v1`:
 }
 ```
 
-The signed bytes are deterministic JSON for the entire manifest except the top-level `signature` field. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version and review status are therefore covered by the signature.
+The signed bytes are domain-separated deterministic JSON for the entire manifest except the top-level `signature` field. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version, review status, and `release_sequence` are therefore covered by the signature. The restricted serializer rejects floats, unsafe-width integers, and invalid Unicode scalar values. The pack gate rejects duplicate JSON object keys before trust decisions.
 
-`tools/pack_gate.py` delegates approved-manifest authenticity to `tools/pack_signatures.py`; signature-shaped strings are never sufficient. Trusted release public keys and threshold policy live in `policy/trusted_pack_keys.json`. Key IDs are derived from the public key, and private keys must remain outside the repository.
+`tools/pack_gate.py` delegates approved-manifest authenticity to `tools/pack_signatures.py`; signature-shaped strings are never sufficient. Trusted release public keys and threshold policy live in `policy/trusted_pack_keys.json`. Key IDs are derived from the public key, and private keys must remain outside the repository. Enrolled keys have explicit `active`, `retired`, or `revoked` state plus minimum/maximum release-sequence windows so a retired key cannot authorize arbitrarily new releases.
 
 The current trust-root state is `bootstrap-required`, so verifier availability does **not** promote existing candidates. A real offline release key and independent backup must be established first.
 
