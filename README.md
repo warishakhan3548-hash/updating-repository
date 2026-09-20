@@ -4,7 +4,7 @@ A local-first, evidence-first Quran and Hadith comprehension system.
 
 **North star:** Read → get stuck → tap → understand → keep reading.
 
-This repository builds trust and reproducibility before UI breadth. Critical external content is not a runtime/build dependency until its exact legally redistributable artifact is preserved in the project-controlled Source Vault with provenance, a licence snapshot and integrity checks.
+This repository builds trust and reproducibility before UI breadth. Critical external content is not a runtime/build dependency until its exact legally redistributable artifact has explicit historical-retention clearance and is preserved in the project-controlled Source Vault with provenance, a licence snapshot and integrity checks.
 
 ## Current phase
 
