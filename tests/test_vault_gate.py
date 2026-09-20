@@ -285,6 +285,7 @@ class VaultGateTests(unittest.TestCase):
                     "release_requirements": {
                         "latest_upstream_version_required": True,
                         "version_check_url": "http://example.invalid/versions",
+                        "historical_snapshot_retention_status": "unresolved",
                     },
                 },
             )
@@ -293,6 +294,22 @@ class VaultGateTests(unittest.TestCase):
             ):
                 validate_registry(path)
 
+    def test_production_source_blocks_unresolved_historical_snapshot_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root)
+            source["release_requirements"] = {
+                "latest_upstream_version_required": True,
+                "version_check_url": "https://example.invalid/versions",
+                "historical_snapshot_retention_status": "unresolved",
+            }
+            path = self._registry(root, source)
+            with self.assertRaisesRegex(
+                VaultGateError, "verified historical snapshot retention permission"
+            ):
+                validate_registry(path)
+
+
     def test_preserved_latest_version_requirement_is_bound_into_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -300,6 +317,7 @@ class VaultGateTests(unittest.TestCase):
             requirements = {
                 "latest_upstream_version_required": True,
                 "version_check_url": "https://example.invalid/versions",
+                "historical_snapshot_retention_status": "verified-allowed",
             }
             source["release_requirements"] = requirements
             path = self._registry(root, source)

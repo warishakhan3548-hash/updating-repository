@@ -35,7 +35,8 @@
             "type": "object",
             "required": [
               "latest_upstream_version_required",
-              "version_check_url"
+              "version_check_url",
+              "historical_snapshot_retention_status"
             ],
             "properties": {
               "latest_upstream_version_required": {"const": true},
@@ -43,6 +44,13 @@
                 "type": "string",
                 "format": "uri",
                 "pattern": "^https://"
+              },
+              "historical_snapshot_retention_status": {
+                "enum": [
+                  "unresolved",
+                  "verified-allowed",
+                  "verified-not-allowed"
+                ]
               }
             },
             "additionalProperties": false

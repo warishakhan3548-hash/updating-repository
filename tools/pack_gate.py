@@ -100,6 +100,7 @@ def _validate_source_release_review(
     required_requirement_fields = {
         "latest_upstream_version_required",
         "version_check_url",
+        "historical_snapshot_retention_status",
     }
     if (
         not isinstance(requirements, dict)
@@ -108,6 +109,11 @@ def _validate_source_release_review(
     ):
         raise PackGateError(
             f"{manifest_path}: invalid Source Vault release_requirements"
+        )
+    retention_status = requirements.get("historical_snapshot_retention_status")
+    if retention_status != "verified-allowed":
+        raise PackGateError(
+            f"{manifest_path}: source lacks verified historical snapshot retention permission"
         )
     version_check_url = requirements.get("version_check_url")
     if not isinstance(version_check_url, str) or not version_check_url.startswith("https://"):

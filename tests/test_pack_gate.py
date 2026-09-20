@@ -345,6 +345,7 @@ class PackGateTests(unittest.TestCase):
         data["sources"][0]["release_requirements"] = {
             "latest_upstream_version_required": True,
             "version_check_url": "https://example.invalid/versions",
+            "historical_snapshot_retention_status": "verified-allowed",
         }
         registry.write_text(json.dumps(data), encoding="utf-8")
         return licence_sha
@@ -382,6 +383,23 @@ class PackGateTests(unittest.TestCase):
             encoding="utf-8",
         )
         return key_id
+
+    def test_pack_rejects_source_with_unresolved_historical_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            data = json.loads(registry.read_text(encoding="utf-8"))
+            data["sources"][0]["release_requirements"] = {
+                "latest_upstream_version_required": True,
+                "version_check_url": "https://example.invalid/versions",
+                "historical_snapshot_retention_status": "unresolved",
+            }
+            registry.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError, "verified historical snapshot retention permission"
+            ):
+                validate_manifest(manifest, registry)
+
 
     def test_latest_version_requirement_does_not_expire_candidate_builds(self):
         with tempfile.TemporaryDirectory() as tmp:

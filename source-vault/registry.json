@@ -39,10 +39,11 @@
       "provenance": null,
       "sha256": null,
       "byte_size": null,
-      "notes": "Official QuranEnc lists this verse-scoped Arabic difficult-word resource as v1.0.0 and its API/republishing policy is version-aware. The content is a promising low-friction contextual-gloss source, not a morphology or Quran-text authority. No production bytes are consumed until an exact versioned upstream response/file set plus the applicable terms are preserved under project control with hashes and provenance. QuranEnc's current republication terms also require updating to the latest source version; release approval therefore requires a source-bound latest-version review rather than treating an archived snapshot as perpetually redistributable.",
+      "notes": "Official QuranEnc lists this verse-scoped Arabic difficult-word resource as v1.0.0 and its API/republishing policy is version-aware. The content is a promising low-friction contextual-gloss source, not a morphology or Quran-text authority. No production bytes are consumed until an exact versioned upstream response/file set plus the applicable terms are preserved under project control with hashes and provenance. QuranEnc's current republication terms also require updating to the latest source version; release approval therefore requires a source-bound latest-version review rather than treating an archived snapshot as perpetually redistributable. Whether superseded versions may remain indefinitely available in a public immutable mirror is not established by the inspected terms; that question remains a production blocker until verified permission or a legally compatible preservation design exists.",
       "release_requirements": {
         "latest_upstream_version_required": true,
-        "version_check_url": "https://quranenc.com/api/v1/translations/list/ar/?localization=en"
+        "version_check_url": "https://quranenc.com/api/v1/translations/list/ar/?localization=en",
+        "historical_snapshot_retention_status": "unresolved"
       }
     },
     {

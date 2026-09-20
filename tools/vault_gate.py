@@ -103,6 +103,7 @@ def _validate_release_requirements(source: dict, source_id: str) -> dict | None:
     expected_fields = {
         "latest_upstream_version_required",
         "version_check_url",
+        "historical_snapshot_retention_status",
     }
     if not isinstance(requirements, dict) or set(requirements) != expected_fields:
         raise VaultGateError(
@@ -112,6 +113,15 @@ def _validate_release_requirements(source: dict, source_id: str) -> dict | None:
     if requirements.get("latest_upstream_version_required") is not True:
         raise VaultGateError(
             f"{source_id}: latest_upstream_version_required must be true when declared"
+        )
+    retention_status = requirements.get("historical_snapshot_retention_status")
+    if retention_status not in {
+        "unresolved",
+        "verified-allowed",
+        "verified-not-allowed",
+    }:
+        raise VaultGateError(
+            f"{source_id}: invalid historical_snapshot_retention_status"
         )
     raw_url = requirements.get("version_check_url")
     parsed = urlparse(raw_url) if isinstance(raw_url, str) else None
@@ -176,6 +186,16 @@ def validate_registry(registry_path: Path) -> None:
             raise VaultGateError(f"{source_id}: invalid status {status!r}")
 
         release_requirements = _validate_release_requirements(source, source_id)
+        if (
+            status == "production-approved"
+            and release_requirements is not None
+            and release_requirements["historical_snapshot_retention_status"]
+            != "verified-allowed"
+        ):
+            raise VaultGateError(
+                f"{source_id}: production source requires verified historical "
+                "snapshot retention permission"
+            )
 
         snapshot_fields_present = [
             field
