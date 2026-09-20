@@ -313,6 +313,35 @@ class CaptureTests(unittest.TestCase):
             ):
                 verify_snapshot(root)
 
+    def test_translation_list_object_envelope_is_accepted(self):
+        class WrappedFetcher(FakeFetcher):
+            def __call__(self, url):
+                result = super().__call__(url)
+                if url == LIST_URL:
+                    rows = json.loads(
+                        result.body.decode("utf-8")
+                    )
+                    return FetchResult(
+                        result.requested_url,
+                        result.final_url,
+                        result.status,
+                        result.content_type,
+                        enc({"result": rows}),
+                    )
+                return result
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            capture_snapshot(
+                root,
+                fetcher=WrappedFetcher(),
+            )
+            provenance = verify_snapshot(root)
+            self.assertEqual(
+                "candidate-unreviewed",
+                provenance["review_status"],
+            )
+
     def test_version_mismatch_leaves_no_snapshot(
         self,
     ):
