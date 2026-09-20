@@ -140,3 +140,12 @@ A source may be `awaiting-artifact`, contain preserved snapshot metadata, or be 
 
 `latest_upstream_version_required` is a separate boolean. It controls whether an approved pack needs a source-bound signed freshness review; it does not grant archival rights. Mutable release requirements remain outside immutable acquisition provenance so later policy review does not rewrite preserved source history.
 
+## ADR-026 — Portable user backups preserve SQLite history, not projections
+
+User-data portability is a first-class durability boundary. The portable v1 format contains exactly a small manifest plus one self-contained `user.sqlite` snapshot. It excludes replaceable `content.sqlite` packs, Source Vault evidence and rebuildable search content.
+
+Export uses SQLite backup semantics rather than raw filesystem copying. Import treats the archive as untrusted input: archive shape, SHA-256, byte size, SQLite integrity, required durable tables and supported `PRAGMA user_version` must all pass before publication.
+
+The backup envelope does not create a second learning schema. Exposure/review history, notes, bookmarks and preferences remain governed by the existing SQLite schema and migrations. An older supported backup is restored at its recorded schema version and then follows the normal application migration path.
+
+The reference restore implementation refuses to overwrite an existing database. A future Android restore flow must close the live user database, validate into app-private temporary storage and publish through the single database lifecycle owner. Manual v1 backups are intentionally local and unencrypted; encryption/sync requires a separately reviewed envelope/key-management design.
