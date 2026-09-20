@@ -42,9 +42,19 @@ internal object ArabicSearchNormalizer {
             }
         }
 
-        return stripped
-            .splitToSequence { char -> char.isWhitespace() || Character.isSpaceChar(char) }
-            .filter { it.isNotEmpty() }
-            .joinToString(" ")
+        return buildString(stripped.length) {
+            var pendingSpace = false
+            stripped.forEach { char ->
+                if (char.isWhitespace() || Character.isSpaceChar(char)) {
+                    if (isNotEmpty()) pendingSpace = true
+                } else {
+                    if (pendingSpace) {
+                        append(' ')
+                        pendingSpace = false
+                    }
+                    append(char)
+                }
+            }
+        }
     }
 }
