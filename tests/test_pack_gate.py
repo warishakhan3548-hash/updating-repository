@@ -152,6 +152,9 @@ class PackGateTests(unittest.TestCase):
                             key_id: {
                                 "algorithm": "ed25519",
                                 "public_key": public,
+                                "status": "active",
+                                "min_release_sequence": 1,
+                                "max_release_sequence": None,
                             }
                         },
                         "roles": {
@@ -167,6 +170,7 @@ class PackGateTests(unittest.TestCase):
 
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
+            data["release_sequence"] = 1
             data["signature"] = {
                 "format": "aaris-pack-signature-v1",
                 "role": "content-pack-release",
@@ -184,6 +188,22 @@ class PackGateTests(unittest.TestCase):
             manifest.write_text(json.dumps(data), encoding="utf-8")
             validate_manifest(manifest, registry)
 
+
+    def test_duplicate_manifest_json_key_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            raw = manifest.read_text(encoding="utf-8")
+            raw = raw.replace(
+                '"review_status": "reviewed"',
+                '"review_status": "reviewed", "review_status": "approved"',
+                1,
+            )
+            manifest.write_text(raw, encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError, "duplicate JSON object key: review_status"
+            ):
+                validate_manifest(manifest, registry)
 
     def test_attribution_required_pack_requires_notice(self):
         with tempfile.TemporaryDirectory() as tmp:
