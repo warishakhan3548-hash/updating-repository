@@ -277,6 +277,65 @@
           "byte_reproducibility_scope"
         ]
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "const": "approved"
+          }
+        },
+        "required": [
+          "review_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "signature": {
+            "type": "object",
+            "required": [
+              "format",
+              "role",
+              "signatures"
+            ],
+            "properties": {
+              "format": {
+                "const": "aaris-pack-signature-v1"
+              },
+              "role": {
+                "const": "content-pack-release"
+              },
+              "signatures": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "algorithm",
+                    "key_id",
+                    "value"
+                  ],
+                  "properties": {
+                    "algorithm": {
+                      "const": "ed25519"
+                    },
+                    "key_id": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "value": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{128}$"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
     }
   ]
 }
