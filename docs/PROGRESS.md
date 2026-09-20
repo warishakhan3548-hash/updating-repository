@@ -21,7 +21,8 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - schema-v2 Quran promotion independently verifies Source Vault semantic fidelity: canonical SQLite schema, source assertions/metadata, all 6,236 display rows, recomputed search lanes, and absence of undeclared morphology/Hadith evidence;
 - read-only Reader Core with stable `QuranCoordinate` navigation, production pack-approval guard, source-faithful `original_text` projection, and ephemeral UI tap anchors that never become canonical TokenIDs;
 - GitHub Actions foundation checks and deterministic pack build workflow;
-- trusted-key Ed25519 release verifier with deterministic signed payload, stable key IDs, threshold-ready rotation states, per-key release-sequence windows and signed `release_sequence`;\n- empty-by-default production trust root: no release can become `approved` until a reviewed public key is explicitly enrolled.
+- trusted-key Ed25519 release verifier with deterministic signed payload, stable key IDs, threshold-ready rotation states, per-key release-sequence windows and signed `release_sequence`;
+- empty-by-default production trust root: no release can become `approved` until a reviewed public key is explicitly enrolled.
 
 ## Production Source Vault
 
@@ -69,7 +70,9 @@ Automated coverage now checks Source Vault integrity, licence/provenance consist
 
 Schema-v2 Quran semantic regression coverage now tampers with Quran text and SQLite schema, recomputes the runtime artifact SHA-256, and requires promotion to fail. Recomputing `built_sha256` after changing Quran text or SQLite schema does not make the pack valid.
 
-Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows.\n\nPack-signing regression coverage uses RFC 8032 test material to verify real Ed25519 signatures, tamper rejection, deterministic payload generation, threshold enforcement, retired-key historical verification, revoked-key rejection and mandatory signed release sequencing. The production trusted-key registry contains no key material yet.
+Reader Core regression coverage checks read-only SQLite access, fail-closed coordinates, original-text-only models, navigation edges, complete 6,236-coordinate iteration, and the invariant that the current ayah-only pack still contains zero canonical `quran_token` rows.
+
+Pack-signing regression coverage uses RFC 8032 test material to verify real Ed25519 signatures, tamper rejection, deterministic payload generation, threshold enforcement, retired-key historical verification, revoked-key rejection and mandatory signed release sequencing. The production trusted-key registry contains no key material yet.
 
 No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
