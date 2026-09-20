@@ -5,11 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-
-
-PAYLOAD_VERSION = "aaris-pack-manifest-v1"
+ PAYLOAD_VERSION = "aaris-pack-manifest-v1"
 TRUST_ROLE = "content-pack-release"
 
 
@@ -148,6 +144,14 @@ def verify_manifest_signatures(
     release_sequence = manifest.get("release_sequence")
     if not isinstance(release_sequence, int) or release_sequence < 1:
         raise PackSignatureError("approved pack requires positive release_sequence")
+
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    except ImportError as exc:
+        raise PackSignatureError(
+            "Ed25519 verification requires the pinned trust dependency"
+        ) from exc
 
     root = load_trust_root(trust_root_path)
     if root["version"] != trust_root_version:
