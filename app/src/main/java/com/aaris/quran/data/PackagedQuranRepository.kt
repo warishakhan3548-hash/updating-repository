@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import com.aaris.quran.BuildConfig
 import com.aaris.quran.model.QuranAyah
+import com.aaris.quran.security.ContentPackAcceptanceStore
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,10 @@ import kotlinx.coroutines.withContext
 class PackagedQuranRepository(
     private val context: Context,
 ) : QuranRepository {
+    private val acceptanceStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        ContentPackAcceptanceStore(context)
+    }
+
     private val installedPack: File by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         require(BuildConfig.DEBUG || BuildConfig.QURAN_PACK_RELEASE_READY) {
             "Production reader refuses an unapproved or unsigned Quran pack"
@@ -79,6 +84,7 @@ class PackagedQuranRepository(
 
         val target = File(directory, "content.sqlite")
         if (target.isFile && target.sha256() == BuildConfig.QURAN_PACK_SHA256) {
+            recordReleaseAcceptanceIfNeeded()
             return target
         }
 
@@ -98,7 +104,25 @@ class PackagedQuranRepository(
             check(target.delete()) { "Cannot replace invalid local Quran pack" }
         }
         check(temporary.renameTo(target)) { "Cannot activate verified local Quran pack" }
+        check(target.sha256() == BuildConfig.QURAN_PACK_SHA256) {
+            "Activated Quran pack failed post-rename SHA-256 verification"
+        }
+        recordReleaseAcceptanceIfNeeded()
         return target
+    }
+
+    private fun recordReleaseAcceptanceIfNeeded() {
+        if (!BuildConfig.QURAN_PACK_RELEASE_READY) return
+
+        check(BuildConfig.QURAN_PACK_RELEASE_SEQUENCE > 0L) {
+            "Approved Quran pack is missing a positive signed release sequence"
+        }
+        acceptanceStore.checkAndRecord(
+            packId = BuildConfig.QURAN_PACK_ID,
+            releaseSequence = BuildConfig.QURAN_PACK_RELEASE_SEQUENCE,
+            manifestSha256 = BuildConfig.QURAN_PACK_MANIFEST_SHA256,
+            contentSha256 = BuildConfig.QURAN_PACK_SHA256,
+        )
     }
 
     private fun File.sha256(): String {
