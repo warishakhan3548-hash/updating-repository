@@ -18,6 +18,7 @@ on:
       - 'tools/pack_signing.py'
       - 'policy/trusted_pack_keys.json'
       - 'requirements-foundation.txt'
+      - 'tests/**'
   workflow_dispatch:
 
 permissions:
