@@ -18,13 +18,19 @@ from typing import Any
 
 if __package__:
     from tools.quran_core import (
+        CONSTRAINED_QUERY_VARIANTS,
+        QUERY_VARIANT_NORMALIZATION_VERSION,
         SEARCH_NORMALIZATION_VERSION,
+        normalize_search_constrained_variant,
         normalize_search_diacritic_free,
         normalize_search_unicode,
     )
 else:
     from quran_core import (
+        CONSTRAINED_QUERY_VARIANTS,
+        QUERY_VARIANT_NORMALIZATION_VERSION,
         SEARCH_NORMALIZATION_VERSION,
+        normalize_search_constrained_variant,
         normalize_search_diacritic_free,
         normalize_search_unicode,
     )
@@ -87,6 +93,64 @@ def strict_search(
         ),
     )
     return [row[0] for row in rows]
+
+
+def _constrained_variant_sql(column: str) -> str:
+    if column != "search_diacritic_free":
+        raise QuranSearchEvalError("unsupported constrained-variant SQL column")
+    expression = column
+    for source, target in CONSTRAINED_QUERY_VARIANTS:
+        expression = f"replace({expression}, '{source}', '{target}')"
+    return expression
+
+
+def constrained_variant_search(
+    connection: sqlite3.Connection,
+    query: str,
+    *,
+    limit: int = 50,
+) -> list[str]:
+    """Conservative query-only fallback used only after strict search abstains."""
+    if not 1 <= limit <= 100:
+        raise QuranSearchEvalError("search limit must be between 1 and 100")
+    variant_query = normalize_search_constrained_variant(query)
+    if not variant_query:
+        return []
+    expression = _constrained_variant_sql("search_diacritic_free")
+    rows = connection.execute(
+        f"""
+        SELECT ayah_id
+        FROM quran_ayah
+        WHERE instr({expression}, ?) > 0
+        ORDER BY
+            CASE
+                WHEN {expression} = ? THEN 0
+                WHEN instr({expression}, ?) = 1 THEN 1
+                ELSE 2
+            END,
+            length(search_diacritic_free),
+            surah,
+            ayah
+        LIMIT ?
+        """,
+        (variant_query, variant_query, variant_query, limit),
+    )
+    return [row[0] for row in rows]
+
+
+def reader_search(
+    connection: sqlite3.Connection,
+    query: str,
+    *,
+    limit: int = 50,
+) -> tuple[list[str], str]:
+    strict = strict_search(connection, query, limit=limit)
+    if strict:
+        return strict, "strict"
+    approximate = constrained_variant_search(connection, query, limit=limit)
+    if approximate:
+        return approximate, "approximate_spelling"
+    return [], "none"
 
 
 def _query_for_case(connection: sqlite3.Connection, case: dict[str, Any]) -> str:
@@ -236,7 +300,7 @@ def evaluate(
         for case in golden["cases"]:
             query = _query_for_case(connection, case)
             started = time.perf_counter()
-            ranked = strict_search(connection, query, limit=limit)
+            ranked, match_mode = reader_search(connection, query, limit=limit)
             elapsed_ms = (time.perf_counter() - started) * 1000.0
             latencies_ms.append(elapsed_ms)
 
@@ -248,6 +312,7 @@ def evaluate(
                     "category": case["category"],
                     "positive": positive,
                     "result_count": len(ranked),
+                    "match_mode": match_mode,
                     "top_10": ranked[:10],
                     "recall_at_5": _recall_at(ranked, expected, 5) if positive else None,
                     "recall_at_10": _recall_at(ranked, expected, 10) if positive else None,
@@ -305,6 +370,7 @@ def evaluate(
                 "search_normalization_version": metadata.get(
                     "search_normalization_version"
                 ),
+                "query_variant_normalization_version": QUERY_VARIANT_NORMALIZATION_VERSION,
             },
             "case_count": len(case_reports),
             "positive_case_count": len(positives),

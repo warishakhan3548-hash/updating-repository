@@ -100,3 +100,11 @@ After a source has independently cleared the licence/archival gate, an inherentl
 The root artifact is a project-owned checksum ledger whose own SHA-256 and byte size are recorded in the registry. Every ledger member must use one canonical relative POSIX path, remain inside the same immutable snapshot directory and match its recorded SHA-256. Absolute/traversal paths, non-canonical path spellings, symlinked ledgers or members, duplicate members and self-reference fail closed.
 
 This is a preservation-integrity primitive, not a licence or promotion shortcut. Runtime builders still require `production-approved`, verified redistribution and historical-retention rights, licence/provenance binding, applicable release-time source requirements and all existing pack gates. Source-specific validators remain responsible for semantic invariants such as Quran/Hadith coordinates, editions and record shape.
+
+## ADR-021 — Approximate Quran spelling search is a strict-miss fallback
+
+Quran search preserves a strict-first trust ladder. NFC/diacritic-free exact containment remains the first retrieval path. Only when that path returns no rows may the app apply the versioned `arabic-query-variant-v1` substitutions for a deliberately small set of Arabic orthographic and South-Asian keyboard variants.
+
+The fallback is query/search-lane logic only: it never rewrites `original_text`, never mutates the canonical Quran artifact, and never changes the source-bound `arabic-search-v1` pack contract. Fallback hits are explicitly labelled **Approximate spelling match** in the reader. Unsupported edit-distance typos continue to abstain unless a future measured lane passes the golden-set gate.
+
+This keeps source truth and search convenience separate while improving recall for common keyboard/script variation without introducing a heavyweight search dependency or silently broadening confidence.

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.aaris.quran.data.QuranRepository
+import com.aaris.quran.data.QuranSearchHit
 import com.aaris.quran.model.QuranAyah
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -22,7 +23,7 @@ data class ReaderUiState(
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
     val searchQuery: String = "",
-    val searchResults: List<QuranAyah> = emptyList(),
+    val searchResults: List<QuranSearchHit> = emptyList(),
     val isSearching: Boolean = false,
     val searchErrorMessage: String? = null,
 )
@@ -79,9 +80,9 @@ class ReaderViewModel(
         }
     }
 
-    fun openSearchResult(ayah: QuranAyah) {
+    fun openSearchResult(hit: QuranSearchHit) {
         updateSearchQuery("")
-        loadSurah(ayah.surah, targetAyah = ayah.ayah)
+        loadSurah(hit.ayah.surah, targetAyah = hit.ayah.ayah)
     }
 
     private fun loadSurah(surah: Int, targetAyah: Int? = null) {
