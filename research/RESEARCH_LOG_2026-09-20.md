@@ -65,3 +65,14 @@ The research now converges on four durable choices: immutable source/display dat
 | type | claim | source | confidence | product implication |
 | --- | --- | --- | --- | --- |
 | fact | SQLite stores file-level structural/version metadata such as the file change counter and the SQLite version that most recently modified the database. A runtime SQLite SHA-256 identifies exact file bytes but does not by itself prove semantic fidelity to an external preserved source. | https://sqlite.org/fileformat.html | high | Keep byte-integrity checking, but independently compare schema and Quran evidence rows/search lanes back to the pinned Source Vault before promotion. |
+
+
+## Signing verifier research update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | RFC 8032 specifies Ed25519 and publishes test vectors; Ed25519 public keys are 32 octets and signatures are 64 octets. | https://www.rfc-editor.org/rfc/rfc8032.html | high | Use the RFC test vector in regression tests rather than trusting only self-generated signatures. |
+| fact | TUF models trusted-key thresholds separately from target hashes and also addresses rollback, freeze and inconsistent-snapshot attacks with additional metadata roles/state. | https://theupdateframework.io/docs/metadata/ and https://theupdateframework.io/docs/security/ | high | Implement signature authentication now, but do not label signed release_sequence as a complete secure-update protocol. |
+| fact | PyCA `cryptography` 50.0.1 is a current production/stable release on PyPI and is licensed Apache-2.0 OR BSD-3-Clause. | https://pypi.org/project/cryptography/ | high | Use it as a replaceable build/security adapter, pinned exactly; it is not Quran/Hadith evidence data. |
+| fact | Android documents the platform `Ed25519` Signature algorithm from API 33, while the reader supports API 24+. | https://developer.android.com/reference/java/security/Signature | high | Keep mobile release activation fail-closed until a deliberate older-API-compatible verification strategy is selected and tested. |
+| inference | A narrow project-owned signed-JSON format is safer here than pretending to implement full JCS/TUF, provided the accepted value domain is explicitly restricted and cross-runtime tested. | architecture synthesis | medium-high | Restrict signed object keys to ASCII, reject floats/invalid surrogates, domain-separate payloads and keep future Android conformance tests mandatory. |
