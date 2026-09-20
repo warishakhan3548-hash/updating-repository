@@ -34,9 +34,9 @@ Its inputs may include:
 
 - an already-existing app-owned `semantic_unit_id`;
 - preserved exposure/review evidence since the last successful retrieval;
-- a replaceable scheduler projection such as review-due state and retrievability;
+- a replaceable scheduler projection such as review-due state, optional retrievability, and explicit authorization to defer a due review to a predicted natural encounter;
 - a future verified prediction of suitable natural encounters in the user's reading path.
 
-A natural encounter may substitute for an interruptive review opportunity, but it is **not** written as successful recall. Passive visibility remains an exposure event. If the user needs meaning help again, that becomes additional struggle evidence; only an explicit review outcome carries canonical Again/Hard/Good/Easy retrieval evidence.
+A natural encounter may substitute for an interruptive due-review opportunity only when the scheduler projection explicitly authorizes that deferral, and it is **not** written as successful recall. Passive visibility remains an exposure event. If the user needs meaning help again, that becomes additional struggle evidence; only an explicit review outcome carries canonical Again/Hard/Good/Easy retrieval evidence.
 
 This policy remains dormant for Quran word-level learning while the current Quran pack has no provenance-backed canonical word identities.
