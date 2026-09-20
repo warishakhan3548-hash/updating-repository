@@ -1,0 +1,43 @@
+name: Android reader
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'content-packs/quran-core/1.0.2/**'
+      - '.github/workflows/android-reader.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'content-packs/quran-core/1.0.2/**'
+      - '.github/workflows/android-reader.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android 17 SDK
+        run: sdkmanager 'platforms;android-37'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Build debug APK
+        working-directory: android
+        run: gradle :app:assembleDebug --stacktrace
