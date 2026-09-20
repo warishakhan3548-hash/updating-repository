@@ -1,10 +1,13 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-val localKeyProperties = java.util.Properties()
+val localKeyProperties = Properties()
 val localKeyPropertiesFile = rootProject.file("key.properties")
 if (localKeyPropertiesFile.exists()) {
     localKeyPropertiesFile.inputStream().use(localKeyProperties::load)
@@ -64,7 +67,7 @@ android {
     signingConfigs {
         create("release") {
             if (releaseSigningReady) {
-                val configuredStore = java.io.File(releaseStoreFilePath!!)
+                val configuredStore = File(releaseStoreFilePath!!)
                 storeFile = if (configuredStore.isAbsolute) {
                     configuredStore
                 } else {
