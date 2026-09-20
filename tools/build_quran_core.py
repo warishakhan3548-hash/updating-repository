@@ -8,13 +8,24 @@ import json
 from pathlib import Path
 import sqlite3
 
-from tools.quran_core import (
-    SEARCH_NORMALIZATION_VERSION,
-    SOURCE_ID,
-    load_production_source,
-    normalize_search_diacritic_free,
-    normalize_search_unicode,
-)
+if __package__:
+    from .quran_core import (
+        SEARCH_NORMALIZATION_VERSION,
+        SOURCE_ID,
+        load_production_source,
+        load_tanzil_notice,
+        normalize_search_diacritic_free,
+        normalize_search_unicode,
+    )
+else:
+    from quran_core import (
+        SEARCH_NORMALIZATION_VERSION,
+        SOURCE_ID,
+        load_production_source,
+        load_tanzil_notice,
+        normalize_search_diacritic_free,
+        normalize_search_unicode,
+    )
 
 PACK_ID = "quran-core"
 CONTENT_VERSION = "1.0.0"
@@ -55,6 +66,7 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     source, artifact, rows = load_production_source(root)
+    source_notice = load_tanzil_notice(artifact)
     schema = (root / "schemas" / "content_v1.sql").read_text(encoding="utf-8")
 
     connection = sqlite3.connect(db_path)
@@ -98,6 +110,10 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
             "source_id": SOURCE_ID,
             "source_version": source["version"],
             "source_sha256": source["sha256"],
+            "source_name": source["source_name"],
+            "licence_id": source["licence_id"],
+            "licence_snapshot": source["licence_snapshot"],
+            "source_notice_verbatim": source_notice,
             "importer_version": IMPORTER_VERSION,
             "search_normalization_version": SEARCH_NORMALIZATION_VERSION,
             "quran_coordinate_count": str(len(rows)),
