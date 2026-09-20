@@ -12,3 +12,6 @@ dist/
 *.key
 *.pem
 source-vault/**/candidate-download/
+.gradle/
+.idea/
+local.properties
