@@ -15,6 +15,7 @@ on:
       - 'tools/build_quran_core.py'
       - 'tools/pack_gate.py'
       - 'tools/verify_quran_core_pack.py'
+      - 'tests/**'
   workflow_dispatch:
 
 permissions:
