@@ -1,3 +1,4 @@
+import groovy.json.JsonSlurper
 import java.io.File
 import java.security.MessageDigest
 import org.gradle.api.tasks.Exec
@@ -21,6 +22,23 @@ fun manifestString(key: String): String {
         ?: error("Quran pack manifest is missing string field: $key")
 }
 
+fun manifestTopLevelReleaseSequenceOrZero(): Long {
+    val manifest = JsonSlurper().parseText(manifestText) as? Map<*, *>
+        ?: error("Quran pack manifest root must be a JSON object")
+    val raw = manifest["release_sequence"] ?: return 0L
+    val sequence = when (raw) {
+        is Int -> raw.toLong()
+        is Long -> raw
+        is java.math.BigInteger -> raw.longValueExact()
+        is java.math.BigDecimal -> raw.longValueExact()
+        else -> error("Quran pack release_sequence must be an integer")
+    }
+    require(sequence in 1..9_007_199_254_740_991L) {
+        "Quran pack release_sequence is outside the signed cross-runtime safe range"
+    }
+    return sequence
+}
+
 fun File.sha256(): String {
     val digest = MessageDigest.getInstance("SHA-256")
     inputStream().use { input ->
@@ -38,6 +56,7 @@ val packVersion = manifestString("content_version")
 val packSha256 = manifestString("built_sha256")
 val packReviewStatus = manifestString("review_status")
 val packSourceSha256 = manifestString("source_sha256")
+val packReleaseSequence = manifestTopLevelReleaseSequenceOrZero()
 
 android {
     namespace = "com.aaris.quran"
@@ -53,6 +72,7 @@ android {
         buildConfigField("String", "QURAN_PACK_SHA256", "\"$packSha256\"")
         buildConfigField("String", "QURAN_SOURCE_SHA256", "\"$packSourceSha256\"")
         buildConfigField("String", "QURAN_PACK_REVIEW_STATUS", "\"$packReviewStatus\"")
+        buildConfigField("long", "QURAN_PACK_RELEASE_SEQUENCE", "${packReleaseSequence}L")
         buildConfigField(
             "boolean",
             "QURAN_PACK_RELEASE_READY",

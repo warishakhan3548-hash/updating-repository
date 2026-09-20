@@ -56,6 +56,43 @@ class AndroidReaderTrustTests(unittest.TestCase):
             manifest["canonical"]["artifact_path"],
         )
 
+    def test_release_build_embeds_signed_sequence_for_runtime_rollback_state(self):
+        build = BUILD.read_text(encoding="utf-8")
+
+        self.assertIn("manifestTopLevelReleaseSequenceOrZero()", build)
+        self.assertIn("9_007_199_254_740_991L", build)
+        self.assertIn(
+            'buildConfigField("long", "QURAN_PACK_RELEASE_SEQUENCE"',
+            build,
+        )
+
+        repository = (
+            ROOT / "app" / "src" / "main" / "java" / "com" / "aaris"
+            / "quran" / "data" / "PackagedQuranRepository.kt"
+        ).read_text(encoding="utf-8")
+        state_store = (
+            ROOT / "app" / "src" / "main" / "java" / "com" / "aaris"
+            / "quran" / "data" / "PackActivationStateStore.kt"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("QURAN_PACK_RELEASE_SEQUENCE", repository)
+        self.assertIn("PackActivationStateStore", repository)
+        self.assertIn("context.noBackupFilesDir", state_store)
+        self.assertIn("AtomicFile", state_store)
+
+    def test_rollback_state_is_checked_before_pack_replacement_and_recorded_after(self):
+        repository = (
+            ROOT / "app" / "src" / "main" / "java" / "com" / "aaris"
+            / "quran" / "data" / "PackagedQuranRepository.kt"
+        ).read_text(encoding="utf-8")
+
+        preflight = repository.index("activationStateStore.requireAcceptable(")
+        activation = repository.index("val installed = installVerifiedPack()")
+        record = repository.index("activationStateStore.accept(", activation)
+
+        self.assertLess(preflight, activation)
+        self.assertLess(activation, record)
+
     def test_reader_has_no_direct_network_permission(self):
         manifest = MANIFEST.read_text(encoding="utf-8")
 
