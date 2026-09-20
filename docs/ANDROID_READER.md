@@ -55,3 +55,11 @@ Pinned as of 2026-09-20:
 ## Current limitation
 
 The UI uses the device Arabic font. A bundled Quran font will only be added after its exact artifact, licence, provenance and redistribution rights are preserved under project control and rendering is regression-tested.
+
+## Release rollback state
+
+Debug builds may exercise unsigned candidate packs and do not write production rollback state.
+
+For a non-debug release, the build-time pack gate remains authoritative for source/provenance/semantic/signature approval. At runtime the reader additionally requires a positive signed `release_sequence`, remembers the highest accepted sequence together with the exact pack SHA-256 under `noBackupFilesDir/content/activation/`, and rejects both lower-sequence rollback and reuse of one sequence for different bytes.
+
+The state and installed pack replacement use Android `AtomicFile` so interrupted replacement falls back to the prior complete file rather than leaving a partial trust record or content database. This is an installed-app rollback barrier, not hardware-backed monotonic storage: uninstall or clear-data removes the state. Automatic downloaded content updates remain disabled.
