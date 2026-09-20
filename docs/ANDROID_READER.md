@@ -8,7 +8,7 @@ The screen only:
 
 1. opens the already-built `quran-core` pack locally;
 2. renders `quran_ayah.original_text`;
-3. navigates Surahs with obvious previous/next controls;
+3. navigates Surahs with obvious previous/next controls plus a direct 1–114 chooser;
 4. performs UI-only tap hit testing for future verified word details.
 
 There is no network permission, account, analytics SDK, translation guess, morphology guess, or AI call.
@@ -41,7 +41,7 @@ Until a legally preserved word-level source passes the Source Vault gate, author
 
 ## Accessibility
 
-Primary navigation controls have at least 48dp interactive height. Quran text uses content-driven RTL direction, each ayah has a screen-reader description with its coordinate, safe drawing insets are respected, and navigation never depends on a gesture.
+Primary navigation controls have at least 48dp interactive height. The current Surah label is also an obvious button that opens a dismissible 1–114 chooser, avoiding dozens of repeated taps without introducing unverified Surah-name content. Quran text uses content-driven RTL direction, each ayah has a screen-reader description with its coordinate, safe drawing insets are respected, and navigation never depends on a gesture.
 
 ## Build toolchain
 
