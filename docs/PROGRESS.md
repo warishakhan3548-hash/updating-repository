@@ -17,7 +17,7 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - 114-surah / 6,236-ayah coordinate invariants;
 - display Arabic separated from derived search-normalized lanes;
 - deterministic Quran-core importer with byte-reproducibility coverage;
-- complete candidate Quran core pack published at `content-packs/quran-core/1.0.2/`;
+- complete candidate Quran core pack published at `content-packs/quran-core/1.0.4/`, using provenance-bound manifest schema v2;
 - GitHub Actions foundation checks and deterministic pack build workflow.
 
 ## Production Source Vault
@@ -42,23 +42,27 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 ## Quran core candidate pack
 
 - pack: `quran-core`
-- content version: `1.0.2`
-- artifact: `content-packs/quran-core/1.0.2/content.sqlite`
+- content version: `1.0.4`
+- manifest schema: `2`
+- artifact: `content-packs/quran-core/1.0.4/content.sqlite`
 - artifact bytes: `4599808`
-- artifact SHA-256: `fbb8827d9a80b29087153178615ede039d15aa50c33c43b536ebcd8c9eaa531e`
+- artifact SHA-256: `492fcc4caa33b5ba64c94abce4d5f78d00232a99b777ea5e3bd70c338e19fa09`
 - records: `6236`
-- importer: `quran-core-importer-3`
+- importer: `quran-core-importer-5`
 - search normalization: `arabic-search-v1`
 - review status: `candidate`
 - signature status: unsigned
-- source-derived attribution notice: `content-packs/quran-core/1.0.2/NOTICE.txt`
-- notice SHA-256: `731ac0d39eb5081307625f5111b19bd8786c6646e695aa8fb0263ad701f41544`
+- source-derived attribution notice: `content-packs/quran-core/1.0.4/NOTICE.txt`
+- notice SHA-256: `d52680db446c36e9f7878c704e1db6eee16328f854671276fc63533fb73f3483`
+- source licence SHA-256: `1ef7fbb0454f64ed4cceb838337808969711155f36147d1b357fc083336f4c68`
+- source provenance SHA-256: `733a938c4f54f082bf7f4e0b1d9bff7ce21afedceeba199294e872a428a57505`
+- supersedes: `quran-core@1.0.3`
 
-Candidate does not mean release-approved. Promotion must still pass review/signing policy. Version 1.0.1 remains preserved as the preceding candidate; 1.0.2 replaces the hand-maintained notice with notice text derived from the pinned source artifact and binds provenance attribution/source URL into runtime metadata.
+Candidate does not mean release-approved. Version 1.0.4 strengthens the runtime trust boundary without changing Quran source text: the manifest is bound to Source Vault attribution/licence/provenance metadata, and the gate cross-checks the same identity plus exact notice text/hash inside SQLite `pack_metadata`.
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, pack/source identity binding, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The Evidence foundation workflow passed after the attribution-notice gate and regression tests were added.
+Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2 manifest-to-vault binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, direct builder CLI execution, and deterministic pack reproducibility. The 1.0.4 publish workflow ran 44 tests successfully and passed the content-pack gate before pushing the generated pack.
 
 No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device test or low-end Android performance number is claimed yet because those systems are not mature enough to measure honestly.
 
