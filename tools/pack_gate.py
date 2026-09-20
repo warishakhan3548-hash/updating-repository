@@ -21,6 +21,28 @@ class PackGateError(RuntimeError):
     pass
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise PackGateError(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
+
+
+def _load_json_strict(path: Path) -> dict:
+    try:
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except json.JSONDecodeError as exc:
+        raise PackGateError(f"invalid JSON: {path}") from exc
+    if not isinstance(value, dict):
+        raise PackGateError(f"JSON root must be an object: {path}")
+    return value
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -197,7 +219,7 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     except ValueError as exc:
         raise PackGateError("manifest must be under content-packs/") from exc
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = _load_json_strict(manifest_path)
     required = [
         "pack_id",
         "schema_version",
