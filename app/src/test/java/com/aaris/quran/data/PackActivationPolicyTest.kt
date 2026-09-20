@@ -70,6 +70,20 @@ class PackActivationPolicyTest {
     }
 
     @Test
+    fun releaseSequenceMustStayInsideSignedCrossRuntimeRange() {
+        assertThrows(IllegalArgumentException::class.java) {
+            PackActivationPolicy.accept(null, 0L, shaA)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            PackActivationPolicy.accept(
+                null,
+                MAX_SIGNED_RELEASE_SEQUENCE + 1L,
+                shaA,
+            )
+        }
+    }
+
+    @Test
     fun malformedStateFailsClosed() {
         assertThrows(IllegalStateException::class.java) {
             PackActivationStateCodec.decode(
