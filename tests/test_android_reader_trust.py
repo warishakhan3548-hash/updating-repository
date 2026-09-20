@@ -6,6 +6,19 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "app" / "build.gradle.kts"
 MANIFEST = ROOT / "app" / "src" / "main" / "AndroidManifest.xml"
+PACKAGED_REPOSITORY = (
+    ROOT
+    / "app"
+    / "src"
+    / "main"
+    / "java"
+    / "com"
+    / "aaris"
+    / "quran"
+    / "data"
+    / "PackagedQuranRepository.kt"
+)
+RELEASE_SEQUENCE_GUARD = PACKAGED_REPOSITORY.with_name("ReleaseSequenceGuard.kt")
 
 
 class AndroidReaderTrustTests(unittest.TestCase):
@@ -55,6 +68,31 @@ class AndroidReaderTrustTests(unittest.TestCase):
             "canonical/quran-core/1.0.0/ayahs.jsonl",
             manifest["canonical"]["artifact_path"],
         )
+
+    def test_release_runtime_persists_monotonic_sequence_outside_backup(self):
+        build = BUILD.read_text(encoding="utf-8")
+        repository = PACKAGED_REPOSITORY.read_text(encoding="utf-8")
+        guard = RELEASE_SEQUENCE_GUARD.read_text(encoding="utf-8")
+
+        self.assertIn("QURAN_PACK_RELEASE_SEQUENCE", build)
+        self.assertIn("BuildConfig.QURAN_PACK_RELEASE_SEQUENCE", repository)
+        self.assertIn("context.noBackupFilesDir", repository)
+        self.assertIn("AtomicFile", guard)
+        self.assertIn("quran-core.release-sequence", guard)
+        self.assertIn("candidate >= highestAccepted", guard)
+
+    def test_release_sequence_is_checked_before_pack_activation_and_recorded_after(self):
+        repository = PACKAGED_REPOSITORY.read_text(encoding="utf-8")
+
+        check_index = repository.index("releaseSequenceStore.requireAcceptable(candidate)")
+        activate_index = repository.index("temporary.renameTo(target)")
+        record_index = repository.index(
+            "releaseSequence?.let(releaseSequenceStore::recordAccepted)",
+            activate_index,
+        )
+
+        self.assertLess(check_index, activate_index)
+        self.assertLess(activate_index, record_index)
 
     def test_reader_has_no_direct_network_permission(self):
         manifest = MANIFEST.read_text(encoding="utf-8")
