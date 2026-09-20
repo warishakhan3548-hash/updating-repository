@@ -17,6 +17,8 @@ The design follows TUF principles—trusted metadata, freshness, integrity and r
 
 ## Current implementation status
 
-Hash and provenance validation are implemented, but trusted-key cryptographic signature verification is not yet implemented. Therefore the content-pack gate deliberately rejects every manifest marked `approved`, even when signature-shaped fields are present. This prevents unsigned or fake-signed content from crossing the production Reader activation boundary.
+Repository/build-time trusted-key cryptographic verification is implemented with Ed25519 after Source Vault, provenance, canonical and semantic-fidelity gates. Approved manifests must carry authenticated release-ordering metadata and satisfy the threshold in `policy/trusted_pack_keys.json`.
 
-The next signing milestone must define the signed payload/canonicalization, trusted public-key storage, key IDs and rotation, verification algorithm, rollback metadata, and regression tests before any pack may be promoted to `approved`.
+The production trusted-key policy intentionally contains **no release public keys yet**, so no current pack can become `approved`. Private release keys remain outside Git and require a separate offline key ceremony.
+
+This is not yet a complete network update client. Device-side rollback state, freshness/freeze resistance, trust-root rotation, atomic activation/recovery and min-API-compatible Android signature verification remain explicit future work. The current Android release gate therefore stays fail-closed.
