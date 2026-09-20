@@ -58,8 +58,11 @@ class QuranRepository(context: Context) {
     private fun verifyMetadata(database: SQLiteDatabase) {
         val expected = mapOf(
             "pack_id" to QuranPackContract.PACK_ID,
+            "schema_version" to QuranPackContract.SCHEMA_VERSION.toString(),
             "content_version" to QuranPackContract.CONTENT_VERSION,
             "source_sha256" to QuranPackContract.SOURCE_SHA256,
+            "source_licence_sha256" to QuranPackContract.SOURCE_LICENCE_SHA256,
+            "source_provenance_sha256" to QuranPackContract.SOURCE_PROVENANCE_SHA256,
             "quran_coordinate_count" to QuranPackContract.RECORD_COUNT.toString(),
         )
 
