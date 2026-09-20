@@ -47,13 +47,52 @@ jobs:
             git reset --hard origin/main
             git clean -fdx -- content-packs/quran-core/1.0.0
 
-            if [[ -f content-packs/quran-core/1.0.0/manifest.json ]]; then
+            TARGET='content-packs/quran-core/1.0.0'
+            MANIFEST="$TARGET/manifest.json"
+            DATABASE="$TARGET/content.sqlite"
+
+            if [[ -f "$MANIFEST" && -f "$DATABASE" ]]; then
               echo 'Quran core pack already exists on current main; validating existing immutable pack.'
               python tools/vault_gate.py source-vault/registry.json
-              python tools/pack_gate.py \
-                source-vault/registry.json \
-                content-packs/quran-core/1.0.0/manifest.json
+              python tools/pack_gate.py source-vault/registry.json "$MANIFEST"
               exit 0
+            fi
+
+            if [[ -f "$MANIFEST" && ! -f "$DATABASE" ]]; then
+              echo 'Manifest exists but SQLite artifact is missing; attempting hash-preserving repair.'
+              EXPECTED_MANIFEST="$(mktemp)"
+              cp "$MANIFEST" "$EXPECTED_MANIFEST"
+              rm "$MANIFEST"
+
+              python tools/vault_gate.py source-vault/registry.json
+              python tools/validate_schemas.py
+              python -m unittest discover -s tests -v
+              python tools/build_quran_core.py
+
+              cmp "$EXPECTED_MANIFEST" "$MANIFEST"
+              python tools/pack_gate.py source-vault/registry.json "$MANIFEST"
+
+              BASE_SHA="$(git rev-parse HEAD)"
+              git fetch origin main
+              REMOTE_SHA="$(git rev-parse origin/main)"
+              if [[ "$BASE_SHA" != "$REMOTE_SHA" ]]; then
+                echo "main moved during repair ($BASE_SHA -> $REMOTE_SHA); rebuilding from latest main."
+                continue
+              fi
+
+              git add -f "$DATABASE"
+              git commit -m 'Restore Quran core content pack artifact 1.0.0'
+              if git push origin HEAD:main; then
+                exit 0
+              fi
+
+              echo 'Repair push raced with another main update; rebuilding from latest main.'
+              continue
+            fi
+
+            if [[ -f "$DATABASE" && ! -f "$MANIFEST" ]]; then
+              echo 'Refusing orphan Quran SQLite artifact without manifest.' >&2
+              exit 1
             fi
 
             python tools/vault_gate.py source-vault/registry.json
