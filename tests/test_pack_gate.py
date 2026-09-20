@@ -118,6 +118,37 @@ class PackGateTests(unittest.TestCase):
             validate_manifest(manifest, registry)
 
 
+
+    def test_attribution_required_pack_requires_notice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            registry_data = json.loads(registry.read_text(encoding="utf-8"))
+            registry_data["sources"][0]["attribution_required"] = True
+            registry.write_text(json.dumps(registry_data), encoding="utf-8")
+            with self.assertRaises(PackGateError):
+                validate_manifest(manifest, registry)
+
+    def test_attribution_notice_hash_is_verified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            registry_data = json.loads(registry.read_text(encoding="utf-8"))
+            registry_data["sources"][0]["attribution_required"] = True
+            registry.write_text(json.dumps(registry_data), encoding="utf-8")
+
+            notice = root / "content-packs" / "quran-example" / "1.0" / "NOTICE.txt"
+            notice.write_text("required attribution", encoding="utf-8")
+            manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+            manifest_data["notice_path"] = "content-packs/quran-example/1.0/NOTICE.txt"
+            manifest_data["notice_sha256"] = hashlib.sha256(notice.read_bytes()).hexdigest()
+            manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
+            validate_manifest(manifest, registry)
+
+            notice.write_text("tampered attribution", encoding="utf-8")
+            with self.assertRaisesRegex(PackGateError, "notice_sha256 mismatch"):
+                validate_manifest(manifest, registry)
+
     def test_runtime_pack_symlink_cannot_escape_content_packs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
