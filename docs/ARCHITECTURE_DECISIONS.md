@@ -20,3 +20,6 @@ Important Android controls target at least 48dp touch areas. Inline Arabic word 
 
 ## ADR-007 — Signed content updates when distribution exists
 Use TUF-style version, hash, signature and rollback principles rather than ad-hoc URL replacement, while keeping implementation minimal until real downloadable packs exist.
+
+## ADR-008 — Runtime packs cannot outrun Source Vault trust
+A runtime content pack may only reference a `production-approved` Source Vault entry. CI cross-checks the pack's source ID, version, vault path, source hash and licence against the registry, then verifies the built artifact's own hash and byte size. `approved` packs require signature metadata. This turns provenance from documentation into an executable release boundary.
