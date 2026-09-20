@@ -220,6 +220,11 @@
     "byte_reproducibility_scope": {
       "type": "string",
       "minLength": 1
+    },
+    "release_sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic signed release ordering primitive; required for approved packs."
     }
   },
   "dependentRequired": {
@@ -334,7 +339,10 @@
             },
             "additionalProperties": false
           }
-        }
+        },
+        "required": [
+          "release_sequence"
+        ]
       }
     }
   ]
