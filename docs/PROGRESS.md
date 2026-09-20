@@ -17,7 +17,7 @@ Phase 0A–0C is executable. The first Quran Evidence Plane source is permanentl
 - 114-surah / 6,236-ayah coordinate invariants;
 - display Arabic separated from derived search-normalized lanes;
 - deterministic Quran-core importer with byte-reproducibility coverage;
-- complete candidate Quran core pack published at `content-packs/quran-core/1.0.4/`, using provenance-bound manifest schema v2;
+- complete candidate Quran core pack published at `content-packs/quran-core/1.0.4/`, using provenance-bound manifest schema v2;\n- schema-v2 Quran promotion performs importer-independent semantic verification against Source Vault evidence and canonical SQLite schema;\n- adversarial regressions reject Quran-text and SQLite-schema tampering even after a fresh runtime artifact SHA-256 is written;
 - GitHub Actions foundation checks and deterministic pack build workflow.
 
 ## Production Source Vault
