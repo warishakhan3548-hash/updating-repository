@@ -40,6 +40,7 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
   String _error = '';
   int _generation = 0;
   late Object _observedSnapshot;
+  late int _observedSearchEpoch;
   bool _controllerListening = false;
   bool _refreshWhenActive = false;
   bool _browseExhausted = false;
@@ -67,6 +68,7 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
     );
 
     _observedSnapshot = widget.controller.snapshot;
+    _observedSearchEpoch = widget.controller.searchProjectionEpoch;
     unawaited(_search());
     if (_initialContextRestoreId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -100,16 +102,20 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
     widget.controller.addListener(_inventoryChanged);
     _controllerListening = true;
     final currentSnapshot = widget.controller.snapshot;
-    if (_refreshWhenActive ||
-        !identical(currentSnapshot, _observedSnapshot)) {
-      final preserveResults = _publishedHits.canPreserveAgainst(
-        currentSnapshot.records,
-      );
-      _observedSnapshot = currentSnapshot;
-      _refreshWhenActive = false;
-      _debounce?.cancel();
-      unawaited(_search(preserveResults: preserveResults));
-    }
+    final currentSearchEpoch = widget.controller.searchProjectionEpoch;
+    final refreshWasPending = _refreshWhenActive;
+    final searchProjectionChanged =
+        currentSearchEpoch != _observedSearchEpoch;
+    _observedSnapshot = currentSnapshot;
+    _observedSearchEpoch = currentSearchEpoch;
+    _refreshWhenActive = false;
+    if (!refreshWasPending && !searchProjectionChanged) return;
+
+    final preserveResults = _publishedHits.canPreserveAgainst(
+      currentSnapshot.records,
+    );
+    _debounce?.cancel();
+    unawaited(_search(preserveResults: preserveResults));
   }
 
   @override
@@ -122,6 +128,7 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
       widget.controller.addListener(_inventoryChanged);
     }
     _observedSnapshot = widget.controller.snapshot;
+    _observedSearchEpoch = widget.controller.searchProjectionEpoch;
     _resetBrowseWindow();
     _publishedHits = SearchHitPublication.empty;
     ++_generation;
@@ -157,11 +164,20 @@ class _RemovedStockScreenState extends State<RemovedStockScreen> {
 
   void _inventoryChanged() {
     final currentSnapshot = widget.controller.snapshot;
-    if (identical(currentSnapshot, _observedSnapshot)) return;
+    final currentSearchEpoch = widget.controller.searchProjectionEpoch;
+    if (identical(currentSnapshot, _observedSnapshot) &&
+        currentSearchEpoch == _observedSearchEpoch) {
+      return;
+    }
+    final searchProjectionChanged =
+        currentSearchEpoch != _observedSearchEpoch;
+    _observedSnapshot = currentSnapshot;
+    _observedSearchEpoch = currentSearchEpoch;
+    if (!searchProjectionChanged) return;
+
     final preserveResults = _publishedHits.canPreserveAgainst(
       currentSnapshot.records,
     );
-    _observedSnapshot = currentSnapshot;
     _debounce?.cancel();
     if (mounted) {
       unawaited(_search(preserveResults: preserveResults));
