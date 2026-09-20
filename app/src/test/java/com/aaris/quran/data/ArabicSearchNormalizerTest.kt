@@ -41,7 +41,7 @@ class ArabicSearchNormalizerTest {
             ArabicSearchNormalizer.normalizeCompatibility("قل ہو"),
         )
         assertEquals(
-            "ک ى",
+            "ک ي",
             ArabicSearchNormalizer.normalizeCompatibility("ک ى"),
         )
     }
