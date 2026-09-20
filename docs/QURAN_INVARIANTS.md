@@ -5,9 +5,10 @@ A release containing Quran text must fail if any applicable invariant fails:
 - expected surah set and chosen coordinate set;
 - unique ayah/token coordinates;
 - approved source SHA-256 matches vault bytes;
-- schema-v2 runtime Quran coordinates and `original_text` match the preserved source row-for-row;
+- schema-v2/v3 runtime Quran coordinates and `original_text` match the preserved source row-for-row;
+- schema-v3 canonical JSONL coordinates and `original_text` match the preserved Source Vault source row-for-row, even if canonical hashes were recomputed;
 - derived Quran search lanes recompute from immutable source/display text using the pinned normalization version;
-- schema-v2 runtime SQLite structure matches the reviewed canonical content schema;
+- schema-v2/v3 runtime SQLite structure matches the reviewed canonical content schema;
 - displayed Arabic comes only from immutable original fields;
 - normalized search fields are never used for display;
 - token/segment joins are complete for the chosen morphology source;
@@ -28,3 +29,5 @@ Source bytes are never corrected in place. Corrections or interpretive overlays 
 - changing this trust contract requires a new immutable content version rather than rewriting an older pack.
 
 A runtime SHA-256 identifies exact shipped bytes. For provenance-bound schema-v2 Quran packs, promotion separately proves semantic fidelity to the preserved source and canonical runtime schema; recomputing a hash after altering sacred text or schema must not make a pack valid.
+
+For schema-v3 Quran packs, the Source Vault → canonical JSONL → runtime SQLite chain is checked semantically at each boundary. Hashes identify exact bytes; they do not substitute for sacred-text fidelity checks.
