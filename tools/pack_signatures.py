@@ -16,30 +16,73 @@ from typing import Any
 SIGNATURE_FORMAT = "aaris-pack-signature-v1"
 RELEASE_ROLE = "content-pack-release"
 KEYRING_SCHEMA_VERSION = 1
+MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
 
 class PackSignatureError(RuntimeError):
     pass
 
 
-def _reject_float(value: Any, path: str = "$") -> None:
+def _validate_signed_json(value: Any, path: str = "$") -> None:
     if isinstance(value, float):
         raise PackSignatureError(
             f"floating-point value is not allowed in signed metadata at {path}"
         )
+    if isinstance(value, int) and not isinstance(value, bool):
+        if abs(value) > MAX_SAFE_INTEGER:
+            raise PackSignatureError(
+                f"integer is outside the cross-runtime safe range at {path}"
+            )
     if isinstance(value, dict):
         for key, child in value.items():
             if not isinstance(key, str):
                 raise PackSignatureError(f"non-string JSON object key at {path}")
-            _reject_float(child, f"{path}.{key}")
+            if not key.isascii():
+                raise PackSignatureError(
+                    f"non-ASCII JSON object key is not allowed in signed metadata at {path}"
+                )
+            _validate_signed_json(child, f"{path}.{key}")
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            _reject_float(child, f"{path}[{index}]")
+            _validate_signed_json(child, f"{path}[{index}]")
+
+
+def _unique_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PackSignatureError(f"duplicate JSON object key: {key!r}")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise PackSignatureError(f"non-standard JSON constant is not allowed: {value}")
+
+
+def loads_strict_json(text: str, *, label: str = "JSON") -> Any:
+    """Parse JSON without duplicate object names or NaN/Infinity extensions."""
+    try:
+        return json.loads(
+            text,
+            object_pairs_hook=_unique_object_pairs,
+            parse_constant=_reject_json_constant,
+        )
+    except json.JSONDecodeError as exc:
+        raise PackSignatureError(f"invalid {label} JSON") from exc
+
+
+def load_strict_json_file(path: Path, *, label: str = "JSON") -> Any:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise PackSignatureError(f"cannot read {label}: {path}") from exc
+    return loads_strict_json(text, label=label)
 
 
 def canonical_json_bytes(value: Any) -> bytes:
     """Serialize a restricted JSON value deterministically for signatures."""
-    _reject_float(value)
+    _validate_signed_json(value)
     try:
         text = json.dumps(
             value,
@@ -88,10 +131,7 @@ def _decode_hex(value: object, *, expected_bytes: int, field: str) -> bytes:
 def _load_keyring(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise PackSignatureError(f"missing trusted pack key policy: {path}")
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PackSignatureError("invalid trusted pack key policy JSON") from exc
+    data = load_strict_json_file(path, label="trusted pack key policy")
     if (
         not isinstance(data, dict)
         or data.get("schema_version") != KEYRING_SCHEMA_VERSION
