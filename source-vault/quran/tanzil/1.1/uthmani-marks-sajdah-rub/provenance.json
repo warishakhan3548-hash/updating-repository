@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "source_id": "quran.tanzil.uthmani.v1.1",
+  "source_project": "Tanzil Project",
+  "source_name": "Tanzil Quran Text",
+  "original_url": "https://tanzil.net/pub/download/index.php?quranType=uthmani&outType=txt-2&agree=true&marks=true&sajdah=true&rub=true",
+  "download_page": "https://tanzil.net/download/",
+  "licence_url": "https://tanzil.net/docs/Text_License",
+  "version": "1.1",
+  "edition": "Uthmani",
+  "retrieved_at": "2026-09-20T16:44:13+00:00",
+  "sha256": "4b91f9e6e8ac645d039e4ed85b3be492e795232a31cd22d668ac58238722e26f",
+  "byte_size": 1384612,
+  "licence_id": "CC-BY-3.0-with-source-specific-no-modification-terms",
+  "redistribution_allowed": true,
+  "modification_allowed": false,
+  "attribution_required": true,
+  "attribution": "Tanzil Project; link to https://tanzil.net/",
+  "known_restrictions": [
+    "Distribute the Quran text verbatim; changing the text is not allowed.",
+    "Clearly indicate Tanzil Project as the source and link to tanzil.net.",
+    "Preserve the copyright notice in verbatim copies and derived files containing a substantial portion."
+  ],
+  "download_configuration": {
+    "quranType": "uthmani",
+    "outType": "txt-2",
+    "agree": true,
+    "marks": true,
+    "sajdah": true,
+    "rub": true,
+    "sequential_tanween": false,
+    "tatweel_below_superscript_alef": false
+  },
+  "vault_artifact": "source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/quran-uthmani.txt",
+  "licence_snapshot": "source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/LICENSE_SOURCE.html",
+  "checksum_file": "source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/sha256.txt",
+  "project_mirror": "source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/quran-uthmani.txt"
+}
