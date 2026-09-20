@@ -34,3 +34,5 @@ For a source whose preserved artifact embeds its required notice, the runtime pa
 ## ADR-011 — Trusted build workflows are content dependencies
 Remote GitHub Actions used by evidence/content builds are pinned to full commit SHAs and guarded by tests. A workflow that commits generated evidence artifacts with `GITHUB_TOKEN` must validate the exact committed tree before push; it must not assume that its bot-generated push will trigger another ordinary `push` workflow.
 
+## ADR-012 — Ed25519 release signatures with project-owned threshold policy
+Approved content packs are authenticated with Ed25519 against `policy/trusted_pack_keys.json`. The signed payload is a restricted deterministic JSON representation of the entire manifest except its signature container, with a domain separator and no floats. The policy supports stable key IDs, active/retired/revoked states and a signature threshold. A signed positive `release_sequence` is the future device anti-rollback ordering primitive. Private release keys never enter Git; the repository currently enrolls no production key, so existing candidate packs remain unapproved.
