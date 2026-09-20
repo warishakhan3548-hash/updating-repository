@@ -1,10 +1,14 @@
+import base64
 import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from tools.pack_gate import PackGateError, validate_manifest
+from tools.pack_signing import PAYLOAD_FORMAT, signature_payload
 
 
 class PackGateTests(unittest.TestCase):
@@ -122,6 +126,101 @@ class PackGateTests(unittest.TestCase):
                 "approved packs are disabled until cryptographic signature verification",
             ):
                 validate_manifest(manifest, registry)
+
+
+    @staticmethod
+    def _install_test_release_key(root: Path, public_key: bytes) -> Path:
+        policy_dir = root / "policy"
+        policy_dir.mkdir(parents=True, exist_ok=True)
+        path = policy_dir / "trusted_pack_keys.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "signature_threshold": 1,
+                    "keys": [
+                        {
+                            "key_id": "release-key-1",
+                            "algorithm": "ed25519",
+                            "status": "active",
+                            "min_release_sequence": 1,
+                            "max_release_sequence": None,
+                            "public_key_base64": base64.b64encode(public_key).decode(
+                                "ascii"
+                            ),
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_approved_pack_requires_verified_signature_not_just_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["review_status"] = "approved"
+            data["release_sequence"] = 1
+            data["signature"] = {
+                "status": "signed",
+                "payload_format": PAYLOAD_FORMAT,
+                "signatures": [
+                    {
+                        "algorithm": "ed25519",
+                        "key_id": "release-key-1",
+                        "value": base64.b64encode(b"not-a-real-signature").decode(
+                            "ascii"
+                        ),
+                    }
+                ],
+            }
+            self._install_test_release_key(
+                root,
+                bytes.fromhex(
+                    "d75a980182b10ab7d54bfed3c964073a"
+                    "0ee172f3daa62325af021a68f707511a"
+                ),
+            )
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError, "trusted signature threshold not met"
+            ):
+                validate_manifest(manifest, registry)
+
+    def test_approved_pack_passes_only_with_real_trusted_signature(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry, manifest, _ = self._fixture(root)
+            private = Ed25519PrivateKey.from_private_bytes(
+                bytes.fromhex(
+                    "9d61b19deffd5a60ba844af492ec2cc4"
+                    "4449c5697b326919703bac031cae7f60"
+                )
+            )
+            self._install_test_release_key(
+                root,
+                private.public_key().public_bytes_raw(),
+            )
+
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["review_status"] = "approved"
+            data["release_sequence"] = 1
+            signed = private.sign(signature_payload(data))
+            data["signature"] = {
+                "status": "signed",
+                "payload_format": PAYLOAD_FORMAT,
+                "signatures": [
+                    {
+                        "algorithm": "ed25519",
+                        "key_id": "release-key-1",
+                        "value": base64.b64encode(signed).decode("ascii"),
+                    }
+                ],
+            }
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            validate_manifest(manifest, registry)
 
 
     def test_attribution_required_pack_requires_notice(self):
