@@ -285,6 +285,19 @@ def validate_registry(registry_path: Path) -> None:
             for field in PRESERVED_SNAPSHOT_FIELDS
             if source.get(field) not in (None, "")
         ]
+        missing_snapshot_fields = [
+            field
+            for field in PRESERVED_SNAPSHOT_FIELDS
+            if source.get(field) in (None, "")
+        ]
+        if (
+            status == "production-approved" or snapshot_fields_present
+        ) and missing_snapshot_fields:
+            raise VaultGateError(
+                f"{source_id}: preserved snapshot metadata is incomplete; "
+                f"missing {missing_snapshot_fields}"
+            )
+
         retention_clearance_required = (
             status in {"awaiting-artifact", "production-approved"}
             or bool(snapshot_fields_present)
@@ -301,17 +314,6 @@ def validate_registry(registry_path: Path) -> None:
 
         if status != "production-approved" and not snapshot_fields_present:
             continue
-
-        missing_snapshot_fields = [
-            field
-            for field in PRESERVED_SNAPSHOT_FIELDS
-            if source.get(field) in (None, "")
-        ]
-        if missing_snapshot_fields:
-            raise VaultGateError(
-                f"{source_id}: preserved snapshot metadata is incomplete; "
-                f"missing {missing_snapshot_fields}"
-            )
 
         for field in ("source_name", "version", "licence_id"):
             if not isinstance(source.get(field), str) or not source[field]:
