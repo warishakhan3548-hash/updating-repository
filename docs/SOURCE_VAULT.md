@@ -25,7 +25,9 @@ An unmirrored research candidate may remain metadata-only. Once **any** preserve
 
 The Source Vault gate validates preserved candidate snapshots before production promotion as well as production-approved snapshots. This prevents research/awaiting-review bytes from drifting silently between acquisition and later review. A preserved candidate still cannot feed a release content builder until its registry status is explicitly promoted to `production-approved`.
 
-Because this repository is project-controlled redistribution infrastructure, a preserved public snapshot must also have verified redistribution permission and explicit modification/attribution flags. If those rights are unresolved, keep the source metadata-only and do not mirror its bytes.
+Because this repository is project-controlled redistribution infrastructure, a preserved public snapshot must also have verified redistribution permission, explicit modification/attribution flags, and explicit permission to retain the historical snapshot. If any of those rights are unresolved, keep the source metadata-only and do not mirror its bytes.
+
+`awaiting-artifact` is capture-authorized state, so it also requires verified historical-retention permission even before bytes exist. `research-candidate` and `awaiting-licence` may remain metadata-only while that question is unresolved.
 
 Acquisition tools that write into `source-vault/` must consult the registry **before making any network request**. A source in `awaiting-licence` is not capture-authorized. This prevents a review-only downloader from accidentally turning unresolved third-party rights into a public project-controlled mirror. The central vault gate independently rejects any `awaiting-licence` entry that already declares preserved snapshot bytes, and any source with `historical_snapshot_retention_status: unresolved` must remain `awaiting-licence`.
 
@@ -57,6 +59,9 @@ The gate records and verifies:
 - redistribution, modification and attribution permissions cross-checked between registry and provenance;
 - the archived licence snapshot path cross-checked between registry and provenance;
 - a timezone-aware retrieval timestamp;
-- mandatory release rules from `policy/license_policy.json`.
+- mandatory release rules from `policy/license_policy.json`;
+- a registry `release_requirements` decision whose historical-retention status is `verified-allowed`.
+
+Release/freshness obligations are mutable review policy and are not acquisition facts. They stay in the registry (and, when required, the signed pack release review) instead of being copied into immutable source provenance.
 
 `schemas/source_registry_v1.schema.json` documents the registry shape. `tools/vault_gate.py` remains the executable conditional authority for production promotion.
