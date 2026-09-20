@@ -71,6 +71,8 @@ class VaultGateTests(unittest.TestCase):
         }
         provenance_path = base / "provenance.json"
         provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+        notice = base / "NOTICE.txt"
+        notice.write_bytes(b"immutable")
         source = {
             "source_id": "example",
             "source_name": "Example Source",
@@ -88,6 +90,10 @@ class VaultGateTests(unittest.TestCase):
             "licence_sha256": hashlib.sha256(licence.read_bytes()).hexdigest(),
             "provenance_sha256": hashlib.sha256(
                 provenance_path.read_bytes()
+            ).hexdigest(),
+            "required_notice_path": "source-vault/quran/example/1.0/NOTICE.txt",
+            "required_notice_sha256": hashlib.sha256(
+                notice.read_bytes()
             ).hexdigest(),
             "byte_size": artifact.stat().st_size,
         }
@@ -238,6 +244,28 @@ class VaultGateTests(unittest.TestCase):
             self._policy(root, forbid_unknown_licence_in_release=False)
             with self.assertRaises(VaultGateError):
                 validate_registry(path)
+
+
+    def test_required_notice_must_be_embedded_verbatim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root)
+            notice = root / source["required_notice_path"]
+            notice.write_bytes(b"different notice")
+            source["required_notice_sha256"] = hashlib.sha256(
+                notice.read_bytes()
+            ).hexdigest()
+            with self.assertRaisesRegex(VaultGateError, "not embedded verbatim"):
+                validate_registry(self._registry(root, source))
+
+    def test_required_notice_hash_is_verified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root)
+            notice = root / source["required_notice_path"]
+            notice.write_bytes(b"tampered")
+            with self.assertRaisesRegex(VaultGateError, "required notice SHA-256 mismatch"):
+                validate_registry(self._registry(root, source))
 
 
 if __name__ == "__main__":
