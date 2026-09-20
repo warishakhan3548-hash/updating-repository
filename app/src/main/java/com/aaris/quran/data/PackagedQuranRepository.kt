@@ -18,6 +18,7 @@ class PackagedQuranRepository(
     }
 
     private val installedPack: File by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        synchronized(packActivationMonitor) {
         require(BuildConfig.DEBUG || BuildConfig.QURAN_PACK_RELEASE_READY) {
             "Production reader refuses an unapproved or unsigned Quran pack"
         }
@@ -47,6 +48,7 @@ class PackagedQuranRepository(
             )
         }
         installed
+        }
     }
 
     override suspend fun ayahsForSurah(surah: Int): List<QuranAyah> =
@@ -140,6 +142,13 @@ class PackagedQuranRepository(
             "Activated Quran pack failed post-write SHA-256 verification"
         }
         return target
+    }
+
+    private companion object {
+        // AtomicFile provides crash-safe replacement, not locking. This monitor guards the
+        // complete preflight -> content activation -> acceptance-state commit transaction
+        // across every repository instance in this single-process application.
+        val packActivationMonitor = Any()
     }
 
     private fun File.sha256(): String {
