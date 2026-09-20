@@ -96,6 +96,16 @@ class AndroidReaderContractTests(unittest.TestCase):
         self.assertNotIn("search_unicode", query)
         self.assertNotIn("search_diacritic_free", query)
 
+    def test_reader_ci_uses_stable_android_16_sdk(self) -> None:
+        build = (APP / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+        workflow = (
+            ROOT / ".github" / "workflows" / "android-reader.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("compileSdk = 36", build)
+        self.assertIn("targetSdk = 36", build)
+        self.assertIn("platforms;android-36", workflow)
+        self.assertNotIn("platforms;android-37", workflow)
+
     def test_manifest_does_not_enable_cloud_backup_by_default(self) -> None:
         manifest = (
             APP / "app" / "src" / "main" / "AndroidManifest.xml"
