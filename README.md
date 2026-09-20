@@ -14,7 +14,7 @@ Phase 0A–0C is operational and the first Quran evidence source has passed the 
 
 **Not production-approved yet:** Quranic Arabic Corpus morphology, Hadith datasets, QUL resources and other optional content. See `source-vault/registry.json`.
 
-This is not yet a finished reader application. Reader UI, morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
+A minimal Android reader vertical slice now exists on top of the trusted Quran pack boundary, but this is not yet a finished reader application. Morphology-assisted word tap, learning, Hadith retrieval and external-AI evidence workflows follow only after their required data foundations pass the same gates.
 
 ## Architecture boundaries
 
@@ -24,6 +24,7 @@ This is not yet a finished reader application. Reader UI, morphology-assisted wo
 - Learning Plane: glosses, exposure/review events, scheduler state and derived comprehension.
 - AI may expand queries or reason over exported evidence; it cannot author Evidence Plane truth.
 - Normal content builds use project-controlled snapshots, never an uncontrolled upstream `latest`.
+- Android release readiness is fail-closed: signature-shaped manifest fields are not accepted as cryptographic verification.
 
 ## Current Quran core
 
