@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "signature_threshold": 1,
+  "keys": [],
+  "notes": "No production release key is enrolled yet. Private keys must never be committed. Enroll only reviewed ECDSA P-256 public keys whose key_id is the SHA-256 fingerprint of SubjectPublicKeyInfo bytes."
+}
