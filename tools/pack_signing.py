@@ -140,6 +140,11 @@ def _load_policy(path: Path) -> tuple[int, dict[str, dict[str, Any]]]:
     return threshold, keys
 
 
+def validate_trusted_key_policy(path: Path) -> None:
+    """Validate key-policy syntax even before any release key is enrolled."""
+    _load_policy(path)
+
+
 def verify_manifest_signature(
     manifest: dict[str, Any],
     trusted_keys_path: Path,
@@ -205,3 +210,28 @@ def verify_manifest_signature(
             f"{len(valid_key_ids)}/{threshold}"
         )
     return tuple(sorted(valid_key_ids))
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Validate the project trusted content-pack public-key policy."
+    )
+    parser.add_argument(
+        "policy",
+        nargs="?",
+        type=Path,
+        default=Path("policy/trusted_pack_keys.json"),
+    )
+    args = parser.parse_args()
+    try:
+        validate_trusted_key_policy(args.policy)
+    except PackSignatureError as exc:
+        print(f"Trusted pack key policy FAILED: {exc}", file=__import__("sys").stderr)
+        raise SystemExit(1)
+    print("Trusted pack key policy OK")
+
+
+if __name__ == "__main__":
+    main()
