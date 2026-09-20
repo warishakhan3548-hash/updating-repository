@@ -100,3 +100,9 @@ After a source has independently cleared the licence/archival gate, an inherentl
 The root artifact is a project-owned checksum ledger whose own SHA-256 and byte size are recorded in the registry. Every ledger member must use one canonical relative POSIX path, remain inside the same immutable snapshot directory and match its recorded SHA-256. Absolute/traversal paths, non-canonical path spellings, symlinked ledgers or members, duplicate members and self-reference fail closed.
 
 This is a preservation-integrity primitive, not a licence or promotion shortcut. Runtime builders still require `production-approved`, verified redistribution and historical-retention rights, licence/provenance binding, applicable release-time source requirements and all existing pack gates. Source-specific validators remain responsible for semantic invariants such as Quran/Hadith coordinates, editions and record shape.
+
+## ADR-021 — Commercial-use permission is an independent release gate
+
+Redistribution permission does not imply permission to ship content in a commercial build. The Source Vault registry records `commercial_use_allowed` separately from redistribution, modification and attribution requirements. A source may remain useful for research with a false or unknown commercial-use value, but it cannot be `production-approved` or feed a runtime pack unless commercial use is explicitly verified as allowed.
+
+The gate is deliberately enforced twice: Source Vault validation blocks an invalid production classification, and the runtime pack gate independently rejects a production source whose commercial-use permission is not true. Historical provenance files and runtime packs are not rewritten merely to backfill this new review dimension; the immutable archived licence snapshot remains the legal evidence, while the current registry records the reviewed release decision.
