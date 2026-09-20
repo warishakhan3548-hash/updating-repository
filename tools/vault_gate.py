@@ -24,6 +24,7 @@ REQUIRED_RELEASE_RULES = {
     "require_production_approved",
     "require_redistribution_allowed",
     "require_commercial_use_allowed",
+    "require_historical_snapshot_retention_allowed",
     "require_exact_sha256",
     "require_licence_snapshot",
     "require_project_controlled_artifact",
@@ -115,9 +116,9 @@ def _validate_release_requirements(source: dict, source_id: str) -> dict | None:
             f"{source_id}: release_requirements must contain exactly "
             f"{sorted(expected_fields)}"
         )
-    if requirements.get("latest_upstream_version_required") is not True:
+    if not isinstance(requirements.get("latest_upstream_version_required"), bool):
         raise VaultGateError(
-            f"{source_id}: latest_upstream_version_required must be true when declared"
+            f"{source_id}: latest_upstream_version_required must be boolean"
         )
     retention_status = requirements.get("historical_snapshot_retention_status")
     if retention_status not in {
@@ -279,22 +280,26 @@ def validate_registry(registry_path: Path) -> None:
                 f"{source_id}: invalid artifact_kind {artifact_kind!r}"
             )
 
+        snapshot_fields_present = [
+            field
+            for field in PRESERVED_SNAPSHOT_FIELDS
+            if source.get(field) not in (None, "")
+        ]
         release_requirements = _validate_release_requirements(source, source_id)
-        if (
-            status == "production-approved"
-            and release_requirements is not None
-            and release_requirements["historical_snapshot_retention_status"]
-            != "verified-allowed"
-        ):
-            raise VaultGateError(
-                f"{source_id}: production source requires verified historical "
-                "snapshot retention permission"
-            )
         retention_status = (
-            release_requirements["historical_snapshot_retention_status"]
+            release_requirements.get("historical_snapshot_retention_status")
             if release_requirements is not None
             else None
         )
+        retention_required = (
+            status in {"awaiting-artifact", "production-approved"}
+            or bool(snapshot_fields_present)
+        )
+        if retention_required and retention_status != "verified-allowed":
+            raise VaultGateError(
+                f"{source_id}: source requires verified historical "
+                "snapshot retention permission before capture or preservation"
+            )
         if retention_status == "unresolved" and status != "awaiting-licence":
             raise VaultGateError(
                 f"{source_id}: unresolved historical snapshot retention "
@@ -305,25 +310,10 @@ def validate_registry(registry_path: Path) -> None:
                 f"{source_id}: denied historical snapshot retention "
                 "requires status 'rejected'"
             )
-
-        snapshot_fields_present = [
-            field
-            for field in PRESERVED_SNAPSHOT_FIELDS
-            if source.get(field) not in (None, "")
-        ]
         if status == "awaiting-licence" and snapshot_fields_present:
             raise VaultGateError(
                 f"{source_id}: awaiting-licence source must not preserve "
                 "project-controlled snapshot bytes"
-            )
-        if (
-            retention_status is not None
-            and retention_status != "verified-allowed"
-            and snapshot_fields_present
-        ):
-            raise VaultGateError(
-                f"{source_id}: source must not preserve project-controlled "
-                "snapshot bytes without verified historical retention permission"
             )
         if status != "production-approved" and not snapshot_fields_present:
             continue
@@ -463,8 +453,6 @@ def validate_registry(registry_path: Path) -> None:
         }
         if artifact_kind != "file":
             expected_provenance["artifact_kind"] = artifact_kind
-        if release_requirements is not None:
-            expected_provenance["release_requirements"] = release_requirements
         mismatched = [
             key
             for key, expected in expected_provenance.items()
