@@ -89,6 +89,26 @@ def normalize_search_diacritic_free(text: str) -> str:
     return " ".join(stripped.split())
 
 
+def extract_tanzil_notice(path: Path) -> str:
+    """Extract the source-supplied notice comments for runtime redistribution."""
+    raw = path.read_text(encoding="utf-8")
+    comment_lines = [
+        line[1:].lstrip()
+        for line in raw.splitlines()
+        if line.startswith("#")
+    ]
+    notice = "\\n".join(comment_lines).strip()
+    required_notice = (
+        "Tanzil Quran Text (Uthmani, Version 1.1)",
+        "Creative Commons Attribution 3.0",
+        "CHANGING IT IS NOT ALLOWED",
+    )
+    for marker in required_notice:
+        if marker not in notice:
+            raise QuranSourceError(f"source notice missing required marker: {marker}")
+    return notice
+
+
 def load_tanzil_txt2(path: Path) -> list[AyahRow]:
     raw = path.read_text(encoding="utf-8")
     required_notice = (
