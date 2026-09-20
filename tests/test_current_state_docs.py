@@ -124,7 +124,7 @@ class CurrentStateDocumentationTests(unittest.TestCase):
                 f"{manifest_path} must not consume unpreserved QuranEnc glosses",
             )
 
-    def test_hadeethenc_observed_version_is_not_promoted(self):
+    def test_hadeethenc_observed_version_remains_licence_blocked(self):
         registry = json.loads(
             (ROOT / "source-vault" / "registry.json").read_text(encoding="utf-8")
         )
@@ -132,9 +132,27 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         source = by_id["hadith.hadeethenc.ar.current"]
 
         self.assertEqual("1.7.0-observed-2026-09-20", source["version"])
-        self.assertEqual("research-candidate", source["status"])
+        self.assertEqual("awaiting-licence", source["status"])
+        self.assertIsNone(source["redistribution_allowed"])
+        self.assertFalse(source["modification_allowed"])
+        self.assertTrue(source["attribution_required"])
         self.assertIsNone(source["vault_artifact"])
+        self.assertIsNone(source["licence_snapshot"])
+        self.assertIsNone(source["provenance"])
         self.assertIsNone(source["sha256"])
+        self.assertIsNone(source["byte_size"])
+        requirements = source["release_requirements"]
+        self.assertTrue(requirements["latest_upstream_version_required"])
+        self.assertEqual(
+            "https://hadeethenc.com/en/check/ar/v1.3.0",
+            requirements["version_check_url"],
+        )
+        self.assertEqual(
+            "unresolved",
+            requirements["historical_snapshot_retention_status"],
+        )
+        self.assertIn("historical", source["notes"])
+        self.assertIn("numbering", source["notes"])
 
 
     def test_manifest_spec_tracks_signature_domain(self):
