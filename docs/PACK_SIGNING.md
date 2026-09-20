@@ -65,13 +65,17 @@ Each key has:
 - a stable `key_id`;
 - `algorithm = ed25519`;
 - raw 32-byte public key encoded as base64;
-- status: `active`, `retired`, or `revoked`.
+- status: `active`, `retired`, or `revoked`;
+- positive `min_release_sequence`;
+- `max_release_sequence`: null for an active key, a required finite ceiling for a retired key.
 
 Meaning:
 
-- `active`: may verify current and historical releases;
-- `retired`: no longer used to sign new releases, but may verify historical releases;
+- `active`: may verify releases at or above its minimum sequence;
+- `retired`: may verify only its explicitly bounded historical sequence window;
 - `revoked`: never counts toward the trust threshold.
+
+Sequence windows matter because merely labelling a key “retired” is not enough: if its old private key were later exposed, an unbounded verifier could incorrectly accept a newly signed future release. The verifier therefore checks the manifest's signed `release_sequence` against every candidate key's trusted window before that signature can count.
 
 The policy also has `signature_threshold`. Multiple signatures from the same key count once. This supports rotation and future multi-key approval without changing the payload format.
 
@@ -82,7 +86,7 @@ Normal rotation:
 1. generate the new private key outside the repository;
 2. review and commit only its public key as `active`;
 3. publish at least one release signed by the new key;
-4. move the previous key to `retired`;
+4. move the previous key to `retired` and set `max_release_sequence` to the last release it is authorized to verify;
 5. keep retired public keys while historical releases must remain verifiable.
 
 Compromise response:
