@@ -541,7 +541,9 @@ class _ScannerScreenState extends State<ScannerScreen>
           if (current()) setState(() => _manualOnly = true);
         }
       }
-      if (mounted && !_closed) setState(() => _capturing = false);
+      if (mounted && !_closed && !_leaving) {
+        setState(() => _capturing = false);
+      }
     }
   }
 
