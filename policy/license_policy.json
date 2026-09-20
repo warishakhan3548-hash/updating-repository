@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "release_rules": {
+    "require_production_approved": true,
+    "require_redistribution_allowed": true,
+    "require_exact_sha256": true,
+    "require_licence_snapshot": true,
+    "require_project_controlled_artifact": true,
+    "forbid_runtime_upstream_download": true,
+    "forbid_unknown_licence_in_release": true
+  },
+  "commercial_build": {
+    "unknown_licence": "fail",
+    "redistribution_false": "fail",
+    "source_specific_terms": "manual-review"
+  }
+}
