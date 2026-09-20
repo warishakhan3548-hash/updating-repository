@@ -131,3 +131,12 @@ A source whose republication terms require downstream copies to stay current may
 `awaiting-licence` is also a **no-bytes** state in project-controlled public storage. The central Source Vault gate rejects any preserved snapshot metadata under that status. This makes the legal boundary independent of source-specific download scripts and prevents a future acquisition path from accidentally publishing bytes before archival rights are established.
 
 Once archival retention is explicitly `verified-allowed`, the source may advance to artifact acquisition/review. Any separate ongoing obligation to ship only the latest upstream version remains enforced later by the signed source-release review. Commercial-use permission remains a separate gate under ADR-022. Current-version permission, historical archival permission, commercial-use permission, evidence quality and release freshness are therefore distinct decisions.
+
+## ADR-025 — Historical retention is a universal Source Vault admission decision
+
+A source being redistributable today does not by itself prove that every superseded version may remain publicly mirrored forever. Historical-snapshot retention is therefore an explicit Source Vault admission decision for every source that is ready for acquisition or preservation.
+
+A source may be `awaiting-artifact`, contain preserved snapshot metadata, or be `production-approved` only when `historical_snapshot_retention_status` is `verified-allowed`. `unresolved` remains metadata-only `awaiting-licence`, while `verified-not-allowed` remains metadata-only `rejected`. The runtime pack gate independently checks verified archival retention before a production source can ship.
+
+`latest_upstream_version_required` is a separate boolean. It controls whether an approved pack needs a source-bound signed freshness review; it does not grant archival rights. Mutable release requirements remain outside immutable acquisition provenance so later policy review does not rewrite preserved source history.
+
