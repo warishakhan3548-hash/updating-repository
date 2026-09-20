@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aaris.quran.R
 import com.aaris.quran.data.QuranSearchHit
 import com.aaris.quran.data.QuranSearchMatchKind
 import com.aaris.quran.model.QuranAyah
@@ -89,30 +90,34 @@ fun ReaderScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
         Text(
-            text = "Quran",
+            text = stringResource(R.string.reader_title),
             style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .semantics { heading() },
         )
         OutlinedTextField(
             value = state.searchQuery,
             onValueChange = onSearchQueryChange,
             singleLine = true,
-            label = { Text("Search Quran") },
+            label = { Text(stringResource(R.string.search_quran)) },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 4.dp),
         )
 
         if (state.searchQuery.isBlank()) {
+            val currentSurahState = stringResource(R.string.current_surah_state)
             TextButton(
                 onClick = { showSurahChooser = true },
                 enabled = !state.isLoading,
                 modifier = Modifier
                     .padding(horizontal = 8.dp)
-                    .heightIn(min = 48.dp),
+                    .heightIn(min = 48.dp)
+                    .semantics { stateDescription = currentSurahState },
             ) {
                 Text(
-                    text = "Surah ${state.surah} ▾",
+                    text = stringResource(R.string.surah_button, state.surah),
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
@@ -130,19 +135,29 @@ fun ReaderScreen(
                         onOpenSearchResult = onOpenSearchResult,
                     )
                 }
-                state.isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                state.isLoading -> AccessibleProgressIndicator(
+                    label = stringResource(R.string.loading_quran),
+                    modifier = Modifier.align(Alignment.Center),
+                )
                 state.errorMessage != null -> {
                     Column(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     ) {
-                        Text(state.errorMessage)
+                        val errorText = state.errorMessage
+                        Text(
+                            text = errorText,
+                            modifier = Modifier.semantics {
+                                error(errorText)
+                                liveRegion = LiveRegionMode.Polite
+                            },
+                        )
                         TextButton(
                             onClick = onRetry,
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) {
-                            Text("Try again")
+                            Text(stringResource(R.string.try_again))
                         }
                     }
                 }
@@ -171,14 +186,14 @@ fun ReaderScreen(
                     enabled = state.surah > 1 && !state.isLoading,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("Previous Surah")
+                    Text(stringResource(R.string.previous_surah))
                 }
                 TextButton(
                     onClick = onNextSurah,
                     enabled = state.surah < 114 && !state.isLoading,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("Next Surah")
+                    Text(stringResource(R.string.next_surah))
                 }
             }
         }
@@ -204,26 +219,41 @@ private fun SearchResultsContent(
     when {
         state.isSearching -> {
             Box(Modifier.fillMaxSize()) {
-                CircularProgressIndicator(Modifier.align(Alignment.Center))
+                AccessibleProgressIndicator(
+                    label = stringResource(R.string.searching_quran),
+                    modifier = Modifier.align(Alignment.Center),
+                )
             }
         }
         state.searchErrorMessage != null -> {
             Box(Modifier.fillMaxSize()) {
+                val errorText = state.searchErrorMessage
                 Text(
-                    text = state.searchErrorMessage,
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    text = errorText,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp)
+                        .semantics {
+                            error(errorText)
+                            liveRegion = LiveRegionMode.Polite
+                        },
                 )
             }
         }
         state.searchResults.isEmpty() -> {
             Box(Modifier.fillMaxSize()) {
                 Text(
-                    text = "No reliable match found.",
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    text = stringResource(R.string.no_reliable_match),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite },
                 )
             }
         }
         else -> {
+            val approximateSpellingMatch =
+                stringResource(R.string.approximate_spelling_match)
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(state.searchResults, key = { it.ayah.ayahId }) { hit ->
                     val ayah = hit.ayah
@@ -232,19 +262,31 @@ private fun SearchResultsContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp)
-                            .padding(horizontal = 8.dp),
+                            .padding(horizontal = 8.dp)
+                            .semantics {
+                                if (
+                                    hit.matchKind ==
+                                        QuranSearchMatchKind.APPROXIMATE_SPELLING
+                                ) {
+                                    stateDescription = approximateSpellingMatch
+                                }
+                            },
                     ) {
                         Column(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
-                                text = "Surah ${ayah.surah} • Ayah ${ayah.ayah}",
+                                text = stringResource(
+                                    R.string.search_result_coordinate,
+                                    ayah.surah,
+                                    ayah.ayah,
+                                ),
                                 style = MaterialTheme.typography.labelMedium,
                             )
                             if (hit.matchKind == QuranSearchMatchKind.APPROXIMATE_SPELLING) {
                                 Text(
-                                    text = "Approximate spelling match",
+                                    text = approximateSpellingMatch,
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }
@@ -276,7 +318,12 @@ private fun SurahChooserDialog(
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Choose Surah") },
+        title = {
+            Text(
+                text = stringResource(R.string.choose_surah),
+                modifier = Modifier.semantics { heading() },
+            )
+        },
         text = {
             LazyColumn(
                 state = listState,
@@ -293,9 +340,9 @@ private fun SurahChooserDialog(
                     ) {
                         Text(
                             text = if (surah == currentSurah) {
-                                "Surah $surah — current"
+                                stringResource(R.string.surah_current, surah)
                             } else {
-                                "Surah $surah"
+                                stringResource(R.string.surah_number, surah)
                             },
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -308,7 +355,7 @@ private fun SurahChooserDialog(
                 onClick = onDismiss,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text("Close")
+                Text(stringResource(R.string.close))
             }
         },
     )
@@ -340,7 +387,7 @@ private fun AyahRow(ayah: QuranAyah) {
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
     ) {
         Text(
-            text = "Ayah ${ayah.ayah}",
+            text = stringResource(R.string.ayah_number, ayah.ayah),
             style = MaterialTheme.typography.labelMedium,
         )
         Text(
@@ -354,8 +401,12 @@ private fun AyahRow(ayah: QuranAyah) {
             modifier = Modifier
                 .fillMaxWidth()
                 .semantics {
-                    contentDescription =
-                        "Surah ${ayah.surah}, ayah ${ayah.ayah}. ${ayah.originalText}"
+                    contentDescription = stringResource(
+                        R.string.ayah_accessibility_description,
+                        ayah.surah,
+                        ayah.ayah,
+                        ayah.originalText,
+                    )
                 }
                 .pointerInput(ayah.ayahId, ayah.originalText) {
                     detectTapGestures { position ->
@@ -382,4 +433,14 @@ private fun AyahRow(ayah: QuranAyah) {
             }
         }
     }
+}
+
+@Composable
+private fun AccessibleProgressIndicator(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    CircularProgressIndicator(
+        modifier = modifier.semantics { contentDescription = label },
+    )
 }
