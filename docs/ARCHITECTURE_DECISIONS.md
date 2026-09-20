@@ -89,6 +89,6 @@ The v1→v2 migration never guesses the meaning of an unknown historical outcome
 
 A critical source does not become less trustworthy merely because the publisher exposes it as many immutable files. The Source Vault therefore supports a generic `sha256-set` artifact kind in addition to the existing single-file artifact.
 
-The root artifact is a project-owned checksum ledger whose own SHA-256 and byte size are recorded in the registry. Every ledger member must use one canonical relative POSIX path, remain inside the same immutable snapshot directory and match its recorded SHA-256. Path traversal, non-canonical path spellings, symlink escape, duplicate/aliased members and self-reference fail closed.
+The root artifact is a project-owned checksum ledger whose own SHA-256 and byte size are recorded in the registry. Every ledger member must use one canonical relative POSIX path, remain inside the same immutable snapshot directory and match its recorded SHA-256. Path traversal, non-canonical path spellings, any symlinked ledger/member, duplicate members and self-reference fail closed.
 
 This is a preservation primitive, not a promotion shortcut. A checksum-bound candidate may remain `research-candidate` or `awaiting-licence`; runtime builders still require `production-approved`, verified redistribution rights, licence/provenance binding, applicable release-time source requirements and all existing pack gates. Source-specific importers remain separate from the generic integrity contract.
