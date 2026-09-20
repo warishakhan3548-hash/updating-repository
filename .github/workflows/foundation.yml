@@ -27,5 +27,7 @@ jobs:
         run: python tools/pack_gate.py source-vault/registry.json
       - name: SQLite schema validation
         run: python tools/validate_schemas.py
+      - name: Quran search golden baseline
+        run: python tools/quran_search_eval.py --assert-baseline
       - name: Foundation unit tests
         run: python -m unittest discover -s tests -v
