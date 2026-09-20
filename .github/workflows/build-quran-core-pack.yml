@@ -73,7 +73,8 @@ jobs:
               continue
             fi
 
-            git add content-packs/quran-core/1.0.0
+            git add content-packs/quran-core/1.0.0/manifest.json
+            git add -f content-packs/quran-core/1.0.0/content.sqlite
             git commit -m 'Build Quran core content pack 1.0.0'
 
             if git push origin HEAD:main; then
