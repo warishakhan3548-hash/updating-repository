@@ -50,6 +50,29 @@ class WorkflowSupplyChainTests(unittest.TestCase):
 
         self.assertEqual([], failures, "\\n".join(failures))
 
+    def test_pack_signature_verifier_dependency_and_policy_are_gated_in_ci(self) -> None:
+        for workflow_name in ("foundation.yml", "build-quran-core-pack.yml"):
+            with self.subTest(workflow=workflow_name):
+                text = self.workflow_text(workflow_name)
+                install = text.index(
+                    "python -m pip install --disable-pip-version-check "
+                    "-r requirements-foundation.txt"
+                )
+                policy = text.index(
+                    "python tools/pack_signing.py policy/trusted_pack_keys.json"
+                )
+                gate = text.index("python tools/pack_gate.py")
+                tests = text.index("python -m unittest discover -s tests -v")
+                self.assertLess(install, policy)
+                self.assertLess(policy, gate)
+                self.assertLess(install, tests)
+
+        requirements = (ROOT / "requirements-foundation.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("cryptography==50.0.1", requirements)
+
+
     def test_pack_builder_revalidates_the_committed_tree_before_push(self) -> None:
         text = self.workflow_text("build-quran-core-pack.yml")
         commit_index = text.index("git commit -m 'Build Quran canonical layer and core pack 1.1.0'")
