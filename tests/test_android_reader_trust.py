@@ -8,6 +8,11 @@ MANIFEST = ROOT / "app" / "src" / "main" / "AndroidManifest.xml"
 
 
 class AndroidReaderTrustTests(unittest.TestCase):
+    def test_reader_uses_current_schema_v3_candidate(self):
+        build = BUILD.read_text(encoding="utf-8")
+        self.assertIn('content-packs/quran-core/1.1.0', build)
+        self.assertNotIn('content-packs/quran-core/1.0.4', build)
+
     def test_release_delegates_to_authoritative_cryptographic_pack_gate(self):
         build = BUILD.read_text(encoding="utf-8")
 
