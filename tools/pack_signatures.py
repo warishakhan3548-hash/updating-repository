@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
- PAYLOAD_VERSION = "aaris-pack-manifest-v1"
+PAYLOAD_VERSION = "aaris-pack-manifest-v1"
 TRUST_ROLE = "content-pack-release"
 
 
