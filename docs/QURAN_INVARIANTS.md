@@ -10,6 +10,8 @@ A release containing Quran text must fail if any applicable invariant fails:
 - token/segment joins are complete for the chosen morphology source;
 - gloss/morphology assertions reference existing canonical IDs;
 - required source attribution and notices are present;
+- schema-v2 runtime packs bind notice text, attribution, licence hash and provenance hash back to the Source Vault;
+- the Tanzil notice is extracted from preserved source comments rather than hand-authored in the importer;
 - import is deterministic from the pinned vault snapshot.
 
 Source bytes are never corrected in place. Corrections or interpretive overlays live separately and are attributed.
