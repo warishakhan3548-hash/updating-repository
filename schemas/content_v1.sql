@@ -124,6 +124,57 @@ CREATE TABLE narration_cluster_member (
   PRIMARY KEY(cluster_id, hadith_record_id)
 );
 
+-- Source-faithful Evidence Plane rows are insert-only inside a content pack.
+-- Corrections create a new pack/version; they never rewrite sacred/source evidence in place.
+CREATE TRIGGER source_assertion_no_update BEFORE UPDATE ON source_assertion BEGIN
+  SELECT RAISE(ABORT, 'source evidence is immutable');
+END;
+CREATE TRIGGER source_assertion_no_delete BEFORE DELETE ON source_assertion BEGIN
+  SELECT RAISE(ABORT, 'source evidence is immutable');
+END;
+CREATE TRIGGER quran_ayah_no_update BEFORE UPDATE ON quran_ayah BEGIN
+  SELECT RAISE(ABORT, 'quran evidence is immutable');
+END;
+CREATE TRIGGER quran_ayah_no_delete BEFORE DELETE ON quran_ayah BEGIN
+  SELECT RAISE(ABORT, 'quran evidence is immutable');
+END;
+CREATE TRIGGER quran_token_no_update BEFORE UPDATE ON quran_token BEGIN
+  SELECT RAISE(ABORT, 'quran evidence is immutable');
+END;
+CREATE TRIGGER quran_token_no_delete BEFORE DELETE ON quran_token BEGIN
+  SELECT RAISE(ABORT, 'quran evidence is immutable');
+END;
+CREATE TRIGGER quran_segment_no_update BEFORE UPDATE ON quran_segment BEGIN
+  SELECT RAISE(ABORT, 'quran evidence is immutable');
+END;
+CREATE TRIGGER quran_segment_no_delete BEFORE DELETE ON quran_segment BEGIN
+  SELECT RAISE(ABORT, 'quran evidence is immutable');
+END;
+CREATE TRIGGER hadith_edition_no_update BEFORE UPDATE ON hadith_edition BEGIN
+  SELECT RAISE(ABORT, 'hadith evidence is immutable');
+END;
+CREATE TRIGGER hadith_edition_no_delete BEFORE DELETE ON hadith_edition BEGIN
+  SELECT RAISE(ABORT, 'hadith evidence is immutable');
+END;
+CREATE TRIGGER hadith_record_no_update BEFORE UPDATE ON hadith_record BEGIN
+  SELECT RAISE(ABORT, 'hadith evidence is immutable');
+END;
+CREATE TRIGGER hadith_record_no_delete BEFORE DELETE ON hadith_record BEGIN
+  SELECT RAISE(ABORT, 'hadith evidence is immutable');
+END;
+CREATE TRIGGER citation_no_update BEFORE UPDATE ON citation BEGIN
+  SELECT RAISE(ABORT, 'citation evidence is immutable');
+END;
+CREATE TRIGGER citation_no_delete BEFORE DELETE ON citation BEGIN
+  SELECT RAISE(ABORT, 'citation evidence is immutable');
+END;
+CREATE TRIGGER grade_assertion_no_update BEFORE UPDATE ON grade_assertion BEGIN
+  SELECT RAISE(ABORT, 'grade evidence is immutable');
+END;
+CREATE TRIGGER grade_assertion_no_delete BEFORE DELETE ON grade_assertion BEGIN
+  SELECT RAISE(ABORT, 'grade evidence is immutable');
+END;
+
 CREATE INDEX idx_quran_token_ayah ON quran_token(ayah_id, token_index);
 CREATE INDEX idx_occurrence_lexeme ON occurrence(lexeme_id);
 CREATE INDEX idx_hadith_record_edition ON hadith_record(edition_id);
