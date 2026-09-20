@@ -11,6 +11,7 @@ from tools.pack_signatures import (
     PackSignatureError,
     canonical_manifest_payload,
     key_id_for_ed25519_public_key,
+    loads_strict_json,
     validate_trusted_key_policy,
     verify_approved_manifest,
 )
@@ -197,6 +198,48 @@ class PackSignatureTests(unittest.TestCase):
             PackSignatureError, "floating-point"
         ):
             canonical_manifest_payload(manifest)
+
+    def test_non_ascii_object_key_is_rejected_from_signed_payload(self):
+        manifest = self._manifest()
+        manifest["مفتاح"] = "value"
+        with self.assertRaisesRegex(
+            PackSignatureError, "non-ASCII JSON object key"
+        ):
+            canonical_manifest_payload(manifest)
+
+    def test_unicode_string_values_are_preserved_in_signed_payload(self):
+        manifest = self._manifest()
+        manifest["source_attribution"] = "مصدر موثوق"
+        payload = canonical_manifest_payload(manifest)
+        self.assertIn("مصدر موثوق".encode("utf-8"), payload)
+
+    def test_large_integer_is_rejected_from_signed_payload(self):
+        manifest = self._manifest()
+        manifest["sequence"] = 9_007_199_254_740_992
+        with self.assertRaisesRegex(
+            PackSignatureError, "cross-runtime safe range"
+        ):
+            canonical_manifest_payload(manifest)
+
+    def test_strict_json_rejects_duplicate_keys_and_nonstandard_constants(self):
+        with self.assertRaisesRegex(PackSignatureError, "duplicate JSON object key"):
+            loads_strict_json('{"pack_id":"first","pack_id":"second"}')
+        with self.assertRaisesRegex(PackSignatureError, "non-standard JSON constant"):
+            loads_strict_json('{"score":NaN}')
+
+    def test_key_policy_rejects_duplicate_json_object_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            keyring = Path(tmp) / "trusted_pack_keys.json"
+            keyring.write_text(
+                '{"schema_version":1,"state":"bootstrap-required",'
+                '"state":"active","keys":{},"roles":{"content-pack-release":'
+                '{"threshold":1,"key_ids":[]}}}',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                PackSignatureError, "duplicate JSON object key"
+            ):
+                validate_trusted_key_policy(keyring)
 
     def test_repository_bootstrap_policy_is_structurally_valid(self):
         root = Path(__file__).resolve().parents[1]
