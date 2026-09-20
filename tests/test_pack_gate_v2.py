@@ -1,3 +1,4 @@
+from contextlib import closing
 import hashlib
 import json
 import sqlite3
@@ -77,7 +78,7 @@ class PackGateV2Tests(unittest.TestCase):
             "source_notice_sha256": notice_hash,
             "source_notice": notice.read_text(encoding="utf-8"),
         }
-        with sqlite3.connect(db) as connection:
+        with closing(sqlite3.connect(db)) as connection:
             connection.execute(
                 "CREATE TABLE pack_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
             )
@@ -136,7 +137,7 @@ class PackGateV2Tests(unittest.TestCase):
     def test_embedded_metadata_drift_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             registry, manifest, db = self._fixture(Path(tmp))
-            with sqlite3.connect(db) as connection:
+            with closing(sqlite3.connect(db)) as connection:
                 connection.execute(
                     "UPDATE pack_metadata SET value='wrong' "
                     "WHERE key='source_attribution'"

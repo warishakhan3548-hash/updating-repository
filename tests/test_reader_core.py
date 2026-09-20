@@ -34,7 +34,7 @@ PACK_MANIFEST = _latest_quran_pack_manifest()
 class ReaderCoreSyntheticTests(unittest.TestCase):
     def _make_db(self, root: Path) -> Path:
         db = root / "content.sqlite"
-        with sqlite3.connect(db) as connection:
+        with closing(sqlite3.connect(db)) as connection:
             connection.executescript(
                 """
                 CREATE TABLE quran_ayah (
@@ -150,7 +150,7 @@ class ReaderCorePublishedPackTests(unittest.TestCase):
     def test_reader_text_is_byte_for_byte_database_original_text(self):
         manifest = json.loads(PACK_MANIFEST.read_text(encoding='utf-8'))
         db = ROOT / manifest['artifact_path']
-        with sqlite3.connect(db) as connection:
+        with closing(sqlite3.connect(db)) as connection:
             expected = connection.execute(
                 "SELECT original_text FROM quran_ayah WHERE surah = 2 AND ayah = 255"
             ).fetchone()[0]
@@ -160,7 +160,7 @@ class ReaderCorePublishedPackTests(unittest.TestCase):
     def test_current_pack_does_not_invent_canonical_word_rows(self):
         manifest = json.loads(PACK_MANIFEST.read_text(encoding='utf-8'))
         db = ROOT / manifest['artifact_path']
-        with sqlite3.connect(db) as connection:
+        with closing(sqlite3.connect(db)) as connection:
             count = connection.execute('SELECT COUNT(*) FROM quran_token').fetchone()[0]
         self.assertEqual(count, 0)
 
