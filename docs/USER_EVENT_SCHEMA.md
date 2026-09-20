@@ -24,3 +24,19 @@ Every new v2 review must record exactly one canonical grade: `again`, `hard`, `g
 Bookmarks, notes and preferences live in the user database and belong in versioned export/import.
 
 Regression coverage lives in `tests/test_user_migrations.py`; `tools/validate_schemas.py` compiles both v1 and v2 so future migrations cannot silently orphan the current contract.
+
+
+## Derived rare-word rescue policy
+
+`RareWordRescuePolicy` is a derived Learning Plane policy over existing evidence; it does not introduce another source of user truth or require a schema migration.
+
+Its inputs may include:
+
+- an already-existing app-owned `semantic_unit_id`;
+- preserved exposure/review evidence since the last successful retrieval;
+- a replaceable scheduler projection such as review-due state and retrievability;
+- a future verified prediction of suitable natural encounters in the user's reading path.
+
+A natural encounter may substitute for an interruptive review opportunity, but it is **not** written as successful recall. Passive visibility remains an exposure event. If the user needs meaning help again, that becomes additional struggle evidence; only an explicit review outcome carries canonical Again/Hard/Good/Easy retrieval evidence.
+
+This policy remains dormant for Quran word-level learning while the current Quran pack has no provenance-backed canonical word identities.
