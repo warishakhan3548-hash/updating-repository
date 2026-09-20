@@ -24,7 +24,7 @@ check(packDir.resolve("NOTICE.txt").isFile) {
 
 android {
     namespace = "com.aaris.quran"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.aaris.quran"
