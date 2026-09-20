@@ -21,6 +21,25 @@ class PackGateError(RuntimeError):
     pass
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PackGateError(f"duplicate JSON object key: {key!r}")
+        result[key] = value
+    return result
+
+
+def _load_json_file(path: Path) -> object:
+    try:
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_json_object,
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PackGateError(f"invalid JSON file: {path}") from exc
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -59,7 +78,7 @@ def _safe_repo_file(root: Path, raw: object, field: str, prefix: str) -> Path:
 def _load_sources(registry_path: Path) -> tuple[Path, dict[str, dict]]:
     registry_path = registry_path.resolve()
     root = registry_path.parents[1]
-    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    registry = _load_json_file(registry_path)
     if registry.get("schema_version") != 1:
         raise PackGateError("unsupported source registry schema_version")
     sources = registry.get("sources")
@@ -109,12 +128,9 @@ def _validate_canonical_binding(
     if sha256_file(canonical_manifest_path) != canonical_manifest_hash:
         raise PackGateError(f"{manifest_path}: canonical manifest SHA-256 mismatch")
 
-    try:
-        canonical_manifest = json.loads(
-            canonical_manifest_path.read_text(encoding="utf-8")
-        )
-    except (OSError, json.JSONDecodeError) as exc:
-        raise PackGateError(f"{manifest_path}: invalid canonical manifest") from exc
+    canonical_manifest = _load_json_file(canonical_manifest_path)
+    if not isinstance(canonical_manifest, dict):
+        raise PackGateError(f"{manifest_path}: canonical manifest must be an object")
 
     artifact = _safe_repo_file(
         root, canonical["artifact_path"], "canonical.artifact_path", "canonical"
@@ -197,7 +213,9 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
     except ValueError as exc:
         raise PackGateError("manifest must be under content-packs/") from exc
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = _load_json_file(manifest_path)
+    if not isinstance(manifest, dict):
+        raise PackGateError(f"{manifest_path}: manifest must be an object")
     required = [
         "pack_id",
         "schema_version",
@@ -295,10 +313,9 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
         provenance_path = _safe_repo_file(
             root, source.get("provenance"), "source provenance", "source-vault"
         )
-        try:
-            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise PackGateError(f"{manifest_path}: invalid source provenance") from exc
+        provenance = _load_json_file(provenance_path)
+        if not isinstance(provenance, dict):
+            raise PackGateError(f"{manifest_path}: source provenance must be an object")
 
         expected_v2 = {
             "source_url": source.get("original_url"),
