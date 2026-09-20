@@ -344,6 +344,17 @@ def _assert_capture_authorized(repo_root: Path) -> None:
             "not match the pinned acquisition version"
         )
 
+    requirements = source.get("release_requirements")
+    if (
+        not isinstance(requirements, dict)
+        or requirements.get("historical_snapshot_retention_status")
+        != "verified-allowed"
+    ):
+        raise CaptureError(
+            "QuranEnc capture blocked: historical snapshot retention "
+            "permission is not explicitly cleared"
+        )
+
     required_permissions = {
         "redistribution_allowed": True,
         "modification_allowed": False,
