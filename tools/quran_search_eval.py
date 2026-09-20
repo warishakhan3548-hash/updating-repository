@@ -41,13 +41,14 @@ COMPATIBILITY_TRANSLATION = str.maketrans(
         "إ": "ا",
         "آ": "ا",
         "ی": "ي",
+        "ى": "ي",
         "ہ": "ه",
     }
 )
 COMPATIBILITY_SQL_EXPRESSION = (
-    "replace(replace(replace(replace(replace(replace("
+    "replace(replace(replace(replace(replace(replace(replace("
     "search_diacritic_free, 'ٱ', 'ا'), 'أ', 'ا'), 'إ', 'ا'), "
-    "'آ', 'ا'), 'ی', 'ي'), 'ہ', 'ه')"
+    "'آ', 'ا'), 'ی', 'ي'), 'ى', 'ي'), 'ہ', 'ه')"
 )
 
 
