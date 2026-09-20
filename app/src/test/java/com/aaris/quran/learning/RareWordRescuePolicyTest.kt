@@ -57,7 +57,7 @@ class RareWordRescuePolicyTest {
     }
 
     @Test
-    fun schedulerDueWithUnknownRetrievabilityFailsClosedToExplicitReview() {
+    fun schedulerDueWithoutDeferralAuthorizationFailsClosedToExplicitReview() {
         val decision = RareWordRescuePolicy.decide(
             LearningSignals(
                 semanticUnitId = "lx:test:4",
@@ -67,16 +67,18 @@ class RareWordRescuePolicyTest {
         )
 
         assertEquals(RescueAction.EXPLICIT_REVIEW, decision.action)
+        assertTrue("scheduler_requires_explicit_review" in decision.reasonCodes)
         assertTrue("review_not_safely_substitutable" in decision.reasonCodes)
     }
 
     @Test
-    fun schedulerDueWithAdequateRetrievabilityCanUseNaturalExposure() {
+    fun schedulerAuthorizedDueReviewCanUseNaturalExposure() {
         val decision = RareWordRescuePolicy.decide(
             LearningSignals(
                 semanticUnitId = "lx:test:5",
                 isEnrolled = true,
                 schedulerReviewDue = true,
+                schedulerAllowsNaturalSubstitution = true,
                 retrievability = 0.75,
                 predictedNaturalExposuresSoon = 2,
             ),
@@ -87,23 +89,44 @@ class RareWordRescuePolicyTest {
         assertEquals(1.0 / 3.0, decision.exposureScarcity, 1e-9)
         assertEquals(0.50, decision.personalRelevance, 0.0)
         assertEquals(1.0 / 24.0, decision.priorityScore!!, 1e-9)
+        assertTrue("scheduler_allows_natural_substitution" in decision.reasonCodes)
     }
 
     @Test
-    fun criticalLowRetrievabilityDoesNotSubstituteReadingForReview() {
+    fun schedulerDenialOverridesHighOptionalRetrievabilityProjection() {
         val decision = RareWordRescuePolicy.decide(
             LearningSignals(
                 semanticUnitId = "lx:test:6",
                 isEnrolled = true,
                 schedulerReviewDue = true,
-                retrievability = 0.30,
+                schedulerAllowsNaturalSubstitution = false,
+                retrievability = 0.99,
                 predictedNaturalExposuresSoon = 3,
             ),
         )
 
         assertEquals(RescueAction.EXPLICIT_REVIEW, decision.action)
         assertTrue("natural_exposure_available" in decision.reasonCodes)
+        assertTrue("scheduler_requires_explicit_review" in decision.reasonCodes)
         assertTrue("review_not_safely_substitutable" in decision.reasonCodes)
+    }
+
+    @Test
+    fun schedulerAuthorizationDoesNotRequireRetrievabilityToBeExposed() {
+        val decision = RareWordRescuePolicy.decide(
+            LearningSignals(
+                semanticUnitId = "lx:test:6b",
+                isEnrolled = true,
+                schedulerReviewDue = true,
+                schedulerAllowsNaturalSubstitution = true,
+                retrievability = null,
+                predictedNaturalExposuresSoon = 1,
+            ),
+        )
+
+        assertEquals(RescueAction.NATURAL_EXPOSURE, decision.action)
+        assertNull(decision.forgettingRisk)
+        assertTrue("scheduler_allows_natural_substitution" in decision.reasonCodes)
     }
 
     @Test

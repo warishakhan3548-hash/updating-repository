@@ -38,9 +38,11 @@ A future verified occurrence graph may predict that the same semantic unit will 
 When an explicit scheduler review is due, natural reading may substitute for that interruption only when:
 
 1. at least one suitable natural encounter is predicted soon; and
-2. the scheduler supplies retrievability at or above the policy's versioned substitution floor.
+2. the active scheduler adapter explicitly authorizes deferral to that encounter.
 
-If a scheduler review is due but retrievability is unavailable, v1 fails closed to an explicit review.
+If a scheduler review is due and that authorization is absent or false, v1 fails closed to an explicit review.
+
+Retrievability may still be supplied for ranking and diagnostics, but the rescue policy does not hard-code one global retrievability floor. FSRS-style schedulers can use different desired-retention targets, so the adapter—not this product heuristic—owns the decision about whether delaying a due review is acceptable.
 
 For a newly observed struggle that is not yet an overdue scheduler item, an imminent natural encounter may be allowed to carry the next opportunity without inventing scheduler evidence.
 
@@ -58,6 +60,6 @@ Synthetic IDs in unit tests are test fixtures only.
 
 Current policy version: `rare-word-rescue-v1`.
 
-The numerical substitution floor and quick-peek threshold are replaceable policy parameters, not durable user-history semantics. Future tuning must use labelled/observed learning outcomes and must not rewrite preserved exposure/review events.
+The quick-peek threshold and scheduler-deferral contract are replaceable policy behavior, not durable user-history semantics. Future tuning must use labelled/observed learning outcomes and must not rewrite preserved exposure/review events.
 
 No retention improvement is claimed until an instrumented, privacy-preserving evaluation can measure it on real eligible semantic units.
