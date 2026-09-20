@@ -8,6 +8,7 @@ Each pack manifest includes:
 - `source_id`, source name/version/edition;
 - exact `source_vault_path` and `source_sha256`;
 - licence identifier;
+- source attribution/link and a notice hash when the source's redistribution terms require them;
 - importer version;
 - runtime `artifact_path`, `record_count`, `built_sha256`, `built_byte_size`;
 - review status;
