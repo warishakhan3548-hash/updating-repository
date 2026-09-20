@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-09-20",
+  "verified_at": "2026-09-21",
   "production_rule": "Only production-approved sources may be consumed by release content builders.",
   "sources": [
     {
@@ -29,22 +29,24 @@
       "source_name": "QuranEnc Arabic Language - Meanings of Words (As-Siraj fi Bayan Gharib Al-Quran)",
       "original_url": "https://quranenc.com/en/browse/arabic_seraj",
       "version": "1.0.0",
-      "status": "awaiting-artifact",
+      "status": "research-candidate",
       "licence_id": "quranenc-republication-terms",
       "redistribution_allowed": true,
       "modification_allowed": false,
       "attribution_required": true,
-      "vault_artifact": null,
-      "licence_snapshot": null,
-      "provenance": null,
-      "sha256": null,
-      "byte_size": null,
-      "notes": "Official QuranEnc lists this verse-scoped Arabic difficult-word resource as v1.0.0 and its API/republishing policy is version-aware. The content is a promising low-friction contextual-gloss source, not a morphology or Quran-text authority. No production bytes are consumed until an exact versioned upstream response/file set plus the applicable terms are preserved under project control with hashes and provenance. QuranEnc's current republication terms also require updating to the latest source version; release approval therefore requires a source-bound latest-version review rather than treating an archived snapshot as perpetually redistributable. Whether superseded versions may remain indefinitely available in a public immutable mirror is not established by the inspected terms; that question remains a production blocker until verified permission or a legally compatible preservation design exists.",
+      "vault_artifact": "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/raw/api-snapshot-manifest.json",
+      "licence_snapshot": "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/LICENSE_SOURCE.html",
+      "provenance": "source-vault/quran-gloss/quranenc/arabic-seraj/1.0.0/review-provenance.json",
+      "sha256": "8cbc4f5f41298e438f7862fff1eba309ffdab254ca240257bd5b652631f2396c",
+      "byte_size": 62974,
+      "notes": "Exact QuranEnc arabic_seraj v1.0.0 bytes are now preserved under project control as a 114-Surah / 6,236-ayah API response set, with official index/source/terms snapshots, per-file hashes, capture provenance and an aggregate manifest. This remains a research candidate: the text is a verse-scoped contextual-gloss source, not Quran text or morphology. Production use is blocked because QuranEnc's republication terms require tracking the latest issued version and the inspected terms do not yet establish that superseded snapshots may remain indefinitely in a public immutable mirror.",
       "release_requirements": {
         "latest_upstream_version_required": true,
-        "version_check_url": "https://quranenc.com/api/v1/translations/list/ar/?localization=en",
+        "version_check_url": "https://quranenc.com/api/v1/translations/list/ar?localization=en",
         "historical_snapshot_retention_status": "unresolved"
-      }
+      },
+      "licence_sha256": "24dd28bc25f21e59a2ec87137faeb0d969c1401232d99d2177cabf887c48341c",
+      "provenance_sha256": "1c1b2c33b236895bd6c29ae7fb21bf263637b7bff819ad41e14485d8fb61e087"
     },
     {
       "source_id": "morphology.qac.v0.4",
