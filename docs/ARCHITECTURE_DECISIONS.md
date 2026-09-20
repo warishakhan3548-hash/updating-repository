@@ -30,3 +30,7 @@ The first Quran core stores source-faithful ayah evidence and derived search lan
 
 ## ADR-010 — Runtime attribution is derived from preserved evidence
 For a source whose preserved artifact embeds its required notice, the runtime pack derives its notice from that pinned artifact rather than a separately hand-maintained paraphrase. Provenance attribution and source URL are bound into runtime metadata. Pack artifacts and notices must resolve inside their own immutable manifest directory so one pack cannot borrow another pack's evidence or notice by path or symlink.
+
+## ADR-011 — Mirroring begins the integrity contract
+An unmirrored research candidate may remain metadata-only. Once any Source Vault preservation field is populated, the artifact/licence/provenance snapshot must be complete and hash-consistent even before production promotion. Preserved public snapshots require verified redistribution permission plus explicit modification/attribution flags. Release builders remain stricter: they may consume only `production-approved` entries. This closes the gap where candidate bytes could otherwise drift silently between acquisition and later review.
+
