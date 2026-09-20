@@ -28,6 +28,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - release-key lifecycle policy with active/retired/revoked states and signed release-sequence validity windows, preserving historical verification without allowing retired/revoked keys to authorize future releases;
 - Android release builds delegate to the same authoritative pack gate instead of trusting signature-shaped metadata;
 - trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
+- primary-source audit identified QuranEnc `arabic_seraj` v1.0.0 as a promising verse-scoped difficult-word gloss source and defined a fail-closed gloss bridge that does not fabricate morphology or lexical IDs; source remains `awaiting-artifact`.
 
 ## Production Source Vault
 
@@ -43,8 +44,9 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 ### Still blocked from production
 
+- QuranEnc Arabic Meanings of Words (As-Siraj) v1.0.0: `awaiting-artifact`; official version/republication terms are promising, but exact content and applicable terms bytes have not yet been preserved under project control.
 - Quranic Arabic Corpus v0.4: `awaiting-licence` because official materials create a commercial-use/terms ambiguity.
-- HadeethEnc: research candidate pending exact version, edition/collection mapping, numbering provenance and preserved artifact.
+- HadeethEnc Arabic: official version check reports v1.7.0; still a research candidate pending exact artifact preservation plus edition/collection mapping and numbering provenance.
 - QUL resources: official morphology downloads expose word-location keyed lemma/root/stem data, but QUL's FAQ explicitly requires checking dataset-specific licensing for commercial use and the inspected morphology pages do not expose a dataset licence; no bytes are mirrored.
 - Quran Foundation API: not accepted as the permanent mirrored evidence foundation under current developer terms.
 
@@ -87,7 +89,7 @@ No Hadith retrieval benchmark, FSRS retention benchmark, accessibility device te
 1. Bootstrap durable offline release-key custody and independent backup, commit only the public trust material, then sign/review a new immutable Quran-core release candidate for production approval.
 2. Persist the highest accepted signed `release_sequence` and add freshness/recovery state before enabling any automatic remote content-update channel.
 3. Complete accessibility/device validation for the minimal Android reader and connect future word taps only to provenance-backed linguistic evidence.
-4. Add word-level meaning only from a legally preserved, provenance-backed source; do not infer morphology from AI.
+4. Preserve the exact QuranEnc Arabic Meanings of Words v1.0.0 source/terms snapshot, validate it, and only then prototype the verse-scoped gloss pack; do not infer morphology or lexical IDs from it or from AI.
 5. Resolve QAC licensing or choose a legally clearer morphology source, and preserve an edition-aware Hadith source before production Hadith search.
 6. Add an independent backup/archive for critical Source Vault artifacts and trust-root history.
 
