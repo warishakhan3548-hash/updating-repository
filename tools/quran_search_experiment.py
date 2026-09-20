@@ -2,9 +2,9 @@
 """Conservative deterministic Quran-search experiment.
 
 This module is evaluation-only. It does not change display text, pack evidence or
-the Android runtime. It tests whether a narrow orthographic/keyboard variant lane
-plus one-edit contiguous token matching can improve the labelled golden set while
-preserving abstention.
+the Android runtime. It reuses the current reader-search contract and tests exactly
+one additional lane: one-edit contiguous multi-word matching after the existing
+strict + constrained-variant reader search has fully abstained.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import time
 from typing import Any
 
 if __package__:
-    from tools.quran_core import normalize_search_diacritic_free
+    from tools.quran_core import normalize_search_constrained_variant
     from tools.quran_search_eval import (
         DEFAULT_GOLDEN,
         DEFAULT_PACK,
@@ -27,9 +27,10 @@ if __package__:
         _recall_at,
         _reciprocal_rank,
         load_golden,
+        reader_search,
     )
 else:
-    from quran_core import normalize_search_diacritic_free
+    from quran_core import normalize_search_constrained_variant
     from quran_search_eval import (
         DEFAULT_GOLDEN,
         DEFAULT_PACK,
@@ -39,32 +40,20 @@ else:
         _recall_at,
         _reciprocal_rank,
         load_golden,
+        reader_search,
     )
 
 
 ENGINE_ID = "quran-conservative-fuzzy-v1"
-
-_VARIANT_TRANSLATION = str.maketrans(
-    {
-        "\u0671": "\u0627",  # ALEF WASLA -> ALEF for search only
-        "\u0623": "\u0627",  # ALEF WITH HAMZA ABOVE
-        "\u0625": "\u0627",  # ALEF WITH HAMZA BELOW
-        "\u0622": "\u0627",  # ALEF WITH MADDA
-        "\u06cc": "\u064a",  # FARSI YEH -> ARABIC YEH
-        "\u06d2": "\u064a",  # YEH BARREE -> ARABIC YEH
-        "\u06a9": "\u0643",  # KEHEH -> KAF
-        "\u06c1": "\u0647",  # HEH GOAL -> HEH
-        "\u06be": "\u0647",  # HEH DOACHASHMEE -> HEH
-    }
-)
-
-
-def normalize_variant_lane(text: str) -> str:
-    return normalize_search_diacritic_free(text).translate(_VARIANT_TRANSLATION).strip()
+FUZZY_MATCH_MODE = "fuzzy_one_edit"
 
 
 def _edit_distance_at_most_one(left: str, right: str) -> int | None:
-    """Return 0/1 when strings are at edit distance <=1, otherwise None."""
+    """Return 0/1 for Levenshtein distance <=1, otherwise None.
+
+    Adjacent transposition is deliberately not treated as one edit in this first
+    experiment. Broadening the error model requires its own labelled evidence.
+    """
     if left == right:
         return 0
     if abs(len(left) - len(right)) > 1:
@@ -91,7 +80,7 @@ def _edit_distance_at_most_one(left: str, right: str) -> int | None:
 
 
 class ConservativeFuzzySearch:
-    """Prepared corpus view for deterministic evaluation without new evidence."""
+    """Prepared corpus view for the single experimental fuzzy fallback."""
 
     def __init__(self, connection: sqlite3.Connection):
         rows = connection.execute(
@@ -106,7 +95,7 @@ class ConservativeFuzzySearch:
                 ayah_id,
                 surah,
                 ayah,
-                normalize_variant_lane(search_text),
+                normalize_search_constrained_variant(search_text),
             )
             for ayah_id, surah, ayah, search_text in rows
         ]
@@ -115,30 +104,13 @@ class ConservativeFuzzySearch:
         if not 1 <= limit <= 100:
             raise QuranSearchEvalError("search limit must be between 1 and 100")
 
-        normalized_query = normalize_variant_lane(query)
+        normalized_query = normalize_search_constrained_variant(query)
         if not normalized_query:
             return []
 
-        direct: list[tuple[int, int, int, int, str]] = []
-        for ayah_id, surah, ayah, candidate in self._rows:
-            position = candidate.find(normalized_query)
-            if position >= 0:
-                direct.append(
-                    (
-                        0 if candidate == normalized_query else 1 if position == 0 else 2,
-                        len(candidate),
-                        surah,
-                        ayah,
-                        ayah_id,
-                    )
-                )
-        if direct:
-            direct.sort()
-            return [entry[-1] for entry in direct[:limit]]
-
         query_tokens = normalized_query.split()
-        # One-character fuzzy matching is intentionally unavailable for single-word
-        # queries: a weak one-token edit has too little evidence to return Quran text.
+        # One-token fuzzy guesses have too little contextual evidence for Quran
+        # retrieval. The existing strict/variant reader lane gets first refusal.
         if len(query_tokens) < 2:
             return []
 
@@ -190,6 +162,24 @@ class ConservativeFuzzySearch:
         return [entry[-1] for entry in fuzzy[:limit]]
 
 
+def experiment_search(
+    connection: sqlite3.Connection,
+    fuzzy_search: ConservativeFuzzySearch,
+    query: str,
+    *,
+    limit: int = 50,
+) -> tuple[list[str], str]:
+    """Preserve the shipped reader ladder; add fuzzy only after abstention."""
+    ranked, match_mode = reader_search(connection, query, limit=limit)
+    if ranked:
+        return ranked, match_mode
+
+    fuzzy = fuzzy_search.search(query, limit=limit)
+    if fuzzy:
+        return fuzzy, FUZZY_MATCH_MODE
+    return [], "none"
+
+
 def _average(field: str, rows: list[dict[str, Any]]) -> float:
     if not rows:
         return 0.0
@@ -205,15 +195,22 @@ def evaluate_experiment(
     golden = load_golden(golden_path)
     connection = sqlite3.connect(f"file:{pack_path}?mode=ro", uri=True)
     try:
-        search = ConservativeFuzzySearch(connection)
+        fuzzy_search = ConservativeFuzzySearch(connection)
         reports: list[dict[str, Any]] = []
         latencies: list[float] = []
+
         for case in golden["cases"]:
             query = _query_for_case(connection, case)
             started = time.perf_counter()
-            ranked = search.search(query, limit=limit)
+            ranked, match_mode = experiment_search(
+                connection,
+                fuzzy_search,
+                query,
+                limit=limit,
+            )
             latency = (time.perf_counter() - started) * 1000.0
             latencies.append(latency)
+
             expected = case["expected_ayah_ids"]
             positive = bool(expected)
             reports.append(
@@ -222,13 +219,20 @@ def evaluate_experiment(
                     "category": case["category"],
                     "positive": positive,
                     "result_count": len(ranked),
+                    "match_mode": match_mode,
                     "top_10": ranked[:10],
-                    "recall_at_5": _recall_at(ranked, expected, 5) if positive else None,
-                    "recall_at_10": _recall_at(ranked, expected, 10) if positive else None,
-                    "reciprocal_rank": (
-                        _reciprocal_rank(ranked, expected) if positive else None
-                    ),
-                    "ndcg_at_10": _ndcg_at(ranked, expected, 10) if positive else None,
+                    "recall_at_5": _recall_at(ranked, expected, 5)
+                    if positive
+                    else None,
+                    "recall_at_10": _recall_at(ranked, expected, 10)
+                    if positive
+                    else None,
+                    "reciprocal_rank": _reciprocal_rank(ranked, expected)
+                    if positive
+                    else None,
+                    "ndcg_at_10": _ndcg_at(ranked, expected, 10)
+                    if positive
+                    else None,
                     "latency_ms": round(latency, 3),
                 }
             )
@@ -262,7 +266,10 @@ def evaluate_experiment(
             categories[category] = metrics
 
         ordered = sorted(latencies)
-        p95_index = max(0, min(len(ordered) - 1, (95 * len(ordered) + 99) // 100 - 1))
+        p95_index = max(
+            0,
+            min(len(ordered) - 1, (95 * len(ordered) + 99) // 100 - 1),
+        )
         return {
             "schema_version": 1,
             "engine_id": ENGINE_ID,
@@ -274,12 +281,14 @@ def evaluate_experiment(
                 "mrr": _average("reciprocal_rank", positives),
                 "ndcg_at_10": _average("ndcg_at_10", positives),
                 "negative_false_positive_rate": (
-                    sum(row["result_count"] > 0 for row in negatives) / len(negatives)
+                    sum(row["result_count"] > 0 for row in negatives)
+                    / len(negatives)
                     if negatives
                     else 0.0
                 ),
                 "zero_result_rate": (
-                    sum(row["result_count"] == 0 for row in reports) / len(reports)
+                    sum(row["result_count"] == 0 for row in reports)
+                    / len(reports)
                 ),
                 "host_p50_latency_ms": round(statistics.median(latencies), 3),
                 "host_p95_latency_ms": round(ordered[p95_index], 3),
@@ -287,7 +296,8 @@ def evaluate_experiment(
             "categories": categories,
             "cases": reports,
             "latency_scope": (
-                "Host-side full-corpus experiment only; not an Android performance claim."
+                "Host-side baseline + full-corpus fuzzy experiment only; "
+                "not an Android performance claim."
             ),
         }
     finally:
@@ -308,9 +318,34 @@ def assert_experiment(report: dict[str, Any]) -> None:
             raise QuranSearchEvalError(
                 f"{category} Recall@5 is {actual!r}; experiment is not promotable"
             )
+
     if report["metrics"]["negative_false_positive_rate"] != 0.0:
         raise QuranSearchEvalError(
             "experiment returned a labelled no-answer false positive"
+        )
+
+    baseline_categories = {
+        "exact_source",
+        "diacritic_free",
+        "partial_phrase",
+        "orthographic_variant",
+        "keyboard_variant",
+    }
+    for case in report["cases"]:
+        if (
+            case["category"] in baseline_categories
+            and case["match_mode"] == FUZZY_MATCH_MODE
+        ):
+            raise QuranSearchEvalError(
+                f"{case['id']}: fuzzy fallback displaced an existing reader lane"
+            )
+
+    typo_cases = [case for case in report["cases"] if case["category"] == "typo"]
+    if not typo_cases or any(
+        case["match_mode"] != FUZZY_MATCH_MODE for case in typo_cases
+    ):
+        raise QuranSearchEvalError(
+            "labelled typo cases must be recovered specifically by the fuzzy fallback"
         )
 
 
