@@ -36,10 +36,11 @@ The exported snapshot is validated before publication:
 2. defensive pragmas are applied for inspection;
 3. `PRAGMA integrity_check` must return `ok`;
 4. `PRAGMA user_version` must be a supported version;
-5. required durable user tables must exist;
-6. the database is hashed;
-7. the final archive is reopened and fully validated;
-8. only then is it moved into the requested output path.
+5. the complete persistent application schema must match the canonical repository schema for that `user_version`, including tables, explicit indexes and triggers;
+6. no unexpected application-defined view/trigger/table/index may be present;
+7. the database is hashed;
+8. the final archive is reopened and fully validated;
+9. only then is it moved into the requested output path.
 
 The exporter refuses to overwrite an existing backup.
 
@@ -55,8 +56,10 @@ Validation fails closed when:
 - size metadata does not match;
 - the SHA-256 does not match;
 - SQLite integrity fails;
-- required user tables are missing;
-- `user_version` is unsupported or disagrees with the manifest.
+- `user_version` is unsupported or disagrees with the manifest;
+- the persistent application schema differs from the canonical schema for that version, including an added/removed/modified table, explicit index, view or trigger.
+
+The schema comparison deliberately ignores SQLite-owned internal objects whose names begin with `sqlite_`, but it fails closed on every application-defined persistent schema object. This prevents a correctly re-hashed archive from smuggling altered triggers or views into the database that the app later opens normally.
 
 The reference restore path writes only to a **new** destination database. It refuses to overwrite an existing SQLite database or publish next to leftover `-wal`, `-shm` or `-journal` sidecars.
 
