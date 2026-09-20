@@ -280,22 +280,31 @@ def validate_registry(registry_path: Path) -> None:
             )
 
         release_requirements = _validate_release_requirements(source, source_id)
-        if (
-            status == "production-approved"
-            and release_requirements is not None
-            and release_requirements["historical_snapshot_retention_status"]
-            != "verified-allowed"
-        ):
-            raise VaultGateError(
-                f"{source_id}: production source requires verified historical "
-                "snapshot retention permission"
-            )
 
         snapshot_fields_present = [
             field
             for field in PRESERVED_SNAPSHOT_FIELDS
             if source.get(field) not in (None, "")
         ]
+        if status == "awaiting-licence" and snapshot_fields_present:
+            raise VaultGateError(
+                f"{source_id}: awaiting-licence source must not preserve "
+                "project-controlled snapshot bytes"
+            )
+        if (
+            release_requirements is not None
+            and (
+                status in {"awaiting-artifact", "production-approved"}
+                or bool(snapshot_fields_present)
+            )
+            and release_requirements["historical_snapshot_retention_status"]
+            != "verified-allowed"
+        ):
+            raise VaultGateError(
+                f"{source_id}: source requires verified historical snapshot "
+                "retention permission before capture or preservation"
+            )
+
         if status != "production-approved" and not snapshot_fields_present:
             continue
 
