@@ -53,9 +53,15 @@ The research now converges on four durable choices: immutable source/display dat
 
 | type | claim | source | confidence | product implication |
 | --- | --- | --- | --- | --- |
-| fact | Quran Foundation Developer Terms were updated 2026-09-14 and restrict redistribution/storage of API content outside specified cases; the service may also change or discontinue. | https://api-docs.quran.com/docs/terms-of-service and https://api-docs.quran.com/docs/faq | high | Keep Quran Foundation useful only as an optional integration/research source; it is not the durable mirrored Evidence Plane foundation without separate permission. |
+| fact | Quran Foundation Developer Terms were updated 2026-09-14 and restrict redistribution/storage of API content outside specified cases; the service may also change or discontinue. | https://api-docs.quran.foundation/legal/developer-terms/ | high | Keep Quran Foundation useful only as an optional integration/research source; it is not the durable mirrored Evidence Plane foundation without separate permission. |
 | fact | HadeethEnc's official site permits republication subject to no-modification, attribution, version-display and update conditions. The Arabic download endpoint was rate-limited during this run, so no exact production artifact/version was captured. | https://hadeethenc.com/en and https://hadeethenc.com/ar | high | Keep HadeethEnc as a research candidate until exact bytes, version, collection/edition mapping and numbering provenance are preserved and reviewed. |
 | fact | SQLite documents `mode=ro` for read-only URI opens and `immutable=1` for files that must not change underneath the connection. | https://sqlite.org/uri.html | high | ReaderCore's combined `mode=ro&immutable=1` remains appropriate for immutable local content packs. |
 | fact | TUF separates trusted keys/signatures from hash checking and defines metadata roles/versioning/expiry to resist rollback and freeze attacks. | https://theupdateframework.io/docs/metadata/ and https://theupdateframework.io/docs/security/ | high | A content pack must never become `approved` merely because signature-shaped strings exist; cryptographic verification against trusted keys is a separate release gate. |
 | finding | The repository's previous pack gate checked only that `algorithm`, `key_id`, and `value` were non-empty for an `approved` pack; it did not verify the signature. | repository audit | high | Fail closed on every `approved` manifest until a real trusted-key verifier, canonical signed payload and rotation policy are implemented. |
 
+
+## Semantic-fidelity update
+
+| type | claim | source | confidence | product implication |
+| --- | --- | --- | --- | --- |
+| fact | SQLite stores file-level structural/version metadata such as the file change counter and the SQLite version that most recently modified the database. A runtime SQLite SHA-256 identifies exact file bytes but does not by itself prove semantic fidelity to an external preserved source. | https://sqlite.org/fileformat.html | high | Keep byte-integrity checking, but independently compare schema and Quran evidence rows/search lanes back to the pinned Source Vault before promotion. |
