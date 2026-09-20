@@ -27,6 +27,21 @@ For `quran-core`, schema v2 also performs importer-independent semantic verifica
 
 For the Tanzil Quran pack, notice text is derived from comment lines in the exact preserved production artifact. The importer does not author substitute licence wording.
 
+## Schema v3 — canonical-bound reproducible pack
+
+Schema v3 retains the provenance and semantic checks of v2 and additionally requires:
+
+- `content_schema_version`;
+- a `canonical` binding containing canonical ID/version/generator, manifest path/hash, artifact path/hash/size, and record count;
+- `build_toolchain` metadata for Python implementation/version and SQLite version;
+- an explicit `byte_reproducibility_scope`.
+
+The canonical Quran artifact is deterministic JSONL generated only from the preserved Source Vault source. Its loader validates coordinates, source identity, exact artifact bytes, and **row-for-row Quran text equality with the Source Vault artifact**. The runtime pack embeds the canonical identity/hash and is then independently semantically verified against Source Vault again.
+
+This separates three properties that must not be confused: source provenance, canonical semantic fidelity, and runtime byte identity. A changed canonical/runtime file plus newly calculated hashes still fails when its Quran semantics no longer match preserved evidence.
+
+Historical schema-v1/v2 packs remain immutable and verifiable under their own contracts; schema v3 does not rewrite them.
+
 ## Promotion
 
 - `candidate`: deterministic build output; not release-approved.
