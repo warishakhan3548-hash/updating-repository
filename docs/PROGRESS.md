@@ -15,6 +15,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - AI trust boundary, evidence-export/verify-back design and pack-manifest gate;
 - exact Tanzil Quran Text v1.1 Uthmani snapshot preserved under project control;
 - source SHA-256, licence snapshot SHA-256 and provenance SHA-256 bound into the vault gate;
+- generic `sha256-set` Source Vault support for immutable multi-file upstream snapshots, with member hash verification and canonical path/symlink containment; this is an integrity primitive only and does not promote any candidate source;
 - 114-surah / 6,236-ayah coordinate invariants;
 - display Arabic separated from derived search-normalized lanes;
 - deterministic Quran-core importer with byte-reproducibility coverage;
@@ -84,7 +85,7 @@ Candidate does not mean release-approved. Version 1.1.0 adds the source-faithful
 
 ## Validation status
 
-Automated coverage now checks Source Vault integrity, licence/provenance consistency, schema-v2/v3 manifest binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas including user-v2 migration coverage, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, deterministic canonical/runtime generation, strict duplicate-free cross-runtime signed-JSON rules, threshold Ed25519 approval, and signed release ordering. The historical 1.0.4 publisher passed its release gate, and the schema-v3 publisher subsequently built, revalidated and pushed quran-core 1.1.0 from the exact main tree. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
+Automated coverage now checks single-file and checksum-bound multi-file Source Vault integrity, licence/provenance consistency, schema-v2/v3 manifest binding, manifest-to-SQLite provenance/notice consistency, required attribution-notice hashing, pack-local artifact/notice isolation (including symlink resolution), SQLite schemas including user-v2 migration coverage, sacred-text immutability, append-only learning events, Quran coordinate ordering, source hash/size, deterministic canonical/runtime generation, strict duplicate-free cross-runtime signed-JSON rules, threshold Ed25519 approval, and signed release ordering. The historical 1.0.4 publisher passed its release gate, and the schema-v3 publisher subsequently built, revalidated and pushed quran-core 1.1.0 from the exact main tree. CI now also rejects movable remote Action references, pins external Actions to verified full commit SHAs, and requires future generated-pack commits to revalidate Source Vault, pack, schema and unit-test gates on the exact committed tree before push.
 
 Schema-v2 Quran semantic regression coverage now tampers with Quran text and SQLite schema, recomputes the runtime artifact SHA-256, and requires promotion to fail. Recomputing `built_sha256` after changing Quran text or SQLite schema does not make the pack valid.
 
