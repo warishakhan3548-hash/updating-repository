@@ -898,6 +898,18 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
           ),
+        if (_hits.isNotEmpty && activeQuery.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 4, 22, 12),
+              child: Text(
+                _hits.length == 150
+                    ? 'Showing the best 150 matches. Refine your search for more.'
+                    : '${_hits.length} stock ${_hits.length == 1 ? 'entry' : 'entries'}',
+                style: const TextStyle(fontSize: 12, color: muted),
+              ),
+            ),
+          ),
         if (_hits.isEmpty &&
             !_loading &&
             _catalogHits.isEmpty &&
@@ -981,35 +993,30 @@ class _SearchScreenState extends State<SearchScreen> {
               },
             ),
           ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 12, 22, 30),
-            child: Column(
-              children: [
-                Text(
-                  _hits.length == 150 && activeQuery.isNotEmpty
-                      ? 'Showing the best 150 matches. Refine your search for more.'
-                      : activeQuery.isEmpty &&
-                            !_browseExhausted &&
-                            _hits.isNotEmpty
-                      ? 'Showing ${_hits.length} stock entries'
-                      : '${_hits.length} stock ${_hits.length == 1 ? 'entry' : 'entries'}',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12, color: muted),
-                ),
-                if (activeQuery.isEmpty &&
-                    !_browseExhausted &&
-                    _hits.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  TextButton(
-                    onPressed: _loading ? null : _expandBrowse,
-                    child: Text(_loading ? 'Loading more…' : 'Load more'),
+        if (activeQuery.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 12, 22, 30),
+              child: Column(
+                children: [
+                  Text(
+                    !_browseExhausted && _hits.isNotEmpty
+                        ? 'Showing ${_hits.length} stock entries'
+                        : '${_hits.length} stock ${_hits.length == 1 ? 'entry' : 'entries'}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12, color: muted),
                   ),
+                  if (!_browseExhausted && _hits.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    TextButton(
+                      onPressed: _loading ? null : _expandBrowse,
+                      child: Text(_loading ? 'Loading more…' : 'Load more'),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
-        ),
       ],
     );
     return widget.embedded
