@@ -23,8 +23,9 @@ from tools.quran_core import (
 )
 
 PACK_ID = "quran-core"
-CONTENT_VERSION = "1.0.0"
-IMPORTER_VERSION = "quran-core-importer-1"
+CONTENT_VERSION = "1.0.1"
+IMPORTER_VERSION = "quran-core-importer-2"
+NOTICE_TEXT = """Tanzil Quran Text\nCopyright (C) 2007-2021 Tanzil Project\nLicense: Creative Commons Attribution 3.0\nSource: https://tanzil.net/\n\nPermission is granted to copy and distribute verbatim copies of the Quran text. Changing the Quran text is not allowed. The Tanzil Project must be clearly indicated as the source and linked so users can track text updates.\n"""
 SOURCE_ASSERTION_ID = "sa:quran.tanzil.uthmani.v1.1"
 
 
@@ -53,8 +54,9 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
         raise QuranPackError("output directory must be under content-packs/")
 
     db_path = output_dir / "content.sqlite"
+    notice_path = output_dir / "NOTICE.txt"
     manifest_path = output_dir / "manifest.json"
-    if db_path.exists() or manifest_path.exists():
+    if db_path.exists() or notice_path.exists() or manifest_path.exists():
         raise QuranPackError(
             f"immutable pack target already exists: {relative_dir.as_posix()}"
         )
@@ -150,6 +152,8 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
     finally:
         connection.close()
 
+    notice_path.write_text(NOTICE_TEXT, encoding="utf-8")
+    notice_hash = sha256_file(notice_path)
     built_hash = sha256_file(db_path)
     built_size = db_path.stat().st_size
     manifest = {
@@ -171,6 +175,8 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
         "built_byte_size": built_size,
         "dependencies": [],
         "signature": {"status": "unsigned"},
+        "notice_path": notice_path.relative_to(root).as_posix(),
+        "notice_sha256": notice_hash,
         "source_artifact_name": artifact.name,
         "search_normalization_version": SEARCH_NORMALIZATION_VERSION,
     }
@@ -192,7 +198,7 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("content-packs/quran-core/1.0.0"),
+        default=Path("content-packs/quran-core/1.0.1"),
         help="pack directory, relative to repository root",
     )
     args = parser.parse_args()
