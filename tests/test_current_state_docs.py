@@ -104,7 +104,7 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         self.assertIn("PROCESS_LOCK", store)
         self.assertIn("REJECT_ROLLBACK", store)
         self.assertIn("REJECT_EQUIVOCATION", store)
-        self.assertIn("does not enable remote updates", design)
+        self.assertIn("no remote update channel is enabled", design)
 
 
 if __name__ == "__main__":
