@@ -7,7 +7,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 ## Completed
 
 - product north star, Evidence Plane / Learning Plane boundary, privacy and offline-first contracts;
-- Source Vault registry, licence firewall, provenance checks and immutable-source policy;
+- Source Vault registry, licence firewall, provenance checks and immutable-source policy, with universal historical-retention clearance required before `awaiting-artifact`, preserved bytes or production approval;
 - app-owned canonical IDs and canonical SQLite content/user schemas;
 - Evidence Plane update/delete protection and append-only learning-event history;
 - versioned `user.sqlite` schema v2 plus a conservative v1→v2 migration that preserves append-only history, canonicalizes only exact Again/Hard/Good/Easy review grades, records scheduler/context metadata for new reviews, and keeps scheduler state rebuildable;
@@ -37,7 +37,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - project-owned offline signer for encrypted out-of-repository PKCS#8 Ed25519 keys, public-key/key-ID inspection, active-role and sequence-window enforcement, additive threshold signatures, cryptographic self-check, and create-only signed-manifest output;
 - trust-root bootstrap remains intentionally incomplete: no private release key or fake approval was created in GitHub.
 - primary-source audit identified QuranEnc `arabic_seraj` v1.0.0 as a promising verse-scoped difficult-word gloss source and defined a fail-closed gloss bridge that does not fabricate morphology or lexical IDs; source is now `awaiting-licence` pending clarification that immutable historical archival redistribution remains permitted after newer upstream versions appear.
-- one-shot `tools/capture_quranenc_gloss.py` acquisition gate pins QuranEnc `arabic_seraj` v1.0.0, preserves exact pre/post metadata + 114 Surah response byte streams + official terms/source page, validates the complete 6,236-coordinate shape, rejects source drift/off-host redirects/partial capture/overwrite, and emits deterministic review-only snapshot metadata. It now also refuses any network acquisition unless the registry is explicitly `awaiting-artifact` with reviewed permissions; the current `awaiting-licence` state therefore blocks capture.
+- one-shot `tools/capture_quranenc_gloss.py` acquisition gate pins QuranEnc `arabic_seraj` v1.0.0, preserves exact pre/post metadata + 114 Surah response byte streams + official terms/source page, validates the complete 6,236-coordinate shape, rejects source drift/off-host redirects/partial capture/overwrite, and emits deterministic review-only snapshot metadata. It refuses any network acquisition unless the registry is explicitly `awaiting-artifact`, the required permissions are reviewed, and historical snapshot retention is `verified-allowed`; the current `awaiting-licence` state therefore blocks capture before network access.
 
 ## Production Source Vault
 
@@ -49,7 +49,8 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - licence snapshot SHA-256: `1ef7fbb0454f64ed4cceb838337808969711155f36147d1b357fc083336f4c68`
 - provenance SHA-256: `733a938c4f54f082bf7f4e0b1d9bff7ce21afedceeba199294e872a428a57505`
 - redistribution: verbatim copies allowed under the archived source-specific terms with attribution/source-link requirements;
-- modification of Quran source text: not allowed.
+- modification of Quran source text: not allowed;
+- historical snapshot retention: verified allowed for the exact verbatim preserved copy; no latest-version release obligation is encoded.
 
 ### Still blocked from production
 
