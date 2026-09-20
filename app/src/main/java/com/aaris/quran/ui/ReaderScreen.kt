@@ -44,6 +44,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aaris.quran.data.QuranSearchHit
+import com.aaris.quran.data.QuranSearchMatchKind
 import com.aaris.quran.model.QuranAyah
 
 @Composable
@@ -68,7 +70,7 @@ fun ReaderScreen(
     onNextSurah: () -> Unit,
     onSelectSurah: (Int) -> Unit,
     onSearchQueryChange: (String) -> Unit,
-    onOpenSearchResult: (QuranAyah) -> Unit,
+    onOpenSearchResult: (QuranSearchHit) -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -197,7 +199,7 @@ fun ReaderScreen(
 @Composable
 private fun SearchResultsContent(
     state: ReaderUiState,
-    onOpenSearchResult: (QuranAyah) -> Unit,
+    onOpenSearchResult: (QuranSearchHit) -> Unit,
 ) {
     when {
         state.isSearching -> {
@@ -223,9 +225,10 @@ private fun SearchResultsContent(
         }
         else -> {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(state.searchResults, key = { it.ayahId }) { ayah ->
+                items(state.searchResults, key = { it.ayah.ayahId }) { hit ->
+                    val ayah = hit.ayah
                     TextButton(
-                        onClick = { onOpenSearchResult(ayah) },
+                        onClick = { onOpenSearchResult(hit) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp)
@@ -239,6 +242,12 @@ private fun SearchResultsContent(
                                 text = "Surah ${ayah.surah} • Ayah ${ayah.ayah}",
                                 style = MaterialTheme.typography.labelMedium,
                             )
+                            if (hit.matchKind == QuranSearchMatchKind.APPROXIMATE_SPELLING) {
+                                Text(
+                                    text = "Approximate spelling match",
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
                             Text(
                                 text = ayah.originalText,
                                 style = MaterialTheme.typography.bodyLarge.copy(
