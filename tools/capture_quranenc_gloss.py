@@ -20,7 +20,10 @@ from typing import Callable, Iterable
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from tools.quran_core import EXPECTED_AYAH_COUNTS
+if __package__:
+    from tools.quran_core import EXPECTED_AYAH_COUNTS
+else:
+    from quran_core import EXPECTED_AYAH_COUNTS
 
 SOURCE_ID = "quran-gloss.quranenc.arabic-seraj.v1.0.0"
 SOURCE_NAME = (
