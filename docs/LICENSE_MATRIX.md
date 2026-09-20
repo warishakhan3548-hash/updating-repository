@@ -8,6 +8,7 @@
 | QUL / Tarteel resources | per-resource discovery | **awaiting-licence** | Each resource's origin and licence must be verified independently; no blanket approval. |
 | HadeethEnc | Hadith research candidate | **research-candidate** | Republication terms are promising, but exact version, source edition/numbering provenance and preserved artifact are still required before Evidence Plane promotion. |
 | Sunnah.com API | comparison/research candidate | **research-only** | Useful for research/API comparison, but not a durable mirrored offline foundation while an authoritative offline dump is unavailable. |
+| cryptography 50.0.1 | replaceable build/security verifier dependency | **pinned software dependency** | PyPI reports `Apache-2.0 OR BSD-3-Clause`; it is not Evidence Plane content and no data authority is delegated to it. |
 
 ## Tanzil preserved snapshot
 
