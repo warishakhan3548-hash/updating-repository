@@ -25,6 +25,9 @@ class QuranSearchOneEditExperimentTests(unittest.TestCase):
         self.assertIsNone(
             edit_distance_at_most_one("العلم", "العالمين"),
         )
+        self.assertIsNone(
+            edit_distance_at_most_one("عبد", "بعد"),
+        )
 
     def test_one_edit_experiment_improves_labelled_typos_without_false_positives(self):
         report = evaluate_one_edit()
