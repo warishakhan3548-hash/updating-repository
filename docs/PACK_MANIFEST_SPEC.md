@@ -46,28 +46,34 @@ Historical schema-v1/v2 packs remain immutable and verifiable under their own co
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: all ordinary gates pass and the manifest release signature verifies against the active project trust root.
+- `approved`: all source, integrity, canonical/semantic and trusted-signature gates pass.
 
-Approved manifests use `aaris-pack-signature-v1`:
+An approved manifest additionally requires a positive `release_sequence` and signature format `aaris-pack-signature-v2`:
 
 ```json
 {
-  "format": "aaris-pack-signature-v1",
-  "role": "content-pack-release",
-  "signatures": [
-    {
-      "algorithm": "ed25519",
-      "key_id": "<64-lowercase-hex-key-id>",
-      "value": "<128-lowercase-hex-signature>"
-    }
-  ]
+  "release_sequence": 1,
+  "review_status": "approved",
+  "signature": {
+    "format": "aaris-pack-signature-v2",
+    "role": "content-pack-release",
+    "signatures": [
+      {
+        "algorithm": "ed25519",
+        "key_id": "<64-lowercase-hex-key-id>",
+        "value": "<128-lowercase-hex-signature>"
+      }
+    ]
+  }
 }
 ```
 
-The signed bytes are deterministic JSON for the entire manifest except the top-level `signature` field. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version and review status are therefore covered by the signature.
+The authenticated bytes are a project domain separator followed by deterministic JSON for the entire manifest except the top-level `signature` field. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version, review status and `release_sequence` are therefore signed.
 
-`tools/pack_gate.py` delegates approved-manifest authenticity to `tools/pack_signatures.py`; signature-shaped strings are never sufficient. Trusted release public keys and threshold policy live in `policy/trusted_pack_keys.json`. Key IDs are derived from the public key, and private keys must remain outside the repository.
+`tools/pack_gate.py` proves Quran semantic fidelity before it delegates final approval authenticity to `tools/pack_signatures.py`. Trusted release public keys and threshold/lifecycle policy live in `policy/trusted_pack_keys.json`. Key IDs derive from public-key bytes; private keys remain outside the repository.
 
-The current trust-root state is `bootstrap-required`, so verifier availability does **not** promote existing candidates. A real offline release key and independent backup must be established first.
+Active keys may authorize releases from their minimum sequence onward. Retired keys have a finite historical maximum. Revoked keys never authorize approval. This prevents a retired key from signing an unbounded future release.
 
-Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for reproducibility and later rollback support.
+The current trust-root state is `bootstrap-required`, so verifier availability does **not** promote existing candidates. See `PACK_SIGNING.md`.
+
+Content versions are immutable. `quran-core 1.1.0` remains an unsigned schema-v3 candidate and is not rewritten to add approval metadata; future approval uses a new immutable content version.
