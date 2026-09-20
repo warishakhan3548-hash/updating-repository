@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -9,6 +10,8 @@ import unittest
 from tools.build_quran_core import build_pack, sha256_file
 from tools.quran_core import (
     EXPECTED_AYAH_COUNTS,
+    REQUIRED_SOURCE_NOTICE_MARKERS,
+    extract_source_notice,
     load_production_source,
     normalize_search_diacritic_free,
     normalize_search_unicode,
@@ -33,6 +36,13 @@ class QuranCoreTests(unittest.TestCase):
         self.assertEqual(len(rows), 6236)
         self.assertEqual((rows[0].surah, rows[0].ayah), (1, 1))
         self.assertEqual((rows[-1].surah, rows[-1].ayah), (114, 6))
+
+    def test_pinned_source_notice_is_extracted_verbatim_from_comments(self):
+        _, artifact, _ = load_production_source(ROOT)
+        notice = extract_source_notice(artifact)
+        for marker in REQUIRED_SOURCE_NOTICE_MARKERS:
+            self.assertIn(marker, notice)
+        self.assertTrue(all(line.startswith("#") for line in notice.splitlines()))
 
     def test_search_normalization_never_mutates_display_input(self):
         original = "ٱلْحَمْدُ ۞"
@@ -88,16 +98,28 @@ class QuranCoreTests(unittest.TestCase):
             self._copy_fixture_root(root_a)
             self._copy_fixture_root(root_b)
 
-            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.0.1"))
-            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.0.1"))
+            db_a, manifest_a = build_pack(root_a, Path("content-packs/quran-core/1.0.2"))
+            db_b, manifest_b = build_pack(root_b, Path("content-packs/quran-core/1.0.2"))
 
             self.assertEqual(sha256_file(db_a), sha256_file(db_b))
             manifest = json.loads(manifest_a.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["schema_version"], 2)
+            self.assertEqual(manifest["content_version"], "1.0.2")
             notice = root_a / manifest["notice_path"]
             self.assertTrue(notice.is_file())
             self.assertEqual(sha256_file(notice), manifest["notice_sha256"])
-            self.assertIn("Tanzil Quran Text", notice.read_text(encoding="utf-8"))
-            self.assertIn("Copyright (C) 2007-2021 Tanzil Project", notice.read_text(encoding="utf-8"))
+            self.assertEqual(
+                notice.read_text(encoding="utf-8"),
+                extract_source_notice(root_a / manifest["source_vault_path"]),
+            )
+
+            with sqlite3.connect(db_a) as connection:
+                metadata = dict(
+                    connection.execute("SELECT key, value FROM pack_metadata").fetchall()
+                )
+            self.assertEqual(metadata["source_notice"], notice.read_text(encoding="utf-8"))
+            self.assertEqual(metadata["source_notice_sha256"], manifest["notice_sha256"])
+            self.assertEqual(metadata["source_provenance_sha256"], manifest["source_provenance_sha256"])
 
 
 if __name__ == "__main__":
