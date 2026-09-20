@@ -1,21 +1,42 @@
 # Content Pack Manifest Spec
 
-A runtime content pack is a derived artifact, never the surviving source of truth. Every pack must be traceable to one **production-approved** Source Vault entry.
+Content packs are immutable derived artifacts. Their manifest binds runtime bytes back to a legally reviewed, project-controlled Source Vault snapshot.
 
-Each pack manifest includes:
+## Common fields
+
+Every pack manifest includes:
 
 - `pack_id`, `schema_version`, `content_version`;
-- `source_id`, source name/version/edition;
-- exact `source_vault_path` and `source_sha256`;
-- licence identifier;
-- importer version;
+- `source_id`, `source_name`, `source_version`, `source_vault_path`, `source_sha256`;
+- `licence`, `edition`, `importer_version`;
 - runtime `artifact_path`, `record_count`, `built_sha256`, `built_byte_size`;
-- review status;
-- dependencies;
-- signature metadata.
+- `review_status`, `dependencies`, and `signature`.
 
-`tools/pack_gate.py` fails closed when the source is not production-approved, when source identity/hash/path/licence drift from the Source Vault registry, or when the built artifact's bytes no longer match its manifest.
+`tools/pack_gate.py` fails closed if a pack points at a source that is not `production-approved`, if source identity drifts from the Source Vault registry, or if runtime bytes no longer match their manifest.
 
-`candidate` and `reviewed` packs may be unsigned during development. A pack marked `approved` must carry signature algorithm, key ID and signature value. This creates the release boundary now while allowing the final signing implementation/key-management policy to remain replaceable.
+## Schema v1
 
-A pack is immutable by content version. Updating a gloss pack must not rebuild unrelated Quran/Hadith packs. Release tooling must reject incompatible dependency mixes and preserve a previous verified pack for rollback.
+Schema v1 remains readable so existing historical candidate packs stay auditable. It binds source and runtime bytes, but it does not guarantee a self-contained redistribution notice.
+
+A v1 candidate is never silently rewritten into v2. A stronger contract gets a new immutable content version.
+
+## Schema v2 — self-contained source notice
+
+Schema v2 additionally requires:
+
+- `source_url` and `source_attribution`;
+- `source_licence_url`;
+- exact `source_licence_sha256` and `source_provenance_sha256`;
+- a pack-local `notice_path` and `notice_sha256`.
+
+For SQLite packs, the gate also requires the same source identity, attribution, metadata hashes, notice hash, and exact notice text inside `pack_metadata`. The evidence database therefore remains provenance-aware even when opened directly.
+
+The notice is extracted from the pinned preserved source artifact; the importer does not rewrite its wording. Source-specific tests may impose stronger marker requirements.
+
+## Promotion
+
+- `candidate`: deterministic build output; not release-approved.
+- `reviewed`: technically/content reviewed but not yet release-approved.
+- `approved`: requires real signature material and must satisfy the current release gate.
+
+Old pack versions remain available for rollback and reproducibility.
