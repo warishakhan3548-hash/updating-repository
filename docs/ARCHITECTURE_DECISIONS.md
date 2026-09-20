@@ -140,3 +140,14 @@ A source may be `awaiting-artifact`, contain preserved snapshot metadata, or be 
 
 `latest_upstream_version_required` is a separate boolean. It controls whether an approved pack needs a source-bound signed freshness review; it does not grant archival rights. Mutable release requirements remain outside immutable acquisition provenance so later policy review does not rewrite preserved source history.
 
+
+## ADR-026 — Reading may substitute for interruption, not for evidence of recall
+
+The Learning Plane may use a suitable upcoming natural reading encounter instead of immediately interrupting the user with a standalone review, but only as a scheduling/presentation decision. The encounter itself does not become a successful retrieval event.
+
+`rare-word-rescue-v1` is a deterministic, replaceable policy over app-owned semantic identity, preserved struggle/review evidence, a scheduler projection and future verified natural-exposure predictions. Global rarity alone never enrolls a unit. Unknown retrievability stays unknown; when a scheduler review is already due, unknown or low retrievability fails closed to explicit review rather than assuming that reading will be enough.
+
+The v1 numerical thresholds are experimental policy parameters, not permanent user-history semantics and not literature-derived optima. They may be replaced after measured evaluation without rewriting append-only exposure/review history.
+
+This policy does not create word identities. Until a provenance-backed word/gloss or morphology source clears the Source Vault and alignment gates, Quran word-level rescue remains dormant and the reader UI stays unchanged.
+
