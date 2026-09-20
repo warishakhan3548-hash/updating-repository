@@ -37,7 +37,7 @@ class CurrentStateDocumentationTests(unittest.TestCase):
         progress = (ROOT / "docs" / "PROGRESS.md").read_text(encoding="utf-8")
 
         self.assertIn(f"quran-core {version}", readme)
-        self.assertIn(f"content version: \`{version}\`", progress)
+        self.assertIn(f"content version: `{version}`", progress)
         self.assertIn(built_sha256, progress)
 
     def test_qul_word_level_candidates_remain_fail_closed(self):
