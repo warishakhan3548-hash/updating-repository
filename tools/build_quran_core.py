@@ -17,14 +17,15 @@ if __package__ in (None, ""):
 from tools.quran_core import (
     SEARCH_NORMALIZATION_VERSION,
     SOURCE_ID,
+    extract_source_notice,
     load_production_source,
     normalize_search_diacritic_free,
     normalize_search_unicode,
 )
 
 PACK_ID = "quran-core"
-CONTENT_VERSION = "1.0.0"
-IMPORTER_VERSION = "quran-core-importer-1"
+CONTENT_VERSION = "1.0.1"
+IMPORTER_VERSION = "quran-core-importer-2"
 SOURCE_ASSERTION_ID = "sa:quran.tanzil.uthmani.v1.1"
 
 
@@ -54,13 +55,30 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
 
     db_path = output_dir / "content.sqlite"
     manifest_path = output_dir / "manifest.json"
-    if db_path.exists() or manifest_path.exists():
+    notice_path = output_dir / "NOTICE.txt"
+    if db_path.exists() or manifest_path.exists() or notice_path.exists():
         raise QuranPackError(
             f"immutable pack target already exists: {relative_dir.as_posix()}"
         )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     source, artifact, rows = load_production_source(root)
+    provenance_path = root / source["provenance"]
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    required_provenance = ("attribution", "licence_url")
+    missing_provenance = [
+        key
+        for key in required_provenance
+        if not isinstance(provenance.get(key), str) or not provenance[key].strip()
+    ]
+    if missing_provenance:
+        raise QuranPackError(
+            f"source provenance missing required pack metadata: {missing_provenance}"
+        )
+
+    source_notice = extract_source_notice(artifact)
+    notice_path.write_text(source_notice, encoding="utf-8")
+    notice_hash = sha256_file(notice_path)
     schema = (root / "schemas" / "content_v1.sql").read_text(encoding="utf-8")
 
     connection = sqlite3.connect(db_path)
@@ -75,6 +93,12 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
                 "vault_artifact": source["vault_artifact"],
                 "licence_snapshot": source["licence_snapshot"],
                 "provenance": source["provenance"],
+                "source_url": source["original_url"],
+                "source_attribution": provenance["attribution"],
+                "source_licence_url": provenance["licence_url"],
+                "source_licence_sha256": source["licence_sha256"],
+                "source_provenance_sha256": source["provenance_sha256"],
+                "source_notice_sha256": notice_hash,
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -107,6 +131,13 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
             "importer_version": IMPORTER_VERSION,
             "search_normalization_version": SEARCH_NORMALIZATION_VERSION,
             "quran_coordinate_count": str(len(rows)),
+            "source_url": source["original_url"],
+            "source_attribution": provenance["attribution"],
+            "source_licence_url": provenance["licence_url"],
+            "source_licence_sha256": source["licence_sha256"],
+            "source_provenance_sha256": source["provenance_sha256"],
+            "source_notice_sha256": notice_hash,
+            "source_notice": source_notice,
         }
         connection.executemany(
             "INSERT INTO pack_metadata(key, value) VALUES (?, ?)",
@@ -154,13 +185,18 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
     built_size = db_path.stat().st_size
     manifest = {
         "pack_id": PACK_ID,
-        "schema_version": 1,
+        "schema_version": 2,
         "content_version": CONTENT_VERSION,
         "source_id": SOURCE_ID,
         "source_name": source["source_name"],
         "source_version": source["version"],
         "source_vault_path": source["vault_artifact"],
         "source_sha256": source["sha256"],
+        "source_url": source["original_url"],
+        "source_attribution": provenance["attribution"],
+        "source_licence_url": provenance["licence_url"],
+        "source_licence_sha256": source["licence_sha256"],
+        "source_provenance_sha256": source["provenance_sha256"],
         "licence": source["licence_id"],
         "edition": "Uthmani",
         "importer_version": IMPORTER_VERSION,
@@ -169,7 +205,10 @@ def build_pack(root: Path, output_dir: Path) -> tuple[Path, Path]:
         "review_status": "candidate",
         "built_sha256": built_hash,
         "built_byte_size": built_size,
+        "notice_path": notice_path.relative_to(root).as_posix(),
+        "notice_sha256": notice_hash,
         "dependencies": [],
+        "supersedes": "quran-core@1.0.0",
         "signature": {"status": "unsigned"},
         "source_artifact_name": artifact.name,
         "search_normalization_version": SEARCH_NORMALIZATION_VERSION,
@@ -192,7 +231,7 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("content-packs/quran-core/1.0.0"),
+        default=Path("content-packs/quran-core/1.0.1"),
         help="pack directory, relative to repository root",
     )
     args = parser.parse_args()
