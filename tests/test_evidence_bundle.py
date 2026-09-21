@@ -153,6 +153,16 @@ class EvidenceBundleTests(unittest.TestCase):
                 allow_candidate_for_development=True,
             )
 
+        with self.assertRaisesRegex(EvidenceBundleError, "no verifiable Quran citation"):
+            verify_back(
+                bundle,
+                "An unrelated bracket label [quality] is not a Quran citation.",
+                MANIFEST,
+                REGISTRY,
+                expected_bundle_sha256=evidence_bundle_sha256(bundle),
+                allow_candidate_for_development=True,
+            )
+
     def test_verify_back_rejects_mutated_source_notice(self):
         bundle = self._bundle(citations=["qa:001:001"])
         tampered = copy.deepcopy(bundle)
