@@ -393,6 +393,31 @@ def validate_registry(registry_path: Path) -> None:
                 "requires status 'rejected'"
             )
 
+        snapshot_fields_present = [
+            field
+            for field in PRESERVED_SNAPSHOT_FIELDS
+            if source.get(field) not in (None, "")
+        ]
+        if status == "awaiting-licence" and snapshot_fields_present:
+            raise VaultGateError(
+                f"{source_id}: awaiting-licence source must not preserve "
+                "project-controlled snapshot bytes"
+            )
+        if snapshot_fields_present and retention_status != "verified-allowed":
+            raise VaultGateError(
+                f"{source_id}: source must not preserve project-controlled "
+                "snapshot bytes without verified historical retention permission"
+            )
+
+        if (
+            status in {"awaiting-artifact", "production-approved"}
+            and retention_status != "verified-allowed"
+        ):
+            raise VaultGateError(
+                f"{source_id}: source requires verified historical snapshot "
+                "retention permission before capture or preservation"
+            )
+
         if status == "awaiting-artifact":
             for field in ("source_name", "version", "licence_id"):
                 if not isinstance(source.get(field), str) or not source[field]:
@@ -436,31 +461,6 @@ def validate_registry(registry_path: Path) -> None:
                     f"{source_id}: awaiting-artifact attribution_required "
                     "must be explicit"
                 )
-
-        snapshot_fields_present = [
-            field
-            for field in PRESERVED_SNAPSHOT_FIELDS
-            if source.get(field) not in (None, "")
-        ]
-        if status == "awaiting-licence" and snapshot_fields_present:
-            raise VaultGateError(
-                f"{source_id}: awaiting-licence source must not preserve "
-                "project-controlled snapshot bytes"
-            )
-        if snapshot_fields_present and retention_status != "verified-allowed":
-            raise VaultGateError(
-                f"{source_id}: source must not preserve project-controlled "
-                "snapshot bytes without verified historical retention permission"
-            )
-
-        if (
-            status in {"awaiting-artifact", "production-approved"}
-            and retention_status != "verified-allowed"
-        ):
-            raise VaultGateError(
-                f"{source_id}: source requires verified historical snapshot "
-                "retention permission before capture or preservation"
-            )
 
         if status != "production-approved" and not snapshot_fields_present:
             continue
