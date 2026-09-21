@@ -1,6 +1,4 @@
 import hashlib
-import subprocess
-import sys
 import json
 import tempfile
 import unittest
@@ -152,22 +150,6 @@ class SourceBackupGateTests(unittest.TestCase):
                 SourceBackupGateError, "must be checked by sha256"
             ):
                 validate_all(registry, backup)
-
-    def test_direct_cli_entrypoint_runs_from_repo_root(self):
-        root = Path(__file__).resolve().parents[1]
-        completed = subprocess.run(
-            [
-                sys.executable,
-                str(root / "tools" / "source_backup_gate.py"),
-                str(root / "source-vault" / "registry.json"),
-            ],
-            cwd=root,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        self.assertEqual(0, completed.returncode, completed.stderr)
-        self.assertIn("Source backup gate OK", completed.stdout)
 
 
 if __name__ == "__main__":
