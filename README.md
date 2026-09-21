@@ -26,6 +26,7 @@ The reader is intentionally narrow: source-faithful Arabic, local navigation and
 - Learning Plane: glosses, exposure/review events, scheduler state and derived comprehension.
 - Canonical Quran JSONL: long-lived semantic reproducibility anchor between Source Vault and SQLite runtime bytes.
 - AI may expand queries or reason over exported evidence; it cannot author Evidence Plane truth.
+- `aaris-evidence-bundle-v1` deterministically exports explicitly selected Quran ayahs as JSON + UTF-8 text and verifies returned citation IDs against the exact local export; it verifies references, never conclusions.
 - Normal content builds use project-controlled snapshots, never an uncontrolled upstream `latest`.
 - Every source beyond the lightweight `research-candidate` stage must record an explicit historical-retention state; capture-ready, preserved and production sources require verified clearance. This is independent from any latest-version release obligation.
 - Capture-ready, preserved and production sources also require explicit component-rights clearance; a top-level open-data licence cannot silently override unresolved embedded/derived third-party terms.
