@@ -1,0 +1,2 @@
+# Explicit exceptions belong here. Most-specific-rule-wins lets a child domain
+# be allowed without weakening a more specific block beneath it.

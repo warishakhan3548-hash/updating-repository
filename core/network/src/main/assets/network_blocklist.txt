@@ -1,0 +1,12 @@
+# A small offline seed list for Step 2. Rules are exact/suffix domains.
+# This is intentionally curated rather than keyword-based to reduce false positives.
+pornhub.com
+xvideos.com
+xnxx.com
+redtube.com
+youporn.com
+xhamster.com
+spankbang.com
+tube8.com
+beeg.com
+porn.com
