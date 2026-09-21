@@ -48,6 +48,25 @@ class VaultGateTests(unittest.TestCase):
         )
         return path
 
+    def _capture_ready_source(self) -> dict:
+        return {
+            "source_id": "candidate",
+            "source_name": "Candidate Source",
+            "original_url": "https://example.invalid/source",
+            "version": "1.0",
+            "status": "awaiting-artifact",
+            "licence_id": "example-licence",
+            "redistribution_allowed": True,
+            "commercial_use_allowed": True,
+            "modification_allowed": False,
+            "attribution_required": True,
+            "release_requirements": {
+                "latest_upstream_version_required": False,
+                "version_check_url": "https://example.invalid/versions",
+                "historical_snapshot_retention_status": "verified-allowed",
+            },
+        }
+
     def _valid_snapshot(
         self, root: Path, *, status: str = "production-approved"
     ):
@@ -226,6 +245,47 @@ class VaultGateTests(unittest.TestCase):
                 VaultGateError, "verified historical snapshot retention permission"
             ):
                 validate_registry(path)
+
+    def test_capture_ready_source_requires_verified_redistribution_permission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self._capture_ready_source()
+            source["redistribution_allowed"] = None
+            with self.assertRaisesRegex(
+                VaultGateError, "verified redistribution permission"
+            ):
+                validate_registry(self._registry(Path(tmp), source))
+
+    def test_capture_ready_source_requires_verified_commercial_permission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self._capture_ready_source()
+            source["commercial_use_allowed"] = None
+            with self.assertRaisesRegex(
+                VaultGateError, "verified commercial-use permission"
+            ):
+                validate_registry(self._registry(Path(tmp), source))
+
+    def test_capture_ready_source_requires_explicit_licence_dimensions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self._capture_ready_source()
+            source["modification_allowed"] = None
+            with self.assertRaisesRegex(
+                VaultGateError, "modification_allowed must be explicit"
+            ):
+                validate_registry(self._registry(Path(tmp), source))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self._capture_ready_source()
+            source["attribution_required"] = None
+            with self.assertRaisesRegex(
+                VaultGateError, "attribution_required must be explicit"
+            ):
+                validate_registry(self._registry(Path(tmp), source))
+
+    def test_fully_licensed_capture_ready_source_can_remain_metadata_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            validate_registry(
+                self._registry(Path(tmp), self._capture_ready_source())
+            )
 
     def test_valid_non_production_preserved_snapshot_is_verified(self):
         with tempfile.TemporaryDirectory() as tmp:

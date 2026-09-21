@@ -35,9 +35,17 @@ These restrictions keep Arabic attribution or other Unicode string values intact
 
 ## Release ordering
 
-Every approved manifest must carry a positive integer `release_sequence`. Because it is outside the excluded signature block, the sequence is authenticated by every release signature. It is an app-owned monotonic ordering primitive for future rollback protection and does not depend on semantic-version string parsing.
+Every approved manifest must carry a positive integer `release_sequence`. Because it is outside the excluded signature block, the sequence is authenticated by every release signature. It is an app-owned monotonic ordering primitive for rollback protection and does not depend on semantic-version string parsing.
 
-The repository verifier checks that the value is a positive integer. Automatic downloaded-pack activation is still blocked until clients persist the highest accepted sequence and reject lower values except through an explicit recovery procedure.
+Bundled Android releases persist the highest accepted sequence and exact pack hash under no-backup storage. Automatic downloaded-pack activation remains disabled.
+
+## Release freshness
+
+Approved manifests must also carry signed `release_issued_at` and `release_expires_at` timestamps in canonical UTC seconds. The v1 policy requires expiry after issue time and limits the window to 366 days. The offline signer validates this structure before adding a signature, so freshness metadata cannot be bolted on after signing without invalidating the release.
+
+Historical verification deliberately does not fail merely because `release_expires_at` has passed. Expiry is checked when making a **new activation** trust decision. This keeps reproducible archives stable while preventing a future downloader from treating indefinitely replayed release metadata as fresh.
+
+The 366-day cap is not a substitute for TUF-style short-lived Timestamp/Snapshot metadata. A future network update channel still needs a separately authenticated, frequently refreshed freshness layer.
 
 ## Bootstrap ceremony
 

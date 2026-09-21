@@ -19,6 +19,10 @@ from tools.pack_signatures import (
     validate_trusted_key_policy,
     verify_approved_manifest,
 )
+from tools.release_freshness import (
+    ReleaseFreshnessError,
+    validate_release_window,
+)
 from tools.verify_quran_core_pack import (
     QuranPackSemanticError,
     verify_quran_core_pack,
@@ -536,6 +540,13 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
                 manifest_path,
                 pack_metadata,
             )
+
+    try:
+        validate_release_window(manifest)
+    except ReleaseFreshnessError as exc:
+        raise PackGateError(
+            f"{manifest_path}: invalid signed release freshness: {exc}"
+        ) from exc
 
     signature = manifest["signature"]
     if not isinstance(signature, dict):

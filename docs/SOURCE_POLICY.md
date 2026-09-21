@@ -20,7 +20,7 @@ When a legally cleared upstream release is inherently multi-file, preserve the e
 ## Statuses
 
 - `research-candidate`: useful for evaluation; never consumed by production builds.
-- `awaiting-artifact`: licensing appears compatible, but exact bytes are not yet preserved.
+- `awaiting-artifact`: capture-authorizing licence review is complete—redistribution and commercial use are verified, modification/attribution obligations are explicit, historical retention is verified allowed—but the exact artifact bytes are not yet preserved.
 - `awaiting-licence`: origin known; storage/redistribution rights are not sufficiently verified.
 - `production-approved`: exact artifact, licence snapshot, provenance and checksum are present and validated.
 - `rejected`: unsuitable due to trust, licensing or integrity.
@@ -35,7 +35,7 @@ A `production-approved` source must set `commercial_use_allowed: true`. Unknown 
 
 ## Archival-retention gate
 
-Redistribution permission and historical-retention permission are separate review dimensions. Before any source may become `awaiting-artifact`, have snapshot bytes preserved under project control, or become `production-approved`, the registry must explicitly record `historical_snapshot_retention_status=verified-allowed`. An unresolved result stays metadata-only as `awaiting-licence`; an explicit denial stays metadata-only as `rejected`.
+Redistribution permission and historical-retention permission are separate review dimensions. Before any source may become `awaiting-artifact`, the central Source Vault gate now also requires a reviewed source identity/version/licence, an absolute HTTPS origin, `redistribution_allowed=true`, `commercial_use_allowed=true`, explicit modification/attribution flags, and `historical_snapshot_retention_status=verified-allowed`. If any capture-authorizing licence dimension remains unresolved, the source stays metadata-only as `awaiting-licence`; an explicit historical-retention denial stays metadata-only as `rejected`. The same retention clearance remains mandatory for preserved snapshots and `production-approved` entries.
 
 A source-specific term that requires republishers to remain on the latest upstream version is **not automatically compatible** with a public immutable historical Source Vault, but the archival check is universal rather than limited to “stay current” sources. Acquisition tooling must fail closed before network download when the registry has not cleared the source for capture. `latest_upstream_version_required` is a separate boolean release-time obligation.
 

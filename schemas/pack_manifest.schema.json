@@ -227,6 +227,16 @@
       "description": "Monotonic signed release ordering primitive; required for approved packs.",
       "maximum": 9007199254740991
     },
+    "release_issued_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "Canonical UTC issue time for signed release freshness; required for approved packs."
+    },
+    "release_expires_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "Canonical UTC expiry time for new release activation; required for approved packs."
+    },
     "source_release_review": {
       "type": "object",
       "required": [
@@ -385,7 +395,9 @@
           }
         },
         "required": [
-          "release_sequence"
+          "release_sequence",
+          "release_issued_at",
+          "release_expires_at"
         ]
       }
     }
