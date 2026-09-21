@@ -8,6 +8,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 - product north star, Evidence Plane / Learning Plane boundary, privacy and offline-first contracts;
 - Source Vault registry, licence firewall, provenance checks and immutable-source policy;
+- machine-enforced component-rights chain clearance: a top-level dataset licence can no longer authorize capture/preservation/production when embedded or derived third-party rights remain unresolved;
 - Source Vault capture readiness now fails closed before acquisition: `awaiting-artifact` requires reviewed source/version/licence metadata, HTTPS origin, verified redistribution and commercial-use permission, explicit modification/attribution flags, and verified historical-retention permission; JSON Schema and regression coverage mirror the executable gate;
 - app-owned canonical IDs and canonical SQLite content/user schemas;
 - Evidence Plane update/delete protection and append-only learning-event history;
@@ -65,6 +66,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - HadeethEnc Arabic v1.7.0: `awaiting-licence`. Official terms allow republication subject to conditions but also require downstream copies to follow newer source versions; indefinite public retention of superseded snapshots is not yet clearly authorized, and commercial-use permission remains unverified. No HadeethEnc bytes are mirrored while those licence questions remain unresolved. Edition/collection/numbering provenance remains a separate later gate.
 - QUL resources: official morphology downloads expose word-location keyed lemma/root/stem data, but QUL's FAQ explicitly requires checking dataset-specific licensing for commercial use and the inspected morphology pages do not expose a dataset licence; no bytes are mirrored.
 - QUL English WBW resource 92 and Hindi WBW resource 44: `awaiting-licence`. They are technically strong instant-word-help candidates, but QUL's per-resource licence rule plus upstream QuranWBW provenance means this project has not established a downstream archival/redistribution grant. No data bytes are mirrored.
+- QAMAR (AbjadNLP 2026): `awaiting-licence`. The paper describes manually verified MSA/stem/lemma/root/POS for every Quranic word and ACL exposes supplementary material, but this review found only academic/research/educational release language rather than an explicit production-compatible dataset licence and complete component-rights chain; no bytes were mirrored.
 - Quran Foundation API: not accepted as the permanent mirrored evidence foundation under current developer terms.
 
 ## Quran core candidate pack
