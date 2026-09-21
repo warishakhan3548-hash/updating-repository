@@ -166,12 +166,25 @@ class PackGateTests(unittest.TestCase):
             with self.assertRaises(PackGateError):
                 validate_manifest(manifest, registry)
 
+    def test_approved_pack_requires_signed_release_freshness_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, manifest, _ = self._fixture(Path(tmp))
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["review_status"] = "approved"
+            data["release_sequence"] = 1
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+
+            with self.assertRaisesRegex(PackGateError, "release freshness"):
+                validate_manifest(manifest, registry)
+
     def test_approved_pack_rejects_unsigned_and_legacy_fake_signatures(self):
         with tempfile.TemporaryDirectory() as tmp:
             registry, manifest, _ = self._fixture(Path(tmp))
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
             data["release_sequence"] = 1
+            data["release_issued_at"] = "2026-09-21T00:00:00Z"
+            data["release_expires_at"] = "2027-09-21T00:00:00Z"
             manifest.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(
                 PackGateError, "approved pack signature verification failed"
@@ -231,6 +244,8 @@ class PackGateTests(unittest.TestCase):
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
             data["release_sequence"] = 1
+            data["release_issued_at"] = "2026-09-21T00:00:00Z"
+            data["release_expires_at"] = "2027-09-21T00:00:00Z"
             data["signature"] = {
                 "format": "aaris-pack-signature-v1",
                 "role": "content-pack-release",
@@ -458,6 +473,8 @@ class PackGateTests(unittest.TestCase):
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
             data["release_sequence"] = 1
+            data["release_issued_at"] = "2026-09-21T00:00:00Z"
+            data["release_expires_at"] = "2027-09-21T00:00:00Z"
             manifest.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(PackGateError, "source_release_review"):
                 validate_manifest(manifest, registry)
@@ -472,6 +489,8 @@ class PackGateTests(unittest.TestCase):
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["review_status"] = "approved"
             data["release_sequence"] = 1
+            data["release_issued_at"] = "2026-09-21T00:00:00Z"
+            data["release_expires_at"] = "2027-09-21T00:00:00Z"
             data["source_release_review"] = {
                 "source_id": "quran.example.v1",
                 "source_version": "1.0",
