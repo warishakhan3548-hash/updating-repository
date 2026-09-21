@@ -16,6 +16,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - deterministic `context-rotation-v1` selector that keeps review scheduling separate from example choice, rejects unverified/wrong-semantic bindings, prefers familiar verified Quran context early, rotates toward least-used/least-recent verified contexts later, and keeps Hadith context explicit opt-in; it remains dormant until trusted semantic occurrence bindings exist;
 - edition-aware Hadith/grade data model and multi-lane search architecture with abstention;
 - AI trust boundary, evidence-export/verify-back design and pack-manifest gate;
+- executable `aaris-evidence-bundle-v1` Quran evidence export/verify-back owner that emits deterministic JSON + UTF-8 text + checksums from the validated local pack, requires the exact export hash on return, rejects out-of-scope citations, preserves source attribution, and reports **References verified** without claiming conclusion verification;
 - exact Tanzil Quran Text v1.1 Uthmani snapshot preserved under project control;
 - source SHA-256, licence snapshot SHA-256 and provenance SHA-256 bound into the vault gate;
 - 114-surah / 6,236-ayah coordinate invariants;
