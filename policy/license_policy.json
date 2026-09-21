@@ -9,7 +9,8 @@
     "forbid_runtime_upstream_download": true,
     "forbid_unknown_licence_in_release": true,
     "require_commercial_use_allowed": true,
-    "require_historical_snapshot_retention_allowed": true
+    "require_historical_snapshot_retention_allowed": true,
+    "require_component_rights_clearance": true
   },
   "commercial_build": {
     "unknown_licence": "fail",
