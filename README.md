@@ -50,7 +50,7 @@ The main branch runs:
 ```bash
 python -m pip install --disable-pip-version-check -r requirements-ci.txt
 python tools/vault_gate.py source-vault/registry.json
-python tools/source_backup_gate.py source-vault/registry.json
+python -m tools.source_backup_gate source-vault/registry.json
 python tools/pack_gate.py source-vault/registry.json
 python tools/validate_schemas.py
 python -m unittest discover -s tests -v
