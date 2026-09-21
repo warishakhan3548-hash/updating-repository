@@ -28,6 +28,10 @@ from tools.pack_signatures import (
     load_strict_json_file,
     validate_trusted_key_policy,
 )
+from tools.release_freshness import (
+    ReleaseFreshnessError,
+    validate_release_window,
+)
 
 
 class ReleaseSigningError(RuntimeError):
@@ -176,6 +180,12 @@ def sign_manifest(
             "refusing to sign: manifest review_status must already be approved"
         )
     sequence = _release_sequence(manifest)
+    try:
+        validate_release_window(manifest)
+    except ReleaseFreshnessError as exc:
+        raise ReleaseSigningError(
+            f"approved manifest has invalid release freshness: {exc}"
+        ) from exc
     record = public_key_record(private_key)
     key_id = record["key_id"]
 
