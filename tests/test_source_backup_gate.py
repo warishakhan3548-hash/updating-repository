@@ -81,6 +81,23 @@ class SourceBackupGateTests(unittest.TestCase):
             )
             require_verified_backup(registry, "quran.example.v1", digest)
 
+    def test_duplicate_backup_json_key_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry, backup, _ = self._fixture(Path(tmp), status="pending")
+            text = backup.read_text(encoding="utf-8")
+            backup.write_text(
+                text.replace(
+                    '"schema_version": 1,',
+                    '"schema_version": 1, "schema_version": 1,',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                SourceBackupGateError, "duplicate JSON object key"
+            ):
+                validate_all(registry, backup)
+
     def test_backup_hash_must_match_source_vault(self):
         with tempfile.TemporaryDirectory() as tmp:
             registry, backup, _ = self._fixture(Path(tmp), status="verified")
