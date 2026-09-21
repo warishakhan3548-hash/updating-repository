@@ -38,7 +38,7 @@ It can be built completely over already-preserved Quran evidence and existing pa
 - Selection: explicit canonical citation IDs, preserving requested order.
 - Machine form: deterministic UTF-8 JSON.
 - Human/AI form: UTF-8 text derived from the same bundle.
-- Integrity: SHA-256 over canonical bundle bytes plus a checksum file for export artifacts.
+- Integrity: SHA-256 over canonical bundle bytes plus a checksum file for export artifacts; verify-back requires the exact bundle SHA-256 produced at export time.
 - Display evidence: source-faithful `original_arabic` only; normalized search strings are excluded.
 - Verify-back: reconstruct exported records from the validated local pack and reject returned citations outside that exact export scope.
 - Result language: `References verified`; conclusion verification is explicitly false.
