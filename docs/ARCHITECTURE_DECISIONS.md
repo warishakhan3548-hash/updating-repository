@@ -164,7 +164,7 @@ Hadith contexts are disabled by default and require explicit caller opt-in plus 
 
 ## ADR-028 — Evidence export is a verifiable evidence view, not a reasoning result
 
-External-AI research uses one deterministic local evidence-export owner instead of a second evidence database or provider-specific integration. `aaris-evidence-bundle-v1` exports explicitly selected canonical Quran ayah IDs from a provenance-bound local `quran-core` pack and includes only source-faithful display Arabic plus pack/source/canonical integrity metadata. Search-normalized text is never promoted into exported display evidence.
+External-AI research uses one deterministic local evidence-export owner instead of a second evidence database or provider-specific integration. `aaris-evidence-bundle-v1` exports explicitly selected canonical Quran ayah IDs from a provenance-bound local `quran-core` pack and includes only source-faithful display Arabic plus pack/source/canonical integrity metadata. Because the export is itself a redistribution surface, it also carries the exact validated source attribution notice and source/licence links required by the pack. Search-normalized text is never promoted into exported display evidence.
 
 Normal export requires an `approved` pack; a non-approved pack is usable only through an explicit development override. The machine representation reuses the project's strict deterministic JSON serializer and is SHA-256-addressable. The human UTF-8 text form is derived from the same bundle.
 
