@@ -46,7 +46,7 @@ Historical schema-v1/v2 packs remain immutable and verifiable under their own co
 
 - `candidate`: deterministic build output; not release-approved.
 - `reviewed`: technically/content reviewed.
-- `approved`: all ordinary gates pass, `release_sequence` is a positive integer, and the manifest release signature verifies against the active project trust root.
+- `approved`: all ordinary gates pass, `release_sequence` is a positive integer, a bounded signed release-freshness window is present, and the manifest release signature verifies against the active project trust root.
 
 Approved manifests use `aaris-pack-signature-v1`:
 
@@ -64,13 +64,30 @@ Approved manifests use `aaris-pack-signature-v1`:
 }
 ```
 
-The signed bytes are the fixed application-domain prefix `AARIS-CONTENT-PACK-SIGNATURE-V1\\n` followed by deterministic JSON for the entire manifest except the top-level `signature` field. The prefix is part of the signed message and prevents these Ed25519 signatures from being interpreted as raw signatures for a different protocol. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version, review status and `release_sequence` are therefore covered by the signature. The sequence is the monotonic ordering primitive for future anti-rollback state; current clients do not yet persist the highest accepted value for downloaded updates.
+The signed bytes are the fixed application-domain prefix `AARIS-CONTENT-PACK-SIGNATURE-V1\\n` followed by deterministic JSON for the entire manifest except the top-level `signature` field. The prefix is part of the signed message and prevents these Ed25519 signatures from being interpreted as raw signatures for a different protocol. Source/canonical identities, hashes, record counts, dependency assertions, build metadata, content version, review status, `release_sequence`, `release_issued_at`, and `release_expires_at` are therefore covered by the signature. The sequence is the monotonic ordering primitive for anti-rollback state; bundled Android releases already persist the highest accepted sequence, while downloaded updates remain disabled.
 
 `tools/pack_gate.py` delegates approved-manifest authenticity to `tools/pack_signatures.py`; signature-shaped strings are never sufficient. Trusted release public keys and threshold policy live in `policy/trusted_pack_keys.json`. Key IDs are derived from the public key, and private keys must remain outside the repository.
 
 The current trust-root state is `bootstrap-required`, so verifier availability does **not** promote existing candidates. A real offline release key and independent backup must be established first.
 
 Content versions are immutable. Stronger trust contracts use a new content version rather than rewriting an older pack. Previous verified release packs remain available for reproducibility and later rollback support.
+
+## Release freshness
+
+Every approved manifest must contain canonical UTC timestamps:
+
+```json
+{
+  "release_issued_at": "2026-09-21T00:00:00Z",
+  "release_expires_at": "2027-09-21T00:00:00Z"
+}
+```
+
+The project-owned v1 rule requires second precision with a literal `Z`, requires expiry to be later than issue time, and caps the interval at 366 days. The release signer refuses an approved manifest whose window is structurally invalid.
+
+Expiry is intentionally **not** applied as a wall-clock failure to historical repository verification. Old releases must remain reproducibly verifiable after time passes. Expiry instead governs a new trust/activation decision: a future downloader must refuse a not-yet-valid or expired candidate, retain the existing verified pack, and never rewrite signed timestamps.
+
+This is only a targets-like bounded release window. It is not a claim of full TUF freshness. Automatic network updates remain blocked until a short-lived authenticated freshness layer, downloaded-pack staging, API-24-compatible on-device signature verification, and remote trust rotation/revocation are implemented and tested.
 
 ## Source release review
 
