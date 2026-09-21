@@ -170,3 +170,11 @@ Repository validation checks the release window structurally but does not compar
 Wall-clock freshness belongs to a **new activation** decision. A future downloader must reject metadata that is not yet valid or has expired, retain the current verified pack, and report stale/unverifiable update freshness rather than disabling already verified offline Quran content. Rollback checks remain independent and cannot be bypassed merely because freshness failed.
 
 This bounded static manifest window does not claim full TUF behavior. A network updater remains blocked until a short-lived authenticated freshness layer, staged download/activation flow, supported-API on-device signature verifier, and remote trust-rotation/revocation protocol are implemented and tested.
+
+## ADR-029 — Independent backup is a release property, not source identity
+
+A source may be legally and technically `production-approved` once its exact project-controlled artifact, licence, provenance and integrity gates pass. Independent preservation is tracked separately because backup infrastructure can change without changing source identity or sacred bytes.
+
+`policy/source_backups.json` binds each production source to its exact artifact SHA-256. Candidate and reviewed packs may be built while an independent copy is still `pending`, but a cryptographically valid `approved` pack must have a `verified` backup attestation for its source. Verification records an independent storage class/provider, timezone-aware verification time and SHA-256 checking; private credentials and sensitive storage locators stay outside Git.
+
+This keeps development usable while making the strongest release-durability claim fail closed. A fork or another path under the same administrative failure domain is not sufficient merely because it is a second copy.
