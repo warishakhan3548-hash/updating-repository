@@ -2,45 +2,22 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SourceVaultRegistryV1",
   "type": "object",
-  "required": [
-    "schema_version",
-    "sources"
-  ],
+  "required": ["schema_version", "sources"],
   "properties": {
-    "schema_version": {
-      "const": 1
-    },
-    "verified_at": {
-      "type": "string"
-    },
-    "production_rule": {
-      "type": "string"
-    },
+    "schema_version": {"const": 1},
+    "verified_at": {"type": "string"},
+    "production_rule": {"type": "string"},
     "sources": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": [
-          "source_id",
-          "status"
-        ],
+        "required": ["source_id", "status"],
         "properties": {
-          "source_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "category": {
-            "type": "string"
-          },
-          "source_name": {
-            "type": "string"
-          },
-          "original_url": {
-            "type": "string"
-          },
-          "version": {
-            "type": "string"
-          },
+          "source_id": {"type": "string", "minLength": 1},
+          "category": {"type": "string"},
+          "source_name": {"type": "string"},
+          "original_url": {"type": "string"},
+          "version": {"type": "string"},
           "status": {
             "enum": [
               "research-candidate",
@@ -50,44 +27,16 @@
               "rejected"
             ]
           },
-          "licence_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
+          "licence_id": {"type": ["string", "null"]},
           "artifact_kind": {
             "type": "string",
-            "enum": [
-              "file",
-              "sha256-set"
-            ],
+            "enum": ["file", "sha256-set"],
             "default": "file"
           },
-          "redistribution_allowed": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "commercial_use_allowed": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "modification_allowed": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "attribution_required": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
+          "redistribution_allowed": {"type": ["boolean", "null"]},
+          "commercial_use_allowed": {"type": ["boolean", "null"]},
+          "modification_allowed": {"type": ["boolean", "null"]},
+          "attribution_required": {"type": ["boolean", "null"]},
           "release_requirements": {
             "type": "object",
             "required": [
@@ -96,9 +45,7 @@
               "historical_snapshot_retention_status"
             ],
             "properties": {
-              "latest_upstream_version_required": {
-                "type": "boolean"
-              },
+              "latest_upstream_version_required": {"type": "boolean"},
               "version_check_url": {
                 "type": "string",
                 "format": "uri",
@@ -114,65 +61,20 @@
             },
             "additionalProperties": false
           },
-          "vault_artifact": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "licence_snapshot": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provenance": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "sha256": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "licence_sha256": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "provenance_sha256": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "byte_size": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "minimum": 1
-          },
-          "notes": {
-            "type": "string"
-          }
+          "vault_artifact": {"type": ["string", "null"]},
+          "licence_snapshot": {"type": ["string", "null"]},
+          "provenance": {"type": ["string", "null"]},
+          "sha256": {"type": ["string", "null"]},
+          "licence_sha256": {"type": ["string", "null"]},
+          "provenance_sha256": {"type": ["string", "null"]},
+          "byte_size": {"type": ["integer", "null"], "minimum": 1},
+          "notes": {"type": "string"}
         },
-        "additionalProperties": false,
         "allOf": [
           {
             "if": {
-              "properties": {
-                "status": {
-                  "const": "awaiting-artifact"
-                }
-              },
-              "required": [
-                "status"
-              ]
+              "properties": {"status": {"const": "awaiting-artifact"}},
+              "required": ["status"]
             },
             "then": {
               "required": [
@@ -187,35 +89,18 @@
                 "release_requirements"
               ],
               "properties": {
-                "source_name": {
-                  "type": "string",
-                  "minLength": 1
-                },
+                "source_name": {"type": "string", "minLength": 1},
                 "original_url": {
                   "type": "string",
                   "format": "uri",
                   "pattern": "^https://"
                 },
-                "version": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "licence_id": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "redistribution_allowed": {
-                  "const": true
-                },
-                "commercial_use_allowed": {
-                  "const": true
-                },
-                "modification_allowed": {
-                  "type": "boolean"
-                },
-                "attribution_required": {
-                  "type": "boolean"
-                },
+                "version": {"type": "string", "minLength": 1},
+                "licence_id": {"type": "string", "minLength": 1},
+                "redistribution_allowed": {"const": true},
+                "commercial_use_allowed": {"const": true},
+                "modification_allowed": {"type": "boolean"},
+                "attribution_required": {"type": "boolean"},
                 "release_requirements": {
                   "properties": {
                     "historical_snapshot_retention_status": {
@@ -226,7 +111,8 @@
               }
             }
           }
-        ]
+        ],
+        "additionalProperties": false
       }
     }
   },
