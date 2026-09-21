@@ -24,7 +24,7 @@ One export directory contains:
 - `evidence.txt` — human/AI-readable UTF-8 evidence;
 - `checksums.sha256` — SHA-256 values for both exported files.
 
-The JSON binds the export to the local content pack and preserved source through pack/source hashes, licence/provenance hashes, canonical identity when present, canonical citation IDs, original Arabic, per-record text hashes, and source-assertion IDs.
+The JSON binds the export to the local content pack and preserved source through pack/source hashes, licence/provenance hashes, canonical identity when present, canonical citation IDs, original Arabic, per-record text hashes, and source-assertion IDs. It also carries the validated source attribution, source/licence links, and the exact pack-local attribution notice so the export itself preserves redistribution obligations instead of depending on metadata left behind inside the app.
 
 Search-normalized Quran text is never exported as display evidence.
 
@@ -47,7 +47,7 @@ Future Hadith evidence must use the edition-aware canonical Hadith identity alre
 Verify-back performs deterministic checks in this order:
 
 1. validate the local content pack through the existing pack gate;
-2. require the bundle's complete pack descriptor to match that local pack;
+2. require the bundle's complete pack descriptor and exact attribution notice to match that local pack;
 3. reload every exported citation from the read-only local SQLite pack;
 4. require every exported record to exactly match the locally reconstructed source-faithful record;
 5. optionally require the exact expected evidence-bundle SHA-256;
