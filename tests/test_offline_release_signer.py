@@ -79,6 +79,8 @@ class OfflineReleaseSignerTests(unittest.TestCase):
             "content_version": "9.9.9-test",
             "review_status": "approved",
             "release_sequence": 7,
+            "release_issued_at": "2026-09-21T00:00:00Z",
+            "release_expires_at": "2027-09-21T00:00:00Z",
             "signature": {"status": "unsigned"},
             "source_attribution": "مصدر موثوق",
         }
@@ -141,6 +143,17 @@ class OfflineReleaseSignerTests(unittest.TestCase):
             manifest["review_status"] = "approved"
             with self.assertRaisesRegex(ReleaseSigningError, "not authorized"):
                 sign_manifest(manifest, other, policy)
+
+    def test_signer_refuses_approved_manifest_without_complete_freshness_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            private = Ed25519PrivateKey.generate()
+            policy = self._policy(directory, [private])
+            manifest = self._approved_manifest()
+            manifest.pop("release_expires_at")
+
+            with self.assertRaisesRegex(ReleaseSigningError, "release freshness"):
+                sign_manifest(manifest, private, policy)
 
     def test_two_offline_keys_can_add_threshold_signatures_without_payload_drift(self):
         with tempfile.TemporaryDirectory() as tmp:
