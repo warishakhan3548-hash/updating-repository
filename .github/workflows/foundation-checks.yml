@@ -1,4 +1,4 @@
-name: Aaris Shield foundation checks
+name: Aaris Shield focused checks
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  foundation:
+  focused:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -25,5 +25,5 @@ jobs:
           gradle-version: '9.6.0'
       - name: Install Android SDK 36
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
-      - name: Focused foundation compile and tests
-        run: gradle :core:foundation:testDebugUnitTest :app:compileDebugKotlin --no-daemon --stacktrace
+      - name: Focused Step 2 tests and compile
+        run: gradle :core:foundation:testDebugUnitTest :core:network:testDebugUnitTest :app:compileDebugKotlin --no-daemon --stacktrace
