@@ -160,3 +160,14 @@ Choosing *where* a review happens is a separate responsibility from deciding *wh
 Early review may prefer a familiar verified Quran context. After the experimental familiar phase, the selector rotates deterministically toward least-used and least-recent verified contexts so the learner is not permanently trained against one memorized sentence. Numerical phase thresholds are versioned product hypotheses and may change after measured evaluation without rewriting learning history.
 
 Hadith contexts are disabled by default and require explicit caller opt-in plus a verified semantic binding to a trusted Hadith record. Unverified bindings and contexts for a different semantic unit are ineligible. Context selection does not create lexical identity, mutate Evidence Plane records, or itself count as successful recall.
+
+
+## ADR-028 — Evidence export is a verifiable evidence view, not a reasoning result
+
+External-AI research uses one deterministic local evidence-export owner instead of a second evidence database or provider-specific integration. `aaris-evidence-bundle-v1` exports explicitly selected canonical Quran ayah IDs from a provenance-bound local `quran-core` pack and includes only source-faithful display Arabic plus pack/source/canonical integrity metadata. Search-normalized text is never promoted into exported display evidence.
+
+Normal export requires an `approved` pack; a non-approved pack is usable only through an explicit development override. The machine representation reuses the project's strict deterministic JSON serializer and is SHA-256-addressable. The human UTF-8 text form is derived from the same bundle.
+
+Verify-back revalidates the local pack, reconstructs every exported record from local evidence, optionally pins the exact bundle hash, and rejects any returned Quran citation outside the exported set even when that citation is real elsewhere in the local database. Passing these checks authorizes only the wording **References verified**. Software does not infer that the external model's reasoning, interpretation or conclusion is verified.
+
+PDF is a future renderer over the same evidence bundle, not a new trust path. Hadith export must wait for a production-eligible edition-aware Hadith pack and then extend the canonical evidence contract rather than creating a parallel workflow.
