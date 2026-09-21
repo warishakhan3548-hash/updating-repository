@@ -1,52 +1,69 @@
-# Aaris Shield architecture foundation
+# Aaris Shield architecture
 
-## Step 1 boundary
+## Step 1 — foundation
 
-This repository starts from an intentionally small Android foundation. Step 1 does **not** claim that any content protection is active. It adds only the structure required for later, separately verified shield layers.
+The app entry point depends on narrow shield modules. `:core:foundation` owns stable subsystem identifiers and process-local health snapshots. Protection layers remain independently owned so failure of one layer does not silently disable unrelated layers.
 
-The app module is an Android entry point. `:core:foundation` is deliberately Android-free at the Kotlin source level so core health/state rules stay deterministic and unit-testable. Platform-specific services will live behind their own future module boundaries instead of accumulating inside an `Activity`.
+## Step 2 — Network / Domain Shield
 
-## Dependency direction
+Dependency direction is now:
 
-`app -> core:foundation`
+`app -> core:network -> core:foundation`
 
-Future protection modules may depend on `core:foundation`; they must not depend on each other's implementation details. Cross-layer coordination should happen through narrow state/contracts so one failed subsystem does not automatically disable every other subsystem.
+The network module implements a local `VpnService` used only as a DNS interception boundary. It creates a private IPv4 TUN interface with a synthetic DNS server and routes only that single DNS address into the VPN. Ordinary application traffic is not routed through Aaris Shield, and there is no TLS interception, certificate installation, HTTP proxying, or payload inspection.
 
-## Permission policy
+### DNS policy pipeline
 
-Step 1 requests no VPN, accessibility, screen-capture, overlay, microphone, notification, boot, or foreground-service permissions. Sensitive permissions are added only in the step that implements the capability and can justify its lifecycle and failure behavior.
+1. Android sends ordinary VPN DNS queries to `10.111.222.1`.
+2. The TUN reader accepts bounded, unfragmented IPv4/UDP DNS packets only.
+3. Domain names are canonicalized with IDN/ASCII rules and checked against an offline suffix policy.
+4. Explicit allow rules take precedence over deny rules.
+5. Blocked names receive a local NXDOMAIN response.
+6. Allowed queries are forwarded only to DNS servers reported by a validated/non-VPN underlying Android network. Upstream sockets are protected from the VPN loop and bound to that underlying network.
+7. Returned CNAME, DNAME, SVCB and HTTPS alias targets are checked before the response is released. A blocked alias causes the original query to receive NXDOMAIN.
+8. Malformed queries, invalid responses, missing upstream DNS, queue saturation, or upstream timeouts return SERVFAIL where a safe DNS response can be formed.
 
-This is especially important because modern Android applies explicit restrictions to foreground services, MediaProjection, AccessibilityService, and VPN lifecycles. Architecture must follow platform consent surfaces rather than simulate capabilities the OS does not provide.
+The worker pool is fixed at two workers with a maximum of 32 queued queries. This prevents unbounded memory growth if DNS arrives faster than upstream resolution.
 
-## Current platform baseline
+### Lifecycle and failure behavior
+
+The service records whether the user requested protection and returns `START_STICKY`, allowing Android to recreate it after ordinary process/service loss. It tracks non-VPN networks and DNS servers as connectivity changes, closes resources on revoke/destroy, and never falls back to a hard-coded public resolver when system DNS is unavailable.
+
+The module deliberately opts out of Android always-on VPN in Step 2. This is a DNS-only partial tunnel; advertising lockdown support could cause non-DNS traffic to be blocked by Android even though Aaris Shield does not forward that traffic. Reboot/lockdown lifecycle hardening belongs to later lifecycle work after the tunnel architecture can safely support it.
+
+The foreground service declares the Android 14+ `systemExempted` type used by VPN apps and promotes the service only after the VPN interface is established. The user must first grant Android's VPN consent through `VpnService.prepare()`.
+
+### Offline rules
+
+A small built-in seed denylist provides immediate blocking without network access. The rule parser also accepts hosts-file and simple adblock-domain syntax so a larger reviewed offline list can replace/extend the seed later without changing the matching algorithm. Domain suffix matching is label-boundary aware; `notblocked.example` does not match `blocked.example`.
+
+Medical/educational domains can be explicitly allowlisted. No browsing history or DNS log is persisted.
+
+## Known Step 2 limits
+
+This layer is intentionally not described as universal network protection:
+
+- Applications that implement their own encrypted DNS (DoH/DoT) or connect directly to hard-coded IP addresses can bypass a DNS-only VPN.
+- HTTP/HTTPS URL paths and HTTP 3xx redirects are invisible without application cooperation or TLS interception; Aaris Shield does not perform TLS interception.
+- DNS-over-TCP fallback is not implemented in this step. The local resolver handles UDP DNS up to the TUN MTU and forwards responses up to 4096 bytes; an upstream response requiring TCP retry can fail with normal DNS failure behavior.
+- The seed denylist is intentionally small and should later be replaced or supplemented by a reviewed, licensed, versioned offline dataset.
+- Full reboot, OEM-kill and lockdown-mode resilience is deferred to the dedicated reliability/lifecycle roadmap step.
+
+## Platform baseline
 
 - Kotlin source, Java 17 bytecode target.
 - Android Gradle Plugin 9.4.0.
 - `compileSdk` / `targetSdk` 36 (Android 16).
-- `minSdk` 26 (Android 8.0), with future newer-API features required to use explicit runtime/API gating.
-- No cloud dependency in the core safety foundation.
-
-## Future subsystem ownership
-
-Stable identifiers are reserved for network, visual classification, region localization, overlay, screen observation, text safety, audio safety, safety cover, strict mode, calibration, and privacy/performance. Reserving identifiers is not an implementation claim; the progress file is authoritative about what exists.
-
-## Safety invariants established now
-
-1. Component state updates are isolated by subsystem identifier.
-2. Duplicate initial subsystem ownership is rejected.
-3. Callers receive snapshot copies instead of mutable live registry views.
-4. UI explicitly states that protection modules are not enabled yet.
-5. No sensitive Android permission is introduced before the corresponding implementation step.
+- `minSdk` 26 (Android 8.0).
+- No cloud dependency in the network safety path.
 
 ## Research anchors
 
-Primary Android documentation reviewed for this foundation:
+Primary Android documentation reviewed for Steps 1–2:
 
 - Android app architecture: https://developer.android.com/topic/architecture
 - Android modularization: https://developer.android.com/topic/modularization
-- AGP 9 built-in Kotlin: https://developer.android.com/build/migrate-to-built-in-kotlin
-- AGP 9.4 compatibility: https://developer.android.com/build/releases/agp-9-4-0-release-notes
-- Android 16 SDK setup: https://developer.android.com/about/versions/16/setup-sdk
-- Foreground-service types: https://developer.android.com/develop/background-work/services/fgs/service-types
-- VpnService: https://developer.android.com/reference/android/net/VpnService
-- AccessibilityService screenshots: https://developer.android.com/reference/android/accessibilityservice/AccessibilityService
+- VpnService API: https://developer.android.com/reference/android/net/VpnService
+- Android VPN developer guide: https://developer.android.com/develop/connectivity/vpn
+- Foreground service types: https://developer.android.com/develop/background-work/services/fgs/service-types
+- Android network state / LinkProperties: https://developer.android.com/develop/connectivity/network-ops/reading-network-state

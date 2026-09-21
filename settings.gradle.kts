@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "AarisShield"
 include(":app")
 include(":core:foundation")
+include(":core:network")

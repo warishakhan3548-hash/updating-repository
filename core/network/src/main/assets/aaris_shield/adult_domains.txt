@@ -1,0 +1,22 @@
+# Aaris Shield built-in seed denylist.
+# One registrable hostname per line; subdomains are matched automatically.
+pornhub.com
+xvideos.com
+xnxx.com
+redtube.com
+youporn.com
+tube8.com
+spankbang.com
+xhamster.com
+beeg.com
+porn.com
+pornhd.com
+txxx.com
+eporner.com
+hqporner.com
+motherless.com
+porntrex.com
+pornone.com
+drtuber.com
+empflix.com
+fapello.com
