@@ -56,6 +56,16 @@ class WorkflowSupplyChainTests(unittest.TestCase):
         self.assertIn(":app:testDebugUnitTest", text)
         self.assertIn(":app:assembleDebug", text)
 
+    def test_android_reader_ci_publishes_installable_debug_apk(self) -> None:
+        text = self.workflow_text("android-reader.yml")
+        self.assertIn(
+            "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+            text,
+        )
+        self.assertIn("name: aaris-quran-debug", text)
+        self.assertIn("app/build/outputs/apk/debug/app-debug.apk", text)
+        self.assertIn("if-no-files-found: error", text)
+
     def test_pack_builder_reruns_when_validation_tests_change(self) -> None:
         text = self.workflow_text("build-quran-core-pack.yml")
         self.assertIn("      - 'tests/**'\n", text)
