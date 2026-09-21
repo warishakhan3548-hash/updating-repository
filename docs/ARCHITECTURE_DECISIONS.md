@@ -171,7 +171,17 @@ Wall-clock freshness belongs to a **new activation** decision. A future download
 
 This bounded static manifest window does not claim full TUF behavior. A network updater remains blocked until a short-lived authenticated freshness layer, staged download/activation flow, supported-API on-device signature verifier, and remote trust-rotation/revocation protocol are implemented and tested.
 
-## ADR-029 — Independent backup is a release property, not source identity
+## ADR-029 — Evidence export is a verifiable evidence view, not a reasoning result
+
+External-AI research uses one deterministic local evidence-export owner instead of a second evidence database or provider-specific integration. `aaris-evidence-bundle-v1` exports explicitly selected canonical Quran ayah IDs from a provenance-bound local `quran-core` pack and includes only source-faithful display Arabic plus pack/source/canonical integrity metadata. Because the export is itself a redistribution surface, it also carries the exact validated source attribution notice and source/licence links required by the pack. Search-normalized text is never promoted into exported display evidence.
+
+Normal export requires an `approved` pack; a non-approved pack is usable only through an explicit development override. The machine representation reuses the project's strict deterministic JSON serializer and is SHA-256-addressable. The human UTF-8 text form is derived from the same bundle.
+
+Verify-back revalidates the local pack, reconstructs every exported record from local evidence, requires the exact bundle hash produced at export time, and rejects any returned Quran citation outside the exported set even when that citation is real elsewhere in the local database. Passing these checks authorizes only the wording **References verified**. Software does not infer that the external model's reasoning, interpretation or conclusion is verified.
+
+PDF is a future renderer over the same evidence bundle, not a new trust path. Hadith export must wait for a production-eligible edition-aware Hadith pack and then extend the canonical evidence contract rather than creating a parallel workflow.
+
+## ADR-030 — Independent backup is a release property, not source identity
 
 A source may be legally and technically `production-approved` once its exact project-controlled artifact, licence, provenance and integrity gates pass. Independent preservation is tracked separately because backup infrastructure can change without changing source identity or sacred bytes.
 
