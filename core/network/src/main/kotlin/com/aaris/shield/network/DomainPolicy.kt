@@ -45,7 +45,7 @@ class DomainPolicy private constructor(
             val withoutComment = rawLine.substringBefore('#').trim()
             if (withoutComment.isEmpty()) return null
             val hostToken = withoutComment
-                .split(Regex("\s+"))
+                .split(Regex("""\s+"""))
                 .last()
                 .removePrefix("||")
                 .removeSuffix("^")
