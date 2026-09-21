@@ -393,6 +393,50 @@ def validate_registry(registry_path: Path) -> None:
                 "requires status 'rejected'"
             )
 
+        if status == "awaiting-artifact":
+            for field in ("source_name", "version", "licence_id"):
+                if not isinstance(source.get(field), str) or not source[field]:
+                    raise VaultGateError(
+                        f"{source_id}: awaiting-artifact source is missing "
+                        f"reviewed licence metadata {field}"
+                    )
+
+            original_url = source.get("original_url")
+            parsed_url = (
+                urlparse(original_url)
+                if isinstance(original_url, str)
+                else None
+            )
+            if (
+                parsed_url is None
+                or parsed_url.scheme != "https"
+                or not parsed_url.netloc
+            ):
+                raise VaultGateError(
+                    f"{source_id}: awaiting-artifact original_url must be "
+                    "an absolute https URL"
+                )
+            if source.get("redistribution_allowed") is not True:
+                raise VaultGateError(
+                    f"{source_id}: awaiting-artifact source lacks verified "
+                    "redistribution permission"
+                )
+            if source.get("commercial_use_allowed") is not True:
+                raise VaultGateError(
+                    f"{source_id}: awaiting-artifact source lacks verified "
+                    "commercial-use permission"
+                )
+            if not isinstance(source.get("modification_allowed"), bool):
+                raise VaultGateError(
+                    f"{source_id}: awaiting-artifact modification_allowed "
+                    "must be explicit"
+                )
+            if not isinstance(source.get("attribution_required"), bool):
+                raise VaultGateError(
+                    f"{source_id}: awaiting-artifact attribution_required "
+                    "must be explicit"
+                )
+
         snapshot_fields_present = [
             field
             for field in PRESERVED_SNAPSHOT_FIELDS
