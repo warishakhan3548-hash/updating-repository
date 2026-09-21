@@ -66,6 +66,7 @@ class VaultGateTests(unittest.TestCase):
                 "version_check_url": "https://example.invalid/versions",
                 "historical_snapshot_retention_status": "verified-allowed",
             },
+            "component_rights_status": "reviewed-clear",
         }
 
     def _valid_snapshot(
