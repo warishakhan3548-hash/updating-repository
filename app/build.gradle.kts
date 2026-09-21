@@ -10,8 +10,8 @@ android {
         applicationId = "com.aaris.shield"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0-network"
+        versionCode = 3
+        versionName = "0.3.0-visual"
     }
 
     buildTypes {
@@ -29,4 +29,5 @@ android {
 dependencies {
     implementation(project(":core:foundation"))
     implementation(project(":core:network"))
+    implementation(project(":core:visual"))
 }
