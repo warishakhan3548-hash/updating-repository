@@ -25,7 +25,7 @@ A successful verify-back message is **References verified**, not **Conclusion ve
 
 `tools/evidence_bundle.py` now implements the first executable export/verify-back boundary for Quran ayahs. It delegates to the existing authoritative content-pack gate, requires an `approved` pack in normal use, and permits the current unsigned candidate only behind an explicit development flag.
 
-The export is deterministic JSON plus UTF-8 plain text and a checksum set. It carries canonical citation IDs, original source Arabic and the pack/source/provenance hashes needed to bind the evidence back to the local verified pack. Search-normalized Quran text is not exported as display evidence.
+The export is deterministic JSON plus UTF-8 plain text and a checksum set. It carries canonical citation IDs, original source Arabic, source attribution/licence links, the exact validated pack-local copyright notice, and the pack/source/provenance hashes needed to bind the evidence back to the local verified pack. Search-normalized Quran text is not exported as display evidence.
 
 Verify-back reconstructs every exported record from the validated local pack and rejects a returned citation when it was not inside that exact evidence export, even if the citation exists elsewhere in the local Quran database. The module makes no network request and invokes no AI provider.
 
