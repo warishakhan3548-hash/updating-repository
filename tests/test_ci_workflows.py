@@ -69,7 +69,7 @@ class WorkflowSupplyChainTests(unittest.TestCase):
     def test_foundation_ci_runs_independent_source_backup_gate(self) -> None:
         text = self.workflow_text("foundation.yml")
         self.assertIn(
-            "python tools/source_backup_gate.py source-vault/registry.json",
+            "python -m tools.source_backup_gate source-vault/registry.json",
             text,
         )
 
