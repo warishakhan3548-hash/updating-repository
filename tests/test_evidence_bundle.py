@@ -158,13 +158,15 @@ class EvidenceBundleTests(unittest.TestCase):
         tampered = copy.deepcopy(bundle)
         tampered["source_notice"]["text"] = "Tanzil Project"
 
+        # Recompute the outer hash deliberately so this test exercises the
+        # independent local source-notice comparison beneath the hash boundary.
         with self.assertRaisesRegex(EvidenceBundleError, "source notice does not match"):
             verify_back(
                 tampered,
                 "Citation [qa:001:001].",
                 MANIFEST,
                 REGISTRY,
-                expected_bundle_sha256=evidence_bundle_sha256(bundle),
+                expected_bundle_sha256=evidence_bundle_sha256(tampered),
                 allow_candidate_for_development=True,
             )
 
@@ -173,13 +175,15 @@ class EvidenceBundleTests(unittest.TestCase):
         tampered = copy.deepcopy(bundle)
         tampered["records"][0]["original_arabic"] += "x"
 
+        # Recompute the outer hash deliberately so the inner local-record
+        # reconstruction remains an independently tested defense layer.
         with self.assertRaisesRegex(EvidenceBundleError, "do not exactly match"):
             verify_back(
                 tampered,
                 "Citation [qa:001:001].",
                 MANIFEST,
                 REGISTRY,
-                expected_bundle_sha256=evidence_bundle_sha256(bundle),
+                expected_bundle_sha256=evidence_bundle_sha256(tampered),
                 allow_candidate_for_development=True,
             )
 
@@ -198,16 +202,22 @@ class EvidenceBundleTests(unittest.TestCase):
                 allow_candidate_for_development=True,
             )
 
-    def test_verify_back_can_pin_the_exact_export_hash(self):
-        bundle = self._bundle(citations=["qa:001:001"])
+    def test_verify_back_detects_wrapper_tamper_against_export_hash(self):
+        bundle = self._bundle(
+            citations=["qa:001:001"],
+            question="Original research question",
+        )
+        exported_digest = evidence_bundle_sha256(bundle)
+        tampered = copy.deepcopy(bundle)
+        tampered["research_question"] = "Changed after export"
 
         with self.assertRaisesRegex(EvidenceBundleError, "does not match the expected export"):
             verify_back(
-                bundle,
+                tampered,
                 "Citation [qa:001:001].",
                 MANIFEST,
                 REGISTRY,
-                expected_bundle_sha256="0" * 64,
+                expected_bundle_sha256=exported_digest,
                 allow_candidate_for_development=True,
             )
 
