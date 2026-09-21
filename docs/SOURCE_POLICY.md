@@ -33,6 +33,12 @@ Redistribution permission and commercial-use permission are separate licence dim
 
 A `production-approved` source must set `commercial_use_allowed: true`. Unknown or false values fail closed in Source Vault validation, and the runtime pack gate checks the same condition again before any pack can ship. Do not infer commercial rights from popularity, repository visibility, a code licence, or redistribution permission.
 
+## Component-rights chain gate
+
+A dataset-level licence is not automatically enough when an artifact embeds, copies, or derives material from other sources. The registry therefore records `component_rights_status` separately from the top-level licence. `awaiting-artifact`, every preserved project-controlled snapshot, and `production-approved` require either `reviewed-clear` or `not-applicable`; `unresolved` cannot authorize capture or release.
+
+Use `reviewed-clear` only after the review has considered the actual intended artifact and known embedded/derived components. A prominent open-data label, repository licence, or publisher download button does not by itself clear conflicting third-party terms. `verified-incompatible` is a stop condition and cannot be promoted into a preserved production dependency.
+
 ## Archival-retention gate
 
 Redistribution permission and historical-retention permission are separate review dimensions. Before any source may become `awaiting-artifact`, have snapshot bytes preserved under project control, or become `production-approved`, the registry must explicitly record `historical_snapshot_retention_status=verified-allowed`. An unresolved result stays metadata-only as `awaiting-licence`; an explicit denial stays metadata-only as `rejected`.
