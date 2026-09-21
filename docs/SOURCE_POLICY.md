@@ -15,6 +15,12 @@ Critical external data must pass every gate before production use:
 
 A normal production build must not fetch an uncontrolled upstream `latest` resource.
 
+## Independent-backup release gate
+
+Project-controlled Git is the primary preservation copy, not the only durability domain. `policy/source_backups.json` records backup state separately from source approval. Every `production-approved` source must have a checksum-bound backup entry. A `pending` entry is honest tracking and does not block candidate/reviewed packs, but a cryptographically valid `approved` content pack fails closed until its exact source SHA-256 is independently backed up and the verification is recorded as `verified`.
+
+A verified entry records only non-secret durability metadata: source ID, exact artifact SHA-256, storage class/provider label, timezone-aware verification time and `sha256` as the verification method. Do not commit private backup credentials or sensitive locators. An ordinary fork or second path controlled by the same failure domain must not be represented as independent preservation.
+
 When a legally cleared upstream release is inherently multi-file, preserve the exact members and bind them with a project-controlled checksum ledger rather than concatenating or normalizing source bytes. The ledger becomes the stable Source Vault artifact root; its members are still verified individually before promotion.
 
 ## Statuses

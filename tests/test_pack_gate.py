@@ -82,6 +82,28 @@ class PackGateTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        policy = root / "policy"
+        policy.mkdir(exist_ok=True)
+        (policy / "source_backups.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "backups": [
+                        {
+                            "source_id": "quran.example.v1",
+                            "artifact_sha256": source_hash,
+                            "status": "verified",
+                            "provider": "test-independent-provider",
+                            "storage_class": "independent-cloud",
+                            "verified_at": "2026-09-21T00:00:00Z",
+                            "verification_method": "sha256",
+                            "notes": "test fixture",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
         return registry, manifest, built
 
     def test_reviewed_pack_from_approved_source_passes(self):
@@ -215,7 +237,7 @@ class PackGateTests(unittest.TestCase):
             key_id = key_id_for_ed25519_public_key(public)
 
             policy = root / "policy"
-            policy.mkdir()
+            policy.mkdir(exist_ok=True)
             (policy / "trusted_pack_keys.json").write_text(
                 json.dumps(
                     {
@@ -262,6 +284,23 @@ class PackGateTests(unittest.TestCase):
             )
             manifest.write_text(json.dumps(data), encoding="utf-8")
             validate_manifest(manifest, registry)
+
+            backup_path = root / "policy" / "source_backups.json"
+            backup_data = json.loads(backup_path.read_text(encoding="utf-8"))
+            backup_data["backups"][0].update(
+                {
+                    "status": "pending",
+                    "provider": None,
+                    "storage_class": None,
+                    "verified_at": None,
+                    "verification_method": None,
+                }
+            )
+            backup_path.write_text(json.dumps(backup_data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PackGateError, "source durability check failed"
+            ):
+                validate_manifest(manifest, registry)
 
 
     def test_attribution_required_pack_requires_notice(self):
