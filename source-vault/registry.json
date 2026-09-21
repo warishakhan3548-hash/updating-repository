@@ -27,7 +27,8 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://tanzil.net/updates/",
         "historical_snapshot_retention_status": "verified-allowed"
-      }
+      },
+      "component_rights_status": "reviewed-clear"
     },
     {
       "source_id": "quran-gloss.quranenc.arabic-seraj.v1.0.0",
@@ -51,7 +52,8 @@
         "version_check_url": "https://quranenc.com/en/home",
         "historical_snapshot_retention_status": "unresolved"
       },
-      "commercial_use_allowed": null
+      "commercial_use_allowed": null,
+      "component_rights_status": "unresolved"
     },
     {
       "source_id": "morphology.qac.v0.4",
@@ -75,7 +77,8 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://corpus.quran.com/download/",
         "historical_snapshot_retention_status": "unresolved"
-      }
+      },
+      "component_rights_status": "unresolved"
     },
     {
       "source_id": "morphology.quranmorph.2025",
@@ -99,7 +102,8 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://sina.birzeit.edu/quran/",
         "historical_snapshot_retention_status": "verified-allowed"
-      }
+      },
+      "component_rights_status": "reviewed-clear"
     },
     {
       "source_id": "hadith.hadeethenc.ar.current",
@@ -123,7 +127,8 @@
         "latest_upstream_version_required": true,
         "version_check_url": "https://hadeethenc.com/en/check/ar/v1.7.0",
         "historical_snapshot_retention_status": "unresolved"
-      }
+      },
+      "component_rights_status": "unresolved"
     },
     {
       "source_id": "quran.quran-foundation.api",
@@ -147,7 +152,8 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://api-docs.quran.foundation/legal/developer-terms/",
         "historical_snapshot_retention_status": "verified-not-allowed"
-      }
+      },
+      "component_rights_status": "not-applicable"
     },
     {
       "source_id": "quran.qul.resources",
@@ -171,7 +177,8 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://qul.tarteel.ai/resources",
         "historical_snapshot_retention_status": "unresolved"
-      }
+      },
+      "component_rights_status": "unresolved"
     },
     {
       "source_id": "morphology.qul.word-lemma.resource-75",
@@ -195,7 +202,8 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://qul.tarteel.ai/resources/morphology/75",
         "historical_snapshot_retention_status": "unresolved"
-      }
+      },
+      "component_rights_status": "unresolved"
     },
     {
       "source_id": "morphology.qul.word-root.resource-76",
@@ -219,7 +227,8 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://qul.tarteel.ai/resources/morphology/76",
         "historical_snapshot_retention_status": "unresolved"
-      }
+      },
+      "component_rights_status": "unresolved"
     },
     {
       "source_id": "morphology.masaq.v5",
@@ -243,7 +252,8 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://data.mendeley.com/datasets/compare/9yvrzxktmr",
         "historical_snapshot_retention_status": "unresolved"
-      }
+      },
+      "component_rights_status": "unresolved"
     },
     {
       "source_id": "morphology.eqtb.v1",
@@ -267,7 +277,8 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://data.mendeley.com/datasets/rk96pn66m4/1",
         "historical_snapshot_retention_status": "unresolved"
-      }
+      },
+      "component_rights_status": "unresolved"
     },
     {
       "source_id": "quran-gloss.qul.english-wbw.resource-92",
@@ -291,7 +302,8 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://qul.tarteel.ai/resources/translation/92",
         "historical_snapshot_retention_status": "unresolved"
-      }
+      },
+      "component_rights_status": "unresolved"
     },
     {
       "source_id": "quran-gloss.qul.hindi-wbw.resource-44",
@@ -315,7 +327,33 @@
         "latest_upstream_version_required": false,
         "version_check_url": "https://qul.tarteel.ai/resources/translation/44",
         "historical_snapshot_retention_status": "unresolved"
-      }
+      },
+      "component_rights_status": "unresolved"
+    },
+    {
+      "source_id": "morphology.qamar.2026",
+      "category": "morphology",
+      "source_name": "QAMAR: A New Fully Verified and Accurate Quranic Arabic Morphological Analysis Resource",
+      "original_url": "https://aclanthology.org/2026.abjadnlp-1.38/",
+      "version": "AbjadNLP-2026-publication",
+      "status": "awaiting-licence",
+      "licence_id": "research-educational-release-language-no-explicit-dataset-licence-verified",
+      "redistribution_allowed": null,
+      "modification_allowed": null,
+      "attribution_required": true,
+      "vault_artifact": null,
+      "licence_snapshot": null,
+      "provenance": null,
+      "sha256": null,
+      "byte_size": null,
+      "notes": "ACL Anthology publishes the March 2026 QAMAR paper and an optional supplementary ZIP. The paper describes a manually verified morphological layer for every Quranic word with MSA form, stem, lemma, root and POS, but its ethics statement only says the corpus will be open-source for the academic community and publicly available for research and educational purposes. No explicit dataset licence granting commercial redistribution, modification, or immutable historical public mirroring was verified in this review, and the paper says its data came from public sources or was generated without providing a component-by-component rights manifest. Keep metadata-only and do not download/mirror production bytes until both dataset-level rights and component rights are explicitly cleared.",
+      "commercial_use_allowed": null,
+      "release_requirements": {
+        "latest_upstream_version_required": false,
+        "version_check_url": "https://aclanthology.org/2026.abjadnlp-1.38/",
+        "historical_snapshot_retention_status": "unresolved"
+      },
+      "component_rights_status": "unresolved"
     }
   ]
 }
