@@ -23,6 +23,8 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r requirements-ci.txt
       - name: Source Vault gate
         run: python tools/vault_gate.py source-vault/registry.json
+      - name: Independent source backup gate
+        run: python tools/source_backup_gate.py source-vault/registry.json
       - name: Content pack promotion gate
         run: python tools/pack_gate.py source-vault/registry.json
       - name: SQLite schema validation
