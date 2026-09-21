@@ -17,7 +17,7 @@ The design follows TUF principles—trusted metadata, freshness, integrity and r
 
 ## Current implementation status
 
-Hash, provenance, canonical-v3 binding and Quran semantic validation are already implemented. Trusted-key authenticity is now implemented for `approved` manifests in `tools/pack_signatures.py`.
+Hash, provenance, canonical-v3 binding and Quran semantic validation are already implemented. Trusted-key authenticity is implemented for `approved` manifests in `tools/pack_signatures.py`. Approved release metadata now also has a signed, canonical UTC issue/expiry window with a 366-day maximum validity interval. `tools/pack_gate.py` validates the window structurally without making historical verification depend on today's clock, and the offline signer refuses structurally invalid freshness metadata.
 
 The verifier uses Ed25519 against project-controlled public keys in `policy/trusted_pack_keys.json`. The signed payload is the complete manifest with only the top-level `signature` field removed, serialized as deterministic UTF-8 JSON with sorted keys and compact separators. Floating-point values are rejected in signed metadata to avoid cross-language numeric canonicalization ambiguity.
 
@@ -29,7 +29,7 @@ The repository trust root is deliberately `bootstrap-required`: no real release 
 
 ## Still blocked before automatic network updates
 
-Cryptographic authenticity, signed ordering and installed-app rollback state are not the whole update system. Automatic remote pack updates remain disabled until the project handles freshness/expiry, downloaded-pack staging, explicit activation/recovery tests, supported-API on-device signature verification, and remote key-rotation/revocation protocol. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.
+Cryptographic authenticity, signed ordering, bounded release freshness and installed-app rollback state are not the whole update system. Automatic remote pack updates remain disabled until the project adds a short-lived authenticated online freshness layer, downloaded-pack staging, end-to-end activation/recovery tests, supported-API on-device signature verification, and a remote key-rotation/revocation protocol. Bundled application releases may update public trust material through normal code review, but remote self-rotation is not claimed yet.
 
 ## Installed-app rollback state
 
@@ -39,4 +39,4 @@ A candidate below the stored sequence is rejected even if its older signature an
 
 The rollback-state record is written with Android `AtomicFile`. Bundled `content.sqlite` replacement is likewise performed only after a temporary copy passes SHA-256 verification, then written through `AtomicFile` and re-hashed after activation. This removes the previous delete-then-rename crash window. Because Android explicitly gives `AtomicFile` no locking semantics, the complete release transaction—rollback preflight, verified pack activation and rollback-state advancement—is serialized by one process-wide lock, and direct state-store operations use that same lock.
 
-This is an installed-app rollback barrier, not hardware-backed monotonic storage. Uninstall or clear-data removes app-internal state. Automatic remote pack updates remain disabled until freshness/expiry, downloaded-pack staging, explicit recovery, supported-API on-device signature verification, and remote trust-rotation behavior are reviewed and tested.
+This is an installed-app rollback barrier, not hardware-backed monotonic storage. Uninstall or clear-data removes app-internal state. Signed release expiry applies to **new activation**, not continued offline use of a previously verified pack. Failure behavior is specified in `UPDATE_RECOVERY.md`: reject the staged candidate and keep the current verified pack rather than weakening signature, freshness, or rollback checks. Automatic remote pack updates remain disabled until the remaining online freshness, staging, on-device verification, and trust-rotation work is complete.
