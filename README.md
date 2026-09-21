@@ -26,6 +26,7 @@ The reader is intentionally narrow: source-faithful Arabic, local navigation and
 - Learning Plane: glosses, exposure/review events, scheduler state and derived comprehension.
 - Canonical Quran JSONL: long-lived semantic reproducibility anchor between Source Vault and SQLite runtime bytes.
 - AI may expand queries or reason over exported evidence; it cannot author Evidence Plane truth.
+- Evidence export v1 packages only explicitly selected locally validated Quran ayahs into deterministic JSON/text with hashes; verify-back rechecks local source identity and exact export scope and never claims that a conclusion is verified.
 - Normal content builds use project-controlled snapshots, never an uncontrolled upstream `latest`.
 - Every source beyond the lightweight `research-candidate` stage must record an explicit historical-retention state; capture-ready, preserved and production sources require verified clearance. This is independent from any latest-version release obligation.
 - Release approval is fail-closed: approved manifests require a signed positive `release_sequence` and must pass the authoritative pack gate plus project-controlled Ed25519 trust policy.
