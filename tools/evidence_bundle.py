@@ -21,7 +21,6 @@ from tools.pack_signatures import (
     PackSignatureError,
     canonical_json_bytes,
     load_strict_json_file,
-    loads_strict_json,
 )
 
 
@@ -446,15 +445,14 @@ def verify_back(
     manifest_path: Path,
     registry_path: Path,
     *,
-    expected_bundle_sha256: str | None = None,
+    expected_bundle_sha256: str,
     allow_candidate_for_development: bool = False,
 ) -> dict[str, Any]:
     digest = evidence_bundle_sha256(bundle)
-    if expected_bundle_sha256 is not None:
-        if not _SHA256_RE.fullmatch(expected_bundle_sha256):
-            raise EvidenceBundleError("expected bundle SHA-256 is malformed")
-        if digest != expected_bundle_sha256:
-            raise EvidenceBundleError("evidence bundle SHA-256 does not match the expected export")
+    if not _SHA256_RE.fullmatch(expected_bundle_sha256):
+        raise EvidenceBundleError("expected bundle SHA-256 is malformed")
+    if digest != expected_bundle_sha256:
+        raise EvidenceBundleError("evidence bundle SHA-256 does not match the expected export")
 
     exported_ids = _verify_bundle_against_local_pack(
         bundle,
@@ -544,7 +542,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="UTF-8 external-AI answer containing bracketed citation IDs",
     )
-    verify.add_argument("--expected-bundle-sha256")
+    verify.add_argument("--expected-bundle-sha256", required=True)
     verify.add_argument("--allow-candidate-for-development", action="store_true")
     return parser
 
