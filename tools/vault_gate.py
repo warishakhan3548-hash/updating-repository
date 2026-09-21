@@ -18,6 +18,13 @@ ALLOWED_STATUSES = {
 }
 
 ALLOWED_ARTIFACT_KINDS = {"file", "sha256-set"}
+ALLOWED_COMPONENT_RIGHTS_STATUSES = {
+    "not-applicable",
+    "reviewed-clear",
+    "unresolved",
+    "verified-incompatible",
+}
+CLEAR_COMPONENT_RIGHTS_STATUSES = {"not-applicable", "reviewed-clear"}
 CHECKSUM_LINE_RE = re.compile(r"^([0-9a-f]{64})  ([^\r\n]+)$")
 
 REQUIRED_RELEASE_RULES = {
@@ -25,6 +32,7 @@ REQUIRED_RELEASE_RULES = {
     "require_redistribution_allowed",
     "require_commercial_use_allowed",
     "require_historical_snapshot_retention_allowed",
+    "require_component_rights_clearance",
     "require_exact_sha256",
     "require_licence_snapshot",
     "require_project_controlled_artifact",
@@ -362,6 +370,21 @@ def validate_registry(registry_path: Path) -> None:
         if status not in ALLOWED_STATUSES:
             raise VaultGateError(f"{source_id}: invalid status {status!r}")
 
+        component_rights_status = source.get("component_rights_status")
+        if (
+            component_rights_status is not None
+            and component_rights_status not in ALLOWED_COMPONENT_RIGHTS_STATUSES
+        ):
+            raise VaultGateError(
+                f"{source_id}: invalid component_rights_status "
+                f"{component_rights_status!r}"
+            )
+        if component_rights_status == "verified-incompatible" and status != "rejected":
+            raise VaultGateError(
+                f"{source_id}: verified incompatible component rights require "
+                "status 'rejected'"
+            )
+
         artifact_kind = source.get("artifact_kind", "file")
         if artifact_kind not in ALLOWED_ARTIFACT_KINDS:
             raise VaultGateError(
@@ -403,6 +426,23 @@ def validate_registry(registry_path: Path) -> None:
                 f"{source_id}: awaiting-licence source must not preserve "
                 "project-controlled snapshot bytes"
             )
+        if (
+            status in {"awaiting-artifact", "production-approved"}
+            and component_rights_status not in CLEAR_COMPONENT_RIGHTS_STATUSES
+        ):
+            raise VaultGateError(
+                f"{source_id}: source requires reviewed component-rights "
+                "clearance before capture or production approval"
+            )
+        if (
+            snapshot_fields_present
+            and component_rights_status not in CLEAR_COMPONENT_RIGHTS_STATUSES
+        ):
+            raise VaultGateError(
+                f"{source_id}: preserved source bytes require reviewed "
+                "component-rights clearance"
+            )
+
         if snapshot_fields_present and retention_status != "verified-allowed":
             raise VaultGateError(
                 f"{source_id}: source must not preserve project-controlled "
