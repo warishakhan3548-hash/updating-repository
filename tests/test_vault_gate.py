@@ -16,6 +16,7 @@ class VaultGateTests(unittest.TestCase):
             "require_redistribution_allowed": True,
             "require_commercial_use_allowed": True,
             "require_historical_snapshot_retention_allowed": True,
+            "require_component_rights_clearance": True,
             "require_exact_sha256": True,
             "require_licence_snapshot": True,
             "require_project_controlled_artifact": True,
@@ -120,6 +121,7 @@ class VaultGateTests(unittest.TestCase):
                 "version_check_url": "https://example.invalid/versions",
                 "historical_snapshot_retention_status": "verified-allowed",
             },
+            "component_rights_status": "reviewed-clear",
         }
         return source, artifact, provenance_path
 
@@ -202,6 +204,7 @@ class VaultGateTests(unittest.TestCase):
                 "version_check_url": "https://example.invalid/versions",
                 "historical_snapshot_retention_status": "verified-allowed",
             },
+            "component_rights_status": "reviewed-clear",
         }
         return source, first, checksum
 
@@ -286,6 +289,42 @@ class VaultGateTests(unittest.TestCase):
             validate_registry(
                 self._registry(Path(tmp), self._capture_ready_source())
             )
+
+    def test_capture_ready_source_requires_component_rights_clearance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root, status="awaiting-artifact")
+            source.pop("component_rights_status")
+            with self.assertRaisesRegex(
+                VaultGateError, "reviewed component-rights clearance"
+            ):
+                validate_registry(self._registry(root, source))
+
+    def test_preserved_snapshot_requires_component_rights_clearance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, _, _ = self._valid_snapshot(root, status="research-candidate")
+            source["component_rights_status"] = "unresolved"
+            with self.assertRaisesRegex(
+                VaultGateError, "preserved source bytes require reviewed"
+            ):
+                validate_registry(self._registry(root, source))
+
+    def test_release_policy_cannot_disable_component_rights_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._policy(root, require_component_rights_clearance=False)
+            vault = root / "source-vault"
+            vault.mkdir(parents=True, exist_ok=True)
+            path = vault / "registry.json"
+            path.write_text(
+                json.dumps({"schema_version": 1, "sources": []}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                VaultGateError, "weakens mandatory release rules"
+            ):
+                validate_registry(path)
 
     def test_valid_non_production_preserved_snapshot_is_verified(self):
         with tempfile.TemporaryDirectory() as tmp:
