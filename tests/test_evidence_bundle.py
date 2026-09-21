@@ -126,6 +126,7 @@ class EvidenceBundleTests(unittest.TestCase):
                 "This answer escaped the supplied evidence [qa:002:255].",
                 MANIFEST,
                 REGISTRY,
+                expected_bundle_sha256=evidence_bundle_sha256(bundle),
                 allow_candidate_for_development=True,
             )
 
@@ -138,6 +139,7 @@ class EvidenceBundleTests(unittest.TestCase):
                 "No citation supplied.",
                 MANIFEST,
                 REGISTRY,
+                expected_bundle_sha256=evidence_bundle_sha256(bundle),
                 allow_candidate_for_development=True,
             )
 
@@ -147,6 +149,7 @@ class EvidenceBundleTests(unittest.TestCase):
                 "Malformed reference [qa:1:1].",
                 MANIFEST,
                 REGISTRY,
+                expected_bundle_sha256=evidence_bundle_sha256(bundle),
                 allow_candidate_for_development=True,
             )
 
@@ -161,6 +164,7 @@ class EvidenceBundleTests(unittest.TestCase):
                 "Citation [qa:001:001].",
                 MANIFEST,
                 REGISTRY,
+                expected_bundle_sha256=evidence_bundle_sha256(bundle),
                 allow_candidate_for_development=True,
             )
 
@@ -172,6 +176,19 @@ class EvidenceBundleTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceBundleError, "do not exactly match"):
             verify_back(
                 tampered,
+                "Citation [qa:001:001].",
+                MANIFEST,
+                REGISTRY,
+                expected_bundle_sha256=evidence_bundle_sha256(bundle),
+                allow_candidate_for_development=True,
+            )
+
+    def test_verify_back_requires_the_exact_export_hash(self):
+        bundle = self._bundle(citations=["qa:001:001"])
+
+        with self.assertRaises(TypeError):
+            verify_back(
+                bundle,
                 "Citation [qa:001:001].",
                 MANIFEST,
                 REGISTRY,
