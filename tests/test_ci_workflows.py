@@ -66,6 +66,13 @@ class WorkflowSupplyChainTests(unittest.TestCase):
         self.assertIn("app/build/outputs/apk/debug/app-debug.apk", text)
         self.assertIn("if-no-files-found: error", text)
 
+    def test_foundation_ci_runs_independent_source_backup_gate(self) -> None:
+        text = self.workflow_text("foundation.yml")
+        self.assertIn(
+            "python tools/source_backup_gate.py source-vault/registry.json",
+            text,
+        )
+
     def test_pack_builder_reruns_when_validation_tests_change(self) -> None:
         text = self.workflow_text("build-quran-core-pack.yml")
         self.assertIn("      - 'tests/**'\n", text)
