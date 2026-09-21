@@ -180,3 +180,11 @@ Normal export requires an `approved` pack; a non-approved pack is usable only th
 Verify-back revalidates the local pack, reconstructs every exported record from local evidence, requires the exact bundle hash produced at export time, and rejects any returned Quran citation outside the exported set even when that citation is real elsewhere in the local database. Passing these checks authorizes only the wording **References verified**. Software does not infer that the external model's reasoning, interpretation or conclusion is verified.
 
 PDF is a future renderer over the same evidence bundle, not a new trust path. Hadith export must wait for a production-eligible edition-aware Hadith pack and then extend the canonical evidence contract rather than creating a parallel workflow.
+
+## ADR-030 — Independent backup is a release property, not source identity
+
+A source may be legally and technically `production-approved` once its exact project-controlled artifact, licence, provenance and integrity gates pass. Independent preservation is tracked separately because backup infrastructure can change without changing source identity or sacred bytes.
+
+`policy/source_backups.json` binds each production source to its exact artifact SHA-256. Candidate and reviewed packs may be built while an independent copy is still `pending`, but a cryptographically valid `approved` pack must have a `verified` backup attestation for its source. Verification records an independent storage class/provider, timezone-aware verification time and SHA-256 checking; private credentials and sensitive storage locators stay outside Git.
+
+This keeps development usable while making the strongest release-durability claim fail closed. A fork or another path under the same administrative failure domain is not sufficient merely because it is a second copy.

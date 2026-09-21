@@ -31,6 +31,7 @@ The reader is intentionally narrow: source-faithful Arabic, local navigation and
 - Every source beyond the lightweight `research-candidate` stage must record an explicit historical-retention state; capture-ready, preserved and production sources require verified clearance. This is independent from any latest-version release obligation.
 - Capture-ready, preserved and production sources also require explicit component-rights clearance; a top-level open-data licence cannot silently override unresolved embedded/derived third-party terms.
 - Release approval is fail-closed: approved manifests require a signed positive `release_sequence` and must pass the authoritative pack gate plus project-controlled Ed25519 trust policy.
+- Independent source durability is fail-closed at final approval: `policy/source_backups.json` must bind the exact Source Vault SHA-256 to a verified independent backup before a signed `approved` pack can pass. Current Tanzil backup status is honestly tracked as pending rather than assumed.
 
 ## Current Quran core
 
@@ -49,6 +50,7 @@ The main branch runs:
 ```bash
 python -m pip install --disable-pip-version-check -r requirements-ci.txt
 python tools/vault_gate.py source-vault/registry.json
+python tools/source_backup_gate.py source-vault/registry.json
 python tools/pack_gate.py source-vault/registry.json
 python tools/validate_schemas.py
 python -m unittest discover -s tests -v

@@ -465,7 +465,7 @@ def verify_back(
 
     tokens = _BRACKET_TOKEN_RE.findall(answer_text)
     malformed_quran_tokens = [
-        token for token in tokens if token.startswith("qa") and _QURAN_CITATION_RE.fullmatch(token) is None
+        token for token in tokens if token.startswith("qa:") and _QURAN_CITATION_RE.fullmatch(token) is None
     ]
     if malformed_quran_tokens:
         raise EvidenceBundleError(
