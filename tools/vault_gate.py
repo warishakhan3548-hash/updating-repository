@@ -426,23 +426,6 @@ def validate_registry(registry_path: Path) -> None:
                 f"{source_id}: awaiting-licence source must not preserve "
                 "project-controlled snapshot bytes"
             )
-        if (
-            status in {"awaiting-artifact", "production-approved"}
-            and component_rights_status not in CLEAR_COMPONENT_RIGHTS_STATUSES
-        ):
-            raise VaultGateError(
-                f"{source_id}: source requires reviewed component-rights "
-                "clearance before capture or production approval"
-            )
-        if (
-            snapshot_fields_present
-            and component_rights_status not in CLEAR_COMPONENT_RIGHTS_STATUSES
-        ):
-            raise VaultGateError(
-                f"{source_id}: preserved source bytes require reviewed "
-                "component-rights clearance"
-            )
-
         if snapshot_fields_present and retention_status != "verified-allowed":
             raise VaultGateError(
                 f"{source_id}: source must not preserve project-controlled "
@@ -502,6 +485,15 @@ def validate_registry(registry_path: Path) -> None:
                     "must be explicit"
                 )
 
+        if (
+            status in {"awaiting-artifact", "production-approved"}
+            and component_rights_status not in CLEAR_COMPONENT_RIGHTS_STATUSES
+        ):
+            raise VaultGateError(
+                f"{source_id}: source requires reviewed component-rights "
+                "clearance before capture or production approval"
+            )
+
         if status != "production-approved" and not snapshot_fields_present:
             continue
 
@@ -514,6 +506,14 @@ def validate_registry(registry_path: Path) -> None:
             raise VaultGateError(
                 f"{source_id}: preserved snapshot metadata is incomplete; "
                 f"missing {missing_snapshot_fields}"
+            )
+
+        if (
+            component_rights_status not in CLEAR_COMPONENT_RIGHTS_STATUSES
+        ):
+            raise VaultGateError(
+                f"{source_id}: preserved source bytes require reviewed "
+                "component-rights clearance"
             )
 
         for field in ("source_name", "version", "licence_id"):
