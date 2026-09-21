@@ -31,6 +31,8 @@ Because this repository is project-controlled redistribution infrastructure, a p
 
 Acquisition tools that write into `source-vault/` must consult the registry **before making any network request**. A source in `awaiting-licence` is not capture-authorized. This prevents a review-only downloader from accidentally turning unresolved third-party rights into a public project-controlled mirror. The central vault gate independently rejects any `awaiting-licence` entry that already declares preserved snapshot bytes, and any source with `historical_snapshot_retention_status: unresolved` must remain `awaiting-licence`.
 
+`awaiting-artifact` is therefore a strict **capture-ready** state, not merely a note that archival retention looks acceptable. The executable gate requires reviewed source/version/licence metadata, an HTTPS origin, verified redistribution and commercial-use permission, explicit modification/attribution flags, and verified historical retention before that status is valid. This centralizes Gate B so a future acquisition script cannot become safer merely by forgetting one licence dimension.
+
 ## Closed-world inventory contract
 
 The vault is now validated as a **closed inventory**, not merely as a list of files the registry happens to mention. After per-source integrity checks, CI recursively inventories `source-vault/` and fails if it finds any unregistered file or any symlink.

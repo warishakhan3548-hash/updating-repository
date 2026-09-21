@@ -70,6 +70,48 @@
           "byte_size": {"type": ["integer", "null"], "minimum": 1},
           "notes": {"type": "string"}
         },
+        "allOf": [
+          {
+            "if": {
+              "properties": {"status": {"const": "awaiting-artifact"}},
+              "required": ["status"]
+            },
+            "then": {
+              "required": [
+                "source_name",
+                "original_url",
+                "version",
+                "licence_id",
+                "redistribution_allowed",
+                "commercial_use_allowed",
+                "modification_allowed",
+                "attribution_required",
+                "release_requirements"
+              ],
+              "properties": {
+                "source_name": {"type": "string", "minLength": 1},
+                "original_url": {
+                  "type": "string",
+                  "format": "uri",
+                  "pattern": "^https://"
+                },
+                "version": {"type": "string", "minLength": 1},
+                "licence_id": {"type": "string", "minLength": 1},
+                "redistribution_allowed": {"const": true},
+                "commercial_use_allowed": {"const": true},
+                "modification_allowed": {"type": "boolean"},
+                "attribution_required": {"type": "boolean"},
+                "release_requirements": {
+                  "properties": {
+                    "historical_snapshot_retention_status": {
+                      "const": "verified-allowed"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
         "additionalProperties": false
       }
     }

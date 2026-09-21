@@ -8,6 +8,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 - product north star, Evidence Plane / Learning Plane boundary, privacy and offline-first contracts;
 - Source Vault registry, licence firewall, provenance checks and immutable-source policy;
+- Source Vault capture readiness now fails closed before acquisition: `awaiting-artifact` requires reviewed source/version/licence metadata, HTTPS origin, verified redistribution and commercial-use permission, explicit modification/attribution flags, and verified historical-retention permission; JSON Schema and regression coverage mirror the executable gate;
 - app-owned canonical IDs and canonical SQLite content/user schemas;
 - Evidence Plane update/delete protection and append-only learning-event history;
 - versioned `user.sqlite` schema v2 plus a conservative v1→v2 migration that preserves append-only history, canonicalizes only exact Again/Hard/Good/Easy review grades, records scheduler/context metadata for new reviews, and keeps scheduler state rebuildable;
@@ -104,6 +105,8 @@ Quran search now has an executable host-side golden benchmark. Its host SQLite l
 Historical-snapshot retention is now a universal admission requirement: `awaiting-artifact`, any preserved project-controlled snapshot, and `production-approved` all require explicit `verified-allowed` retention. `unresolved` remains metadata-only `awaiting-licence`; `verified-not-allowed` remains metadata-only `rejected`. Release-time latest-version review is a separate boolean obligation and is not backfilled into immutable acquisition provenance.
 
 Commercial-use permission is represented independently from redistribution in the Source Vault registry. Production Source Vault validation and runtime pack promotion both fail closed unless `commercial_use_allowed` is explicitly true. QAC v0.4 is conservatively marked false from its official FAQ's non-commercial research condition; unknown candidates remain null rather than being inferred from repository or code licences. Existing preserved source/provenance bytes and Quran runtime packs were not rewritten.
+
+Capture authorization is now equally fail-closed: `awaiting-artifact` itself is invalid unless redistribution and commercial-use permission are verified, modification/attribution obligations are explicit, source/version/licence/origin metadata is reviewed, and historical retention is verified allowed. This prevents acquisition tooling from treating a partially reviewed metadata record as permission to mirror bytes.
 
 ## Next safe milestones
 
