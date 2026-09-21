@@ -8,6 +8,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 
 - product north star, Evidence Plane / Learning Plane boundary, privacy and offline-first contracts;
 - Source Vault registry, licence firewall, provenance checks and immutable-source policy;
+- machine-enforced component-rights chain clearance: a top-level dataset licence can no longer authorize capture/preservation/production when embedded or derived third-party rights remain unresolved;
 - Source Vault capture readiness now fails closed before acquisition: `awaiting-artifact` requires reviewed source/version/licence metadata, HTTPS origin, verified redistribution and commercial-use permission, explicit modification/attribution flags, and verified historical-retention permission; JSON Schema and regression coverage mirror the executable gate;
 - app-owned canonical IDs and canonical SQLite content/user schemas;
 - Evidence Plane update/delete protection and append-only learning-event history;
@@ -44,6 +45,7 @@ Phase 0A–0C is executable and Phase 1 now has a minimal offline Android reader
 - primary-source audit identified QuranEnc `arabic_seraj` v1.0.0 as a promising verse-scoped difficult-word gloss source and defined a fail-closed gloss bridge that does not fabricate morphology or lexical IDs; source is now `awaiting-licence` pending clarification that immutable historical archival redistribution remains permitted after newer upstream versions appear.
 - one-shot `tools/capture_quranenc_gloss.py` acquisition gate pins QuranEnc `arabic_seraj` v1.0.0, preserves exact pre/post metadata + 114 Surah response byte streams + official terms/source page, validates the complete 6,236-coordinate shape, rejects source drift/off-host redirects/partial capture/overwrite, and emits deterministic review-only snapshot metadata. It now also refuses any network acquisition unless the registry is explicitly `awaiting-artifact` with reviewed permissions; the current `awaiting-licence` state therefore blocks capture.
 - QUL English word-by-word resource 92 and Hindi word-by-word resource 44 are now explicit `awaiting-licence` contextual-gloss candidates. Their official pages expose JSON/SQLite downloads, but QUL requires dataset-specific licence review and credits QuranWBW.com for word-by-word translations; QuranWBW's published notice does not grant copying. The registry therefore records no bytes or inferred rights, and regression coverage keeps both candidates outside every content pack.
+- QAMAR (AbjadNLP 2026) remains `awaiting-licence`: the paper describes manually verified MSA/stem/lemma/root/POS for every Quranic word and ACL exposes supplementary material, but this review found no explicit production-compatible dataset licence or complete component-rights chain; no bytes were mirrored.
 
 ## Production Source Vault
 
