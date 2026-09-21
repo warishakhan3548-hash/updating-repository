@@ -160,3 +160,13 @@ Choosing *where* a review happens is a separate responsibility from deciding *wh
 Early review may prefer a familiar verified Quran context. After the experimental familiar phase, the selector rotates deterministically toward least-used and least-recent verified contexts so the learner is not permanently trained against one memorized sentence. Numerical phase thresholds are versioned product hypotheses and may change after measured evaluation without rewriting learning history.
 
 Hadith contexts are disabled by default and require explicit caller opt-in plus a verified semantic binding to a trusted Hadith record. Unverified bindings and contexts for a different semantic unit are ineligible. Context selection does not create lexical identity, mutate Evidence Plane records, or itself count as successful recall.
+
+## ADR-028 — Release expiry gates new trust, not continued reading
+
+Signed release freshness and archival reproducibility are separate concerns. Every approved pack release carries canonical UTC `release_issued_at` and `release_expires_at` values, with a v1 maximum interval of 366 days. These fields are inside the signed manifest payload.
+
+Repository validation checks the release window structurally but does not compare historical manifests with today's clock. Otherwise a release that was valid when produced would become unverifiable later, undermining reproducible builds and evidence audits.
+
+Wall-clock freshness belongs to a **new activation** decision. A future downloader must reject metadata that is not yet valid or has expired, retain the current verified pack, and report stale/unverifiable update freshness rather than disabling already verified offline Quran content. Rollback checks remain independent and cannot be bypassed merely because freshness failed.
+
+This bounded static manifest window does not claim full TUF behavior. A network updater remains blocked until a short-lived authenticated freshness layer, staged download/activation flow, supported-API on-device signature verifier, and remote trust-rotation/revocation protocol are implemented and tested.
