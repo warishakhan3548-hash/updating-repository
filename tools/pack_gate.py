@@ -23,6 +23,11 @@ from tools.verify_quran_core_pack import (
     QuranPackSemanticError,
     verify_quran_core_pack,
 )
+from tools.source_backup_gate import (
+    SourceBackupGateError,
+    require_verified_backup,
+    validate_all as validate_source_backups,
+)
 
 
 class PackGateError(RuntimeError):
@@ -550,6 +555,16 @@ def validate_manifest(manifest_path: Path, registry_path: Path) -> None:
             raise PackGateError(
                 f"{manifest_path}: approved pack signature verification failed: {exc}"
             ) from exc
+        try:
+            require_verified_backup(
+                registry_path,
+                source_id,
+                manifest["source_sha256"],
+            )
+        except SourceBackupGateError as exc:
+            raise PackGateError(
+                f"{manifest_path}: approved pack source durability check failed: {exc}"
+            ) from exc
 
     if manifest["pack_id"] == "quran-core" and manifest["schema_version"] in {2, 3}:
         try:
@@ -570,6 +585,10 @@ def validate_all(registry_path: Path) -> int:
         raise PackGateError(
             f"invalid trusted pack key policy: {exc}"
         ) from exc
+    try:
+        validate_source_backups(registry_path, require_verified=False)
+    except SourceBackupGateError as exc:
+        raise PackGateError(f"invalid source backup policy: {exc}") from exc
     manifests = sorted((root / "content-packs").glob("**/manifest.json"))
     for manifest in manifests:
         validate_manifest(manifest, registry_path)
