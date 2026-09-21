@@ -1,2 +1,0 @@
-# Release-verification dependency. Runtime Android code does not depend on Python.
-cryptography==50.0.1

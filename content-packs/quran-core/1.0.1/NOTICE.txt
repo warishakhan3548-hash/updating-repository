@@ -1,6 +1,0 @@
-Tanzil Quran Text
-Copyright (C) 2007-2021 Tanzil Project
-License: Creative Commons Attribution 3.0
-Source: https://tanzil.net/
-
-Permission is granted to copy and distribute verbatim copies of the Quran text. Changing the Quran text is not allowed. The Tanzil Project must be clearly indicated as the source and linked so users can track text updates.
