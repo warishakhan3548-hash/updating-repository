@@ -168,6 +168,6 @@ External-AI research uses one deterministic local evidence-export owner instead 
 
 Normal export requires an `approved` pack; a non-approved pack is usable only through an explicit development override. The machine representation reuses the project's strict deterministic JSON serializer and is SHA-256-addressable. The human UTF-8 text form is derived from the same bundle.
 
-Verify-back revalidates the local pack, reconstructs every exported record from local evidence, optionally pins the exact bundle hash, and rejects any returned Quran citation outside the exported set even when that citation is real elsewhere in the local database. Passing these checks authorizes only the wording **References verified**. Software does not infer that the external model's reasoning, interpretation or conclusion is verified.
+Verify-back revalidates the local pack, reconstructs every exported record from local evidence, requires the exact bundle hash produced at export time, and rejects any returned Quran citation outside the exported set even when that citation is real elsewhere in the local database. Passing these checks authorizes only the wording **References verified**. Software does not infer that the external model's reasoning, interpretation or conclusion is verified.
 
 PDF is a future renderer over the same evidence bundle, not a new trust path. Hadith export must wait for a production-eligible edition-aware Hadith pack and then extend the canonical evidence contract rather than creating a parallel workflow.
