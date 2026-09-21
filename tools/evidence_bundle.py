@@ -102,6 +102,9 @@ def _pack_descriptor(manifest: dict[str, Any]) -> dict[str, Any]:
         "source_name": manifest["source_name"],
         "source_version": manifest["source_version"],
         "source_sha256": manifest["source_sha256"],
+        "source_url": manifest["source_url"],
+        "source_attribution": manifest["source_attribution"],
+        "source_licence_url": manifest["source_licence_url"],
         "source_licence_sha256": manifest["source_licence_sha256"],
         "source_provenance_sha256": manifest["source_provenance_sha256"],
         "edition": manifest.get("edition"),
@@ -135,6 +138,40 @@ def _validated_citation_ids(citation_ids: list[str]) -> list[str]:
         seen.add(raw)
         validated.append(raw)
     return validated
+
+
+def _source_notice(root: Path, manifest: dict[str, Any]) -> dict[str, str]:
+    raw = manifest.get("notice_path")
+    expected_sha = manifest.get("notice_sha256")
+    if (
+        not isinstance(raw, str)
+        or not raw.startswith("content-packs/")
+        or not isinstance(expected_sha, str)
+        or _SHA256_RE.fullmatch(expected_sha) is None
+    ):
+        raise EvidenceBundleError("manifest source notice metadata is invalid")
+
+    notice_path = (root / raw).resolve()
+    try:
+        notice_path.relative_to((root / "content-packs").resolve())
+    except ValueError as exc:
+        raise EvidenceBundleError("source notice escapes content-packs") from exc
+    if not notice_path.is_file():
+        raise EvidenceBundleError("source notice is missing")
+
+    try:
+        notice_bytes = notice_path.read_bytes()
+        notice_text = notice_bytes.decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise EvidenceBundleError("cannot read source attribution notice") from exc
+    if hashlib.sha256(notice_bytes).hexdigest() != expected_sha:
+        raise EvidenceBundleError("source attribution notice SHA-256 mismatch")
+    if not notice_text.strip():
+        raise EvidenceBundleError("source attribution notice is empty")
+    return {
+        "sha256": expected_sha,
+        "text": notice_text,
+    }
 
 
 def _artifact_path(root: Path, manifest: dict[str, Any]) -> Path:
@@ -229,6 +266,7 @@ def build_quran_evidence_bundle(
         "research_question": question,
         "instructions": list(AI_EVIDENCE_INSTRUCTIONS),
         "pack": _pack_descriptor(manifest),
+        "source_notice": _source_notice(root, manifest),
         "scope": {
             "record_kind": "quran_ayah",
             "record_count": len(records),
@@ -260,7 +298,13 @@ def render_evidence_text(bundle: dict[str, Any]) -> str:
         f"Pack: {pack['pack_id']} {pack['content_version']}",
         f"Pack SHA-256: {pack['built_sha256']}",
         f"Source: {pack['source_name']} {pack['source_version']}",
+        f"Source attribution: {pack['source_attribution']}",
+        f"Source URL: {pack['source_url']}",
+        f"Source licence: {pack['source_licence_url']}",
         f"Source SHA-256: {pack['source_sha256']}",
+        "",
+        "Source notice (preserved from the validated pack):",
+        bundle["source_notice"]["text"].rstrip(),
         "",
         "Instructions for external AI:",
     ]
@@ -362,6 +406,10 @@ def _verify_bundle_against_local_pack(
     if not isinstance(pack, dict) or pack != _pack_descriptor(manifest):
         raise EvidenceBundleError(
             "evidence bundle pack identity does not match the validated local pack"
+        )
+    if bundle.get("source_notice") != _source_notice(root, manifest):
+        raise EvidenceBundleError(
+            "evidence bundle source notice does not match the validated local pack"
         )
 
     records = bundle.get("records")
