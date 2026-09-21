@@ -2,10 +2,11 @@
 """Validate checksum-bound independent backups for release source artifacts."""
 from __future__ import annotations
 
-import json
 import sys
 from datetime import datetime
 from pathlib import Path
+
+from tools.pack_signatures import PackSignatureError, load_strict_json_file
 
 ALLOWED_STATUSES = {"pending", "verified"}
 ALLOWED_STORAGE_CLASSES = {
@@ -46,11 +47,9 @@ def _parse_verified_at(value: object, source_id: str) -> None:
 
 def _load_json(path: Path, label: str) -> dict:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise SourceBackupGateError(f"missing {label}: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise SourceBackupGateError(f"invalid {label} JSON: {path}") from exc
+        value = load_strict_json_file(path, label=label)
+    except PackSignatureError as exc:
+        raise SourceBackupGateError(str(exc)) from exc
     if not isinstance(value, dict):
         raise SourceBackupGateError(f"{label} must be a JSON object")
     return value
