@@ -445,10 +445,12 @@ def verify_back(
     manifest_path: Path,
     registry_path: Path,
     *,
-    expected_bundle_sha256: str,
+    expected_bundle_sha256: str | None = None,
     allow_candidate_for_development: bool = False,
 ) -> dict[str, Any]:
     digest = evidence_bundle_sha256(bundle)
+    if expected_bundle_sha256 is None:
+        raise EvidenceBundleError("exact evidence bundle SHA-256 is required for verify-back")
     if not _SHA256_RE.fullmatch(expected_bundle_sha256):
         raise EvidenceBundleError("expected bundle SHA-256 is malformed")
     if digest != expected_bundle_sha256:
