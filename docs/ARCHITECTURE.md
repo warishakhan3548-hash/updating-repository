@@ -22,7 +22,7 @@ This is especially important because modern Android applies explicit restriction
 
 - Kotlin source, Java 17 bytecode target.
 - Android Gradle Plugin 9.4.0.
-- `compileSdk` / `targetSdk` 37 (Android 17).
+- `compileSdk` / `targetSdk` 36 (Android 16).
 - `minSdk` 26 (Android 8.0), with future newer-API features required to use explicit runtime/API gating.
 - No cloud dependency in the core safety foundation.
 
@@ -46,7 +46,7 @@ Primary Android documentation reviewed for this foundation:
 - Android modularization: https://developer.android.com/topic/modularization
 - AGP 9 built-in Kotlin: https://developer.android.com/build/migrate-to-built-in-kotlin
 - AGP 9.4 compatibility: https://developer.android.com/build/releases/agp-9-4-0-release-notes
-- Android 17 SDK setup: https://developer.android.com/about/versions/17/setup-sdk
+- Android 16 SDK setup: https://developer.android.com/about/versions/16/setup-sdk
 - Foreground-service types: https://developer.android.com/develop/background-work/services/fgs/service-types
 - VpnService: https://developer.android.com/reference/android/net/VpnService
 - AccessibilityService screenshots: https://developer.android.com/reference/android/accessibilityservice/AccessibilityService
