@@ -186,7 +186,10 @@ class EvidenceBundleTests(unittest.TestCase):
     def test_verify_back_requires_the_exact_export_hash(self):
         bundle = self._bundle(citations=["qa:001:001"])
 
-        with self.assertRaises(TypeError):
+        with self.assertRaisesRegex(
+            EvidenceBundleError,
+            "exact evidence bundle SHA-256 is required",
+        ):
             verify_back(
                 bundle,
                 "Citation [qa:001:001].",
