@@ -160,3 +160,10 @@ Choosing *where* a review happens is a separate responsibility from deciding *wh
 Early review may prefer a familiar verified Quran context. After the experimental familiar phase, the selector rotates deterministically toward least-used and least-recent verified contexts so the learner is not permanently trained against one memorized sentence. Numerical phase thresholds are versioned product hypotheses and may change after measured evaluation without rewriting learning history.
 
 Hadith contexts are disabled by default and require explicit caller opt-in plus a verified semantic binding to a trusted Hadith record. Unverified bindings and contexts for a different semantic unit are ineligible. Context selection does not create lexical identity, mutate Evidence Plane records, or itself count as successful recall.
+## ADR-028 — Independent backup is a release property, not source identity
+
+A source may be legally and technically `production-approved` once its exact project-controlled artifact, licence, provenance and integrity gates pass. Independent preservation is tracked separately because backup infrastructure can change without changing source identity or sacred bytes.
+
+`policy/source_backups.json` binds each production source to its exact artifact SHA-256. Candidate and reviewed packs may be built while an independent copy is still `pending`, but a cryptographically valid `approved` pack must have a `verified` backup attestation for its source. Verification records an independent storage class/provider, timezone-aware verification time and SHA-256 checking; private credentials and sensitive storage locators stay outside Git.
+
+This keeps development usable while making the strongest release-durability claim fail closed. A fork or another path under the same administrative failure domain is not sufficient merely because it is a second copy.
