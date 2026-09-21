@@ -50,10 +50,10 @@ Verify-back performs deterministic checks in this order:
 2. require the bundle's complete pack descriptor and exact attribution notice to match that local pack;
 3. reload every exported citation from the read-only local SQLite pack;
 4. require every exported record to exactly match the locally reconstructed source-faithful record;
-5. optionally require the exact expected evidence-bundle SHA-256;
+5. require the exact expected evidence-bundle SHA-256 produced at export time;
 6. require every Quran citation returned by the external answer to belong to the exported evidence scope.
 
-A valid Quran citation that exists elsewhere in the local database is still rejected if it was not part of this export. This prevents a model from silently escaping the evidence scope while citing a technically real reference.
+A valid Quran citation that exists elsewhere in the local database is still rejected if it was not part of this export. This prevents a model from silently escaping the evidence scope while citing a technically real reference. Verify-back also requires the exact export SHA-256, so changing the research question, instructions, attribution wrapper, or evidence bytes produces a different bundle and cannot be silently accepted.
 
 Successful verification says:
 
