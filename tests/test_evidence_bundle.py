@@ -49,6 +49,13 @@ class EvidenceBundleTests(unittest.TestCase):
             ["qa:001:001", "qa:002:255"],
             [record["citation_id"] for record in bundle["records"]],
         )
+        self.assertIn("Tanzil Project", bundle["pack"]["source_attribution"])
+        self.assertIn("tanzil.net", bundle["pack"]["source_url"])
+        self.assertIn(
+            "PLEASE DO NOT REMOVE OR CHANGE THIS COPYRIGHT BLOCK",
+            bundle["source_notice"]["text"],
+        )
+        self.assertEqual(64, len(bundle["source_notice"]["sha256"]))
         for record in bundle["records"]:
             self.assertEqual("quran_ayah", record["kind"])
             self.assertTrue(record["original_arabic"])
@@ -71,6 +78,9 @@ class EvidenceBundleTests(unittest.TestCase):
         self.assertIn("Answer only from the evidence records", rendered)
         self.assertIn("[qa:001:001] Quran 1:1", rendered)
         self.assertIn("Research this from the supplied ayahs.", rendered)
+        self.assertIn("Source attribution: Tanzil Project", rendered)
+        self.assertIn("tanzil.net", rendered)
+        self.assertIn("PLEASE DO NOT REMOVE OR CHANGE THIS COPYRIGHT BLOCK", rendered)
         self.assertIn("does not verify the reasoning or conclusion", rendered)
 
     def test_write_emits_json_text_and_checksum_set_without_overwrite(self):
@@ -135,6 +145,20 @@ class EvidenceBundleTests(unittest.TestCase):
             verify_back(
                 bundle,
                 "Malformed reference [qa:1:1].",
+                MANIFEST,
+                REGISTRY,
+                allow_candidate_for_development=True,
+            )
+
+    def test_verify_back_rejects_mutated_source_notice(self):
+        bundle = self._bundle(citations=["qa:001:001"])
+        tampered = copy.deepcopy(bundle)
+        tampered["source_notice"]["text"] = "Tanzil Project"
+
+        with self.assertRaisesRegex(EvidenceBundleError, "source notice does not match"):
+            verify_back(
+                tampered,
+                "Citation [qa:001:001].",
                 MANIFEST,
                 REGISTRY,
                 allow_candidate_for_development=True,
