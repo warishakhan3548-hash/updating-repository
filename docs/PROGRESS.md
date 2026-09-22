@@ -179,3 +179,13 @@ download the Gradle distribution; analyzer setup is still in progress.
 - 113 core regressions, all corpus/source checks, API 35 Java compile and AAPT2 resource/manifest
   linking pass. Actual Android overlay delivery and visual/device QA are still pending.
 - Version is 0.3.0 / code 3. Build an updated signed release APK with the existing private key.
+
+## Checkpoint 12: overlay release hardening (2026-09-22)
+
+- Permission-result callbacks now wait for the Activity to resume before starting the foreground
+  service, and deferred launch state survives recreation. API 30+ overlay views use the native
+  display/window context rather than service-resource metrics.
+- Raised small-text contrast, kept close/stop outside the scrolling overlay body, and fixed
+  a settings-dismiss listener that could redraw after its owning Activity was being destroyed.
+- Added docs/AMBIENT_RECALL.md with the delivery contract, platform references, and an explicit
+  not-yet-run physical-device acceptance list. No device validation is implied by compilation.

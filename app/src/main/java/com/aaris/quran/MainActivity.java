@@ -45,7 +45,7 @@ public final class MainActivity extends Activity {
     private Runnable debounce;
     private String pendingExport;
     private boolean preparingExport;
-    private boolean pendingAmbient,previewAmbient,ambientSheetRequested;
+    private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending;
     private JSONObject pendingRestore;
     private String searchQuery="";
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
@@ -55,7 +55,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);app=(QuranApp)getApplication();
-        if(state!=null){pendingAmbient=state.getBoolean("pending_ambient");previewAmbient=state.getBoolean("preview_ambient");}
+        if(state!=null){pendingAmbient=state.getBoolean("pending_ambient");previewAmbient=state.getBoolean("preview_ambient");ambientResumePending=state.getBoolean("ambient_resume_pending");}
         if(state!=null&&ExportStaging.validToken(state.getString("pending_export")))pendingExport=state.getString("pending_export");
         arabicFont=Typeface.createFromAsset(getAssets(),"fonts/AmiriQuran.ttf");
         if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
@@ -89,8 +89,9 @@ public final class MainActivity extends Activity {
     }
     private static float clamp(float x,float min,float max){return Math.max(min,Math.min(max,x));}
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
-    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("preview_ambient",previewAmbient);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
-    @Override protected void onPause(){captureReaderPosition();if(learning!=null&&readingPosition!=null){learning.set("reader_anchor",readingPosition.encode());learning.set("position",readingPosition.anchorId);}super.onPause();}
+    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
+    @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
+    @Override protected void onPause(){resumed=false;captureReaderPosition();if(learning!=null&&readingPosition!=null){learning.set("reader_anchor",readingPosition.encode());learning.set("position",readingPosition.anchorId);}super.onPause();}
     @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void show(){
@@ -174,7 +175,7 @@ public final class MainActivity extends Activity {
         Runnable refresh=new Runnable(){public void run(){if(isDestroyed()||activeDialog!=dialog||!dialog.isShowing())return;status.setText(app.ambientRunning?"● Chalu · "+AmbientSettings.minutes(MainActivity.this)+" minute ka timer":AmbientSettings.status(MainActivity.this));ui.postDelayed(this,1000);}};refresh.run();gap(page,18);
         page.addView(label("KITNE MINUTE BAAD?"));gap(page,8);
         EditText minutes=new EditText(this);minutes.setTextColor(INK);minutes.setTextSize(24);minutes.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);minutes.setFilters(new InputFilter[]{new InputFilter.LengthFilter(3)});minutes.setSingleLine(true);minutes.setText(""+AmbientSettings.minutes(this));minutes.setSelectAllOnFocus(true);minutes.setBackground(new Surface(this,Surface.Kind.BUTTON,highContrast));pad(minutes,16,8);page.addView(minutes,new LinearLayout.LayoutParams(-1,dp(this,58)));gap(page,10);
-        LinearLayout presets=row(this);for(int value:new int[]{3,5,10,15}){TextView choice=button(value+" min",()->minutes.setText(""+value));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.rightMargin=dp(this,4);presets.addView(choice,p);}page.addView(presets);gap(page,12);
+        LinearLayout presets=row(this);for(int value:new int[]{3,5,10,15}){TextView choice=button(value+" min",()->minutes.setText(""+value));pad(choice,6,13);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.rightMargin=dp(this,4);presets.addView(choice,p);}page.addView(presets);gap(page,12);
         caption(page,"1–120 minute. App badalne se timer reset nahi hoga.");gap(page,12);
         Switch due=new Switch(this);due.setText("Sirf jab revision baaki ho");due.setTextColor(INK);due.setChecked(AmbientSettings.dueOnly(this));due.setMinimumHeight(dp(this,52));page.addView(due);caption(page,"Band rakhein to har interval par chune hue items ki practice hogi.");gap(page,18);
         page.addView(button(ambientItems()+" chune hue items · Alfaaz / ayat chunein",this::chooseAmbientItems));gap(page,18);
@@ -204,6 +205,8 @@ public final class MainActivity extends Activity {
     }
     private void beginAmbient(){
         if(!pendingAmbient||isFinishing()||isDestroyed())return;
+        // Permission callbacks may precede onResume; API 31+ requires a visible user launch.
+        if(!resumed){ambientResumePending=true;return;}
         if(!Settings.canDrawOverlays(this)){
             Intent permission=new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()));
             try{startActivityForResult(permission,OVERLAY_PERMISSION);}catch(ActivityNotFoundException e){pendingAmbient=false;toast("Is phone par overlay permission ki setting nahi mili");}return;
@@ -570,7 +573,7 @@ public final class MainActivity extends Activity {
     }
     private void settings(){
         LinearLayout page=sheet("Apni reading");Dialog settingsDialog=activeDialog;
-        settingsDialog.setOnDismissListener(d->{if(activeDialog==settingsDialog)activeDialog=null;show();});
+        settingsDialog.setOnDismissListener(d->{if(activeDialog==settingsDialog){activeDialog=null;show();}});
         page.addView(label("ARABIC KA SIZE"));gap(page,8);TextView sample=arabic(content.ayah("Q:1:1").arabic,arabicSize);page.addView(sample);
         SeekBar slider=new SeekBar(this);slider.setMax(22);slider.setProgress((int)arabicSize-24);page.addView(slider);slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar s,int p,boolean user){arabicSize=24+p;sample.setTextSize(arabicSize);}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){learning.set("arabic_size",""+arabicSize);}

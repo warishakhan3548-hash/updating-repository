@@ -10,7 +10,7 @@ import android.widget.*;
 
 /** Static soft-light artwork: no GPU blur of Quran glyphs, no animation battery cost. */
 final class Glass {
-    static final int INK=0xFFF5F4EA,MUTED=0xFFAEC7C5,GOLD=0xFFE3CCA1,MINT=0xFFB5E5CD;
+    static final int INK=0xFFF5F4EA,MUTED=0xFFCBDDD6,GOLD=0xFFE3CCA1,MINT=0xFFB5E5CD;
     static int dp(Context c,float value){return (int)(c.getResources().getDisplayMetrics().density*value+0.5f);}
     static final class Backdrop extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -41,7 +41,7 @@ final class Glass {
             if(kind==Kind.PRIMARY)colors=new int[]{0xFFD3EFDA,0xFF9EDAC9};
             else if(kind==Kind.SHEET)colors=new int[]{0xFF274A47,0xFF103C52};
             else if(solid)colors=new int[]{0xFF122E35,0xFF0E2734};
-            else if(kind==Kind.HERO||kind==Kind.MUSHAF)colors=new int[]{0xCC56715A,0xE5245A68,0xDD17466C};
+            else if(kind==Kind.HERO||kind==Kind.MUSHAF)colors=new int[]{0xDF396048,0xE5245A68,0xDD17466C};
             else if(kind==Kind.NAV)colors=new int[]{0xF21A363E,0xF0112C3C};
             else if(kind==Kind.BUTTON)colors=new int[]{0xB33A5656,0xB022414D};
             else colors=new int[]{0x754B6C65,0xAA173D50};
