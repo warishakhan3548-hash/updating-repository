@@ -22,7 +22,7 @@ final class EvidenceExporter {
         StringBuilder txt=new StringBuilder("AARIS QURAN — EVIDENCE SNAPSHOT\nBundle: "+out.id+"\nQuery: "+query+"\n\n"+References.reasoningPrompt()+"\n\n");
         for(String id:selection){Ayah a=store.ayah(id);if(a==null)throw new IllegalArgumentException("Unknown citation");
             if(!References.sha256(a.arabic).equals(a.sha256))throw new IllegalStateException("Source text hash mismatch");
-            JSONObject trace=traces.get(a.id);if(trace==null)trace=new JSONObject().put("selection_origin","READER_SELECTION");
+            JSONObject trace=traces.get(a.id);if(trace==null)trace=new JSONObject().put("selection_origin","SELECTION_WITHOUT_RETRIEVAL_TRACE");
             records.put(new JSONObject().put("citation_id",a.id).put("surah",a.surah).put("ayah",a.number).put("arabic",a.arabic).put("sha256",a.sha256).put("source","Tanzil Uthmani 1.1").put("source_url","https://tanzil.net/").put("retrieval",trace));
             ayahs.add(a);txt.append('[').append(a.id).append("] ").append(store.surah(a.surah).name).append('\n').append(a.arabic).append("\n\n");
         }
@@ -66,7 +66,7 @@ final class EvidenceExporter {
         void next(){finish();page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,++number).create());y=44;}
         void block(String text,Typeface font,int size,boolean rtl){
             TextPaint paint=new TextPaint(Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.BLACK);paint.setTypeface(font);paint.setTextSize(size);
-            StaticLayout layout=StaticLayout.Builder.obtain(text,0,text.length(),paint,515).setAlignment(rtl?Layout.Alignment.ALIGN_OPPOSITE:Layout.Alignment.ALIGN_NORMAL)
+            StaticLayout layout=StaticLayout.Builder.obtain(text,0,text.length(),paint,515).setAlignment(Layout.Alignment.ALIGN_NORMAL)
                 .setTextDirection(rtl?TextDirectionHeuristics.RTL:TextDirectionHeuristics.LTR).setIncludePad(true).setLineSpacing(rtl?8:3,1).build();
             int from=0;while(from<layout.getLineCount()){
                 if(790-y<layout.getLineBottom(from)-layout.getLineTop(from)+8)next();

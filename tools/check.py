@@ -20,9 +20,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
+    if not __debug__:
+        raise SystemExit('Run checks without -O; integrity assertions must be enabled.')
     parser = argparse.ArgumentParser()
     parser.add_argument('--android-jar', type=Path)
+    parser.add_argument('--aapt2', type=Path, help='Optional Android resource compiler (requires --android-jar)')
     args = parser.parse_args()
+    if args.aapt2 and not args.android_jar:
+        parser.error('--aapt2 requires --android-jar')
     java = shutil.which('java')
     if not java and os.environ.get('JAVA_HOME'):
         java = str(Path(os.environ['JAVA_HOME']) / 'bin/java')
@@ -36,6 +41,7 @@ def main():
     assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
     assert db.execute('SELECT count(*) FROM ayah').fetchone()[0] == 6236
     assert db.execute('SELECT count(*) FROM surah').fetchone()[0] == 114
+    assert db.execute('SELECT count(*) FROM word').fetchone()[0] == manifest['words']
     for text, digest in db.execute('SELECT arabic,sha256 FROM ayah'):
         assert hashlib.sha256(text.encode()).hexdigest() == digest
     for text, start, end, word in db.execute(
@@ -69,6 +75,18 @@ def main():
                             '-cp', str(args.android_jar), '-d', str(classes),
                             *map(str, sources + app)], check=True)
             print('Android Java compile: PASS (API jar; not a device or APK test)')
+        if args.aapt2:
+            resources = Path(scratch) / 'resources.zip'
+            manifest_tree = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml')
+            manifest_tree.getroot().set('package', 'com.aaris.quran')
+            manifest_path = Path(scratch) / 'AndroidManifest.xml'
+            ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
+            manifest_tree.write(manifest_path, encoding='utf-8', xml_declaration=True)
+            subprocess.run([str(args.aapt2), 'compile', '--dir', str(ROOT / 'app/src/main/res'), '-o', str(resources)], check=True)
+            subprocess.run([str(args.aapt2), 'link', '--manifest', str(manifest_path), '-I', str(args.android_jar),
+                            '--min-sdk-version', '26', '--target-sdk-version', '35',
+                            '-o', str(Path(scratch) / 'resources.ap_'), str(resources)], check=True)
+            print('Android resource compile and manifest link: PASS (not an installable APK)')
     print('Content hashes, 6,236 ayahs, 77,881 word ranges and startup manifest: PASS')
 
 

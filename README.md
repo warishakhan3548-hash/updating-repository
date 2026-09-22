@@ -15,7 +15,22 @@ python3 tools/build_content.py
 ```
 
 Progress and known limitations: [docs/PROGRESS.md](docs/PROGRESS.md).
+Architecture coverage and remaining work: [docs/ARCHITECTURE_STATUS.md](docs/ARCHITECTURE_STATUS.md).
 The generated SQLite pack is not checked in; its archived sources and deterministic builder are.
+
+Offline verification (without CI or an APK build):
+
+```sh
+python3 tools/build_content.py
+python3 tools/check.py
+# Also check native Java/resources when the Android SDK is available:
+python3 tools/check.py --android-jar "$ANDROID_HOME/platforms/android-35/android.jar" \
+  --aapt2 "$ANDROID_HOME/build-tools/35.0.0/aapt2"
+```
+
+This preview implements Quran reading, source word meanings, opt-in word/phrase/ayah recall,
+Quran lexical search and evidence export. It is not the complete architecture: no Hadith corpus,
+reviewed morphology/sense graph, FSRS, audio, ambient overlay or signed pack updater ships yet.
 
 ## Source notices
 

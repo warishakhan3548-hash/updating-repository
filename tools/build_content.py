@@ -40,13 +40,15 @@ def build():
         if not source.is_file() or digest(source) != expected:
             raise ValueError(f'Pinned source missing or changed: {relative}')
     raw = VAULT / 'tanzil/quran-uthmani.txt'
-    assert digest(raw) == RAW_SHA, 'Quran source changed: release blocked'
+    if digest(raw) != RAW_SHA:
+        raise ValueError('Quran source changed: release blocked')
     rows = []
     for line in raw.read_text().splitlines():
         if re.match(r'^\d+\|', line):
             s, a, text = line.split('|', 2)
             rows.append((int(s), int(a), text))
-    assert len(rows) == 6236 and len({(s, a) for s, a, _ in rows}) == 6236
+    if len(rows) != 6236 or len({(s, a) for s, a, _ in rows}) != 6236:
+        raise ValueError('Incomplete or duplicate Quran coordinates')
     meta = (VAULT / 'tanzil/quran-data.js').read_text()
     suras = []
     for line in meta.split('QuranData.Sura = [', 1)[1].split('];', 1)[0].splitlines():
@@ -62,9 +64,11 @@ def build():
             # Decode only the metadata label; preserve the archived bytes.
             name = b''.join(bytes([ord(c)]) if ord(c) < 256 else c.encode('cp1252') for c in name).decode('utf8')
         suras.append((len(suras) + 1, name, v[5], v[6], v[1], v[7]))
-    assert len(suras) == 114 and sum(s[4] for s in suras) == 6236
+    if len(suras) != 114 or sum(s[4] for s in suras) != 6236:
+        raise ValueError('Surah metadata differs from the Quran spine')
     for s in suras:
-        assert [a for sn, a, _ in rows if sn == s[0]] == list(range(1, s[4] + 1))
+        if [a for sn, a, _ in rows if sn == s[0]] != list(range(1, s[4] + 1)):
+            raise ValueError(f'Non-contiguous coordinates in surah {s[0]}')
 
     source_dir = VAULT / 'data-quran'
     def data(path):
@@ -159,8 +163,10 @@ def build():
                  'distribution':'NON_COMMERCIAL_PREVIEW','attribution':attribution}.items():
         db.execute('INSERT INTO provenance VALUES(?,?)', (k, v))
     db.commit()
-    assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
-    assert not db.execute('PRAGMA foreign_key_check').fetchall()
+    if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+        raise ValueError('SQLite integrity validation failed')
+    if db.execute('PRAGMA foreign_key_check').fetchall():
+        raise ValueError('Broken canonical content references')
     db.execute('VACUUM')
     db.close()
     temporary.replace(output)

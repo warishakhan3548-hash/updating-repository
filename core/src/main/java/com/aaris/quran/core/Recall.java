@@ -5,16 +5,19 @@ import java.util.*;
 /** Algorithm-neutral ledger projection. Conservative scheduler v1, deliberately not advertised as FSRS. */
 public final class Recall {
     private Recall() {}
-    public static final String VERSION="conservative-1";
+    public static final String VERSION="conservative-2";
     public static final long MINUTE=60_000L, DAY=86_400_000L;
     public enum Kind { SEEN, PEEK, DEEP, ENROLL, REVEAL, AGAIN, HARD, GOOD, EASY, PAUSE, RESUME }
     public static final class Event {
-        public final String id,target,session,context;
+        public final String id,target,session,context,schedulerVersion;
         public final Kind kind;
         public final long at;
         public Event(String id,String target,Kind kind,long at,String session,String context) {
-            this.id=Objects.requireNonNull(id);this.target=Objects.requireNonNull(target);this.kind=kind;this.at=at;
-            this.session=session;this.context=context;
+            this(id,target,kind,at,session,context,VERSION);
+        }
+        public Event(String id,String target,Kind kind,long at,String session,String context,String schedulerVersion) {
+            this.id=Objects.requireNonNull(id);this.target=Objects.requireNonNull(target);this.kind=Objects.requireNonNull(kind);this.at=at;
+            this.session=session;this.context=context;this.schedulerVersion=Objects.requireNonNull(schedulerVersion);
         }
     }
     public static final class State {
@@ -27,13 +30,27 @@ public final class Recall {
         public State(String target){this.target=target;}
         public String label(){return reviews==0?"Shuruaat":successes>=4&&successfulContexts.size()>=2?"Mazboot":lapses>successes?"Dobara dekhein":"Seekh rahe hain";}
     }
-    public interface Scheduler { long nextInterval(State before,Kind rating); String version(); }
+    public interface Scheduler {
+        long nextInterval(State before,Kind rating);String version();
+        default long nextInterval(State before,Kind rating,String recordedVersion) {
+            if(!version().equals(recordedVersion))throw new IllegalArgumentException("Unsupported scheduler history: "+recordedVersion);
+            return nextInterval(before,rating);
+        }
+    }
+    public static boolean supportedScheduler(String version){return VERSION.equals(version)||"conservative-1".equals(version);}
     public static final class ConservativeScheduler implements Scheduler {
         @Override public String version(){return VERSION;}
         @Override public long nextInterval(State s,Kind rating) {
+            return nextInterval(s,rating,VERSION);
+        }
+        @Override public long nextInterval(State s,Kind rating,String recordedVersion) {
+            if(!supportedScheduler(recordedVersion))throw new IllegalArgumentException("Unsupported scheduler history");
             switch(rating) {
                 case AGAIN:return 10*MINUTE;
-                case HARD:return Math.max(4*60*MINUTE,Math.min(30*DAY,(long)(Math.max(DAY,s.interval)*1.15)));
+                case HARD:
+                    // Replay v1 faithfully; new reviews no longer delay HARD beyond GOOD.
+                    if("conservative-1".equals(recordedVersion))return Math.max(4*60*MINUTE,Math.min(30*DAY,(long)(Math.max(DAY,s.interval)*1.15)));
+                    return Math.max(4*60*MINUTE,Math.min(30*DAY,(long)(s.interval*1.15)));
                 case GOOD:return Math.min(180*DAY,Math.max(DAY,(long)(s.interval*2.2)));
                 case EASY:return Math.min(365*DAY,Math.max(3*DAY,(long)(s.interval*3.0)));
                 default:throw new IllegalArgumentException("Only explicit ratings may schedule a review");
@@ -50,7 +67,7 @@ public final class Recall {
             Event previous=seen.putIfAbsent(e.id,e);
             if(previous!=null) {
                 if(!previous.target.equals(e.target)||previous.kind!=e.kind||previous.at!=e.at||
-                    !Objects.equals(previous.session,e.session)||!Objects.equals(previous.context,e.context))
+                    !Objects.equals(previous.session,e.session)||!Objects.equals(previous.context,e.context)||!previous.schedulerVersion.equals(e.schedulerVersion))
                     throw new IllegalArgumentException("Conflicting event ID");
                 continue;
             }
@@ -62,7 +79,7 @@ public final class Recall {
             if(e.kind==Kind.RESUME){s.active=true;if(s.due==0)s.due=e.at;}
             if(rating(e.kind)&&s.active) {
                 // Duplicate event IDs are ignored, but exposures/reveals never become ratings.
-                s.interval=scheduler.nextInterval(s,e.kind);s.due=e.at+s.interval;s.lastReview=e.at;s.reviews++;s.peeksSinceReview=0;
+                s.interval=scheduler.nextInterval(s,e.kind,e.schedulerVersion);s.due=e.at+s.interval;s.lastReview=e.at;s.reviews++;s.peeksSinceReview=0;
                 if(e.kind==Kind.AGAIN){s.lapses++;s.successes=0;}
                 else {s.successes++;if(e.context!=null)s.successfulContexts.add(e.context);}
             }

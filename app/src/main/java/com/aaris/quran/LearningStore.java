@@ -38,8 +38,8 @@ final class LearningStore extends SQLiteOpenHelper {
     }
     List<Recall.Event> events() {
         List<Recall.Event> list=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT id,target,kind,at,session,context FROM event ORDER BY seq",null)) {
-            while(c.moveToNext())list.add(new Recall.Event(c.getString(0),c.getString(1),Recall.Kind.valueOf(c.getString(2)),c.getLong(3),c.getString(4),c.getString(5)));
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT id,target,kind,at,session,context,scheduler FROM event ORDER BY seq",null)) {
+            while(c.moveToNext())list.add(new Recall.Event(c.getString(0),c.getString(1),Recall.Kind.valueOf(c.getString(2)),c.getLong(3),c.getString(4),c.getString(5),c.getString(6)));
         }
         return list;
     }

@@ -28,7 +28,7 @@ final class BackupValidator {
                         String context=string(row,"context",80,false);
                         Ayah origin=content.contextFor(row.getString("target"));
                         if(origin==null||!origin.id.equals(context))fail("Unreviewed cross-context learning assertion");
-                        if(!Recall.VERSION.equals(string(row,"scheduler",80,false)))fail("Unsupported scheduler history");
+                        if(!Recall.supportedScheduler(string(row,"scheduler",80,false)))fail("Unsupported scheduler history");
                         count++;break;
                     case "bookmark":
                         key=string(row,"ayah_id",80,false);

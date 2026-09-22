@@ -76,3 +76,18 @@ download the Gradle distribution; analyzer setup is still in progress.
 - 42 behavioral checks, all 6,236 coordinate lookups, 13 corpus retrieval regressions and 20
   engineered absent queries pass. Full app Java compiles against Android API 35. The small query
   set is engineering regression coverage, NOT a scholarly search evaluation or phone benchmark.
+
+## Checkpoint 6: final audit and verification (2026-09-22)
+
+- Published the full implemented/partial/missing matrix in `docs/ARCHITECTURE_STATUS.md`.
+- Corrected first-review HARD intervals being longer than GOOD. New events use conservative-2;
+  old conservative-1 events replay their recorded rule, and old backups remain accepted.
+- Source validation now survives Python optimized mode; the test runner rejects `-O`.
+- Bounded Android saved-state trace size and made missing restored provenance explicit.
+  Corrected RTL PDF paragraph alignment without altering any source text.
+- Final validation: 52 core checks, 6,236 coordinate lookups, 13 positive and 20 absent search
+  cases, source/word integrity, Android Java compile, and native resource/manifest linking.
+- No CI workflow, APK build, phone test, complete FSRS, Hadith corpus or semantic model is claimed.
+- Git CLI writes lack credentials in this environment. Checkpoints were published through the
+  connected GitHub app using non-forced branch updates; remote tree hashes are compared with the
+  local tested commit before each update. Resume from GitHub main, not an interrupted old clone.

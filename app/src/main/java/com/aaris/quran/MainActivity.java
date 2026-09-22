@@ -66,14 +66,14 @@ public final class MainActivity extends Activity {
             if(a!=null){readerSurah=a.surah;readerStart=a.number;}
             if(state!=null){tab=state.getInt("tab",1);reading=state.getBoolean("reading",true);readerSurah=state.getInt("surah",readerSurah);readerStart=state.getInt("start",readerStart);
                 searchQuery=state.getString("query","");ArrayList<String> ids=state.getStringArrayList("evidence");if(ids!=null)for(String id:ids)if(selectedEvidence.size()<50&&content.ayah(id)!=null)selectedEvidence.add(id);
-                try{JSONObject traces=new JSONObject(state.getString("selection_trace","{}"));for(String id:selectedEvidence)if(traces.has(id))selectionTrace.put(id,traces.getJSONObject(id));}catch(JSONException ignored){}
+                try{JSONObject traces=new JSONObject(state.getString("selection_trace","{}"));for(String id:selectedEvidence)selectionTrace.put(id,traces.has(id)?traces.getJSONObject(id):selectionOrigin("RESTORED_SELECTION_WITHOUT_TRACE"));}catch(JSONException ignored){}
             }
             show();
         });
     }
     private static float clamp(float x,float min,float max){return Math.max(min,Math.min(max,x));}
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
-    @Override protected void onSaveInstanceState(Bundle state){super.onSaveInstanceState(state);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putInt("surah",readerSurah);state.putInt("start",readerStart);state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));state.putString("selection_trace",new JSONObject(selectionTrace).toString());}
+    @Override protected void onSaveInstanceState(Bundle state){super.onSaveInstanceState(state);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putInt("surah",readerSurah);state.putInt("start",readerStart);state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
     @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(activeDialog!=null)activeDialog.dismiss();super.onDestroy();}
     private void show(){
         if(content==null)return;searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;backdrop.highContrast=highContrast;backdrop.invalidate();
@@ -216,7 +216,7 @@ public final class MainActivity extends Activity {
         page.addView(button("Chhota hissa yaad karaayein",()->choosePhrase(a)));gap(page,10);
         page.addView(button("Word meanings ki list",()->wordList(a)));gap(page,10);
         page.addView(button("Apna note",()->editNote(a.id)));gap(page,10);
-        page.addView(button("Evidence mein chunein",()->{if(selectedEvidence.size()>=50&&!selectedEvidence.contains(a.id)){toast("Ek bundle mein 50 ayat tak");return;}selectedEvidence.add(a.id);selectionTrace.remove(a.id);toast("Evidence selection: "+selectedEvidence.size());activeDialog.dismiss();}));gap(page,10);
+        page.addView(button("Evidence mein chunein",()->{if(selectedEvidence.size()>=50&&!selectedEvidence.contains(a.id)){toast("Ek bundle mein 50 ayat tak");return;}selectedEvidence.add(a.id);selectionTrace.put(a.id,selectionOrigin("READER_SELECTION"));toast("Evidence selection: "+selectedEvidence.size());activeDialog.dismiss();}));gap(page,10);
         page.addView(button("Ayah share karein",()->shareText(a.arabic+"\n["+a.id+"]\nTanzil Project · https://tanzil.net/")));gap(page,10);
         page.addView(button("Is ayah se jaari rakhein",()->{activeDialog.dismiss();open(a.surah,a.number);}));
     }
@@ -378,6 +378,9 @@ public final class MainActivity extends Activity {
     }
     @Override public void onBackPressed(){if(overlay.getChildCount()>0){hidePeek();return;}if(searching){searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);show();return;}if(quietReader){quietReader=false;show();return;}if(tab==1&&reading){reading=false;show();return;}if(tab!=1){tab=1;reading=true;show();return;}super.onBackPressed();}
 
+    private JSONObject selectionOrigin(String origin){
+        try{return new JSONObject().put("selection_origin",origin);}catch(JSONException e){throw new IllegalStateException(e);}
+    }
     private JSONObject retrievalTrace(SearchEngine.Response response,SearchEngine.Result result){
         try{
             JSONArray variants=new JSONArray();for(SearchEngine.Variant v:response.variants)variants.put(new JSONObject()

@@ -37,6 +37,20 @@ public final class CoreChecks {
         check(!Arabic.glossSearch("की").equals(Arabic.glossSearch("क")),"Hindi signs must not be stripped");
         check(Arabic.safe("أَ").equals("أ"),"Safe lane preserves hamza");
         check(!Arabic.tolerant("نية").equals(Arabic.tolerant("نيه")),"Ta marbuta is not ha");
+        Recall.ConservativeScheduler scheduler=new Recall.ConservativeScheduler();
+        Recall.State fresh=new Recall.State("Q:1:1");
+        check(scheduler.nextInterval(fresh,Recall.Kind.HARD)<scheduler.nextInterval(fresh,Recall.Kind.GOOD),"First HARD must return sooner than GOOD");
+        for(long interval:new long[]{0,10*Recall.MINUTE,4*60*Recall.MINUTE,Recall.DAY,30*Recall.DAY,365*Recall.DAY}){
+            fresh.interval=interval;
+            check(scheduler.nextInterval(fresh,Recall.Kind.HARD)<=scheduler.nextInterval(fresh,Recall.Kind.GOOD),"Rating order remains monotonic across intervals");
+        }
+        fresh.interval=0;
+        check(scheduler.nextInterval(fresh,Recall.Kind.HARD,"conservative-1")== (long)(Recall.DAY*1.15),"Legacy interval is reproduced, not silently migrated");
+        List<Recall.Event> legacy=Arrays.asList(new Recall.Event("old-enroll","Q:1:1",Recall.Kind.ENROLL,1,"old","Q:1:1","conservative-1"),
+            new Recall.Event("old-hard","Q:1:1",Recall.Kind.HARD,2,"old","Q:1:1","conservative-1"));
+        check(Recall.replay(legacy,scheduler).get("Q:1:1").interval==(long)(Recall.DAY*1.15),"Replay uses recorded scheduler version");
+        boolean unknown=false;try{scheduler.nextInterval(fresh,Recall.Kind.GOOD,"future-unknown");}catch(IllegalArgumentException expected){unknown=true;}
+        check(unknown,"Unknown historical algorithm must fail visibly");
         List<Recall.Event> events=new ArrayList<>();
         events.add(event("enroll",Recall.Kind.ENROLL,100));
         events.add(event("seen",Recall.Kind.SEEN,200));
