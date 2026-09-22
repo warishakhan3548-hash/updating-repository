@@ -1,0 +1,66 @@
+{
+  "summary": {
+    "surahs": 114,
+    "ayahs": 6236,
+    "words": 77881,
+    "source_aligned_words": 77766,
+    "unmapped_ayah_count": 9
+  },
+  "unmapped": [
+    {
+      "ayah": "Q:2:181",
+      "source_words": 14,
+      "gloss_words": 13,
+      "reason": "word count or Arabic parity mismatch; no body gloss attached"
+    },
+    {
+      "ayah": "Q:5:52",
+      "source_words": 28,
+      "gloss_words": 28,
+      "reason": "word count or Arabic parity mismatch; no body gloss attached"
+    },
+    {
+      "ayah": "Q:8:6",
+      "source_words": 12,
+      "gloss_words": 11,
+      "reason": "word count or Arabic parity mismatch; no body gloss attached"
+    },
+    {
+      "ayah": "Q:11:13",
+      "source_words": 18,
+      "gloss_words": 18,
+      "reason": "word count or Arabic parity mismatch; no body gloss attached"
+    },
+    {
+      "ayah": "Q:13:37",
+      "source_words": 20,
+      "gloss_words": 19,
+      "reason": "word count or Arabic parity mismatch; no body gloss attached"
+    },
+    {
+      "ayah": "Q:37:130",
+      "source_words": 4,
+      "gloss_words": 3,
+      "reason": "word count or Arabic parity mismatch; no body gloss attached"
+    },
+    {
+      "ayah": "Q:80:25",
+      "source_words": 4,
+      "gloss_words": 4,
+      "reason": "word count or Arabic parity mismatch; no body gloss attached"
+    },
+    {
+      "ayah": "Q:95:1",
+      "source_words": 6,
+      "gloss_words": 2,
+      "reason": "word count or Arabic parity mismatch; no body gloss attached"
+    },
+    {
+      "ayah": "Q:97:1",
+      "source_words": 9,
+      "gloss_words": 5,
+      "reason": "word count or Arabic parity mismatch; no body gloss attached"
+    }
+  ],
+  "policy": "Fail closed per ayah; never shift word mappings after a mismatch."
+}

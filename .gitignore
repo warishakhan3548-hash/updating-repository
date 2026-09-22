@@ -1,0 +1,10 @@
+.gradle/
+**/build/
+local.properties
+*.jks
+*.keystore
+.idea/
+*.iml
+__pycache__/
+tmp/
+app/src/main/assets/quran.sqlite

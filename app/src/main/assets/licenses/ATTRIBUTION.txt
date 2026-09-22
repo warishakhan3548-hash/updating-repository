@@ -1,0 +1,5 @@
+Quran Arabic: Tanzil Project, Uthmani 1.1. https://tanzil.net/
+Word glosses/transliteration: Data Quran, collected by Hablullah team from Quran.com; archived at https://github.com/mamun-al-abdullah/quran commit 023b2f59edcf5cea0f4218a50039c6e6fc7154bc.
+https://creativecommons.org/licenses/by-nc-nd/4.0/ — non-commercial, unchanged source values.
+These are imported source glosses, not a newly reviewed Aaris translation or tafsir. Surface alignment is an integrity check, not scholarly validation.
+Amiri Quran: Amiri Project Authors, SIL OFL 1.1. https://github.com/aliftype/amiri

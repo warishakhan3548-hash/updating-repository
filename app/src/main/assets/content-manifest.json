@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "pack_id": "quran-core-1",
+  "content_version": "1.0.0",
+  "quran_source_sha256": "4b91f9e6e8ac645d039e4ed85b3be492e795232a31cd22d668ac58238722e26f",
+  "sqlite_sha256": "521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1",
+  "surahs": 114,
+  "ayahs": 6236,
+  "words": 77881,
+  "source_aligned_words": 77766,
+  "unmapped_ayah_count": 9,
+  "distribution": "NON_COMMERCIAL_PREVIEW",
+  "review_status": "SOURCE_IMPORTED; linguistic review pending",
+  "gloss_source_commit": "023b2f59edcf5cea0f4218a50039c6e6fc7154bc",
+  "builder_version": "1",
+  "signature": null,
+  "update_policy": "APK_BUNDLED_ONLY",
+  "sources": {
+    "data-quran/LICENSE": "d3917f6ca30ba6e97fd92cc43183dc01f32dd3717a81cc1858140e8793d7506e",
+    "data-quran/README.md": "3b4c3dd2ca695fcf3aeb9afe22c8f415516506527100cde06655f7d6d8fdb20c",
+    "data-quran/source/tanzil.md": "4fb07ba66f9a0cf210302938750788f0eab3c325d473b356574733efec4a7c24",
+    "data-quran/word/word.json": "36ad52598643889148e04b9e0bf1b024014beb2b2915e0666f426bd3b2be6d8d",
+    "data-quran/word-text/uthmani-qurancom.json": "2d60518b1750445116d3bd0789b734aba9263149759096237ac3b9647505c4cd",
+    "data-quran/word-translation/en-qurancom.json": "28d84d62d5aea9b6eee9ac426b6c82492d89b470542487652d59017b767ca9e2",
+    "data-quran/word-translation/hi-qurancom.json": "d17184be47dc861fc05c511a2ce451b7c4e123e2570df0074ad412d469041631",
+    "data-quran/word-translation/ur-qurancom.json": "f31bcfb812a6c026ca16f6b7b52022e3a4ab6a792d527a8779dd38047281dd1e",
+    "data-quran/word-transliteration/en-qurancom.json": "b707e405f195db618bd538f2dc985b63430a8f8bf91268c87311e99bee2d42a6",
+    "tanzil/LICENSE_SOURCE.html": "1ef7fbb0454f64ed4cceb838337808969711155f36147d1b357fc083336f4c68",
+    "tanzil/provenance.json": "733a938c4f54f082bf7f4e0b1d9bff7ce21afedceeba199294e872a428a57505",
+    "tanzil/quran-data.js": "aaf95d1dee4e7fa66f6d1fc6d08ecabdda334b424772ad128788bb06b6f6d66e",
+    "tanzil/quran-uthmani.txt": "4b91f9e6e8ac645d039e4ed85b3be492e795232a31cd22d668ac58238722e26f"
+  }
+}
