@@ -8,17 +8,16 @@ import android.text.style.ClickableSpan;
 import android.text.style.BackgroundColorSpan;
 import android.text.method.LinkMovementMethod;
 import android.view.*;
-import android.widget.TextView;
 import com.aaris.quran.core.Ayah;
 import java.util.*;
 
 /** Android's text layout owns shaping and wrapping; spans retain exact source word ranges. */
-final class QuranText extends TextView {
+final class QuranText extends ArabicText {
     interface Listener { void onWord(ContentStore.Word word,QuranText owner); }
     private BackgroundColorSpan selected;
     private final String source;
     QuranText(Context c,Typeface font,Ayah ayah,List<ContentStore.Word> words,float size,Listener listener) {
-        super(c);source=ayah.arabic;setTypeface(font);setTextSize(size);setTextColor(Glass.INK);
+        super(c);source=ayah.arabic;setTypeface(font);setTextSize(size);
         setTextDirection(View.TEXT_DIRECTION_RTL);setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         setGravity(Gravity.RIGHT);setIncludeFontPadding(true);setLineSpacing(Glass.dp(c,10),1.08f);
         setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
@@ -30,17 +29,18 @@ final class QuranText extends TextView {
             if(!ayah.arabic.substring(start,end).equals(w.arabic))throw new IllegalArgumentException("Word offset/source mismatch");
             value.setSpan(new ClickableSpan(){
                 @Override public void onClick(View widget){listener.onWord(w,QuranText.this);}
-                @Override public void updateDrawState(TextPaint ds){ds.setColor(Glass.INK);ds.setUnderlineText(false);}
+                @Override public void updateDrawState(TextPaint ds){ds.setColor(getCurrentTextColor());ds.setUnderlineText(false);}
             },start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
-        setText(value,BufferType.SPANNABLE);setMovementMethod(LinkMovementMethod.getInstance());setHighlightColor(0x445EDAC5);
+        setText(value,BufferType.SPANNABLE);setMovementMethod(LinkMovementMethod.getInstance());setHighlightColor(Glass.WORD_HIGHLIGHT);
         setContentDescription(ayah.arabic+". Ayah "+ayah.surah+":"+ayah.number);
         setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
     }
     void select(ContentStore.Word word) {
         Spannable value=(Spannable)getText();if(selected!=null)value.removeSpan(selected);selected=null;
         Selection.removeSelection(value);
-        if(word!=null){selected=new BackgroundColorSpan(0x445EDAC5);value.setSpan(selected,
+        setWordHighlighted(word!=null);
+        if(word!=null){selected=new BackgroundColorSpan(Glass.WORD_HIGHLIGHT);value.setSpan(selected,
             source.offsetByCodePoints(0,word.start),source.offsetByCodePoints(0,word.end),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);}
     }
     /** Full tapped line bounds in window coordinates; no glyph layout or scroll changes. */

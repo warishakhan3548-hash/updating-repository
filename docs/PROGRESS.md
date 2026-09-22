@@ -199,3 +199,23 @@ download the Gradle distribution; analyzer setup is still in progress.
   permission metadata pass. Signer matches 0.2.0. APK and verification JSON were saved.
 - See docs/RELEASE_0.3.0.md for exact evidence. Real device UI/overlay/update testing remains
   pending; Hadith source browsing is online and the offline Hadith record count remains zero.
+
+## Checkpoint 14: Image 2 smoked emerald design (2026-09-22)
+
+- Applied the user's selected Image 2 direction in native UI code: near-black background,
+  desaturated emerald glass surfaces, softer ivory text, thin rims and separate ayah cards.
+  Cards receive their surface role directly; no stacked theme overrides or image-based Quran.
+- ArabicText provides one shared native glyph finish for the reader, meanings, search, recall
+  and overlay: a cached repeating line gradient plus a short dark contact shadow. Android
+  continues to shape the original Arabic and diacritics with the existing Amiri Quran font.
+- Preserved source word offsets, taps, recall events and reader anchors. Selected ayahs use
+  plain glyph paint so Android's BackgroundColorSpan does not inherit the glass shader/shadow.
+  High contrast also disables the finish; its settings sample updates immediately.
+- Replaced per-frame surface gradients with cached drawables and corrected primary-button
+  text for the darker palette. No bitmap text, live blur, animation or new dependency added.
+- Validation: 113 existing portable core checks pass; all 28 Java files parse and theme XML
+  parses. Opaque palette estimates: dimmest Arabic face 7.50:1, muted metadata 5.91:1 against
+  the brightest reader-card stop (before edge antialiasing). These are not device measurements.
+- No Android SDK or emulator is available in this workspace, so Android API compilation and
+  on-device rendering remain unverified for this change. No APK/AAB was built, no release
+  workflow was started, and the previously delivered 0.3.0 APK keeps its earlier design.

@@ -8,52 +8,71 @@ import android.content.res.ColorStateList;
 import android.view.*;
 import android.widget.*;
 
-/** Static soft-light artwork: no GPU blur of Quran glyphs, no animation battery cost. */
+/** Smoked emerald glass over black. Cached paints; no wallpaper, live blur or bright bloom. */
 final class Glass {
-    static final int INK=0xFFF5F4EA,MUTED=0xFFCBDDD6,GOLD=0xFFE3CCA1,MINT=0xFFB5E5CD;
+    static final int BACKGROUND=0xFF030705,INK=0xFFD5D7CB,MUTED=0xFFA6B3AA,
+        GOLD=0xFFCDBFA3,MINT=0xFFB7CCB8,ARABIC_INK=0xFFD8D8C9,HIGH_INK=0xFFE8E8DB,
+        WORD_HIGHLIGHT=0x40587B63;
     static int dp(Context c,float value){return (int)(c.getResources().getDisplayMetrics().density*value+0.5f);}
     static final class Backdrop extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         boolean highContrast;
+        private Shader ambient;
         Backdrop(Context c){super(c);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
-        @Override protected void onDraw(Canvas c){
-            int w=getWidth(),h=getHeight();
-            c.drawColor(highContrast?0xFF071116:0xFF061E29);
-            if(!highContrast) {
-                paint.setShader(new RadialGradient(w*.08f,h*.08f,w*1.1f,new int[]{0xAB757444,0x00203333},null,Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,paint);
-                paint.setShader(new RadialGradient(w*.05f,h*.65f,w*1.2f,new int[]{0x9A0A746D,0x00144961},null,Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,paint);
-                paint.setShader(new RadialGradient(w,h*.84f,w*1.1f,new int[]{0xAD185C9B,0x00151D3C},null,Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,paint);
-                paint.setShader(null);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(getContext(),0.6f));paint.setColor(0x09E3CCA1);
-                float size=dp(getContext(),108);
-                for(float y=0;y<h;y+=size)for(float x=0;x<w;x+=size){c.save();c.translate(x+size/2,y+size/2);c.drawRect(-size*.32f,-size*.32f,size*.32f,size*.32f,paint);c.rotate(45);c.drawRect(-size*.32f,-size*.32f,size*.32f,size*.32f,paint);c.restore();}
-                paint.setStyle(Paint.Style.FILL);
-            }
+        @Override protected void onSizeChanged(int w,int h,int oldW,int oldH){
+            super.onSizeChanged(w,h,oldW,oldH);
+            if(w>0&&h>0)ambient=new RadialGradient(w*.55f,h*.26f,Math.max(w,h)*.65f,
+                new int[]{0x3316291F,0x0016291F},null,Shader.TileMode.CLAMP);
+        }
+        @Override protected void onDraw(Canvas canvas){
+            canvas.drawColor(highContrast?Color.BLACK:BACKGROUND);
+            if(!highContrast&&ambient!=null){paint.setShader(ambient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
         }
     }
     static final class Surface extends Drawable {
         enum Kind { PANEL, HERO, MUSHAF, SHEET, NAV, BUTTON, PRIMARY }
-        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final float radius;final Kind kind;final boolean solid;
-        Surface(Context c,Kind kind,boolean solid){radius=dp(c,kind==Kind.BUTTON||kind==Kind.PRIMARY?16:kind==Kind.NAV?28:30);this.kind=kind;this.solid=solid;}
-        @Override public void draw(Canvas c){
-            Rect b=getBounds();RectF r=new RectF(b.left+1,b.top+1,b.right-1,b.bottom-1);
-            p.setStyle(Paint.Style.FILL);
-            int[] colors;
-            if(kind==Kind.PRIMARY)colors=new int[]{0xFFD3EFDA,0xFF9EDAC9};
-            else if(kind==Kind.SHEET)colors=new int[]{0xFF274A47,0xFF103C52};
-            else if(solid)colors=new int[]{0xFF122E35,0xFF0E2734};
-            else if(kind==Kind.HERO||kind==Kind.MUSHAF)colors=new int[]{0xDF396048,0xE5245A68,0xDD17466C};
-            else if(kind==Kind.NAV)colors=new int[]{0xF21A363E,0xF0112C3C};
-            else if(kind==Kind.BUTTON)colors=new int[]{0xB33A5656,0xB022414D};
-            else colors=new int[]{0x754B6C65,0xAA173D50};
-            p.setShader(new LinearGradient(b.left,b.top,b.right,b.bottom,colors,null,Shader.TileMode.CLAMP));
-            c.drawRoundRect(r,radius,radius,p);p.setShader(null);
-            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.5f);
-            p.setShader(new LinearGradient(b.left,b.top,b.right,b.bottom,new int[]{0x66EBF6D7,0x1AD6EAE7,0x448BBBCD},null,Shader.TileMode.CLAMP));
-            c.drawRoundRect(r,radius,radius,p);p.setShader(null);
-            if(kind==Kind.MUSHAF||kind==Kind.HERO){p.setColor(0x22ECEDD6);p.setStrokeWidth(1);r.inset(8,8);c.drawRoundRect(r,Math.max(0,radius-8),Math.max(0,radius-8),p);}
-            p.setStyle(Paint.Style.FILL);
+        private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF outer=new RectF(),inner=new RectF();
+        private final float radius,inset,stroke;
+        private final Kind kind;
+        private final boolean solid;
+        private Shader fill,rim;
+        private int opacity=255;
+        Surface(Context c,Kind kind,boolean solid){
+            float density=c.getResources().getDisplayMetrics().density;
+            radius=dp(c,kind==Kind.BUTTON||kind==Kind.PRIMARY?22:kind==Kind.NAV?28:26);
+            inset=3*density;stroke=.65f*density;this.kind=kind;this.solid=solid;
         }
-        @Override public void setAlpha(int alpha){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+        @Override protected void onBoundsChange(Rect b){
+            super.onBoundsChange(b);outer.set(b.left+stroke,b.top+stroke,b.right-stroke,b.bottom-stroke);
+            inner.set(outer);inner.inset(inset,inset);if(outer.isEmpty())return;
+            int[] colors;
+            if(solid)colors=new int[]{0xFF102019,0xFF0B1510};
+            else if(kind==Kind.PRIMARY)colors=new int[]{0xFF284635,0xFF142C20};
+            else if(kind==Kind.SHEET)colors=new int[]{0xFF192A21,0xFF0C1711};
+            else if(kind==Kind.HERO||kind==Kind.MUSHAF)colors=new int[]{0xF123362B,0xF5132119,0xFA0A1510};
+            else if(kind==Kind.NAV)colors=new int[]{0xF918261E,0xFC08110C};
+            else if(kind==Kind.BUTTON)colors=new int[]{0xED29392E,0xF3111E16};
+            else colors=new int[]{0xED1C2D23,0xF30D1A12};
+            fill=new LinearGradient(outer.left,outer.top,outer.right,outer.bottom,colors,null,Shader.TileMode.CLAMP);
+            rim=new LinearGradient(outer.left,outer.top,outer.right,outer.bottom,
+                kind==Kind.PRIMARY?new int[]{0x99869F80,0x35586B54,0x597A9674}:
+                new int[]{0x727F9784,0x174D6555,0x3446614E},null,Shader.TileMode.CLAMP);
+        }
+        @Override public void draw(Canvas canvas){
+            if(fill==null||outer.isEmpty())return;
+            p.setColor(Color.WHITE);p.setAlpha(opacity);p.setStyle(Paint.Style.FILL);p.setShader(fill);
+            canvas.drawRoundRect(outer,radius,radius,p);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(stroke);p.setShader(rim);
+            canvas.drawRoundRect(outer,radius,radius,p);p.setShader(null);
+            if(!solid&&(kind==Kind.MUSHAF||kind==Kind.HERO)){
+                p.setColor(0xFF8EA18F);p.setAlpha(18*opacity/255);p.setStrokeWidth(stroke*.6f);
+                canvas.drawRoundRect(inner,Math.max(0,radius-inset),Math.max(0,radius-inset),p);
+            }
+        }
+        @Override public void setAlpha(int value){opacity=Math.max(0,Math.min(255,value));invalidateSelf();}
+        @Override public void setColorFilter(ColorFilter filter){p.setColorFilter(filter);invalidateSelf();}
+        @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
     }
     static final class Icon extends View {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final String type;int color=INK;
@@ -83,7 +102,7 @@ final class Glass {
             }c.restore();
         }
     }
-    static Drawable touch(Context c,Surface.Kind kind,boolean solid){return new RippleDrawable(ColorStateList.valueOf(0x22FFFFFF),new Surface(c,kind,solid),new Surface(c,Surface.Kind.PRIMARY,true));}
+    static Drawable touch(Context c,Surface.Kind kind,boolean solid){return new RippleDrawable(ColorStateList.valueOf(0x1ADCE5D6),new Surface(c,kind,solid),new Surface(c,Surface.Kind.PRIMARY,true));}
     static LinearLayout column(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.VERTICAL);return l;}
     static LinearLayout row(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.HORIZONTAL);l.setGravity(Gravity.CENTER_VERTICAL);return l;}
     static TextView text(Context c,String text,float sp,int color){TextView v=new TextView(c);v.setText(text);v.setTextSize(sp);v.setTextColor(color);v.setFontFeatureSettings("kern");v.setIncludeFontPadding(true);v.setLineSpacing(dp(c,2),1.06f);return v;}

@@ -120,34 +120,34 @@ public final class MainActivity extends Activity {
         header.addView(label,new LinearLayout.LayoutParams(0,-2,1));header.addView(iconButton("settings","Reading settings",this::settings));
     }
     private LinearLayout scrollBody(){ScrollView sc=new ScrollView(this);sc.setFillViewport(false);sc.setClipToPadding(false);sc.setOverScrollMode(View.OVER_SCROLL_NEVER);body.addView(sc,new LinearLayout.LayoutParams(-1,-1));LinearLayout page=column(this);pad(page,20,12);sc.addView(page);return page;}
-    private LinearLayout card(LinearLayout parent,boolean hero){LinearLayout v=column(this);pad(v,22,20);v.setBackground(new Surface(this,hero?Surface.Kind.HERO:Surface.Kind.PANEL,highContrast));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,16);parent.addView(v,lp);return v;}
+    private LinearLayout card(LinearLayout parent,Surface.Kind kind){LinearLayout v=column(this);pad(v,22,20);v.setBackground(new Surface(this,kind,highContrast));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,16);parent.addView(v,lp);return v;}
     private TextView button(String title,Runnable click){return action(title,click,false);}
     private TextView primary(String title,Runnable click){return action(title,click,true);}
-    private TextView action(String title,Runnable click,boolean primary){TextView b=text(this,title,14,primary?0xFF113A35:INK);b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setGravity(Gravity.CENTER);pad(b,16,13);b.setMinimumHeight(dp(this,48));b.setBackground(Glass.touch(this,primary?Surface.Kind.PRIMARY:Surface.Kind.BUTTON,highContrast));b.setFocusable(true);b.setOnClickListener(v->click.run());return b;}
+    private TextView action(String title,Runnable click,boolean primary){TextView b=text(this,title,14,primary?HIGH_INK:INK);b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setGravity(Gravity.CENTER);pad(b,16,13);b.setMinimumHeight(dp(this,48));b.setBackground(Glass.touch(this,primary?Surface.Kind.PRIMARY:Surface.Kind.BUTTON,highContrast));b.setFocusable(true);b.setOnClickListener(v->click.run());return b;}
     private TextView label(String text){TextView v=Glass.text(this,text,11,GOLD);v.setLetterSpacing(.12f);return v;}
     private void gap(LinearLayout v,int dp){View gap=new View(this);v.addView(gap,new LinearLayout.LayoutParams(1,Glass.dp(this,dp)));}
-    private TextView arabic(String value,float size){TextView v=text(this,value,size,INK);v.setTypeface(arabicFont);v.setTextDirection(View.TEXT_DIRECTION_RTL);v.setGravity(Gravity.CENTER);v.setLineSpacing(dp(this,10),1.08f);return v;}
+    private ArabicText arabic(String value,float size){ArabicText v=new ArabicText(this);v.setText(value);v.setTextSize(size);v.setReliefEnabled(!highContrast);v.setTypeface(arabicFont);v.setTextDirection(View.TEXT_DIRECTION_RTL);v.setGravity(Gravity.CENTER);v.setLineSpacing(dp(this,10),1.08f);return v;}
     private void caption(LinearLayout v,String value){TextView t=text(this,value,13,MUTED);t.setLineSpacing(dp(this,3),1.12f);v.addView(t);}
     private void toast(String value){if(!isDestroyed()&&!isFinishing())Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
 
     private void today(){
         heading("QURAN, AAPKE SAATH", "Aaris");LinearLayout page=scrollBody();
         TextView intro=text(this,"Thoda sa waqt.\nDil ke liye sukoon.",29,INK);intro.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(intro);gap(page,20);
-        LinearLayout hero=card(page,true);hero.addView(label("JAHAN SE CHHODA THA"));gap(hero,18);hero.addView(arabic(content.ayah("Q:1:1").arabic,32));gap(hero,20);
+        LinearLayout hero=card(page,Surface.Kind.HERO);hero.addView(label("JAHAN SE CHHODA THA"));gap(hero,18);hero.addView(arabic(content.ayah("Q:1:1").arabic,32));gap(hero,20);
         ContentStore.Surah s=content.surah(readerSurah);int resumeAyah=readingPosition==null?readerStart:RecallTarget.parse(readingPosition.anchorId).ayah;
         hero.addView(text(this,s.name,22,INK));caption(hero,"Ayah "+resumeAyah+" · Aapki pichhli jagah");gap(hero,18);hero.addView(primary("Quran kholein  →",()->{tab=1;reading=true;show();}));
         ambientCard(page);
         List<Recall.State> queue=dueQueue();
-        LinearLayout practice=card(page,false);practice.addView(label("AAJ KE ALFAAZ"));gap(practice,10);
+        LinearLayout practice=card(page,Surface.Kind.PANEL);practice.addView(label("AAJ KE ALFAAZ"));gap(practice,10);
         practice.addView(text(this,queue.isEmpty()?"Aaj koi jaldi nahi.":queue.size()+" chhoti yaad-dihaniyan",21,INK));gap(practice,6);
         caption(practice,queue.isEmpty()?"Padhte hue kisi lafz ya ayah ko yaad karne ke liye chun sakte hain.":"Sirf wahi alfaaz aur ayat jo aapne chune hain.");
         if(!queue.isEmpty()){gap(practice,16);practice.addView(button("Narmi se dohraayein",()->review(queue.get(0).target)));}
-        LinearLayout saved=card(page,false);saved.addView(text(this,"Nishaan lagayi hui ayat",18,INK));gap(saved,8);caption(saved,learning.bookmarks().size()+" bookmarks · Hamesha offline");gap(saved,12);saved.addView(button("Bookmarks kholein",this::bookmarks));
+        LinearLayout saved=card(page,Surface.Kind.PANEL);saved.addView(text(this,"Nishaan lagayi hui ayat",18,INK));gap(saved,8);caption(saved,learning.bookmarks().size()+" bookmarks · Hamesha offline");gap(saved,12);saved.addView(button("Bookmarks kholein",this::bookmarks));
         TextView footer=text(this,"Aapki raftaar. Aapka safar.",12,MUTED);footer.setGravity(Gravity.CENTER);page.addView(footer);gap(page,18);
     }
     private void hadithLibrary(){
         heading("KUTUB AL-SITTAH", "Hadith");LinearLayout page=scrollBody();
-        LinearLayout intro=card(page,true);intro.addView(label("CHHE KITAABEIN · EK JAGAH"));gap(intro,12);
+        LinearLayout intro=card(page,Surface.Kind.HERO);intro.addView(label("CHHE KITAABEIN · EK JAGAH"));gap(intro,12);
         intro.addView(text(this,"Hadith padhein,\nsource ke saath.",27,INK));gap(intro,12);
         caption(intro,"Neeche ki kitaab browser mein Sunnah.com par khulegi. Internet chahiye; is APK mein offline Hadith pack abhi nahi hai.");
         EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);query.setTextSize(16);query.setSingleLine(true);query.setHint("Arabic ya English phrase");query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(512)});pad(query,14,10);query.setBackground(new Surface(this,Surface.Kind.BUTTON,highContrast));page.addView(query,new LinearLayout.LayoutParams(-1,dp(this,54)));gap(page,8);
@@ -155,7 +155,7 @@ public final class MainActivity extends Activity {
         page.addView(label("APNI KITAAB CHUNEIN"));gap(page,12);
         String[][] books={{"Sahih al-Bukhari","صحيح البخاري","bukhari"},{"Sahih Muslim","صحيح مسلم","muslim"},{"Sunan Abi Dawud","سنن أبي داود","abudawud"},{"Jami at-Tirmidhi","جامع الترمذي","tirmidhi"},{"Sunan an-Nasa’i","سنن النسائي","nasai"},{"Sunan Ibn Majah","سنن ابن ماجه","ibnmajah"}};
         for(int index=0;index<books.length;index++){
-            String[] book=books[index];LinearLayout c=card(page,false);LinearLayout line=row(this);
+            String[] book=books[index];LinearLayout c=card(page,Surface.Kind.PANEL);LinearLayout line=row(this);
             TextView number=text(this,String.format(Locale.ROOT,"%02d",index+1),13,GOLD);line.addView(number,new LinearLayout.LayoutParams(dp(this,36),-2));
             LinearLayout titles=column(this);titles.addView(text(this,book[0],18,INK));TextView ar=arabic(book[1],25);ar.setGravity(Gravity.LEFT);titles.addView(ar);line.addView(titles,new LinearLayout.LayoutParams(0,-2,1));TextView arrow=text(this,"↗",24,MINT);line.addView(arrow);c.addView(line);gap(c,10);caption(c,"Source par padhein · Online");
             c.setFocusable(true);c.setContentDescription(book[0]+", Sunnah.com par padhein, internet chahiye");c.setOnClickListener(v->openWebsite(Uri.parse("https://sunnah.com/"+book[2])));
@@ -165,7 +165,7 @@ public final class MainActivity extends Activity {
     private void openWebsite(Uri uri){hideKeyboard();try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(ActivityNotFoundException e){toast("Is link ko kholne ke liye browser install karein");}}
     private int ambientItems(){int count=0;for(Recall.State state:learning.states().values())if(state.active&&content.hasRecallTarget(state.target)){ContentStore.Word w=content.word(state.target);if(w==null||w.hasGloss())count++;}return count;}
     private void ambientCard(LinearLayout page){
-        LinearLayout c=card(page,false);LinearLayout line=row(this);Glass.Icon icon=new Glass.Icon(this,"cards");icon.color=MINT;line.addView(icon,new LinearLayout.LayoutParams(dp(this,30),dp(this,30)));LinearLayout names=column(this);pad(names,12,0);names.addView(text(this,"Yaad, saath saath",20,INK));names.addView(text(this,app.ambientRunning?"Chalu · Har "+AmbientSettings.minutes(this)+" minute":"Doosri apps par chhota recall card",12,MUTED));line.addView(names,new LinearLayout.LayoutParams(0,-2,1));c.addView(line);gap(c,16);
+        LinearLayout c=card(page,Surface.Kind.PANEL);LinearLayout line=row(this);Glass.Icon icon=new Glass.Icon(this,"cards");icon.color=MINT;line.addView(icon,new LinearLayout.LayoutParams(dp(this,30),dp(this,30)));LinearLayout names=column(this);pad(names,12,0);names.addView(text(this,"Yaad, saath saath",20,INK));names.addView(text(this,app.ambientRunning?"Chalu · Har "+AmbientSettings.minutes(this)+" minute":"Doosri apps par chhota recall card",12,MUTED));line.addView(names,new LinearLayout.LayoutParams(0,-2,1));c.addView(line);gap(c,16);
         caption(c,"WhatsApp ho ya YouTube, aapke chune hue alfaaz aur ayat aap tak aa jaayein.");gap(c,16);c.addView(button(app.ambientRunning?"Timer aur session dekhein":"Apna timer set karein  →",this::ambientSettings));
     }
     private void ambientSettings(){
@@ -243,22 +243,20 @@ public final class MainActivity extends Activity {
         LinearLayout page=scrollBody();pad(page,16,8);readerScroll=(ScrollView)page.getParent();renderedPage="Q:"+readerSurah+":"+readerStart;
         readerScroll.setOnScrollChangeListener((View v,int x,int y,int oldX,int oldY)->{if(y!=oldY)hidePeek();});
         LinearLayout tools=row(this);TextView surahs=button("Surahs  ↓",()->{reading=false;show();});tools.addView(surahs,new LinearLayout.LayoutParams(0,-2,1));TextView readingStyle=button("Aa · Reading",this::settings);LinearLayout.LayoutParams styleSize=new LinearLayout.LayoutParams(0,-2,1);styleSize.leftMargin=dp(this,8);tools.addView(readingStyle,styleSize);page.addView(tools);gap(page,14);
-        LinearLayout panel=card(page,true);panel.setBackground(new Surface(this,Surface.Kind.MUSHAF,highContrast));panel.setPadding(dp(this,22),dp(this,24),dp(this,22),dp(this,18));
-        LinearLayout chapter=row(this);Glass.Icon leftStar=new Glass.Icon(this,"rosette");leftStar.color=GOLD;chapter.addView(leftStar,new LinearLayout.LayoutParams(dp(this,27),dp(this,27)));
-        TextView name=arabic(s.arabic,34);chapter.addView(name,new LinearLayout.LayoutParams(0,-2,1));Glass.Icon rightStar=new Glass.Icon(this,"rosette");rightStar.color=GOLD;chapter.addView(rightStar,new LinearLayout.LayoutParams(dp(this,27),dp(this,27)));panel.addView(chapter);gap(panel,8);
-        TextView latin=text(this,s.name,19,INK);latin.setGravity(Gravity.CENTER);latin.setTypeface(Typeface.create("serif",Typeface.NORMAL));panel.addView(latin);
-        TextView sub=text(this,s.meaning+"  ·  "+s.count+" ayat",11,MUTED);sub.setGravity(Gravity.CENTER);panel.addView(sub);gap(panel,16);
-        TextView interaction=text(this,"Kisi lafz par tap karein · Meaning yahin",11,MINT);interaction.setGravity(Gravity.CENTER);panel.addView(interaction);gap(panel,18);
+        TextView name=arabic(s.arabic,28);page.addView(name,new LinearLayout.LayoutParams(-1,-2));
+        TextView latin=text(this,s.name,24,INK);latin.setGravity(Gravity.CENTER);latin.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(latin);
+        TextView sub=text(this,s.meaning+"  ·  "+s.count+" ayat",12,MUTED);sub.setGravity(Gravity.CENTER);page.addView(sub);gap(page,10);
+        TextView interaction=text(this,"Lafz par tap karein · Meaning dekhein",12,MUTED);interaction.setGravity(Gravity.CENTER);page.addView(interaction);gap(page,22);
         List<Ayah> ayahs=content.page(readerSurah,readerStart,8);
         for(Ayah a:ayahs){
+            LinearLayout panel=card(page,Surface.Kind.MUSHAF);
+            LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"%d : %d",a.surah,a.number),12,MUTED);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
+            View menu=iconButton("more","Ayah "+a.number+": bookmark, meaning, yaad aur share",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,48)));panel.addView(bar);gap(panel,8);
             List<ContentStore.Word> words=content.words(a.id);
-            QuranText verse=new QuranText(this,arabicFont,a,words,arabicSize,this::tapWord);readerVerses.put(a.id,verse);panel.addView(verse,new LinearLayout.LayoutParams(-1,-2));
-            LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"AYAH  %d : %d",a.surah,a.number),10,GOLD);reference.setLetterSpacing(.08f);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
-            View menu=iconButton("more","Ayah "+a.number+": bookmark, meaning, yaad aur share",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,40)));panel.addView(bar);
+            QuranText verse=new QuranText(this,arabicFont,a,words,arabicSize,this::tapWord);verse.setReliefEnabled(!highContrast);readerVerses.put(a.id,verse);panel.addView(verse,new LinearLayout.LayoutParams(-1,-2));
             for(ContentStore.Word w:words){Recall.State memory=learning.states().get(w.id);if(memory!=null&&memory.active&&memory.reviews>0&&memory.due<=System.currentTimeMillis()){
-                TextView recall=button("Chuna hua lafz · Meaning yaad karein",()->review(w.id));panel.addView(recall);break;
+                gap(panel,12);TextView recall=button("Chuna hua lafz · Meaning yaad karein",()->review(w.id));panel.addView(recall);break;
             }}
-            if(a!=ayahs.get(ayahs.size()-1)){View divider=new View(this);divider.setBackgroundColor(0x20E8EEDB);LinearLayout.LayoutParams d=new LinearLayout.LayoutParams(-1,dp(this,1));d.topMargin=dp(this,12);d.bottomMargin=dp(this,22);panel.addView(divider,d);}
         }
         LinearLayout pager=row(this);
         TextView previous=button("← Pichhli",()->{if(readerStart>1)open(readerSurah,Math.max(1,readerStart-8));else if(readerSurah>1)open(readerSurah-1,Math.max(1,content.surah(readerSurah-1).count-7));});
@@ -401,14 +399,14 @@ public final class MainActivity extends Activity {
     private void map(){
         heading("THODA, LEKIN KAAM KA", "Aapki yaad");LinearLayout page=scrollBody();ambientCard(page);Map<String,Recall.State> states=learning.states();
         int active=0,reviews=0;for(Recall.State state:states.values()){if(state.active)active++;reviews+=state.reviews;}
-        LinearLayout hero=card(page,true);hero.addView(text(this,"Jo seekha, saath rahe.",25,INK));gap(hero,8);caption(hero,"Aapke chune hue alfaaz, hisse aur ayat.");gap(hero,20);
+        LinearLayout hero=card(page,Surface.Kind.HERO);hero.addView(text(this,"Jo seekha, saath rahe.",25,INK));gap(hero,8);caption(hero,"Aapke chune hue alfaaz, hisse aur ayat.");gap(hero,20);
         LinearLayout metrics=row(this);LinearLayout left=column(this);left.addView(text(this,""+active,32,GOLD));caption(left,"Chune hue items");metrics.addView(left,new LinearLayout.LayoutParams(0,-2,1));LinearLayout right=column(this);right.addView(text(this,""+reviews,32,MINT));caption(right,"Khud kiye recalls");metrics.addView(right,new LinearLayout.LayoutParams(0,-2,1));hero.addView(metrics);
         List<Recall.State> due=dueQueue();
         if(!due.isEmpty()){page.addView(button("Aaj ki yaad-dihani kholein",()->review(due.get(0).target)));gap(page,16);}
-        if(active==0){LinearLayout empty=card(page,false);empty.addView(text(this,"Pehla lafz chunein",20,INK));gap(empty,8);caption(empty,"Reader mein lafz par tap karke “Yaad karaayein” chunein, ya yahin se shuru karein.");gap(empty,14);empty.addView(primary("Alfaaz chunein",this::chooseAmbientItems));}
+        if(active==0){LinearLayout empty=card(page,Surface.Kind.PANEL);empty.addView(text(this,"Pehla lafz chunein",20,INK));gap(empty,8);caption(empty,"Reader mein lafz par tap karke “Yaad karaayein” chunein, ya yahin se shuru karein.");gap(empty,14);empty.addView(primary("Alfaaz chunein",this::chooseAmbientItems));}
         for(Recall.State state:states.values())if(state.active){
             ContentStore.Word w=content.word(state.target);Ayah a=content.contextFor(state.target);if(a==null||!content.hasRecallTarget(state.target))continue;
-            LinearLayout c=card(page,false);AyahTransition transition=content.transition(state.target);
+            LinearLayout c=card(page,Surface.Kind.PANEL);AyahTransition transition=content.transition(state.target);
             c.addView(text(this,content.surah(a.surah).name+" · "+a.number+(transition==null?"":" → "+transition.to.number+" · Ayaton ka jod"),13,GOLD));
             c.addView(arabic(transition!=null?transition.ending.text:w==null?firstWords(content.recallText(state.target),5):w.arabic,28));caption(c,state.label()+" · "+dueLabel(state.due));gap(c,10);
             LinearLayout buttons=row(this);buttons.addView(button("Dohraayein",()->review(state.target)),new LinearLayout.LayoutParams(0,-2,1));TextView pause=button("Rok dein",()->{learning.event(state.target,Recall.Kind.PAUSE,a.id);show();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.leftMargin=dp(this,8);buttons.addView(pause,p);c.addView(buttons);
@@ -525,7 +523,7 @@ public final class MainActivity extends Activity {
                         list.removeAllViews();evidenceControls.clear();status.setText(response.intent.equals("QUERY_LIMIT")?"Ek baar mein 8 chhoti search lines tak likhein; lambi query ko chhota karein.":response.fragments!=null?"Poora Arabic phrase nahi mila. Alag source hisse neeche dekhein.":response.results.isEmpty()?"Bharosemand match nahi mila. Chhota phrase ya doosri spelling try karein.":response.results.size()+" results · Sirf local Quran source");
                         if(response.fragments!=null)showFragments(list,response,query);
                         for(SearchEngine.Result result:response.results){
-                            LinearLayout c=card(list,false);c.addView(label(result.strength==SearchEngine.Strength.STRONG_TEXT?"STRONG TEXT MATCH":"RELATED WORD MEANING / TEXT"));gap(c,8);
+                            LinearLayout c=card(list,Surface.Kind.PANEL);c.addView(label(result.strength==SearchEngine.Strength.STRONG_TEXT?"STRONG TEXT MATCH":"RELATED WORD MEANING / TEXT"));gap(c,8);
                             Ayah a=result.ayah;c.addView(text(MainActivity.this,content.surah(a.surah).name+" · "+a.surah+":"+a.number,18,INK));gap(c,10);TextView text=arabic(a.arabic,25);c.addView(text);gap(c,12);
                             caption(c,String.join(" · ",result.reasons));gap(c,14);c.addView(evidenceActions(a,retrievalTrace(response,result)));
                         }
@@ -549,7 +547,7 @@ public final class MainActivity extends Activity {
     }
     private void refreshEvidenceControls(){for(Map.Entry<String,List<TextView>> entry:evidenceControls.entrySet())for(TextView view:entry.getValue())view.setText(selectedEvidence.contains(entry.getKey())?"Chuna hua ✓":"Evidence +");}
     private void showFragments(LinearLayout list,SearchEngine.Response response,EditText query){
-        FragmentSearch.Report report=response.fragments;LinearLayout summary=card(list,true);
+        FragmentSearch.Report report=response.fragments;LinearLayout summary=card(list,Surface.Kind.HERO);
         summary.addView(label("ALAG HISSON KE SOURCES"));gap(summary,10);
         caption(summary,report.matchedTokens+" / "+report.totalTokens+" alfaaz lagataar source hisson mein mile. Inhein jod kar ek ayah ya ek verified quote na samjhein.");
         if(!report.unmatched.isEmpty()){
@@ -559,7 +557,7 @@ public final class MainActivity extends Activity {
         }
         int number=0;
         for(FragmentSearch.Fragment fragment:report.fragments){
-            LinearLayout c=card(list,false);c.addView(label("HISSA "+(++number)+" · AAPNE LIKHA"));c.addView(arabic(fragment.query.text,24));gap(c,10);
+            LinearLayout c=card(list,Surface.Kind.PANEL);c.addView(label("HISSA "+(++number)+" · AAPNE LIKHA"));c.addView(arabic(fragment.query.text,24));gap(c,10);
             caption(c,"Source mein "+fragment.totalOccurrences+" jagah mila · Reading marks ko chhod kar text match");gap(c,12);
             for(FragmentSearch.Hit hit:fragment.alternatives){
                 c.addView(label(content.surah(hit.ayah.surah).name+" · "+hit.ayah.surah+":"+hit.ayah.number));
@@ -574,12 +572,12 @@ public final class MainActivity extends Activity {
     private void settings(){
         LinearLayout page=sheet("Apni reading");Dialog settingsDialog=activeDialog;
         settingsDialog.setOnDismissListener(d->{if(activeDialog==settingsDialog){activeDialog=null;show();}});
-        page.addView(label("ARABIC KA SIZE"));gap(page,8);TextView sample=arabic(content.ayah("Q:1:1").arabic,arabicSize);page.addView(sample);
+        page.addView(label("ARABIC KA SIZE"));gap(page,8);ArabicText sample=arabic(content.ayah("Q:1:1").arabic,arabicSize);page.addView(sample);
         SeekBar slider=new SeekBar(this);slider.setMax(22);slider.setProgress((int)arabicSize-24);page.addView(slider);slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar s,int p,boolean user){arabicSize=24+p;sample.setTextSize(arabicSize);}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){learning.set("arabic_size",""+arabicSize);}
         });gap(page,16);page.addView(label("WORD MEANING KI ZABAAN"));gap(page,10);
         LinearLayout langs=row(this);for(String lang:new String[]{"hi","ur","en"}){String name=lang.equals("hi")?"हिन्दी":lang.equals("ur")?"اردو":"English";TextView b=button(name+(language.equals(lang)?" ✓":""),()->{language=lang;learning.set("language",lang);settings();});langs.addView(b,new LinearLayout.LayoutParams(0,-2,1));}page.addView(langs);gap(page,18);
-        Switch contrast=new Switch(this);contrast.setText("Zyada contrast");contrast.setTextColor(INK);contrast.setChecked(highContrast);contrast.setMinHeight(dp(this,48));page.addView(contrast);contrast.setOnCheckedChangeListener((b,v)->{highContrast=v;learning.set("contrast",""+v);backdrop.highContrast=v;backdrop.invalidate();});
+        Switch contrast=new Switch(this);contrast.setText("Zyada contrast");contrast.setTextColor(INK);contrast.setChecked(highContrast);contrast.setMinHeight(dp(this,48));page.addView(contrast);contrast.setOnCheckedChangeListener((b,v)->{highContrast=v;learning.set("contrast",""+v);sample.setReliefEnabled(!v);backdrop.highContrast=v;backdrop.invalidate();});
         gap(page,14);page.addView(button("Shaant reading · Controls chhupaayein",()->{quietReader=true;tab=1;reading=true;settingsDialog.dismiss();}));gap(page,10);
         page.addView(button("Doosri apps par recall · Timer",this::ambientSettings));gap(page,10);page.addView(button("Sources aur licenses",this::sources));gap(page,10);page.addView(button("Learning export",this::backup));gap(page,10);page.addView(button("Backup restore",this::restorePicker));gap(page,14);
         page.addView(button("Done",settingsDialog::dismiss));caption(page,"No account · No ads · Aapki learning aapke phone par");
