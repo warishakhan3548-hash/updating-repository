@@ -141,3 +141,18 @@ download the Gradle distribution; analyzer setup is still in progress.
   extra dependencies, takes an external signing key and verifies its output. No CI/AAB required.
 - Version metadata is 0.2.0 / code 2. Signing secrets must remain outside git. The APK's exact
   checksum, signer and source commit will be recorded after successful release assembly.
+
+## Checkpoint 10: signed release APK delivered (2026-09-22)
+
+- Release APK 0.2.0 / code 2 was built from clean GitHub source `95dbb29` with official SDK tools.
+  Corrected the release verifier for current AAPT2's `minSdkVersion` output label. Keystore and key
+  use the same private password; apksigner reuses the store password instead of consuming one
+  single-line password file twice.
+- APK size: 6,685,661 bytes. APK SHA-256:
+  `effef175eaf394903996851b9eb12aa9493388d87155b428cb44214bcbf1a8ba`.
+- Release signature v2/v3, zip alignment, package/API/debug flags, ZIP CRC, DEX checksums/entry
+  points and original embedded Quran-pack checksum all pass. No AAB or CI workflow was generated.
+- Delivered the APK, public verification JSON and a private signing-recovery archive. Signing
+  secrets remain outside git. Preserve the recovery archive for future compatible APK updates.
+- See `docs/RELEASE_0.2.0.md` for exact results and runtime limits. There is still no emulator/phone
+  validation or installed Hadith corpus. Do not claim full architecture completion or zero bugs.

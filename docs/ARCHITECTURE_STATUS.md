@@ -66,7 +66,10 @@ The check runner refuses optimized mode rather than silently skipping its assert
 - Core and application Java compiled against Android API 35.
 - Android `aapt2` compiled the resources and linked the manifest successfully.
 - Full Gradle execution could not resolve Android Gradle Plugin 8.9.2 in this environment.
-  No installable APK, emulator launch, actual phone test or pixel-perfect UI/PDF validation is claimed.
+  Release 0.2.0 was subsequently built with the official SDK tools using `tools/build_release.py`.
+  Its non-debuggable APK, v2/v3 signature, alignment, DEX checksums and embedded source pack were
+  checked. See `docs/RELEASE_0.2.0.md`. No emulator launch, actual phone test or pixel-perfect
+  UI/PDF validation is claimed.
 - The corpus regression process ran with a 256 MiB JVM heap cap. This is an engineering budget
   check, not measured Android process RAM, latency or a guarantee for a particular phone.
 
