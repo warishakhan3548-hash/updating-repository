@@ -24,14 +24,14 @@ final class EvidenceExporter {
             if(!References.sha256(a.arabic).equals(a.sha256))throw new IllegalStateException("Source text hash mismatch");
             JSONObject trace=traces.get(a.id);if(trace==null)trace=new JSONObject().put("selection_origin","SELECTION_WITHOUT_RETRIEVAL_TRACE");
             records.put(new JSONObject().put("citation_id",a.id).put("surah",a.surah).put("ayah",a.number).put("arabic",a.arabic).put("sha256",a.sha256).put("source","Tanzil Uthmani 1.1").put("source_url","https://tanzil.net/").put("retrieval",trace));
-            ayahs.add(a);txt.append('[').append(a.id).append("] ").append(store.surah(a.surah).name).append('\n').append(a.arabic).append("\n\n");
+            ayahs.add(a);txt.append('[').append(a.id).append("] ").append(store.surah(a.surah).name).append('\n').append(a.arabic).append('\n').append(selectionNote(trace)).append("\n\n");
         }
         txt.append(notice);
         JSONObject evidence=new JSONObject().put("schema",1).put("bundle_id",out.id).put("query",query).put("records",records).put("instructions",References.reasoningPrompt()).put("notice",notice)
             .put("quran_pack_sha256",store.packHash).put("retrieval_engine",SearchEngine.VERSION);
         out.json=evidence.toString(2);out.text=txt.toString();
         byte[] json=out.json.getBytes(StandardCharsets.UTF_8),text=out.text.getBytes(StandardCharsets.UTF_8);
-        byte[] pdf=pdf(context,store,ayahs,notice,out.id);
+        byte[] pdf=pdf(context,store,ayahs,notice,out.id,traces);
         JSONObject files=new JSONObject().put("evidence.json",hash(json)).put("evidence.txt",hash(text)).put("evidence.pdf",hash(pdf));
         JSONObject manifest=new JSONObject().put("schema_version",1).put("bundle_id",out.id).put("created_at",System.currentTimeMillis())
             .put("quran_pack_sha256",store.packHash).put("retrieval_engine",SearchEngine.VERSION).put("query",query).put("files",files)
@@ -49,12 +49,20 @@ final class EvidenceExporter {
     }
     private static String hash(byte[] bytes) throws Exception {byte[] h=MessageDigest.getInstance("SHA-256").digest(bytes);StringBuilder b=new StringBuilder();for(byte x:h)b.append(String.format(Locale.ROOT,"%02x",x&255));return b.toString();}
     private static void put(ZipOutputStream zip,String path,byte[] bytes)throws IOException {ZipEntry entry=new ZipEntry(path);entry.setTime(0);zip.putNextEntry(entry);zip.write(bytes);zip.closeEntry();}
-    private static byte[] pdf(Context context,ContentStore store,List<Ayah> ayahs,String notice,String id)throws IOException {
+    private static String selectionNote(JSONObject trace){
+        if(trace==null)return "Selection: retrieval provenance unavailable.";
+        String origin=trace.optString("selection_origin","");
+        if(origin.equals("SEARCH_FRAGMENT"))return "Selection: exact source fragment only. The whole query was not found as one quotation. See evidence.json for original query, exact spans and unmatched words.";
+        if(origin.equals("SEARCH"))return "Selection: "+trace.optString("strength","related")+" retrieval. This does not verify a claim or interpretation.";
+        return "Selection: "+origin+". No search-match claim.";
+    }
+    private static byte[] pdf(Context context,ContentStore store,List<Ayah> ayahs,String notice,String id,Map<String,JSONObject> traces)throws IOException {
         try(Pages pages=new Pages()) {
             pages.block("AARIS QURAN\nEvidence snapshot",Typeface.DEFAULT_BOLD,20,false);
             pages.block("Bundle "+id+"\nSource: Tanzil Uthmani 1.1 · https://tanzil.net/\n",Typeface.DEFAULT,10,false);
+            pages.block("Each citation below is a separate source record. Search fragments must not be joined into a new quotation. References and exact quotes can be checked; interpretation is not verified.",Typeface.DEFAULT,10,false);
             Typeface arabic=Typeface.createFromAsset(context.getAssets(),"fonts/AmiriQuran.ttf");
-            for(Ayah a:ayahs){pages.block("["+a.id+"]  "+store.surah(a.surah).name,Typeface.DEFAULT_BOLD,12,false);pages.block(a.arabic,arabic,24,true);}
+            for(Ayah a:ayahs){pages.block("["+a.id+"]  "+store.surah(a.surah).name,Typeface.DEFAULT_BOLD,12,false);pages.block(a.arabic,arabic,24,true);pages.block(selectionNote(traces.get(a.id)),Typeface.DEFAULT,10,false);}
             pages.block("Source notice\n"+notice,Typeface.DEFAULT,10,false);
             return pages.bytes();
         }

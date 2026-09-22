@@ -67,7 +67,7 @@ final class BackupValidator {
     }
     private static void target(String id,ContentStore content,Set<String> known) throws JSONException {
         if(known.contains(id))return;
-        if(content.recallText(id)==null)fail("Unknown learning target");
+        if(!content.hasRecallTarget(id))fail("Unknown learning target");
         known.add(id);
     }
     private static void setting(String key,String value,ContentStore content) throws JSONException {
@@ -78,6 +78,7 @@ final class BackupValidator {
                 try{float n=Float.parseFloat(value);if(!Float.isFinite(n)||n<24||n>46)fail("Invalid text size");}
                 catch(NumberFormatException e){fail("Invalid text size");}break;
             case "position":if(content.ayah(value)==null)fail("Invalid reading position");break;
+            case "reader_anchor":if(content.readingPosition(value)==null)fail("Invalid reading anchor");break;
             default:fail("Unknown setting: "+key);
         }
     }

@@ -5,7 +5,7 @@ import java.util.regex.*;
 
 /** Rebuildable deterministic indexes. Matching text is not a religious conclusion. */
 public final class SearchEngine {
-    public static final String VERSION = "lexical-3";
+    public static final String VERSION = "lexical-4";
     public enum Strength { STRONG_TEXT, RELATED }
     public enum Origin { USER, AI }
     public static final class Query {
@@ -50,12 +50,17 @@ public final class SearchEngine {
         public final String query,intent,gate;
         public final int candidates;
         public final long elapsedNanos;
+        public final FragmentSearch.Report fragments;
         Response(String query,String intent,List<Result> results,List<Variant> variants,Map<String,Integer> trace,long started) {
+            this(query,intent,results,variants,trace,started,null);
+        }
+        Response(String query,String intent,List<Result> results,List<Variant> variants,Map<String,Integer> trace,long started,FragmentSearch.Report fragments) {
             this.query=query;this.intent=intent;this.results=Collections.unmodifiableList(new ArrayList<>(results));
             this.variants=Collections.unmodifiableList(new ArrayList<>(variants));
             this.trace=Collections.unmodifiableMap(new LinkedHashMap<>(trace));
             candidates=trace.getOrDefault("candidates",0);elapsedNanos=System.nanoTime()-started;
-            gate=results.isEmpty()?"NO_RELIABLE_MATCH":results.get(0).strength==Strength.STRONG_TEXT?"STRONG_TEXT":"RELATED";
+            this.fragments=fragments;
+            gate=results.isEmpty()?(fragments==null?"NO_RELIABLE_MATCH":"FRAGMENTS_ONLY"):results.get(0).strength==Strength.STRONG_TEXT?"STRONG_TEXT":"RELATED";
         }
     }
     private static final class Posting {
@@ -99,6 +104,7 @@ public final class SearchEngine {
     private final Map<String,Integer> coordinates=new HashMap<>();
     private final Index arabic=new Index(),gloss=new Index();
     private final Map<String,List<String>> trigramVocabulary=new HashMap<>();
+    private final FragmentSearch fragments;
     private static final Pattern COORDINATE=Pattern.compile("^(?:Q:)?([0-9]{1,3})\\s*[:：]\\s*([0-9]{1,3})$",Pattern.CASE_INSENSITIVE);
     private static final Set<String> NEGATION=new HashSet<>(Arrays.asList(
         "لا","لم","لن","ليس","ليست","غير","دون","نہیں","نهيں","نہ","مت","नहीं","मत","बिना","no","not","never","without"));
@@ -115,6 +121,7 @@ public final class SearchEngine {
         arabic.finish();gloss.finish();
         List<String> vocabulary=new ArrayList<>(arabic.terms.keySet());Collections.sort(vocabulary);
         for(String word:vocabulary)for(String gram:Arabic.trigrams(word))trigramVocabulary.computeIfAbsent(gram,k->new ArrayList<>()).add(word);
+        List<Ayah> sources=new ArrayList<>();for(Document document:docs)sources.add(document.ayah);fragments=new FragmentSearch(sources);
     }
     public Response search(String input,int limit) {
         String original=input==null?"":input;
@@ -171,8 +178,12 @@ public final class SearchEngine {
             .thenComparingInt(r->r.ayah.surah).thenComparingInt(r->r.ayah.number));
         trace.put("variants",variants.size());trace.put("candidates",candidates.size());trace.put("accepted",results.size());
         trace.put("rejected",Math.max(0,candidates.size()-results.size()));
+        FragmentSearch.Report partial=null;
+        if(variants.size()==1&&variants.get(0).origin==Origin.USER&&intent.equals("TEXT")&&
+            (results.isEmpty()||results.get(0).strength!=Strength.STRONG_TEXT))partial=fragments.search(variants.get(0).original);
+        if(partial!=null){trace.put("fragments",partial.fragments.size());trace.put("fragment_matched_words",partial.matchedTokens);trace.put("fragment_query_words",partial.totalTokens);}
         int count=Math.min(Math.max(1,Math.min(100,limit)),results.size());
-        return new Response(raw,intent,new ArrayList<>(results.subList(0,count)),variants,trace,started);
+        return new Response(raw,intent,new ArrayList<>(results.subList(0,count)),variants,trace,started,partial);
     }
     private List<Result> retrieve(Variant variant,Set<Integer> allCandidates,Map<String,Integer> trace) {
         List<String> terms=Arabic.tokens(variant.tolerant),hintTerms=Arabic.tokens(Arabic.glossSearch(variant.original));

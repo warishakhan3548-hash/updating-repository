@@ -4,13 +4,14 @@ import java.util.regex.*;
 
 /** Our own stable coordinates. Phrase bounds refer to immutable source word positions. */
 public final class RecallTarget {
-    public enum Kind { AYAH, WORD, PREFATORY_WORD, PHRASE }
-    private static final Pattern FORMAT=Pattern.compile("^Q:([1-9][0-9]{0,2}):([1-9][0-9]{0,2})(?::(W|B|P):([1-9][0-9]{0,3})(?:-([1-9][0-9]{0,3}))?)?$");
-    public final String id,ayahId;
+    public enum Kind { AYAH, WORD, PREFATORY_WORD, PHRASE, TRANSITION }
+    private static final Pattern FORMAT=Pattern.compile("^Q:([1-9][0-9]{0,2}):([1-9][0-9]{0,2})(?::(W|B|P|T):([1-9][0-9]{0,3})(?:-([1-9][0-9]{0,3}))?)?$");
+    public final String id,ayahId,nextAyahId;
     public final Kind kind;
     public final int surah,ayah,first,last;
     private RecallTarget(String id,int surah,int ayah,Kind kind,int first,int last) {
         this.id=id;this.surah=surah;this.ayah=ayah;this.kind=kind;this.first=first;this.last=last;ayahId="Q:"+surah+":"+ayah;
+        nextAyahId=kind==Kind.TRANSITION?"Q:"+surah+":"+first:null;
     }
     public static RecallTarget parse(String id) {
         if(id==null)return null;Matcher m=FORMAT.matcher(id);if(!m.matches())return null;
@@ -21,11 +22,16 @@ public final class RecallTarget {
             case "W":return first<=1000&&m.group(5)==null?new RecallTarget(id,surah,ayah,Kind.WORD,first,first):null;
             case "B":return first<=4&&m.group(5)==null?new RecallTarget(id,surah,ayah,Kind.PREFATORY_WORD,first,first):null;
             case "P":return first<last&&last<=1000?new RecallTarget(id,surah,ayah,Kind.PHRASE,first,last):null;
+            case "T":return first==ayah+1&&first<=286&&m.group(5)==null?new RecallTarget(id,surah,ayah,Kind.TRANSITION,first,first):null;
             default:return null;
         }
     }
     public static String phrase(String ayahId,int first,int last) {
         String id=ayahId+":P:"+first+"-"+last;RecallTarget target=parse(id);
         if(target==null||target.kind!=Kind.PHRASE)throw new IllegalArgumentException("Invalid phrase range");return id;
+    }
+    public static String transition(String ayahId,int nextAyah) {
+        String id=ayahId+":T:"+nextAyah;RecallTarget target=parse(id);
+        if(target==null||target.kind!=Kind.TRANSITION)throw new IllegalArgumentException("Invalid ayah transition");return id;
     }
 }

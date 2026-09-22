@@ -60,6 +60,11 @@ final class ContentStore implements AutoCloseable {
     Surah surah(int id){return surahs.get(Math.max(1,Math.min(114,id))-1);}
     private Ayah ayah(Cursor c){return new Ayah(c.getInt(1),c.getInt(2),c.getString(3),c.getString(4),c.getInt(5));}
     Ayah ayah(String id){try(Cursor c=db.rawQuery("SELECT * FROM ayah WHERE id=?",new String[]{id})){return c.moveToFirst()?ayah(c):null;}}
+    ReadingPosition readingPosition(String encoded) {
+        ReadingPosition p=ReadingPosition.parse(encoded);if(p==null||ayah(p.pageId)==null)return null;
+        Ayah anchor=ayah(p.anchorId);
+        return anchor!=null&&p.codePoint<=anchor.arabic.codePointCount(0,anchor.arabic.length())?p:null;
+    }
     List<Ayah> page(int surah,int start,int limit) {
         List<Ayah> list=new ArrayList<>();
         try(Cursor c=db.rawQuery("SELECT * FROM ayah WHERE surah=? AND number>=? ORDER BY number LIMIT ?",new String[]{""+surah,""+start,""+Math.min(limit,30)})){while(c.moveToNext())list.add(ayah(c));}
@@ -74,11 +79,23 @@ final class ContentStore implements AutoCloseable {
     Ayah contextFor(String id) {
         RecallTarget target=RecallTarget.parse(id);return target==null?null:ayah(target.ayahId);
     }
+    AyahTransition transition(String id) {
+        RecallTarget target=RecallTarget.parse(id);if(target==null||target.kind!=RecallTarget.Kind.TRANSITION)return null;
+        Ayah from=ayah(target.ayahId),to=ayah(target.nextAyahId);
+        if(from==null||to==null)return null;
+        try{return new AyahTransition(from,to);}catch(IllegalArgumentException invalid){return null;}
+    }
+    boolean hasRecallTarget(String id) {
+        RecallTarget target=RecallTarget.parse(id);
+        return target!=null&&(target.kind==RecallTarget.Kind.TRANSITION?transition(id)!=null:recallText(id)!=null);
+    }
     /** A phrase is an exact substring, including its source marks, never reconstructed text. */
     String recallText(String id) {
         RecallTarget target=RecallTarget.parse(id);if(target==null)return null;
         Ayah a=ayah(target.ayahId);if(a==null)return null;
         if(target.kind==RecallTarget.Kind.AYAH)return a.arabic;
+        // Edges have two separately cited excerpts, never a fabricated combined verse.
+        if(target.kind==RecallTarget.Kind.TRANSITION)return null;
         if(target.kind==RecallTarget.Kind.WORD||target.kind==RecallTarget.Kind.PREFATORY_WORD){Word w=word(id);return w==null?null:w.arabic;}
         Word first=word(target.ayahId+":W:"+target.first),last=word(target.ayahId+":W:"+target.last);
         if(first==null||last==null)return null;

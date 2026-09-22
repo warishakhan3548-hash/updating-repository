@@ -35,9 +35,31 @@ public final class CorpusChecks {
             "999:999","2:999","0:1","115:1","1:8","teleporting llama","abcdefzzzzz","फ्लक्स कैपेसिटर",
             "ہولوگرافک کمپیوٹر","extraterrestrial skateboard","प्लूटोनियम स्मार्टवॉच"};
         for(String query:absent)if(!engine.search(query,10).results.isEmpty())throw new AssertionError("False positive for engineered absent query: "+query);
+        Map<String,Ayah> byId=new HashMap<>();for(SearchEngine.Document document:documents)byId.put(document.ayah.id,document.ayah);
+        String mixed=byId.get("Q:94:6").arabic+" "+byId.get("Q:1:6").arabic;
+        SearchEngine.Response split=engine.search(mixed,10);
+        if(split.fragments==null||!split.gate.equals("FRAGMENTS_ONLY"))throw new AssertionError("Mixed Quran quotation was not separated");
+        Set<String> cited=new HashSet<>();for(FragmentSearch.Fragment fragment:split.fragments.fragments)for(FragmentSearch.Hit match:fragment.alternatives)cited.add(match.ayah.id);
+        if(!cited.containsAll(Arrays.asList("Q:94:6","Q:1:6")))throw new AssertionError("Mixed quotation lost a source");
+        split=engine.search("لم "+mixed,10);
+        if(split.fragments==null||split.fragments.unmatched.stream().noneMatch(range->range.text.equals("لم")))throw new AssertionError("Mixed quotation hid a negation");
+        System.out.println("Full-corpus mixed quotation + unmatched negation: PASS");
         // Every coordinate resolves to the exact archived text, including prefatory basmala.
         for(SearchEngine.Document d:documents){SearchEngine.Response r=engine.search(d.ayah.id,1);
             if(r.results.size()!=1||!r.results.get(0).ayah.arabic.equals(d.ayah.arabic))throw new AssertionError("Coordinate identity drift");}
+        int transitions=0;
+        for(int i=0;i<documents.size();i++) {
+            Ayah a=documents.get(i).ayah;SourceText source=new SourceText(a.arabic);
+            List<String> keys=new ArrayList<>();for(SourceText.Token token:source.tokens)keys.add(token.key);
+            if(!String.join(" ",keys).equals(Arabic.safe(a.arabic)))throw new AssertionError("Source token mapping drift: "+a.id);
+            if(i+1<documents.size()&&documents.get(i+1).ayah.surah==a.surah){
+                AyahTransition edge=new AyahTransition(a,documents.get(i+1).ayah);
+                if(!edge.from.arabic.contains(edge.ending.text)||!edge.to.arabic.contains(edge.opening.text))throw new AssertionError("Transition excerpt drift");
+                transitions++;
+            }
+        }
+        if(transitions!=6122)throw new AssertionError("Missing within-surah transitions");
+        System.out.println("Source-token mappings: 6,236 checked; consecutive ayah transitions: "+transitions);
         Collections.sort(times);
         System.out.printf(Locale.ROOT,"Corpus checks: 6,236 coordinates; %d/%d retrieval cases; %d absent queries; MRR@10 %.3f; JVM p95 %.1f ms; total %.1f s%n",
             hit,cases.length,absent.length,reciprocal/cases.length,times.get((int)Math.ceil(times.size()*.95)-1)/1e6,(System.nanoTime()-started)/1e9);

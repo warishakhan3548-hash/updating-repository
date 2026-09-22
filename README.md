@@ -28,8 +28,11 @@ python3 tools/check.py --android-jar "$ANDROID_HOME/platforms/android-35/android
   --aapt2 "$ANDROID_HOME/build-tools/35.0.0/aapt2"
 ```
 
-This preview implements Quran reading, source word meanings, opt-in word/phrase/ayah recall,
-Quran lexical search and evidence export. It is not the complete architecture: no Hadith corpus,
+This preview implements Quran reading, a meaning ribbon that preserves text layout, portable
+reading anchors, source word meanings, opt-in word/phrase/ayah and consecutive-ayah transition
+recall, Quran lexical/fragment search and evidence export. Mixed remembered quotations show
+separate cited excerpts, ambiguous alternatives and unmatched words; they never become a new
+source quote. It is not the complete architecture: no Hadith corpus,
 reviewed morphology/sense graph, FSRS, audio, ambient overlay or signed pack updater ships yet.
 
 ## Source notices

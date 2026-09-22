@@ -44,6 +44,8 @@ public final class References {
         return "Use only the attached evidence snapshot. Quote exactly and cite [Q:surah:ayah] or the supplied "
             +"[HAD:...] ID beside each claim. Distinguish source text, translation, and your interpretation. "
             +"State when evidence is absent or conflicting. Do not invent citations or issue a final religious ruling. "
+            +"Retrieval reasons are not source assertions. A SEARCH_FRAGMENT selection matches only the recorded source span; "
+            +"retain unmatched query words and never stitch separately cited fragments into a new quotation. "
             +"The app checks reference identity and supported exact quotes, not your conclusions.";
     }
 }

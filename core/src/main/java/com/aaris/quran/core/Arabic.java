@@ -11,14 +11,17 @@ public final class Arabic {
         StringBuilder out = new StringBuilder();
         text.codePoints().forEach(cp -> {
             int type = Character.getType(cp);
-            if ((cp >= 0x610 && cp <= 0x61A) || (cp >= 0x64B && cp <= 0x65F) || cp == 0x670 ||
-                (cp >= 0x6D6 && cp <= 0x6ED) || cp == 0x640) return;
+            if (searchMark(cp)) return;
             if (cp == 0x671) cp = 0x627;
             if (Character.isLetterOrDigit(cp) || type == Character.NON_SPACING_MARK ||
                 type == Character.COMBINING_SPACING_MARK) out.appendCodePoint(Character.toLowerCase(cp));
             else out.append(' ');
         });
         return out.toString().trim().replaceAll("\\s+", " ");
+    }
+    static boolean searchMark(int cp) {
+        return (cp >= 0x610 && cp <= 0x61A) || (cp >= 0x64B && cp <= 0x65F) || cp == 0x670 ||
+            (cp >= 0x6D6 && cp <= 0x6ED) || cp == 0x640;
     }
     public static String tolerant(String input) {
         return safe(input).replace('أ','ا').replace('إ','ا').replace('آ','ا')

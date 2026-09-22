@@ -81,6 +81,31 @@ public final class CoreChecks {
         check(RecallTarget.parse("Q:115:1")==null,"Invalid surah rejected");
         check(RecallTarget.parse("Q:2:1:B:4")!=null,"Prefatory basmala word identity preserved");
         check(RecallTarget.parse("Q:2:1:B:5")==null,"Invalid basmala position rejected");
+        check(RecallTarget.parse("Q:1:2:T:3").nextAyahId.equals("Q:1:3"),"Transition keeps both source identities");
+        check(RecallTarget.parse("Q:1:2:T:4")==null,"Transition cannot skip an ayah");
+        check(RecallTarget.parse("Q:1:2:T:1")==null,"Transition is directed, not reversible");
+        check(RecallTarget.parse("Q:2:286:T:287")==null,"Transition cannot escape coordinate bounds");
+        SourceText offsets=new SourceText("😀 أَحَدٌ، كلمةٌ ۞ أُخْرَى");
+        check(offsets.tokens.size()==3,"Reading marks do not become source words");
+        check(offsets.range(0,1).start==2&&offsets.range(0,1).text.equals("أَحَدٌ"),"Source ranges use code points including astral characters");
+        check(offsets.range(0,3).text.equals("أَحَدٌ، كلمةٌ ۞ أُخْرَى"),"Source excerpt retains punctuation and marks between words");
+        Ayah from=doc(1,"كلمة واحدة ثانية ثالثة"," ").ayah,to=doc(2,"أخرى تالية"," ").ayah;
+        AyahTransition edge=new AyahTransition(from,to);
+        check(edge.ending.text.equals("واحدة ثانية ثالثة")&&edge.opening.text.equals(to.arabic),"Transition uses bounded exact source excerpts");
+        boolean distant=false;try{new AyahTransition(from,doc(3,"بعيد"," ").ayah);}catch(IllegalArgumentException expected){distant=true;}
+        check(distant,"Nonadjacent content cannot form a transition");
+        boolean boundary=false;try{new AyahTransition(from,new Ayah(2,2,"حد","hash",2));}catch(IllegalArgumentException expected){boundary=true;}
+        check(boundary,"Transitions do not bridge surah boundaries");
+        List<Recall.Event> bridge=Arrays.asList(new Recall.Event("bridge-enroll",edge.id,Recall.Kind.ENROLL,1,"s",from.id),
+            new Recall.Event("bridge-rating",edge.id,Recall.Kind.GOOD,2,"s",from.id));
+        Map<String,Recall.State> bridgeState=Recall.replay(bridge,scheduler);
+        check(bridgeState.size()==1&&bridgeState.get(edge.id).reviews==1&&!bridgeState.containsKey(to.id),"A transition review never inflates either ayah's mastery");
+        ReadingPosition position=new ReadingPosition("Q:2:1","Q:2:5",12,-8.5f,false);
+        ReadingPosition restored=ReadingPosition.parse(position.encode());
+        check(restored!=null&&restored.codePoint==12&&restored.lineOffsetDp==-8.5f&&restored.anchorId.equals("Q:2:5"),"Reading position survives a portable round trip");
+        check(ReadingPosition.parse("Q:2:1|Q:3:1|0|0|0")==null,"Reader anchor cannot point to another surah");
+        check(ReadingPosition.parse("Q:2:1|Q:2:9|0|0|0")==null,"Reader anchor cannot escape its page");
+        check(ReadingPosition.parse("Q:2:1|Q:2:1|0|NaN|0")==null,"Nonfinite viewport offsets rejected on restore");
         check(Recall.rescueNeed(true,Double.NaN,0,1)==0,"Invalid model output cannot inflate priority");
         Map<String,String> snapshot=Collections.singletonMap("Q:1:1","exact source");
         check(References.verify("\"exact source\" [Q:1:1]",snapshot).passed(),"Exact quote validates");
@@ -90,6 +115,7 @@ public final class CoreChecks {
         check(References.verify("\"exact source\" [Q:1:1]",snapshot).checkedQuotes==1,"Report actual checked quote count");
         check(!References.verify("[Q:1:1] and [Q:bad]",snapshot).passed(),"Malformed citation is not ignored beside valid citation");
         check(!References.verify("[Q:1:1] plus \"unsourced quote\"",snapshot).passed(),"Unsupported quote cannot receive a verified badge");
+        checks+=FragmentChecks.run();
         System.out.println("Core checks: "+checks+" passed");
     }
 }

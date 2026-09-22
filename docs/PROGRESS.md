@@ -91,3 +91,21 @@ download the Gradle distribution; analyzer setup is still in progress.
 - Git CLI writes lack credentials in this environment. Checkpoints were published through the
   connected GitHub app using non-forced branch updates; remote tree hashes are compared with the
   local tested commit before each update. Resume from GitHub main, not an interrupted old clone.
+
+## Checkpoint 7: stable reading, transition recall and quotation fragments (2026-09-22)
+
+- Added a single meaning ribbon placed above/below the tapped source line, persistent word
+  highlight without reshaping text, and source-coordinate viewport anchors across reader rebuilds,
+  search return, saved state and pause/restart. Small screens fall back to the detail sheet.
+- Added canonical directed transition targets, validated against consecutive source ayahs. Practice
+  shows the ending of one ayah and asks for the next opening, with separate citations and its own
+  recall history. Existing word/phrase/ayah state and versioned scheduler history are untouched.
+- Added safe-token/source-offset mapping and bounded fragment retrieval inside search lexical-4.
+  Nonoverlapping segmentation recovers separate source excerpts without constructing a quotation.
+  Ambiguous occurrences, unhandled query words and original ranges remain explicit in UI/export.
+- Backup validation accepts the new source-checked transition and viewport identities. Existing
+  schema-1 histories still replay with their recorded scheduler; no schema reset or source edits.
+- Verification: 88 core checks, 6,236 coordinate and safe-token mappings, 6,122 transition excerpts,
+  mixed-source/unmatched-negation corpus regressions, existing 13 positive/20 absent queries,
+  Android API-35 Java compilation and native resource linking all pass.
+- No emulator/phone run, APK, Hadith pack, reviewed grammar model or complete FSRS is claimed.
