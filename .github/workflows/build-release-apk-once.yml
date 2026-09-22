@@ -1,4 +1,4 @@
-name: Build release APK once
+name: Build installable release APK once
 
 on:
   push:
@@ -22,6 +22,19 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Use test signing for release variant
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("app/build.gradle")
+          s = p.read_text()
+          old = "buildTypes { release { minifyEnabled false; debuggable false } }"
+          new = "buildTypes { release { minifyEnabled false; debuggable false; signingConfig signingConfigs.debug } }"
+          if old not in s:
+              raise SystemExit("Expected release buildTypes block not found")
+          p.write_text(s.replace(old, new, 1))
+          PY
+
       - name: Build release APK
         run: |
           chmod +x gradlew
@@ -36,7 +49,7 @@ jobs:
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: aaris-release-apk
+          name: aaris-release-installable-apk
           path: release-apk/*.apk
           if-no-files-found: error
           retention-days: 7
