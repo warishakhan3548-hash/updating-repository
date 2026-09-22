@@ -189,3 +189,13 @@ download the Gradle distribution; analyzer setup is still in progress.
   a settings-dismiss listener that could redraw after its owning Activity was being destroyed.
 - Added docs/AMBIENT_RECALL.md with the delivery contract, platform references, and an explicit
   not-yet-run physical-device acceptance list. No device validation is implied by compilation.
+
+## Checkpoint 13: overlay release APK delivered (2026-09-22)
+
+- Built 0.3.0 / code 3 from clean GitHub source `b12c7a2` with the existing release key.
+- APK: 6,702,130 bytes; SHA-256
+  `474743d483889b5dc21ed24fed1ea365220eac7ad7ff0e31587524e14d15940f`.
+- Release signature, alignment, source pack, ZIP/DEX checksums, overlay classes and final
+  permission metadata pass. Signer matches 0.2.0. APK and verification JSON were saved.
+- See docs/RELEASE_0.3.0.md for exact evidence. Real device UI/overlay/update testing remains
+  pending; Hadith source browsing is online and the offline Hadith record count remains zero.
