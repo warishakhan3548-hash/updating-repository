@@ -49,8 +49,17 @@ def main():
         assert text[start:end] == word, 'Word/source offset mismatch'
     assert not db.execute('PRAGMA foreign_key_check').fetchall()
     android = '{http://schemas.android.com/apk/res/android}'
-    application = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml').getroot().find('application')
+    android_manifest = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml').getroot()
+    application = android_manifest.find('application')
     assert application.get(android + 'name') == '.QuranApp', 'Missing startup wiring'
+    permissions = {p.get(android + 'name') for p in android_manifest.findall('uses-permission')}
+    assert permissions == {'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.FOREGROUND_SERVICE',
+                           'android.permission.FOREGROUND_SERVICE_SPECIAL_USE', 'android.permission.POST_NOTIFICATIONS'}
+    service = application.find('service')
+    assert service.get(android + 'name') == '.AmbientRecallService'
+    assert service.get(android + 'exported') == 'false'
+    assert service.get(android + 'foregroundServiceType') == 'specialUse'
+    assert service.find('property').get(android + 'name') == 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE'
     sources = sorted((ROOT / 'core/src/main/java').rglob('*.java'))
     tests = sorted((ROOT / 'core/src/test/java').rglob('*.java'))
     with tempfile.TemporaryDirectory(prefix='aaris-check-') as scratch:
@@ -69,12 +78,8 @@ def main():
                     FROM ayah a LEFT JOIN word w ON w.ayah_id=a.id GROUP BY a.id ORDER BY a.ordinal'''):
                 out.write(f'{surah}\t{number}\t{ordinal}\t{encode(arabic)}\t{encode(hints or "")}\n')
         subprocess.run([java, '-Xmx256m', '-cp', str(classes), 'com.aaris.quran.core.CorpusChecks', str(corpus)], check=True, cwd=ROOT)
-        if args.android_jar:
-            app = sorted((ROOT / 'app/src/main/java').rglob('*.java'))
-            subprocess.run([java, 'com.sun.tools.javac.Main', '--release', '17', '-encoding', 'UTF-8',
-                            '-cp', str(args.android_jar), '-d', str(classes),
-                            *map(str, sources + app)], check=True)
-            print('Android Java compile: PASS (API jar; not a device or APK test)')
+        generated = Path(scratch) / 'generated'
+        generated.mkdir()
         if args.aapt2:
             resources = Path(scratch) / 'resources.zip'
             manifest_tree = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml')
@@ -85,8 +90,17 @@ def main():
             subprocess.run([str(args.aapt2), 'compile', '--dir', str(ROOT / 'app/src/main/res'), '-o', str(resources)], check=True)
             subprocess.run([str(args.aapt2), 'link', '--manifest', str(manifest_path), '-I', str(args.android_jar),
                             '--min-sdk-version', '26', '--target-sdk-version', '35',
-                            '-o', str(Path(scratch) / 'resources.ap_'), str(resources)], check=True)
+                            '--java', str(generated), '-o', str(Path(scratch) / 'resources.ap_'), str(resources)], check=True)
             print('Android resource compile and manifest link: PASS (not an installable APK)')
+        if args.android_jar:
+            if not args.aapt2:
+                raise SystemExit('--aapt2 is needed with --android-jar to generate actual resource IDs.')
+            app = sorted((ROOT / 'app/src/main/java').rglob('*.java'))
+            resources_java = sorted(generated.rglob('*.java'))
+            subprocess.run([java, 'com.sun.tools.javac.Main', '--release', '17', '-encoding', 'UTF-8',
+                            '-cp', str(args.android_jar), '-d', str(classes),
+                            *map(str, sources + app + resources_java)], check=True)
+            print('Android Java compile: PASS (API jar; not a device or APK test)')
     print('Content hashes, 6,236 ayahs, 77,881 word ranges and startup manifest: PASS')
 
 

@@ -32,8 +32,10 @@ This preview implements Quran reading, a meaning ribbon that preserves text layo
 reading anchors, source word meanings, opt-in word/phrase/ayah and consecutive-ayah transition
 recall, Quran lexical/fragment search and evidence export. Mixed remembered quotations show
 separate cited excerpts, ambiguous alternatives and unmatched words; they never become a new
-source quote. It is not the complete architecture: no Hadith corpus,
-reviewed morphology/sense graph, FSRS, audio, ambient overlay or signed pack updater ships yet.
+source quote. The Yaad tab provides an opt-in timed overlay over other apps; Android
+permission is required. The Hadith tab links six collections and search at Sunnah.com, clearly
+labeled online. It is not the complete architecture: no offline Hadith corpus, reviewed
+morphology/sense graph, FSRS, audio or signed pack updater ships yet.
 
 ## Signed release APK without Gradle downloads
 
@@ -49,7 +51,7 @@ python3 tools/build_release.py \
   --keystore /private/path/aaris-quran-release.p12 \
   --alias aaris-quran-release \
   --password-file /private/path/keystore-password.txt \
-  --output /private/output/Aaris-Quran-0.2.0-release.apk
+  --output /private/output/Aaris-Quran-0.3.0-release.apk
 ```
 
 Keep the signing key and password backup private and reuse the same key for future updates.

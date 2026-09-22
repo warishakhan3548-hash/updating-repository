@@ -117,6 +117,7 @@ public final class CoreChecks {
         check(!References.verify("[Q:1:1] plus \"unsourced quote\"",snapshot).passed(),"Unsupported quote cannot receive a verified badge");
         checks+=FragmentChecks.run();
         checks+=ExportChecks.run();
+        checks+=AmbientChecks.run();
         System.out.println("Core checks: "+checks+" passed");
     }
 }

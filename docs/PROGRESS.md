@@ -156,3 +156,26 @@ download the Gradle distribution; analyzer setup is still in progress.
   secrets remain outside git. Preserve the recovery archive for future compatible APK updates.
 - See `docs/RELEASE_0.2.0.md` for exact results and runtime limits. There is still no emulator/phone
   validation or installed Hadith corpus. Do not claim full architecture completion or zero bugs.
+
+## Checkpoint 11: native ambient recall and navigation redesign (2026-09-22)
+
+- Added a portable monotonic timer and source-validated rotating recall selection. The Android
+  service owns exactly one TYPE_APPLICATION_OVERLAY window and is started explicitly by the user.
+  The app requests Android overlay consent and optional notification permission. No usage access,
+  accessibility service, exact alarm, wake lock, network permission or boot autostart was added.
+- Session interval is 1–120 minutes (default 5); switching external apps keeps the same timer.
+  Locking the phone or opening Aaris pauses it. Dismissal resets the interval. Cards automatically
+  dismiss after two minutes without counting an answer. Stop is available on the card, in the app
+  and in the ongoing notification. Process termination requires explicit restart.
+- Words, phrases, ayahs and transitions use source text and the existing event ledger. Showing,
+  dismissing or revealing never proves recall. Optional due-only mode abstains when nothing is due.
+- Added 10-second test delivery and a source-backed item picker. Device-local session settings
+  never turn overlays on through a restored learning backup.
+- Reworked glass colors/surface roles, responsive reading controls, Arabic chapter header,
+  verse spacing, primary buttons, touch feedback and floating four-tab navigation.
+- Hadith has a dedicated tab: all six source collections and external Sunnah.com search are
+  visible. They require a browser/internet. Zero offline Hadith records are still bundled;
+  external search is not represented as the local evidence engine.
+- 113 core regressions, all corpus/source checks, API 35 Java compile and AAPT2 resource/manifest
+  linking pass. Actual Android overlay delivery and visual/device QA are still pending.
+- Version is 0.3.0 / code 3. Build an updated signed release APK with the existing private key.

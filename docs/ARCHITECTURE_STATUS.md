@@ -9,7 +9,7 @@ An empty table, an interface or a scoring function does not count as a finished 
 | --- | --- | --- |
 | Source Vault | Pinned raw Quran/gloss snapshots, source lock, licenses, hash checks, deterministic builder, validation report | Reviewer-approved contextual gloss/sense packs; commercial content clearance |
 | Quran content | 114 surahs, 6,236 coordinates, unchanged Tanzil text, 77,881 source word ranges; 77,766 aligned gloss ranges | Nine mismatched ayah mappings remain withheld; no guessed corrections |
-| Native reader | Java Android 8+ shell, Amiri, teal/blue/gold glass surfaces, Aaj/Quran/Naksha, word meaning ribbon above/below the tapped line, highlight without reflow, bookmarks, notes, font size, contrast, quiet controls; Unicode viewport anchor across redraw/restart | Real-device visual/accessibility/large-font/rotation tests; authentic IndoPak renderer; automatic control fading |
+| Native reader | Java Android 8+ shell, Amiri, teal/blue/gold glass surfaces, Aaj/Quran/Hadith/Yaad, word meaning ribbon above/below the tapped line, highlight without reflow, bookmarks, notes, font size, contrast, quiet controls; Unicode viewport anchor across redraw/restart | Real-device visual/accessibility/large-font/rotation tests; authentic IndoPak renderer; automatic control fading |
 | Immutable/mutable separation | Quran opens read-only after checksum verification; learning lives in a separate SQLite database | Signed pack updates, rollback and key rotation; encrypted backup |
 | Durable identity | Quran coordinates; prefatory basmala words; word IDs; exact-range phrase IDs; directed consecutive-ayah transition IDs | Reviewed root → lexeme → contextual sense → occurrence graph; edition-aware Hadith citation identities |
 | Learning ledger | Append-only events, idempotent review IDs, conflicting-ID rejection, replay, opt-in enrollment/pause, monotonic local timestamps across restart/restore | Incremental durable projections and large-history device performance; richer comprehension dimensions |
@@ -17,12 +17,12 @@ An empty table, an interface or a scoring function does not count as a finished 
 | Natural retrieval | Exact saved word occurrence lookahead, one-day maximum deferral, fresh difficulty cancels deferral; optional reader recall action | Cross-context natural review requires reviewed sense mappings. Similar surfaces/glosses never transfer mastery |
 | Rare-word rescue | Pure relevance/risk/scarcity scoring primitive with finite-value checks | Not wired to a measured exposure forecast or product ranking; no claim of complete rare-word rescue |
 | Quran retrieval | Arabic/gloss BM25 indexes, safe/tolerant query shadows, bounded trigram-assisted spelling candidates, RRF, injective token coverage, exact negation, abstention, multi-query provenance, deterministic ties; bounded exact fragment segmentation with alternatives and unmatched spans | Curated concepts, root/lemma analysis, phonetic transliteration, optional multilingual embeddings/reranker; explicit query locks; native FTS5 adapter if justified |
-| Hadith research | UI honestly says no approved pack is installed; placeholder schema only | Rights/edition-cleared corpus, matn/isnad indexes, grade assertions, narration clusters and labeled evaluation |
+| Hadith research | Visible six-collection tab with explicit online links/search at Sunnah.com; no approved offline pack is installed | Rights/edition-cleared corpus, matn/isnad indexes, grade assertions, narration clusters and labeled evaluation |
 | AI boundary | No model supplies scripture. User-controlled query/reasoning prompts; export selected immutable evidence | AI-provider integrations are not necessary for core reading and are not installed |
 | Evidence bundle | PDF/TXT/JSON/manifest code, source checksums, per-record selection/retrieval provenance and portable hash format | Android runtime PDF visual QA and document-provider lifecycle tests |
 | Verify-back | Citation existence, exact supported quotes, unknown/malformed IDs and unattached quote reporting; snapshot compared to installed source | Conclusions/interpretation are deliberately not verified; unsupported quotation formats are disclosed |
 | Learning portability | Local JSON backup; whole-input validation; transactional merge; no destructive overwrite on restore; checksum-bound private disk staging survives Activity recreation while the picker is open | Encryption; old/new schema migration fixtures; Android provider/process-death integration and large-history memory tests |
-| Privacy/ambient | No account, ads, analytics, network permission, accessibility service or overlay permission | Optional ambient recall, widgets, notification scheduling and consent controls have not been implemented |
+| Privacy/ambient | User-started foreground overlay session; Android draw-over-apps consent; 1–120-minute screen-active timer; single dismissible card; lock/app pause; optional due-only pool; shared recall ledger; notification/card stop | OEM/device delivery, permission-revocation, lifecycle, accessibility and battery QA; no per-app usage tracking; session must be restarted if Android kills it |
 | Evaluation | Dependency-free JVM regressions; whole-corpus coordinate checks; small positive/absent query regression set | Scholar/reviewer labels, larger multilingual/zero-answer evaluation, false-positive calibration and phone latency/battery profiling |
 
 ## Fixes made during this audit
@@ -53,7 +53,7 @@ The check runner refuses optimized mode rather than silently skipping its assert
 
 ## Verification evidence and limits
 
-- 94 behavioral regressions passed: durable export handoff, search, fragment segmentation/ambiguity/unmatched negation,
+- 113 behavioral regressions passed: ambient timing/selection, durable export handoff, search, fragment segmentation/ambiguity/unmatched negation,
   provenance, Arabic/Hindi normalization, recall, natural-deferral bounds, transition/phrase
   identities, portable viewport anchors and evidence checks.
 - All 6,236 coordinate queries resolved to their exact archived Arabic text.
@@ -84,7 +84,7 @@ The check runner refuses optimized mode rather than silently skipping its assert
 3. Introduce a versioned, measured scheduler adapter and bounded exposure/rare-word forecasting.
 4. Add a rights-cleared Hadith edition with immutable citations and a reviewed retrieval benchmark
    before expanding to additional collections or semantic retrieval.
-5. Add opt-in ambient delivery and signed pack updates after the deterministic foundations pass
+5. Validate opt-in ambient delivery on physical devices and add signed pack updates after
    device and migration tests. Do not add a cloud dependency to read or review Quran.
 
 ## Boundaries of the new reading and retrieval features

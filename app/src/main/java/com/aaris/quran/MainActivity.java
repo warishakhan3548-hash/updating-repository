@@ -5,6 +5,8 @@ import android.content.*;
 import android.graphics.*;
 import android.net.Uri;
 import android.os.*;
+import android.provider.Settings;
+import android.content.pm.PackageManager;
 import android.text.*;
 import android.view.*;
 import android.view.inputmethod.InputMethodManager;
@@ -29,7 +31,7 @@ public final class MainActivity extends Activity {
     private Glass.Backdrop backdrop;
     private int tab=1,readerSurah=1,readerStart=1;
     private boolean reading=true,searching=false,highContrast=false,quietReader=false;
-    private float arabicSize=30;
+    private float arabicSize=32;
     private String language="hi",selectedWordId="";
     private ScrollView readerScroll,restoringReader;
     private String renderedPage="";
@@ -43,15 +45,17 @@ public final class MainActivity extends Activity {
     private Runnable debounce;
     private String pendingExport;
     private boolean preparingExport;
+    private boolean pendingAmbient,previewAmbient,ambientSheetRequested;
     private JSONObject pendingRestore;
     private String searchQuery="";
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
     private final Map<String,JSONObject> selectionTrace=new LinkedHashMap<>();
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
-    private static final int EXPORT=700,IMPORT=701;
+    private static final int EXPORT=700,IMPORT=701,OVERLAY_PERMISSION=702,NOTIFICATIONS=703;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);app=(QuranApp)getApplication();
+        if(state!=null){pendingAmbient=state.getBoolean("pending_ambient");previewAmbient=state.getBoolean("preview_ambient");}
         if(state!=null&&ExportStaging.validToken(state.getString("pending_export")))pendingExport=state.getString("pending_export");
         arabicFont=Typeface.createFromAsset(getAssets(),"fonts/AmiriQuran.ttf");
         if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
@@ -69,7 +73,7 @@ public final class MainActivity extends Activity {
             content=app.content;learning=app.learning;
             language=learning.get("language","hi");
             highContrast=Boolean.parseBoolean(learning.get("contrast","false"));
-            arabicSize=clamp(parseFloat(learning.get("arabic_size","30"),30),24,46);
+            arabicSize=clamp(parseFloat(learning.get("arabic_size","32"),32),24,46);
             String last=learning.get("position","Q:1:1");Ayah a=content.ayah(last);
             if(a!=null){readerSurah=a.surah;readerStart=a.number;}
             if(state!=null){tab=state.getInt("tab",1);reading=state.getBoolean("reading",true);quietReader=state.getBoolean("quiet_reader",false);readerSurah=state.getInt("surah",readerSurah);readerStart=state.getInt("start",readerStart);
@@ -78,41 +82,47 @@ public final class MainActivity extends Activity {
             }
             readingPosition=content.readingPosition(state==null?learning.get("reader_anchor",""):state.getString("reader_anchor",""));
             if(readingPosition!=null){Ayah page=content.ayah(readingPosition.pageId);readerSurah=page.surah;readerStart=page.number;}
-            show();
+            if(getIntent().getBooleanExtra("open_ambient",false)){tab=3;ambientSheetRequested=true;getIntent().removeExtra("open_ambient");}
+            tab=Math.max(0,Math.min(3,tab));show();
+            if(ambientSheetRequested){ambientSheetRequested=false;ambientSettings();}
         });
     }
     private static float clamp(float x,float min,float max){return Math.max(min,Math.min(max,x));}
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
-    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
+    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("preview_ambient",previewAmbient);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
     @Override protected void onPause(){captureReaderPosition();if(learning!=null&&readingPosition!=null){learning.set("reader_anchor",readingPosition.encode());learning.set("position",readingPosition.anchorId);}super.onPause();}
     @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();super.onDestroy();}
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void show(){
         if(content==null||isDestroyed()||isFinishing())return;captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;backdrop.highContrast=highContrast;backdrop.invalidate();
-        header=row(this);pad(header,22,12);layout.addView(header,new LinearLayout.LayoutParams(-1,-2));
+        header=row(this);pad(header,20,10);layout.addView(header,new LinearLayout.LayoutParams(-1,-2));
         body=column(this);layout.addView(body,new LinearLayout.LayoutParams(-1,0,1));
-        bottom=row(this);pad(bottom,20,8);bottom.setBackground(new Surface(this,false,true));layout.addView(bottom,new LinearLayout.LayoutParams(-1,-2));
-        if(tab==0)today();else if(tab==1){if(reading)reader();else library();}else map();
-        nav("sun","Aaj",0);nav("book","Quran",1);nav("map","Naksha",2);
+        bottom=row(this);pad(bottom,6,5);bottom.setBackground(new Surface(this,Surface.Kind.NAV,highContrast));LinearLayout.LayoutParams navSize=new LinearLayout.LayoutParams(-1,-2);navSize.setMargins(dp(this,16),dp(this,6),dp(this,16),dp(this,10));layout.addView(bottom,navSize);
+        if(tab==0)today();else if(tab==1){if(reading)reader();else library();}else if(tab==2)hadithLibrary();else map();
+        nav("sun","Aaj",0);nav("book","Quran",1);nav("hadith","Hadith",2);nav("cards","Yaad",3);
     }
     private void nav(String icon,String title,int index){
-        LinearLayout v=column(this);v.setGravity(Gravity.CENTER);pad(v,6,8);
-        Glass.Icon i=new Glass.Icon(this,icon);i.color=tab==index?GOLD:MUTED;v.addView(i,new LinearLayout.LayoutParams(dp(this,23),dp(this,23)));
-        TextView t=text(this,title,12,tab==index?GOLD:MUTED);t.setGravity(Gravity.CENTER);v.addView(t);
-        v.setContentDescription(title);v.setSelected(tab==index);v.setFocusable(true);v.setMinimumHeight(dp(this,56));v.setOnClickListener(x->{tab=index;if(index==1)reading=true;show();});
-        bottom.addView(v,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout v=column(this);v.setGravity(Gravity.CENTER);pad(v,4,7);
+        if(tab==index)v.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
+        Glass.Icon i=new Glass.Icon(this,icon);i.color=tab==index?MINT:MUTED;v.addView(i,new LinearLayout.LayoutParams(dp(this,22),dp(this,22)));
+        TextView t=text(this,title,11,tab==index?INK:MUTED);t.setGravity(Gravity.CENTER);v.addView(t);
+        v.setContentDescription(title);v.setSelected(tab==index);v.setFocusable(true);v.setMinimumHeight(dp(this,56));v.setOnClickListener(x->{tab=index;quietReader=false;if(index==1)reading=true;show();});
+        LinearLayout.LayoutParams item=new LinearLayout.LayoutParams(0,-2,1);item.setMargins(dp(this,3),0,dp(this,3),0);bottom.addView(v,item);
     }
     private View iconButton(String icon,String description,Runnable action){
-        FrameLayout f=new FrameLayout(this);f.setMinimumHeight(dp(this,48));f.setMinimumWidth(dp(this,48));f.setContentDescription(description);f.setFocusable(true);
+        FrameLayout f=new FrameLayout(this);f.setMinimumHeight(dp(this,48));f.setMinimumWidth(dp(this,48));f.setContentDescription(description);f.setFocusable(true);f.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
         Glass.Icon view=new Glass.Icon(this,icon);FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(dp(this,23),dp(this,23),Gravity.CENTER);f.addView(view,p);f.setOnClickListener(v->action.run());return f;
     }
     private void heading(String eyebrow,String title){
         LinearLayout label=column(this);TextView e=text(this,eyebrow,10,GOLD);e.setLetterSpacing(.18f);label.addView(e);
         TextView h=text(this,title,23,INK);h.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));label.addView(h);
-        header.addView(label,new LinearLayout.LayoutParams(0,-2,1));header.addView(iconButton("search","Quran mein khojein",this::searchScreen));header.addView(iconButton("settings","Reading settings",this::settings));
+        header.addView(label,new LinearLayout.LayoutParams(0,-2,1));header.addView(iconButton("settings","Reading settings",this::settings));
     }
     private LinearLayout scrollBody(){ScrollView sc=new ScrollView(this);sc.setFillViewport(false);sc.setClipToPadding(false);sc.setOverScrollMode(View.OVER_SCROLL_NEVER);body.addView(sc,new LinearLayout.LayoutParams(-1,-1));LinearLayout page=column(this);pad(page,20,12);sc.addView(page);return page;}
-    private LinearLayout card(LinearLayout parent,boolean hero){LinearLayout v=column(this);pad(v,22,20);v.setBackground(new Surface(this,hero,highContrast));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,16);parent.addView(v,lp);return v;}
-    private TextView button(String title,Runnable click){TextView b=text(this,title,14,INK);b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setGravity(Gravity.CENTER);pad(b,16,13);b.setMinimumHeight(dp(this,48));b.setBackground(new Surface(this,false,highContrast));b.setFocusable(true);b.setOnClickListener(v->click.run());return b;}
+    private LinearLayout card(LinearLayout parent,boolean hero){LinearLayout v=column(this);pad(v,22,20);v.setBackground(new Surface(this,hero?Surface.Kind.HERO:Surface.Kind.PANEL,highContrast));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,16);parent.addView(v,lp);return v;}
+    private TextView button(String title,Runnable click){return action(title,click,false);}
+    private TextView primary(String title,Runnable click){return action(title,click,true);}
+    private TextView action(String title,Runnable click,boolean primary){TextView b=text(this,title,14,primary?0xFF113A35:INK);b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setGravity(Gravity.CENTER);pad(b,16,13);b.setMinimumHeight(dp(this,48));b.setBackground(Glass.touch(this,primary?Surface.Kind.PRIMARY:Surface.Kind.BUTTON,highContrast));b.setFocusable(true);b.setOnClickListener(v->click.run());return b;}
     private TextView label(String text){TextView v=Glass.text(this,text,11,GOLD);v.setLetterSpacing(.12f);return v;}
     private void gap(LinearLayout v,int dp){View gap=new View(this);v.addView(gap,new LinearLayout.LayoutParams(1,Glass.dp(this,dp)));}
     private TextView arabic(String value,float size){TextView v=text(this,value,size,INK);v.setTypeface(arabicFont);v.setTextDirection(View.TEXT_DIRECTION_RTL);v.setGravity(Gravity.CENTER);v.setLineSpacing(dp(this,10),1.08f);return v;}
@@ -120,27 +130,101 @@ public final class MainActivity extends Activity {
     private void toast(String value){if(!isDestroyed()&&!isFinishing())Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
 
     private void today(){
-        heading("AARIS · QURAN", "Aaj ka sukoon");LinearLayout page=scrollBody();
-        TextView intro=text(this,"Thoda padhein.\nDil se samjhein.",30,INK);intro.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(intro);gap(page,8);caption(page,"Aapka safar, aapki raftaar.");gap(page,24);
-        LinearLayout hero=card(page,true);hero.addView(label("AAPKA MUSHAF"));gap(hero,12);hero.addView(arabic(content.ayah("Q:1:1").arabic,32));gap(hero,16);
+        heading("QURAN, AAPKE SAATH", "Aaris");LinearLayout page=scrollBody();
+        TextView intro=text(this,"Thoda sa waqt.\nDil ke liye sukoon.",29,INK);intro.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(intro);gap(page,20);
+        LinearLayout hero=card(page,true);hero.addView(label("JAHAN SE CHHODA THA"));gap(hero,18);hero.addView(arabic(content.ayah("Q:1:1").arabic,32));gap(hero,20);
         ContentStore.Surah s=content.surah(readerSurah);int resumeAyah=readingPosition==null?readerStart:RecallTarget.parse(readingPosition.anchorId).ayah;
-        hero.addView(text(this,s.name,22,INK));caption(hero,"Ayah "+resumeAyah+" · Pichhli jagah se aage");gap(hero,18);hero.addView(button("Padhna jaari rakhein  →",()->{tab=1;reading=true;show();}));
+        hero.addView(text(this,s.name,22,INK));caption(hero,"Ayah "+resumeAyah+" · Aapki pichhli jagah");gap(hero,18);hero.addView(primary("Quran kholein  →",()->{tab=1;reading=true;show();}));
+        ambientCard(page);
         List<Recall.State> queue=dueQueue();
         LinearLayout practice=card(page,false);practice.addView(label("AAJ KE ALFAAZ"));gap(practice,10);
         practice.addView(text(this,queue.isEmpty()?"Aaj koi jaldi nahi.":queue.size()+" chhoti yaad-dihaniyan",21,INK));gap(practice,6);
         caption(practice,queue.isEmpty()?"Padhte hue kisi lafz ya ayah ko yaad karne ke liye chun sakte hain.":"Sirf wahi alfaaz aur ayat jo aapne chune hain.");
         if(!queue.isEmpty()){gap(practice,16);practice.addView(button("Narmi se dohraayein",()->review(queue.get(0).target)));}
         LinearLayout saved=card(page,false);saved.addView(text(this,"Nishaan lagayi hui ayat",18,INK));gap(saved,8);caption(saved,learning.bookmarks().size()+" bookmarks · Hamesha offline");gap(saved,12);saved.addView(button("Bookmarks kholein",this::bookmarks));
-        TextView footer=text(this,"Koi streak nahi. Koi muqabla nahi. Bas aap aur Quran.",12,MUTED);footer.setGravity(Gravity.CENTER);page.addView(footer);gap(page,18);
+        TextView footer=text(this,"Aapki raftaar. Aapka safar.",12,MUTED);footer.setGravity(Gravity.CENTER);page.addView(footer);gap(page,18);
     }
+    private void hadithLibrary(){
+        heading("KUTUB AL-SITTAH", "Hadith");LinearLayout page=scrollBody();
+        LinearLayout intro=card(page,true);intro.addView(label("CHHE KITAABEIN · EK JAGAH"));gap(intro,12);
+        intro.addView(text(this,"Hadith padhein,\nsource ke saath.",27,INK));gap(intro,12);
+        caption(intro,"Neeche ki kitaab browser mein Sunnah.com par khulegi. Internet chahiye; is APK mein offline Hadith pack abhi nahi hai.");
+        EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);query.setTextSize(16);query.setSingleLine(true);query.setHint("Arabic ya English phrase");query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(512)});pad(query,14,10);query.setBackground(new Surface(this,Surface.Kind.BUTTON,highContrast));page.addView(query,new LinearLayout.LayoutParams(-1,dp(this,54)));gap(page,8);
+        page.addView(primary("Sunnah.com par khojein  ↗",()->{String q=query.getText().toString().trim();if(q.isEmpty()){query.setError("Kuch alfaaz likhein");return;}openWebsite(new Uri.Builder().scheme("https").authority("sunnah.com").path("search").appendQueryParameter("q",q).build());}));gap(page,24);
+        page.addView(label("APNI KITAAB CHUNEIN"));gap(page,12);
+        String[][] books={{"Sahih al-Bukhari","صحيح البخاري","bukhari"},{"Sahih Muslim","صحيح مسلم","muslim"},{"Sunan Abi Dawud","سنن أبي داود","abudawud"},{"Jami at-Tirmidhi","جامع الترمذي","tirmidhi"},{"Sunan an-Nasa’i","سنن النسائي","nasai"},{"Sunan Ibn Majah","سنن ابن ماجه","ibnmajah"}};
+        for(int index=0;index<books.length;index++){
+            String[] book=books[index];LinearLayout c=card(page,false);LinearLayout line=row(this);
+            TextView number=text(this,String.format(Locale.ROOT,"%02d",index+1),13,GOLD);line.addView(number,new LinearLayout.LayoutParams(dp(this,36),-2));
+            LinearLayout titles=column(this);titles.addView(text(this,book[0],18,INK));TextView ar=arabic(book[1],25);ar.setGravity(Gravity.LEFT);titles.addView(ar);line.addView(titles,new LinearLayout.LayoutParams(0,-2,1));TextView arrow=text(this,"↗",24,MINT);line.addView(arrow);c.addView(line);gap(c,10);caption(c,"Source par padhein · Online");
+            c.setFocusable(true);c.setContentDescription(book[0]+", Sunnah.com par padhein, internet chahiye");c.setOnClickListener(v->openWebsite(Uri.parse("https://sunnah.com/"+book[2])));
+        }
+        caption(page,"Online search Sunnah.com ka hai. App ka offline evidence search aur verified-reference export filhaal Quran ke liye hai.");gap(page,16);
+    }
+    private void openWebsite(Uri uri){hideKeyboard();try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(ActivityNotFoundException e){toast("Is link ko kholne ke liye browser install karein");}}
+    private int ambientItems(){int count=0;for(Recall.State state:learning.states().values())if(state.active&&content.hasRecallTarget(state.target)){ContentStore.Word w=content.word(state.target);if(w==null||w.hasGloss())count++;}return count;}
+    private void ambientCard(LinearLayout page){
+        LinearLayout c=card(page,false);LinearLayout line=row(this);Glass.Icon icon=new Glass.Icon(this,"cards");icon.color=MINT;line.addView(icon,new LinearLayout.LayoutParams(dp(this,30),dp(this,30)));LinearLayout names=column(this);pad(names,12,0);names.addView(text(this,"Yaad, saath saath",20,INK));names.addView(text(this,app.ambientRunning?"Chalu · Har "+AmbientSettings.minutes(this)+" minute":"Doosri apps par chhota recall card",12,MUTED));line.addView(names,new LinearLayout.LayoutParams(0,-2,1));c.addView(line);gap(c,16);
+        caption(c,"WhatsApp ho ya YouTube, aapke chune hue alfaaz aur ayat aap tak aa jaayein.");gap(c,16);c.addView(button(app.ambientRunning?"Timer aur session dekhein":"Apna timer set karein  →",this::ambientSettings));
+    }
+    private void ambientSettings(){
+        LinearLayout page=sheet("Yaad, saath saath");Dialog dialog=activeDialog;
+        caption(page,"Doosri apps ke upar ek chhota card. Band karenge to agla interval shuru hoga. Aaris khulne ya phone lock hone par timer rukega.");gap(page,18);
+        TextView status=text(this,"",14,MINT);page.addView(status);
+        Runnable refresh=new Runnable(){public void run(){if(isDestroyed()||activeDialog!=dialog||!dialog.isShowing())return;status.setText(app.ambientRunning?"● Chalu · "+AmbientSettings.minutes(MainActivity.this)+" minute ka timer":AmbientSettings.status(MainActivity.this));ui.postDelayed(this,1000);}};refresh.run();gap(page,18);
+        page.addView(label("KITNE MINUTE BAAD?"));gap(page,8);
+        EditText minutes=new EditText(this);minutes.setTextColor(INK);minutes.setTextSize(24);minutes.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);minutes.setFilters(new InputFilter[]{new InputFilter.LengthFilter(3)});minutes.setSingleLine(true);minutes.setText(""+AmbientSettings.minutes(this));minutes.setSelectAllOnFocus(true);minutes.setBackground(new Surface(this,Surface.Kind.BUTTON,highContrast));pad(minutes,16,8);page.addView(minutes,new LinearLayout.LayoutParams(-1,dp(this,58)));gap(page,10);
+        LinearLayout presets=row(this);for(int value:new int[]{3,5,10,15}){TextView choice=button(value+" min",()->minutes.setText(""+value));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.rightMargin=dp(this,4);presets.addView(choice,p);}page.addView(presets);gap(page,12);
+        caption(page,"1–120 minute. App badalne se timer reset nahi hoga.");gap(page,12);
+        Switch due=new Switch(this);due.setText("Sirf jab revision baaki ho");due.setTextColor(INK);due.setChecked(AmbientSettings.dueOnly(this));due.setMinimumHeight(dp(this,52));page.addView(due);caption(page,"Band rakhein to har interval par chune hue items ki practice hogi.");gap(page,18);
+        page.addView(button(ambientItems()+" chune hue items · Alfaaz / ayat chunein",this::chooseAmbientItems));gap(page,18);
+        caption(page,Settings.canDrawOverlays(this)?"✓ Doosri apps par dikhane ki permission hai":"Shuru karne par Android ki “Display over other apps” setting khulegi. Aaris Quran ko allow karein.");gap(page,14);
+        java.util.function.Consumer<Boolean> start=preview->{
+            int value;try{value=Integer.parseInt(minutes.getText().toString());}catch(NumberFormatException e){value=0;}
+            if(value<1||value>120){minutes.setError("1 se 120 minute chunein");return;}
+            AmbientSettings.save(this,value,due.isChecked());
+            if(ambientItems()==0){chooseAmbientItems();return;}
+            previewAmbient=preview;pendingAmbient=true;beginAmbient();
+        };
+        page.addView(primary(app.ambientRunning?"Timer apply karein":"Shuru karein",()->start.accept(false)));gap(page,10);
+        page.addView(button("10 second mein test card",()->start.accept(true)));gap(page,8);caption(page,"Test shuru karke WhatsApp ya YouTube kholein.");gap(page,14);
+        if(app.ambientRunning){page.addView(button("Session band karein",()->{AmbientSettings.status(this,false,"Session band hai");stopService(new Intent(this,AmbientRecallService.class));dialog.dismiss();ui.postDelayed(this::show,250);}));gap(page,12);}
+        caption(page,"Session notification se bhi band ho sakta hai. Phone session rok de to yahin se dobara shuru karein. Chats, videos aur app usage padha nahi jaata.");
+    }
+    private void chooseAmbientItems(){
+        LinearLayout page=sheet("Card mein kya aaye?");caption(page,"Sirf aapke chune hue alfaaz, ayat aur hisse dikhte hain. Neeche apni maujooda ayah se chunein.");gap(page,16);
+        Ayah a=content.ayah(readingPosition==null?"Q:"+readerSurah+":"+readerStart:readingPosition.anchorId);if(a==null)return;
+        page.addView(label(content.surah(a.surah).name+" · "+a.surah+":"+a.number));gap(page,10);
+        page.addView(button("Yeh poori ayah yaad karaayein",()->{enroll(a.id,a.id);ambientSettings();}));gap(page,16);
+        int count=0;for(ContentStore.Word word:content.words(a.id))if(word.hasGloss()){
+            if(count++==8)break;LinearLayout row=Glass.row(this);pad(row,8,10);TextView ar=arabic(word.arabic,30);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));
+            Recall.State memory=learning.states().get(word.id);TextView meaning=text(this,word.gloss(language)+(memory!=null&&memory.active?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(word.gloss(language)+" ✓");});page.addView(row);gap(page,8);
+        }
+        gap(page,12);page.addView(primary("Timer par waapas",this::ambientSettings));gap(page,10);page.addView(button("Doosri ayah se chunein",()->{activeDialog.dismiss();tab=1;reading=false;show();}));
+    }
+    private void beginAmbient(){
+        if(!pendingAmbient||isFinishing()||isDestroyed())return;
+        if(!Settings.canDrawOverlays(this)){
+            Intent permission=new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()));
+            try{startActivityForResult(permission,OVERLAY_PERMISSION);}catch(ActivityNotFoundException e){pendingAmbient=false;toast("Is phone par overlay permission ki setting nahi mili");}return;
+        }
+        if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED&&!AmbientSettings.askedNotifications(this)){
+            AmbientSettings.notificationsAsked(this);requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},NOTIFICATIONS);return;
+        }
+        if(learning==null){app.ready(this::beginAmbient);return;}
+        pendingAmbient=false;if(ambientItems()==0){chooseAmbientItems();return;}
+        try{startForegroundService(new Intent(this,AmbientRecallService.class).putExtra(AmbientRecallService.PREVIEW,previewAmbient));if(activeDialog!=null)activeDialog.dismiss();toast(previewAmbient?"Ab doosri app kholein · 10 second mein test card":"Session shuru ho raha hai · Ab doosri app khol sakte hain");ui.postDelayed(this::show,300);}
+        catch(RuntimeException e){AmbientSettings.status(this,false,"Session shuru nahi hua. Dobara try karein.");toast("Session shuru nahi hua. App khol kar dobara try karein.");}
+    }
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==NOTIFICATIONS)beginAmbient();}
     private void library(){
         heading("114 SURAHS · OFFLINE", "Quran al-Kareem");LinearLayout page=scrollBody();
-        EditText filter=new EditText(this);filter.setSingleLine(true);filter.setTextColor(INK);filter.setHintTextColor(MUTED);filter.setHint("Surah ka naam ya number");filter.setTextSize(15);pad(filter,14,8);filter.setBackground(new Surface(this,false,highContrast));page.addView(filter,new LinearLayout.LayoutParams(-1,dp(this,52)));gap(page,16);
+        EditText filter=new EditText(this);filter.setSingleLine(true);filter.setTextColor(INK);filter.setHintTextColor(MUTED);filter.setHint("Surah ka naam ya number");filter.setTextSize(15);pad(filter,14,8);filter.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));page.addView(filter,new LinearLayout.LayoutParams(-1,dp(this,52)));gap(page,16);
         LinearLayout list=column(this);page.addView(list);
         Runnable fill=()->{list.removeAllViews();String q=Arabic.tolerant(filter.getText().toString());for(ContentStore.Surah s:content.surahs){
             String searchable=Arabic.tolerant(s.name+" "+s.arabic+" "+s.meaning+" "+s.id);
             if(!q.isEmpty()&&!searchable.contains(q))continue;
-            LinearLayout row=Glass.row(this);pad(row,16,14);row.setBackground(new Surface(this,false,highContrast));
+            LinearLayout row=Glass.row(this);pad(row,16,14);row.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));
             TextView number=text(this,String.format(Locale.ROOT,"%02d",s.id),13,GOLD);row.addView(number,new LinearLayout.LayoutParams(dp(this,38),-2));
             LinearLayout names=column(this);names.addView(text(this,s.name,17,INK));names.addView(text(this,s.count+" ayat · "+s.meaning,11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
             TextView ar=arabic(s.arabic,24);row.addView(ar,new LinearLayout.LayoutParams(-2,-2));row.setContentDescription(s.name+", "+s.count+" ayat");row.setFocusable(true);row.setOnClickListener(v->open(s.id,1));
@@ -151,30 +235,34 @@ public final class MainActivity extends Activity {
     private void reader(){
         ContentStore.Surah s=content.surah(readerSurah);
         header.addView(iconButton("back","Surah ki list",()->{reading=false;show();}));
-        LinearLayout titles=column(this);titles.addView(label("QURAN AL-KAREEM"));titles.addView(text(this,s.name,22,INK));header.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
-        header.addView(iconButton("search","Search",this::searchScreen));header.addView(iconButton("settings","Reading settings",this::settings));
-        LinearLayout page=scrollBody();readerScroll=(ScrollView)page.getParent();renderedPage="Q:"+readerSurah+":"+readerStart;
+        LinearLayout titles=column(this);pad(titles,12,0);titles.addView(label("AARIS · OFFLINE"));titles.addView(text(this,"Quran",23,INK));header.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
+        header.addView(iconButton("search","Quran mein khojein",this::searchScreen));
+        LinearLayout page=scrollBody();pad(page,16,8);readerScroll=(ScrollView)page.getParent();renderedPage="Q:"+readerSurah+":"+readerStart;
         readerScroll.setOnScrollChangeListener((View v,int x,int y,int oldX,int oldY)->{if(y!=oldY)hidePeek();});
-        LinearLayout panel=card(page,true);panel.setPadding(dp(this,18),dp(this,18),dp(this,18),dp(this,18));
-        Glass.Icon ornament=new Glass.Icon(this,"rosette");ornament.color=GOLD;LinearLayout.LayoutParams ornamentSize=new LinearLayout.LayoutParams(dp(this,32),dp(this,32));ornamentSize.gravity=Gravity.CENTER;panel.addView(ornament,ornamentSize);gap(panel,12);
-        TextView name=arabic(s.arabic,30);panel.addView(name);TextView sub=text(this,s.meaning+"  ·  "+s.count+" ayat",12,MUTED);sub.setGravity(Gravity.CENTER);panel.addView(sub);gap(panel,16);
+        LinearLayout tools=row(this);TextView surahs=button("Surahs  ↓",()->{reading=false;show();});tools.addView(surahs,new LinearLayout.LayoutParams(0,-2,1));TextView readingStyle=button("Aa · Reading",this::settings);LinearLayout.LayoutParams styleSize=new LinearLayout.LayoutParams(0,-2,1);styleSize.leftMargin=dp(this,8);tools.addView(readingStyle,styleSize);page.addView(tools);gap(page,14);
+        LinearLayout panel=card(page,true);panel.setBackground(new Surface(this,Surface.Kind.MUSHAF,highContrast));panel.setPadding(dp(this,22),dp(this,24),dp(this,22),dp(this,18));
+        LinearLayout chapter=row(this);Glass.Icon leftStar=new Glass.Icon(this,"rosette");leftStar.color=GOLD;chapter.addView(leftStar,new LinearLayout.LayoutParams(dp(this,27),dp(this,27)));
+        TextView name=arabic(s.arabic,34);chapter.addView(name,new LinearLayout.LayoutParams(0,-2,1));Glass.Icon rightStar=new Glass.Icon(this,"rosette");rightStar.color=GOLD;chapter.addView(rightStar,new LinearLayout.LayoutParams(dp(this,27),dp(this,27)));panel.addView(chapter);gap(panel,8);
+        TextView latin=text(this,s.name,19,INK);latin.setGravity(Gravity.CENTER);latin.setTypeface(Typeface.create("serif",Typeface.NORMAL));panel.addView(latin);
+        TextView sub=text(this,s.meaning+"  ·  "+s.count+" ayat",11,MUTED);sub.setGravity(Gravity.CENTER);panel.addView(sub);gap(panel,16);
+        TextView interaction=text(this,"Kisi lafz par tap karein · Meaning yahin",11,MINT);interaction.setGravity(Gravity.CENTER);panel.addView(interaction);gap(panel,18);
         List<Ayah> ayahs=content.page(readerSurah,readerStart,8);
         for(Ayah a:ayahs){
-            LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"%d : %d",a.surah,a.number),11,GOLD);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
-            View menu=iconButton("more","Ayah "+a.number+" actions",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,48)));panel.addView(bar);
             List<ContentStore.Word> words=content.words(a.id);
             QuranText verse=new QuranText(this,arabicFont,a,words,arabicSize,this::tapWord);readerVerses.put(a.id,verse);panel.addView(verse,new LinearLayout.LayoutParams(-1,-2));
+            LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"AYAH  %d : %d",a.surah,a.number),10,GOLD);reference.setLetterSpacing(.08f);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
+            View menu=iconButton("more","Ayah "+a.number+": bookmark, meaning, yaad aur share",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,40)));panel.addView(bar);
             for(ContentStore.Word w:words){Recall.State memory=learning.states().get(w.id);if(memory!=null&&memory.active&&memory.reviews>0&&memory.due<=System.currentTimeMillis()){
                 TextView recall=button("Chuna hua lafz · Meaning yaad karein",()->review(w.id));panel.addView(recall);break;
             }}
-            View divider=new View(this);divider.setBackgroundColor(0x1AE8EEDB);LinearLayout.LayoutParams d=new LinearLayout.LayoutParams(-1,dp(this,1));d.topMargin=dp(this,16);d.bottomMargin=dp(this,4);panel.addView(divider,d);
+            if(a!=ayahs.get(ayahs.size()-1)){View divider=new View(this);divider.setBackgroundColor(0x20E8EEDB);LinearLayout.LayoutParams d=new LinearLayout.LayoutParams(-1,dp(this,1));d.topMargin=dp(this,12);d.bottomMargin=dp(this,22);panel.addView(divider,d);}
         }
         LinearLayout pager=row(this);
         TextView previous=button("← Pichhli",()->{if(readerStart>1)open(readerSurah,Math.max(1,readerStart-8));else if(readerSurah>1)open(readerSurah-1,Math.max(1,content.surah(readerSurah-1).count-7));});
         pager.addView(previous,new LinearLayout.LayoutParams(0,-2,1));
         TextView counter=text(this,readerStart+"–"+Math.min(s.count,readerStart+7)+" / "+s.count,12,MUTED);counter.setGravity(Gravity.CENTER);pager.addView(counter,new LinearLayout.LayoutParams(0,-2,1));
         TextView next=button("Agli →",()->{if(readerStart+8<=s.count)open(readerSurah,readerStart+8);else if(readerSurah<114)open(readerSurah+1,1);});pager.addView(next,new LinearLayout.LayoutParams(0,-2,1));page.addView(pager);gap(page,12);
-        TextView tip=text(this,"Lafz par tap karein · Meaning yahin khulega",12,MUTED);tip.setGravity(Gravity.CENTER);page.addView(tip);gap(page,12);
+        page.addView(button("Yaad saath rahe · Overlay timer",this::ambientSettings));gap(page,12);
         TextView source=text(this,"Tanzil Project · Uthmani 1.1",11,MUTED);source.setGravity(Gravity.CENTER);source.setOnClickListener(v->sources());page.addView(source);gap(page,12);
         if(quietReader){header.setVisibility(View.GONE);bottom.setVisibility(View.GONE);page.addView(button("Controls dikhaayein",()->{quietReader=false;show();}));}
         restoreReaderPosition();
@@ -220,7 +308,7 @@ public final class MainActivity extends Activity {
     private void tapWord(ContentStore.Word word,QuranText owner){
         if(word.id.equals(selectedWordId)){wordDetails(word);return;}
         hidePeek();selectedWordId=word.id;selectedVerse=owner;owner.select(word);learning.event(word.id,Recall.Kind.PEEK,word.ayahId);
-        LinearLayout peek=column(this);pad(peek,20,16);peek.setBackground(new Surface(this,true,true));
+        LinearLayout peek=column(this);pad(peek,20,16);peek.setBackground(new Surface(this,Surface.Kind.SHEET,true));
         LinearLayout top=row(this);TextView ar=arabic(word.arabic,30);ar.setGravity(Gravity.RIGHT);top.addView(ar,new LinearLayout.LayoutParams(0,-2,1));top.addView(iconButton("close","Meaning band karein",this::hidePeek));peek.addView(top);
         TextView meaning=text(this,word.gloss(language),18,INK);if(language.equals("ur"))meaning.setTextDirection(View.TEXT_DIRECTION_RTL);peek.addView(meaning);
         if(word.transliteration!=null){gap(peek,4);caption(peek,word.transliteration);}
@@ -245,7 +333,7 @@ public final class MainActivity extends Activity {
         hidePeek();
         if(activeDialog!=null)activeDialog.dismiss();
         Dialog dialog=new Dialog(this);activeDialog=dialog;dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        LinearLayout outer=column(this);pad(outer,22,18);outer.setBackground(new Surface(this,true,true));
+        LinearLayout outer=column(this);pad(outer,22,18);outer.setBackground(new Surface(this,Surface.Kind.SHEET,true));
         outer.setOnApplyWindowInsetsListener((view,insets)->{
             int left=0,right=0,bottom=0;
             if(Build.VERSION.SDK_INT>=30){android.graphics.Insets safe=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());left=safe.left;right=safe.right;bottom=safe.bottom;}
@@ -308,13 +396,13 @@ public final class MainActivity extends Activity {
         for(String id:ids){Ayah a=content.ayah(id);if(a==null)continue;page.addView(button(content.surah(a.surah).name+" · "+a.number,()->{activeDialog.dismiss();open(a.surah,a.number);}));gap(page,10);}
     }
     private void map(){
-        heading("AAPKA SAFAR", "Samajh ka naksha");LinearLayout page=scrollBody();Map<String,Recall.State> states=learning.states();
+        heading("THODA, LEKIN KAAM KA", "Aapki yaad");LinearLayout page=scrollBody();ambientCard(page);Map<String,Recall.State> states=learning.states();
         int active=0,reviews=0;for(Recall.State state:states.values()){if(state.active)active++;reviews+=state.reviews;}
-        LinearLayout hero=card(page,true);hero.addView(text(this,"Har lafz, apni raftaar.",25,INK));gap(hero,8);caption(hero,"Yeh aapki yaad-dihani ka naksha hai, Quran samajhne ka exam score nahi.");gap(hero,20);
+        LinearLayout hero=card(page,true);hero.addView(text(this,"Jo seekha, saath rahe.",25,INK));gap(hero,8);caption(hero,"Aapke chune hue alfaaz, hisse aur ayat.");gap(hero,20);
         LinearLayout metrics=row(this);LinearLayout left=column(this);left.addView(text(this,""+active,32,GOLD));caption(left,"Chune hue items");metrics.addView(left,new LinearLayout.LayoutParams(0,-2,1));LinearLayout right=column(this);right.addView(text(this,""+reviews,32,MINT));caption(right,"Khud kiye recalls");metrics.addView(right,new LinearLayout.LayoutParams(0,-2,1));hero.addView(metrics);
         List<Recall.State> due=dueQueue();
         if(!due.isEmpty()){page.addView(button("Aaj ki yaad-dihani kholein",()->review(due.get(0).target)));gap(page,16);}
-        if(active==0){LinearLayout empty=card(page,false);empty.addView(text(this,"Safar shuru karein",20,INK));gap(empty,8);caption(empty,"Reader mein lafz par tap karein aur “Yaad karaayein” chunein. Ayah ke menu se poori ayah bhi chun sakte hain.");}
+        if(active==0){LinearLayout empty=card(page,false);empty.addView(text(this,"Pehla lafz chunein",20,INK));gap(empty,8);caption(empty,"Reader mein lafz par tap karke “Yaad karaayein” chunein, ya yahin se shuru karein.");gap(empty,14);empty.addView(primary("Alfaaz chunein",this::chooseAmbientItems));}
         for(Recall.State state:states.values())if(state.active){
             ContentStore.Word w=content.word(state.target);Ayah a=content.contextFor(state.target);if(a==null||!content.hasRecallTarget(state.target))continue;
             LinearLayout c=card(page,false);AyahTransition transition=content.transition(state.target);
@@ -417,8 +505,8 @@ public final class MainActivity extends Activity {
         header=row(this);pad(header,16,10);layout.addView(header);header.addView(iconButton("back","Reader par waapas",this::show));
         TextView title=text(this,"Quran mein khojein",22,INK);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));header.addView(iconButton("share","Research aur evidence",this::research));
         LinearLayout fieldContainer=column(this);pad(fieldContainer,20,0);layout.addView(fieldContainer);
-        EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);query.setTextSize(17);query.setHint("Arabic, Hindi, Urdu… ya 2:255");query.setMinLines(1);query.setMaxLines(4);query.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(4096)});pad(query,16,8);query.setBackground(new Surface(this,false,highContrast));fieldContainer.addView(query,new LinearLayout.LayoutParams(-1,-2));
-        gap(fieldContainer,12);LinearLayout chips=row(this);chips.addView(button("Quran · Offline",()->{}));TextView hadith=button("Hadith",()->{LinearLayout p=sheet("Hadith evidence");caption(p,"Is build mein edition aur rights verify kiya hua Hadith pack install nahi hai. Isliye app koi Hadith gadh kar nahi dikhata. Quran evidence aur citation export abhi use kar sakte hain.");});LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-2,-2);hp.leftMargin=dp(this,8);chips.addView(hadith,hp);fieldContainer.addView(chips);gap(fieldContainer,12);
+        EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);query.setTextSize(17);query.setHint("Arabic, Hindi, Urdu… ya 2:255");query.setMinLines(1);query.setMaxLines(4);query.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(4096)});pad(query,16,8);query.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));fieldContainer.addView(query,new LinearLayout.LayoutParams(-1,-2));
+        gap(fieldContainer,12);LinearLayout chips=row(this);chips.addView(button("Quran · Offline",()->{}));TextView hadith=button("Hadith ↗",()->{tab=2;quietReader=false;show();});LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-2,-2);hp.leftMargin=dp(this,8);chips.addView(hadith,hp);fieldContainer.addView(chips);gap(fieldContainer,12);
         body=column(this);layout.addView(body,new LinearLayout.LayoutParams(-1,0,1));LinearLayout results=scrollBody();
         TextView status=text(this,"Ayah reference, Arabic phrase ya source word meaning se khojein.",14,MUTED);results.addView(status);gap(results,16);
         LinearLayout list=column(this);results.addView(list);
@@ -490,7 +578,7 @@ public final class MainActivity extends Activity {
         LinearLayout langs=row(this);for(String lang:new String[]{"hi","ur","en"}){String name=lang.equals("hi")?"हिन्दी":lang.equals("ur")?"اردو":"English";TextView b=button(name+(language.equals(lang)?" ✓":""),()->{language=lang;learning.set("language",lang);settings();});langs.addView(b,new LinearLayout.LayoutParams(0,-2,1));}page.addView(langs);gap(page,18);
         Switch contrast=new Switch(this);contrast.setText("Zyada contrast");contrast.setTextColor(INK);contrast.setChecked(highContrast);contrast.setMinHeight(dp(this,48));page.addView(contrast);contrast.setOnCheckedChangeListener((b,v)->{highContrast=v;learning.set("contrast",""+v);backdrop.highContrast=v;backdrop.invalidate();});
         gap(page,14);page.addView(button("Shaant reading · Controls chhupaayein",()->{quietReader=true;tab=1;reading=true;settingsDialog.dismiss();}));gap(page,10);
-        page.addView(button("Sources aur licenses",this::sources));gap(page,10);page.addView(button("Learning export",this::backup));gap(page,10);page.addView(button("Backup restore",this::restorePicker));gap(page,14);
+        page.addView(button("Doosri apps par recall · Timer",this::ambientSettings));gap(page,10);page.addView(button("Sources aur licenses",this::sources));gap(page,10);page.addView(button("Learning export",this::backup));gap(page,10);page.addView(button("Backup restore",this::restorePicker));gap(page,14);
         page.addView(button("Done",settingsDialog::dismiss));caption(page,"No account · No ads · Aapki learning aapke phone par");
     }
     private void sources(){
@@ -498,7 +586,7 @@ public final class MainActivity extends Activity {
         caption(page,"Quran: 114 surahs / 6,236 ayat. Original text checksum checked. Meaning: imported source glosses; independent scholarly review abhi pending hai. 9 ayat mein word alignment mismatch ki wajah se body meanings withheld hain.");gap(page,12);
         caption(page,"Yeh non-commercial preview hai. Imported gloss data paid app, subscription ya advertisements ke liye cleared nahi hai.");gap(page,14);
         for(String[] item:new String[][]{{"Tanzil notice","licenses/TANZIL.txt"},{"Word meanings license","licenses/DATA-QURAN.txt"},{"Amiri font license","licenses/AMIRI-OFL.txt"}}){page.addView(button(item[0],()->{LinearLayout p=sheet(item[0]);try{TextView v=text(this,ContentStore.asset(this,item[1]),12,MUTED);v.setTextIsSelectable(true);p.addView(v);}catch(IOException e){caption(p,"License file unavailable");}}));gap(page,8);}
-        page.addView(button("Tanzil source website",()->startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://tanzil.net/")))));gap(page,10);
+        page.addView(button("Tanzil source website",()->openWebsite(Uri.parse("https://tanzil.net/"))));gap(page,10);
         caption(page,"Pack SHA-256\n"+content.packHash+"\nScheduler: "+Recall.VERSION+"\nSearch: "+SearchEngine.VERSION);
     }
     private void hideKeyboard(){View view=getCurrentFocus();if(view!=null)((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(view.getWindowToken(),0);}
@@ -522,6 +610,7 @@ public final class MainActivity extends Activity {
     private void restorePicker(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/json");try{startActivityForResult(intent,IMPORT);}catch(ActivityNotFoundException e){toast("Backup kholne wala document picker nahi mila");}}
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
+        if(request==OVERLAY_PERMISSION){if(pendingAmbient&&Settings.canDrawOverlays(this))beginAmbient();else {pendingAmbient=false;toast("Permission ke bina doosri apps par card nahi aa sakta");}return;}
         if(result!=RESULT_OK||data==null||data.getData()==null){if(request==EXPORT){String token=pendingExport;pendingExport=null;app.io.execute(()->discardExport(token));}return;}Uri uri=data.getData();
         if(request==EXPORT){String token=pendingExport;pendingExport=null;if(token==null){toast("Export dobara shuru karein");return;}app.io.execute(()->{
             try{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();app.exports.copyTo(token,out);}discardExport(token);ui.post(()->toast("File save ho gayi"));}
