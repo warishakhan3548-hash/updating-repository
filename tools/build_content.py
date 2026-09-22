@@ -33,6 +33,12 @@ def source_words(text):
 
 
 def build():
+    # A missing or edited source must not silently become a new release.
+    lock = json.loads((ROOT / 'tools/source-lock.json').read_text())
+    for relative, expected in lock['source_sha256'].items():
+        source = VAULT / relative
+        if not source.is_file() or digest(source) != expected:
+            raise ValueError(f'Pinned source missing or changed: {relative}')
     raw = VAULT / 'tanzil/quran-uthmani.txt'
     assert digest(raw) == RAW_SHA, 'Quran source changed: release blocked'
     rows = []
@@ -134,7 +140,6 @@ def build():
                         f'data-quran:023b2f59:{key}' if key else None,
                         'SOURCE_ALIGNED' if key else 'UNMAPPED'))
             word_count += 1
-    notices = raw.read_text().split('#====', 1)[-1]
     (ASSETS/'licenses').mkdir(exist_ok=True)
     copyright_start = raw.read_text().index('#  Tanzil Quran Text')
     notice = '\n'.join(line.removeprefix('#').removeprefix(' ') for line in raw.read_text()[copyright_start:].splitlines()

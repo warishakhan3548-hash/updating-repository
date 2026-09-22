@@ -25,3 +25,17 @@ This checkpoint is not yet a buildable finished application. Run the content bui
 Scholarly gloss/sense/morphology review; edition-cleared Hadith packs; calibrated FSRS adapter;
 ambient delivery device tests; signed remote pack updates; licensed audio; semantic model benchmark.
 No placeholder is to be reported as a working feature.
+
+## Checkpoint 3: interrupted-work recovery (2026-09-22)
+
+Inspection of main at `e927628` found that the font, wrapper JAR and six word-source
+JSON files were missing from GitHub. Recovered the exact files from the previous
+workspace, checked all 13 source SHA-256 values against the committed manifest,
+and reproduced the existing pack checksum. A source lock now rejects missing or
+changed archived inputs before generating a pack. The native reader/application
+entry points were also found locally and are being reviewed before publication.
+
+Content validation: 114 surahs, 6,236 ayahs, 77,881 word ranges, 77,766 aligned
+source glosses; 9 ayahs with mismatched mappings are deliberately withheld.
+No APK has been built. Android Lint startup was attempted, but Java could not
+download the Gradle distribution; analyzer setup is still in progress.
