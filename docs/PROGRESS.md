@@ -121,3 +121,23 @@ download the Gradle distribution; analyzer setup is still in progress.
   and document-provider process-death checks still require Android.
 - The absent-query corpus guard also rejects unexpected fragment suggestions. Final source/core,
   corpus, Android Java and native resource checks were repeated for the completed code snapshot.
+
+## Checkpoint 9: release audit and durable export handoff (2026-09-22)
+
+- Audited the installed SQLite pack: 6,236 ayahs and 77,881 word ranges; zero Hadith records.
+  Bukhari, Muslim, Abu Dawud, Tirmidhi, Nasai and Ibn Majah are not bundled. A release build must
+  not present the placeholder tables as installed collections.
+- Fixed the file-picker rotation/recreation bug: export bytes are now privately staged on disk;
+  saved Activity state contains a checksum-bound opaque token, not a volatile byte array.
+  Staged payloads are checked before copying; cancellation removes the matching handoff only.
+  Both import and export use a 64 MiB byte bound. Large-history Android memory testing is pending.
+- Guarded duplicate export requests, missing document-picker apps and dead-Activity callbacks.
+  Closed the meaning ribbon when opening a sheet, restored the reader keyboard state, applied
+  settings on close/back as well as Done, and accounted for display cutouts/navigation insets.
+- Added six disk-backed handoff regressions: recreated store, failed destination retry, corrupted
+  payload, invalid token and scoped cleanup. 94 core checks plus corpus/source/API checks pass.
+- Standard Gradle release assembly could not resolve AGP 8.9.2 from the configured repositories.
+  Added a bounded official-SDK release builder (aapt2, javac, D8, zipalign, apksigner) that refuses
+  extra dependencies, takes an external signing key and verifies its output. No CI/AAB required.
+- Version metadata is 0.2.0 / code 2. Signing secrets must remain outside git. The APK's exact
+  checksum, signer and source commit will be recorded after successful release assembly.

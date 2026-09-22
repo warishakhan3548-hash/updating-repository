@@ -35,6 +35,28 @@ separate cited excerpts, ambiguous alternatives and unmatched words; they never 
 source quote. It is not the complete architecture: no Hadith corpus,
 reviewed morphology/sense graph, FSRS, audio, ambient overlay or signed pack updater ships yet.
 
+## Signed release APK without Gradle downloads
+
+For this native Java app with no external runtime dependencies, the installed official SDK tools
+can produce the release APK directly. This is useful when the Android Gradle Plugin cannot be
+downloaded. The script refuses unhandled dependencies and verifies the signature, alignment,
+package flags and bundled scripture checksum. It does not claim a phone/emulator test.
+
+```sh
+python3 tools/build_release.py \
+  --android-jar "$ANDROID_HOME/platforms/android-35/android.jar" \
+  --build-tools "$ANDROID_HOME/build-tools/35.0.0" \
+  --keystore /private/path/aaris-quran-release.p12 \
+  --alias aaris-quran-release \
+  --password-file /private/path/keystore-password.txt \
+  --output /private/output/Aaris-Quran-0.2.0-release.apk
+```
+
+Keep the signing key and password backup private and reuse the same key for future updates.
+The build emits an APK and a verification JSON beside it; it does not create an AAB or run CI.
+Do not commit private keys/passwords. The pack is an offline non-commercial Quran preview;
+the six Hadith collections are **not installed**.
+
 ## Source notices
 
 Quran: Tanzil Project, Uthmani 1.1 — https://tanzil.net/ (original text unchanged).

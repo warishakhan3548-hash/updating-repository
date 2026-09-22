@@ -3,6 +3,9 @@
 local.properties
 *.jks
 *.keystore
+*.p12
+*.apk
+*.idsig
 .idea/
 *.iml
 __pycache__/

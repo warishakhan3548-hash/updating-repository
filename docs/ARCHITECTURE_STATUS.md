@@ -21,7 +21,7 @@ An empty table, an interface or a scoring function does not count as a finished 
 | AI boundary | No model supplies scripture. User-controlled query/reasoning prompts; export selected immutable evidence | AI-provider integrations are not necessary for core reading and are not installed |
 | Evidence bundle | PDF/TXT/JSON/manifest code, source checksums, per-record selection/retrieval provenance and portable hash format | Android runtime PDF visual QA and document-provider lifecycle tests |
 | Verify-back | Citation existence, exact supported quotes, unknown/malformed IDs and unattached quote reporting; snapshot compared to installed source | Conclusions/interpretation are deliberately not verified; unsupported quotation formats are disclosed |
-| Learning portability | Local JSON backup; whole-input validation; transactional merge; no destructive overwrite on restore | Encryption; old/new schema migration fixtures; document-picker process-death testing |
+| Learning portability | Local JSON backup; whole-input validation; transactional merge; no destructive overwrite on restore; checksum-bound private disk staging survives Activity recreation while the picker is open | Encryption; old/new schema migration fixtures; Android provider/process-death integration and large-history memory tests |
 | Privacy/ambient | No account, ads, analytics, network permission, accessibility service or overlay permission | Optional ambient recall, widgets, notification scheduling and consent controls have not been implemented |
 | Evaluation | Dependency-free JVM regressions; whole-corpus coordinate checks; small positive/absent query regression set | Scholar/reviewer labels, larger multilingual/zero-answer evaluation, false-positive calibration and phone latency/battery profiling |
 
@@ -53,7 +53,7 @@ The check runner refuses optimized mode rather than silently skipping its assert
 
 ## Verification evidence and limits
 
-- 88 behavioral regressions passed: search, fragment segmentation/ambiguity/unmatched negation,
+- 94 behavioral regressions passed: durable export handoff, search, fragment segmentation/ambiguity/unmatched negation,
   provenance, Arabic/Hindi normalization, recall, natural-deferral bounds, transition/phrase
   identities, portable viewport anchors and evidence checks.
 - All 6,236 coordinate queries resolved to their exact archived Arabic text.

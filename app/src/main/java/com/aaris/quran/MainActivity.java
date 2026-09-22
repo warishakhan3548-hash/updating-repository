@@ -41,7 +41,8 @@ public final class MainActivity extends Activity {
     private final AtomicInteger searchGeneration=new AtomicInteger();
     private Future<?> searchTask;
     private Runnable debounce;
-    private byte[] pendingExport;
+    private String pendingExport;
+    private boolean preparingExport;
     private JSONObject pendingRestore;
     private String searchQuery="";
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
@@ -51,13 +52,14 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);app=(QuranApp)getApplication();
+        if(state!=null&&ExportStaging.validToken(state.getString("pending_export")))pendingExport=state.getString("pending_export");
         arabicFont=Typeface.createFromAsset(getAssets(),"fonts/AmiriQuran.ttf");
         if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
         root=new FrameLayout(this);backdrop=new Glass.Backdrop(this);root.addView(backdrop,new FrameLayout.LayoutParams(-1,-1));
         layout=column(this);root.addView(layout,new FrameLayout.LayoutParams(-1,-1));
         overlay=new FrameLayout(this);root.addView(overlay,new FrameLayout.LayoutParams(-1,-1));
         root.setOnApplyWindowInsetsListener((view,insets)->{
-            if(Build.VERSION.SDK_INT>=30){android.graphics.Insets edges=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.ime());view.setPadding(edges.left,edges.top,edges.right,edges.bottom);}
+            if(Build.VERSION.SDK_INT>=30){android.graphics.Insets edges=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());view.setPadding(edges.left,edges.top,edges.right,edges.bottom);}
             else view.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;
         });setContentView(root);
         TextView loading=text(this,"Aaris Quran\nAapka offline Mushaf khul raha hai…",20,INK);loading.setGravity(Gravity.CENTER);layout.addView(loading,new LinearLayout.LayoutParams(-1,-1));
@@ -81,11 +83,11 @@ public final class MainActivity extends Activity {
     }
     private static float clamp(float x,float min,float max){return Math.max(min,Math.min(max,x));}
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
-    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
+    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
     @Override protected void onPause(){captureReaderPosition();if(learning!=null&&readingPosition!=null){learning.set("reader_anchor",readingPosition.encode());learning.set("position",readingPosition.anchorId);}super.onPause();}
-    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(activeDialog!=null)activeDialog.dismiss();super.onDestroy();}
+    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();super.onDestroy();}
     private void show(){
-        if(content==null)return;captureReaderPosition();readerScroll=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;backdrop.highContrast=highContrast;backdrop.invalidate();
+        if(content==null||isDestroyed()||isFinishing())return;captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;backdrop.highContrast=highContrast;backdrop.invalidate();
         header=row(this);pad(header,22,12);layout.addView(header,new LinearLayout.LayoutParams(-1,-2));
         body=column(this);layout.addView(body,new LinearLayout.LayoutParams(-1,0,1));
         bottom=row(this);pad(bottom,20,8);bottom.setBackground(new Surface(this,false,true));layout.addView(bottom,new LinearLayout.LayoutParams(-1,-2));
@@ -115,7 +117,7 @@ public final class MainActivity extends Activity {
     private void gap(LinearLayout v,int dp){View gap=new View(this);v.addView(gap,new LinearLayout.LayoutParams(1,Glass.dp(this,dp)));}
     private TextView arabic(String value,float size){TextView v=text(this,value,size,INK);v.setTypeface(arabicFont);v.setTextDirection(View.TEXT_DIRECTION_RTL);v.setGravity(Gravity.CENTER);v.setLineSpacing(dp(this,10),1.08f);return v;}
     private void caption(LinearLayout v,String value){TextView t=text(this,value,13,MUTED);t.setLineSpacing(dp(this,3),1.12f);v.addView(t);}
-    private void toast(String value){Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
+    private void toast(String value){if(!isDestroyed()&&!isFinishing())Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
 
     private void today(){
         heading("AARIS · QURAN", "Aaj ka sukoon");LinearLayout page=scrollBody();
@@ -240,12 +242,19 @@ public final class MainActivity extends Activity {
         peek.announceForAccessibility(word.gloss(language));
     }
     private LinearLayout sheet(String title){
+        hidePeek();
         if(activeDialog!=null)activeDialog.dismiss();
         Dialog dialog=new Dialog(this);activeDialog=dialog;dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout outer=column(this);pad(outer,22,18);outer.setBackground(new Surface(this,true,true));
+        outer.setOnApplyWindowInsetsListener((view,insets)->{
+            int left=0,right=0,bottom=0;
+            if(Build.VERSION.SDK_INT>=30){android.graphics.Insets safe=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());left=safe.left;right=safe.right;bottom=safe.bottom;}
+            else{left=insets.getSystemWindowInsetLeft();right=insets.getSystemWindowInsetRight();bottom=insets.getSystemWindowInsetBottom();}
+            view.setPadding(dp(this,22)+left,dp(this,18),dp(this,22)+right,dp(this,18)+bottom);return insets;
+        });
         LinearLayout bar=row(this);TextView heading=text(this,title,22,INK);bar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));bar.addView(iconButton("close","Band karein",dialog::dismiss));outer.addView(bar);gap(outer,12);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);LinearLayout inside=column(this);scroll.addView(inside);outer.addView(scroll,new LinearLayout.LayoutParams(-1,-2));
-        dialog.setContentView(outer);Window w=dialog.getWindow();if(w!=null){w.setBackgroundDrawableResource(android.R.color.transparent);w.setDimAmount(.4f);w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);w.setGravity(Gravity.BOTTOM);}
+        dialog.setContentView(outer);Window w=dialog.getWindow();if(w!=null){w.setBackgroundDrawableResource(android.R.color.transparent);w.setDimAmount(.4f);w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);w.setGravity(Gravity.BOTTOM);w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);}
         dialog.show();if(w!=null){w.setLayout(-1,-2);int max=(int)(getResources().getDisplayMetrics().heightPixels*.82);outer.post(()->{if(outer.getHeight()>max)w.setLayout(-1,max);});}
         return inside;
     }
@@ -404,7 +413,7 @@ public final class MainActivity extends Activity {
 
     private TextWatcher watcher(Runnable action){return new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){action.run();}public void afterTextChanged(Editable e){}};}
     private void searchScreen(){
-        captureReaderPosition();readerScroll=null;readerVerses.clear();hidePeek();searching=true;layout.removeAllViews();
+        captureReaderPosition();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();hidePeek();searching=true;layout.removeAllViews();
         header=row(this);pad(header,16,10);layout.addView(header);header.addView(iconButton("back","Reader par waapas",this::show));
         TextView title=text(this,"Quran mein khojein",22,INK);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));header.addView(iconButton("share","Research aur evidence",this::research));
         LinearLayout fieldContainer=column(this);pad(fieldContainer,20,0);layout.addView(fieldContainer);
@@ -472,15 +481,17 @@ public final class MainActivity extends Activity {
         if(!response.results.isEmpty()){list.addView(label("POORI QUERY SE RELATED RESULTS"));gap(list,12);}
     }
     private void settings(){
-        LinearLayout page=sheet("Apni reading");page.addView(label("ARABIC KA SIZE"));gap(page,8);TextView sample=arabic(content.ayah("Q:1:1").arabic,arabicSize);page.addView(sample);
+        LinearLayout page=sheet("Apni reading");Dialog settingsDialog=activeDialog;
+        settingsDialog.setOnDismissListener(d->{if(activeDialog==settingsDialog)activeDialog=null;show();});
+        page.addView(label("ARABIC KA SIZE"));gap(page,8);TextView sample=arabic(content.ayah("Q:1:1").arabic,arabicSize);page.addView(sample);
         SeekBar slider=new SeekBar(this);slider.setMax(22);slider.setProgress((int)arabicSize-24);page.addView(slider);slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
             public void onProgressChanged(SeekBar s,int p,boolean user){arabicSize=24+p;sample.setTextSize(arabicSize);}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){learning.set("arabic_size",""+arabicSize);}
         });gap(page,16);page.addView(label("WORD MEANING KI ZABAAN"));gap(page,10);
         LinearLayout langs=row(this);for(String lang:new String[]{"hi","ur","en"}){String name=lang.equals("hi")?"हिन्दी":lang.equals("ur")?"اردو":"English";TextView b=button(name+(language.equals(lang)?" ✓":""),()->{language=lang;learning.set("language",lang);settings();});langs.addView(b,new LinearLayout.LayoutParams(0,-2,1));}page.addView(langs);gap(page,18);
         Switch contrast=new Switch(this);contrast.setText("Zyada contrast");contrast.setTextColor(INK);contrast.setChecked(highContrast);contrast.setMinHeight(dp(this,48));page.addView(contrast);contrast.setOnCheckedChangeListener((b,v)->{highContrast=v;learning.set("contrast",""+v);backdrop.highContrast=v;backdrop.invalidate();});
-        gap(page,14);page.addView(button("Shaant reading · Controls chhupaayein",()->{quietReader=true;activeDialog.dismiss();tab=1;reading=true;show();}));gap(page,10);
+        gap(page,14);page.addView(button("Shaant reading · Controls chhupaayein",()->{quietReader=true;tab=1;reading=true;settingsDialog.dismiss();}));gap(page,10);
         page.addView(button("Sources aur licenses",this::sources));gap(page,10);page.addView(button("Learning export",this::backup));gap(page,10);page.addView(button("Backup restore",this::restorePicker));gap(page,14);
-        page.addView(button("Done",()->{activeDialog.dismiss();show();}));caption(page,"No account · No ads · Aapki learning aapke phone par");
+        page.addView(button("Done",settingsDialog::dismiss));caption(page,"No account · No ads · Aapki learning aapke phone par");
     }
     private void sources(){
         LinearLayout page=sheet("Sources aur bharosa");caption(page,content.sources());gap(page,16);
@@ -492,19 +503,32 @@ public final class MainActivity extends Activity {
     }
     private void hideKeyboard(){View view=getCurrentFocus();if(view!=null)((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(view.getWindowToken(),0);}
     private void shareText(String text){Intent share=new Intent(Intent.ACTION_SEND);share.setType("text/plain");share.putExtra(Intent.EXTRA_TEXT,text);startActivity(Intent.createChooser(share,"Share karein"));}
-    private void saveFile(String name,String type,byte[] bytes){pendingExport=bytes;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType(type);intent.putExtra(Intent.EXTRA_TITLE,name);startActivityForResult(intent,EXPORT);}
-    private void backup(){
-        app.io.execute(()->{try{byte[] data=learning.backup().toString(2).getBytes(StandardCharsets.UTF_8);ui.post(()->{if(!isDestroyed())saveFile("Aaris-Quran-learning.json","application/json",data);});}catch(Exception e){ui.post(()->toast("Backup nahi ban saka"));}});
+    private void saveFile(String name,String type,byte[] bytes){
+        app.io.execute(()->{
+            try{String token=app.exports.stage(bytes);ui.post(()->{
+                preparingExport=false;
+                if(isDestroyed()||isFinishing()){app.io.execute(()->discardExport(token));return;}
+                pendingExport=token;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType(type);intent.putExtra(Intent.EXTRA_TITLE,name);
+                try{startActivityForResult(intent,EXPORT);}catch(ActivityNotFoundException e){pendingExport=null;app.io.execute(()->discardExport(token));toast("File save karne wala document picker nahi mila");}
+            });}catch(Exception e){ui.post(()->{preparingExport=false;toast("Export taiyaar nahi hua: "+e.getMessage());});}
+        });
     }
-    private void restorePicker(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/json");startActivityForResult(intent,IMPORT);}
+    private void discardExport(String token){if(token!=null)try{app.exports.discard(token);}catch(IOException ignored){}}
+    private boolean beginExport(){if(preparingExport||pendingExport!=null){toast("Pehla export poora hone dein");return false;}preparingExport=true;return true;}
+    private void backup(){
+        if(!beginExport())return;
+        app.io.execute(()->{try{byte[] data=learning.backup().toString(2).getBytes(StandardCharsets.UTF_8);ui.post(()->{if(!isDestroyed())saveFile("Aaris-Quran-learning.json","application/json",data);});}catch(Exception e){ui.post(()->{preparingExport=false;toast("Backup nahi ban saka");});}});
+    }
+    private void restorePicker(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/json");try{startActivityForResult(intent,IMPORT);}catch(ActivityNotFoundException e){toast("Backup kholne wala document picker nahi mila");}}
     @Override protected void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;Uri uri=data.getData();
-        if(request==EXPORT){byte[] bytes=pendingExport;pendingExport=null;if(bytes==null){toast("Export dobara shuru karein");return;}app.io.execute(()->{
-            try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();out.write(bytes);ui.post(()->toast("File save ho gayi"));}
-            catch(Exception e){ui.post(()->toast("File save nahi hui"));}
+        super.onActivityResult(request,result,data);
+        if(result!=RESULT_OK||data==null||data.getData()==null){if(request==EXPORT){String token=pendingExport;pendingExport=null;app.io.execute(()->discardExport(token));}return;}Uri uri=data.getData();
+        if(request==EXPORT){String token=pendingExport;pendingExport=null;if(token==null){toast("Export dobara shuru karein");return;}app.io.execute(()->{
+            try{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();app.exports.copyTo(token,out);}discardExport(token);ui.post(()->toast("File save ho gayi"));}
+            catch(Exception e){ui.post(()->toast("File save nahi hui; export dobara karein"));}
         });}
         if(request==IMPORT)app.io.execute(()->{try{
-            ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){out.write(b,0,n);if(out.size()>16_000_000)throw new IOException("Backup 16 MB se bada hai");}}
+            ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>ExportStaging.MAX_BYTES)throw new IOException("Backup 64 MiB se bada hai");out.write(b,0,n);}}
             JSONObject backup=new JSONObject(out.toString("UTF-8"));int count=learning.validateBackup(backup,content);
             ui.post(()->{if(isDestroyed())return;pendingRestore=backup;new AlertDialog.Builder(this).setTitle("Learning restore karein?").setMessage(count+" history events merge honge. Maujooda history aur notes delete nahi honge.").setNegativeButton("Abhi nahi",(d,w)->pendingRestore=null).setPositiveButton("Merge karein",(d,w)->{JSONObject restore=pendingRestore;pendingRestore=null;app.io.execute(()->{try{learning.restore(restore,content);ui.post(()->{toast("Learning restore ho gayi");show();});}catch(Exception e){ui.post(()->toast("Restore nahi hua; purana data surakshit hai"));}});}).show();});
         }catch(Exception e){ui.post(()->toast("Backup valid nahi hai: "+e.getMessage()));}});
@@ -546,11 +570,12 @@ public final class MainActivity extends Activity {
         page.addView(text(this,selectedEvidence.size()+" ayat chuni hui hain",21,INK));gap(page,14);
         TextView export=button("PDF + TXT + JSON export",()->{
             if(selectedEvidence.isEmpty()){toast("Pehle search results se ayat chunein");return;}
+            if(!beginExport())return;
             List<String> selection=new ArrayList<>(selectedEvidence);Map<String,JSONObject> traces=new LinkedHashMap<>(selectionTrace);String query=searchQuery;
             toast("Evidence bundle ban raha hai…");app.io.execute(()->{try{
                 EvidenceExporter.Bundle b=EvidenceExporter.build(this,content,selection,query,traces);learning.saveBundle(b.id,b.json);
                 ui.post(()->{if(!isDestroyed())saveFile("Aaris-Quran-evidence.zip","application/zip",b.zip);});
-            }catch(Exception e){ui.post(()->toast("Export nahi hua: "+e.getMessage()));}});
+            }catch(Exception e){ui.post(()->{preparingExport=false;toast("Export nahi hua: "+e.getMessage());});}});
         });page.addView(export);gap(page,10);
         page.addView(button("Selection saaf karein",()->{selectedEvidence.clear();selectionTrace.clear();refreshEvidenceControls();research();}));gap(page,20);
         page.addView(label("DOOSRE AI KE SAATH"));gap(page,8);caption(page,"Share par tap karne ke baad aap destination chunte hain. App khud query ya learning history bahar nahi bhejta.");gap(page,12);

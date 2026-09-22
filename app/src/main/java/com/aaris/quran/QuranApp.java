@@ -4,6 +4,8 @@ import android.app.Application;
 import android.os.Handler;
 import android.os.Looper;
 import com.aaris.quran.core.SearchEngine;
+import com.aaris.quran.core.ExportStaging;
+import java.io.File;
 import java.util.concurrent.*;
 
 public final class QuranApp extends Application {
@@ -14,9 +16,10 @@ public final class QuranApp extends Application {
     volatile LearningStore learning;
     volatile SearchEngine search;
     volatile String loadError;
+    ExportStaging exports;
     private final CountDownLatch ready=new CountDownLatch(1);
     @Override public void onCreate(){
-        super.onCreate();io.execute(()->{
+        super.onCreate();exports=new ExportStaging(new File(getFilesDir(),"export-staging"));io.execute(()->{
             try{content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();}
             catch(Exception e){loadError="Offline content khul nahi saka: "+e.getMessage();}
             finally{ready.countDown();}
