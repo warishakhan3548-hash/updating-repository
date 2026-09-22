@@ -39,3 +39,18 @@ Content validation: 114 surahs, 6,236 ayahs, 77,881 word ranges, 77,766 aligned
 source glosses; 9 ayahs with mismatched mappings are deliberately withheld.
 No APK has been built. Android Lint startup was attempted, but Java could not
 download the Gradle distribution; analyzer setup is still in progress.
+
+## Checkpoint 4: recover the actual application (2026-09-22)
+
+- Started from GitHub main `8eb4bee`, preserving the interrupted workspace separately.
+- Recovered the missing native MainActivity, QuranApp, backup validator and evidence exporter.
+- Fixed the manifest's missing Application registration, ambiguous Surface import and missing
+  checked-quote counter. These were actual launch/compile blockers, not UI polish.
+- Restored pending transactional backup validation, cancellable Urdu/multi-query search and
+  content-build Gradle wiring from the interrupted work.
+- Added an offline regression runner: `python3 tools/check.py --android-jar <android.jar>`.
+  This validates source hashes/ranges, startup registration, core behavior and Java compilation.
+- Full Gradle validation remains blocked by unavailable Android Gradle Plugin resolution in this
+  environment. Direct API-35 Java compilation is a narrower check, not a device launch or APK test.
+- The architecture is still incomplete. Next: reliable query provenance, phrase recall and
+  honest implementation coverage. Do not present placeholder Hadith tables as Hadith search.

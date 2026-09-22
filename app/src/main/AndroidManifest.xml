@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:allowBackup="false" android:label="Aaris Quran"
+    <application android:name=".QuranApp" android:allowBackup="false" android:label="Aaris Quran"
         android:icon="@drawable/ic_launcher" android:theme="@style/AppTheme"
         android:supportsRtl="true" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true"

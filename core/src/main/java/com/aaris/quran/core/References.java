@@ -16,6 +16,7 @@ public final class References {
     }
     public static final class Check {
         public final List<String> found=new ArrayList<>(),missing=new ArrayList<>(),badQuotes=new ArrayList<>();
+        public int checkedQuotes;
         public boolean passed(){return !found.isEmpty()&&missing.isEmpty()&&badQuotes.isEmpty();}
     }
     public static Check verify(String answer,Map<String,String> exportedSnapshot) {
@@ -26,6 +27,7 @@ public final class References {
         // Supported contract: "verbatim quote" [Q:s:a], curly quotation marks accepted.
         Matcher quotes=Pattern.compile("[\"“]([^\"”]{1,10000})[\"”]\\s*\\[([^\\]]+)\\]").matcher(answer);
         while(quotes.find()) {
+            c.checkedQuotes++;
             String source=exportedSnapshot.get(quotes.group(2));
             if(source==null||!source.contains(quotes.group(1)))c.badQuotes.add(quotes.group(2));
         }
