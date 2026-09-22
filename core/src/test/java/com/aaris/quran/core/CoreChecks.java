@@ -26,6 +26,15 @@ public final class CoreChecks {
         check(!search.search("درست",10).results.isEmpty(),"Urdu must reach gloss lane");
         check(search.search("unicorn telescope",10).results.isEmpty(),"Unsupported query abstains");
         check(search.search("درست\nدرست",10).results.size()==search.search("درست",10).results.size(),"Duplicate variants do not create evidence");
+        SearchEngine repeated=new SearchEngine(Arrays.asList(doc(1,"كلمة واحدة","one"),doc(2,"كلمة كلمة واحدة","two")));
+        check(repeated.search("كلمة كلمة",10).results.stream().noneMatch(r->r.ayah.number==1),"One token cannot satisfy repeated query words");
+        check(search.search("درست",10).trace.get("gloss_bm25")>0,"Trace accounts for Urdu gloss candidates");
+        check(search.search("x".repeat(4097),10).intent.equals("QUERY_LIMIT"),"Oversized queries are not silently truncated");
+        SearchEngine.Response expanded=search.search("1:2",Collections.singletonList(new SearchEngine.Query("1:3",SearchEngine.Origin.AI)),10);
+        check(expanded.results.stream().anyMatch(r->r.ayah.number==2),"Original query retained alongside AI expansions");
+        check(expanded.variants.stream().anyMatch(v->v.origin==SearchEngine.Origin.AI),"AI query provenance is retained");
+        check(Arabic.glossSearch("raḥmān").equals("rahman"),"Latin accents searchable");
+        check(!Arabic.glossSearch("की").equals(Arabic.glossSearch("क")),"Hindi signs must not be stripped");
         check(Arabic.safe("أَ").equals("أ"),"Safe lane preserves hamza");
         check(!Arabic.tolerant("نية").equals(Arabic.tolerant("نيه")),"Ta marbuta is not ha");
         List<Recall.Event> events=new ArrayList<>();
@@ -40,12 +49,33 @@ public final class CoreChecks {
         check(state.reviews==1,"Duplicate review ID is idempotent");
         check(Recall.rescueNeed(false,1,0,1)==0,"Rarity cannot enroll untouched items");
         check(Recall.queue(Collections.singleton(state),Collections.emptyList(),state.due,1).size()==1,"Due item offered");
+        List<Recall.Opportunity> next=Collections.singletonList(new Recall.Opportunity(state.target,2,true));
+        check(Recall.queue(Collections.singleton(state),next,state.due,1).isEmpty(),"Exact upcoming occurrence can defer a practiced item");
+        check(Recall.queue(Collections.singleton(state),next,state.due+Recall.DAY,1).size()==1,"Natural review deferral expires after one day");
+        events.add(event("peek-again",Recall.Kind.PEEK,600));
+        state=Recall.replay(events,new Recall.ConservativeScheduler()).get(state.target);
+        check(state.peeksSinceReview==1,"New peek after review is fresh uncertainty");
+        check(Recall.queue(Collections.singleton(state),next,state.due,1).size()==1,"Fresh difficulty cancels natural deferral");
+        events.add(event("pause",Recall.Kind.PAUSE,700));events.add(event("paused-rating",Recall.Kind.EASY,800));
+        check(Recall.replay(events,new Recall.ConservativeScheduler()).get(state.target).reviews==1,"Paused item cannot accumulate reviews");
+        check(Recall.replay(Collections.singletonList(event("orphan",Recall.Kind.GOOD,100)),new Recall.ConservativeScheduler()).get(state.target).reviews==0,"Rating alone does not enroll an item");
+        boolean conflict=false;try{Recall.replay(Arrays.asList(event("same",Recall.Kind.PEEK,1),event("same",Recall.Kind.GOOD,1)),new Recall.ConservativeScheduler());}catch(IllegalArgumentException expected){conflict=true;}
+        check(conflict,"Conflicting event identity fails instead of silently losing history");
+        check(RecallTarget.parse("Q:1:7:P:2-4").kind==RecallTarget.Kind.PHRASE,"Phrase has a stable canonical identity");
+        check(RecallTarget.parse("Q:1:7:P:4-2")==null,"Reversed phrase rejected");
+        check(RecallTarget.parse("Q:1:7:P:2-2")==null,"Single word not mislabelled as phrase");
+        check(RecallTarget.parse("Q:115:1")==null,"Invalid surah rejected");
+        check(RecallTarget.parse("Q:2:1:B:4")!=null,"Prefatory basmala word identity preserved");
+        check(RecallTarget.parse("Q:2:1:B:5")==null,"Invalid basmala position rejected");
+        check(Recall.rescueNeed(true,Double.NaN,0,1)==0,"Invalid model output cannot inflate priority");
         Map<String,String> snapshot=Collections.singletonMap("Q:1:1","exact source");
         check(References.verify("\"exact source\" [Q:1:1]",snapshot).passed(),"Exact quote validates");
         check(!References.verify("\"invented\" [Q:1:1]",snapshot).passed(),"Wrong quote rejected");
         check(!References.verify("[Q:2:2]",snapshot).passed(),"Citation outside snapshot rejected");
         check(!References.verify("No evidence here",snapshot).passed(),"No citations cannot pass");
         check(References.verify("\"exact source\" [Q:1:1]",snapshot).checkedQuotes==1,"Report actual checked quote count");
+        check(!References.verify("[Q:1:1] and [Q:bad]",snapshot).passed(),"Malformed citation is not ignored beside valid citation");
+        check(!References.verify("[Q:1:1] plus \"unsourced quote\"",snapshot).passed(),"Unsupported quote cannot receive a verified badge");
         System.out.println("Core checks: "+checks+" passed");
     }
 }

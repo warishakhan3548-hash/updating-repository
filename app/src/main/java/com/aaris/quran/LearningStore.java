@@ -24,6 +24,7 @@ final class LearningStore extends SQLiteOpenHelper {
     @Override public void onUpgrade(SQLiteDatabase db,int old,int version){throw new IllegalStateException("A non-destructive learning migration is required");}
     void event(String target,Recall.Kind kind,String context){event(UUID.randomUUID().toString(),target,kind,context);}
     synchronized void event(String id,String target,Recall.Kind kind,String context) {
+        if(lastEventTime==0)try(Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(MAX(at),0) FROM event",null)){if(c.moveToFirst())lastEventTime=c.getLong(0);}
         ContentValues v=new ContentValues();v.put("id",id);v.put("target",target);v.put("kind",kind.name());
         v.put("at",lastEventTime=Math.max(System.currentTimeMillis(),lastEventTime+1));v.put("session",session);v.put("context",context==null?target:context);v.put("scheduler",Recall.VERSION);
         try(Cursor existing=getReadableDatabase().rawQuery("SELECT target,kind,context FROM event WHERE id=?",new String[]{id})) {
@@ -99,6 +100,6 @@ final class LearningStore extends SQLiteOpenHelper {
                     }else db.insertWithOnConflict(f.getKey(),null,values,SQLiteDatabase.CONFLICT_IGNORE);
                 }
             }db.setTransactionSuccessful();
-        }finally{db.endTransaction();cachedStates=null;}
+        }finally{db.endTransaction();cachedStates=null;lastEventTime=0;}
     }
 }

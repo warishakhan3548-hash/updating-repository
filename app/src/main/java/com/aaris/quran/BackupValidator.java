@@ -24,7 +24,10 @@ final class BackupValidator {
                         key=string(row,"id",80,false);
                         target(string(row,"target",80,false),content,targets);
                         try{Recall.Kind.valueOf(string(row,"kind",24,false));}catch(IllegalArgumentException e){fail("Unknown event kind");}
-                        timestamp(row,"at");string(row,"session",80,false);string(row,"context",80,false);
+                        timestamp(row,"at");string(row,"session",80,false);
+                        String context=string(row,"context",80,false);
+                        Ayah origin=content.contextFor(row.getString("target"));
+                        if(origin==null||!origin.id.equals(context))fail("Unreviewed cross-context learning assertion");
                         if(!Recall.VERSION.equals(string(row,"scheduler",80,false)))fail("Unsupported scheduler history");
                         count++;break;
                     case "bookmark":
@@ -64,7 +67,7 @@ final class BackupValidator {
     }
     private static void target(String id,ContentStore content,Set<String> known) throws JSONException {
         if(known.contains(id))return;
-        if(content.ayah(id)==null&&content.word(id)==null)fail("Unknown learning target");
+        if(content.recallText(id)==null)fail("Unknown learning target");
         known.add(id);
     }
     private static void setting(String key,String value,ContentStore content) throws JSONException {

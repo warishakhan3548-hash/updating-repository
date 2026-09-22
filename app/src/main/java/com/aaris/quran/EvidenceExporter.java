@@ -15,18 +15,20 @@ import java.util.zip.*;
 /** Human and machine exports are generated from the same read-only snapshot. */
 final class EvidenceExporter {
     static final class Bundle {String id,json,text;byte[] zip;}
-    static Bundle build(Context context,ContentStore store,Collection<String> selection,String query) throws Exception {
+    static Bundle build(Context context,ContentStore store,Collection<String> selection,String query,Map<String,JSONObject> traces) throws Exception {
         if(selection.isEmpty()||selection.size()>50)throw new IllegalArgumentException("Choose 1–50 ayat");
         Bundle out=new Bundle();out.id=UUID.randomUUID().toString();JSONArray records=new JSONArray();List<Ayah> ayahs=new ArrayList<>();
         String notice=ContentStore.asset(context,"licenses/TANZIL.txt");
         StringBuilder txt=new StringBuilder("AARIS QURAN — EVIDENCE SNAPSHOT\nBundle: "+out.id+"\nQuery: "+query+"\n\n"+References.reasoningPrompt()+"\n\n");
         for(String id:selection){Ayah a=store.ayah(id);if(a==null)throw new IllegalArgumentException("Unknown citation");
             if(!References.sha256(a.arabic).equals(a.sha256))throw new IllegalStateException("Source text hash mismatch");
-            records.put(new JSONObject().put("citation_id",a.id).put("surah",a.surah).put("ayah",a.number).put("arabic",a.arabic).put("sha256",a.sha256).put("source","Tanzil Uthmani 1.1").put("source_url","https://tanzil.net/"));
+            JSONObject trace=traces.get(a.id);if(trace==null)trace=new JSONObject().put("selection_origin","READER_SELECTION");
+            records.put(new JSONObject().put("citation_id",a.id).put("surah",a.surah).put("ayah",a.number).put("arabic",a.arabic).put("sha256",a.sha256).put("source","Tanzil Uthmani 1.1").put("source_url","https://tanzil.net/").put("retrieval",trace));
             ayahs.add(a);txt.append('[').append(a.id).append("] ").append(store.surah(a.surah).name).append('\n').append(a.arabic).append("\n\n");
         }
         txt.append(notice);
-        JSONObject evidence=new JSONObject().put("schema",1).put("bundle_id",out.id).put("query",query).put("records",records).put("instructions",References.reasoningPrompt()).put("notice",notice);
+        JSONObject evidence=new JSONObject().put("schema",1).put("bundle_id",out.id).put("query",query).put("records",records).put("instructions",References.reasoningPrompt()).put("notice",notice)
+            .put("quran_pack_sha256",store.packHash).put("retrieval_engine",SearchEngine.VERSION);
         out.json=evidence.toString(2);out.text=txt.toString();
         byte[] json=out.json.getBytes(StandardCharsets.UTF_8),text=out.text.getBytes(StandardCharsets.UTF_8);
         byte[] pdf=pdf(context,store,ayahs,notice,out.id);
@@ -35,7 +37,9 @@ final class EvidenceExporter {
             .put("quran_pack_sha256",store.packHash).put("retrieval_engine",SearchEngine.VERSION).put("query",query).put("files",files)
             .put("verification_scope","Reference existence and supported exact quotes only; no religious conclusion verification.");
         // No self-referential hash: hash the file manifest, not a ZIP containing its own hash.
-        manifest.put("payload_manifest_sha256",References.sha256(files.toString()));
+        StringBuilder canonical=new StringBuilder();for(String name:new String[]{"evidence.json","evidence.pdf","evidence.txt"})canonical.append(name).append('\t').append(files.getString(name)).append('\n');
+        manifest.put("payload_manifest_format","filename<TAB>sha256<LF>, filenames sorted ascending; UTF-8");
+        manifest.put("payload_manifest_sha256",References.sha256(canonical.toString()));
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();
         try(ZipOutputStream zip=new ZipOutputStream(bytes)) {
             put(zip,"evidence.json",json);put(zip,"evidence.txt",text);put(zip,"evidence.pdf",pdf);

@@ -54,3 +54,25 @@ download the Gradle distribution; analyzer setup is still in progress.
   environment. Direct API-35 Java compilation is a narrower check, not a device launch or APK test.
 - The architecture is still incomplete. Next: reliable query provenance, phrase recall and
   honest implementation coverage. Do not present placeholder Hadith tables as Hadith search.
+
+## Checkpoint 5: retrieval and recall core (2026-09-22)
+
+- Replaced the mixed search scorer with separate Arabic/gloss BM25 indexes, bounded spelling
+  candidates, rank fusion and full query-token coverage. Repeated tokens require separate source
+  occurrences; negations are never typo-repaired away. Original/normalized variants and USER/AI
+  origin survive in the response. Repeated variants get one vote. Oversized input is rejected
+  visibly instead of silently truncated. No network/model dependency was added.
+- Canonical phrase targets (`Q:surah:ayah:P:first-last`) resolve to exact immutable source ranges.
+  Word, phrase and ayah recall use the same event ledger. New memorization items have an explicit
+  read -> hide -> recall -> reveal -> self-rate flow. Paused/orphan ratings cannot grow memory.
+- Natural deferral is wired only for the exact saved word occurrence, capped at one day, and
+  cancelled by fresh difficulty. Surface similarity still does NOT imply a reviewed shared sense.
+  The reader offers a small opt-in recall action when a saved due word is on the page.
+- Export now preserves per-record retrieval reasons/query provenance. Manual reader selections
+  are labelled separately. Unsupported quotes/malformed references cannot get a passing check.
+  Verification consults the installed immutable source, not just a self-consistent imported hash.
+- Improved search cancellation, multiline query entry, insets, selection restoration and native
+  glass reader ornament. No GPU blur is applied to Quran glyphs.
+- 42 behavioral checks, all 6,236 coordinate lookups, 13 corpus retrieval regressions and 20
+  engineered absent queries pass. Full app Java compiles against Android API 35. The small query
+  set is engineering regression coverage, NOT a scholarly search evaluation or phone benchmark.

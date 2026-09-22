@@ -71,6 +71,32 @@ final class ContentStore implements AutoCloseable {
         return list;
     }
     Word word(String id){try(Cursor c=db.rawQuery("SELECT * FROM word WHERE id=?",new String[]{id})){return c.moveToFirst()?new Word(c):null;}}
+    Ayah contextFor(String id) {
+        RecallTarget target=RecallTarget.parse(id);return target==null?null:ayah(target.ayahId);
+    }
+    /** A phrase is an exact substring, including its source marks, never reconstructed text. */
+    String recallText(String id) {
+        RecallTarget target=RecallTarget.parse(id);if(target==null)return null;
+        Ayah a=ayah(target.ayahId);if(a==null)return null;
+        if(target.kind==RecallTarget.Kind.AYAH)return a.arabic;
+        if(target.kind==RecallTarget.Kind.WORD||target.kind==RecallTarget.Kind.PREFATORY_WORD){Word w=word(id);return w==null?null:w.arabic;}
+        Word first=word(target.ayahId+":W:"+target.first),last=word(target.ayahId+":W:"+target.last);
+        if(first==null||last==null)return null;
+        return a.arabic.substring(a.arabic.offsetByCodePoints(0,first.start),a.arabic.offsetByCodePoints(0,last.end));
+    }
+    List<Recall.Opportunity> upcoming(Collection<Recall.State> states,String fromId) {
+        Ayah from=ayah(fromId);if(from==null)return Collections.emptyList();
+        List<Recall.Opportunity> opportunities=new ArrayList<>();
+        for(Recall.State state:states) {
+            if(!state.active)continue;RecallTarget target=RecallTarget.parse(state.target);
+            // Only the SAME saved word occurrence is proven here. Surface similarity is not sense identity.
+            if(target==null||target.kind!=RecallTarget.Kind.WORD)continue;
+            Ayah next=ayah(target.ayahId);if(next==null)continue;
+            int distance=next.ordinal-from.ordinal;
+            if(distance>=0&&distance<=10)opportunities.add(new Recall.Opportunity(state.target,distance,true));
+        }
+        return opportunities;
+    }
     int occurrences(String surface) {try(Cursor c=db.rawQuery("SELECT count(*) FROM word WHERE surface_key=? AND position>0",new String[]{surface})){return c.moveToFirst()?c.getInt(0):0;}}
     List<Word> related(Word w) {
         List<Word> result=new ArrayList<>();

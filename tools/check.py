@@ -5,6 +5,7 @@ Usage: python3 tools/check.py [--android-jar /path/to/platform/android.jar]
 No APK, CI workflow, emulator or downloaded testing dependency is required.
 """
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -52,6 +53,16 @@ def main():
         subprocess.run([java, 'com.sun.tools.javac.Main', '--release', '17', '-encoding', 'UTF-8',
                         '-d', str(classes), *map(str, sources + tests)], check=True)
         subprocess.run([java, '-cp', str(classes), 'com.aaris.quran.core.CoreChecks'], check=True, cwd=ROOT)
+        corpus = Path(scratch) / 'corpus.tsv'
+        encode = lambda value: base64.b64encode(value.encode()).decode()
+        with corpus.open('w') as out:
+            for surah, number, ordinal, arabic, hints in db.execute('''
+                    SELECT a.surah,a.number,a.ordinal,a.arabic,
+                    group_concat(COALESCE(w.gloss_en,'')||' '||COALESCE(w.gloss_hi,'')||' '||
+                    COALESCE(w.gloss_ur,'')||' '||COALESCE(w.transliteration,''),' ')
+                    FROM ayah a LEFT JOIN word w ON w.ayah_id=a.id GROUP BY a.id ORDER BY a.ordinal'''):
+                out.write(f'{surah}\t{number}\t{ordinal}\t{encode(arabic)}\t{encode(hints or "")}\n')
+        subprocess.run([java, '-Xmx256m', '-cp', str(classes), 'com.aaris.quran.core.CorpusChecks', str(corpus)], check=True, cwd=ROOT)
         if args.android_jar:
             app = sorted((ROOT / 'app/src/main/java').rglob('*.java'))
             subprocess.run([java, 'com.sun.tools.javac.Main', '--release', '17', '-encoding', 'UTF-8',

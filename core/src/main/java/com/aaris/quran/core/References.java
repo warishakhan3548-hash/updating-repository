@@ -17,16 +17,18 @@ public final class References {
     public static final class Check {
         public final List<String> found=new ArrayList<>(),missing=new ArrayList<>(),badQuotes=new ArrayList<>();
         public int checkedQuotes;
-        public boolean passed(){return !found.isEmpty()&&missing.isEmpty()&&badQuotes.isEmpty();}
+        public int uncheckedQuotes;
+        public boolean passed(){return !found.isEmpty()&&missing.isEmpty()&&badQuotes.isEmpty()&&uncheckedQuotes==0;}
     }
     public static Check verify(String answer,Map<String,String> exportedSnapshot) {
         Check c=new Check();
-        Matcher refs=Pattern.compile("\\[(Q:[0-9]{1,3}:[0-9]{1,3}|HAD:[A-Za-z0-9:._-]{1,160})\\]").matcher(answer);
+        Matcher refs=Pattern.compile("\\[((?:Q|HAD):[^\\]\\r\\n]{0,200})\\]").matcher(answer);
         Set<String> unique=new LinkedHashSet<>();while(refs.find())unique.add(refs.group(1));
         for(String id:unique)if(exportedSnapshot.containsKey(id))c.found.add(id);else c.missing.add(id);
         // Supported contract: "verbatim quote" [Q:s:a], curly quotation marks accepted.
-        Matcher quotes=Pattern.compile("[\"“]([^\"”]{1,10000})[\"”]\\s*\\[([^\\]]+)\\]").matcher(answer);
+        Matcher quotes=Pattern.compile("[\"“]([^\"”]{1,10000})[\"”](?:\\s*\\[([^\\]\\r\\n]+)\\])?").matcher(answer);
         while(quotes.find()) {
+            if(quotes.group(2)==null){c.uncheckedQuotes++;continue;}
             c.checkedQuotes++;
             String source=exportedSnapshot.get(quotes.group(2));
             if(source==null||!source.contains(quotes.group(1)))c.badQuotes.add(quotes.group(2));

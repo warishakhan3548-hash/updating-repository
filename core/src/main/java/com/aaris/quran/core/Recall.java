@@ -20,7 +20,8 @@ public final class Recall {
     public static final class State {
         public final String target;
         public long due,lastReview,interval;
-        public int successes,lapses,reviews,peeks;
+        public int successes,lapses,reviews,peeks,peeksSinceReview;
+        public long lastExposure;
         public boolean active;
         public final Set<String> successfulContexts=new HashSet<>();
         public State(String target){this.target=target;}
@@ -44,17 +45,24 @@ public final class Recall {
         List<Event> events=new ArrayList<>(ledger);
         // Stable sequence for identical timestamps. SQLite row sequence is preserved by stable sort.
         events.sort(Comparator.comparingLong(e->e.at));
-        Map<String,State> states=new LinkedHashMap<>();Set<String> seen=new HashSet<>(),peeks=new HashSet<>();
+        Map<String,State> states=new LinkedHashMap<>();Map<String,Event> seen=new HashMap<>();Set<String> peeks=new HashSet<>();
         for(Event e:events) {
-            if(!seen.add(e.id))continue;
+            Event previous=seen.putIfAbsent(e.id,e);
+            if(previous!=null) {
+                if(!previous.target.equals(e.target)||previous.kind!=e.kind||previous.at!=e.at||
+                    !Objects.equals(previous.session,e.session)||!Objects.equals(previous.context,e.context))
+                    throw new IllegalArgumentException("Conflicting event ID");
+                continue;
+            }
             State s=states.computeIfAbsent(e.target,State::new);
-            if(e.kind==Kind.PEEK && peeks.add(e.target+"|"+e.session))s.peeks++;
+            if(e.kind==Kind.SEEN)s.lastExposure=e.at;
+            if(e.kind==Kind.PEEK && peeks.add(e.target+"|"+e.session+"|"+s.reviews)){s.peeks++;s.peeksSinceReview++;}
             if(e.kind==Kind.ENROLL) {if(!s.active&&s.reviews==0)s.due=e.at;s.active=true;}
             if(e.kind==Kind.PAUSE)s.active=false;
             if(e.kind==Kind.RESUME){s.active=true;if(s.due==0)s.due=e.at;}
-            if(rating(e.kind)) {
+            if(rating(e.kind)&&s.active) {
                 // Duplicate event IDs are ignored, but exposures/reveals never become ratings.
-                s.interval=scheduler.nextInterval(s,e.kind);s.due=e.at+s.interval;s.lastReview=e.at;s.reviews++;
+                s.interval=scheduler.nextInterval(s,e.kind);s.due=e.at+s.interval;s.lastReview=e.at;s.reviews++;s.peeksSinceReview=0;
                 if(e.kind==Kind.AGAIN){s.lapses++;s.successes=0;}
                 else {s.successes++;if(e.context!=null)s.successfulContexts.add(e.context);}
             }
@@ -72,7 +80,7 @@ public final class Recall {
         for(State s:states) {
             if(!s.active||s.due>now)continue;
             // Deferral is bounded to 24h. A missed reading session cannot starve an item forever.
-            if(opportunities.containsKey(s.target)&&now-s.due<DAY&&s.lapses==0)continue;
+            if(opportunities.containsKey(s.target)&&now-s.due<DAY&&s.successes>0&&s.peeksSinceReview==0)continue;
             due.add(s);
         }
         due.sort(Comparator.comparingDouble((State s)->priority(s,now)).reversed().thenComparing(s->s.target));
@@ -80,11 +88,11 @@ public final class Recall {
     }
     public static double priority(State s,long now) {
         double late=Math.min(14,Math.max(0,(double)(now-s.due)/DAY));
-        return 1+late+Math.min(3,s.lapses)*1.5+Math.min(3,s.peeks)*0.2;
+        return 1+late+Math.min(3,s.lapses)*1.5+Math.min(3,s.peeksSinceReview)*0.2;
     }
     /** A guess of rarity is never permission to enroll an untouched word. */
     public static double rescueNeed(boolean relevant,double forgettingRisk,int futureOccurrences,double difficulty) {
-        if(!relevant)return 0;
+        if(!relevant||!Double.isFinite(forgettingRisk)||!Double.isFinite(difficulty))return 0;
         return Math.max(0,Math.min(1,forgettingRisk))*1.0/(1+Math.max(0,futureOccurrences))*Math.max(0,Math.min(1,difficulty));
     }
 }

@@ -53,6 +53,7 @@ final class Glass {
             Path a=new Path();
             switch(type){
                 case "search":c.drawCircle(10.5f,10.5f,6.5f,p);c.drawLine(15.5f,15.5f,21,21,p);break;
+                case "rosette":c.drawRect(5,5,19,19,p);c.rotate(45,12,12);c.drawRect(5,5,19,19,p);break;
                 case "back":c.drawLine(15,5,8,12,p);c.drawLine(8,12,15,19,p);break;
                 case "next":c.drawLine(9,5,16,12,p);c.drawLine(16,12,9,19,p);break;
                 case "book":a.moveTo(3,5);a.quadTo(8,3,12,7);a.quadTo(16,3,21,5);a.lineTo(21,20);a.quadTo(16,18,12,21);a.quadTo(8,18,3,20);a.close();c.drawPath(a,p);c.drawLine(12,7,12,21,p);break;

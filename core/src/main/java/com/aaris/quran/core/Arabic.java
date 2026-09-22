@@ -29,6 +29,20 @@ public final class Arabic {
         String s = safe(text);
         return s.isEmpty() ? Collections.emptyList() : Arrays.asList(s.split(" "));
     }
+    /** Fold Latin pronunciation accents only; Hindi/Urdu vowel signs keep their meaning. */
+    public static String glossSearch(String input) {
+        String decomposed=Normalizer.normalize(input==null?"":input,Normalizer.Form.NFD);
+        StringBuilder out=new StringBuilder();boolean latin=false;
+        for(int offset=0;offset<decomposed.length();) {
+            int cp=decomposed.codePointAt(offset);offset+=Character.charCount(cp);
+            int type=Character.getType(cp);
+            boolean mark=type==Character.NON_SPACING_MARK||type==Character.COMBINING_SPACING_MARK;
+            if(mark&&latin)continue;
+            if(!mark)latin=Character.UnicodeScript.of(cp)==Character.UnicodeScript.LATIN;
+            out.appendCodePoint(cp);
+        }
+        return tolerant(Normalizer.normalize(out,Normalizer.Form.NFC));
+    }
     public static boolean hasArabic(String text) {
         return text.codePoints().anyMatch(c -> c >= 0x620 && c <= 0x6ff);
     }
