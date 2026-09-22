@@ -1,6 +1,0 @@
-# Explicit safety allowlist. Allow rules take precedence over deny rules.
-# Medical/educational domains are intentionally safe from future broader lists.
-who.int
-nhs.uk
-mayoclinic.org
-medlineplus.gov
