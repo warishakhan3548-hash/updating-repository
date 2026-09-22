@@ -31,7 +31,7 @@ public final class MainActivity extends Activity {
     private boolean reading=true,searching=false,highContrast=false,quietReader=false;
     private float arabicSize=30;
     private String language="hi",selectedWordId="";
-    private ScrollView readerScroll;
+    private ScrollView readerScroll,restoringReader;
     private String renderedPage="";
     private ReadingPosition readingPosition;
     private final Map<String,QuranText> readerVerses=new LinkedHashMap<>();
@@ -70,7 +70,7 @@ public final class MainActivity extends Activity {
             arabicSize=clamp(parseFloat(learning.get("arabic_size","30"),30),24,46);
             String last=learning.get("position","Q:1:1");Ayah a=content.ayah(last);
             if(a!=null){readerSurah=a.surah;readerStart=a.number;}
-            if(state!=null){tab=state.getInt("tab",1);reading=state.getBoolean("reading",true);readerSurah=state.getInt("surah",readerSurah);readerStart=state.getInt("start",readerStart);
+            if(state!=null){tab=state.getInt("tab",1);reading=state.getBoolean("reading",true);quietReader=state.getBoolean("quiet_reader",false);readerSurah=state.getInt("surah",readerSurah);readerStart=state.getInt("start",readerStart);
                 searchQuery=state.getString("query","");ArrayList<String> ids=state.getStringArrayList("evidence");if(ids!=null)for(String id:ids)if(selectedEvidence.size()<50&&content.ayah(id)!=null)selectedEvidence.add(id);
                 try{JSONObject traces=new JSONObject(state.getString("selection_trace","{}"));for(String id:selectedEvidence)selectionTrace.put(id,traces.has(id)?traces.getJSONObject(id):selectionOrigin("RESTORED_SELECTION_WITHOUT_TRACE"));}catch(JSONException ignored){}
             }
@@ -81,7 +81,7 @@ public final class MainActivity extends Activity {
     }
     private static float clamp(float x,float min,float max){return Math.max(min,Math.min(max,x));}
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
-    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
+    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
     @Override protected void onPause(){captureReaderPosition();if(learning!=null&&readingPosition!=null){learning.set("reader_anchor",readingPosition.encode());learning.set("position",readingPosition.anchorId);}super.onPause();}
     @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(activeDialog!=null)activeDialog.dismiss();super.onDestroy();}
     private void show(){
@@ -121,7 +121,8 @@ public final class MainActivity extends Activity {
         heading("AARIS · QURAN", "Aaj ka sukoon");LinearLayout page=scrollBody();
         TextView intro=text(this,"Thoda padhein.\nDil se samjhein.",30,INK);intro.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(intro);gap(page,8);caption(page,"Aapka safar, aapki raftaar.");gap(page,24);
         LinearLayout hero=card(page,true);hero.addView(label("AAPKA MUSHAF"));gap(hero,12);hero.addView(arabic(content.ayah("Q:1:1").arabic,32));gap(hero,16);
-        ContentStore.Surah s=content.surah(readerSurah);hero.addView(text(this,s.name,22,INK));caption(hero,"Ayah "+readerStart+" · Pichhli jagah se aage");gap(hero,18);hero.addView(button("Padhna jaari rakhein  →",()->{tab=1;reading=true;show();}));
+        ContentStore.Surah s=content.surah(readerSurah);int resumeAyah=readingPosition==null?readerStart:RecallTarget.parse(readingPosition.anchorId).ayah;
+        hero.addView(text(this,s.name,22,INK));caption(hero,"Ayah "+resumeAyah+" · Pichhli jagah se aage");gap(hero,18);hero.addView(button("Padhna jaari rakhein  →",()->{tab=1;reading=true;show();}));
         List<Recall.State> queue=dueQueue();
         LinearLayout practice=card(page,false);practice.addView(label("AAJ KE ALFAAZ"));gap(practice,10);
         practice.addView(text(this,queue.isEmpty()?"Aaj koi jaldi nahi.":queue.size()+" chhoti yaad-dihaniyan",21,INK));gap(practice,6);
@@ -178,7 +179,7 @@ public final class MainActivity extends Activity {
     }
 
     private void captureReaderPosition(){
-        if(readerScroll==null||!readerScroll.isAttachedToWindow()||readerVerses.isEmpty())return;
+        if(readerScroll==null||readerScroll==restoringReader||!readerScroll.isAttachedToWindow()||readerVerses.isEmpty())return;
         if(readerScroll.getScrollY()==0){readingPosition=new ReadingPosition(renderedPage,renderedPage,0,0,true);return;}
         int[] viewport=new int[2];readerScroll.getLocationInWindow(viewport);
         Map.Entry<String,QuranText> anchor=null;int[] location=new int[2];
@@ -196,14 +197,21 @@ public final class MainActivity extends Activity {
     private void restoreReaderPosition(){
         ReadingPosition position=readingPosition;ScrollView scroll=readerScroll;
         if(position==null||!position.pageId.equals(renderedPage))return;
-        scroll.post(()->{
-            if(readerScroll!=scroll||!scroll.isAttachedToWindow())return;
-            if(position.atTop){scroll.scrollTo(0,0);return;}
-            QuranText view=readerVerses.get(position.anchorId);if(view==null||view.getLayout()==null)return;
-            String value=view.getText().toString();int cp=Math.min(position.codePoint,value.codePointCount(0,value.length()));
-            int line=view.getLayout().getLineForOffset(value.offsetByCodePoints(0,cp));int[] v=new int[2],s=new int[2];view.getLocationInWindow(v);scroll.getLocationInWindow(s);
-            int y=scroll.getScrollY()+v[1]-s[1]+view.getTotalPaddingTop()+view.getLayout().getLineTop(line)-Math.round(position.lineOffsetDp*getResources().getDisplayMetrics().density);
-            scroll.scrollTo(0,Math.max(0,y));
+        restoringReader=scroll;
+        // Wait for actual text layout. A posted Runnable can run before the first traversal.
+        scroll.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener(){
+            @Override public boolean onPreDraw(){
+                if(scroll.getViewTreeObserver().isAlive())scroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                if(readerScroll!=scroll)return true;
+                try{
+                    if(position.atTop){scroll.scrollTo(0,0);return true;}
+                    QuranText view=readerVerses.get(position.anchorId);if(view==null||view.getLayout()==null)return true;
+                    String value=view.getText().toString();int cp=Math.min(position.codePoint,value.codePointCount(0,value.length()));
+                    int line=view.getLayout().getLineForOffset(value.offsetByCodePoints(0,cp));int[] v=new int[2],s=new int[2];view.getLocationInWindow(v);scroll.getLocationInWindow(s);
+                    int y=scroll.getScrollY()+v[1]-s[1]+view.getTotalPaddingTop()+view.getLayout().getLineTop(line)-Math.round(position.lineOffsetDp*getResources().getDisplayMetrics().density);
+                    scroll.scrollTo(0,Math.max(0,y));return true;
+                }finally{if(restoringReader==scroll)restoringReader=null;}
+            }
         });
     }
     private void hidePeek(){selectedWordId="";if(selectedVerse!=null){selectedVerse.select(null);selectedVerse=null;}if(overlay!=null)overlay.removeAllViews();}
@@ -310,8 +318,10 @@ public final class MainActivity extends Activity {
     private String dueLabel(long due){long days=(due-System.currentTimeMillis())/Recall.DAY;return due<=System.currentTimeMillis()?"Aaj dekh sakte hain":days<1?"Jald dobara":days+" din baad";}
     private String firstWords(String text,int n){String[] a=text.split("\\s+");return String.join(" ",Arrays.copyOfRange(a,0,Math.min(n,a.length)));}
     private List<Recall.State> dueQueue(){
+        captureReaderPosition();
         Map<String,Recall.State> states=learning.states();
-        return Recall.queue(states.values(),content.upcoming(states.values(),"Q:"+readerSurah+":"+readerStart),System.currentTimeMillis(),5);
+        String from=readingPosition==null?"Q:"+readerSurah+":"+readerStart:readingPosition.anchorId;
+        return Recall.queue(states.values(),content.upcoming(states.values(),from),System.currentTimeMillis(),5);
     }
     private void choosePhrase(Ayah a){
         List<ContentStore.Word> words=new ArrayList<>();for(ContentStore.Word w:content.words(a.id))if(w.position>0)words.add(w);

@@ -109,3 +109,15 @@ download the Gradle distribution; analyzer setup is still in progress.
   mixed-source/unmatched-negation corpus regressions, existing 13 positive/20 absent queries,
   Android API-35 Java compilation and native resource linking all pass.
 - No emulator/phone run, APK, Hadith pack, reviewed grammar model or complete FSRS is claimed.
+
+## Checkpoint 8: lifecycle and reading-context audit (2026-09-22)
+
+- Viewport restoration now waits for native text layout's pre-draw event. A pause/rotation before
+  that event cannot replace the pending saved anchor with the temporary zero-scroll position.
+- Natural occurrence lookahead and the resume label now use the visible anchored ayah, rather
+  than always assuming the first ayah of an eight-ayah page. Quiet-reader mode survives rotation.
+- Backup validation resolves both transition ayahs and checks anchor offsets against the source;
+  old event/schema versions remain supported without clearing history. Runtime backup round-trip
+  and document-provider process-death checks still require Android.
+- The absent-query corpus guard also rejects unexpected fragment suggestions. Final source/core,
+  corpus, Android Java and native resource checks were repeated for the completed code snapshot.

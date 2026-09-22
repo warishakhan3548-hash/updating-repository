@@ -34,7 +34,8 @@ public final class CorpusChecks {
             "unicorn telescope","cryptographic nanobot","स्मार्टफोन ब्लूटूथ","क्वांटम कम्प्यूटर","مصطلحغيرموجودتجريبيا",
             "999:999","2:999","0:1","115:1","1:8","teleporting llama","abcdefzzzzz","फ्लक्स कैपेसिटर",
             "ہولوگرافک کمپیوٹر","extraterrestrial skateboard","प्लूटोनियम स्मार्टवॉच"};
-        for(String query:absent)if(!engine.search(query,10).results.isEmpty())throw new AssertionError("False positive for engineered absent query: "+query);
+        for(String query:absent){SearchEngine.Response r=engine.search(query,10);
+            if(!r.results.isEmpty()||r.fragments!=null)throw new AssertionError("False positive for engineered absent query: "+query);}
         Map<String,Ayah> byId=new HashMap<>();for(SearchEngine.Document document:documents)byId.put(document.ayah.id,document.ayah);
         String mixed=byId.get("Q:94:6").arabic+" "+byId.get("Q:1:6").arabic;
         SearchEngine.Response split=engine.search(mixed,10);
