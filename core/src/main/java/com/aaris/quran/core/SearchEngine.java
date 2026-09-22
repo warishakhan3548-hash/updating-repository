@@ -5,7 +5,7 @@ import java.util.regex.*;
 
 /** Deterministic bounded retrieval. Scores describe text relevance, never religious authority. */
 public final class SearchEngine {
-    public static final String VERSION = "lexical-1";
+    public static final String VERSION = "lexical-2";
     public enum Strength { STRONG_TEXT, RELATED }
     public static final class Document {
         public final Ayah ayah;
@@ -44,10 +44,15 @@ public final class SearchEngine {
     private final Map<String,Integer> coordinates=new HashMap<>();
     private final int[] lengths;
     private final double averageLength;
+    private final List<String> vocabulary;
+    private static final Set<String> NEGATION = new HashSet<>(Arrays.asList(
+        "لا", "لم", "لن", "ليس", "ليست", "غير", "دون", "نہیں", "نهيں", "نہ", "مت",
+        "नहीं", "मत", "बिना", "no", "not", "never", "without"));
     public SearchEngine(List<Document> documents) {
         docs=Collections.unmodifiableList(new ArrayList<>(documents));lengths=new int[docs.size()];
         long words=0;
         for(int d=0;d<docs.size();d++) {
+            cancelled();
             Document doc=docs.get(d);
             coordinates.put(doc.ayah.surah+":"+doc.ayah.number,d);
             String normalized=Arabic.tolerant(doc.ayah.arabic);
@@ -59,8 +64,46 @@ public final class SearchEngine {
                 postings.computeIfAbsent(e.getKey(),k->new ArrayList<>()).add(new Posting(d,e.getValue()));
         }
         averageLength=docs.isEmpty()?1:Math.max(1,(double)words/docs.size());
+        vocabulary=new ArrayList<>(postings.keySet());Collections.sort(vocabulary);
     }
     public Response search(String input,int limit) {
+        String query=input==null?"":input.trim();
+        if(query.length()>4096)query=query.substring(0,4096);
+        String[] lines=query.split("\\R");
+        if(lines.length<2)return searchOne(query,limit);
+        long started=System.nanoTime();
+        Map<String,Result> best=new HashMap<>();Map<String,Double> scores=new HashMap<>();
+        Map<String,Integer> matches=new HashMap<>();Set<String> variants=new LinkedHashSet<>();
+        // Equivalent variants get one vote. AI paraphrases are retrieval hints, not witnesses.
+        int candidates=0;
+        for(String line:lines) {
+            cancelled();line=line.trim();if(line.isEmpty())continue;
+            if(!variants.add(Arabic.tolerant(line)))continue;
+            Response response=searchOne(line,100);candidates+=response.candidates;
+            int rank=0;
+            for(Result result:response.results) {
+                String id=result.ayah.id;Result previous=best.get(id);
+                if(previous==null||result.strength==Strength.STRONG_TEXT)best.put(id,result);
+                scores.merge(id,1.0/(60+(++rank)),Double::sum);matches.merge(id,1,Integer::sum);
+            }
+            if(variants.size()==8)break;
+        }
+        List<Result> merged=new ArrayList<>();
+        for(Map.Entry<String,Result> entry:best.entrySet()) {
+            Result result=entry.getValue();List<String> reasons=new ArrayList<>(result.reasons);
+            reasons.add(matches.get(entry.getKey())+"/"+variants.size()+" distinct search lines matched");
+            merged.add(new Result(result.ayah,result.strength,reasons,scores.get(entry.getKey())));
+        }
+        merged.sort(Comparator.comparingInt((Result r)->r.strength==Strength.STRONG_TEXT?0:1)
+            .thenComparing(Comparator.comparingDouble((Result r)->r.score).reversed())
+            .thenComparingInt(r->r.ayah.surah).thenComparingInt(r->r.ayah.number));
+        int count=Math.min(Math.max(1,Math.min(limit,100)),merged.size());
+        return new Response(query,"MULTI_QUERY",new ArrayList<>(merged.subList(0,count)),candidates,System.nanoTime()-started);
+    }
+    private static void cancelled() {
+        if(Thread.currentThread().isInterrupted())throw new java.util.concurrent.CancellationException();
+    }
+    private Response searchOne(String input,int limit) {
         long start=System.nanoTime();
         String query=(input==null?"":input).trim();
         if(query.length()>512) query=query.substring(0,512);
@@ -79,7 +122,7 @@ public final class SearchEngine {
         if(terms.size()>16) terms=terms.subList(0,16);
         // First lane: verbatim-safe phrase, second: orthographic tolerance. Token boundaries matter.
         for(int d=0;d<docs.size();d++) {
-            if(Thread.currentThread().isInterrupted()) return new Response(query,"CANCELLED",Collections.emptyList(),0,System.nanoTime()-start);
+            cancelled();
             boolean exact=arabic && (" "+safe.get(d)+" ").contains(" "+sq+" ");
             boolean relaxed=arabic && (" "+tolerant.get(d)+" ").contains(" "+tq+" ");
             if(exact||relaxed) {
@@ -102,7 +145,8 @@ public final class SearchEngine {
             int maxEdits=term.length()>=8?2:1;
             List<String> repairs=new ArrayList<>();
             Set<String> grams=Arabic.trigrams(term);
-            for(String candidate:new TreeSet<>(postings.keySet())) {
+            for(String candidate:vocabulary) {
+                cancelled();
                 if(Math.abs(term.length()-candidate.length())>maxEdits)continue;
                 Set<String> other=Arabic.trigrams(candidate);int common=0;
                 for(String g:grams)if(other.contains(g))common++;
@@ -114,7 +158,9 @@ public final class SearchEngine {
             }
         }
         // Cross-language lane searches source glosses and transliterations; always labelled related.
-        if(!arabic)for(int d=0;d<docs.size();d++) {
+        // Urdu uses Arabic script too: script detection must not disable the gloss lane.
+        for(int d=0;d<docs.size();d++) {
+            cancelled();
             String h=" "+hints.get(d)+" ";int n=0;
             for(String term:terms)if(term.length()>=2 && h.contains(" "+term+" "))n++;
             if(n>0 && (double)n/Math.max(1,terms.size())>=0.75) {
@@ -132,6 +178,11 @@ public final class SearchEngine {
         }
         List<Candidate> accepted=new ArrayList<>();
         for(Candidate c:found.values()) {
+            cancelled();
+            String matchText=" "+(c.hint?hints.get(c.doc):tolerant.get(c.doc))+" ";
+            boolean lostNegation=false;
+            for(String term:terms)if(NEGATION.contains(term)&&!matchText.contains(" "+term+" ")){lostNegation=true;break;}
+            if(lostNegation)continue;
             if(!c.hint && !c.exact && !c.tolerant) {
                 Set<String> words=new HashSet<>(Arabic.tokens(tolerant.get(c.doc)));int covered=0;
                 for(String term:terms) {

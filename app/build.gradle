@@ -12,5 +12,23 @@ android {
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     buildTypes { release { minifyEnabled false } }
+    lint {
+        abortOnError true
+        checkDependencies true
+        htmlReport true
+        textReport true
+        // The preview supports Hindi, Urdu and English; copy is currently authored in code.
+        disable 'SetTextI18n'
+    }
 }
 dependencies { implementation project(':core') }
+
+// A fresh checkout must contain the same verified offline pack before resource analysis.
+def contentPack = tasks.register('prepareContentPack', Exec) {
+    workingDir rootProject.projectDir
+    commandLine 'python3', 'tools/build_content.py'
+    inputs.dir rootProject.file('source-vault')
+    inputs.files rootProject.file('tools/build_content.py'), rootProject.file('tools/source-lock.json')
+    outputs.files file('src/main/assets/quran.sqlite'), file('src/main/assets/content-manifest.json')
+}
+tasks.named('preBuild').configure { dependsOn contentPack }
