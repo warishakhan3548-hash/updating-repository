@@ -122,7 +122,8 @@ def main():
             raise SystemExit('Release signature verification failed')
         run([align, '-c', '-P', '16', '4', signed], capture=True)
         badging = run([aapt, 'dump', 'badging', signed], capture=True)
-        if 'application-debuggable' in badging or f"name='{app_id}'" not in badging or f"sdkVersion:'{min_sdk}'" not in badging:
+        sdk_line = re.search(rf"(?m)^(?:minSdkVersion|sdkVersion):'{min_sdk}'$", badging)
+        if 'application-debuggable' in badging or f"name='{app_id}'" not in badging or sdk_line is None:
             raise SystemExit('Unexpected package identity/debug/SDK flags')
         with zipfile.ZipFile(signed) as z:
             required = ['AndroidManifest.xml', 'resources.arsc', 'classes.dex', 'assets/quran.sqlite', 'assets/fonts/AmiriQuran.ttf']
