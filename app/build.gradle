@@ -57,8 +57,9 @@ tasks.named('preBuild').configure { dependsOn contentPack }
 def rejectBundledQuranAudio = tasks.register('rejectBundledQuranAudio') {
     doLast {
         def legacy = rootProject.file('source-vault/quran-audio/active/quran-audio')
-        if (legacy.exists()) {
-            throw new GradleException('Legacy bundled Quran audio detected. On-demand Surah audio must not be packaged in the APK.')
+        def accidentalAsset = file('src/main/assets/quran-audio')
+        if (legacy.exists() || accidentalAsset.exists()) {
+            throw new GradleException('Bundled Quran audio detected. On-demand Surah audio must not be packaged in the APK.')
         }
     }
 }
