@@ -520,9 +520,11 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("Theek hai",null).show();
             return;
         }
+        QuranAudioStore.PackMeta meta=app.wordAudio.meta(surah);
+        String packSize=meta==null?"":String.format(Locale.ROOT," · %.1f MB",meta.bytes/(1024d*1024d));
         new AlertDialog.Builder(this)
             .setTitle(s.name+" audio download karein?")
-            .setMessage("Original human Muallim word-by-word pronunciation sirf is Surah ke liye download hogi. Har lafz apni complete isolated clip se bajega—full-Surah audio ko beech se nahi kaata jayega. Download ke baad playback local/offline rahega.")
+            .setMessage("Original human Muallim word-by-word pronunciation sirf is Surah ke liye download hogi"+packSize+". Har lafz apni complete isolated clip se bajega—full-Surah audio ko beech se nahi kaata jayega. Download ke baad playback local/offline rahega.")
             .setNegativeButton("Abhi nahi",null)
             .setPositiveButton("Download",(d,w)->startSurahAudioDownload(surah))
             .show();
@@ -546,9 +548,10 @@ public final class MainActivity extends Activity {
         if(app.wordAudio==null||app.audioDownloads==null){toast("Audio download abhi available nahi hai");return;}
         int installed=app.wordAudio.installedCount();
         if(installed>=114){toast("Poora Quran audio already locally installed hai ✓");return;}
+        double remainingMb=app.wordAudio.remainingBytes()/(1024d*1024d);
         new AlertDialog.Builder(this)
             .setTitle("Download all Quran audio?")
-            .setMessage("114 Surahs ke original isolated Muallim word clips download honge. Base app chhota rahega; audio phone ki private storage mein alag locally save hoga. Har word complete clip ke roop mein bajega. Wi‑Fi recommended.")
+            .setMessage(String.format(Locale.ROOT,"114 Surahs ke original isolated Muallim word clips download honge. Abhi lagbhag %.0f MB baaki hai. Base app chhota rahega; audio private storage mein alag save hoga. Har word complete clip ke roop mein bajega. Wi‑Fi recommended.",remainingMb))
             .setNegativeButton("Abhi nahi",null)
             .setPositiveButton("Download All",(d,w)->{
                 toast("Download All shuru… "+installed+"/114 pehle se local");
