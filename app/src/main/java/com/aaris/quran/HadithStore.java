@@ -3,6 +3,7 @@ package com.aaris.quran;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteException;
 import org.json.JSONObject;
 import java.io.*;
 import java.text.Normalizer;
@@ -154,15 +155,47 @@ final class HadithStore implements AutoCloseable {
 
     List<Record> search(String query,int limit){
         String raw=query==null?"":query.trim();if(raw.isEmpty()||db==null)return Collections.emptyList();
-        String ar=normalizeArabic(raw),latin=normalizeLatin(raw);
-        List<Record> out=new ArrayList<>();
+        int cap=Math.max(1,Math.min(100,limit));
+        LinkedHashMap<String,Record> unique=new LinkedHashMap<>();
+
+        // Exact identities/references always come first and do not depend on tokenization.
         try(Cursor c=db.rawQuery("SELECT DISTINCT "+RECORD_COLUMNS+" FROM hadith h "+
-            "LEFT JOIN hadith_reference r ON r.hadith_id=h.id WHERE h.record_number=? OR r.value=? OR "+
-            "h.search_ar LIKE ? OR h.search_latin LIKE ? ORDER BY h.collection_id,h.rowid LIMIT ?",
-            new String[]{raw,raw,"%"+ar+"%","%"+latin+"%",""+Math.max(1,Math.min(100,limit))})){
-            while(c.moveToNext())out.add(new Record(c));
+            "LEFT JOIN hadith_reference r ON r.hadith_id=h.id WHERE h.id=? OR h.record_number=? OR r.value=? "+
+            "ORDER BY h.collection_id,h.rowid LIMIT ?",
+            new String[]{raw,raw,raw,""+cap})){
+            while(c.moveToNext()){Record record=new Record(c);unique.put(record.id,record);}
         }
-        return out;
+
+        String match=ftsQuery(raw);
+        if(!match.isEmpty()&&unique.size()<cap){
+            try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith_fts f "+
+                "JOIN hadith h ON h.id=f.hadith_id WHERE hadith_fts MATCH ? "+
+                "ORDER BY h.collection_id,h.rowid LIMIT ?",
+                new String[]{match,""+cap})){
+                while(c.moveToNext()&&unique.size()<cap){Record record=new Record(c);unique.put(record.id,record);}
+            }catch(SQLiteException unavailable){
+                // Compatibility fallback for an older local pack. New schema-2 packs always include FTS4.
+                String ar=normalizeArabic(raw),latin=normalizeLatin(raw);
+                try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+
+                    "h.search_ar LIKE ? OR h.search_latin LIKE ? ORDER BY h.collection_id,h.rowid LIMIT ?",
+                    new String[]{"%"+ar+"%","%"+latin+"%",""+cap})){
+                    while(c.moveToNext()&&unique.size()<cap){Record record=new Record(c);unique.put(record.id,record);}
+                }
+            }
+        }
+        return new ArrayList<>(unique.values());
+    }
+
+    private static String ftsQuery(String raw){
+        String normalized=normalizeArabic(normalizeLatin(raw));
+        StringBuilder query=new StringBuilder();
+        for(String token:normalized.split("\\s+")){
+            token=token.replaceAll("[^\\p{L}\\p{N}]+","");
+            if(token.isEmpty())continue;
+            if(query.length()>0)query.append(" AND ");
+            query.append('"').append(token.replace("\"","\"\"")).append('"');
+        }
+        return query.toString();
     }
 
     List<String> grades(String id){
