@@ -43,11 +43,10 @@ final class RecitationDownloads {
             if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("Audio storage unavailable");
             File temporary=new File(directory,a.number+".download");
             URL url=new URL("https://cdn.islamic.network/quran/audio/128/"+reciter+"/"+a.ordinal+".mp3");
-            HttpURLConnection connection=(HttpURLConnection)url.openConnection();connection.setConnectTimeout(15000);connection.setReadTimeout(30000);connection.setInstanceFollowRedirects(true);
+            HttpURLConnection connection=(HttpURLConnection)url.openConnection();connection.setConnectTimeout(15000);connection.setReadTimeout(30000);connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Accept-Encoding","identity");connection.setRequestProperty("User-Agent","Aaris-Quran/0.4 recitation");
             try{
                 int response=connection.getResponseCode();
-                if(!"https".equalsIgnoreCase(connection.getURL().getProtocol()))throw new IOException("Reciter source redirected outside HTTPS");
                 if(response!=200)throw new IOException("Reciter source unavailable ("+response+")");
                 long expected=connection.getContentLengthLong();if(expected>20*1024*1024)throw new IOException("Unexpected audio size");long count=0;
                 try(InputStream in=connection.getInputStream();FileOutputStream out=new FileOutputStream(temporary)){byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1){if(Thread.currentThread().isInterrupted())throw new InterruptedIOException();count+=n;if(count>20*1024*1024)throw new IOException("Audio too large");out.write(b,0,n);}out.getFD().sync();}
