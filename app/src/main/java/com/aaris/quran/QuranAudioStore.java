@@ -1,228 +1,203 @@
 package com.aaris.quran;
 
 import android.content.Context;
+import org.json.JSONObject;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.*;
 
 /**
- * App-private, on-demand Quran recitation store.
+ * App-private store for exact isolated Quran word recordings.
  *
- * Audio is never bundled in the APK. A Surah becomes playable only after its immutable full-Surah
- * Opus file and matching word-timing protobuf have both been downloaded, validated, and atomically
- * installed under the app's private files directory. Once installed, playback is fully local.
+ * One downloaded .aqp file represents one Surah. It contains a tiny coordinate index followed by
+ * byte-for-byte Ogg/Opus word clips from the pinned Muallim dataset. Playback addresses one complete
+ * source clip by file offset/length; it never seeks into or truncates a full-Surah recitation.
  */
 final class QuranAudioStore {
-    static final String PROFILE_ID="abdul-basit-abdul-samad-mujawwad";
-    static final String RECITER_NAME="Abdul Basit Abdul Samad · Mujawwad";
-    static final String SOURCE_NAME="Quranic Recitation Data";
-    static final String RIGHTS_NOTICE="source metadata Apache-2.0; recording-rights review pending";
-    static final String SOURCE_REVISION="6875b35e45cc83107daf3ab7d3a8bd8b2baa51b3";
+    static final String PROFILE_ID="muallim-isolated-word-v1";
+    static final String RECITER_NAME="Muallim · isolated word pronunciation";
+    static final String SOURCE_NAME="Quranic Word-By-Word Audio Data";
+    static final String SOURCE_REPO="zaibihassan/Quranic-Word-By-Word-Audio-Data";
+    static final String SOURCE_REVISION="9796e08caae700f44266255da320adf6e5ab4114";
     static final String CANONICAL_ALIGNMENT_HASH="9971ffae866bc3682d11efccd30fdddb1d62bc4718e5f9cd941395e6f16093ce";
+    static final String DELIVERY="ISOLATED_WORD_SURAH_CONTAINER_V1";
+    private static final byte[] MAGIC="AARISQW1\n".getBytes(StandardCharsets.US_ASCII);
+    private static final int MAX_INDEX_BYTES=4*1024*1024;
 
-    static final class Clip {
-        final File audio;
-        final int startMs,endMs;
-        Clip(File audio,int startMs,int endMs){this.audio=audio;this.startMs=startMs;this.endMs=endMs;}
-        int durationMs(){return Math.max(1,endMs-startMs);}
-    }
-    static final class Segment {
-        final int oneBased,startMs,endMs;
-        Segment(int oneBased,int startMs,int endMs){this.oneBased=oneBased;this.startMs=startMs;this.endMs=endMs;}
-    }
-    private static final class SurahTiming {
-        final Map<String,Map<Integer,Segment>> verses;
-        SurahTiming(Map<String,Map<Integer,Segment>> verses){this.verses=verses;}
-        Segment get(int surah,int ayah,int position){
-            Map<Integer,Segment> words=verses.get(surah+":"+ayah);
-            return words==null?null:words.get(position);
+    static final class PackMeta {
+        final int surah,words;final long bytes;final String sha256,url;
+        PackMeta(int surah,int words,long bytes,String sha256,String url){
+            this.surah=surah;this.words=words;this.bytes=bytes;this.sha256=sha256;this.url=url;
         }
+    }
+    static final class Clip {
+        final File container;final long offset,length;
+        Clip(File container,long offset,long length){this.container=container;this.offset=offset;this.length=length;}
+    }
+    private static final class Entry {
+        final long offset,length;
+        Entry(long offset,long length){this.offset=offset;this.length=length;}
+    }
+    private static final class SurahIndex {
+        final long payloadBase;final Map<String,Entry> entries;
+        SurahIndex(long payloadBase,Map<String,Entry> entries){this.payloadBase=payloadBase;this.entries=entries;}
     }
 
     private final File root;
-    private final Map<Integer,SurahTiming> cache=new HashMap<>();
+    private final Map<Integer,PackMeta> catalog=new HashMap<>();
+    private final Map<Integer,SurahIndex> cache=new HashMap<>();
 
-    QuranAudioStore(Context context,String alignmentHash) throws IOException {
+    QuranAudioStore(Context context,String alignmentHash) throws Exception {
         if(alignmentHash==null||!CANONICAL_ALIGNMENT_HASH.equals(alignmentHash))
-            throw new IOException("Downloaded Quran audio timing is pinned to different canonical word identities");
+            throw new IOException("Quran word identities differ from the isolated pronunciation catalog");
+        JSONObject manifest=new JSONObject(ContentStore.asset(context,"quran-audio-word-catalog.json"));
+        if(manifest.optInt("schema")!=1||!DELIVERY.equals(manifest.optString("delivery")))
+            throw new IOException("Unsupported Quran pronunciation catalog");
+        if(!SOURCE_REVISION.equals(manifest.optString("source_revision"))||
+           !CANONICAL_ALIGNMENT_HASH.equals(manifest.optString("canonical_quran_alignment_sha256"))||
+           manifest.optInt("canonical_quran_audio_words")!=77326||
+           manifest.optInt("surahs")!=114)
+            throw new IOException("Quran pronunciation catalog/source binding mismatch");
+        JSONObject packs=manifest.getJSONObject("packs");
+        for(int surah=1;surah<=114;surah++){
+            String key=String.format(Locale.ROOT,"%03d",surah);
+            JSONObject p=packs.getJSONObject(key);
+            int words=p.getInt("words");long bytes=p.getLong("bytes");
+            String sha=p.getString("sha256"),url=p.getString("url");
+            if(words<1||bytes<64||sha.length()!=64||!url.startsWith("https://github.com/"))
+                throw new IOException("Invalid Quran pronunciation pack metadata for Surah "+surah);
+            catalog.put(surah,new PackMeta(surah,words,bytes,sha,url));
+        }
         root=new File(context.getFilesDir(),"quran-audio/"+PROFILE_ID);
-        if(!root.exists()&&!root.mkdirs())throw new IOException("Cannot create local Quran audio storage");
+        if(!root.exists()&&!root.mkdirs())throw new IOException("Cannot create local Quran pronunciation storage");
     }
 
     File root(){return root;}
-    File surahDir(int surah){return new File(root,String.format(Locale.ROOT,"%03d",surah));}
-    File audioFile(int surah){String n=String.format(Locale.ROOT,"%03d",surah);return new File(surahDir(surah),n+".opus");}
-    File timingFile(int surah){String n=String.format(Locale.ROOT,"%03d",surah);return new File(surahDir(surah),n+".pb");}
+    PackMeta meta(int surah){return catalog.get(surah);}
+    File surahFile(int surah){return new File(root,String.format(Locale.ROOT,"%03d.aqp",surah));}
+    private File markerFile(int surah){return new File(root,String.format(Locale.ROOT,"%03d.ok",surah));}
+    File partialFile(int surah){return new File(root,".partial-"+SOURCE_REVISION.substring(0,12)+"-"+String.format(Locale.ROOT,"%03d",surah)+".aqp");}
 
     synchronized boolean installedSurah(int surah){
-        if(surah<1||surah>114)return false;
-        File audio=audioFile(surah),timing=timingFile(surah);
-        if(!audio.isFile()||!timing.isFile()||audio.length()<32||timing.length()<2)return false;
+        PackMeta meta=meta(surah);if(meta==null)return false;
+        File file=surahFile(surah),marker=markerFile(surah);
+        if(!file.isFile()||file.length()!=meta.bytes)return false;
         try{
-            if(!cache.containsKey(surah))cache.put(surah,parseTiming(timing,surah));
+            String marked=marker.isFile()?readSmall(marker,256).trim():"";
+            if(!meta.sha256.equals(marked)){
+                // Crash-safe recovery: an atomically renamed complete file may exist before marker write.
+                validateContainer(file,meta,true);
+                writeMarker(marker,meta.sha256);
+            }
+            if(!cache.containsKey(surah))cache.put(surah,parseIndex(file,meta,false));
             return true;
-        }catch(IOException invalid){
+        }catch(Exception invalid){
             cache.remove(surah);return false;
         }
     }
 
-    synchronized int installedCount(){
-        int count=0;for(int s=1;s<=114;s++)if(installedSurah(s))count++;return count;
-    }
-
-    synchronized long installedBytes(){
-        long total=0;
-        for(int s=1;s<=114;s++){
-            File a=audioFile(s),p=timingFile(s);
-            if(a.isFile())total+=a.length();
-            if(p.isFile())total+=p.length();
-        }
-        return total;
-    }
-
+    synchronized int installedCount(){int n=0;for(int s=1;s<=114;s++)if(installedSurah(s))n++;return n;}
+    synchronized long installedBytes(){long total=0;for(int s=1;s<=114;s++){File f=surahFile(s);if(f.isFile())total+=f.length();}return total;}
     synchronized void refreshSurah(int surah){cache.remove(surah);}
 
     synchronized Clip clip(ContentStore.Word word){
         if(word==null||word.position<1||word.ayahId==null)return null;
-        int[] coordinate=coordinate(word.ayahId);
-        if(coordinate==null)return null;
+        int[] coordinate=coordinate(word.ayahId);if(coordinate==null)return null;
         int surah=coordinate[0],ayah=coordinate[1];
         if(!installedSurah(surah))return null;
-        SurahTiming timing=cache.get(surah);
-        Segment segment=timing==null?null:timing.get(surah,ayah,word.position);
-        if(segment==null||segment.endMs<=segment.startMs)return null;
-        return new Clip(audioFile(surah),segment.startMs,segment.endMs);
+        SurahIndex index=cache.get(surah);if(index==null)return null;
+        Entry e=index.entries.get(ayah+":"+word.position);if(e==null)return null;
+        return new Clip(surahFile(surah),index.payloadBase+e.offset,e.length);
     }
 
     boolean canAddress(ContentStore.Word word){return clip(word)!=null;}
+    String attribution(){return RECITER_NAME+" · "+SOURCE_NAME+" · exact isolated local clip";}
 
-    String attribution(){return RECITER_NAME+" · "+SOURCE_NAME+" · "+RIGHTS_NOTICE+" · local after download";}
-
-    static void validateSurahFiles(File audio,File timing,int surah) throws IOException {
-        if(surah<1||surah>114)throw new IOException("Invalid Surah number");
-        if(!audio.isFile()||audio.length()<32)throw new IOException("Downloaded Surah audio is missing or empty");
-        try(InputStream in=new FileInputStream(audio)){
-            byte[] header=new byte[4];
-            if(in.read(header)!=4||header[0]!='O'||header[1]!='g'||header[2]!='g'||header[3]!='S')
-                throw new IOException("Downloaded Surah audio is not an Ogg/Opus file");
+    synchronized void installDownloaded(int surah,File staging) throws Exception {
+        PackMeta meta=meta(surah);if(meta==null)throw new IOException("Unknown Surah audio pack");
+        validateContainer(staging,meta,true);
+        File target=surahFile(surah),marker=markerFile(surah),old=new File(root,String.format(Locale.ROOT,".%03d.old",surah));
+        delete(old);delete(marker);
+        if(target.exists()&&!target.renameTo(old))throw new IOException("Purana Surah pronunciation replace nahi ho saka");
+        if(!staging.renameTo(target)){
+            if(old.exists())old.renameTo(target);
+            throw new IOException("Verified Surah pronunciation install nahi ho saka");
         }
-        SurahTiming parsed=parseTiming(timing,surah);
-        if(parsed.verses.isEmpty())throw new IOException("Downloaded Surah timing file has no verses");
+        try{
+            writeMarker(marker,meta.sha256);
+            cache.put(surah,parseIndex(target,meta,false));
+        }catch(Exception fail){
+            delete(marker);delete(target);if(old.exists())old.renameTo(target);throw fail;
+        }
+        delete(old);
+    }
+
+    private static SurahIndex parseIndex(File file,PackMeta meta,boolean verifyOgg) throws Exception {
+        try(RandomAccessFile raf=new RandomAccessFile(file,"r")){
+            byte[] magic=new byte[MAGIC.length];raf.readFully(magic);
+            if(!Arrays.equals(MAGIC,magic))throw new IOException("Invalid isolated Quran audio container magic");
+            int indexLength=raf.readInt();
+            if(indexLength<1||indexLength>MAX_INDEX_BYTES||indexLength>raf.length()-MAGIC.length-4)
+                throw new IOException("Invalid isolated Quran audio index length");
+            byte[] raw=new byte[indexLength];raf.readFully(raw);
+            long payloadBase=MAGIC.length+4L+indexLength,payloadBytes=raf.length()-payloadBase;
+            String text=new String(raw,StandardCharsets.UTF_8);
+            Map<String,Entry> entries=new HashMap<>();
+            int count=0;
+            for(String line:text.split("\n")){
+                if(line.isEmpty())continue;
+                String[] p=line.split("\t");
+                if(p.length!=4)throw new IOException("Malformed Quran word-audio index row");
+                int ayah=Integer.parseInt(p[0]),position=Integer.parseInt(p[1]);
+                long off=Long.parseLong(p[2]),len=Long.parseLong(p[3]);
+                if(ayah<1||position<1||off<0||len<32||off+len>payloadBytes)
+                    throw new IOException("Out-of-range Quran word-audio index row");
+                String key=ayah+":"+position;
+                if(entries.put(key,new Entry(off,len))!=null)throw new IOException("Duplicate Quran word-audio coordinate");
+                if(verifyOgg){
+                    raf.seek(payloadBase+off);
+                    if(raf.read()!='O'||raf.read()!='g'||raf.read()!='g'||raf.read()!='S')
+                        throw new IOException("Indexed Quran word clip is not an Ogg stream");
+                }
+                count++;
+            }
+            if(count!=meta.words)throw new IOException("Quran word-audio pack coverage mismatch");
+            return new SurahIndex(payloadBase,entries);
+        }catch(NumberFormatException malformed){throw new IOException("Malformed Quran word-audio index number",malformed);}
+    }
+
+    private static void validateContainer(File file,PackMeta meta,boolean verifyOgg) throws Exception {
+        if(!file.isFile()||file.length()!=meta.bytes)throw new IOException("Downloaded Surah pronunciation size mismatch");
+        if(!meta.sha256.equals(sha256(file)))throw new IOException("Downloaded Surah pronunciation checksum mismatch");
+        parseIndex(file,meta,verifyOgg);
     }
 
     private static int[] coordinate(String ayahId){
         try{
-            String[] parts=ayahId.split(":");
-            if(parts.length!=3||!"Q".equals(parts[0]))return null;
-            int s=Integer.parseInt(parts[1]),a=Integer.parseInt(parts[2]);
-            return s>=1&&s<=114&&a>=1?new int[]{s,a}:null;
-        }catch(RuntimeException bad){return null;}
+            String[] p=ayahId.split(":");if(p.length!=3||!"Q".equals(p[0]))return null;
+            int s=Integer.parseInt(p[1]),a=Integer.parseInt(p[2]);return s>=1&&s<=114&&a>=1?new int[]{s,a}:null;
+        }catch(RuntimeException e){return null;}
     }
-
-    private static SurahTiming parseTiming(File file,int expectedSurah) throws IOException {
-        if(!file.isFile()||file.length()<2||file.length()>8*1024*1024)
-            throw new IOException("Invalid Quran timing file");
-        byte[] data=readAll(file,(int)Math.min(Integer.MAX_VALUE,file.length()+1));
-        Proto top=new Proto(data);
-        Map<String,Map<Integer,Segment>> verses=new HashMap<>();
-        while(!top.done()){
-            int tag=top.varint32();int field=tag>>>3,wire=tag&7;
-            if(field==1&&wire==2){
-                Proto entry=new Proto(top.bytes());
-                String key=null;byte[] value=null;
-                while(!entry.done()){
-                    int eTag=entry.varint32();int eField=eTag>>>3,eWire=eTag&7;
-                    if(eField==1&&eWire==2)key=new String(entry.bytes(),StandardCharsets.UTF_8);
-                    else if(eField==2&&eWire==2)value=entry.bytes();
-                    else entry.skip(eWire);
-                }
-                if(key==null||value==null)continue;
-                String[] parts=key.split(":");
-                if(parts.length!=2)throw new IOException("Invalid Quran timing verse key");
-                int surah,ayah;
-                try{surah=Integer.parseInt(parts[0]);ayah=Integer.parseInt(parts[1]);}
-                catch(NumberFormatException bad){throw new IOException("Invalid Quran timing verse coordinate",bad);}
-                if(surah!=expectedSurah||ayah<1)throw new IOException("Quran timing file belongs to a different Surah");
-                Map<Integer,Segment> words=parseVerse(value);
-                if(!words.isEmpty())verses.put(key,words);
-            }else top.skip(wire);
+    private static String sha256(File file) throws Exception {
+        MessageDigest sha=MessageDigest.getInstance("SHA-256");
+        try(InputStream in=new BufferedInputStream(new FileInputStream(file))){
+            byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)sha.update(b,0,n);
         }
-        if(verses.isEmpty())throw new IOException("Quran timing protobuf contains no usable word segments");
-        return new SurahTiming(verses);
+        StringBuilder out=new StringBuilder();for(byte b:sha.digest())out.append(String.format(Locale.ROOT,"%02x",b&255));return out.toString();
     }
-
-    private static Map<Integer,Segment> parseVerse(byte[] bytes) throws IOException {
-        Proto verse=new Proto(bytes);
-        Map<Integer,Segment> words=new HashMap<>();
-        while(!verse.done()){
-            int tag=verse.varint32();int field=tag>>>3,wire=tag&7;
-            if(field==1&&wire==2){
-                Proto word=new Proto(verse.bytes());
-                int zero=-1,one=-1,start=-1,end=-1;
-                while(!word.done()){
-                    int wTag=word.varint32();int wField=wTag>>>3,wWire=wTag&7;
-                    if(wWire==0){
-                        int value=word.varint32();
-                        if(wField==1)zero=value;
-                        else if(wField==2)one=value;
-                        else if(wField==3)start=value;
-                        else if(wField==4)end=value;
-                    }else word.skip(wWire);
-                }
-                int position=one>0?one:(zero>=0?zero+1:-1);
-                if(position>0&&start>=0&&end>start&&end<24*60*60*1000)
-                    words.put(position,new Segment(position,start,end));
-            }else verse.skip(wire);
-        }
-        return words;
-    }
-
-    private static byte[] readAll(File file,int max) throws IOException {
-        if(file.length()>max)throw new IOException("Quran timing file is too large");
-        try(InputStream in=new FileInputStream(file);ByteArrayOutputStream out=new ByteArrayOutputStream((int)file.length())){
-            byte[] buffer=new byte[8192];int n,total=0;
-            while((n=in.read(buffer))!=-1){
-                total+=n;if(total>max)throw new IOException("Quran timing file exceeds limit");
-                out.write(buffer,0,n);
-            }
-            return out.toByteArray();
+    private static String readSmall(File file,int max) throws IOException {
+        if(file.length()>max)throw new IOException("Marker too large");
+        try(InputStream in=new FileInputStream(file);ByteArrayOutputStream out=new ByteArrayOutputStream()){
+            byte[] b=new byte[256];int n;while((n=in.read(b))!=-1){if(out.size()+n>max)throw new IOException("Marker too large");out.write(b,0,n);}
+            return out.toString("UTF-8");
         }
     }
-
-    /** Minimal decoder for the fixed protobuf schema used by the pinned recitation dataset. */
-    private static final class Proto {
-        final byte[] data;int pos;
-        Proto(byte[] data){this.data=data;}
-        boolean done(){return pos>=data.length;}
-        int varint32() throws IOException {
-            long value=0;
-            for(int shift=0;shift<35;shift+=7){
-                if(pos>=data.length)throw new EOFException("Truncated protobuf varint");
-                int b=data[pos++]&255;value|=(long)(b&127)<<shift;
-                if((b&128)==0){
-                    if(value>Integer.MAX_VALUE)throw new IOException("Protobuf integer overflow");
-                    return (int)value;
-                }
-            }
-            throw new IOException("Invalid protobuf varint");
-        }
-        byte[] bytes() throws IOException {
-            int length=varint32();
-            if(length<0||length>data.length-pos)throw new EOFException("Truncated protobuf field");
-            byte[] out=Arrays.copyOfRange(data,pos,pos+length);pos+=length;return out;
-        }
-        void skip(int wire) throws IOException {
-            switch(wire){
-                case 0: varint32();break;
-                case 1: advance(8);break;
-                case 2: advance(varint32());break;
-                case 5: advance(4);break;
-                default: throw new IOException("Unsupported protobuf wire type "+wire);
-            }
-        }
-        void advance(int count) throws IOException {
-            if(count<0||count>data.length-pos)throw new EOFException("Truncated protobuf field");
-            pos+=count;
-        }
+    private static void writeMarker(File marker,String text) throws IOException {
+        File tmp=new File(marker.getParentFile(),marker.getName()+".tmp");
+        try(FileOutputStream out=new FileOutputStream(tmp)){out.write((text+"\n").getBytes(StandardCharsets.US_ASCII));out.getFD().sync();}
+        if(marker.exists()&&!marker.delete())throw new IOException("Old audio marker clear nahi hua");
+        if(!tmp.renameTo(marker))throw new IOException("Audio marker install nahi hua");
     }
+    private static void delete(File f){if(f!=null&&f.exists())f.delete();}
 }
