@@ -1,4 +1,7 @@
 plugins { id 'com.android.application' }
+
+def activeQuranAudioSource = rootProject.file('source-vault/quran-audio/active')
+
 android {
     namespace 'com.aaris.quran'
     compileSdk 35
@@ -20,6 +23,13 @@ android {
         // The preview supports Hindi, Urdu and English; copy is currently authored in code.
         disable 'SetTextI18n'
     }
+    sourceSets {
+        main { assets.srcDir activeQuranAudioSource }
+    }
+    androidResources {
+        // Word clips must remain seekable through AssetFileDescriptor / MediaPlayer.
+        noCompress += ['opus']
+    }
 }
 dependencies { implementation project(':core') }
 
@@ -32,6 +42,19 @@ def contentPack = tasks.register('prepareContentPack', Exec) {
     outputs.files file('src/main/assets/quran.sqlite'), file('src/main/assets/content-manifest.json')
 }
 tasks.named('preBuild').configure { dependsOn contentPack }
+
+// Quran word audio is an optional immutable local pack. The normal Android build never downloads
+// it. If an active manifest exists, verify exact canonical word coverage before packaging assets.
+def verifyQuranAudioPack = tasks.register('verifyQuranAudioPack', Exec) {
+    dependsOn contentPack
+    onlyIf { new File(activeQuranAudioSource, 'quran-audio/manifest.json').exists() }
+    outputs.upToDateWhen { false }
+    workingDir rootProject.projectDir
+    commandLine 'python3', 'tools/check_quran_audio.py',
+        '--source', activeQuranAudioSource.absolutePath,
+        '--quran-db', file('src/main/assets/quran.sqlite').absolutePath
+}
+tasks.named('preBuild').configure { dependsOn verifyQuranAudioPack }
 
 
 // Hadith is a separate immutable pack. Prefer an explicitly prepared active pack; otherwise
