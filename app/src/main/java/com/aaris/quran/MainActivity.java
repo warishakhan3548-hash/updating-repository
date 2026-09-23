@@ -374,7 +374,7 @@ public final class MainActivity extends Activity {
     private void ambientSettings(){
         LinearLayout page=sheet("Set timer");Dialog dialog=activeDialog;
         TextView status=text(this,app.ambientRunning?"Running · every "+AmbientSettings.minutes(this)+" min":"",13,MINT);
-        status.setGravity(Gravity.CENTER);page.addView(status);if(app.ambientRunning)gap(page,10);
+        status.setGravity(Gravity.CENTER);status.setVisibility(app.ambientRunning?View.VISIBLE:View.GONE);page.addView(status);if(app.ambientRunning)gap(page,10);
 
         EditText minutes=new EditText(this);minutes.setTextColor(INK);minutes.setHintTextColor(MUTED);minutes.setTextSize(22);
         minutes.setHint("Minutes");minutes.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);minutes.setFilters(new InputFilter[]{new InputFilter.LengthFilter(3)});
@@ -1150,7 +1150,7 @@ public final class MainActivity extends Activity {
             });
             return;
         }
-        if(request==OVERLAY_PERMISSION){if(pendingAmbient&&Settings.canDrawOverlays(this))beginAmbient();else {pendingAmbient=false;toast("Permission ke bina doosri apps par card nahi aa sakta");}return;}
+        if(request==OVERLAY_PERMISSION){if(pendingAmbient&&Settings.canDrawOverlays(this))beginAmbient();else {pendingAmbient=false;openOtherAppsAfterAmbientStart=false;toast("Overlay permission is needed for cards over other apps");}return;}
         if(result!=RESULT_OK||data==null||data.getData()==null){if(request==EXPORT){String token=pendingExport;pendingExport=null;app.io.execute(()->discardExport(token));}return;}Uri uri=data.getData();
         if(request==EXPORT){String token=pendingExport;pendingExport=null;if(token==null){toast("Export dobara shuru karein");return;}app.io.execute(()->{
             try{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();app.exports.copyTo(token,out);}discardExport(token);ui.post(()->toast("File save ho gayi"));}
