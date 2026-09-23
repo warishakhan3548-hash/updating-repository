@@ -33,6 +33,19 @@ android {
 }
 dependencies { implementation project(':core') }
 
+// Guard the architectural invariant before any content work: Android/runtime and the normal Gradle
+// path must stay network-independent. One-time acquire_* helpers are never Gradle dependencies.
+def offlineContract = tasks.register('checkOfflineContract', Exec) {
+    workingDir rootProject.projectDir
+    commandLine 'python3', 'tools/check_offline_contract.py'
+    inputs.file rootProject.file('tools/check_offline_contract.py')
+    inputs.file rootProject.file('app/src/main/AndroidManifest.xml')
+    inputs.dir rootProject.file('app/src/main/java')
+    inputs.file file('build.gradle')
+    outputs.upToDateWhen { false }
+}
+tasks.named('preBuild').configure { dependsOn offlineContract }
+
 // A fresh checkout must contain the same verified offline pack before resource analysis.
 def contentPack = tasks.register('prepareContentPack', Exec) {
     workingDir rootProject.projectDir
