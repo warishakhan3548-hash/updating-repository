@@ -339,10 +339,16 @@ download the Gradle distribution; analyzer setup is still in progress.
   uncompressed for `AssetFileDescriptor` playback, and verifies the packaged hashes and byte sizes.
   This closes the previous gap where Gradle understood local audio/Hadith but the direct release
   path could omit them.
+- Added a tracked `source-vault/quran-audio/release-policy.json` deletion guard. It is currently
+  `pending_vendor_import`, so builds remain offline and valid without pronunciation while the
+  binary payload has never been installed. The one-time completion script changes it to
+  `required` only after full verification and pins the exact manifest SHA-256 + pack ID; after
+  that, deleting/replacing the local pack makes Gradle, manual verification and direct release
+  builds fail closed instead of reacquiring anything online.
 - The actual large `source-vault/quran-audio/active` binary payload is **not yet committed** on
   GitHub. The remaining content step is to run the pinned one-time acquisition/finalization in a
   maintainer environment with network access, verify it, and commit the resulting ordinary Git
-  files. Until those bytes exist, builds remain fully offline but word pronunciation is unavailable
-  rather than falling back to a website.
+  files together with the armed release policy. Until those bytes exist, builds remain fully
+  offline but word pronunciation is unavailable rather than falling back to a website.
 - No APK/AAB was built and no CI workflow was added.
 
