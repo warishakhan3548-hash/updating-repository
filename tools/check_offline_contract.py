@@ -6,6 +6,7 @@ The sole runtime network boundary is explicit user-requested Quran recitation do
 QuranAudioDownloadManager.java may fetch immutable per-Surah audio/timing files, which are then
 validated and stored privately for local playback. Normal Gradle builds never acquire audio.
 """
+import json
 import re
 from pathlib import Path
 
@@ -14,6 +15,8 @@ MANIFEST=ROOT/"app/src/main/AndroidManifest.xml"
 APP_JAVA=ROOT/"app/src/main/java"
 GRADLE=ROOT/"app/build.gradle"
 AUDIO_DOWNLOADER=APP_JAVA/"com/aaris/quran/QuranAudioDownloadManager.java"
+AUDIO_STORE=APP_JAVA/"com/aaris/quran/QuranAudioStore.java"
+AUDIO_LOCK=ROOT/"source-vault/quran-audio/on-demand-source-lock.json"
 
 NETWORK_IMPORTS=(
     "java.net.",
@@ -50,9 +53,22 @@ def main():
     if offenders:
         fail("; ".join(offenders))
 
-    if not AUDIO_DOWNLOADER.is_file():
-        fail("QuranAudioDownloadManager.java is missing")
+    if not AUDIO_DOWNLOADER.is_file() or not AUDIO_STORE.is_file() or not AUDIO_LOCK.is_file():
+        fail("on-demand Quran audio source/store/downloader wiring is incomplete")
+    lock=json.loads(AUDIO_LOCK.read_text(encoding="utf-8"))
+    if lock.get("schema")!=1 or lock.get("delivery")!="ON_DEMAND_SURAH_LOCAL_V1":
+        fail("unsupported on-demand Quran audio source lock")
     downloader=AUDIO_DOWNLOADER.read_text(encoding="utf-8")
+    store=AUDIO_STORE.read_text(encoding="utf-8")
+    revision=str(lock.get("revision") or "")
+    repo_id=str(lock.get("repo_id") or "")
+    quran_hash=str(lock.get("canonical_quran_sqlite_sha256") or "")
+    if len(revision)!=40 or revision not in store:
+        fail("runtime audio source revision differs from reviewed lock")
+    if repo_id not in downloader:
+        fail("runtime audio repository differs from reviewed lock")
+    if len(quran_hash)!=64 or quran_hash not in store:
+        fail("runtime audio Quran binding differs from reviewed lock")
     if "HttpURLConnection" not in downloader:
         fail("audio downloader no longer has an explicit reviewed HTTPS boundary")
     if "http://" in downloader:
