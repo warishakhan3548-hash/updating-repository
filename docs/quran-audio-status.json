@@ -2,7 +2,6 @@
   "schema": 2,
   "feature": "quran_word_pronunciation",
   "status": "ON_DEMAND_SURAH_LOCAL_READY_DEVICE_QA_PENDING",
-  "canonical_quran_sqlite_sha256": "521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1",
   "delivery": "ON_DEMAND_SURAH_LOCAL_V1",
   "source": {
     "provider": "Hugging Face immutable dataset snapshot",
@@ -39,7 +38,9 @@
     "interrupted_download_resume": true,
     "revision_scoped_partial_downloads": true,
     "http_range_resume": true,
-    "partial_download_never_playable": true
+    "partial_download_never_playable": true,
+    "semantic_word_identity_binding": true,
+    "raw_sqlite_hash_binding": false
   },
   "local_pack_shape": {
     "surahs": 114,
@@ -60,7 +61,8 @@
     "real Android device QA for Opus seeking accuracy and word-boundary timing",
     "real-network QA for HTTP Range resume, redirects, and interrupted connections",
     "independent recording-rights clearance before any commercial distribution",
-    "storage-management UI if later requested",
-    "release APK size measurement after next explicit build request"
-  ]
+    "storage-management UI if later requested"
+  ],
+  "canonical_quran_alignment_sha256": "dc529dcb8d07549e5837621b6e0f26f9948221545907e9c5d89b035bc412ea1e",
+  "canonical_quran_audio_words": 77326
 }
