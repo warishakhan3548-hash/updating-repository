@@ -42,19 +42,20 @@ That local pack supports Collection → Book → Chapter → Hadith navigation a
 English/reference search where those language layers exist. This is real offline core-nine coverage,
 not a claim that every collection in the wider Sunnah.com catalog is vendored.
 
-Quran pronunciation now uses an on-demand local Surah architecture instead of putting hundreds
-of megabytes of recitation inside the base APK. The reviewed source lock pins an immutable
-`Quranic-Recitation-Data` snapshot and Abdul Basit Abdul Samad (Mujawwad). Each Surah is one
-original human-recitation Ogg Opus file plus compact word-level protobuf timings. The user may
-download one Surah from its reader screen or choose Download All. Interrupted downloads are kept
-as revision-scoped partial files and resume with HTTP Range when the origin supports it; a partial
-Surah is never playable. A verified Surah is atomically installed into app-private storage; after
-that, word taps and ambient recall overlays seek the local file and do not use the network. Quran text, Hadith, search, learning and recall remain usable
-without audio or internet. Normal Gradle/direct release builds never download or bundle Quran
-recitation bytes, so the base APK stays small. The upstream dataset metadata is tagged Apache-2.0,
-but its own data-license notice says recording ownership may belong to reciters/studios/original
-sources; this preview therefore treats recording rights as not independently cleared and remains
-non-commercial pending separate rights review. The remaining architecture still lacks the full wider
+Quran pronunciation uses on-demand **isolated word recordings** so the base APK stays small
+without cutting words out of one continuous recitation. The reviewed source lock pins
+`zaibihassan/Quranic-Word-By-Word-Audio-Data` at immutable revision
+`9796e08caae700f44266255da320adf6e5ab4114` and the Muallim teacher-style Opus set. A one-time
+maintainer packer groups the byte-identical source clips into 114 immutable `.aqp` Surah
+containers plus a tiny hash catalog. The user may download one Surah from its reader screen or
+choose Download All. Interrupted downloads keep a revision-scoped partial container and resume
+with HTTP Range; only a fully SHA-256/index/Ogg-validated container becomes playable. Word taps and
+ambient recall overlays address one complete source Ogg stream by byte range and play it from its
+own beginning to natural completion — there is no full-Surah `seekTo()`, guessed timestamp stop,
+TTS or re-encoding. Quran text, Hadith, search, learning and recall remain usable without audio or
+internet. Normal Gradle/direct release builds never bundle Quran pronunciation binaries; only the
+tiny catalog metadata is allowed in the APK. The upstream dataset metadata declares Apache-2.0;
+this preview remains non-commercial pending independent recording-rights review. The remaining architecture still lacks the full wider
 Hadith catalog, reviewed morphology/sense graph, calibrated FSRS and a signed general content-pack updater.
 
 ## Signed release APK without Gradle downloads
@@ -71,7 +72,7 @@ python3 tools/build_release.py \
   --keystore /private/path/aaris-quran-release.p12 \
   --alias aaris-quran-release \
   --password-file /private/path/keystore-password.txt \
-  --output /private/output/Aaris-Quran-0.3.0-release.apk
+  --output /private/output/Aaris-Quran-0.4.0-release.apk
 ```
 
 Keep the signing key and password backup private and reuse the same key for future updates.
