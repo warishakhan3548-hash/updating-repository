@@ -314,3 +314,33 @@ download the Gradle distribution; analyzer setup is still in progress.
 - The full Sunnah.com catalog is still not falsely marked as installed. Additional collections
   remain gated on redistribution-cleared source data or approved official API/offline data.
 - No APK/AAB was built and no CI workflow was started.
+
+## Checkpoint 19: Quran word-audio offline release hardening (2026-09-23)
+
+- The Quran pronunciation architecture is now repository-local by design. The reviewed source lock
+  pins one immutable Muallim OPUS snapshot, the exact canonical `quran.sqlite` hash and exactly
+  77,326 safe `SOURCE_ALIGNED :W:` identities. Acquisition is an explicit maintainer-only step;
+  Gradle, normal verification, Android runtime and the direct SDK release builder never acquire
+  Quran audio from the network.
+- The local packer compacts word clips into exactly 114 seekable Surah `.pack` files plus a
+  SHA-256 locked SQLite byte-range index. Runtime resolves canonical Word IDs to those local byte
+  ranges and uses one process-wide player; unaligned/prefatory identities are never guessed.
+- Active packs fail closed on source-lock mismatch, Quran-core mismatch, incomplete coverage,
+  corrupt Ogg clip boundaries, index corruption, pack hash/size mismatch, unsafe paths and the
+  reviewed ordinary-Git size envelope. A partial `active/quran-audio` directory now triggers
+  verification instead of being silently ignored.
+- Added a network-free synthetic audio self-test and wired it into `tools/check.py`. It prepares
+  a tiny local pack, verifies it, corrupts it, and requires the verifier to reject that corruption.
+  Manual offline verification also enforces the Android/build no-network contract.
+- Hardened the official-SDK release builder so it now mirrors local Hadith selection, verifies any
+  active Quran audio pack, includes its manifest/index/all 114 pack assets, stores `.pack` assets
+  uncompressed for `AssetFileDescriptor` playback, and verifies the packaged hashes and byte sizes.
+  This closes the previous gap where Gradle understood local audio/Hadith but the direct release
+  path could omit them.
+- The actual large `source-vault/quran-audio/active` binary payload is **not yet committed** on
+  GitHub. The remaining content step is to run the pinned one-time acquisition/finalization in a
+  maintainer environment with network access, verify it, and commit the resulting ordinary Git
+  files. Until those bytes exist, builds remain fully offline but word pronunciation is unavailable
+  rather than falling back to a website.
+- No APK/AAB was built and no CI workflow was added.
+
