@@ -43,7 +43,8 @@ jobs:
               repo_type="dataset",
               revision="9796e08caae700f44266255da320adf6e5ab4114",
               local_dir="/tmp/quran-wbw",
-              allow_patterns=["muallim/**","dataset/muallim/**","README.md","LICENSE*","NOTICE*"],\n              max_workers=32,
+              allow_patterns=["muallim/**","dataset/muallim/**","README.md","LICENSE*","NOTICE*"],
+              max_workers=32,
           )
           PY
           if [ -d /tmp/quran-wbw/muallim ]; then
