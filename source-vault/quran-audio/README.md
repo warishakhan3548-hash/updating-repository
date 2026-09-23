@@ -18,8 +18,9 @@ The one-time packer concatenates them into exactly 114 Surah pack files plus a c
 
 `Q:2:255:W:10` is stored as a byte range inside `quran-audio/packs/002.pack`, with the exact range recorded in `quran-audio/index.sqlite`.
 
-Prefatory Bismillah IDs (`:B:`) are deliberately not guessed or shifted onto word-audio
-coordinates. If a canonical mapping is not exact, Aaris stays silent for that target.
+Prefatory Bismillah IDs (`:B:`) and Quran words whose meaning/source alignment is currently
+`UNMAPPED` are deliberately not guessed or shifted onto audio coordinates. The active pack covers
+only `SOURCE_ALIGNED` canonical `:W:` identities; if alignment is not exact, Aaris stays silent.
 
 ## One-time acquisition
 
