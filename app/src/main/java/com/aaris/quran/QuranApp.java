@@ -13,12 +13,14 @@ import java.util.concurrent.*;
 public final class QuranApp extends Application {
     final ExecutorService io=Executors.newSingleThreadExecutor();
     final ExecutorService searchWorker=Executors.newSingleThreadExecutor();
+    final ExecutorService audioWorker=Executors.newSingleThreadExecutor();
     final Handler main=new Handler(Looper.getMainLooper());
     volatile ContentStore content;
     volatile LearningStore learning;
     volatile HadithStore hadith;
     volatile QuranAudioStore wordAudio;
     volatile WordAudioPlayer audio;
+    volatile QuranAudioDownloadManager audioDownloads;
     volatile SearchEngine search;
     volatile String loadError,hadithLoadError,wordAudioLoadError;
     ExportStaging exports;
@@ -44,11 +46,12 @@ public final class QuranApp extends Application {
                 content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();
                 try{hadith=HadithStore.openIfBundled(this);}catch(Exception e){hadith=null;hadithLoadError="Hadith pack could not be opened: "+e.getMessage();}
                 try{
-                    wordAudio=QuranAudioStore.openIfBundled(this,content.packHash);
+                    wordAudio=new QuranAudioStore(this,content.packHash);
                     audio=new WordAudioPlayer(this,wordAudio);
+                    audioDownloads=new QuranAudioDownloadManager(wordAudio,audioWorker);
                 }catch(Exception e){
-                    wordAudio=null;audio=null;
-                    wordAudioLoadError="Quran audio pack could not be opened: "+e.getMessage();
+                    wordAudio=null;audio=null;audioDownloads=null;
+                    wordAudioLoadError="Local Quran audio storage could not be opened: "+e.getMessage();
                 }
             }catch(Exception e){loadError="Offline content khul nahi saka: "+e.getMessage();}
             finally{ready.countDown();}
