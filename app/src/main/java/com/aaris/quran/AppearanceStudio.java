@@ -116,27 +116,21 @@ final class AppearanceStudio {
         TextView name=text(activity,(selected?"✓ ":"")+label,12,Appearance.readable(swatch.ink(),cardTone));name.setGravity(Gravity.CENTER);pad(name,2,5);card.addView(name,new LinearLayout.LayoutParams(-1,-2));
         card.setContentDescription(label+" appearance preset");card.setFocusable(true);card.setClickable(true);card.setOnClickListener(v->run.run());return card;
     }
-    private static final String[] LAYER_NAMES={"Screen background","Cards","Quran Arabic","Translation","Buttons / highlights","Gradient second color"};
+    private static final String[] LAYER_NAMES={"Screen","Cards","Quran text","Translation","Buttons","Gradient"};
     private static final String[] LAYER_HELP={
-        "Changes the whole screen behind the cards; glass cards may softly reflect it",
-        "Changes card tint only; screen background stays separate",
-        "Changes only the Arabic Quran letters",
-        "Changes only the translated text",
-        "Changes buttons, borders and highlighted controls",
-        "Changes the second color of a two-color background"
+        "Whole background","Card tint and glass","Arabic text only","Translated text only","Buttons and highlights","Second gradient color"
     };
     private static final String[] LAYER_ICONS={"sun","cards","book","copy","settings","moon"};
     private View layerCard(int index){
         boolean selected=layer==index;int base=selected?Appearance.mix(style.effectiveSurface(),style.accent,.16f):style.effectiveSurface();
-        LinearLayout card=row(activity);pad(card,10,8);card.setTag("keepColor");card.setGravity(Gravity.CENTER_VERTICAL);
-        android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();bg.setColor(base);bg.setCornerRadius(dp(activity,18));
+        LinearLayout card=row(activity);pad(card,9,5);card.setTag("keepColor");card.setGravity(Gravity.CENTER_VERTICAL);
+        android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();bg.setColor(base);bg.setCornerRadius(dp(activity,16));
         bg.setStroke(dp(activity,selected?2:1),selected?style.accent:Appearance.mix(style.accent,style.effectiveSurface(),.72f));card.setBackground(bg);
         Glass.Icon icon=new Glass.Icon(activity,LAYER_ICONS[index]);icon.color=Appearance.readable(selected?style.accent:style.ink(),base);
-        card.addView(icon,new LinearLayout.LayoutParams(dp(activity,36),dp(activity,36)));
-        LinearLayout words=column(activity);pad(words,7,0);
-        TextView label=text(activity,(selected?"✓ ":"")+LAYER_NAMES[index],13,Appearance.readable(selected?style.accent:style.ink(),base));label.setTag("keepColor");words.addView(label);
-        TextView help=text(activity,LAYER_HELP[index],10,Appearance.readable(Appearance.mix(style.ink(),base,.32f),base));help.setTag("keepColor");help.setMaxLines(2);words.addView(help);
-        card.addView(words,new LinearLayout.LayoutParams(0,-2,1));
+        card.addView(icon,new LinearLayout.LayoutParams(dp(activity,30),dp(activity,30)));
+        TextView label=text(activity,(selected?"✓ ":"")+LAYER_NAMES[index],13,Appearance.readable(selected?style.accent:style.ink(),base));label.setTag("keepColor");pad(label,7,0);
+        card.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        Glass.Icon next=new Glass.Icon(activity,"next");next.color=Appearance.readable(style.muted(),base);card.addView(next,new LinearLayout.LayoutParams(dp(activity,22),dp(activity,22)));
         card.setContentDescription("Edit "+LAYER_NAMES[index]+". "+LAYER_HELP[index]);card.setFocusable(true);card.setClickable(true);
         card.setOnClickListener(v->{if(layer!=index){layer=index;invalidateEditorColor();renderControls();}});
         return card;
@@ -158,9 +152,22 @@ final class AppearanceStudio {
         ring.setColor(0x00000000);ring.setStroke(dp(activity,selected?3:1),selected?style.accent:Appearance.mix(value,style.ink(),.22f));outer.setBackground(ring);
         TextView dot=text(activity,selected?"✓":"",15,Appearance.readable(0xfff7f8fa,value));dot.setTag("keepColor");dot.setGravity(Gravity.CENTER);
         android.graphics.drawable.GradientDrawable fill=new android.graphics.drawable.GradientDrawable();fill.setShape(android.graphics.drawable.GradientDrawable.OVAL);fill.setColor(value);dot.setBackground(fill);
-        FrameLayout.LayoutParams inner=new FrameLayout.LayoutParams(dp(activity,30),dp(activity,30),Gravity.CENTER);outer.addView(dot,inner);
+        FrameLayout.LayoutParams inner=new FrameLayout.LayoutParams(dp(activity,24),dp(activity,24),Gravity.CENTER);outer.addView(dot,inner);
         outer.setContentDescription(label+" color for "+LAYER_NAMES[layer]+(selected?", selected":""));outer.setTooltipText(label);outer.setOnClickListener(v->{chooseEditorColor(value);style.name="My style";commit();renderControls();});
         return outer;
+    }
+    private View compactChoice(String label,boolean selected,Runnable run){
+        TextView b=text(activity,(selected?"✓ ":"")+label,12,selected?Appearance.readable(style.accent,style.effectiveSurface()):style.ink());
+        b.setTag("keepColor");b.setGravity(Gravity.CENTER);b.setMinHeight(dp(activity,42));pad(b,8,5);
+        android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();bg.setColor(selected?Appearance.mix(style.effectiveSurface(),style.accent,.14f):style.effectiveSurface());bg.setCornerRadius(dp(activity,15));
+        bg.setStroke(dp(activity,selected?2:1),selected?style.accent:Appearance.mix(style.accent,style.effectiveSurface(),.72f));b.setBackground(bg);b.setOnClickListener(v->run.run());return b;
+    }
+    private void compactSlider(String label,int min,int max,int initial,Change change){
+        LinearLayout line=row(activity);TextView caption=text(activity,label,12,style.ink());caption.setTag("keepColor");line.addView(caption,new LinearLayout.LayoutParams(dp(activity,105),-2));
+        SeekBar seek=new SeekBar(activity);seek.setMax(max-min);seek.setProgress(initial-min);seek.setContentDescription(label);line.addView(seek,new LinearLayout.LayoutParams(0,dp(activity,42),1));
+        TextView value=text(activity,String.valueOf(initial),12,style.ink());value.setTag("keepColor");value.setGravity(Gravity.CENTER);line.addView(value,new LinearLayout.LayoutParams(dp(activity,36),-2));
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int v,boolean user){if(!user||binding)return;int actual=min+v;change.set(actual);style.name="My style";value.setText(String.valueOf(actual));refresh();}public void onStopTrackingTouch(SeekBar s){commit();}});
+        controls.addView(line);
     }
     private boolean isColorDotSelected(int dotColor,boolean neutral){
         syncEditorColor();float[] dot=new float[3];Color.colorToHSV(dotColor,dot);
@@ -173,72 +180,101 @@ final class AppearanceStudio {
         float diff=Math.abs(editHue-dot[0]);diff=Math.min(diff,360f-diff);return diff<18f;
     }
     private void renderControls(){
-        binding=true;controls.removeAllViews();
-        title("Start with a look");HorizontalScrollView presets=new HorizontalScrollView(activity);presets.setHorizontalScrollBarEnabled(false);LinearLayout strip=row(activity);
-        for(int i=0;i<Appearance.PRESETS.length;i++){final int index=i;Appearance swatch=style.copy();swatch.preset(i);View b=presetCard(swatch,style.name.equals(Appearance.PRESETS[i]),Appearance.PRESETS[i],()->{style.preset(index);invalidateEditorColor();commit();renderControls();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,138),dp(activity,92));p.rightMargin=dp(activity,9);strip.addView(b,p);}presets.addView(strip);controls.addView(presets);
-        TextView simpleGuide=text(activity,"CUSTOMIZE IN 3 EASY STEPS\n1  Tap what you want to change   2  Pick a color   3  Move the sliders",12,0xffcbd5dc);
-        simpleGuide.setTag("keepColor");simpleGuide.setTextColor(0xffcbd5dc);pad(simpleGuide,4,10);controls.addView(simpleGuide);
+        binding=true;controls.removeAllViews();editingSwatch=null;
 
-        title("1 · What do you want to change?");
-        for(int first=0;first<5;first+=2){
-            LinearLayout pair=row(activity);
-            for(int j=0;j<2&&first+j<5;j++){
-                View card=layerCard(first+j);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,78),1);if(j==0)p.rightMargin=dp(activity,7);pair.addView(card,p);
-            }
-            controls.addView(pair);if(first<4){View gap=new View(activity);controls.addView(gap,new LinearLayout.LayoutParams(1,dp(activity,7)));}
+        title("Start with a look");
+        HorizontalScrollView presets=new HorizontalScrollView(activity);presets.setHorizontalScrollBarEnabled(false);LinearLayout strip=row(activity);
+        for(int i=0;i<Appearance.PRESETS.length;i++){
+            final int index=i;Appearance swatch=style.copy();swatch.preset(i);
+            View b=presetCard(swatch,style.name.equals(Appearance.PRESETS[i]),Appearance.PRESETS[i],()->{style.preset(index);invalidateEditorColor();commit();renderControls();});
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,116),dp(activity,78));p.rightMargin=dp(activity,7);strip.addView(b,p);
         }
-        controls.addView(editingSummary(),new LinearLayout.LayoutParams(-1,-2));
+        presets.addView(strip);controls.addView(presets);
 
-        title("2 · Pick a color");
+        title("Customize");
+        for(int first=0;first<4;first+=2){
+            LinearLayout pair=row(activity);
+            for(int j=0;j<2;j++){
+                View card=layerCard(first+j);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,54),1);if(j==0)p.rightMargin=dp(activity,7);pair.addView(card,p);
+            }
+            controls.addView(pair);if(first==0){View gap=new View(activity);controls.addView(gap,new LinearLayout.LayoutParams(1,dp(activity,7)));}
+        }
+
+        title("Color theme");
         int[] spectrum={0xffd64b5c,0xffe9853f,0xffe3bd38,0xff35a66f,0xff3f7ce8,0xff4d55b9,0xff9b63d7};
         String[] spectrumNames={"Red","Orange","Yellow","Green","Blue","Indigo","Violet"};
-        LinearLayout dots=row(activity);dots.setGravity(Gravity.CENTER);
-        for(int i=0;i<spectrum.length;i++){View dot=colorDot(spectrumNames[i],spectrum[i],false);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,40),dp(activity,40));if(i<spectrum.length-1)p.rightMargin=dp(activity,5);dots.addView(dot,p);}controls.addView(dots);
-        TextView dotHint=text(activity,"Tap a dot. The ring shows the selected color family.",11,0xffb9c4cc);dotHint.setTag("keepColor");dotHint.setTextColor(0xffb9c4cc);dotHint.setGravity(Gravity.CENTER);pad(dotHint,2,5);controls.addView(dotHint);
-
-        title("Neutral");
-        LinearLayout neutral=row(activity);neutral.setGravity(Gravity.CENTER);
         int[] neutrals={0xff050505,0xff7d858c,0xfff7f8fa};String[] neutralNames={"Black","Gray","White"};
-        for(int i=0;i<neutrals.length;i++){View dot=colorDot(neutralNames[i],neutrals[i],true);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,40),dp(activity,40));if(i<neutrals.length-1)p.rightMargin=dp(activity,12);neutral.addView(dot,p);}controls.addView(neutral);
+        LinearLayout dots=row(activity);dots.setGravity(Gravity.CENTER);
+        for(int i=0;i<spectrum.length;i++){View dot=colorDot(spectrumNames[i],spectrum[i],false);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,31),dp(activity,31));p.rightMargin=dp(activity,3);dots.addView(dot,p);}
+        View divider=new View(activity);divider.setBackgroundColor(Appearance.mix(style.ink(),style.background,.72f));LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(dp(activity,1),dp(activity,26));dpv.leftMargin=dp(activity,5);dpv.rightMargin=dp(activity,5);dots.addView(divider,dpv);
+        for(int i=0;i<neutrals.length;i++){View dot=colorDot(neutralNames[i],neutrals[i],true);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,31),dp(activity,31));if(i<neutrals.length-1)p.rightMargin=dp(activity,4);dots.addView(dot,p);}
+        controls.addView(dots);
 
-        title("3 · Adjust the selected color");
-        TextView direction=text(activity,(layer==1?"Card color selected. ":"")+"Move RIGHT to make this exact color darker; LEFT makes it lighter.",12,0xffcbd5dc);direction.setTag("keepColor");direction.setTextColor(0xffcbd5dc);pad(direction,2,4);controls.addView(direction);
-        syncEditorColor();
-        boolean neutralColor=editSat<.04f;
+        title("Adjust");
+        syncEditorColor();boolean neutralColor=editSat<.04f;
         int darkness=(int)Math.round((1f-editVal)*100);
-        slider("LIGHTER  ←  Darkness  →  DARKER",0,100,darkness,v->{editVal=1f-(v/100f);applyEditorColor();});
+        compactSlider("Light / Dark",0,100,darkness,v->{editVal=1f-(v/100f);applyEditorColor();});
         if(!neutralColor){
             int strength=(int)Math.round(Math.max(0,Math.min(1,(editSat-.05f)/.95f))*100);
-            slider("FADED  ←  Color strength  →  RICH",0,100,strength,v->{editSat=.05f+.95f*(v/100f);applyEditorColor();});
-        }else{
-            TextView neutralHelp=text(activity,"Black / Gray / White selected · only the light-to-dark slider is needed.",12,MUTED);neutralHelp.setTag("keepColor");neutralHelp.setTextColor(0xffb9c4cc);controls.addView(neutralHelp);
+            compactSlider("Color strength",0,100,strength,v->{editSat=.05f+.95f*(v/100f);applyEditorColor();});
         }
-        if(layer==1)slider("SEE-THROUGH  ←  Card solidity  →  SOLID",25,100,style.opacity,v->style.opacity=v);
-        if(advanced&&!neutralColor)slider("Hue fine tune",0,359,(int)editHue,v->{editHue=v;applyEditorColor();});
-        title("Finish");LinearLayout finish=row(activity);finish.addView(action((style.glass?"✓ ":"")+"Glass cards",()->{style.glass=true;commit();renderControls();}));finish.addView(action((!style.glass?"✓ ":"")+"Plain cards",()->{style.glass=false;commit();renderControls();}));controls.addView(finish);
-        controls.addView(action((style.textGlass?"✓ ":"")+"Glass text",()->{style.textGlass=!style.textGlass;commit();renderControls();}));
-        controls.addView(action((advanced?"Hide":"Show")+" advanced finish controls",()->{advanced=!advanced;if(!advanced&&layer==5){layer=0;invalidateEditorColor();}renderControls();}));
+        if(layer==1)compactSlider("Card opacity",25,100,style.opacity,v->style.opacity=v);
+
+        title("Reading");
+        LinearLayout fonts=row(activity);
+        for(int i=0;i<Appearance.FONTS.length;i++){
+            final int index=i;View b=compactChoice(Appearance.FONTS[i].replace("Amiri ",""),style.font==i,()->{style.font=index;commit();renderControls();});
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,42),1);if(i<Appearance.FONTS.length-1)p.rightMargin=dp(activity,5);fonts.addView(b,p);
+        }
+        controls.addView(fonts);
+        compactSlider("Arabic size",24,54,style.arabicSize,v->style.arabicSize=v);
+        compactSlider("Line spacing",2,24,style.spacing,v->style.spacing=v);
+        compactSlider("Translation",14,28,style.translationSize,v->style.translationSize=v);
+
+        title("Finish style");
+        LinearLayout finish=row(activity);
+        View glass=compactChoice("Glass cards",style.glass,()->{style.glass=true;commit();renderControls();});
+        View plain=compactChoice("Plain cards",!style.glass,()->{style.glass=false;commit();renderControls();});
+        LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(0,dp(activity,42),1);fp.rightMargin=dp(activity,6);finish.addView(glass,fp);finish.addView(plain,new LinearLayout.LayoutParams(0,dp(activity,42),1));controls.addView(finish);
+        LinearLayout effects=row(activity);
+        effects.addView(compactChoice("Glass text",style.textGlass,()->{style.textGlass=!style.textGlass;commit();renderControls();}),new LinearLayout.LayoutParams(0,dp(activity,42),1));
+        LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(0,dp(activity,42),1);ep.leftMargin=dp(activity,6);
+        effects.addView(compactChoice("Reduced effects",style.reducedEffects,()->{style.reducedEffects=!style.reducedEffects;commit();renderControls();}),ep);controls.addView(effects);
+
+        TextView advancedButton=action((advanced?"Hide":"Advanced"),()->{advanced=!advanced;if(!advanced&&layer>=4){layer=0;invalidateEditorColor();}renderControls();});
+        controls.addView(advancedButton);
         if(advanced){
-            slider("Arabic opacity",20,100,style.arabicOpacity,v->style.arabicOpacity=v);
-            slider("Translation opacity",20,100,style.translationOpacity,v->style.translationOpacity=v);
-            controls.addView(text(activity,"Opacity stops at a readable contrast. The preview shows the final text color.",12,MUTED));
-            slider("Glass strength",0,100,style.glassStrength,v->style.glassStrength=v);slider("Border strength",0,100,style.borderStrength,v->style.borderStrength=v);
-            slider("Soft text glow",0,30,style.glow,v->style.glow=v);
-            if(layer!=1)slider("Card opacity",25,100,style.opacity,v->style.opacity=v);slider("Corners",0,36,style.corners,v->style.corners=v);
-            controls.addView(action((style.gradient?"✓ ":"")+"Two-color background",()->{style.gradient=!style.gradient;if(!style.gradient&&layer==5){layer=0;invalidateEditorColor();}else invalidateEditorColor();commit();renderControls();}));
-            if(style.gradient)controls.addView(action((layer==5?"✓ ":"")+"Edit second gradient color",()->{layer=5;invalidateEditorColor();renderControls();}));
-            controls.addView(text(activity,"Gradient is optional. Normal users can ignore this section.",12,MUTED));
+            title("Advanced");
+            LinearLayout advLayers=row(activity);
+            advLayers.addView(compactChoice("Buttons",layer==4,()->{layer=4;invalidateEditorColor();renderControls();}),new LinearLayout.LayoutParams(0,dp(activity,42),1));
+            LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(0,dp(activity,42),1);ap.leftMargin=dp(activity,6);
+            advLayers.addView(compactChoice("Gradient",layer==5,()->{style.gradient=true;layer=5;invalidateEditorColor();commit();renderControls();}),ap);controls.addView(advLayers);
+            compactSlider("Arabic opacity",20,100,style.arabicOpacity,v->style.arabicOpacity=v);
+            compactSlider("Translation opacity",20,100,style.translationOpacity,v->style.translationOpacity=v);
+            compactSlider("Glass strength",0,100,style.glassStrength,v->style.glassStrength=v);
+            compactSlider("Border strength",0,100,style.borderStrength,v->style.borderStrength=v);
+            compactSlider("Corners",0,36,style.corners,v->style.corners=v);
+            if(style.gradient)controls.addView(compactChoice("Two-color background",true,()->{style.gradient=false;if(layer==5)layer=0;invalidateEditorColor();commit();renderControls();}));
         }
-        controls.addView(action((style.reducedEffects?"✓ ":"")+"Reduced effects",()->{style.reducedEffects=!style.reducedEffects;commit();renderControls();}));
-        title("Quran font · Same original text");for(int i=0;i<Appearance.FONTS.length;i++){final int index=i;TextView b=action((style.font==i?"✓ ":"")+Appearance.FONTS[i],()->{style.font=index;commit();renderControls();});controls.addView(b);}
-        controls.addView(text(activity,"Bold uses a real font weight. Fonts do not change the Quran text or its reading tradition.",12,MUTED));
-        slider("Arabic size",24,54,style.arabicSize,v->style.arabicSize=v);slider("Line spacing",2,24,style.spacing,v->style.spacing=v);slider("Translation size",14,28,style.translationSize,v->style.translationSize=v);
-        title("My styles");LinearLayout edits=row(activity);
-        edits.addView(action("Undo",()->{if(historyIndex>0){style=Appearance.decode(history.get(--historyIndex));invalidateEditorColor();style.save(activity);refresh();renderControls();}}));
-        edits.addView(action("Redo",()->{if(historyIndex+1<history.size()){style=Appearance.decode(history.get(++historyIndex));invalidateEditorColor();style.save(activity);refresh();renderControls();}}));
-        edits.addView(action("Reset",()->{style=new Appearance();invalidateEditorColor();commit();renderControls();}));controls.addView(edits);
-        controls.addView(action("Save this style",()->{EditText name=new EditText(activity);name.setHint("My night reading");new AlertDialog.Builder(activity).setTitle("Name your style").setView(name).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{String n=name.getText().toString().trim();if(n.isEmpty())n="My style";style.name=n;activity.getSharedPreferences("saved_styles",0).edit().putString(n,style.encode()).apply();commit();renderControls();}).show();}));
-        for(Map.Entry<String,?> entry:activity.getSharedPreferences("saved_styles",0).getAll().entrySet())if(entry.getValue() instanceof String)controls.addView(action(entry.getKey(),()->{style=Appearance.decode((String)entry.getValue());invalidateEditorColor();commit();renderControls();}));
+
+        title("My styles");
+        LinearLayout edits=row(activity);
+        View undo=compactChoice("Undo",false,()->{if(historyIndex>0){style=Appearance.decode(history.get(--historyIndex));invalidateEditorColor();style.save(activity);refresh();renderControls();}});
+        View redo=compactChoice("Redo",false,()->{if(historyIndex+1<history.size()){style=Appearance.decode(history.get(++historyIndex));invalidateEditorColor();style.save(activity);refresh();renderControls();}});
+        View reset=compactChoice("Reset",false,()->{style=new Appearance();invalidateEditorColor();commit();renderControls();});
+        Runnable saveRun=()->{EditText name=new EditText(activity);name.setHint("My style");new AlertDialog.Builder(activity).setTitle("Save style").setView(name).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{String n=name.getText().toString().trim();if(n.isEmpty())n="My style";style.name=n;activity.getSharedPreferences("saved_styles",0).edit().putString(n,style.encode()).apply();commit();renderControls();}).show();};
+        View save=compactChoice("Save",true,saveRun);
+        for(View v:new View[]{undo,redo,reset,save}){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,42),1);p.rightMargin=dp(activity,5);edits.addView(v,p);}controls.addView(edits);
+
+        Map<String,?> saved=activity.getSharedPreferences("saved_styles",0).getAll();
+        if(!saved.isEmpty()){
+            HorizontalScrollView savedScroll=new HorizontalScrollView(activity);savedScroll.setHorizontalScrollBarEnabled(false);LinearLayout savedRow=row(activity);
+            for(Map.Entry<String,?> entry:saved.entrySet())if(entry.getValue() instanceof String){
+                String name=entry.getKey();String encoded=(String)entry.getValue();View b=compactChoice(name,false,()->{style=Appearance.decode(encoded);invalidateEditorColor();commit();renderControls();});
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,118),dp(activity,40));p.rightMargin=dp(activity,6);savedRow.addView(b,p);
+            }
+            savedScroll.addView(savedRow);controls.addView(savedScroll);
+        }
         recolor(controls);binding=false;
     }
     private interface Change{void set(int value);}
