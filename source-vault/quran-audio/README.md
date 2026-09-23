@@ -49,7 +49,7 @@ Typical flow:
 1. Generate canonical Quran SQLite locally: `python3 tools/build_content.py`
 2. Acquire the pinned reviewed snapshot:
    `python3 tools/acquire_quran_word_audio.py`
-   A source update must be explicit: `--revision <new-reviewed-40-hex-commit>`.
+   A source update must be explicit and reviewable: update `source-vault/quran-audio/source-lock.json` (repo/revision/license/style/hash/count) first; the acquisition helper does not follow a floating branch.
 3. Run the network-free verifier:
    `python3 tools/check_quran_audio.py --source source-vault/quran-audio/active --quran-db app/src/main/assets/quran.sqlite`
 4. Commit the generated active pack using Git LFS.
