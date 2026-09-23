@@ -18,7 +18,7 @@ public final class QuranApp extends Application {
     volatile LearningStore learning;
     volatile HadithStore hadith;
     volatile SearchEngine search;
-    volatile String loadError;
+    volatile String loadError,hadithLoadError;
     ExportStaging exports;
     boolean activityVisible,ambientRunning;
     Runnable visibilityChanged;
@@ -38,8 +38,10 @@ public final class QuranApp extends Application {
             public void onActivityDestroyed(Activity a){}
         });
         exports=new ExportStaging(new File(getFilesDir(),"export-staging"));io.execute(()->{
-            try{content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();hadith=HadithStore.openIfBundled(this);}
-            catch(Exception e){loadError="Offline content khul nahi saka: "+e.getMessage();}
+            try{
+                content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();
+                try{hadith=HadithStore.openIfBundled(this);}catch(Exception e){hadith=null;hadithLoadError="Hadith pack could not be opened: "+e.getMessage();}
+            }catch(Exception e){loadError="Offline content khul nahi saka: "+e.getMessage();}
             finally{ready.countDown();}
         });
     }
