@@ -159,11 +159,18 @@ def main():
         clips=grouped.get(surah,[])
         if len(clips)!=int(meta.get("words") or -1):
             raise SystemExit(f"Surah {key} word count mismatch")
+        # Multiple Word IDs may intentionally share an exact duplicate clip range. Verify each
+        # distinct range once, and require the unique ranges to cover the whole pack contiguously.
+        ranges={}
+        for offset,length,word_id in clips:
+            ranges.setdefault((offset,length),word_id)
+        if len(ranges)!=int(meta.get("unique_clips") or -1):
+            raise SystemExit(f"Surah {key} unique clip count mismatch")
         cursor=0
         with pack.open("rb") as packed:
-            for offset,length,word_id in clips:
+            for (offset,length),word_id in sorted(ranges.items()):
                 if offset!=cursor:
-                    raise SystemExit(f"Non-contiguous audio range before {word_id}")
+                    raise SystemExit(f"Non-contiguous unique audio range before {word_id}")
                 packed.seek(offset)
                 if packed.read(4)!=b"OggS":
                     raise SystemExit(f"Indexed clip does not begin with OggS: {word_id}")
