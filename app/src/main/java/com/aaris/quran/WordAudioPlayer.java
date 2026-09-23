@@ -34,17 +34,19 @@ final class WordAudioPlayer implements AutoCloseable {
     boolean canPlay(ContentStore.Word word){return store!=null&&store.canAddress(word);}
 
     synchronized boolean play(ContentStore.Word word) {
-        if(store==null||!store.canAddress(word))return false;
+        if(store==null)return false;
+        QuranAudioStore.Clip clip=store.clip(word);
+        if(clip==null)return false;
         generation++;
         releaseLocked();
         AssetFileDescriptor fd=null;
         try {
-            fd=store.open(word);
+            fd=store.open(clip);
             if(audio==null||audio.requestAudioFocus(focus)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED)return false;
             final int token=generation;
             MediaPlayer next=new MediaPlayer();
             next.setAudioAttributes(attributes);
-            next.setDataSource(fd.getFileDescriptor(),fd.getStartOffset(),fd.getLength());
+            next.setDataSource(fd.getFileDescriptor(),fd.getStartOffset()+clip.offset,clip.length);
             next.setOnPreparedListener(p->{
                 synchronized(WordAudioPlayer.this) {
                     if(player!=p||generation!=token){safeRelease(p);return;}
