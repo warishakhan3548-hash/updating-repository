@@ -3,14 +3,13 @@ package com.aaris.quran;
 import android.content.Context;
 import com.aaris.quran.core.Arabic;
 import com.aaris.quran.core.TextMatch;
+import com.aaris.quran.core.HadithQuery;
 import java.util.concurrent.CancellationException;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
-import android.database.sqlite.SQLiteException;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import java.io.*;
-import java.text.Normalizer;
 import java.util.*;
 
 /** Verified APK-bundled Hadith content. Source records are read-only; user data lives elsewhere. */
@@ -51,6 +50,7 @@ final class HadithStore implements AutoCloseable {
         "h.urdu,h.bangla,h.narrator_en,h.isnad_ar,h.isnad_en,h.matn_ar,h.matn_en,h.source_ref";
     private SQLiteDatabase db;
     private boolean hasEditorialTranslations;
+    private final Map<String,String> collectionAliases=new LinkedHashMap<>();
     final String packHash,packId,contentVersion,sourceName,sourceVersion,redistributionBasis;
     final int recordCount,collectionCount;
     final Set<String> languageCoverage;
@@ -116,6 +116,7 @@ final class HadithStore implements AutoCloseable {
         try(Cursor c=db.rawQuery("SELECT count(*) FROM collection",null)){
             if(!c.moveToFirst()||c.getInt(0)!=collectionCount)throw new IOException("Hadith collection count mismatch");
         }
+        for(CollectionInfo info:collections()){collectionAliases.put(info.id,info.id);collectionAliases.put(info.nameEn,info.id);collectionAliases.put(info.nameAr,info.id);}
         try(Cursor c=db.rawQuery("SELECT 1 FROM editorial_translation WHERE status IN ('released','reviewed') LIMIT 1",null)){hasEditorialTranslations=c.moveToFirst();}
     }
 
@@ -193,36 +194,60 @@ final class HadithStore implements AutoCloseable {
     SearchPage searchPage(String query,int limit,int offset){
         String raw=query==null?"":query.trim();int start=Math.max(0,offset),cap=Math.max(1,Math.min(200,limit));
         if(raw.isEmpty()||raw.length()>16384||db==null)return new SearchPage(raw,Collections.emptyList(),0,start);
-        List<String> terms=TextMatch.tokens(raw);Map<String,List<String>> repairs=new HashMap<>();Map<String,Double> weights=new HashMap<>();
+        HadithQuery intent=HadithQuery.parse(raw,collectionAliases);
+        // A reference is a lookup, never fuzzy prose. A missing number must not return a
+        // different narration merely because its body happens to contain a similar digit.
+        if(intent.isReference()||raw.startsWith("H:")||intent.collectionId!=null&&intent.text.isEmpty())
+            return referencePage(intent,cap,start);
+        List<String> terms=TextMatch.tokens(intent.text);
+        if(terms.isEmpty())return new SearchPage(raw,Collections.emptyList(),0,start);
+        Map<String,List<String>> repairs=new HashMap<>();Map<String,Double> weights=new HashMap<>();
         LinkedHashSet<String> anchors=new LinkedHashSet<>();
         for(String term:new LinkedHashSet<>(terms)){
             cancelSearch();int df=0;try(Cursor c=db.rawQuery("SELECT df FROM search_vocabulary WHERE token=?",new String[]{term})){if(c.moveToFirst())df=c.getInt(0);}
             weights.put(term,Math.max(.25,Math.log(1.+recordCount/(1.+df))));
         }
         List<String> ranked=new ArrayList<>(weights.keySet());ranked.sort(Comparator.comparingDouble((String t)->weights.get(t)).reversed().thenComparing(t->t));
-        // Rare anchors bound SQL parameters, not the scoring query. Every original query token is scored.
         for(String term:ranked.subList(0,Math.min(128,ranked.size()))){
             anchors.add(term);List<String> alternatives=spellingCandidates(term);repairs.put(term,alternatives);anchors.addAll(alternatives);
         }
         List<String> args=new ArrayList<>(anchors);String marks=String.join(",",Collections.nCopies(args.size(),"?"));
-        String ids=marks.isEmpty()?"SELECT rowid FROM hadith WHERE 0":"SELECT hadith_rowid FROM search_token WHERE token IN ("+marks+")";
-        ids+=" UNION SELECT rowid FROM hadith WHERE id=? OR record_number=? UNION SELECT h.rowid FROM hadith h JOIN hadith_reference r ON r.hadith_id=h.id WHERE r.value=?";
-        args.add(raw);args.add(raw);args.add(raw);
-        Set<String> exactIds=new HashSet<>();try(Cursor c=db.rawQuery("SELECT id FROM hadith WHERE id=? OR record_number=? UNION SELECT hadith_id FROM hadith_reference WHERE value=?",new String[]{raw,raw,raw})){while(c.moveToNext())exactIds.add(c.getString(0));}
+        String ids="SELECT hadith_rowid FROM search_token WHERE token IN ("+marks+")";
+        String scope="";if(intent.collectionId!=null){scope=" AND h.collection_id=?";args.add(intent.collectionId);}
         PriorityQueue<Hit> best=new PriorityQueue<>(Math.max(1,start+cap),ORDER.reversed());int total=0;
-        try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE h.rowid IN ("+ids+")",args.toArray(new String[0]))){
+        try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE h.rowid IN ("+ids+")"+scope,args.toArray(new String[0]))){
             while(c.moveToNext()){
                 cancelSearch();Record record=new Record(c);TextMatch match=TextMatch.compare(terms,TextMatch.tokens(record.arabic),repairs,weights);
                 for(String text:new String[]{record.english,record.urdu,record.bangla})if(text!=null){TextMatch m=TextMatch.compare(terms,TextMatch.tokens(text),repairs,weights);if(m.accepted&&(!match.accepted||TextMatch.compareRank(m,match)<0))match=m;}
                 if(hasEditorialTranslations)try(Cursor translations=db.rawQuery("SELECT text FROM editorial_translation WHERE hadith_id=? AND status IN ('released','reviewed')",new String[]{record.id})){
                     while(translations.moveToNext()){TextMatch m=TextMatch.compare(terms,TextMatch.tokens(translations.getString(0)),repairs,weights);if(m.accepted&&(!match.accepted||TextMatch.compareRank(m,match)<0))match=m;}
                 }
-                boolean reference=exactIds.contains(record.id);
-                if(reference)match=TextMatch.exactReference();if(!match.accepted)continue;
-                total++;best.add(new Hit(record,match,reference));if(best.size()>start+cap)best.poll();
+                if(!match.accepted)continue;
+                total++;best.add(new Hit(record,match,false));if(best.size()>start+cap)best.poll();
             }
         }
         List<Hit> ordered=new ArrayList<>(best);ordered.sort(ORDER);return new SearchPage(raw,new ArrayList<>(ordered.subList(Math.min(start,ordered.size()),ordered.size())),total,start);
+    }
+    private SearchPage referencePage(HadithQuery query,int cap,int offset){
+        cancelSearch();List<String> args=new ArrayList<>();String predicate;
+        if(query.number!=null){
+            List<String> values=query.referenceValues();String marks=String.join(",",Collections.nCopies(values.size(),"?"));
+            args.addAll(values);args.add(query.raw);args.addAll(values);
+            List<String> refs=new ArrayList<>();
+            if(query.collectionId!=null)for(String value:values)refs.add(query.collectionId+":"+value);
+            args.addAll(refs);
+            predicate="(h.record_number IN ("+marks+") OR h.id IN (SELECT hadith_id FROM hadith_reference WHERE scheme NOT LIKE '%urn%' AND value IN ("+
+                String.join(",",Collections.nCopies(1+values.size()+refs.size(),"?"))+")))";
+        }else if(query.raw.startsWith("H:")){predicate="h.id=?";args.add(query.raw);}
+        else predicate="1";
+        if(query.collectionId!=null){predicate+=" AND h.collection_id=?";args.add(query.collectionId);}
+        int total;try(Cursor c=db.rawQuery("SELECT count(*) FROM hadith h WHERE "+predicate,args.toArray(new String[0]))){c.moveToFirst();total=c.getInt(0);}
+        args.add(""+cap);args.add(""+offset);List<Hit> hits=new ArrayList<>();
+        try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+predicate+
+            " ORDER BY CASE h.collection_id WHEN 'bukhari' THEN 0 WHEN 'muslim' THEN 1 ELSE 2 END,h.collection_id,CAST(h.record_number AS INTEGER),h.record_number,h.id LIMIT ? OFFSET ?",args.toArray(new String[0]))){
+            while(c.moveToNext()){cancelSearch();hits.add(new Hit(new Record(c),TextMatch.exactReference(),query.isReference()||query.raw.startsWith("H:")));}
+        }
+        return new SearchPage(query.raw,hits,total,offset);
     }
     private List<String> spellingCandidates(String term){
         if(term.length()<4||term.length()>128||TextMatch.negative(term))return Collections.emptyList();int max=term.length()>=8?2:1;
@@ -254,7 +279,7 @@ final class HadithStore implements AutoCloseable {
     }
 
     String searchHint(){
-        return hasLanguage("en")?"Search Arabic, English or Hadith number":"Search Arabic or Hadith number";
+        return "Arabic text, Bukhari 556, Muslim 5556 or 556";
     }
 
     DisplayTranslation translation(Record record,String preferredLanguage){
@@ -286,23 +311,6 @@ final class HadithStore implements AutoCloseable {
                 return new DisplayTranslation(language,sourceText,"Imported source translation · "+sourceName);
         }
         return null;
-    }
-
-    private static String normalizeArabic(String value){
-        String s=Normalizer.normalize(value,Normalizer.Form.NFC)
-            .replace("ٱ","ا").replace("أ","ا").replace("إ","ا").replace("آ","ا")
-            .replace("ى","ي").replace("ؤ","و").replace("ئ","ي").replace("ـ","");
-        StringBuilder out=new StringBuilder();
-        for(int i=0;i<s.length();i++){char ch=s.charAt(i);int type=Character.getType(ch);
-            if(type!=Character.NON_SPACING_MARK&&type!=Character.COMBINING_SPACING_MARK)out.append(ch);}
-        return out.toString().replaceAll("\\s+"," ").trim();
-    }
-    private static String normalizeLatin(String value){
-        String s=Normalizer.normalize(value,Normalizer.Form.NFKD).toLowerCase(Locale.ROOT);
-        StringBuilder out=new StringBuilder();
-        for(int i=0;i<s.length();i++){char ch=s.charAt(i);int type=Character.getType(ch);
-            if(type!=Character.NON_SPACING_MARK&&type!=Character.COMBINING_SPACING_MARK)out.append(ch);}
-        return out.toString().replaceAll("\\s+"," ").trim();
     }
 
     @Override public void close(){if(db!=null){db.close();db=null;}}

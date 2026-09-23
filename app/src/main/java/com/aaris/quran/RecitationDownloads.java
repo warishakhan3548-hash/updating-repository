@@ -3,6 +3,7 @@ package com.aaris.quran;
 import android.content.Context;
 import android.media.MediaMetadataRetriever;
 import com.aaris.quran.core.Ayah;
+import com.aaris.quran.core.RecitationAddress;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -19,7 +20,9 @@ final class RecitationDownloads {
     private final Map<String,Object> locks=new HashMap<>();
     volatile boolean cancelled,busy;
     volatile String progress="";
-    RecitationDownloads(Context c){root=new File(c.getFilesDir(),"recitations-v1");}
+    // v1 cached ordinal-1 audio under the requested coordinate. Its hashes only verify bytes,
+    // not verse identity, so those files must never be reused by the corrected mapping.
+    RecitationDownloads(Context c){root=new File(c.getFilesDir(),"recitations-v2-coordinate");}
     static int index(String id){for(int i=0;i<IDS.length;i++)if(IDS[i].equals(id))return i;return 0;}
     static String valid(String id){return IDS[index(id)];}
     private File folder(String reciter,int surah){return new File(new File(root,valid(reciter)),""+surah);}
@@ -42,7 +45,7 @@ final class RecitationDownloads {
             new File(directory,"complete.json").delete();
             if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("Audio storage unavailable");
             File temporary=new File(directory,a.number+".download");
-            URL url=new URL("https://cdn.islamic.network/quran/audio/128/"+reciter+"/"+a.ordinal+".mp3");
+            URL url=new URL("https://cdn.islamic.network/quran/audio/128/"+reciter+"/"+RecitationAddress.globalNumber(a)+".mp3");
             HttpURLConnection connection=(HttpURLConnection)url.openConnection();connection.setConnectTimeout(15000);connection.setReadTimeout(30000);connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Accept-Encoding","identity");connection.setRequestProperty("User-Agent","Aaris-Quran/0.4 recitation");
             try{
