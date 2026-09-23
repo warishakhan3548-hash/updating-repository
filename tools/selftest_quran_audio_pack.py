@@ -2,8 +2,9 @@
 """Offline synthetic self-test for the Quran audio pack builder/verifier.
 
 No network and no real Quran audio are used. The test creates a tiny canonical SQLite database and
-three fake Ogg-like clips, runs prepare_quran_audio.py, verifies the result, corrupts one packed
-clip, and requires check_quran_audio.py to reject the corruption.
+three fake Ogg-like clips (including an exact duplicate), runs prepare_quran_audio.py, verifies
+deduplication and identity coverage, corrupts one packed clip, and requires check_quran_audio.py
+to reject the corruption.
 """
 import hashlib
 import json
@@ -59,7 +60,8 @@ def main():
 
         source=tmp/"source"
         write_clip(source/"001"/"001_001_001.opus",1)
-        write_clip(source/"001"/"001_001_002.opus",2)
+        # Different canonical Word ID, exact same immutable audio bytes: must share one range.
+        write_clip(source/"001"/"001_001_002.opus",1)
         write_clip(source/"002"/"002_001_001.opus",3)
         evidence=tmp/"UPSTREAM.txt"
         evidence.write_text("Synthetic Apache-2.0 provenance fixture for offline test only.\n",encoding="utf-8")
@@ -99,7 +101,18 @@ def main():
             "--quran-db",db_path,
             "--source-lock",lock)
 
+        manifest=json.loads((active/"quran-audio"/"manifest.json").read_text(encoding="utf-8"))
+        assert manifest["surah_packs"]["001"]["words"]==2
+        assert manifest["surah_packs"]["001"]["unique_clips"]==1
         pack=active/"quran-audio"/"packs"/"001.pack"
+        assert pack.stat().st_size==68, "Duplicate audio bytes were written twice"
+        index=sqlite3.connect(active/"quran-audio"/"index.sqlite")
+        shared=list(index.execute(
+            "SELECT word_id,byte_offset,byte_length FROM clip WHERE surah=1 ORDER BY word_id"
+        ))
+        index.close()
+        assert len(shared)==2 and shared[0][1:]==shared[1][1:], "Duplicate Word IDs did not share one byte range"
+
         data=bytearray(pack.read_bytes())
         data[0:4]=b"BAD!"
         pack.write_bytes(data)
