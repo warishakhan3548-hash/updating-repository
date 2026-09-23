@@ -379,6 +379,7 @@ def main():
         "files": files,
         "required_collection_ids": [str(c["name"]) for c in collections],
         "exact_collection_set": True,
+        "require_catalog_complete": not args.allow_partial_catalog,
         "catalog_complete": not missing_titles,
         "catalog_missing_titles": missing_titles,
         "acquired_at": datetime.now(timezone.utc).isoformat(),
