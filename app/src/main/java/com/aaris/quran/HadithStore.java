@@ -5,6 +5,7 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import java.io.*;
 import java.text.Normalizer;
 import java.util.*;
@@ -35,6 +36,12 @@ final class HadithStore implements AutoCloseable {
             narrator=c.getString(9);isnadAr=c.getString(10);isnadEn=c.getString(11);
             matnAr=c.getString(12);matnEn=c.getString(13);sourceRef=c.getString(14);}
     }
+    static final class DisplayTranslation {
+        final String language,text,provenance;
+        DisplayTranslation(String language,String text,String provenance){
+            this.language=language;this.text=text;this.provenance=provenance;
+        }
+    }
 
     private static final String RECORD_COLUMNS =
         "h.id,h.collection_id,h.book_id,h.chapter_id,h.record_number,h.arabic,h.english,"+
@@ -42,6 +49,7 @@ final class HadithStore implements AutoCloseable {
     private SQLiteDatabase db;
     final String packHash,packId,contentVersion,sourceName,sourceVersion,redistributionBasis;
     final int recordCount,collectionCount;
+    final Set<String> languageCoverage;
 
     static HadithStore openIfBundled(Context context) throws Exception {
         boolean manifest=false,database=false;
@@ -64,6 +72,14 @@ final class HadithStore implements AutoCloseable {
         sourceName=manifest.getString("source_name");
         sourceVersion=manifest.getString("source_version");
         redistributionBasis=manifest.optString("redistribution_basis","Source license recorded in pack manifest");
+        LinkedHashSet<String> languages=new LinkedHashSet<>();
+        JSONArray languageArray=manifest.optJSONArray("language_coverage");
+        if(languageArray!=null)for(int i=0;i<languageArray.length();i++){
+            String code=languageArray.optString(i,"").trim().toLowerCase(Locale.ROOT);
+            if(!code.isEmpty())languages.add(code);
+        }
+        if(languages.isEmpty())languages.add("ar");
+        languageCoverage=Collections.unmodifiableSet(languages);
         recordCount=manifest.getInt("records");
         collectionCount=manifest.getInt("collections");
         if(packHash.length()!=64||recordCount<1||collectionCount<1)throw new IOException("Invalid Hadith manifest");
@@ -213,6 +229,45 @@ final class HadithStore implements AutoCloseable {
         try(Cursor c=db.rawQuery("SELECT scheme,value FROM hadith_reference WHERE hadith_id=? ORDER BY id",
             new String[]{id})){while(c.moveToNext())out.add(c.getString(0)+": "+c.getString(1));}
         return out;
+    }
+
+    boolean hasLanguage(String code){
+        return code!=null&&languageCoverage.contains(code.toLowerCase(Locale.ROOT));
+    }
+
+    String searchHint(){
+        return hasLanguage("en")?"Search Arabic, English or Hadith number":"Search Arabic or Hadith number";
+    }
+
+    DisplayTranslation translation(Record record,String preferredLanguage){
+        if(record==null||db==null)return null;
+        String preferred=preferredLanguage==null?"en":preferredLanguage.toLowerCase(Locale.ROOT);
+        LinkedHashSet<String> candidates=new LinkedHashSet<>();
+        if("hi".equals(preferred)){candidates.add("hi");candidates.add("en");}
+        else if("ur".equals(preferred)){candidates.add("ur");candidates.add("en");}
+        else if("bn".equals(preferred)){candidates.add("bn");candidates.add("en");}
+        else{candidates.add(preferred);candidates.add("en");}
+
+        for(String language:candidates){
+            try(Cursor cursor=db.rawQuery(
+                "SELECT text,revision,status,source_ref FROM editorial_translation "+
+                "WHERE hadith_id=? AND language=? AND status IN ('released','reviewed') "+
+                "ORDER BY CASE status WHEN 'released' THEN 0 ELSE 1 END,rowid DESC LIMIT 1",
+                new String[]{record.id,language})){
+                if(cursor.moveToFirst()){
+                    String provenance="Aaris "+cursor.getString(2)+" · revision "+cursor.getString(1);
+                    String source=cursor.getString(3);if(source!=null&&!source.trim().isEmpty())provenance+=" · "+source;
+                    return new DisplayTranslation(language,cursor.getString(0),provenance);
+                }
+            }
+            String sourceText=null;
+            if("en".equals(language))sourceText=record.english;
+            else if("ur".equals(language))sourceText=record.urdu;
+            else if("bn".equals(language))sourceText=record.bangla;
+            if(sourceText!=null&&!sourceText.trim().isEmpty())
+                return new DisplayTranslation(language,sourceText,"Imported source translation · "+sourceName);
+        }
+        return null;
     }
 
     private static String normalizeArabic(String value){
