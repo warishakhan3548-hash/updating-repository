@@ -44,6 +44,12 @@ The initial supported source layout is the Muallim/Mujawwad word-audio dataset p
 complete 114-surah `SURAH_AYAH_WORD` OPUS files. Keep the pinned upstream README/license evidence
 inside the generated pack and review the source rights before redistribution.
 
+Fast path for maintainers:
+
+`python3 tools/complete_quran_audio_pack.py`
+
+This is an explicit one-time acquisition command. It is never referenced by Gradle.
+
 Typical flow:
 
 1. Generate canonical Quran SQLite locally: `python3 tools/build_content.py`
