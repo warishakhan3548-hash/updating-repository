@@ -95,7 +95,7 @@ final class QuranAudioStore {
 
     boolean canAddress(ContentStore.Word word){return clip(word)!=null;}
 
-    String attribution(){return RECITER_NAME+" · original recitation · local after download";}
+    String attribution(){return RECITER_NAME+" · "+SOURCE_NAME+" · Apache-2.0 · local after download";}
 
     static void validateSurahFiles(File audio,File timing,int surah) throws IOException {
         if(surah<1||surah>114)throw new IOException("Invalid Surah number");
