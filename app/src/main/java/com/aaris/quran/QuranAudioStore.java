@@ -11,21 +11,21 @@ import java.util.Locale;
 /**
  * Immutable APK-bundled Quran word-audio pack.
  *
- * Word identity always comes from the canonical Quran database. Audio bytes are stored in only
- * 114 uncompressed Surah pack assets; a verified local SQLite index maps Word ID -> byte slice.
- * No runtime URL, network fallback, or temporary per-word extraction is used.
+ * Word identity always comes from the canonical Quran database. Identical audio bytes are stored
+ * only once in small uncompressed chunk assets; a verified local SQLite index maps each Word ID
+ * to its exact chunk + byte slice. No runtime URL, network fallback, or per-word extraction exists.
  */
 final class QuranAudioStore implements AutoCloseable {
     static final class Clip {
-        final int surah; final long offset,length;
-        Clip(int surah,long offset,long length){this.surah=surah;this.offset=offset;this.length=length;}
+        final int packId; final long offset,length;
+        Clip(int packId,long offset,long length){this.packId=packId;this.offset=offset;this.length=length;}
     }
 
     private static final String MANIFEST="quran-audio/manifest.json";
     private final Context context;
     private SQLiteDatabase index;
     final String packId,sourceName,sourceVersion,license,style,packRoot,indexAsset,indexHash,canonicalQuranHash;
-    final int wordCount;
+    final int wordCount,packFileCount;
     final boolean complete;
 
     static QuranAudioStore openIfBundled(Context context,String quranPackHash) throws Exception {
@@ -38,9 +38,12 @@ final class QuranAudioStore implements AutoCloseable {
 
     private QuranAudioStore(Context context,JSONObject manifest,String quranPackHash) throws Exception {
         this.context=context.getApplicationContext();
-        if(manifest.getInt("schema_version")!=2)throw new IOException("Unsupported Quran audio pack schema");
+        if(manifest.getInt("schema_version")!=3)throw new IOException("Unsupported Quran audio pack schema");
+        if(!"CONTENT_ADDRESSED_CHUNKS_V1".equals(required(manifest,"pack_layout")))
+            throw new IOException("Unsupported Quran audio pack layout");
         if(manifest.optBoolean("runtime_network_required",true))
             throw new IOException("Quran audio pack may not require runtime network access");
+
         packId=required(manifest,"pack_id");
         sourceName=required(manifest,"source_name");
         sourceVersion=required(manifest,"source_version");
@@ -51,9 +54,14 @@ final class QuranAudioStore implements AutoCloseable {
         indexHash=required(manifest,"index_sha256");
         canonicalQuranHash=required(manifest,"canonical_quran_sqlite_sha256");
         wordCount=manifest.getInt("word_count");
+        packFileCount=manifest.getInt("pack_file_count");
         complete=manifest.optBoolean("coverage_complete",false);
+
         if(!complete)throw new IOException("Incomplete Quran audio pack may not be activated");
-        if(wordCount<1||indexHash.length()!=64||canonicalQuranHash.length()!=64)throw new IOException("Invalid Quran audio manifest");
+        if(wordCount<1||packFileCount<1||indexHash.length()!=64||canonicalQuranHash.length()!=64)
+            throw new IOException("Invalid Quran audio manifest");
+        if(manifest.optInt("index_schema_version",-1)!=2)
+            throw new IOException("Unsupported Quran audio index schema");
         if(quranPackHash==null||!canonicalQuranHash.equals(quranPackHash))
             throw new IOException("Quran audio pack was built for a different canonical Quran pack");
         if(!packRoot.startsWith("quran-audio/")||packRoot.contains("..")||
@@ -83,7 +91,7 @@ final class QuranAudioStore implements AutoCloseable {
             if(!c.moveToFirst()||!"ok".equals(c.getString(0)))throw new IOException("Quran audio index integrity check failed");
         }
         try(Cursor c=index.rawQuery("PRAGMA user_version",null)){
-            if(!c.moveToFirst()||c.getInt(0)!=1)throw new IOException("Quran audio index schema mismatch");
+            if(!c.moveToFirst()||c.getInt(0)!=2)throw new IOException("Quran audio index schema mismatch");
         }
         try(Cursor c=index.rawQuery("SELECT count(*) FROM clip",null)){
             if(!c.moveToFirst()||c.getInt(0)!=wordCount)throw new IOException("Quran audio word count mismatch");
@@ -99,12 +107,13 @@ final class QuranAudioStore implements AutoCloseable {
     Clip clip(ContentStore.Word word){
         if(index==null||word==null||word.position<1||word.id==null||!word.id.contains(":W:"))return null;
         try(Cursor c=index.rawQuery(
-            "SELECT surah,byte_offset,byte_length FROM clip WHERE word_id=?",
+            "SELECT pack_id,byte_offset,byte_length FROM clip WHERE word_id=?",
             new String[]{word.id})){
             if(!c.moveToFirst())return null;
+            int targetPack=c.getInt(0);
             long offset=c.getLong(1),length=c.getLong(2);
-            int surah=c.getInt(0);
-            return surah>=1&&surah<=114&&offset>=0&&length>0?new Clip(surah,offset,length):null;
+            return targetPack>=1&&targetPack<=packFileCount&&offset>=0&&length>0
+                ?new Clip(targetPack,offset,length):null;
         }
     }
 
@@ -112,7 +121,7 @@ final class QuranAudioStore implements AutoCloseable {
 
     AssetFileDescriptor open(Clip clip) throws IOException {
         if(clip==null)throw new FileNotFoundException("No Quran audio clip");
-        String path=String.format(Locale.ROOT,"%s/%03d.pack",packRoot,clip.surah);
+        String path=String.format(Locale.ROOT,"%s/%03d.pack",packRoot,clip.packId);
         return context.getAssets().openFd(path);
     }
 
