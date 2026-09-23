@@ -8,6 +8,8 @@
     "LICENSES/PERMISSION.txt"
   ],
   "files": {
-    "records/collections.jsonl": "REPLACE_WITH_SHA256"
-  }
+    "records/collections.jsonl": "REPLACE_WITH_SHA256",
+    "LICENSES/PERMISSION.txt": "REPLACE_WITH_SHA256"
+  },
+  "require_catalog_complete": true
 }
