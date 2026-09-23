@@ -28,7 +28,7 @@ def canonical_rows(db_path: Path):
     try:
         return list(db.execute(
             "SELECT id,ayah_id,position FROM word "
-            "WHERE position>0 AND id LIKE '%:W:%' ORDER BY "
+            "WHERE position>0 AND id LIKE '%:W:%' AND mapping_state='SOURCE_ALIGNED' ORDER BY "
             "CAST(substr(ayah_id,3,instr(substr(ayah_id,3),':')-1) AS INTEGER),"
             "CAST(substr(ayah_id,instr(substr(ayah_id,3),':')+3) AS INTEGER),position"
         ))
