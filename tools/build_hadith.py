@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Deterministic builder for an Aaris offline Hadith pack.
+"""Deterministic, network-free builder for an Aaris offline Hadith pack.
 
-This tool intentionally performs no network access. It only imports source files that already
-exist locally and whose hashes/license metadata are declared by the pack manifest.
+The builder imports only files already present in source-vault. Every input is hash-locked by the
+pack manifest. Display/source text is preserved; normalized shadows are generated only for search.
 """
 import argparse
 import hashlib
 import json
+import re
 import sqlite3
+import unicodedata
 from pathlib import Path
 
-BUILDER_VERSION = "1"
+BUILDER_VERSION = "2"
+SCHEMA_VERSION = 2
 
 def digest(path: Path) -> str:
     h = hashlib.sha256()
@@ -19,22 +22,33 @@ def digest(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-def require_string(obj, key):
+def required(obj, key):
     value = obj.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"Missing/invalid {key}")
     return value.strip()
+
+def norm_ar(text):
+    text = unicodedata.normalize("NFC", text or "")
+    out = []
+    for ch in text:
+        if unicodedata.category(ch).startswith("M") or ch == "\u0640":
+            continue
+        out.append({"ٱ":"ا","أ":"ا","إ":"ا","آ":"ا","ى":"ي","ؤ":"و","ئ":"ي"}.get(ch, ch))
+    return re.sub(r"\s+", " ", "".join(out)).strip()
+
+def norm_latin(text):
+    text = unicodedata.normalize("NFKD", text or "").casefold()
+    text = "".join(ch for ch in text if not unicodedata.category(ch).startswith("M"))
+    return re.sub(r"\s+", " ", text).strip()
 
 def load_manifest(source_dir: Path):
     path = source_dir / "manifest.json"
     if not path.is_file():
         raise ValueError("Missing hadith manifest.json")
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    require_string(manifest, "pack_id")
-    require_string(manifest, "content_version")
-    require_string(manifest, "source_name")
-    require_string(manifest, "source_version")
-    require_string(manifest, "redistribution_basis")
+    for key in ("pack_id","content_version","source_name","source_version","redistribution_basis"):
+        required(manifest, key)
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
         raise ValueError("Manifest must declare source files and SHA-256 hashes")
@@ -49,6 +63,8 @@ def load_manifest(source_dir: Path):
         p = source_dir / rel
         if not p.is_file():
             raise ValueError(f"Missing source file: {rel}")
+        if not isinstance(expected, str) or len(expected) != 64:
+            raise ValueError(f"Invalid SHA-256 declaration: {rel}")
         actual = digest(p)
         if actual != expected:
             raise ValueError(f"Source hash mismatch: {rel}")
@@ -60,9 +76,9 @@ def open_db(path: Path):
     tmp.unlink(missing_ok=True)
     db = sqlite3.connect(tmp)
     db.execute("PRAGMA foreign_keys=ON")
-    db.executescript("""
+    db.executescript(f"""
     PRAGMA page_size=4096;
-    PRAGMA user_version=1;
+    PRAGMA user_version={SCHEMA_VERSION};
 
     CREATE TABLE collection(
       id TEXT PRIMARY KEY,
@@ -112,6 +128,8 @@ def open_db(path: Path):
       matn_en TEXT,
       source_ref TEXT NOT NULL,
       source_sha256 TEXT NOT NULL,
+      search_ar TEXT NOT NULL,
+      search_latin TEXT NOT NULL,
       FOREIGN KEY(collection_id) REFERENCES collection(id),
       FOREIGN KEY(book_id) REFERENCES book(id),
       FOREIGN KEY(chapter_id) REFERENCES chapter(id)
@@ -135,23 +153,22 @@ def open_db(path: Path):
       FOREIGN KEY(hadith_id) REFERENCES hadith(id)
     );
 
-    CREATE TABLE provenance(
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
+    CREATE TABLE provenance(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
     CREATE INDEX hadith_by_collection ON hadith(collection_id, record_number);
     CREATE INDEX hadith_by_book ON hadith(book_id, record_number);
     CREATE INDEX hadith_by_chapter ON hadith(chapter_id, record_number);
+    CREATE INDEX reference_by_value ON hadith_reference(value);
     """)
     return db, tmp
 
-def canonical_text_hash(arabic: str) -> str:
-    return hashlib.sha256(arabic.encode("utf-8")).hexdigest()
+def text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 def import_jsonl(db, source_dir: Path, manifest):
     total = 0
     seen = set()
+    collections = set()
     for rel in manifest["files"]:
         if not rel.endswith(".jsonl"):
             continue
@@ -163,61 +180,69 @@ def import_jsonl(db, source_dir: Path, manifest):
                 row = json.loads(raw)
                 kind = row.get("type", "hadith")
                 if kind == "collection":
-                    values = (
-                        require_string(row, "id"), require_string(row, "group"),
-                        require_string(row, "name_en"), require_string(row, "name_ar"),
-                        require_string(row, "edition"), manifest["source_name"],
-                        manifest["source_version"],
-                    )
-                    db.execute("INSERT INTO collection VALUES(?,?,?,?,?,?,?)", values)
+                    cid = required(row, "id")
+                    if cid in collections:
+                        raise ValueError(f"Duplicate collection {cid} at {rel}:{line_no}")
+                    collections.add(cid)
+                    db.execute("INSERT INTO collection VALUES(?,?,?,?,?,?,?)", (
+                        cid, required(row, "group"), required(row, "name_en"),
+                        required(row, "name_ar"), required(row, "edition"),
+                        manifest["source_name"], manifest["source_version"]))
                 elif kind == "book":
                     db.execute("INSERT INTO book VALUES(?,?,?,?,?)", (
-                        require_string(row, "id"), require_string(row, "collection_id"),
-                        require_string(row, "number"), row.get("name_en"), row.get("name_ar")))
+                        required(row, "id"), required(row, "collection_id"),
+                        required(row, "number"), row.get("name_en"), row.get("name_ar")))
                 elif kind == "chapter":
                     db.execute("INSERT INTO chapter VALUES(?,?,?,?,?,?)", (
-                        require_string(row, "id"), require_string(row, "collection_id"),
-                        row.get("book_id"), require_string(row, "number"),
-                        row.get("name_en"), row.get("name_ar")))
+                        required(row, "id"), required(row, "collection_id"), row.get("book_id"),
+                        required(row, "number"), row.get("name_en"), row.get("name_ar")))
                 elif kind == "hadith":
-                    hid = require_string(row, "id")
+                    hid = required(row, "id")
                     if hid in seen:
                         raise ValueError(f"Duplicate hadith id {hid} at {rel}:{line_no}")
                     seen.add(hid)
-                    arabic = require_string(row, "arabic")
+                    arabic = required(row, "arabic")
+                    actual = text_hash(arabic)
                     declared = row.get("source_sha256")
-                    actual = canonical_text_hash(arabic)
                     if declared is not None and declared != actual:
                         raise ValueError(f"Arabic text hash mismatch for {hid}")
+                    english = row.get("english")
+                    urdu = row.get("urdu")
+                    bangla = row.get("bangla")
+                    narrator = row.get("narrator_en")
+                    matn_ar = row.get("matn_ar")
+                    matn_en = row.get("matn_en")
+                    search_ar = norm_ar(" ".join(x for x in (arabic, matn_ar) if x))
+                    search_latin = norm_latin(" ".join(x for x in
+                        (english, urdu, bangla, narrator, matn_en, row.get("source_ref")) if x))
                     db.execute("""INSERT INTO hadith VALUES(
-                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
-                        hid, require_string(row, "collection_id"), row.get("book_id"),
-                        row.get("chapter_id"), require_string(row, "record_number"),
-                        arabic, row.get("english"), row.get("urdu"), row.get("bangla"),
-                        row.get("narrator_en"), row.get("isnad_ar"), row.get("isnad_en"),
-                        row.get("matn_ar"), row.get("matn_en"),
-                        require_string(row, "source_ref"), actual))
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                        hid, required(row, "collection_id"), row.get("book_id"),
+                        row.get("chapter_id"), required(row, "record_number"), arabic,
+                        english, urdu, bangla, narrator, row.get("isnad_ar"), row.get("isnad_en"),
+                        matn_ar, matn_en, required(row, "source_ref"), actual,
+                        search_ar, search_latin))
                     for ref in row.get("references", []):
                         db.execute("INSERT INTO hadith_reference(hadith_id,scheme,value) VALUES(?,?,?)",
-                                   (hid, require_string(ref, "scheme"), require_string(ref, "value")))
+                                   (hid, required(ref, "scheme"), required(ref, "value")))
                     for grade in row.get("grades", []):
-                        gid = require_string(grade, "id")
                         db.execute("INSERT INTO grade_assertion VALUES(?,?,?,?,?)", (
-                            gid, hid, require_string(grade, "grade"),
-                            require_string(grade, "grader"),
-                            require_string(grade, "source_version")))
+                            required(grade, "id"), hid, required(grade, "grade"),
+                            required(grade, "grader"), required(grade, "source_version")))
                     total += 1
                 else:
                     raise ValueError(f"Unknown record type {kind} at {rel}:{line_no}")
     if total == 0:
         raise ValueError("No Hadith records imported; refusing to create an empty installed pack")
-    return total
+    if not collections:
+        raise ValueError("No Hadith collections imported")
+    return total, len(collections)
 
-def build(source_dir: Path, output: Path):
+def build(source_dir: Path, output: Path, manifest_output: Path):
     manifest = load_manifest(source_dir)
     db, tmp = open_db(output)
     try:
-        total = import_jsonl(db, source_dir, manifest)
+        total, collection_count = import_jsonl(db, source_dir, manifest)
         provenance = {
             "pack_id": manifest["pack_id"],
             "content_version": manifest["content_version"],
@@ -226,6 +251,7 @@ def build(source_dir: Path, output: Path):
             "redistribution_basis": manifest["redistribution_basis"],
             "builder_version": BUILDER_VERSION,
             "record_count": str(total),
+            "collection_count": str(collection_count),
         }
         db.executemany("INSERT INTO provenance VALUES(?,?)", provenance.items())
         db.commit()
@@ -237,10 +263,28 @@ def build(source_dir: Path, output: Path):
         db.execute("VACUUM")
         db.close()
         tmp.replace(output)
-        print(json.dumps({"records": total, "output": str(output),
-                          "sha256": digest(output)}, indent=2))
+        result = {
+            "schema_version": SCHEMA_VERSION,
+            "pack_id": manifest["pack_id"],
+            "content_version": manifest["content_version"],
+            "source_name": manifest["source_name"],
+            "source_version": manifest["source_version"],
+            "redistribution_basis": manifest["redistribution_basis"],
+            "builder_version": BUILDER_VERSION,
+            "collections": collection_count,
+            "records": total,
+            "sqlite_sha256": digest(output),
+            "update_policy": "APK_BUNDLED_ONLY",
+        }
+        manifest_output.parent.mkdir(parents=True, exist_ok=True)
+        manifest_output.write_text(json.dumps(result, indent=2, ensure_ascii=False)+"\n",
+                                   encoding="utf-8")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
     except Exception:
-        db.close()
+        try:
+            db.close()
+        except Exception:
+            pass
         tmp.unlink(missing_ok=True)
         raise
 
@@ -248,8 +292,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", default=Path("app/src/main/assets/hadith.sqlite"), type=Path)
+    parser.add_argument("--manifest-output",
+                        default=Path("app/src/main/assets/hadith-manifest.json"), type=Path)
     args = parser.parse_args()
-    build(args.source.resolve(), args.output.resolve())
+    build(args.source.resolve(), args.output.resolve(), args.manifest_output.resolve())
 
 if __name__ == "__main__":
     main()
