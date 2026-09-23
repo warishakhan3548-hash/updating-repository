@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "delivery": "ON_DEMAND_SURAH_LOCAL_V1",
+  "repo_id": "zaibihassan/Quranic-Recitation-Data",
+  "repo_type": "dataset",
+  "revision": "6875b35e45cc83107daf3ab7d3a8bd8b2baa51b3",
+  "declared_license": "Apache-2.0",
+  "reciter_folder": "Abdul Basit Abdul Samad (Mujawwad)",
+  "reciter_slug": "abdul-basit-abdul-samad-mujawwad",
+  "audio_format": "Ogg Opus",
+  "audio_profile": "16kHz mono 32kbps",
+  "timing_format": "Protocol Buffers",
+  "timing_scope": "word-level milliseconds inside one full-Surah audio file",
+  "surahs": 114,
+  "canonical_quran_sqlite_sha256": "521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1",
+  "download_policy": "EXPLICIT_USER_ACTION_ONLY",
+  "local_policy": "AFTER_VALIDATED_DOWNLOAD_PLAY_ONLY_FROM_APP_PRIVATE_STORAGE",
+  "apk_policy": "NO_QURAN_AUDIO_BYTES_IN_BASE_APK"
+}
