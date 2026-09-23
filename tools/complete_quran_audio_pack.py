@@ -73,7 +73,7 @@ def main():
         "note":"Pinned automatically after a fully verified local Quran audio vendor import. Reacquisition is never part of a normal build.",
     }
     policy_tmp=POLICY.with_name(POLICY.name+".tmp")
-    policy_tmp.write_text(json.dumps(required_policy,indent=2)+"\\n",encoding="utf-8")
+    policy_tmp.write_text(json.dumps(required_policy,indent=2)+"\n",encoding="utf-8")
     policy_tmp.replace(POLICY)
 
     run(sys.executable,ROOT/"tools/check_quran_audio_policy.py",
