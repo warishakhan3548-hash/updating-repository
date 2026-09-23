@@ -12,7 +12,6 @@ After this succeeds, commit source-vault/quran-audio/active to the repository. F
 builds/runtime use only those committed bytes and never invoke this script or the network.
 """
 import argparse
-import hashlib
 import json
 import shutil
 import subprocess
@@ -83,23 +82,10 @@ def main():
     if expected_packs<1 or len(packs)!=expected_packs:
         raise SystemExit(f"Final chunk pack count mismatch: manifest={expected_packs}, files={len(packs)}")
 
-    # Arm deletion safety only after the complete local payload has passed the network-free
-    # verifier. From this point normal builds require this exact manifest and never fall back
-    # to reacquisition or a website if the local audio payload is later removed.
-    manifest_path=ACTIVE/"quran-audio"/"manifest.json"
-    required_policy={
-        "schema":1,
-        "state":"required",
-        "required_manifest_sha256":hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
-        "required_pack_id":manifest["pack_id"],
-        "on_missing":"FAIL_BUILD_NO_NETWORK_FALLBACK",
-        "note":"Pinned automatically after a fully verified local Quran audio vendor import. Reacquisition is never part of a normal build.",
-    }
-    policy_tmp=POLICY.with_name(POLICY.name+".tmp")
-    policy_tmp.write_text(json.dumps(required_policy,indent=2)+"\n",encoding="utf-8")
-    policy_tmp.replace(POLICY)
-
-    run(sys.executable,ROOT/"tools/check_quran_audio_policy.py",
+    # Finalization is a separate network-free step shared by the one-command and manual flows.
+    # It re-verifies the local pack, atomically arms the release policy, and pins the exact
+    # manifest hash + pack ID. It never downloads or repairs content.
+    run(sys.executable,ROOT/"tools/finalize_quran_audio_policy.py",
         "--source",ACTIVE,
         "--policy",POLICY,
         "--quran-db",DB,
