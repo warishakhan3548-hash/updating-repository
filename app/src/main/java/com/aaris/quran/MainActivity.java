@@ -403,7 +403,7 @@ public final class MainActivity extends Activity {
         header.addView(iconButton("search","Quran mein khojein",this::searchScreen));
         LinearLayout page=scrollBody();pad(page,16,8);readerScroll=(ScrollView)page.getParent();renderedPage="Q:"+readerSurah+":"+readerStart;
         readerScroll.setOnScrollChangeListener((View v,int x,int y,int oldX,int oldY)->{if(y!=oldY)hidePeek();});
-        LinearLayout tools=row(this);TextView surahs=button("Surahs  ↓",()->{reading=false;show();});tools.addView(surahs,new LinearLayout.LayoutParams(0,-2,1));TextView readingStyle=button("Aa · Reading",this::settings);LinearLayout.LayoutParams styleSize=new LinearLayout.LayoutParams(0,-2,1);styleSize.leftMargin=dp(this,8);tools.addView(readingStyle,styleSize);page.addView(tools);gap(page,14);
+        LinearLayout tools=row(this);TextView surahs=button("Surahs  ↓",()->{reading=false;show();});tools.addView(surahs,new LinearLayout.LayoutParams(0,-2,1));TextView readingStyle=button("Aa · Reading",this::settings);LinearLayout.LayoutParams styleSize=new LinearLayout.LayoutParams(0,-2,1);styleSize.leftMargin=dp(this,8);tools.addView(readingStyle,styleSize);TextView audioPack=button(app.wordAudio!=null&&app.wordAudio.installedSurah(readerSurah)?"Audio ✓":"Audio ↓",()->audioSurahPrompt(readerSurah));LinearLayout.LayoutParams audioSize=new LinearLayout.LayoutParams(0,-2,1);audioSize.leftMargin=dp(this,8);tools.addView(audioPack,audioSize);page.addView(tools);gap(page,14);
         TextView name=arabic(s.arabic,28);page.addView(name,new LinearLayout.LayoutParams(-1,-2));
         TextView latin=text(this,s.name,24,INK);latin.setGravity(Gravity.CENTER);latin.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(latin);
         TextView sub=text(this,s.meaning+"  ·  "+s.count+" ayat",12,MUTED);sub.setGravity(Gravity.CENTER);page.addView(sub);gap(page,10);
@@ -475,6 +475,7 @@ public final class MainActivity extends Activity {
         LinearLayout peek=column(this);pad(peek,20,16);peek.setBackground(new Surface(this,Surface.Kind.SHEET,true));
         LinearLayout top=row(this);TextView ar=arabic(word.arabic,30);ar.setGravity(Gravity.RIGHT);top.addView(ar,new LinearLayout.LayoutParams(0,-2,1));
         if(app.audio!=null&&app.audio.canPlay(word))top.addView(iconButton("speaker","Pronunciation dobara sunein",()->playWordAudio(word,true)));
+        else if(app.audioDownloads!=null){TextView getAudio=button("Audio ↓",()->{int[] q=wordCoordinate(word);if(q!=null)audioSurahPrompt(q[0]);});top.addView(getAudio,new LinearLayout.LayoutParams(-2,-2));}
         top.addView(iconButton("close","Close meaning",this::hidePeek));peek.addView(top);
         TextView meaning=text(this,word.gloss(language),18,INK);if(language.equals("ur"))meaning.setTextDirection(View.TEXT_DIRECTION_RTL);peek.addView(meaning);
         if(word.transliteration!=null){gap(peek,4);caption(peek,word.transliteration);}
@@ -497,7 +498,69 @@ public final class MainActivity extends Activity {
     }
     private void playWordAudio(ContentStore.Word word,boolean explicit){
         if(app.audio!=null&&app.audio.play(word))return;
-        if(explicit)toast(app.wordAudioLoadError==null?"Offline pronunciation pack is word ke liye available nahi hai":app.wordAudioLoadError);
+        if(explicit)toast(app.wordAudioLoadError==null?"Is Surah ka audio pehle download karein":app.wordAudioLoadError);
+    }
+
+    private int[] wordCoordinate(ContentStore.Word word){
+        if(word==null||word.ayahId==null)return null;
+        try{
+            String[] p=word.ayahId.split(":");
+            if(p.length!=3||!"Q".equals(p[0]))return null;
+            return new int[]{Integer.parseInt(p[1]),Integer.parseInt(p[2])};
+        }catch(RuntimeException invalid){return null;}
+    }
+
+    private void audioSurahPrompt(int surah){
+        if(app.wordAudio==null||app.audioDownloads==null){toast(app.wordAudioLoadError==null?"Audio storage taiyaar nahi hai":app.wordAudioLoadError);return;}
+        ContentStore.Surah s=content.surah(surah);
+        if(app.wordAudio.installedSurah(surah)){
+            new AlertDialog.Builder(this)
+                .setTitle(s.name+" audio")
+                .setMessage("Yeh Surah audio phone par locally installed hai. Word tap aur recall overlay dono isi local original recitation ko use karenge.")
+                .setPositiveButton("Theek hai",null).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle(s.name+" audio download karein?")
+            .setMessage("Original human Mujawwad recitation sirf is Surah ke liye download hogi. Download ke baad playback local/offline rahega.")
+            .setNegativeButton("Abhi nahi",null)
+            .setPositiveButton("Download",(d,w)->startSurahAudioDownload(surah))
+            .show();
+    }
+
+    private void startSurahAudioDownload(int surah){
+        if(app.audioDownloads==null)return;
+        toast(content.surah(surah).name+" audio download shuru…");
+        app.audioDownloads.downloadSurah(surah,new QuranAudioDownloadManager.Listener(){
+            public void onProgress(int current,int completed,int total){}
+            public void onComplete(){
+                if(isDestroyed()||isFinishing())return;
+                toast(content.surah(surah).name+" audio locally save ho gaya ✓");
+                if(tab==1&&reading&&readerSurah==surah)show();
+            }
+            public void onError(int failed,String message){if(!isDestroyed()&&!isFinishing())toast("Audio download nahi hua: "+message);}
+        });
+    }
+
+    private void downloadAllAudio(){
+        if(app.wordAudio==null||app.audioDownloads==null){toast("Audio download abhi available nahi hai");return;}
+        int installed=app.wordAudio.installedCount();
+        if(installed>=114){toast("Poora Quran audio already locally installed hai ✓");return;}
+        new AlertDialog.Builder(this)
+            .setTitle("Download all Quran audio?")
+            .setMessage("114 Surahs ki original Mujawwad recitation download hogi. Base app chhota rahega; audio phone ki private storage mein alag locally save hoga. Wi‑Fi recommended.")
+            .setNegativeButton("Abhi nahi",null)
+            .setPositiveButton("Download All",(d,w)->{
+                toast("Download All shuru… "+installed+"/114 pehle se local");
+                final int[] lastToast={installed};
+                app.audioDownloads.downloadAll(new QuranAudioDownloadManager.Listener(){
+                    public void onProgress(int surah,int completed,int total){
+                        if(completed==total||completed-lastToast[0]>=10){lastToast[0]=completed;toast("Quran audio "+completed+"/"+total+" locally saved");}
+                    }
+                    public void onComplete(){if(!isDestroyed()&&!isFinishing()){toast("Poora Quran audio locally installed ✓");if(tab==1&&reading)show();}}
+                    public void onError(int surah,String message){if(!isDestroyed()&&!isFinishing())toast("Download ruka · Surah "+surah+": "+message);}
+                });
+            }).show();
     }
 
     private LinearLayout sheet(String title){
@@ -749,14 +812,15 @@ public final class MainActivity extends Activity {
         LinearLayout langs=row(this);for(String lang:new String[]{"hi","ur","en"}){String name=lang.equals("hi")?"हिन्दी":lang.equals("ur")?"اردو":"English";TextView b=button(name+(language.equals(lang)?" ✓":""),()->{language=lang;learning.set("language",lang);settings();});langs.addView(b,new LinearLayout.LayoutParams(0,-2,1));}page.addView(langs);gap(page,18);
         Switch contrast=new Switch(this);contrast.setText("Zyada contrast");contrast.setTextColor(INK);contrast.setChecked(highContrast);contrast.setMinHeight(dp(this,48));page.addView(contrast);contrast.setOnCheckedChangeListener((b,v)->{highContrast=v;learning.set("contrast",""+v);sample.setReliefEnabled(!v);backdrop.highContrast=v;backdrop.invalidate();});
         gap(page,14);page.addView(button("Shaant reading · Controls chhupaayein",()->{quietReader=true;tab=1;reading=true;settingsDialog.dismiss();}));gap(page,10);
+        page.addView(button("Quran audio · Download All",this::downloadAllAudio));gap(page,10);
         page.addView(button("Doosri apps par recall · Timer",this::ambientSettings));gap(page,10);page.addView(button("Sources aur licenses",this::sources));gap(page,10);page.addView(button("Learning export",this::backup));gap(page,10);page.addView(button("Backup restore",this::restorePicker));gap(page,14);
         page.addView(button("Done",settingsDialog::dismiss));caption(page,"No account · No ads · Aapki learning aapke phone par");
     }
     private void sources(){
         LinearLayout page=sheet("Sources aur bharosa");caption(page,content.sources());gap(page,16);
         caption(page,"Quran: 114 surahs / 6,236 ayat. Original text checksum checked. Meaning: imported source glosses; independent scholarly review abhi pending hai. 9 ayat mein word alignment mismatch ki wajah se body meanings withheld hain.");gap(page,12);
-        if(app.wordAudio!=null)caption(page,"Word pronunciation: verified local pack · "+app.wordAudio.attribution()+" · Runtime internet: nahi");
-        else caption(page,"Word pronunciation: local pack abhi bundled nahi hai. Reader online audio par fallback nahi karega.");
+        if(app.wordAudio!=null)caption(page,"Word pronunciation: "+app.wordAudio.installedCount()+"/114 Surahs locally installed · "+app.wordAudio.attribution()+". Audio internet se sirf aapke Download action par aata hai; installed Surahs repeat playback mein network use nahi karte.");
+        else caption(page,"Word pronunciation storage abhi available nahi hai.");
         gap(page,12);
         caption(page,"Yeh non-commercial preview hai. Imported gloss data paid app, subscription ya advertisements ke liye cleared nahi hai.");gap(page,14);
         for(String[] item:new String[][]{{"Tanzil notice","licenses/TANZIL.txt"},{"Word meanings license","licenses/DATA-QURAN.txt"},{"Amiri font license","licenses/AMIRI-OFL.txt"}}){page.addView(button(item[0],()->{LinearLayout p=sheet(item[0]);try{TextView v=text(this,ContentStore.asset(this,item[1]),12,MUTED);v.setTextIsSelectable(true);p.addView(v);}catch(IOException e){caption(p,"License file unavailable");}}));gap(page,8);}
