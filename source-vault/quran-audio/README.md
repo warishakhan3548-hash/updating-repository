@@ -33,6 +33,11 @@ Current canonical counts are intentionally explicit:
 The acquisition preflight compares those identities against the pinned upstream snapshot before
 downloading, and the local pack verifier repeats the identity/range checks before Android packaging.
 
+The packer performs exact-byte deduplication **within each Surah**. If two canonical Word IDs
+have source clips with the same full SHA-256, the bytes are stored once and both index rows point
+to that same immutable range. This reduces repository/APK size without merging Word identities,
+meanings, learning state, or recall history.
+
 ## One-time acquisition
 
 The helper in `tools/acquire_quran_word_audio.py` is an **explicit source acquisition tool**, not
