@@ -27,10 +27,12 @@ final class ContentStore implements AutoCloseable {
     }
     private final SQLiteDatabase db;
     final List<Surah> surahs=new ArrayList<>();
-    final String packHash;
+    final String packHash,audioAlignmentHash;
     ContentStore(Context context) throws Exception {
         JSONObject manifest=new JSONObject(asset(context,"content-manifest.json"));
         packHash=manifest.getString("sqlite_sha256");
+        audioAlignmentHash=manifest.getString("audio_alignment_sha256");
+        if(audioAlignmentHash.length()!=64||manifest.optInt("audio_alignment_words",-1)!=77326)throw new IOException("Invalid Quran audio alignment identity");
         File folder=new File(context.getFilesDir(),"evidence");if(!folder.exists()&&!folder.mkdirs())throw new IOException("Cannot create evidence storage");
         File target=new File(folder,"quran-"+packHash.substring(0,16)+".sqlite");
         if(!target.exists()||!packHash.equals(hash(target))) {
