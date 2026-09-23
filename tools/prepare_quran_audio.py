@@ -2,18 +2,20 @@
 """Prepare a compact, website-independent Quran word-audio pack from local word clips.
 
 Input is an already acquired SURAH/SURAH_AYAH_WORD.<extension> directory. The output contains
-only 114 Surah pack files plus one SQLite byte-range index, license/provenance evidence and a
-manifest. Gradle/runtime never download source data and the APK never needs 77k separate assets.
+content-addressed audio clips packed into small seekable chunk files plus one SQLite byte-range
+index, license/provenance evidence and a manifest. Identical audio bytes are stored only once.
+Gradle/runtime never download source data and the APK never needs 77k separate assets.
 """
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MAX_SURAH_PACK_BYTES = 95 * 1024 * 1024
+MAX_PACK_BYTES = 32 * 1024 * 1024
 MAX_TOTAL_PACK_BYTES = 650 * 1024 * 1024
 SOURCE_LOCK = ROOT / "source-vault/quran-audio/source-lock.json"
 
@@ -80,7 +82,9 @@ def main():
         raise SystemExit("Unsupported Quran audio source lock schema")
     if args.source_version.lower()!=str(lock.get("revision") or "").lower():
         raise SystemExit("Audio source version differs from reviewed source lock")
-    if args.license!=str(lock.get("declared_license") or "") or args.style!=str(lock.get("style") or "") or extension!=str(lock.get("extension") or ""):
+    if (args.license!=str(lock.get("declared_license") or "") or
+        args.style!=str(lock.get("style") or "") or
+        extension!=str(lock.get("extension") or "")):
         raise SystemExit("Audio source license/style/format differs from reviewed source lock")
 
     if not quran_db.is_file():
@@ -97,6 +101,8 @@ def main():
     reviewed_count=int(lock.get("expected_word_count") or 0)
     if len(rows)!=reviewed_count:
         raise SystemExit(f"Canonical safe word count changed: {len(rows)} != reviewed {reviewed_count}")
+
+    # Fail before writing staging output if any required coordinate is missing or obviously corrupt.
     missing=[]
     for _,ayah_id,position in rows:
         path=source_file(source,ayah_id,int(position),extension)
@@ -124,56 +130,81 @@ def main():
     db=sqlite3.connect(index_path)
     db.executescript("""
     PRAGMA page_size=4096;
-    PRAGMA user_version=1;
+    PRAGMA user_version=2;
     CREATE TABLE clip(
       word_id TEXT PRIMARY KEY,
       surah INTEGER NOT NULL,
       ayah INTEGER NOT NULL,
       position INTEGER NOT NULL,
+      pack_id INTEGER NOT NULL,
       byte_offset INTEGER NOT NULL,
-      byte_length INTEGER NOT NULL
+      byte_length INTEGER NOT NULL,
+      clip_sha256 TEXT NOT NULL,
+      UNIQUE(surah,ayah,position)
     );
     CREATE INDEX clip_coordinate ON clip(surah,ayah,position);
+    CREATE INDEX clip_pack_range ON clip(pack_id,byte_offset);
     """)
 
-    by_surah={}
-    for row in rows:
-        _,ayah_id,_=row
-        surah,_=coordinate(ayah_id)
-        by_surah.setdefault(surah,[]).append(row)
-
+    # digest -> (pack_id, offset, length). Repeated identical pronunciations reference the same
+    # immutable range instead of storing duplicate bytes.
+    dedup={}
     pack_meta={}
-    copied=0
+    current_out=None
+    current_path=None
+    current_pack_id=0
+    current_unique=0
+    references=0
+
+    def finish_current_pack():
+        nonlocal current_out,current_path,current_unique
+        if current_out is None:return
+        current_out.flush();os.fsync(current_out.fileno());current_out.close()
+        pack_bytes=current_path.stat().st_size
+        key=f"{current_pack_id:03d}"
+        pack_meta[key]={
+            "sha256":file_hash(current_path),
+            "bytes":pack_bytes,
+            "unique_clips":current_unique,
+        }
+        current_out=None;current_path=None;current_unique=0
+
     try:
-        for surah in range(1,115):
-            pack_path=packs/f"{surah:03d}.pack"
-            count=0
-            with pack_path.open("wb") as out:
-                for word_id,ayah_id,position in by_surah.get(surah,[]):
-                    src=source_file(source,ayah_id,int(position),extension)
-                    length=src.stat().st_size
-                    if length<32:
-                        raise ValueError(f"Suspiciously small source audio: {src}")
-                    offset=out.tell()
-                    with src.open("rb") as inp:
-                        if inp.read(4)!=b"OggS":
-                            raise ValueError(f"Source clip is not an Ogg container: {src}")
-                        inp.seek(0)
-                        shutil.copyfileobj(inp,out,1024*1024)
-                    _,ayah=coordinate(ayah_id)
-                    db.execute("INSERT INTO clip VALUES(?,?,?,?,?,?)",
-                               (word_id,surah,ayah,int(position),offset,length))
-                    count+=1;copied+=1
-                    if copied%5000==0:
-                        print(f"Packed {copied}/{len(rows)} words",flush=True)
-            pack_bytes=pack_path.stat().st_size
-            if pack_bytes>MAX_SURAH_PACK_BYTES:
-                raise ValueError(f"Surah {surah} pack exceeds ordinary-Git safety limit: {pack_bytes} bytes")
-            pack_meta[f"{surah:03d}"]={
-                "sha256":file_hash(pack_path),
-                "bytes":pack_bytes,
-                "words":count,
-            }
+        for word_id,ayah_id,position in rows:
+            src=source_file(source,ayah_id,int(position),extension)
+            data=src.read_bytes()
+            if len(data)<32 or data[:4]!=b"OggS":
+                raise ValueError(f"Source clip is not a valid Ogg container: {src}")
+            digest=hashlib.sha256(data).hexdigest()
+            location=dedup.get(digest)
+
+            if location is None:
+                if len(data)>MAX_PACK_BYTES:
+                    raise ValueError(f"Single word clip exceeds chunk limit: {src}")
+                if current_out is None or current_out.tell()+len(data)>MAX_PACK_BYTES:
+                    finish_current_pack()
+                    current_pack_id+=1
+                    current_path=packs/f"{current_pack_id:03d}.pack"
+                    current_out=current_path.open("wb")
+                offset=current_out.tell()
+                current_out.write(data)
+                location=(current_pack_id,offset,len(data))
+                dedup[digest]=location
+                current_unique+=1
+            elif location[2]!=len(data):
+                raise ValueError(f"SHA-256 collision/length mismatch for {src}")
+
+            pack_id,offset,length=location
+            surah,ayah=coordinate(ayah_id)
+            db.execute("INSERT INTO clip VALUES(?,?,?,?,?,?,?,?)",
+                       (word_id,surah,ayah,int(position),pack_id,offset,length,digest))
+            references+=1
+            if references%5000==0:
+                print(f"Indexed {references}/{len(rows)} words; unique clips={len(dedup)}",flush=True)
+
+        finish_current_pack()
+        if not pack_meta:
+            raise ValueError("No Quran audio pack files were produced")
 
         total_pack_bytes=sum(meta["bytes"] for meta in pack_meta.values())
         if total_pack_bytes>MAX_TOTAL_PACK_BYTES:
@@ -184,6 +215,8 @@ def main():
             raise ValueError("Audio index integrity check failed")
         if db.execute("SELECT count(*) FROM clip").fetchone()[0]!=len(rows):
             raise ValueError("Audio index word count mismatch")
+        if db.execute("SELECT count(DISTINCT clip_sha256) FROM clip").fetchone()[0]!=len(dedup):
+            raise ValueError("Audio dedup index mismatch")
         db.execute("VACUUM")
         db.close()
 
@@ -202,7 +235,7 @@ def main():
             json.dumps(source_meta,ensure_ascii=False,indent=2)+"\n",encoding="utf-8"
         )
         manifest={
-            "schema_version":2,
+            "schema_version":3,
             "pack_id":f"aaris-quran-word-audio-{args.style}-{args.source_version}",
             "source_name":args.source_name,
             "source_version":args.source_version,
@@ -211,14 +244,20 @@ def main():
             "license_files":[evidence_rel,"quran-audio/SOURCE.json"],
             "style":args.style,
             "source_file_extension":extension,
+            "pack_layout":"CONTENT_ADDRESSED_CHUNKS_V1",
             "pack_root":"quran-audio/packs",
+            "pack_chunk_limit_bytes":MAX_PACK_BYTES,
+            "pack_file_count":len(pack_meta),
             "index_asset":"quran-audio/index.sqlite",
+            "index_schema_version":2,
             "index_sha256":file_hash(index_path),
             "canonical_quran_sqlite_sha256":quran_hash,
             "source_lock_sha256":file_hash(source_lock),
             "word_count":len(rows),
+            "unique_clip_count":len(dedup),
+            "deduplicated_reference_count":len(rows)-len(dedup),
             "coverage_complete":True,
-            "surah_packs":pack_meta,
+            "packs":pack_meta,
             "total_pack_bytes":total_pack_bytes,
             "runtime_network_required":False,
         }
@@ -226,6 +265,8 @@ def main():
             json.dumps(manifest,ensure_ascii=False,indent=2)+"\n",encoding="utf-8"
         )
     except Exception:
+        try:finish_current_pack()
+        except Exception:pass
         try:db.close()
         except Exception:pass
         shutil.rmtree(stage,ignore_errors=True)
@@ -237,8 +278,11 @@ def main():
     print(json.dumps({
         "status":"PREPARED",
         "output":str(output),
-        "word_files_packed":len(rows),
-        "surah_pack_files":114,
+        "word_references":len(rows),
+        "unique_audio_clips":len(dedup),
+        "deduplicated_references":len(rows)-len(dedup),
+        "pack_files":len(pack_meta),
+        "total_pack_bytes":total_pack_bytes,
         "style":args.style,
         "runtime_network_required":False,
     },ensure_ascii=False,indent=2))
