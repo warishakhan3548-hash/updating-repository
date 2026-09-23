@@ -22,6 +22,17 @@ Prefatory Bismillah IDs (`:B:`) and Quran words whose meaning/source alignment i
 `UNMAPPED` are deliberately not guessed or shifted onto audio coordinates. The active pack covers
 only `SOURCE_ALIGNED` canonical `:W:` identities; if alignment is not exact, Aaris stays silent.
 
+Current canonical counts are intentionally explicit:
+
+- Quran reader tokens: 77,881 total.
+- Prefatory `:B:` tokens: 448; these are excluded from word-audio coordinates.
+- Canonical `:W:` tokens: 77,433.
+- The 9 fail-closed unaligned ayat contain 115 `:W:` tokens.
+- Therefore the current safe audio target is exactly **77,318 SOURCE_ALIGNED `:W:` identities**.
+
+The acquisition preflight compares those identities against the pinned upstream snapshot before
+downloading, and the local pack verifier repeats the identity/range checks before Android packaging.
+
 ## One-time acquisition
 
 The helper in `tools/acquire_quran_word_audio.py` is an **explicit source acquisition tool**, not
