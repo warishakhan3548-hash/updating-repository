@@ -1,20 +1,21 @@
 package com.aaris.quran;
 
 import android.content.Context;
-import android.content.res.AssetFileDescriptor;
 import android.media.*;
 import android.os.Handler;
 import android.os.Looper;
 import java.io.IOException;
 
-/** Single process-wide owner for short offline Quran word pronunciation playback. */
+/** Single process-wide owner for short local Quran word pronunciation playback. */
 final class WordAudioPlayer implements AutoCloseable {
     private final QuranAudioStore store;
     private final AudioManager audio;
     private final AudioAttributes attributes;
     private final AudioFocusRequest focus;
+    private final Handler main=new Handler(Looper.getMainLooper());
     private MediaPlayer player;
     private int generation;
+    private Runnable stopRunnable;
 
     WordAudioPlayer(Context context,QuranAudioStore store) {
         this.store=store;
@@ -28,7 +29,7 @@ final class WordAudioPlayer implements AutoCloseable {
             .setOnAudioFocusChangeListener(change->{
                 if(change==AudioManager.AUDIOFOCUS_LOSS||
                    change==AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)stop();
-            },new Handler(Looper.getMainLooper()))
+            },main)
             .build();
     }
 
@@ -40,19 +41,29 @@ final class WordAudioPlayer implements AutoCloseable {
         releaseLocked();
         if(store==null)return false;
         QuranAudioStore.Clip clip=store.clip(word);
-        if(clip==null)return false;
-        AssetFileDescriptor fd=null;
+        if(clip==null||!clip.audio.isFile())return false;
         try {
-            fd=store.open(clip);
             if(audio==null||audio.requestAudioFocus(focus)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED)return false;
             final int token=generation;
             MediaPlayer next=new MediaPlayer();
             next.setAudioAttributes(attributes);
-            next.setDataSource(fd.getFileDescriptor(),fd.getStartOffset()+clip.offset,clip.length);
+            next.setDataSource(clip.audio.getAbsolutePath());
             next.setOnPreparedListener(p->{
                 synchronized(WordAudioPlayer.this) {
                     if(player!=p||generation!=token){safeRelease(p);return;}
-                    try{p.start();}catch(IllegalStateException invalid){finish(p);}
+                    p.setOnSeekCompleteListener(seeked->{
+                        synchronized(WordAudioPlayer.this){
+                            if(player!=seeked||generation!=token){safeRelease(seeked);return;}
+                            try{
+                                seeked.start();
+                                Runnable stop=()->finishIfCurrent(seeked,token);
+                                stopRunnable=stop;
+                                main.postDelayed(stop,Math.max(180,clip.durationMs()+120L));
+                            }catch(IllegalStateException invalid){finish(seeked);}
+                        }
+                    });
+                    try{p.seekTo(clip.startMs,MediaPlayer.SEEK_CLOSEST);}
+                    catch(IllegalStateException invalid){finish(p);}
                 }
             });
             next.setOnCompletionListener(this::finish);
@@ -63,25 +74,29 @@ final class WordAudioPlayer implements AutoCloseable {
         } catch(IOException|RuntimeException failure) {
             releaseLocked();
             return false;
-        } finally {
-            if(fd!=null)try{fd.close();}catch(IOException ignored){}
         }
     }
 
     synchronized void stop(){generation++;releaseLocked();}
 
+    private void finishIfCurrent(MediaPlayer completed,int token){
+        synchronized(this){
+            if(player==completed&&generation==token)finish(completed);
+        }
+    }
+
     private void finish(MediaPlayer completed) {
         synchronized(this) {
             boolean current=player==completed;
             if(current)player=null;
+            if(stopRunnable!=null){main.removeCallbacks(stopRunnable);stopRunnable=null;}
             safeRelease(completed);
-            // A delayed callback from an older released clip must never steal focus
-            // from a newer word the user has already tapped.
             if(current)abandonFocus();
         }
     }
 
     private void releaseLocked() {
+        if(stopRunnable!=null){main.removeCallbacks(stopRunnable);stopRunnable=null;}
         MediaPlayer old=player;player=null;
         if(old!=null){
             try{old.stop();}catch(IllegalStateException ignored){}
