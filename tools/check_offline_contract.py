@@ -70,13 +70,20 @@ def main():
     store=AUDIO_STORE.read_text(encoding="utf-8")
     revision=str(lock.get("revision") or "")
     repo_id=str(lock.get("repo_id") or "")
-    quran_hash=str(lock.get("canonical_quran_sqlite_sha256") or "")
+    alignment_hash=str(lock.get("canonical_quran_alignment_sha256") or "")
+    alignment_words=int(lock.get("canonical_quran_audio_words") or 0)
     if len(revision)!=40 or revision not in store:
         fail("runtime audio source revision differs from reviewed lock")
     if repo_id not in downloader:
         fail("runtime audio repository differs from reviewed lock")
-    if len(quran_hash)!=64 or quran_hash not in store:
-        fail("runtime audio Quran binding differs from reviewed lock")
+    if len(alignment_hash)!=64 or alignment_hash not in store:
+        fail("runtime audio Quran alignment differs from reviewed lock")
+    if alignment_words!=77326:
+        fail("runtime audio canonical word count differs from reviewed lock")
+    content_store=(APP_JAVA/"com/aaris/quran/ContentStore.java").read_text(encoding="utf-8")
+    quran_app=(APP_JAVA/"com/aaris/quran/QuranApp.java").read_text(encoding="utf-8")
+    if "audio_alignment_sha256" not in content_store or "audioAlignmentHash" not in quran_app:
+        fail("runtime audio is not wired through stable semantic Quran identity")
     if "HttpURLConnection" not in downloader:
         fail("audio downloader no longer has an explicit reviewed HTTPS boundary")
     if 'setRequestProperty("Range","bytes="+existing+"-")' not in downloader:
