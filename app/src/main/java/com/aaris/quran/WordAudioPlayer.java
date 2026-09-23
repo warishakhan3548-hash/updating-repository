@@ -3,6 +3,8 @@ package com.aaris.quran;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.media.*;
+import android.os.Handler;
+import android.os.Looper;
 import java.io.IOException;
 
 /** Single process-wide owner for short offline Quran word pronunciation playback. */
@@ -26,7 +28,7 @@ final class WordAudioPlayer implements AutoCloseable {
             .setOnAudioFocusChangeListener(change->{
                 if(change==AudioManager.AUDIOFOCUS_LOSS||
                    change==AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)stop();
-            })
+            },new Handler(Looper.getMainLooper()))
             .build();
     }
 
