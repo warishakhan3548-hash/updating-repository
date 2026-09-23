@@ -13,6 +13,7 @@ import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE_LOCK = ROOT / "source-vault/quran-audio/source-lock.json"
 
 
 def file_hash(path: Path) -> str:
@@ -60,6 +61,7 @@ def main():
     parser.add_argument("--license",required=True)
     parser.add_argument("--style",default="muallim")
     parser.add_argument("--extension",default="opus")
+    parser.add_argument("--source-lock",type=Path,default=SOURCE_LOCK)
     args=parser.parse_args()
 
     source=args.source.resolve()
@@ -67,15 +69,32 @@ def main():
     output=args.output.resolve()
     evidence=args.license_evidence.resolve()
     extension=args.extension.lower().strip(".")
+    source_lock=args.source_lock.resolve()
+
+    if not source_lock.is_file():
+        raise SystemExit("Reviewed Quran audio source lock is missing")
+    lock=json.loads(source_lock.read_text(encoding="utf-8"))
+    if lock.get("schema")!=1:
+        raise SystemExit("Unsupported Quran audio source lock schema")
+    if args.source_version.lower()!=str(lock.get("revision") or "").lower():
+        raise SystemExit("Audio source version differs from reviewed source lock")
+    if args.license!=str(lock.get("declared_license") or "") or args.style!=str(lock.get("style") or "") or extension!=str(lock.get("extension") or ""):
+        raise SystemExit("Audio source license/style/format differs from reviewed source lock")
 
     if not quran_db.is_file():
         raise SystemExit("quran.sqlite is missing; run python3 tools/build_content.py first")
+    quran_hash=file_hash(quran_db)
+    if quran_hash!=str(lock.get("canonical_quran_sqlite_sha256") or ""):
+        raise SystemExit("Canonical quran.sqlite differs from reviewed audio source lock")
     if not evidence.is_file():
         raise SystemExit("License/provenance evidence file does not exist")
     if not extension.isalnum() or not 2<=len(extension)<=6:
         raise SystemExit("Invalid audio extension")
 
     rows=canonical_rows(quran_db)
+    reviewed_count=int(lock.get("expected_word_count") or 0)
+    if len(rows)!=reviewed_count:
+        raise SystemExit(f"Canonical safe word count changed: {len(rows)} != reviewed {reviewed_count}")
     missing=[]
     for _,ayah_id,position in rows:
         path=source_file(source,ayah_id,int(position),extension)
@@ -183,7 +202,8 @@ def main():
             "pack_root":"quran-audio/packs",
             "index_asset":"quran-audio/index.sqlite",
             "index_sha256":file_hash(index_path),
-            "canonical_quran_sqlite_sha256":file_hash(quran_db),
+            "canonical_quran_sqlite_sha256":quran_hash,
+            "source_lock_sha256":file_hash(source_lock),
             "word_count":len(rows),
             "coverage_complete":True,
             "surah_packs":pack_meta,
