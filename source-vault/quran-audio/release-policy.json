@@ -4,5 +4,5 @@
   "required_manifest_sha256": null,
   "required_pack_id": null,
   "on_missing": "ALLOW_OFFLINE_WITHOUT_PRONUNCIATION_UNTIL_VENDOR_IMPORT_COMPLETES",
-  "note": "tools/complete_quran_audio_pack.py changes this policy to required only after the pinned local pack passes full verification. Once required, normal builds fail closed if that exact local pack is missing or replaced."
+  "note": "tools/finalize_quran_audio_policy.py (called by complete_quran_audio_pack.py) changes this policy to required only after the pinned local pack passes full verification. Once required, normal builds fail closed if that exact local pack is missing or replaced."
 }
