@@ -20,6 +20,7 @@ BANNED_RUNTIME_IMPORTS=(
     "io.ktor.client.",
 )
 ALLOWED_BUILD_SCRIPTS={
+    "tools/check_offline_contract.py",
     "tools/build_content.py",
     "tools/check_quran_audio.py",
     "tools/prepare_open_hadith_data.py",
