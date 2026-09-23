@@ -52,6 +52,11 @@ def normalize_latin(value):
     return re.sub(r"\s+", " ", value).strip()
 
 
+
+def title_key(value):
+    value = unicodedata.normalize("NFKD", str(value or "")).casefold()
+    return "".join(ch for ch in value if ch.isalnum())
+
 def load_manifest(source_dir: Path):
     path = source_dir / "manifest.json"
     if not path.is_file():
@@ -382,12 +387,12 @@ def import_jsonl(db, source_dir: Path, manifest):
     if manifest.get("require_catalog_complete", False):
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         expected_titles = {
-            str(item["name_en"]).strip().casefold()
+            title_key(item["name_en"])
             for item in catalog.get("collections", [])
             if str(item.get("name_en") or "").strip()
         }
         actual_titles = {
-            str(row[0]).strip().casefold()
+            title_key(row[0])
             for row in db.execute("SELECT name_en FROM collection")
             if str(row[0] or "").strip()
         }
