@@ -1,0 +1,58 @@
+name: Build Aaris APK
+
+on:
+  push:
+    branches:
+      - build-apk-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 35 build tools
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Create temporary release signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASS='aaris-preview-2026'
+          KEYSTORE="$RUNNER_TEMP/aaris-preview.p12"
+          printf '%s' "$PASS" > "$RUNNER_TEMP/aaris-preview-password.txt"
+          keytool -genkeypair -noprompt             -storetype PKCS12             -keystore "$KEYSTORE"             -storepass "$PASS"             -keypass "$PASS"             -alias aaris-preview             -keyalg RSA -keysize 3072             -validity 3650             -dname "CN=Aaris Preview Build, OU=Build, O=Aaris, L=Panipat, ST=Haryana, C=IN"
+
+      - name: Build signed release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 tools/build_release.py             --android-jar "$ANDROID_HOME/platforms/android-35/android.jar"             --build-tools "$ANDROID_HOME/build-tools/35.0.0"             --keystore "$RUNNER_TEMP/aaris-preview.p12"             --alias aaris-preview             --password-file "$RUNNER_TEMP/aaris-preview-password.txt"             --output "dist/Aaris-Quran-0.4.0-release-preview.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aaris-Quran-0.4.0-release-preview
+          path: |
+            dist/Aaris-Quran-0.4.0-release-preview.apk
+            dist/Aaris-Quran-0.4.0-release-preview.build.json
+          if-no-files-found: error
+          retention-days: 7
