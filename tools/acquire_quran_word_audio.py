@@ -110,6 +110,8 @@ def main():
                 "README.md",
                 "LICENSE",
                 "LICENSE.*",
+                "NOTICE",
+                "NOTICE.*",
             ],
         ))
         style_dir = snapshot / Path(prefix)
@@ -120,7 +122,7 @@ def main():
             raise SystemExit("Pinned dataset snapshot has no README license/provenance evidence")
         evidence = Path(temp) / "UPSTREAM_EVIDENCE.txt"
         evidence_parts=[("README.md",readme.read_text(encoding="utf-8",errors="replace"))]
-        for name in ("LICENSE","LICENSE.txt","LICENSE.md","LICENSE.apache-2.0"):
+        for name in ("LICENSE","LICENSE.txt","LICENSE.md","LICENSE.apache-2.0","NOTICE","NOTICE.txt","NOTICE.md"):
             candidate=snapshot/name
             if candidate.is_file():
                 evidence_parts.append((name,candidate.read_text(encoding="utf-8",errors="replace")))
