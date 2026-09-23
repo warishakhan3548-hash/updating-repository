@@ -54,6 +54,16 @@ def main():
             'SELECT a.arabic,w.start_cp,w.end_cp,w.arabic FROM word w JOIN ayah a ON a.id=w.ayah_id'):
         assert text[start:end] == word, 'Word/source offset mismatch'
     assert not db.execute('PRAGMA foreign_key_check').fetchall()
+    audio_alignment=hashlib.sha256()
+    audio_words=0
+    for wid,aid,position,word_arabic in db.execute(
+            "SELECT id,ayah_id,position,arabic FROM word "
+            "WHERE position>0 AND id LIKE '%:W:%' AND mapping_state='SOURCE_ALIGNED' ORDER BY id"):
+        audio_alignment.update(f"{wid}\\t{aid}\\t{position}\\t{word_arabic}\\n".encode('utf-8'))
+        audio_words += 1
+    assert audio_words == 77326, 'Canonical Quran audio word count changed'
+    assert manifest.get('audio_alignment_words') == audio_words, 'Audio alignment word metadata mismatch'
+    assert manifest.get('audio_alignment_sha256') == audio_alignment.hexdigest(), 'Audio semantic alignment hash mismatch'
 
     # Quran recitation audio is no longer a build input. The base APK must stay small; only the
     # user-requested downloader may populate app-private Surah audio after installation.
