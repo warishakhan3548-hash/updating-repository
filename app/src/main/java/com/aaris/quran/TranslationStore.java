@@ -34,7 +34,7 @@ final class TranslationStore implements AutoCloseable {
         db=SQLiteDatabase.openDatabase(target.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY);
         try(Cursor cur=db.rawQuery("SELECT * FROM edition ORDER BY CASE language WHEN 'hi' THEN 0 WHEN 'ur' THEN 1 ELSE 2 END",null)){while(cur.moveToNext())editions.add(new Edition(cur));}
     }
-    Edition edition(String id){for(Edition e:editions)if(e.id.equals(id))return e;return editions.isEmpty()?null:editions.get(0);}
+    Edition edition(String id){for(Edition e:editions)if(e.id.equals(id))return e;return null;}
     Entry get(String editionId,String ayahId){Edition edition=edition(editionId);if(edition==null)return null;try(Cursor c=db.rawQuery("SELECT text,footnotes FROM translation WHERE edition_id=? AND ayah_id=?",new String[]{edition.id,ayahId})){return c.moveToFirst()?new Entry(edition,c.getString(0),c.getString(1)):null;}}
     Map<String,String> searchText(){Map<String,StringBuilder> builders=new HashMap<>();try(Cursor c=db.rawQuery("SELECT ayah_id,text FROM translation ORDER BY edition_id,ayah_id",null)){while(c.moveToNext())builders.computeIfAbsent(c.getString(0),k->new StringBuilder()).append(c.getString(1)).append(' ');}Map<String,String> result=new HashMap<>();for(Map.Entry<String,StringBuilder> e:builders.entrySet())result.put(e.getKey(),e.getValue().toString());return result;}
     public void close(){db.close();}

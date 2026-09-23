@@ -27,7 +27,34 @@ final class RankingChecks {
             new SearchEngine.Document(new Ayah(1,2,"الثاني","b",2),"bright morning silver moon")));
         SearchEngine.Response pasted=paragraphs.search("bright morning\nsilver moon",10);
         require(pasted.variants.size()==1&&pasted.results.get(0).ayah.number==2&&pasted.results.get(0).match.total==4,"Pasted paragraph ranks by all lines together");
-        return 10;
+        List<String> query=new ArrayList<>();Map<String,Double> weights=new HashMap<>();
+        for(int i=1;i<=10;i++){String w="w"+i;query.add(w);weights.put(w,i<=2?1.:i==10?20.:78./7);}
+        List<String> reverseNine=new ArrayList<>(query.subList(0,9));Collections.reverse(reverseNine);
+        TextMatch high=TextMatch.compare(query,reverseNine,Collections.emptyMap(),weights);
+        TextMatch medium=TextMatch.compare(query,query.subList(2,10),Collections.emptyMap(),weights);
+        require(high.band==TextMatch.Band.HIGH&&medium.band==TextMatch.Band.MEDIUM&&medium.score>high.score,
+            "Regression fixture has a higher numeric MEDIUM score");
+        require(TextMatch.compareRank(high,medium)<0,"HIGH always outranks MEDIUM, regardless of raw score");
+        TextMatch low=TextMatch.compare(query,query.subList(2,5),Collections.emptyMap(),weights);
+        require(low.band==TextMatch.Band.LOW&&TextMatch.compareRank(medium,low)<0,"MEDIUM always outranks LOW");
+        List<String> reordered=new ArrayList<>(query);Collections.swap(reordered,0,1);
+        List<String> spaced=new ArrayList<>(query);spaced.add(1,"spacer");
+        TextMatch nearA=TextMatch.compare(query,reordered,Collections.emptyMap(),Collections.emptyMap());
+        TextMatch nearB=TextMatch.compare(query,spaced,Collections.emptyMap(),Collections.emptyMap());
+        require(nearA.score!=nearB.score&&TextMatch.compareHadith(nearA,"bukhari",nearB,"muslim")<0,
+            "Bukhari preference works for comparable unequal scores");
+        require(TextMatch.compareHadith(nearA,"muslim",nearB,"nasai")<0,"Muslim precedes other sources at comparable relevance");
+        require(TextMatch.compareHadith(medium,"bukhari",high,"muslim")>0,"Source preference never crosses bands");
+        require(TextMatch.compareHadith(low,"bukhari",nearA,"ibnmajah")>0,"Weak Bukhari overlap cannot outrank stronger evidence");
+        List<TextMatch> matches=Arrays.asList(high,medium,low,nearA,nearB);
+        String[] sourcesForRank={"bukhari","muslim","nasai"};
+        for(TextMatch x:matches)for(TextMatch y:matches)for(TextMatch z:matches)
+            for(String sx:sourcesForRank)for(String sy:sourcesForRank)for(String sz:sourcesForRank){
+                int xy=TextMatch.compareHadith(x,sx,y,sy),yz=TextMatch.compareHadith(y,sy,z,sz);
+                if(xy<=0&&yz<=0)require(TextMatch.compareHadith(x,sx,z,sz)<=0,"Near-equal source order remains transitive");
+            }
+        require(nearA.explanation().contains("spelling repairs"),"Match explanations expose transformations");
+        return 19;
     }
     private static void require(boolean value,String message){if(!value)throw new AssertionError(message);}
 }

@@ -51,6 +51,66 @@ final class LearningStore extends SQLiteOpenHelper {
         try(Cursor c=getReadableDatabase().rawQuery("SELECT value FROM setting WHERE key=?",new String[]{key})){return c.moveToFirst()?c.getString(0):fallback;}
     }
     synchronized void set(String key,String value){ContentValues v=new ContentValues();v.put("key",key);v.put("value",value);getWritableDatabase().insertWithOnConflict("setting",null,v,SQLiteDatabase.CONFLICT_REPLACE);}
+    /** Explicit query-to-record shortcuts, scoped to the immutable pack; never corpus edits. */
+    synchronized void confirmSearch(String scope,String pack,String query,String target){
+        String key=com.aaris.quran.core.TextMatch.normalize(query);
+        if(key.isEmpty()||key.length()>256||!pack.matches("[a-f0-9]{64}")||target.length()>80||
+            !Arrays.asList("quran","hadith").contains(scope))throw new IllegalArgumentException("Invalid search shortcut");
+        try{
+            JSONArray current=new JSONArray(get("search_aliases_v1","[]")),next=new JSONArray();
+            long now=System.currentTimeMillis();
+            for(int i=Math.max(0,current.length()-99);i<current.length();i++){
+                JSONObject item=current.getJSONObject(i);
+                if(item.optLong("at",0)>now||now-item.optLong("at",0)>180L*86400000)continue;
+                if(scope.equals(item.optString("scope"))&&pack.equals(item.optString("pack"))&&key.equals(item.optString("query")))continue;
+                next.put(item);
+            }
+            next.put(new JSONObject().put("scope",scope).put("pack",pack).put("query",key).put("target",target).put("at",now));
+            boundedRecords("search_aliases_v1",next);
+        }catch(JSONException e){throw new IllegalStateException("Search shortcut storage is invalid",e);}
+    }
+    String confirmedSearch(String scope,String pack,String query){
+        String key=com.aaris.quran.core.TextMatch.normalize(query);long now=System.currentTimeMillis();
+        try{JSONArray items=new JSONArray(get("search_aliases_v1","[]"));for(int i=items.length()-1;i>=0;i--){
+            JSONObject item=items.getJSONObject(i);
+            if(scope.equals(item.optString("scope"))&&pack.equals(item.optString("pack"))&&key.equals(item.optString("query"))&&
+                item.optLong("at",0)<=now&&now-item.optLong("at",0)<=180L*86400000)return item.optString("target","");
+        }}catch(JSONException ignored){}return "";
+    }
+    synchronized void clearSearchShortcuts(){set("search_aliases_v1","[]");}
+    List<String> pinnedAyahs(){
+        List<String> out=new ArrayList<>();try{JSONArray a=new JSONArray(get("study_pins_v1","[]"));for(int i=0;i<Math.min(10,a.length());i++)out.add(a.getString(i));}catch(JSONException ignored){}return out;
+    }
+    synchronized boolean togglePin(String id){
+        List<String> ids=pinnedAyahs();if(ids.contains(id))ids.remove(id);else{if(ids.size()>=10)return false;ids.add(id);}
+        set("study_pins_v1",new JSONArray(ids).toString());return true;
+    }
+    Map<String,List<String>> collections(){
+        Map<String,List<String>> out=new TreeMap<>();try{JSONObject root=new JSONObject(get("study_collections_v1","{}"));
+            Iterator<String> keys=root.keys();while(keys.hasNext()){String name=keys.next();JSONArray a=root.getJSONArray(name);List<String> ids=new ArrayList<>();for(int i=0;i<a.length();i++)ids.add(a.getString(i));out.put(name,ids);}
+        }catch(JSONException ignored){}return out;
+    }
+    synchronized void collect(String name,String id,boolean add){
+        name=name.trim();if(name.isEmpty()||name.length()>64)throw new IllegalArgumentException("Use a collection name of 1–64 characters");
+        Map<String,List<String>> all=collections();
+        if(add&&!all.containsKey(name)&&all.size()>=16)throw new IllegalArgumentException("Up to 16 collections");
+        List<String> ids=all.computeIfAbsent(name,k->new ArrayList<>());
+        if(add&&!ids.contains(id)){if(ids.size()>=100)throw new IllegalArgumentException("Up to 100 ayahs per collection");ids.add(id);}else if(!add)ids.remove(id);
+        JSONObject root=new JSONObject();try{for(Map.Entry<String,List<String>> item:all.entrySet())if(!item.getValue().isEmpty())root.put(item.getKey(),new JSONArray(item.getValue()));}catch(JSONException e){throw new IllegalStateException(e);}
+        set("study_collections_v1",root.toString());
+    }
+    synchronized void translationIssue(String ayah,String edition,String version,String pack,String text){
+        if(text.trim().isEmpty()||text.length()>2000)throw new IllegalArgumentException("Write 1–2,000 characters");
+        try{JSONArray current=new JSONArray(get("translation_issues_v1","[]")),next=new JSONArray();
+            for(int i=Math.max(0,current.length()-19);i<current.length();i++)next.put(current.getJSONObject(i));
+            next.put(new JSONObject().put("ayah",ayah).put("edition",edition).put("version",version).put("pack",pack).put("text",text).put("at",System.currentTimeMillis()));
+            boundedRecords("translation_issues_v1",next);
+        }catch(JSONException e){throw new IllegalStateException(e);}
+    }
+    private void boundedRecords(String key,JSONArray rows){
+        String encoded=rows.toString();while(encoded.length()>65536&&rows.length()>1){rows.remove(0);encoded=rows.toString();}
+        if(encoded.length()>65536)throw new IllegalArgumentException("Local records exceed backup size limit");set(key,encoded);
+    }
     boolean bookmarked(String id){try(Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM bookmark WHERE ayah_id=?",new String[]{id})){return c.moveToFirst();}}
     synchronized void toggleBookmark(String id) {
         if(bookmarked(id)){getWritableDatabase().delete("bookmark","ayah_id=?",new String[]{id});return;}

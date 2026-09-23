@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <queries>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+    </queries>
     <application android:name=".QuranApp" android:allowBackup="false" android:label="Aaris Quran"
         android:icon="@drawable/ic_launcher" android:theme="@style/AppTheme"
         android:supportsRtl="true" android:usesCleartextTraffic="false">

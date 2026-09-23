@@ -183,10 +183,12 @@ final class HadithStore implements AutoCloseable {
         final List<Hit> hits;final int total,offset;final String query;
         SearchPage(String query,List<Hit> hits,int total,int offset){this.query=query;this.hits=hits;this.total=total;this.offset=offset;}
     }
-    private static int sourcePriority(String collection){return collection.equals("bukhari")?0:collection.equals("muslim")?1:2;}
-    private static final Comparator<Hit> ORDER=Comparator.comparingInt((Hit h)->h.reference?0:1)
-        .thenComparing(Comparator.comparingDouble((Hit h)->h.match.score).reversed())
-        .thenComparingInt(h->sourcePriority(h.record.collectionId)).thenComparing(h->h.record.collectionId).thenComparing(h->h.record.id);
+    private static final Comparator<Hit> ORDER=(a,b)->{
+        int c=Boolean.compare(b.reference,a.reference);if(c!=0)return c;
+        c=TextMatch.compareHadith(a.match,a.record.collectionId,b.match,b.record.collectionId);if(c!=0)return c;
+        c=a.record.collectionId.compareTo(b.record.collectionId);if(c!=0)return c;
+        return a.record.id.compareTo(b.record.id);
+    };
     List<Record> search(String query,int limit){List<Record> out=new ArrayList<>();for(Hit hit:searchPage(query,limit,0).hits)out.add(hit.record);return out;}
     SearchPage searchPage(String query,int limit,int offset){
         String raw=query==null?"":query.trim();int start=Math.max(0,offset),cap=Math.max(1,Math.min(200,limit));
@@ -211,9 +213,9 @@ final class HadithStore implements AutoCloseable {
         try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE h.rowid IN ("+ids+")",args.toArray(new String[0]))){
             while(c.moveToNext()){
                 cancelSearch();Record record=new Record(c);TextMatch match=TextMatch.compare(terms,TextMatch.tokens(record.arabic),repairs,weights);
-                for(String text:new String[]{record.english,record.urdu,record.bangla})if(text!=null){TextMatch m=TextMatch.compare(terms,TextMatch.tokens(text),repairs,weights);if(m.accepted&&(!match.accepted||m.score>match.score))match=m;}
+                for(String text:new String[]{record.english,record.urdu,record.bangla})if(text!=null){TextMatch m=TextMatch.compare(terms,TextMatch.tokens(text),repairs,weights);if(m.accepted&&(!match.accepted||TextMatch.compareRank(m,match)<0))match=m;}
                 if(hasEditorialTranslations)try(Cursor translations=db.rawQuery("SELECT text FROM editorial_translation WHERE hadith_id=? AND status IN ('released','reviewed')",new String[]{record.id})){
-                    while(translations.moveToNext()){TextMatch m=TextMatch.compare(terms,TextMatch.tokens(translations.getString(0)),repairs,weights);if(m.accepted&&(!match.accepted||m.score>match.score))match=m;}
+                    while(translations.moveToNext()){TextMatch m=TextMatch.compare(terms,TextMatch.tokens(translations.getString(0)),repairs,weights);if(m.accepted&&(!match.accepted||TextMatch.compareRank(m,match)<0))match=m;}
                 }
                 boolean reference=exactIds.contains(record.id);
                 if(reference)match=TextMatch.exactReference();if(!match.accepted)continue;
