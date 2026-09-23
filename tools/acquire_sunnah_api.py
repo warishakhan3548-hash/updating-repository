@@ -22,6 +22,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +48,11 @@ def safe_component(value: str) -> str:
     for ch in value:
         out.append(ch if ch.isalnum() or ch in "-_." else "_")
     return "".join(out).strip("._") or "item"
+
+
+def title_key(value: str) -> str:
+    value = unicodedata.normalize("NFKD", value or "").casefold()
+    return "".join(ch for ch in value if ch.isalnum())
 
 
 def language_map(items):
@@ -142,8 +148,8 @@ def catalog_groups(path: Path):
     for item in data.get("collections", []):
         title = str(item.get("name_en") or "").strip()
         if title:
-            expected_titles.add(title.casefold())
-            mapping[title.casefold()] = str(item.get("group") or "other")
+            expected_titles.add(title_key(title))
+            mapping[title_key(title)] = str(item.get("group") or "other")
     return mapping, expected_titles
 
 
@@ -210,7 +216,7 @@ def normalize_collection(folder: Path, group_by_title, edition, source_version, 
     collection = json.loads((folder / "collection.json").read_text(encoding="utf-8"))
     slug = str(collection["name"])
     title_en, title_ar = collection_titles(collection)
-    group = group_by_title.get(title_en.casefold(), "other")
+    group = group_by_title.get(title_key(title_en), "other")
     out.write(compact({
         "type": "collection", "id": slug, "group": group,
         "name_en": title_en or slug, "name_ar": title_ar or slug,
@@ -319,6 +325,10 @@ def main():
 
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    existing_manifest = output / "manifest.json"
+    if existing_manifest.exists() and not args.refresh:
+        raise SystemExit("A completed active manifest already exists. Use --refresh to acquire a new snapshot; interrupted runs without a manifest resume automatically.")
+    existing_manifest.unlink(missing_ok=True)
     raw_dir = output / "raw"
     records_dir = output / "records"
     licenses_dir = output / "LICENSES"
@@ -338,7 +348,7 @@ def main():
     if not collections:
         raise SystemExit("The official API returned no collections.")
 
-    returned_titles = {collection_titles(c)[0].casefold() for c in collections if collection_titles(c)[0]}
+    returned_titles = {title_key(collection_titles(c)[0]) for c in collections if collection_titles(c)[0]}
     missing_titles = sorted(expected_titles - returned_titles)
     if missing_titles and not args.allow_partial_catalog:
         raise SystemExit(
