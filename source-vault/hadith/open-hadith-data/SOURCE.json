@@ -3,52 +3,79 @@
   "upstream_repository": "mhashim6/Open-Hadith-Data",
   "upstream_commit": "1515f6cba21efed20d8916bf55acef1dffa0d2d5",
   "license": "ODbL 1.0 / Database Contents License",
-  "note": "Arabic source corpus only. Aaris does not treat this source as permission to reuse unrelated Sunnah.com translations, grades, commentary, or website presentation.",
+  "note": "Arabic source corpus only. Aaris verifies the pinned upstream Git blob identity plus contiguous record coverage. This source does not grant permission to reuse unrelated Sunnah.com translations, grades, commentary, or website presentation.",
   "collections": {
     "bukhari": {
       "path": "Sahih_Al-Bukhari/sahih_al-bukhari_ahadith.utf8.csv",
       "git_blob_sha1": "565fa802afa2eb35299ae1e81912071a782933ef",
-      "local": "bukhari.parts"
+      "local": "bukhari.parts",
+      "expected_record_count": 7008,
+      "expected_first_record": "1",
+      "expected_last_record": "7008"
     },
     "muslim": {
       "path": "Sahih_Muslim/sahih_muslim_ahadith.utf8.csv",
       "git_blob_sha1": "cc1787d1b1b285c2a93d38098fd5ef5894f2bb40",
-      "local": "muslim.parts"
+      "local": "muslim.parts",
+      "expected_record_count": 5362,
+      "expected_first_record": "1",
+      "expected_last_record": "5362"
     },
     "nasai": {
       "path": "Sunan_Al-Nasai/sunan_al-nasai_ahadith.utf8.csv",
       "git_blob_sha1": "4298747cab745d0402d42a2abd7e54073799fe51",
-      "local": "nasai.csv"
+      "local": "nasai.csv",
+      "expected_record_count": 5662,
+      "expected_first_record": "1",
+      "expected_last_record": "5662"
     },
     "abudawud": {
       "path": "Sunan_Abu-Dawud/sunan_abu-dawud_ahadith.utf8.csv",
       "git_blob_sha1": "297a12880e2bb1283d5a8e49070c0304cfc7da69",
-      "local": "abudawud.csv"
+      "local": "abudawud.csv",
+      "expected_record_count": 4590,
+      "expected_first_record": "1",
+      "expected_last_record": "4590"
     },
     "tirmidhi": {
       "path": "Sunan_Al-Tirmidhi/sunan_al-tirmidhi_ahadith.utf8.csv",
       "git_blob_sha1": "0807da5daef07654ce63e24feeaf738e490c5399",
-      "local": "tirmidhi.csv"
+      "local": "tirmidhi.csv",
+      "expected_record_count": 3891,
+      "expected_first_record": "1",
+      "expected_last_record": "3891"
     },
     "ibnmajah": {
       "path": "Sunan_Ibn-Maja/sunan_ibn-maja_ahadith.utf8.csv",
       "git_blob_sha1": "444b4855042f3c028d16e2d25d7178a6b3c2314e",
-      "local": "ibnmajah.csv"
+      "local": "ibnmajah.csv",
+      "expected_record_count": 4332,
+      "expected_first_record": "1",
+      "expected_last_record": "4332"
     },
     "malik": {
       "path": "Maliks_Muwataa/maliks_muwataa_ahadith.utf8.csv",
       "git_blob_sha1": "5d59a2ec9b4e944cd3dd0a963daad1f686957c1d",
-      "local": "malik.csv"
+      "local": "malik.csv",
+      "expected_record_count": 1594,
+      "expected_first_record": "1",
+      "expected_last_record": "1594"
     },
     "ahmad": {
       "path": "Musnad_Ahmad_Ibn-Hanbal/musnad_ahmad_ibn-hanbal_ahadith.utf8.csv",
       "git_blob_sha1": "94d4f5b5dccecd6eb29bc96a7d6df33c11b35983",
-      "local": "ahmad.parts"
+      "local": "ahmad.parts",
+      "expected_record_count": 26363,
+      "expected_first_record": "1",
+      "expected_last_record": "26363"
     },
     "darimi": {
       "path": "Sunan_Al-Darimi/sunan_al-darimi_ahadith.utf8.csv",
       "git_blob_sha1": "cf51c633f39b80db8e43cb30198a20a2ea37c0d0",
-      "local": "darimi.csv"
+      "local": "darimi.csv",
+      "expected_record_count": 3367,
+      "expected_first_record": "1",
+      "expected_last_record": "3367"
     }
   }
 }
