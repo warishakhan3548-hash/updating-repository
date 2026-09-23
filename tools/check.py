@@ -60,18 +60,16 @@ def main():
         assert text[start:end] == word, 'Word/source offset mismatch'
     assert not db.execute('PRAGMA foreign_key_check').fetchall()
 
-    # Quran audio is optional, but any checked-in active payload must be complete and bound to
-    # this exact canonical Quran pack + reviewed source lock. A partial/deleted local pack fails
-    # verification instead of being mistaken for valid audio.
-    audio_active = ROOT / 'source-vault/quran-audio/active'
-    audio_payload = audio_active / 'quran-audio'
-    if audio_payload.exists():
-        subprocess.run([
-            sys.executable, str(ROOT / 'tools/check_quran_audio.py'),
-            '--source', str(audio_active),
-            '--quran-db', str(pack),
-            '--source-lock', str(ROOT / 'source-vault/quran-audio/source-lock.json'),
-        ], check=True, cwd=ROOT)
+    # Enforce audio install state as well as pack integrity. While the large payload has not yet
+    # been vendored, policy explicitly permits offline-without-pronunciation. After a verified
+    # vendor import arms the policy, deletion/replacement becomes a hard local build failure.
+    subprocess.run([
+        sys.executable, str(ROOT / 'tools/check_quran_audio_policy.py'),
+        '--source', str(ROOT / 'source-vault/quran-audio/active'),
+        '--policy', str(ROOT / 'source-vault/quran-audio/release-policy.json'),
+        '--quran-db', str(pack),
+        '--source-lock', str(ROOT / 'source-vault/quran-audio/source-lock.json'),
+    ], check=True, cwd=ROOT)
 
     # Hadith is a separate optional immutable pack. A build must contain both files or neither.
     hadith_manifest_path = assets / 'hadith-manifest.json'
