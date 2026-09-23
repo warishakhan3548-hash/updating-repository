@@ -177,7 +177,7 @@ def build():
                 'review_status':'SOURCE_IMPORTED; linguistic review pending',
                 'gloss_source_commit':'023b2f59edcf5cea0f4218a50039c6e6fc7154bc',
                 'builder_version':'1','signature':None,'update_policy':'APK_BUNDLED_ONLY',
-                'sources':{str(p.relative_to(VAULT)):digest(p) for p in sorted(VAULT.rglob('*')) if p.is_file()}}
+                'sources':{relative:digest(VAULT/relative) for relative in sorted(lock['source_sha256'])}}
     (ASSETS/'content-manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
     report = {'summary':{k:manifest[k] for k in ('surahs','ayahs','words','source_aligned_words','unmapped_ayah_count')},
               'unmapped':unmatched, 'policy':'Fail closed per ayah; never shift word mappings after a mismatch.'}
