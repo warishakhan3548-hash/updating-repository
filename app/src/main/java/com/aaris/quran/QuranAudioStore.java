@@ -18,7 +18,7 @@ final class QuranAudioStore {
     static final String SOURCE_NAME="Quranic Recitation Data";
     static final String RIGHTS_NOTICE="source metadata Apache-2.0; recording-rights review pending";
     static final String SOURCE_REVISION="6875b35e45cc83107daf3ab7d3a8bd8b2baa51b3";
-    static final String CANONICAL_ALIGNMENT_HASH="dc529dcb8d07549e5837621b6e0f26f9948221545907e9c5d89b035bc412ea1e";
+    static final String CANONICAL_ALIGNMENT_HASH="9971ffae866bc3682d11efccd30fdddb1d62bc4718e5f9cd941395e6f16093ce";
 
     static final class Clip {
         final File audio;
