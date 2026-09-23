@@ -58,7 +58,8 @@ def main():
     # Quran recitation audio is no longer a build input. The base APK must stay small; only the
     # user-requested downloader may populate app-private Surah audio after installation.
     legacy_audio = ROOT / 'source-vault/quran-audio/active/quran-audio'
-    assert not legacy_audio.exists(), 'Legacy bundled Quran audio must not be present in a release checkout'
+    accidental_audio_asset = ROOT / 'app/src/main/assets/quran-audio'
+    assert not legacy_audio.exists() and not accidental_audio_asset.exists(), 'Bundled Quran audio must not be present in a release checkout'
 
     # Hadith is a separate optional immutable pack. A build must contain both files or neither.
     hadith_manifest_path = assets / 'hadith-manifest.json'
