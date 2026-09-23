@@ -100,7 +100,7 @@ public final class MainActivity extends Activity {
         body=column(this);layout.addView(body,new LinearLayout.LayoutParams(-1,0,1));
         bottom=row(this);pad(bottom,6,5);bottom.setBackground(new Surface(this,Surface.Kind.NAV,highContrast));LinearLayout.LayoutParams navSize=new LinearLayout.LayoutParams(-1,-2);navSize.setMargins(dp(this,16),dp(this,6),dp(this,16),dp(this,10));layout.addView(bottom,navSize);
         if(tab==0)today();else if(tab==1){if(reading)reader();else library();}else if(tab==2)hadithLibrary();else map();
-        nav("sun","Aaj",0);nav("book","Quran",1);nav("hadith","Hadith",2);nav("cards","Yaad",3);
+        nav("sun","Today",0);nav("book","Quran",1);nav("hadith","Hadith",2);nav("cards","Yaad",3);
     }
     private void nav(String icon,String title,int index){
         LinearLayout v=column(this);v.setGravity(Gravity.CENTER);pad(v,4,7);
@@ -131,19 +131,39 @@ public final class MainActivity extends Activity {
     private void toast(String value){if(!isDestroyed()&&!isFinishing())Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
 
     private void today(){
-        heading("QURAN, AAPKE SAATH", "Aaris");LinearLayout page=scrollBody();
-        TextView intro=text(this,"Thoda sa waqt.\nDil ke liye sukoon.",29,INK);intro.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(intro);gap(page,20);
-        LinearLayout hero=card(page,Surface.Kind.HERO);hero.addView(label("JAHAN SE CHHODA THA"));gap(hero,18);hero.addView(arabic(content.ayah("Q:1:1").arabic,32));gap(hero,20);
-        ContentStore.Surah s=content.surah(readerSurah);int resumeAyah=readingPosition==null?readerStart:RecallTarget.parse(readingPosition.anchorId).ayah;
-        hero.addView(text(this,s.name,22,INK));caption(hero,"Ayah "+resumeAyah+" · Aapki pichhli jagah");gap(hero,18);hero.addView(primary("Quran kholein  →",()->{tab=1;reading=true;show();}));
-        ambientCard(page);
-        List<Recall.State> queue=dueQueue();
-        LinearLayout practice=card(page,Surface.Kind.PANEL);practice.addView(label("AAJ KE ALFAAZ"));gap(practice,10);
-        practice.addView(text(this,queue.isEmpty()?"Aaj koi jaldi nahi.":queue.size()+" chhoti yaad-dihaniyan",21,INK));gap(practice,6);
-        caption(practice,queue.isEmpty()?"Padhte hue kisi lafz ya ayah ko yaad karne ke liye chun sakte hain.":"Sirf wahi alfaaz aur ayat jo aapne chune hain.");
-        if(!queue.isEmpty()){gap(practice,16);practice.addView(button("Narmi se dohraayein",()->review(queue.get(0).target)));}
-        LinearLayout saved=card(page,Surface.Kind.PANEL);saved.addView(text(this,"Nishaan lagayi hui ayat",18,INK));gap(saved,8);caption(saved,learning.bookmarks().size()+" bookmarks · Hamesha offline");gap(saved,12);saved.addView(button("Bookmarks kholein",this::bookmarks));
-        TextView footer=text(this,"Aapki raftaar. Aapka safar.",12,MUTED);footer.setGravity(Gravity.CENTER);page.addView(footer);gap(page,18);
+        heading("QURAN, WITH YOU", "Aaris");LinearLayout page=scrollBody();
+
+        TextView intro=text(this,"A little time.\nPeace for the heart.",29,INK);
+        intro.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(intro);gap(page,8);
+        caption(page,"The Quran is always here for you.");gap(page,20);
+
+        ContentStore.Surah s=content.surah(readerSurah);
+        int resumeAyah=readingPosition==null?readerStart:RecallTarget.parse(readingPosition.anchorId).ayah;
+        Ayah resume=content.ayah("Q:"+readerSurah+":"+resumeAyah);
+        if(resume==null){resumeAyah=readerStart;resume=content.ayah("Q:"+readerSurah+":"+resumeAyah);}
+        if(resume==null){readerSurah=1;resumeAyah=1;s=content.surah(1);resume=content.ayah("Q:1:1");}
+
+        LinearLayout hero=card(page,Surface.Kind.HERO);
+        hero.addView(label("WHERE YOU LEFT OFF"));gap(hero,18);
+        hero.addView(arabic(resume.arabic,34));gap(hero,20);
+        hero.addView(text(this,"Surah "+s.name,22,INK));
+        caption(hero,"Ayah "+resumeAyah+" · Your last place");gap(hero,18);
+
+        LinearLayout actions=row(this);
+        TextView openQuran=primary("Open Quran  →",()->{tab=1;reading=true;show();});
+        TextView openBookmarks=button("Open Bookmarks  →",this::bookmarks);
+        openQuran.setSingleLine(true);openBookmarks.setSingleLine(true);
+        openQuran.setTextSize(13);openBookmarks.setTextSize(13);
+        LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,-2,1);
+        left.rightMargin=dp(this,6);
+        LinearLayout.LayoutParams right=new LinearLayout.LayoutParams(0,-2,1);
+        right.leftMargin=dp(this,6);
+        actions.addView(openQuran,left);actions.addView(openBookmarks,right);
+        hero.addView(actions);gap(hero,10);
+
+        TextView bookmarkCount=text(this,learning.bookmarks().size()+" bookmarks · Always offline",11,MUTED);
+        bookmarkCount.setGravity(Gravity.CENTER);hero.addView(bookmarkCount);
+        gap(page,18);
     }
     private void hadithLibrary(){
         heading("KUTUB AL-SITTAH", "Hadith");LinearLayout page=scrollBody();
