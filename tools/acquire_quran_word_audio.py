@@ -15,12 +15,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPO = "zaibihassan/Quranic-Word-By-Word-Audio-Data"
+DEFAULT_REVISION = "9796e08caae700f44266255da320adf6e5ab4114"
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--revision", default=None,
-                        help="Optional pinned 40-hex Hugging Face dataset commit. If omitted, main is resolved once to an immutable commit before download.")
+    parser.add_argument("--revision", default=DEFAULT_REVISION,
+                        help="Pinned 40-hex Hugging Face dataset commit. Updating the source requires an explicit new reviewed commit.")
     parser.add_argument("--repo-id", default=DEFAULT_REPO)
     parser.add_argument("--style", choices=("muallim", "mujawwad"), default="muallim")
     parser.add_argument("--output", type=Path, default=ROOT / "source-vault/quran-audio/active")
@@ -33,13 +34,11 @@ def main():
         raise SystemExit("Install the one-time acquisition dependency: pip install huggingface_hub")
 
     revision=args.revision
-    info=HfApi().dataset_info(args.repo_id, revision=revision or "main")
-    if revision is None:
-        revision=str(info.sha or "")
-        print(f"Resolved {args.repo_id}@main -> {revision}", flush=True)
     if not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
-        raise SystemExit("Dataset revision did not resolve to an immutable 40-hex commit")
-
+        raise SystemExit("Dataset revision must be an immutable 40-hex commit")
+    info=HfApi().dataset_info(args.repo_id, revision=revision)
+    if str(info.sha or "").lower()!=revision.lower():
+        raise SystemExit("Hugging Face did not resolve the requested immutable dataset commit exactly")
     tags=set(info.tags or [])
     if "license:apache-2.0" not in tags:
         raise SystemExit("Pinned dataset no longer declares Apache-2.0; review source rights before acquisition")
