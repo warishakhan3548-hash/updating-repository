@@ -113,6 +113,11 @@ public final class AmbientRecallService extends Service {
         scroll.setFillViewport(false);scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);LinearLayout body=column(windowContext);pad(body,0,12);scroll.addView(body);shell.addView(scroll,new LinearLayout.LayoutParams(-1,-2));
         String cue=word!=null?original:edge!=null?edge.ending.text:cue(original);
         TextView prompt=arabic(cue,word==null?29:40);body.addView(prompt,new LinearLayout.LayoutParams(-1,-2));
+        if(word!=null&&app.audio!=null&&app.audio.canPlay(word)){
+            app.audio.play(word);
+            TextView replay=control("🔊  Dobara sunein",()->app.audio.play(word));
+            body.addView(replay,new LinearLayout.LayoutParams(-1,-2));
+        }
         String instruction=word!=null?"Is lafz ka meaning yaad hai?":edge!=null?"Agli ayah ka aaghaz yaad karein":"Ayah ka ishara · Aage zehan se yaad karein";
         TextView hint=text(windowContext,instruction,14,MUTED);hint.setGravity(Gravity.CENTER);pad(hint,0,12);body.addView(hint);
         LinearLayout answer=column(windowContext);answer.setVisibility(View.GONE);body.addView(answer);
@@ -146,7 +151,7 @@ public final class AmbientRecallService extends Service {
     private TextView arabic(String value,int size){ArabicText t=new ArabicText(windowContext);t.setText(value);t.setTextSize(size);t.setReliefEnabled(!Boolean.parseBoolean(app.learning.get("contrast","false")));t.setTypeface(font);t.setTextDirection(View.TEXT_DIRECTION_RTL);t.setGravity(Gravity.CENTER);t.setLineSpacing(dp(windowContext,8),1.05f);return t;}
     private TextView control(String value,Runnable action){TextView t=text(windowContext,value,14,INK);t.setGravity(Gravity.CENTER);pad(t,12,10);t.setMinimumHeight(dp(windowContext,48));t.setBackground(Glass.touch(windowContext,Surface.Kind.BUTTON,true));t.setFocusable(true);t.setOnClickListener(v->action.run());return t;}
     private void dismissCard(){removeCard();session.dismiss(SystemClock.elapsedRealtime());handler.removeCallbacks(tick);handler.post(tick);}
-    private void removeCard(){if(card!=null){try{windows.removeViewImmediate(card);}catch(IllegalArgumentException ignored){}card=null;}}
+    private void removeCard(){if(card!=null){if(app!=null&&app.audio!=null)app.audio.stop();try{windows.removeViewImmediate(card);}catch(IllegalArgumentException ignored){}card=null;}}
     private void finish(String message){session.stop();handler.removeCallbacksAndMessages(null);removeCard();app.ambientRunning=false;AmbientSettings.status(this,false,message);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
     @Override public void onConfigurationChanged(Configuration config){super.onConfigurationChanged(config);if(card!=null)dismissCard();}
     @Override public void onDestroy(){destroyed=true;handler.removeCallbacksAndMessages(null);removeCard();session.stop();if(receiverRegistered)unregisterReceiver(screen);if(app.visibilityChanged==tick)app.visibilityChanged=null;if(app.ambientRunning)AmbientSettings.status(this,false,"Session ruk gaya. App se dobara shuru karein.");app.ambientRunning=false;super.onDestroy();}
