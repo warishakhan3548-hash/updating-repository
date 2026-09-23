@@ -49,7 +49,7 @@ public final class MainActivity extends Activity {
     private Runnable debounce;
     private String pendingExport;
     private boolean preparingExport;
-    private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending;
+    private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending,openOtherAppsAfterAmbientStart;
     private JSONObject pendingRestore;
     private String searchQuery="",hadithQuery="";
     private final List<HadithStore.Hit> hadithHits=new ArrayList<>();
@@ -68,7 +68,7 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);app=(QuranApp)getApplication();
         if(state!=null){pendingVoiceScope=state.getInt("voice_scope",-1);hadithQuery=state.getString("hadith_query","");}
-        if(state!=null){pendingAmbient=state.getBoolean("pending_ambient");previewAmbient=state.getBoolean("preview_ambient");ambientResumePending=state.getBoolean("ambient_resume_pending");}
+        if(state!=null){pendingAmbient=state.getBoolean("pending_ambient");previewAmbient=state.getBoolean("preview_ambient");ambientResumePending=state.getBoolean("ambient_resume_pending");openOtherAppsAfterAmbientStart=state.getBoolean("ambient_open_other_apps");}
         if(state!=null&&ExportStaging.validToken(state.getString("pending_export")))pendingExport=state.getString("pending_export");
         appearance=Appearance.load(this);Glass.apply(appearance);arabicFont=appearance.typeface(this);
         if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
@@ -102,7 +102,7 @@ public final class MainActivity extends Activity {
     }
     private static float clamp(float x,float min,float max){return Math.max(min,Math.min(max,x));}
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
-    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putString("hadith_query",hadithQuery);state.putInt("voice_scope",pendingVoiceScope);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
+    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putBoolean("ambient_open_other_apps",openOtherAppsAfterAmbientStart);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putString("hadith_query",hadithQuery);state.putInt("voice_scope",pendingVoiceScope);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
     @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();if(learning!=null&&readingPosition!=null){learning.set("reader_anchor",readingPosition.encode());learning.set("position",readingPosition.anchorId);}super.onPause();}
     @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
@@ -372,55 +372,87 @@ public final class MainActivity extends Activity {
         caption(c,"WhatsApp ho ya YouTube, aapke chune hue alfaaz aur ayat aap tak aa jaayein.");gap(c,16);c.addView(button(app.ambientRunning?"Timer aur session dekhein":"Apna timer set karein  →",this::ambientSettings));
     }
     private void ambientSettings(){
-        LinearLayout page=sheet("Yaad, saath saath");Dialog dialog=activeDialog;
-        caption(page,"Doosri apps ke upar ek chhota card. Band karenge to agla interval shuru hoga. Aaris khulne ya phone lock hone par timer rukega.");gap(page,18);
-        TextView status=text(this,"",14,MINT);page.addView(status);
-        Runnable refresh=new Runnable(){public void run(){if(isDestroyed()||activeDialog!=dialog||!dialog.isShowing())return;status.setText(app.ambientRunning?"● Chalu · "+AmbientSettings.minutes(MainActivity.this)+" minute ka timer":AmbientSettings.status(MainActivity.this));ui.postDelayed(this,1000);}};refresh.run();gap(page,18);
-        page.addView(label("KITNE MINUTE BAAD?"));gap(page,8);
-        EditText minutes=new EditText(this);minutes.setTextColor(INK);minutes.setTextSize(24);minutes.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);minutes.setFilters(new InputFilter[]{new InputFilter.LengthFilter(3)});minutes.setSingleLine(true);minutes.setText(""+AmbientSettings.minutes(this));minutes.setSelectAllOnFocus(true);minutes.setBackground(new Surface(this,Surface.Kind.BUTTON,highContrast));pad(minutes,16,8);page.addView(minutes,new LinearLayout.LayoutParams(-1,dp(this,58)));gap(page,10);
-        LinearLayout presets=row(this);for(int value:new int[]{3,5,10,15}){TextView choice=button(value+" min",()->minutes.setText(""+value));pad(choice,6,13);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.rightMargin=dp(this,4);presets.addView(choice,p);}page.addView(presets);gap(page,12);
-        caption(page,"1–120 minute. App badalne se timer reset nahi hoga.");gap(page,12);
-        Switch due=new Switch(this);due.setText("Sirf jab revision baaki ho");due.setTextColor(INK);due.setChecked(AmbientSettings.dueOnly(this));due.setMinimumHeight(dp(this,52));page.addView(due);caption(page,"Band rakhein to har interval par chune hue items ki practice hogi.");gap(page,18);
-        page.addView(button(ambientItems()+" chune hue items · Alfaaz / ayat chunein",this::chooseAmbientItems));gap(page,18);
-        caption(page,Settings.canDrawOverlays(this)?"✓ Doosri apps par dikhane ki permission hai":"Shuru karne par Android ki “Display over other apps” setting khulegi. Aaris Quran ko allow karein.");gap(page,14);
+        LinearLayout page=sheet("Set timer");Dialog dialog=activeDialog;
+        TextView status=text(this,app.ambientRunning?"Running · every "+AmbientSettings.minutes(this)+" min":"",13,MINT);
+        status.setGravity(Gravity.CENTER);page.addView(status);if(app.ambientRunning)gap(page,10);
+
+        EditText minutes=new EditText(this);minutes.setTextColor(INK);minutes.setHintTextColor(MUTED);minutes.setTextSize(22);
+        minutes.setHint("Minutes");minutes.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);minutes.setFilters(new InputFilter[]{new InputFilter.LengthFilter(3)});
+        minutes.setSingleLine(true);minutes.setText(""+AmbientSettings.minutes(this));minutes.setSelectAllOnFocus(true);
+        minutes.setGravity(Gravity.CENTER);minutes.setBackground(new Surface(this,Surface.Kind.BUTTON,highContrast));pad(minutes,16,8);
+        page.addView(minutes,new LinearLayout.LayoutParams(-1,dp(this,56)));gap(page,10);
+
+        LinearLayout presets=row(this);
+        for(int value:new int[]{3,5,10,15}){
+            TextView choice=button(value+" min",()->minutes.setText(""+value));pad(choice,6,11);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.rightMargin=dp(this,4);presets.addView(choice,p);
+        }
+        page.addView(presets);gap(page,14);
+
+        Switch due=new Switch(this);due.setText("Pending items only");due.setTextColor(INK);due.setChecked(AmbientSettings.dueOnly(this));due.setMinimumHeight(dp(this,48));page.addView(due);gap(page,12);
+
+        page.addView(button(ambientItems()+" items selected",this::chooseAmbientItems));gap(page,14);
+
         java.util.function.Consumer<Boolean> start=preview->{
             int value;try{value=Integer.parseInt(minutes.getText().toString());}catch(NumberFormatException e){value=0;}
-            if(value<1||value>120){minutes.setError("1 se 120 minute chunein");return;}
+            if(value<1||value>120){minutes.setError("Choose 1–120 minutes");return;}
             AmbientSettings.save(this,value,due.isChecked());
-            if(ambientItems()==0){chooseAmbientItems();return;}
+            if(ambientItems()==0){openOtherAppsAfterAmbientStart=false;chooseAmbientItems();return;}
             previewAmbient=preview;pendingAmbient=true;beginAmbient();
         };
-        page.addView(primary(app.ambientRunning?"Timer apply karein":"Shuru karein",()->start.accept(false)));gap(page,10);
-        page.addView(button("10 second mein test card",()->start.accept(true)));gap(page,8);caption(page,"Test shuru karke WhatsApp ya YouTube kholein.");gap(page,14);
-        if(app.ambientRunning){page.addView(button("Session band karein",()->{AmbientSettings.status(this,false,"Session band hai");stopService(new Intent(this,AmbientRecallService.class));dialog.dismiss();ui.postDelayed(this::show,250);}));gap(page,12);}
-        caption(page,"Session notification se bhi band ho sakta hai. Phone session rok de to yahin se dobara shuru karein. Chats, videos aur app usage padha nahi jaata.");
+
+        page.addView(primary(app.ambientRunning?"Apply timer":"Start timer",()->{openOtherAppsAfterAmbientStart=false;start.accept(false);}));gap(page,9);
+        page.addView(button("Open in other apps",()->{
+            if(app.ambientRunning){dialog.dismiss();openOtherApps();}
+            else{openOtherAppsAfterAmbientStart=true;start.accept(false);}
+        }));gap(page,9);
+        page.addView(button("Test (10 seconds)",()->{openOtherAppsAfterAmbientStart=true;start.accept(true);}));gap(page,9);
+
+        if(app.ambientRunning){
+            page.addView(button("Stop timer",()->{openOtherAppsAfterAmbientStart=false;AmbientSettings.status(this,false,"Stopped");stopService(new Intent(this,AmbientRecallService.class));dialog.dismiss();ui.postDelayed(this::show,250);}));
+        }
     }
     private void chooseAmbientItems(){
-        LinearLayout page=sheet("Card mein kya aaye?");caption(page,"Sirf aapke chune hue alfaaz, ayat aur hisse dikhte hain. Neeche apni maujooda ayah se chunein.");gap(page,16);
+        LinearLayout page=sheet("Choose items");
         Ayah a=content.ayah(readingPosition==null?"Q:"+readerSurah+":"+readerStart:readingPosition.anchorId);if(a==null)return;
         page.addView(label(content.surah(a.surah).name+" · "+a.surah+":"+a.number));gap(page,10);
-        page.addView(button("Yeh poori ayah yaad karaayein",()->{enroll(a.id,a.id);ambientSettings();}));gap(page,16);
+        page.addView(button("Use this ayah",()->{enroll(a.id,a.id);ambientSettings();}));gap(page,12);
         int count=0;for(ContentStore.Word word:content.words(a.id))if(word.hasGloss()){
             if(count++==8)break;LinearLayout row=Glass.row(this);pad(row,8,10);TextView ar=arabic(word.arabic,30);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));
-            Recall.State memory=learning.states().get(word.id);TextView meaning=text(this,word.gloss(language)+(memory!=null&&memory.active?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(word.gloss(language)+" ✓");});page.addView(row);gap(page,8);
+            Recall.State memory=learning.states().get(word.id);TextView meaning=text(this,word.gloss(language)+(memory!=null&&memory.active?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));
+            row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(word.gloss(language)+" ✓");});
+            page.addView(row);gap(page,8);
         }
-        gap(page,12);page.addView(primary("Timer par waapas",this::ambientSettings));gap(page,10);page.addView(button("Doosri ayah se chunein",()->{activeDialog.dismiss();tab=1;reading=false;show();}));
+        gap(page,10);page.addView(primary("Back to timer",this::ambientSettings));gap(page,8);
+        page.addView(button("Choose another ayah",()->{activeDialog.dismiss();tab=1;reading=false;show();}));
+    }
+    private void openOtherApps(){
+        try{
+            Intent home=new Intent(Intent.ACTION_MAIN);home.addCategory(Intent.CATEGORY_HOME);home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(home);
+        }catch(ActivityNotFoundException e){toast("Open another app from your Home screen");}
     }
     private void beginAmbient(){
         if(!pendingAmbient||isFinishing()||isDestroyed())return;
-        // Permission callbacks may precede onResume; API 31+ requires a visible user launch.
         if(!resumed){ambientResumePending=true;return;}
         if(!Settings.canDrawOverlays(this)){
             Intent permission=new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()));
-            try{startActivityForResult(permission,OVERLAY_PERMISSION);}catch(ActivityNotFoundException e){pendingAmbient=false;toast("Is phone par overlay permission ki setting nahi mili");}return;
+            try{startActivityForResult(permission,OVERLAY_PERMISSION);}catch(ActivityNotFoundException e){pendingAmbient=false;openOtherAppsAfterAmbientStart=false;toast("Overlay permission settings are not available on this phone");}return;
         }
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED&&!AmbientSettings.askedNotifications(this)){
             AmbientSettings.notificationsAsked(this);requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},NOTIFICATIONS);return;
         }
         if(learning==null){app.ready(this::beginAmbient);return;}
-        pendingAmbient=false;if(ambientItems()==0){chooseAmbientItems();return;}
-        try{startForegroundService(new Intent(this,AmbientRecallService.class).putExtra(AmbientRecallService.PREVIEW,previewAmbient));if(activeDialog!=null)activeDialog.dismiss();toast(previewAmbient?"Ab doosri app kholein · 10 second mein test card":"Session shuru ho raha hai · Ab doosri app khol sakte hain");ui.postDelayed(this::show,300);}
-        catch(RuntimeException e){AmbientSettings.status(this,false,"Session shuru nahi hua. Dobara try karein.");toast("Session shuru nahi hua. App khol kar dobara try karein.");}
+        pendingAmbient=false;
+        if(ambientItems()==0){openOtherAppsAfterAmbientStart=false;chooseAmbientItems();return;}
+        boolean leave=openOtherAppsAfterAmbientStart;openOtherAppsAfterAmbientStart=false;
+        try{
+            startForegroundService(new Intent(this,AmbientRecallService.class).putExtra(AmbientRecallService.PREVIEW,previewAmbient));
+            if(activeDialog!=null)activeDialog.dismiss();
+            if(leave)ui.postDelayed(this::openOtherApps,220);else ui.postDelayed(this::show,250);
+        }catch(RuntimeException e){
+            openOtherAppsAfterAmbientStart=false;AmbientSettings.status(this,false,"Start failed");toast("Timer could not start. Try again.");
+        }
     }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==NOTIFICATIONS)beginAmbient();}
     private void library(){
@@ -1031,22 +1063,46 @@ public final class MainActivity extends Activity {
     private void settings(){
         LinearLayout page=sheet("Reading settings");Dialog settingsDialog=activeDialog;
         settingsDialog.setOnDismissListener(d->{if(activeDialog==settingsDialog){activeDialog=null;show();}});
-        page.addView(button("Appearance · Live preview",this::appearanceStudio));gap(page,10);page.addView(button("Translation · Language & scholar",this::translationSettings));gap(page,14);
-        page.addView(label("ARABIC SIZE"));gap(page,8);ArabicText sample=arabic(content.ayah("Q:1:1").arabic,arabicSize);page.addView(sample);
-        SeekBar slider=new SeekBar(this);slider.setMax(22);slider.setProgress((int)arabicSize-24);page.addView(slider);slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
-            public void onProgressChanged(SeekBar s,int p,boolean user){arabicSize=24+p;sample.setTextSize(arabicSize);}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){learning.set("arabic_size",""+arabicSize);appearance.arabicSize=(int)arabicSize;appearance.save(MainActivity.this);}
-        });gap(page,16);page.addView(label("WORD MEANING KI ZABAAN"));gap(page,10);
-        LinearLayout langs=row(this);for(String lang:new String[]{"hi","ur","en"}){String name=lang.equals("hi")?"हिन्दी":lang.equals("ur")?"اردو":"English";TextView b=button(name+(language.equals(lang)?" ✓":""),()->{language=lang;learning.set("language",lang);settings();});langs.addView(b,new LinearLayout.LayoutParams(0,-2,1));}page.addView(langs);gap(page,18);
-        Switch contrast=new Switch(this);contrast.setText("Zyada contrast");contrast.setTextColor(INK);contrast.setChecked(highContrast);contrast.setMinHeight(dp(this,48));page.addView(contrast);contrast.setOnCheckedChangeListener((b,v)->{highContrast=v;learning.set("contrast",""+v);sample.setReliefEnabled(!v);backdrop.highContrast=v;backdrop.invalidate();});
-        gap(page,14);page.addView(button("Shaant reading · Controls chhupaayein",()->{quietReader=true;tab=1;reading=true;settingsDialog.dismiss();}));gap(page,10);
-        page.addView(button("Quran audio · Download All",this::downloadAllAudio));gap(page,10);
-        page.addView(button("Doosri apps par recall · Timer",this::ambientSettings));gap(page,10);page.addView(button("Sources aur licenses",this::sources));gap(page,10);page.addView(button("Learning export",this::backup));gap(page,10);page.addView(button("Backup restore",this::restorePicker));gap(page,14);
-        page.addView(button("Study · Pins & collections",this::studyLibrary));gap(page,10);
-        page.addView(button("Translation issue drafts",this::translationDrafts));gap(page,10);
-        page.addView(button("Clear learned search shortcuts",()->new AlertDialog.Builder(this).setTitle("Clear search shortcuts?")
-            .setMessage("Only your confirmed query shortcuts will be removed.").setNegativeButton("Cancel",null)
-            .setPositiveButton("Clear",(d,w)->{learning.clearSearchShortcuts();toast("Search shortcuts cleared");}).show()));gap(page,10);
-        page.addView(button("Done",settingsDialog::dismiss));caption(page,"No account · No ads · Aapki learning aapke phone par");
+
+        page.addView(button("Appearance",this::appearanceStudio));gap(page,9);
+        page.addView(button("Translation",this::translationSettings));gap(page,12);
+
+        page.addView(label("ARABIC SIZE"));gap(page,6);
+        ArabicText sample=arabic(content.ayah("Q:1:1").arabic,arabicSize);page.addView(sample);
+        SeekBar slider=new SeekBar(this);slider.setMax(22);slider.setProgress((int)arabicSize-24);page.addView(slider);
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar s,int p,boolean user){arabicSize=24+p;sample.setTextSize(arabicSize);}
+            public void onStartTrackingTouch(SeekBar s){}
+            public void onStopTrackingTouch(SeekBar s){learning.set("arabic_size",""+arabicSize);appearance.arabicSize=(int)arabicSize;appearance.save(MainActivity.this);}
+        });
+        gap(page,12);page.addView(label("WORD MEANING LANGUAGE"));gap(page,8);
+        LinearLayout langs=row(this);
+        for(String lang:new String[]{"hi","ur","en"}){
+            String name=lang.equals("hi")?"हिन्दी":lang.equals("ur")?"اردو":"English";
+            TextView b=button(name+(language.equals(lang)?" ✓":""),()->{language=lang;learning.set("language",lang);settings();});
+            langs.addView(b,new LinearLayout.LayoutParams(0,-2,1));
+        }
+        page.addView(langs);gap(page,14);
+
+        Switch contrast=new Switch(this);contrast.setText("High contrast");contrast.setTextColor(INK);contrast.setChecked(highContrast);contrast.setMinHeight(dp(this,48));page.addView(contrast);
+        contrast.setOnCheckedChangeListener((b,v)->{highContrast=v;learning.set("contrast",""+v);sample.setReliefEnabled(!v);backdrop.highContrast=v;backdrop.invalidate();});
+        gap(page,12);
+
+        page.addView(button("Focus mode",()->{quietReader=true;tab=1;reading=true;settingsDialog.dismiss();}));gap(page,9);
+        page.addView(button("Quran audio",this::downloadAllAudio));gap(page,9);
+        page.addView(button("Set timer",this::ambientSettings));gap(page,9);
+        page.addView(button("Open in other apps",()->{if(app.ambientRunning){settingsDialog.dismiss();openOtherApps();}else ambientSettings();}));gap(page,12);
+
+        page.addView(button("Sources & licenses",this::sources));gap(page,9);
+        page.addView(button("Export learning",this::backup));gap(page,9);
+        page.addView(button("Backup & restore",this::restorePicker));gap(page,9);
+        page.addView(button("Study & collections",this::studyLibrary));gap(page,9);
+        page.addView(button("Translation drafts",this::translationDrafts));gap(page,9);
+        page.addView(button("Clear search history",()->new AlertDialog.Builder(this).setTitle("Clear search history?")
+            .setMessage("Only your confirmed search shortcuts will be removed.").setNegativeButton("Cancel",null)
+            .setPositiveButton("Clear",(d,w)->{learning.clearSearchShortcuts();toast("Search history cleared");}).show()));gap(page,12);
+
+        page.addView(primary("Done",settingsDialog::dismiss));
     }
     private void sources(){
         LinearLayout page=sheet("Sources aur bharosa");caption(page,content.sources());gap(page,16);
