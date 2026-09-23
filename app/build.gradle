@@ -66,7 +66,8 @@ def verifyQuranAudioPack = tasks.register('verifyQuranAudioPack', Exec) {
     inputs.file rootProject.file('source-vault/quran-audio/release-policy.json')
     inputs.file rootProject.file('tools/check_quran_audio_policy.py')
     inputs.file rootProject.file('tools/check_quran_audio.py')
-    inputs.dir activeQuranAudioSource
+    // fileTree is empty-safe while the vendor import is still pending.
+    inputs.files rootProject.fileTree(activeQuranAudioSource)
     outputs.upToDateWhen { false }
     workingDir rootProject.projectDir
     commandLine 'python3', 'tools/check_quran_audio_policy.py',
