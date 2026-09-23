@@ -32,6 +32,7 @@ def offlineContract = tasks.register('checkOfflineContract', Exec) {
     commandLine 'python3', 'tools/check_offline_contract.py'
     inputs.file rootProject.file('tools/check_offline_contract.py')
     inputs.file rootProject.file('app/src/main/AndroidManifest.xml')
+    inputs.file rootProject.file('source-vault/quran-audio/on-demand-source-lock.json')
     inputs.dir rootProject.file('app/src/main/java')
     inputs.file file('build.gradle')
     outputs.upToDateWhen { false }
