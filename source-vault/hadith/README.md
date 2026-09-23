@@ -72,3 +72,19 @@ pack must never be described as the full Aaris Hadith library.
 
 The next Android build deterministically generates `hadith.sqlite` from the source vault. Runtime
 reading/search remains completely offline.
+
+
+## Vendored Arabic core-nine fallback
+
+Aaris now also carries a pinned Arabic-only fallback source under
+`source-vault/hadith/open-hadith-data/`, based on Open-Hadith-Data at upstream commit
+`1515f6cba21efed20d8916bf55acef1dffa0d2d5`.
+
+The nine collections are Bukhari, Muslim, Nasa'i, Abu Dawud, Tirmidhi, Ibn Majah, Muwatta Malik,
+Musnad Ahmad and Darimi. Large upstream CSVs may be stored as byte-preserving `.parts/` chunks.
+`tools/prepare_open_hadith_data.py` reconstructs the original byte stream and verifies the
+upstream Git blob SHA-1 before parsing it.
+
+This fallback intentionally imports **Arabic source text only**. It does not infer book/chapter
+boundaries, translations, grades or commentary that the pinned source does not contain. A future
+full-catalog active pack can replace this fallback without changing the Android runtime reader.
