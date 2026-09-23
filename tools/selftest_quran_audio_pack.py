@@ -7,6 +7,7 @@ clip, and requires check_quran_audio.py to reject the corruption.
 """
 import hashlib
 import json
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -82,6 +83,22 @@ def main():
             "expected_word_count":3
         },indent=2)+"\n",encoding="utf-8")
 
+        policy=tmp/"release-policy.json"
+        policy.write_text(json.dumps({
+            "schema":1,
+            "state":"pending_vendor_import",
+            "required_manifest_sha256":None,
+            "required_pack_id":None,
+            "on_missing":"ALLOW_OFFLINE_WITHOUT_PRONUNCIATION_UNTIL_VENDOR_IMPORT_COMPLETES"
+        },indent=2)+"\n",encoding="utf-8")
+
+        # Before the first vendor import, missing audio is an explicit offline-capable state.
+        run(sys.executable,ROOT/"tools/check_quran_audio_policy.py",
+            "--source",active,
+            "--policy",policy,
+            "--quran-db",db_path,
+            "--source-lock",lock)
+
         run(sys.executable,ROOT/"tools/prepare_quran_audio.py",
             "--source",source,
             "--quran-db",db_path,
@@ -108,6 +125,20 @@ def main():
             "--quran-db",db_path,
             "--source-lock",lock)
 
+        manifest_path=active/"quran-audio"/"manifest.json"
+        policy.write_text(json.dumps({
+            "schema":1,
+            "state":"required",
+            "required_manifest_sha256":sha256(manifest_path),
+            "required_pack_id":manifest["pack_id"],
+            "on_missing":"FAIL_BUILD_NO_NETWORK_FALLBACK"
+        },indent=2)+"\n",encoding="utf-8")
+        run(sys.executable,ROOT/"tools/check_quran_audio_policy.py",
+            "--source",active,
+            "--policy",policy,
+            "--quran-db",db_path,
+            "--source-lock",lock)
+
         pack=active/"quran-audio"/"packs"/"001.pack"
         data=bytearray(pack.read_bytes())
         data[0:4]=b"BAD!"
@@ -117,8 +148,24 @@ def main():
             "--quran-db",db_path,
             "--source-lock",lock,
             expect_ok=False)
+        run(sys.executable,ROOT/"tools/check_quran_audio_policy.py",
+            "--source",active,
+            "--policy",policy,
+            "--quran-db",db_path,
+            "--source-lock",lock,
+            expect_ok=False)
 
-    print("PASS: Quran audio builder/verifier synthetic self-test")
+        # Once policy is required, deleting the whole local payload must also fail. No helper
+        # is allowed to reacquire it as a side effect of a normal verification/build path.
+        shutil.rmtree(active)
+        run(sys.executable,ROOT/"tools/check_quran_audio_policy.py",
+            "--source",active,
+            "--policy",policy,
+            "--quran-db",db_path,
+            "--source-lock",lock,
+            expect_ok=False)
+
+    print("PASS: Quran audio builder/verifier/policy synthetic self-test")
 
 
 if __name__=="__main__":
