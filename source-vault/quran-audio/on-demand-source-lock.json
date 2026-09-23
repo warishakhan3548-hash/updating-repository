@@ -19,6 +19,6 @@
   "local_policy": "AFTER_VALIDATED_DOWNLOAD_PLAY_ONLY_FROM_APP_PRIVATE_STORAGE",
   "resume_policy": "REVISION_SCOPED_PARTIAL_HTTP_RANGE",
   "apk_policy": "NO_QURAN_AUDIO_BYTES_IN_BASE_APK",
-  "canonical_quran_alignment_sha256": "dc529dcb8d07549e5837621b6e0f26f9948221545907e9c5d89b035bc412ea1e",
+  "canonical_quran_alignment_sha256": "9971ffae866bc3682d11efccd30fdddb1d62bc4718e5f9cd941395e6f16093ce",
   "canonical_quran_audio_words": 77326
 }
