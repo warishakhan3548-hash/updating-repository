@@ -1,8 +1,10 @@
 {
-  "schema": 1,
-  "state": "pending_vendor_import",
-  "required_manifest_sha256": null,
-  "required_pack_id": null,
-  "on_missing": "ALLOW_OFFLINE_WITHOUT_PRONUNCIATION_UNTIL_VENDOR_IMPORT_COMPLETES",
-  "note": "tools/finalize_quran_audio_policy.py (called by complete_quran_audio_pack.py) changes this policy to required only after the pinned local pack passes full verification. Once required, normal builds fail closed if that exact local pack is missing or replaced."
+  "schema": 2,
+  "state": "retired_monolithic_vendoring",
+  "current_delivery": "ISOLATED_WORD_SURAH_CONTAINER_V1",
+  "base_apk_audio_bytes": false,
+  "catalog_asset": "app/src/main/assets/quran-audio-word-catalog.json",
+  "pack_release_tag": "quran-word-audio-muallim-v1-9796e08",
+  "source_revision": "9796e08caae700f44266255da320adf6e5ab4114",
+  "note": "Legacy repository-bundled Quran audio is retired. Users explicitly download hash-pinned Surah containers containing complete isolated word clips."
 }
