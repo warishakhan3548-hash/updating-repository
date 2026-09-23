@@ -16,6 +16,7 @@ final class QuranAudioStore {
     static final String PROFILE_ID="abdul-basit-abdul-samad-mujawwad";
     static final String RECITER_NAME="Abdul Basit Abdul Samad · Mujawwad";
     static final String SOURCE_NAME="Quranic Recitation Data";
+    static final String RIGHTS_NOTICE="source metadata Apache-2.0; recording-rights review pending";
     static final String SOURCE_REVISION="6875b35e45cc83107daf3ab7d3a8bd8b2baa51b3";
     static final String CANONICAL_QURAN_HASH="521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1";
 
@@ -95,7 +96,7 @@ final class QuranAudioStore {
 
     boolean canAddress(ContentStore.Word word){return clip(word)!=null;}
 
-    String attribution(){return RECITER_NAME+" · "+SOURCE_NAME+" · Apache-2.0 · local after download";}
+    String attribution(){return RECITER_NAME+" · "+SOURCE_NAME+" · "+RIGHTS_NOTICE+" · local after download";}
 
     static void validateSurahFiles(File audio,File timing,int surah) throws IOException {
         if(surah<1||surah>114)throw new IOException("Invalid Surah number");
