@@ -120,6 +120,14 @@ def main():
         if manifest.get("deduplicated_reference_count")!=1 or manifest.get("pack_file_count")!=1:
             raise SystemExit("Unexpected self-test dedup/pack counts")
 
+        # A payload may not be shipped while policy is still pending; it must be finalized/pinned.
+        run(sys.executable,ROOT/"tools/check_quran_audio_policy.py",
+            "--source",active,
+            "--policy",policy,
+            "--quran-db",db_path,
+            "--source-lock",lock,
+            expect_ok=False)
+
         run(sys.executable,ROOT/"tools/check_quran_audio.py",
             "--source",active,
             "--quran-db",db_path,
