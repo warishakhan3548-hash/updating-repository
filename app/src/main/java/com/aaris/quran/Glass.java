@@ -15,23 +15,26 @@ final class Glass {
         WORD_HIGHLIGHT=0x40587B63;
     static Appearance appearance=new Appearance();
     static void apply(Appearance a){appearance=a;BACKGROUND=a.background;INK=a.ink();MUTED=a.muted();
-        GOLD=Appearance.readable(a.accent,a.effectiveSurface());MINT=GOLD;ARABIC_INK=Appearance.readable(a.arabic,a.effectiveSurface());HIGH_INK=INK;
+        GOLD=Appearance.readable(a.accent,a.effectiveSurface());MINT=GOLD;ARABIC_INK=a.arabicInk();HIGH_INK=INK;
         WORD_HIGHLIGHT=(a.accent&0xffffff)|0x45000000;}
     static int dp(Context c,float value){return (int)(c.getResources().getDisplayMetrics().density*value+0.5f);}
     static final class Backdrop extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         boolean highContrast;
-        private Shader ambient;private int cachedAccent;
+        private Shader ambient,backgroundGradient;private int cachedAccent,cachedBackground,cachedEnd;
         Backdrop(Context c){super(c);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
         @Override protected void onSizeChanged(int w,int h,int oldW,int oldH){
             super.onSizeChanged(w,h,oldW,oldH);
-            cachedAccent=appearance.accent;if(w>0&&h>0)ambient=new RadialGradient(w*.55f,h*.26f,Math.max(w,h)*.65f,
+            cachedAccent=appearance.accent;cachedBackground=appearance.background;cachedEnd=appearance.gradientEnd;
+            if(w>0&&h>0)backgroundGradient=new LinearGradient(0,0,w,h,new int[]{cachedBackground,cachedEnd},null,Shader.TileMode.CLAMP);
+            if(w>0&&h>0)ambient=new RadialGradient(w*.55f,h*.26f,Math.max(w,h)*.65f,
                 new int[]{(appearance.accent&0xffffff)|0x14000000,appearance.accent&0xffffff},null,Shader.TileMode.CLAMP);
         }
         @Override protected void onDraw(Canvas canvas){
-            if(cachedAccent!=appearance.accent)onSizeChanged(getWidth(),getHeight(),getWidth(),getHeight());
+            if(cachedAccent!=appearance.accent||cachedBackground!=appearance.background||cachedEnd!=appearance.gradientEnd)onSizeChanged(getWidth(),getHeight(),getWidth(),getHeight());
             canvas.drawColor(BACKGROUND);
-            if(!highContrast&&ambient!=null){paint.setShader(ambient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
+            if(!highContrast&&!appearance.reducedEffects&&appearance.gradient&&backgroundGradient!=null){paint.setShader(backgroundGradient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
+            if(!highContrast&&!appearance.reducedEffects&&ambient!=null){paint.setShader(ambient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
         }
     }
     static final class Surface extends Drawable {
@@ -53,10 +56,10 @@ final class Glass {
             inner.set(outer);inner.inset(inset,inset);if(outer.isEmpty())return;
             int base=appearance.effectiveSurface();
             if(kind==Kind.PRIMARY)base=Appearance.mix(base,appearance.accent,.15f);
-            int[] colors=appearance.glass&&!solid?new int[]{Appearance.mix(base,appearance.accent,.06f),base}:new int[]{base,base};
+            int[] colors=appearance.glass&&!appearance.reducedEffects&&!solid?new int[]{Appearance.mix(base,appearance.accent,.06f*appearance.glassStrength/100f),base}:new int[]{base,base};
             fill=new LinearGradient(outer.left,outer.top,outer.right,outer.bottom,colors,null,Shader.TileMode.CLAMP);
             rim=new LinearGradient(outer.left,outer.top,outer.right,outer.bottom,
-                new int[]{(appearance.accent&0xffffff)|0x70000000,(appearance.accent&0xffffff)|0x17000000},null,Shader.TileMode.CLAMP);
+                new int[]{(appearance.accent&0xffffff)|((112*appearance.borderStrength/100)<<24),(appearance.accent&0xffffff)|((23*appearance.borderStrength/100)<<24)},null,Shader.TileMode.CLAMP);
         }
         @Override public void draw(Canvas canvas){
             if(fill==null||outer.isEmpty())return;
@@ -64,8 +67,8 @@ final class Glass {
             canvas.drawRoundRect(outer,radius,radius,p);
             p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(stroke);p.setShader(rim);
             canvas.drawRoundRect(outer,radius,radius,p);p.setShader(null);
-            if(!solid&&(kind==Kind.MUSHAF||kind==Kind.HERO)){
-                p.setColor(0xFF8EA18F);p.setAlpha(18*opacity/255);p.setStrokeWidth(stroke*.6f);
+            if(!solid&&!appearance.reducedEffects&&appearance.borderStrength>0&&(kind==Kind.MUSHAF||kind==Kind.HERO)){
+                p.setColor(0xFF8EA18F);p.setAlpha(18*opacity*appearance.borderStrength/255/100);p.setStrokeWidth(stroke*.6f);
                 canvas.drawRoundRect(inner,Math.max(0,radius-inset),Math.max(0,radius-inset),p);
             }
         }
@@ -83,6 +86,7 @@ final class Glass {
             switch(type){
                 case "play":a.moveTo(8,4);a.lineTo(20,12);a.lineTo(8,20);a.close();c.drawPath(a,p);break;
                 case "pause":c.drawLine(8,5,8,19,p);c.drawLine(16,5,16,19,p);break;
+                case "mic":c.drawRoundRect(9,3,15,14,3,3,p);c.drawArc(5,6,19,18,0,180,false,p);c.drawLine(12,18,12,22,p);c.drawLine(8,22,16,22,p);break;
                 case "copy":c.drawRoundRect(8,7,21,21,2,2,p);a.moveTo(16,3);a.lineTo(3,3);a.lineTo(3,16);c.drawPath(a,p);break;
                 case "download":c.drawLine(12,3,12,16,p);c.drawLine(7,11,12,16,p);c.drawLine(12,16,17,11,p);a.moveTo(3,17);a.lineTo(3,21);a.lineTo(21,21);a.lineTo(21,17);c.drawPath(a,p);break;
                 case "search":c.drawCircle(10.5f,10.5f,6.5f,p);c.drawLine(15.5f,15.5f,21,21,p);break;

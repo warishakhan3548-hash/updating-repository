@@ -5,7 +5,7 @@ import java.util.regex.*;
 
 /** Rebuildable deterministic indexes. Matching text is not a religious conclusion. */
 public final class SearchEngine {
-    public static final String VERSION = "ranked-6";
+    public static final String VERSION = "ranked-7";
     public enum Strength { STRONG_TEXT, RELATED }
     public enum Origin { USER, AI }
     public static final class Query {
@@ -162,8 +162,7 @@ public final class SearchEngine {
             for(int rank=0;rank<lane.size();rank++) {
                 Result r=lane.get(rank);int d=coordinates.get(r.ayah.surah+":"+r.ayah.number);
                 Result prev=best.get(d);
-                if(prev==null||r.strength.ordinal()<prev.strength.ordinal()||
-                    (r.strength==prev.strength&&r.score>prev.score))best.put(d,r);
+                if(prev==null||RESULT_ORDER.compare(r,prev)<0)best.put(d,r);
                 fused.merge(d,1.0/(60+rank+1),Double::sum);votes.computeIfAbsent(d,k->new ArrayList<>()).add(v);
             }
         }
@@ -175,8 +174,7 @@ public final class SearchEngine {
             if(variants.size()>1)reasons.add(votes.get(e.getKey()).size()+"/"+variants.size()+" distinct formulations matched; not independent evidence");
             results.add(new Result(r.ayah,r.strength,reasons,r.score+fused.get(e.getKey())*.0001,votes.get(e.getKey()),r.transformationCost,r.match));
         }
-        results.sort(Comparator.comparingDouble((Result r)->r.score).reversed()
-            .thenComparingDouble(r->r.transformationCost).thenComparingInt(r->r.ayah.surah).thenComparingInt(r->r.ayah.number));
+        results.sort(RESULT_ORDER);
         trace.put("variants",variants.size());trace.put("candidates",candidates.size());trace.put("accepted",results.size());
         trace.put("rejected",Math.max(0,candidates.size()-results.size()));
         FragmentSearch.Report partial=null;
@@ -203,13 +201,13 @@ public final class SearchEngine {
             TextMatch phone=TextMatch.compare(sounds,sound.tokens.get(d),soundRepairs,Collections.emptyMap());
             boolean exact=Arabic.hasArabic(variant.original)&&phrase(safe.get(d),variant.safe);
             TextMatch chosen=ar;String reason="Arabic text overlap";double penalty=0;
-            if(!ar.accepted||hint.accepted&&hint.score>ar.score){chosen=hint;reason="Translation / source word meaning";penalty=.005;}
-            if(!hints.stream().anyMatch(TextMatch::negative)&&!sounds.isEmpty()&&sounds.size()>=Math.min(2,hints.size())&&sounds.size()>=hints.size()*.6&&phone.accepted&&phone.coverage>=.8&&phone.exact>=Math.min(2,sounds.size())&&(!chosen.accepted||phone.score-.08>chosen.score)){chosen=phone;reason="Similar pronunciation; check the original text";penalty=.08;}
+            if(!ar.accepted||hint.accepted&&TextMatch.compareRank(hint,ar)<0){chosen=hint;reason="Translation / source word meaning";penalty=.005;}
+            if(!hints.stream().anyMatch(TextMatch::negative)&&!sounds.isEmpty()&&sounds.size()>=Math.min(2,hints.size())&&sounds.size()>=hints.size()*.6&&phone.accepted&&phone.coverage>=.8&&phone.exact>=Math.min(2,sounds.size())&&(!chosen.accepted||TextMatch.compareRank(phone,chosen)<0&&phone.score-.08>chosen.score)){chosen=phone;reason="Similar pronunciation; check the original text";penalty=.08;}
             if(!chosen.accepted)continue;
-            List<String> reasons=Arrays.asList(reason,chosen.matched+" / "+chosen.total+" query words matched", "Match level is text similarity, not authenticity");
+            List<String> reasons=Arrays.asList(reason,chosen.explanation(), "Match level is text similarity, not authenticity");
             out.add(new Result(docs.get(d).ayah,exact?Strength.STRONG_TEXT:Strength.RELATED,reasons,chosen.score-penalty,Collections.emptyList(),penalty,chosen));
         }
-        out.sort(Comparator.comparingDouble((Result r)->r.score).reversed().thenComparingInt(r->r.ayah.ordinal));return out;
+        out.sort(RESULT_ORDER);return out;
     }
     private Map<String,Double> weights(List<String> query,Index index){Map<String,Double> weights=new HashMap<>();for(String term:query){List<Posting> posting=index.terms.get(term);weights.put(term,Math.max(.25,Math.log(1.+docs.size()/(1.+(posting==null?0:posting.size())))));}return weights;}
     private List<String> glossRepairs(String term){return spellingAlternatives(term,glossVocabulary,4);}
@@ -219,6 +217,12 @@ public final class SearchEngine {
         List<String> words=new ArrayList<>(overlap.keySet());words.sort(Comparator.comparingInt((String w)->overlap.get(w)).reversed().thenComparing(w->w));List<String> out=new ArrayList<>();
         for(int i=0;i<Math.min(160,words.size())&&out.size()<8;i++){String w=words.get(i);if(TextMatch.distance(term,w,max)<=max)out.add(w);}return out;
     }
+    private static final Comparator<Result> RESULT_ORDER=(a,b)->{
+        int c=TextMatch.compareRank(a.match,b.match);if(c!=0)return c;
+        c=Double.compare(a.transformationCost,b.transformationCost);if(c!=0)return c;
+        c=Double.compare(b.score,a.score);if(c!=0)return c;
+        return Integer.compare(a.ayah.ordinal,b.ayah.ordinal);
+    };
     private Result result(int d,Strength strength,List<String> reasons,double score,double cost){return new Result(docs.get(d).ayah,strength,reasons,score,Collections.emptyList(),cost);}
     private static boolean phrase(String text,String phrase){return (" "+text+" ").contains(" "+phrase+" ");}
     private List<String> repairs(String term,boolean hasContext) {

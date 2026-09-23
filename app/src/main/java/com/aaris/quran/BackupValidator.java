@@ -37,7 +37,7 @@ final class BackupValidator {
                         key=string(row,"target",80,false);target(key,content,targets);
                         string(row,"text",8000,true);timestamp(row,"updated");break;
                     case "setting":
-                        key=string(row,"key",80,false);setting(key,string(row,"value",100,false),content);break;
+                        key=string(row,"key",80,false);setting(key,string(row,"value",65536,false),content);break;
                     case "bundle":
                         key=string(row,"id",80,false);timestamp(row,"created");
                         JSONObject bundle=new JSONObject(string(row,"json",2000000,false));
@@ -73,6 +73,32 @@ final class BackupValidator {
     private static void setting(String key,String value,ContentStore content) throws JSONException {
         switch(key) {
             case "language":if(!Arrays.asList("hi","ur","en").contains(value))fail("Invalid language");break;
+            case "translation_edition":
+                if(!value.matches("[a-z0-9_\\-]{1,80}"))fail("Invalid translation edition");break;
+            case "study_pins_v1":
+                ayahList(new JSONArray(value),10,content);break;
+            case "study_collections_v1":
+                JSONObject collections=new JSONObject(value);if(collections.length()>16)fail("Too many collections");
+                Iterator<String> names=collections.keys();while(names.hasNext()){
+                    String name=names.next();if(name.trim().isEmpty()||name.length()>64)fail("Invalid collection name");
+                    ayahList(collections.getJSONArray(name),100,content);
+                }break;
+            case "search_aliases_v1":
+                JSONArray aliases=new JSONArray(value);if(aliases.length()>100)fail("Too many search shortcuts");
+                for(int i=0;i<aliases.length();i++){
+                    JSONObject item=aliases.getJSONObject(i);String scope=string(item,"scope",8,false);
+                    if(!Arrays.asList("quran","hadith").contains(scope))fail("Invalid search scope");
+                    if(!string(item,"pack",64,false).matches("[a-f0-9]{64}"))fail("Invalid shortcut pack");
+                    string(item,"query",256,false);String id=string(item,"target",80,false);timestamp(item,"at");
+                    if("quran".equals(scope)&&content.ayah(id)==null)fail("Unknown Quran shortcut");
+                }break;
+            case "translation_issues_v1":
+                JSONArray issues=new JSONArray(value);if(issues.length()>20)fail("Too many translation drafts");
+                for(int i=0;i<issues.length();i++){
+                    JSONObject item=issues.getJSONObject(i);if(content.ayah(string(item,"ayah",80,false))==null)fail("Unknown draft ayah");
+                    string(item,"edition",80,false);string(item,"version",80,false);string(item,"text",2000,false);timestamp(item,"at");
+                    if(!string(item,"pack",64,false).matches("[a-f0-9]{64}"))fail("Invalid draft pack");
+                }break;
             case "contrast":if(!value.equals("true")&&!value.equals("false"))fail("Invalid contrast setting");break;
             case "arabic_size":
                 try{float n=Float.parseFloat(value);if(!Float.isFinite(n)||n<24||n>46)fail("Invalid text size");}
@@ -81,6 +107,10 @@ final class BackupValidator {
             case "reader_anchor":if(content.readingPosition(value)==null)fail("Invalid reading anchor");break;
             default:fail("Unknown setting: "+key);
         }
+    }
+    private static void ayahList(JSONArray ids,int maximum,ContentStore content)throws JSONException{
+        if(ids.length()>maximum)fail("Too many ayahs");Set<String> unique=new HashSet<>();
+        for(int i=0;i<ids.length();i++){String id=ids.getString(i);if(content.ayah(id)==null||!unique.add(id))fail("Invalid or duplicate ayah");}
     }
     private static long timestamp(JSONObject row,String key) throws JSONException {
         Object value=row.get(key);

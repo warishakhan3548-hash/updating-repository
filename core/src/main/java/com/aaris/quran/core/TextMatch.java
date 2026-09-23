@@ -6,34 +6,86 @@ import java.util.*;
 /** Evidence of text overlap, not a probability of authenticity or a semantic verdict. */
 public final class TextMatch {
     public enum Band { HIGH, MEDIUM, LOW }
-    public final int matched,total,exact;
-    public final double coverage,score;
+    public final int matched,total,exact,meaningfulMatched,meaningfulTotal;
+    public final double coverage,meaningfulCoverage,weightedCoverage,continuity,proximity,score;
     public final Band band;
-    public final boolean accepted;
+    public final boolean accepted,phrase;
     private static final Set<String> NEGATION=new HashSet<>(Arrays.asList("لا","لم","لن","ليس","ليست","غير","دون","نہیں","نهيں","نہ","مت","नहीं","मत","बिना","no","not","never","without"));
-    private static final Set<String> COMMON=new HashSet<>(Arrays.asList("wa","the","a","of","to","and","in","is","من","في","على","قال","و","عن","ان","هو","كي","में","के","है","का","और","से"));
-    private TextMatch(int matched,int total,int exact,double weighted,double continuity,boolean allowed,boolean phrase){
-        this.matched=matched;this.total=total;this.exact=exact;coverage=total==0?0:(double)matched/total;
+    private static final Set<String> COMMON=new HashSet<>(Arrays.asList("wa","fi","min","the","a","of","to","and","in","is","من","في","على","قال","و","عن","ان","هو","كي","में","के","है","का","और","से"));
+    private TextMatch(int matched,int total,int exact,int meaningfulMatched,int meaningfulTotal,
+                      double weighted,double continuity,double proximity,boolean allowed,boolean phrase){
+        this.matched=matched;this.total=total;this.exact=exact;
+        this.meaningfulMatched=meaningfulMatched;this.meaningfulTotal=meaningfulTotal;
+        coverage=total==0?0:(double)matched/total;
+        meaningfulCoverage=meaningfulTotal==0?coverage:(double)meaningfulMatched/meaningfulTotal;
+        weightedCoverage=weighted;this.continuity=continuity;this.proximity=proximity;this.phrase=phrase;
         score=coverage*.65+weighted*.25+continuity*.06+(phrase?.04:0);
         band=coverage>=.85&&weighted>=.78?Band.HIGH:coverage>=.5&&weighted>=.4?Band.MEDIUM:Band.LOW;
         accepted=allowed&&matched>0&&(total==1||matched>=2&&coverage>=.18);
     }
-    public static TextMatch exactReference(){return new TextMatch(1,1,1,1,1,true,true);}
+    public static TextMatch exactReference(){return new TextMatch(1,1,1,1,1,1,1,1,true,true);}
     public static boolean negative(String term){return NEGATION.contains(term);}
     public static String normalize(String value){return Arabic.glossSearch(value==null?"":value.replace("’", "").replace("'", "").replaceAll("\\[\\d+\\]", " "));}
     public static List<String> tokens(String value){return Arabic.tokens(normalize(value));}
+
+    /** Negative means a ranks first. Bands are a hard contract, never an additive bonus. */
+    public static int compareRank(TextMatch a,TextMatch b){
+        int c=Integer.compare(a.band.ordinal(),b.band.ordinal());if(c!=0)return c;
+        c=Double.compare(b.meaningfulCoverage,a.meaningfulCoverage);if(c!=0)return c;
+        c=Double.compare(b.weightedCoverage,a.weightedCoverage);if(c!=0)return c;
+        c=Boolean.compare(b.phrase,a.phrase);if(c!=0)return c;
+        c=Double.compare(b.continuity,a.continuity);if(c!=0)return c;
+        c=Double.compare(b.proximity,a.proximity);if(c!=0)return c;
+        c=Double.compare(b.score,a.score);if(c!=0)return c;
+        return Integer.compare(a.matched-a.exact,b.matched-b.exact);
+    }
+    /**
+     * Near-equal Hadith relevance uses fixed score buckets, not pairwise epsilon comparisons
+     * (which can be non-transitive). Source preference cannot cross a band or coverage level.
+     */
+    public static int compareHadith(TextMatch a,String sourceA,TextMatch b,String sourceB){
+        int c=Integer.compare(a.band.ordinal(),b.band.ordinal());if(c!=0)return c;
+        c=Double.compare(b.meaningfulCoverage,a.meaningfulCoverage);if(c!=0)return c;
+        c=Integer.compare(relevanceBucket(b),relevanceBucket(a));if(c!=0)return c;
+        c=Integer.compare(sourcePriority(sourceA),sourcePriority(sourceB));if(c!=0)return c;
+        return compareRank(a,b);
+    }
+    private static int relevanceBucket(TextMatch match){return (int)Math.floor(match.score*40+1e-9);}
+    private static int sourcePriority(String source){return "bukhari".equals(source)?0:"muslim".equals(source)?1:2;}
+    public String explanation(){
+        int useful=meaningfulTotal==0?total:meaningfulTotal,found=meaningfulTotal==0?matched:meaningfulMatched;
+        return found+" / "+useful+" meaningful words · "+exact+" exact · "+(matched-exact)+" spelling repairs"+
+            (phrase?" · Exact phrase":continuity>=.99?" · Query order preserved":" · Partial/reordered phrase");
+    }
     public static TextMatch compare(List<String> query,List<String> words,Map<String,List<String>> alternatives,Map<String,Double> weights){
         Map<String,ArrayDeque<Integer>> positions=new HashMap<>();for(int i=0;i<words.size();i++)positions.computeIfAbsent(words.get(i),k->new ArrayDeque<>()).add(i);
-        int[] match=new int[query.size()];boolean[] original=new boolean[query.size()];Arrays.fill(match,-1);int exact=0,count=0;double all=0,hit=0;boolean allowed=true;
-        for(int q=0;q<query.size();q++){String term=query.get(q);all+=weight(term,weights);ArrayDeque<Integer> queue=positions.get(term);if(queue!=null&&!queue.isEmpty()){match[q]=queue.removeFirst();original[q]=true;exact++;}}
-        for(int q=0;q<query.size();q++)if(match[q]<0&&!negative(query.get(q)))for(String candidate:alternatives.getOrDefault(query.get(q),Collections.emptyList())){ArrayDeque<Integer> queue=positions.get(candidate);if(queue!=null&&!queue.isEmpty()){match[q]=queue.removeFirst();break;}}
-        int ordered=0,previous=-1;
-        for(int q=0;q<query.size();q++){String term=query.get(q);if(match[q]>=0){count++;hit+=weight(term,weights)*(original[q]?1:.75);if(match[q]>previous)ordered++;previous=match[q];}else if(negative(term))allowed=false;}
+        int[] match=new int[query.size()];boolean[] original=new boolean[query.size()];Arrays.fill(match,-1);
+        int exact=0,count=0,useful=0,foundUseful=0;double all=0,hit=0;boolean allowed=true;
+        for(int q=0;q<query.size();q++){
+            String term=query.get(q);all+=weight(term,weights);if(!COMMON.contains(term))useful++;
+            ArrayDeque<Integer> queue=positions.get(term);
+            if(queue!=null&&!queue.isEmpty()){match[q]=queue.removeFirst();original[q]=true;exact++;}
+        }
+        for(int q=0;q<query.size();q++)if(match[q]<0&&!negative(query.get(q)))for(String candidate:alternatives.getOrDefault(query.get(q),Collections.emptyList())){
+            ArrayDeque<Integer> queue=positions.get(candidate);if(queue!=null&&!queue.isEmpty()){match[q]=queue.removeFirst();break;}
+        }
+        int ordered=0,previous=-1,first=Integer.MAX_VALUE,last=-1;
+        for(int q=0;q<query.size();q++){
+            String term=query.get(q);
+            if(match[q]>=0){count++;if(!COMMON.contains(term))foundUseful++;
+                hit+=weight(term,weights)*(original[q]?1:.75);
+                if(match[q]>previous)ordered++;previous=match[q];
+                first=Math.min(first,match[q]);last=Math.max(last,match[q]);
+            }else if(negative(term))allowed=false;
+        }
         if(query.size()>1&&new HashSet<>(query).size()==1&&count<query.size())allowed=false;
         boolean phrase=!query.isEmpty()&&(" "+String.join(" ",words)+" ").contains(" "+String.join(" ",query)+" ");
-        return new TextMatch(count,query.size(),exact,all==0?0:hit/all,phrase?1:count==0?0:(double)ordered/count,allowed,phrase);
+        return new TextMatch(count,query.size(),exact,foundUseful,useful,all==0?0:hit/all,
+            phrase?1:count==0?0:(double)ordered/count,phrase?1:count==0?0:(double)count/(last-first+1),allowed,phrase);
     }
-    private static double weight(String term,Map<String,Double> weights){return weights.getOrDefault(term,COMMON.contains(term)?.3:1.);}
+    private static double weight(String term,Map<String,Double> weights){
+        return weights.getOrDefault(term,1.)*(COMMON.contains(term)?.3:1.);
+    }
     /** Adjacent transpositions, insertion/deletion and replacement; never repairs negation. */
     public static int distance(String a,String b,int limit){
         if(a.equals(b))return 0;if(negative(a)||negative(b)||Math.abs(a.length()-b.length())>limit)return limit+1;
