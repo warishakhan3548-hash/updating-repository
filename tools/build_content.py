@@ -163,6 +163,19 @@ def build():
                  'distribution':'NON_COMMERCIAL_PREVIEW','attribution':attribution}.items():
         db.execute('INSERT INTO provenance VALUES(?,?)', (k, v))
     db.commit()
+    # Stable semantic identity for word-audio timing. Never bind audio to raw SQLite bytes:
+    # SQLite serialization may differ across engine versions while canonical word identities stay
+    # identical. Hash the exact SOURCE_ALIGNED :W: coordinates + Arabic used by playback instead.
+    audio_alignment=hashlib.sha256()
+    audio_words=0
+    for wid,aid,position,word_arabic in db.execute(
+            "SELECT id,ayah_id,position,arabic FROM word "
+            "WHERE position>0 AND id LIKE '%:W:%' AND mapping_state='SOURCE_ALIGNED' ORDER BY id"):
+        audio_alignment.update(f"{wid}\\t{aid}\\t{position}\\t{word_arabic}\\n".encode('utf-8'))
+        audio_words += 1
+    if audio_words != 77326:
+        raise ValueError(f'Canonical Quran audio word identities changed: {audio_words}')
+    audio_alignment_sha256=audio_alignment.hexdigest()
     if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
         raise ValueError('SQLite integrity validation failed')
     if db.execute('PRAGMA foreign_key_check').fetchall():
@@ -172,6 +185,7 @@ def build():
     temporary.replace(output)
     manifest = {'schema_version':1,'pack_id':'quran-core-1','content_version':'1.0.0',
                 'quran_source_sha256':RAW_SHA,'sqlite_sha256':digest(output),
+                'audio_alignment_sha256':audio_alignment_sha256,'audio_alignment_words':audio_words,
                 'surahs':114,'ayahs':6236,'words':word_count,'source_aligned_words':mapped,
                 'unmapped_ayah_count':len(unmatched), 'distribution':'NON_COMMERCIAL_PREVIEW',
                 'review_status':'SOURCE_IMPORTED; linguistic review pending',
