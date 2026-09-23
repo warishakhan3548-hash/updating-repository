@@ -134,14 +134,18 @@ def main():
             "--source-lock",lock)
 
         manifest_path=active/"quran-audio"/"manifest.json"
-        policy.write_text(json.dumps({
-            "schema":1,
-            "state":"required",
-            "required_manifest_sha256":sha256(manifest_path),
-            "required_pack_id":manifest["pack_id"],
-            "on_missing":"FAIL_BUILD_NO_NETWORK_FALLBACK"
-        },indent=2)+"\n",encoding="utf-8")
-        run(sys.executable,ROOT/"tools/check_quran_audio_policy.py",
+        run(sys.executable,ROOT/"tools/finalize_quran_audio_policy.py",
+            "--source",active,
+            "--policy",policy,
+            "--quran-db",db_path,
+            "--source-lock",lock)
+        armed=json.loads(policy.read_text(encoding="utf-8"))
+        if (armed.get("state")!="required" or
+            armed.get("required_manifest_sha256")!=sha256(manifest_path) or
+            armed.get("required_pack_id")!=manifest["pack_id"]):
+            raise SystemExit("Audio finalizer did not pin the exact verified manifest")
+        # Re-finalizing the same immutable pack is idempotent.
+        run(sys.executable,ROOT/"tools/finalize_quran_audio_policy.py",
             "--source",active,
             "--policy",policy,
             "--quran-db",db_path,
