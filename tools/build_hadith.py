@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "tools" / "hadith-catalog.json"
-BUILDER_VERSION = "3"
+BUILDER_VERSION = "4"
 
 
 def digest(path: Path) -> str:
@@ -55,14 +55,19 @@ def normalize_latin(value):
 
 def search_tokens(value):
     # Match Java TextMatch.normalize without stripping Devanagari vowel signs.
-    value = unicodedata.normalize('NFC', str(value or '')).lower().replace("'", '').replace('’', '')
+    value = re.sub(r'\[\d+\]', ' ', str(value or '')).replace("'", '').replace('’', '')
+    value = unicodedata.normalize('NFKC', value).lower()
     for original, normalized in [('ٱ','ا'),('أ','ا'),('إ','ا'),('آ','ا'),('ى','ي'),('ی','ي'),('ک','ك')]:
         value=value.replace(original,normalized)
     chars=[]
     for ch in value:
         cp=ord(ch)
-        if 0x610 <= cp <= 0x61a or 0x64b <= cp <= 0x65f or 0x6d6 <= cp <= 0x6ed or cp in (0x670,0x640):
+        if (0x610 <= cp <= 0x61a or 0x64b <= cp <= 0x65f or 0x6d6 <= cp <= 0x6ed
+                or 0x8d3 <= cp <= 0x8ff or 0x898 <= cp <= 0x89f
+                or cp in (0x670,0x640) or unicodedata.category(ch) == 'Cf'):
             continue
+        if ch.isdecimal():
+            ch=str(unicodedata.decimal(ch))
         if ch.isalpha() and 'LATIN' in unicodedata.name(ch,''):
             chars.extend(c for c in unicodedata.normalize('NFD',ch) if not unicodedata.category(c).startswith('M'))
         else:
@@ -260,9 +265,11 @@ def open_db(path: Path):
     );
 
     CREATE INDEX hadith_by_collection ON hadith(collection_id, record_number);
+    CREATE INDEX hadith_by_number ON hadith(record_number);
     CREATE INDEX hadith_by_book ON hadith(book_id, record_number);
     CREATE INDEX hadith_by_chapter ON hadith(chapter_id, record_number);
     CREATE INDEX hadith_reference_lookup ON hadith_reference(scheme, value);
+    CREATE INDEX hadith_reference_value ON hadith_reference(value, hadith_id);
     CREATE INDEX hadith_arabic_shadow ON hadith(search_ar);
     CREATE INDEX hadith_english_shadow ON hadith(search_latin);
     CREATE INDEX editorial_translation_lookup
@@ -464,6 +471,16 @@ def build(source_dir: Path, output: Path):
     try:
         counters = import_jsonl(db, source_dir, manifest)
         build_search_index(db)
+        # Report actual layer coverage instead of treating a manifest language as complete.
+        coverage = {"ar": counters["hadith"]}
+        for language, column in (("en", "english"), ("ur", "urdu"), ("bn", "bangla")):
+            coverage[language] = db.execute(
+                f"SELECT count(*) FROM hadith WHERE {column} IS NOT NULL AND trim({column})<>''"
+            ).fetchone()[0]
+        marked = sum(bool(re.search(r"[\u064b-\u0652\u0670]", text)) for (text,) in db.execute("SELECT arabic FROM hadith"))
+        languages = {code for code, count in coverage.items() if count}
+        languages.update(row[0] for row in db.execute(
+            "SELECT DISTINCT language FROM editorial_translation WHERE status IN ('reviewed','released')"))
         provenance = {
             "pack_id": manifest["pack_id"],
             "content_version": manifest["content_version"],
@@ -504,7 +521,10 @@ def build(source_dir: Path, output: Path):
             "chapters": counters["chapter"],
             "records": counters["hadith"],
             "editorial_translations": counters["translation"],
-            "language_coverage": list(manifest.get("language_coverage") or ["ar"]),
+            "language_coverage": sorted(languages),
+            "imported_translation_record_counts": coverage,
+            "arabic_records_with_vowel_marks": marked,
+            "vocalization_note": "Presence of some marks does not establish complete or reviewed vocalization.",
             "source_files": {rel: digest(safe_source_path(source_dir, rel)) for rel in manifest["files"]},
             "license_files": list(manifest["license_files"]),
             "runtime_network_required": False,

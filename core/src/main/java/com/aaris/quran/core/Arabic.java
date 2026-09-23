@@ -7,12 +7,14 @@ import java.util.*;
 public final class Arabic {
     private Arabic() {}
     public static String safe(String input) {
-        String text = Normalizer.normalize(input == null ? "" : input, Normalizer.Form.NFC);
+        // Compatibility shaping/ligatures and copied bidi controls affect retrieval only.
+        String text = Normalizer.normalize(input == null ? "" : input, Normalizer.Form.NFKC);
         StringBuilder out = new StringBuilder();
         text.codePoints().forEach(cp -> {
             int type = Character.getType(cp);
-            if (searchMark(cp)) return;
+            if (searchMark(cp) || type == Character.FORMAT) return;
             if (cp == 0x671) cp = 0x627;
+            int digit=Character.digit(cp,10);if(digit>=0)cp='0'+digit;
             if (Character.isLetterOrDigit(cp) || type == Character.NON_SPACING_MARK ||
                 type == Character.COMBINING_SPACING_MARK) out.appendCodePoint(Character.toLowerCase(cp));
             else out.append(' ');
@@ -21,7 +23,8 @@ public final class Arabic {
     }
     static boolean searchMark(int cp) {
         return (cp >= 0x610 && cp <= 0x61A) || (cp >= 0x64B && cp <= 0x65F) || cp == 0x670 ||
-            (cp >= 0x6D6 && cp <= 0x6ED) || cp == 0x640;
+            (cp >= 0x6D6 && cp <= 0x6ED) || (cp >= 0x8D3 && cp <= 0x8FF) ||
+            (cp >= 0x898 && cp <= 0x89F) || cp == 0x640;
     }
     public static String tolerant(String input) {
         return safe(input).replace('أ','ا').replace('إ','ا').replace('آ','ا')

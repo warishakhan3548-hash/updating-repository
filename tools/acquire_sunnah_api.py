@@ -14,6 +14,7 @@ The script intentionally defaults to fail-closed behavior:
 """
 import argparse
 import hashlib
+from html.parser import HTMLParser
 import json
 import os
 import shutil
@@ -64,13 +65,45 @@ def language_map(items):
     return out
 
 
+class BodyText(HTMLParser):
+    """Render API body markup as text; the verbatim response stays archived under raw/."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.hidden = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style"}:
+            self.hidden += 1
+        elif tag in {"br", "p", "div", "li"} and not self.hidden:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style"}:
+            self.hidden = max(0, self.hidden - 1)
+        elif tag in {"p", "div", "li"} and not self.hidden:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(data)
+
+
+def body_text(body):
+    parser = BodyText()
+    parser.feed(body)
+    parser.close()
+    # Layout whitespace is not a vowel-mark operation. No Unicode normalization or AI rewrite.
+    return "\n".join(line.strip() for line in "".join(parser.parts).splitlines() if line.strip())
+
+
 def text_for(languages, *codes):
     for code in codes:
         item = languages.get(code)
         if item:
             body = item.get("body")
             if isinstance(body, str) and body.strip():
-                return body.strip()
+                return body_text(body) or None
     return None
 
 

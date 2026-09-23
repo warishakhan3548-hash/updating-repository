@@ -408,3 +408,12 @@ download the Gradle distribution; analyzer setup is still in progress.
 - Android SDK/device compilation, visual checks, PDF receiving apps and media lifecycle QA
   remain pending. No APK/AAB or CI run. See READER_PERSONALIZATION.md for the exact feature
   scope and remaining transliteration, Hadith language and advanced retrieval work.
+
+
+## 2026-09-23 — shared search and reading fixes
+
+Coordinate-validated whole-ayah audio (fresh cache), shared Quran/Hadith reference/text search,
+Naskh Hadith layout and configurable text depth/shadow/glass/button colors are implemented.
+Local regressions, complete translation/source alignment and Android compilation passed.
+Official Sunnah vocalized Arabic/translation acquisition remains blocked by absent API access;
+no complete content import is claimed. Details: [fix report](SEARCH_READING_FIXES_2026_09.md).

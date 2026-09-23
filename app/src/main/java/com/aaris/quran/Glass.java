@@ -54,7 +54,7 @@ final class Glass {
         @Override protected void onBoundsChange(Rect b){
             super.onBoundsChange(b);outer.set(b.left+stroke,b.top+stroke,b.right-stroke,b.bottom-stroke);
             inner.set(outer);inner.inset(inset,inset);if(outer.isEmpty())return;
-            int base=appearance.effectiveSurface();
+            int base=(kind==Kind.BUTTON||kind==Kind.PRIMARY)?appearance.buttonSurface():appearance.effectiveSurface();
             if(kind==Kind.PRIMARY)base=Appearance.mix(base,appearance.accent,.15f);
             int[] colors=appearance.glass&&!appearance.reducedEffects&&!solid?new int[]{Appearance.mix(base,appearance.accent,.06f*appearance.glassStrength/100f),base}:new int[]{base,base};
             fill=new LinearGradient(outer.left,outer.top,outer.right,outer.bottom,colors,null,Shader.TileMode.CLAMP);

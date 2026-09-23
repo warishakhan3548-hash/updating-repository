@@ -15,6 +15,9 @@ public final class CorpusChecks {
         }
         long started=System.nanoTime();SearchEngine engine=new SearchEngine(documents);
         if(documents.size()!=6236)throw new AssertionError("Full corpus required");
+        for(int i=0;i<documents.size();i++)if(RecitationAddress.globalNumber(documents.get(i).ayah)!=i+1)
+            throw new AssertionError("Audio address drift at "+documents.get(i).ayah.id);
+        System.out.println("Whole-ayah audio coordinates: all 6,236 one-based addresses verified");
         String[][] cases={
             {"2:255","Q:2:255"},{"٢:٢٥٥","Q:2:255"},{"۲:۲۵۵","Q:2:255"},
             {"قل هو الله أحد","Q:112:1"},{"قل هو الله احد","Q:112:1"},
