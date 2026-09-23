@@ -40,15 +40,17 @@ def main():
             revision=args.revision,
             local_dir=Path(temp) / "snapshot",
             allow_patterns=[
+                f"{args.style}/**",
                 f"dataset/{args.style}/**",
                 "README.md",
                 "LICENSE",
                 "LICENSE.*",
             ],
         ))
-        style_dir = snapshot / "dataset" / args.style
-        if not style_dir.is_dir():
-            raise SystemExit(f"Pinned dataset snapshot has no dataset/{args.style} directory")
+        candidates = [snapshot / args.style, snapshot / "dataset" / args.style]
+        style_dir = next((path for path in candidates if path.is_dir()), None)
+        if style_dir is None:
+            raise SystemExit(f"Pinned dataset snapshot has no {args.style} word-audio directory")
         evidence = snapshot / "README.md"
         if not evidence.is_file():
             raise SystemExit("Pinned dataset snapshot has no README license/provenance evidence")
