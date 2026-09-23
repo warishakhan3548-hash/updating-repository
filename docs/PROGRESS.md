@@ -235,3 +235,31 @@ download the Gradle distribution; analyzer setup is still in progress.
 - No Hadith corpus has been imported yet. The existing app must not claim these collections are
   locally installed until redistribution-cleared source files are added and validated.
 - No APK/AAB was built and no CI workflow was started.
+
+
+## Checkpoint 16: local-only Hadith runtime and acquisition pipeline (2026-09-23)
+
+- Removed the Hadith runtime dependency on Sunnah.com. The Hadith tab now opens only a bundled,
+  checksum-verified read-only pack; without a pack it reports that local Hadith content is not
+  installed and never falls back to a browser.
+- Added collection -> book -> chapter -> Hadith navigation, pagination, exact reference/number
+  lookup and background local text search. The generated pack includes an FTS4 index over
+  normalized Arabic/English search shadows while preserving display text byte-for-byte.
+- Added an isolated `HadithStore`; a missing or bad Hadith pack no longer prevents the verified
+  Quran pack and user learning database from opening.
+- Hardened `tools/build_hadith.py`: SHA-256 locked source and permission files, edition-aware
+  identities, source text hashes, attributed grades, alternate references, separate Aaris
+  editorial-translation records, full-catalog coverage gate, foreign-key/integrity checks and
+  generated pack manifest.
+- Added `tools/acquire_sunnah_api.py`: a resumable one-time importer for Sunnah.com's documented
+  API. It requires an environment-only API key plus operator-supplied redistribution/offline
+  permission evidence, stores raw snapshots locally, splits normalized records per collection and
+  finalizes the active manifest only after validation. It does not scrape website pages.
+- The planning catalog covers all 26 current top-level Sunnah.com entries plus nested Forty
+  collections. Large raw snapshots are Git-LFS-ready.
+- `tools/check.py` now builds a synthetic Hadith fixture offline and verifies schema, FTS,
+  source hashes and foreign keys even when the real corpus is absent.
+- The actual full Hadith corpus is still intentionally **not claimed as installed**: no Sunnah.com
+  API key/offline dump and redistribution permission were available in this session. Importing
+  third-party scraped copies would violate the source-integrity/permission gate.
+- No APK/AAB was built and no CI workflow was started.
