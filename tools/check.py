@@ -48,11 +48,31 @@ def main():
             'SELECT a.arabic,w.start_cp,w.end_cp,w.arabic FROM word w JOIN ayah a ON a.id=w.ayah_id'):
         assert text[start:end] == word, 'Word/source offset mismatch'
     assert not db.execute('PRAGMA foreign_key_check').fetchall()
+
+    # Hadith is a separate optional immutable pack. A build must contain both files or neither.
+    hadith_manifest_path = assets / 'hadith-manifest.json'
+    hadith_pack = assets / 'hadith.sqlite'
+    assert hadith_manifest_path.exists() == hadith_pack.exists(), 'Incomplete generated Hadith pack'
+    if hadith_pack.exists():
+        hmanifest = json.loads(hadith_manifest_path.read_text())
+        assert hmanifest['schema_version'] == 2
+        assert hashlib.sha256(hadith_pack.read_bytes()).hexdigest() == hmanifest['sqlite_sha256']
+        hdb = sqlite3.connect(f'file:{hadith_pack}?mode=ro', uri=True)
+        assert hdb.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+        assert hdb.execute('PRAGMA user_version').fetchone()[0] == 2
+        assert hdb.execute('SELECT count(*) FROM collection').fetchone()[0] == hmanifest['collections']
+        assert hdb.execute('SELECT count(*) FROM hadith').fetchone()[0] == hmanifest['records']
+        assert not hdb.execute('PRAGMA foreign_key_check').fetchall()
+        for arabic, expected in hdb.execute('SELECT arabic,source_sha256 FROM hadith'):
+            assert hashlib.sha256(arabic.encode()).hexdigest() == expected
+        hdb.close()
     android = '{http://schemas.android.com/apk/res/android}'
     android_manifest = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml').getroot()
     application = android_manifest.find('application')
     assert application.get(android + 'name') == '.QuranApp', 'Missing startup wiring'
     permissions = {p.get(android + 'name') for p in android_manifest.findall('uses-permission')}
+    java_sources = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / 'app/src/main/java').rglob('*.java'))
+    assert 'https://sunnah.com/' not in java_sources, 'Runtime Hadith website dependency returned'
     assert permissions == {'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.FOREGROUND_SERVICE',
                            'android.permission.FOREGROUND_SERVICE_SPECIAL_USE', 'android.permission.POST_NOTIFICATIONS'}
     service = application.find('service')
@@ -101,7 +121,8 @@ def main():
                             '-cp', str(args.android_jar), '-d', str(classes),
                             *map(str, sources + app + resources_java)], check=True)
             print('Android Java compile: PASS (API jar; not a device or APK test)')
-    print('Content hashes, 6,236 ayahs, 77,881 word ranges and startup manifest: PASS')
+    hadith_state = 'verified local Hadith pack' if hadith_pack.exists() else 'no Hadith pack bundled'
+    print('Content hashes, 6,236 ayahs, 77,881 word ranges, startup manifest and '+hadith_state+': PASS')
 
 
 if __name__ == '__main__':
