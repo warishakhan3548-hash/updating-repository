@@ -9,5 +9,5 @@
   "extension": "opus",
   "canonical_policy": "SOURCE_ALIGNED_W_ONLY",
   "canonical_quran_sqlite_sha256": "521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1",
-  "expected_word_count": 77318
+  "expected_word_count": 77326
 }
