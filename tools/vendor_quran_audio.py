@@ -58,23 +58,50 @@ def main():
         "--source-lock",LOCK)
 
     manifest=json.loads((ACTIVE/"quran-audio/manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("schema_version")!=3 or manifest.get("pack_layout")!="CONTENT_ADDRESSED_CHUNKS_V1":
+        raise SystemExit("Vendored Quran audio pack does not use the reviewed schema-v3 chunk layout")
+
+    declared=manifest.get("packs")
+    pack_count=int(manifest.get("pack_file_count") or 0)
+    if not isinstance(declared,dict) or pack_count<1 or len(declared)!=pack_count:
+        raise SystemExit("Vendored Quran audio manifest has an invalid chunk-pack declaration")
+
+    expected_names=[f"{pack_id:03d}.pack" for pack_id in range(1,pack_count+1)]
     packs=sorted((ACTIVE/"quran-audio/packs").glob("*.pack"))
-    if len(packs)!=114:
-        raise SystemExit(f"Expected 114 Surah pack files; found {len(packs)}")
-    too_large=[p for p in packs if p.stat().st_size>=95*1024*1024]
+    actual_names=[p.name for p in packs]
+    if actual_names!=expected_names:
+        raise SystemExit(
+            f"Chunk-pack files differ from manifest layout: expected={expected_names}, actual={actual_names}"
+        )
+
+    chunk_limit=int(manifest.get("pack_chunk_limit_bytes") or 0)
+    if chunk_limit!=32*1024*1024:
+        raise SystemExit("Vendored Quran audio chunk limit differs from the reviewed layout")
+    too_large=[p for p in packs if p.stat().st_size<1 or p.stat().st_size>chunk_limit]
     if too_large:
-        raise SystemExit("Pack files too close to GitHub's per-file limit: "+", ".join(p.name for p in too_large))
+        raise SystemExit("Invalid Quran audio chunk size: "+", ".join(p.name for p in too_large))
 
     expected=int(lock.get("expected_word_count") or 0)
     if int(manifest.get("word_count") or 0)!=expected:
         raise SystemExit("Vendored pack word count differs from reviewed source lock")
+    unique=int(manifest.get("unique_clip_count") or 0)
+    deduplicated=int(manifest.get("deduplicated_reference_count") or -1)
+    if unique<1 or unique+deduplicated!=expected:
+        raise SystemExit("Vendored pack deduplication counts are inconsistent")
 
     total=sum(p.stat().st_size for p in packs)
+    if total!=int(manifest.get("total_pack_bytes") or -1):
+        raise SystemExit("Vendored pack byte total differs from its verified manifest")
+    if total>650*1024*1024:
+        raise SystemExit("Vendored Quran audio exceeds the reviewed ordinary-Git size budget")
+
     print(json.dumps({
         "status":"READY_TO_COMMIT",
         "active_path":str(ACTIVE.relative_to(ROOT)),
-        "word_clips":expected,
-        "surah_packs":len(packs),
+        "word_references":expected,
+        "unique_audio_clips":unique,
+        "deduplicated_references":deduplicated,
+        "chunk_packs":pack_count,
         "audio_bytes":total,
         "largest_pack_bytes":max(p.stat().st_size for p in packs),
         "source_revision":lock.get("revision"),
