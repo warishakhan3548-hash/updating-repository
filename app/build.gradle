@@ -32,3 +32,32 @@ def contentPack = tasks.register('prepareContentPack', Exec) {
     outputs.files file('src/main/assets/quran.sqlite'), file('src/main/assets/content-manifest.json')
 }
 tasks.named('preBuild').configure { dependsOn contentPack }
+
+
+// Hadith is a separate immutable pack. It is built only when a redistribution-cleared
+// source-vault/hadith/active/manifest.json is present. A stale generated pack is never trusted.
+def hadithSource = rootProject.file('source-vault/hadith/active')
+def hadithPack = tasks.register('prepareHadithPack') {
+    workingDir rootProject.projectDir
+    inputs.file rootProject.file('tools/build_hadith.py')
+    inputs.dir hadithSource
+    outputs.files file('src/main/assets/hadith.sqlite'), file('src/main/assets/hadith-manifest.json')
+    doLast {
+        def manifest = new File(hadithSource, 'manifest.json')
+        def sqlite = file('src/main/assets/hadith.sqlite')
+        def generatedManifest = file('src/main/assets/hadith-manifest.json')
+        if (!manifest.exists()) {
+            delete sqlite, generatedManifest
+            logger.lifecycle('No verified Hadith source pack installed; building Quran-only APK.')
+            return
+        }
+        exec {
+            workingDir rootProject.projectDir
+            commandLine 'python3', 'tools/build_hadith.py',
+                '--source', hadithSource.absolutePath,
+                '--output', sqlite.absolutePath,
+                '--manifest-output', generatedManifest.absolutePath
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn hadithPack }
