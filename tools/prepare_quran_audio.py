@@ -13,6 +13,8 @@ import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+MAX_SURAH_PACK_BYTES = 95 * 1024 * 1024
+MAX_TOTAL_PACK_BYTES = 650 * 1024 * 1024
 SOURCE_LOCK = ROOT / "source-vault/quran-audio/source-lock.json"
 
 
@@ -164,11 +166,18 @@ def main():
                     count+=1;copied+=1
                     if copied%5000==0:
                         print(f"Packed {copied}/{len(rows)} words",flush=True)
+            pack_bytes=pack_path.stat().st_size
+            if pack_bytes>MAX_SURAH_PACK_BYTES:
+                raise ValueError(f"Surah {surah} pack exceeds ordinary-Git safety limit: {pack_bytes} bytes")
             pack_meta[f"{surah:03d}"]={
                 "sha256":file_hash(pack_path),
-                "bytes":pack_path.stat().st_size,
+                "bytes":pack_bytes,
                 "words":count,
             }
+
+        total_pack_bytes=sum(meta["bytes"] for meta in pack_meta.values())
+        if total_pack_bytes>MAX_TOTAL_PACK_BYTES:
+            raise ValueError(f"Quran audio pack exceeds reviewed repository budget: {total_pack_bytes} bytes")
 
         db.commit()
         if db.execute("PRAGMA integrity_check").fetchone()[0]!="ok":
@@ -210,6 +219,7 @@ def main():
             "word_count":len(rows),
             "coverage_complete":True,
             "surah_packs":pack_meta,
+            "total_pack_bytes":total_pack_bytes,
             "runtime_network_required":False,
         }
         (stage/"quran-audio"/"manifest.json").write_text(
