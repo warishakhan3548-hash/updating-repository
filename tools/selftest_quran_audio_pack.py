@@ -60,7 +60,8 @@ def main():
         source=tmp/"source"
         write_clip(source/"001"/"001_001_001.opus",1)
         write_clip(source/"001"/"001_001_002.opus",2)
-        write_clip(source/"002"/"002_001_001.opus",3)
+        # Deliberate duplicate: a different canonical Word ID shares identical audio bytes.
+        write_clip(source/"002"/"002_001_001.opus",1)
         evidence=tmp/"UPSTREAM.txt"
         evidence.write_text("Synthetic Apache-2.0 provenance fixture for offline test only.\n",encoding="utf-8")
         active=tmp/"active"
@@ -93,6 +94,14 @@ def main():
             "--style","muallim",
             "--extension","opus",
             "--source-lock",lock)
+
+        manifest=json.loads((active/"quran-audio"/"manifest.json").read_text(encoding="utf-8"))
+        if manifest.get("schema_version")!=3:
+            raise SystemExit("Self-test pack did not use schema v3")
+        if manifest.get("word_count")!=3 or manifest.get("unique_clip_count")!=2:
+            raise SystemExit("Content-addressed deduplication did not produce 3 references -> 2 unique clips")
+        if manifest.get("deduplicated_reference_count")!=1 or manifest.get("pack_file_count")!=1:
+            raise SystemExit("Unexpected self-test dedup/pack counts")
 
         run(sys.executable,ROOT/"tools/check_quran_audio.py",
             "--source",active,
