@@ -57,18 +57,21 @@ def contentPack = tasks.register('prepareContentPack', Exec) {
 }
 tasks.named('preBuild').configure { dependsOn contentPack }
 
-// Quran word audio is an optional immutable local pack. The normal Android build never downloads
-// it. If an active manifest exists, verify exact canonical word coverage before packaging assets.
+// Quran word audio is local-only. Before the one-time vendor import it may be absent; once that
+// import succeeds release-policy.json is armed to "required" and every future build fails closed
+// if the exact pinned local payload is deleted/replaced. Normal builds never reacquire from web.
 def verifyQuranAudioPack = tasks.register('verifyQuranAudioPack', Exec) {
     dependsOn contentPack
-    // If any active audio payload is present, verify it fail-closed. This catches interrupted or
-    // partially deleted vendoring instead of silently packaging orphaned binary assets.
-    onlyIf { new File(activeQuranAudioSource, 'quran-audio').exists() }
     inputs.file rootProject.file('source-vault/quran-audio/source-lock.json')
+    inputs.file rootProject.file('source-vault/quran-audio/release-policy.json')
+    inputs.file rootProject.file('tools/check_quran_audio_policy.py')
+    inputs.file rootProject.file('tools/check_quran_audio.py')
+    inputs.dir activeQuranAudioSource
     outputs.upToDateWhen { false }
     workingDir rootProject.projectDir
-    commandLine 'python3', 'tools/check_quran_audio.py',
+    commandLine 'python3', 'tools/check_quran_audio_policy.py',
         '--source', activeQuranAudioSource.absolutePath,
+        '--policy', rootProject.file('source-vault/quran-audio/release-policy.json').absolutePath,
         '--quran-db', file('src/main/assets/quran.sqlite').absolutePath,
         '--source-lock', rootProject.file('source-vault/quran-audio/source-lock.json').absolutePath
 }
