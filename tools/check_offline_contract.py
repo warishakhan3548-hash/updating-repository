@@ -58,6 +58,14 @@ def main():
     lock=json.loads(AUDIO_LOCK.read_text(encoding="utf-8"))
     if lock.get("schema")!=1 or lock.get("delivery")!="ON_DEMAND_SURAH_LOCAL_V1":
         fail("unsupported on-demand Quran audio source lock")
+    if lock.get("download_policy")!="EXPLICIT_USER_ACTION_ONLY":
+        fail("Quran audio may only download after explicit user action")
+    if lock.get("resume_policy")!="REVISION_SCOPED_PARTIAL_HTTP_RANGE":
+        fail("Quran audio resume policy is not revision-scoped")
+    if lock.get("apk_policy")!="NO_QURAN_AUDIO_BYTES_IN_BASE_APK":
+        fail("Quran audio APK policy changed")
+    if lock.get("use_scope")!="NON_COMMERCIAL_PREVIEW_PENDING_RECORDING_RIGHTS_CLEARANCE":
+        fail("Quran audio recording-rights boundary is missing")
     downloader=AUDIO_DOWNLOADER.read_text(encoding="utf-8")
     store=AUDIO_STORE.read_text(encoding="utf-8")
     revision=str(lock.get("revision") or "")
@@ -71,6 +79,10 @@ def main():
         fail("runtime audio Quran binding differs from reviewed lock")
     if "HttpURLConnection" not in downloader:
         fail("audio downloader no longer has an explicit reviewed HTTPS boundary")
+    if 'setRequestProperty("Range","bytes="+existing+"-")' not in downloader:
+        fail("audio downloader lost resumable HTTP Range support")
+    if '".partial-"+REVISION.substring(0,12)' not in downloader:
+        fail("partial audio is no longer scoped to the immutable source revision")
     if "http://" in downloader:
         fail("audio downloader contains cleartext HTTP")
     if "https://huggingface.co/datasets/" not in downloader:
