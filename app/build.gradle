@@ -28,7 +28,7 @@ android {
     }
     androidResources {
         // Word clips must remain seekable through AssetFileDescriptor / MediaPlayer.
-        noCompress += ['opus']
+        noCompress += ['pack']
     }
 }
 dependencies { implementation project(':core') }
