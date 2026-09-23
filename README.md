@@ -11,6 +11,8 @@ Requirements: Python 3.10+, JDK 17, Android SDK 35. No paid service or API key.
 
 ```sh
 python3 tools/build_content.py
+# Optional: only after source-vault/hadith/active/manifest.json contains a cleared local pack
+python3 tools/build_hadith.py --source source-vault/hadith/active
 ./gradlew :core:coreCheck :app:assembleDebug
 ```
 
@@ -33,9 +35,12 @@ reading anchors, source word meanings, opt-in word/phrase/ayah and consecutive-a
 recall, Quran lexical/fragment search and evidence export. Mixed remembered quotations show
 separate cited excerpts, ambiguous alternatives and unmatched words; they never become a new
 source quote. The Yaad tab provides an opt-in timed overlay over other apps; Android
-permission is required. The Hadith tab links six collections and search at Sunnah.com, clearly
-labeled online. It is not the complete architecture: no offline Hadith corpus, reviewed
-morphology/sense graph, FSRS, audio or signed pack updater ships yet.
+permission is required. The Hadith tab is now local-only: it never opens Sunnah.com. When a verified `hadith.sqlite`
+pack is bundled it supports Collection → Book → Chapter → Hadith navigation and local Arabic/
+English/reference search. Until a redistribution-cleared source pack is placed under
+`source-vault/hadith/active`, the Hadith tab truthfully reports that no local pack is installed.
+The remaining architecture still lacks the actual full Hadith corpus, reviewed morphology/sense
+graph, FSRS, audio and a signed content-pack updater.
 
 ## Signed release APK without Gradle downloads
 
@@ -56,8 +61,9 @@ python3 tools/build_release.py \
 
 Keep the signing key and password backup private and reuse the same key for future updates.
 The build emits an APK and a verification JSON beside it; it does not create an AAB or run CI.
-Do not commit private keys/passwords. The pack is an offline non-commercial Quran preview;
-the six Hadith collections are **not installed**.
+Do not commit private keys/passwords. The Quran pack is an offline non-commercial preview. Hadith is a separate immutable pack;
+no Hadith collection is claimed as installed unless `hadith-manifest.json` and `hadith.sqlite`
+are generated from the checked-in, hash-locked source vault.
 
 ## Source notices
 
