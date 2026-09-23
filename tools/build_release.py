@@ -101,17 +101,19 @@ def main():
     if (hadith_manifest is None) != (not hadith_sqlite.is_file()):
         raise SystemExit('Incomplete generated Hadith release assets')
 
-    # Quran word audio is optional, but any checked-in active payload must pass the full local
-    # verifier against this exact Quran SQLite and reviewed source lock before it can be packaged.
+    # Quran audio availability is governed by a tracked local policy. Before the one-time vendor
+    # import it may be absent; after completion the policy pins the exact manifest and deletion is
+    # a hard release failure. No release path ever reacquires audio from the network.
     audio_active = ROOT / 'source-vault/quran-audio/active'
     audio_payload = audio_active / 'quran-audio'
-    audio_manifest = None
-    if audio_payload.exists():
-        run(['python3', ROOT / 'tools/check_quran_audio.py',
-             '--source', audio_active,
-             '--quran-db', assets / 'quran.sqlite',
-             '--source-lock', ROOT / 'source-vault/quran-audio/source-lock.json'])
-        audio_manifest = json.loads((audio_payload / 'manifest.json').read_text())
+    audio_policy_path = ROOT / 'source-vault/quran-audio/release-policy.json'
+    audio_policy = json.loads(audio_policy_path.read_text())
+    run(['python3', ROOT / 'tools/check_quran_audio_policy.py',
+         '--source', audio_active,
+         '--policy', audio_policy_path,
+         '--quran-db', assets / 'quran.sqlite',
+         '--source-lock', ROOT / 'source-vault/quran-audio/source-lock.json'])
+    audio_manifest = json.loads((audio_payload / 'manifest.json').read_text()) if (audio_payload / 'manifest.json').is_file() else None
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='aaris-release-') as temporary:
@@ -220,6 +222,7 @@ def main():
         'apk_bytes': args.output.stat().st_size, 'quran_pack_sha256': content['sqlite_sha256'],
         'hadith_pack_bundled': hadith_manifest is not None,
         'hadith_records': int(hadith_manifest['records']) if hadith_manifest is not None else 0,
+        'quran_audio_policy_state': audio_policy.get('state'),
         'quran_audio_bundled': audio_manifest is not None,
         'quran_audio_pack_id': audio_manifest.get('pack_id') if audio_manifest is not None else None,
         'quran_audio_manifest_sha256': digest(audio_payload / 'manifest.json') if audio_manifest is not None else None,
