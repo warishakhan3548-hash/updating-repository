@@ -164,6 +164,15 @@ def open_db(path: Path):
       FOREIGN KEY(chapter_id) REFERENCES chapter(id)
     );
 
+    CREATE VIRTUAL TABLE hadith_fts USING fts4(
+      hadith_id,
+      collection_id,
+      record_number,
+      arabic,
+      latin,
+      tokenize=unicode61
+    );
+
     CREATE TABLE hadith_reference(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       hadith_id TEXT NOT NULL,
@@ -260,6 +269,16 @@ def insert_hadith(db, row, seen):
         normalize_arabic(arabic),
         normalize_latin(english),
     ))
+    db.execute(
+        "INSERT INTO hadith_fts(hadith_id,collection_id,record_number,arabic,latin) VALUES(?,?,?,?,?)",
+        (
+            hid,
+            require_string(row, "collection_id"),
+            require_string(row, "record_number"),
+            normalize_arabic(arabic),
+            normalize_latin(english),
+        ),
+    )
     for ref in row.get("references", []):
         db.execute(
             "INSERT INTO hadith_reference(hadith_id,scheme,value) VALUES(?,?,?)",
