@@ -10,7 +10,7 @@ import java.util.Map;
 
 /** One persisted visual model for the reader, sheets, navigation and recall surfaces. */
 final class Appearance {
-    static final String[] PRESETS={"Emerald Glass","Ocean Blue","Rose Glass","Midnight","Clean White","Warm Paper","Easy Reading"};
+    static final String[] PRESETS={"Emerald Glass","Ocean Blue","Rose Glass","Midnight","Lavender Aqua","Violet Glass","Burgundy Pearl","Lavender Studio","Pearl Violet","Sapphire Neon","Rose Luxe","Mint Lilac","Amethyst Night","Pearl Rose"};
     static final String[] FONTS={"Amiri Quran","Amiri Naskh","Amiri Naskh Bold"};
     int background=0xff030705,surface=0xff14291e,accent=0xff9bc7aa,arabic=0xffe0e4d8,translation=0xffcbd6d0;
     int font=0,arabicSize=32,translationSize=18,spacing=10,opacity=92,corners=26;
@@ -38,13 +38,69 @@ final class Appearance {
     void save(Context c){c.getSharedPreferences("appearance",0).edit().putString("current",encode()).apply();}
     Appearance copy(){return decode(encode());}
     void preset(int index){
-        int[][] palettes={{0xff030705,0xff14291e,0xff9bc7aa,0xffe0e4d8},{0xff040b17,0xff13243c,0xff84baff,0xffd9eaff},
-            {0xff130a12,0xff31192c,0xffecacd3,0xffffe0ed},{0xff000000,0xff10121a,0xffacc2ff,0xffeeeeef},
-            {0xfff4f6f9,0xffffffff,0xff215db0,0xff182d45},{0xfff1e9da,0xfffff7e7,0xff78512e,0xff322b21},{0xfffaf8f2,0xfffffdf7,0xff285c49,0xff15261d}};
-        int i=bound(index,0,palettes.length-1);int[] p=palettes[i];background=p[0];surface=p[1];accent=p[2];arabic=p[3];translation=p[3];
-        name=PRESETS[i];glass=i<3;textGlass=i<3;opacity=92;arabicOpacity=100;translationOpacity=100;glassStrength=100;borderStrength=100;glow=0;
-        gradient=false;gradientEnd=background;reducedEffects=i==6;
-        if(i==6){font=2;arabicSize=38;translationSize=21;spacing=16;opacity=100;}
+        int i=bound(index,0,PRESETS.length-1);
+        font=0;arabicSize=32;translationSize=18;spacing=10;opacity=92;corners=26;
+        arabicOpacity=100;translationOpacity=100;glassStrength=100;borderStrength=100;glow=0;
+        glass=true;textGlass=true;gradient=false;reducedEffects=false;
+        switch(i){
+            case 0:
+                palette(0xff030705,0xff14291e,0xff9bc7aa,0xffe0e4d8,0xffcbd6d0,0xff030705);
+                break;
+            case 1:
+                palette(0xff040b17,0xff13243c,0xff84baff,0xffd9eaff,0xffc8dcf7,0xff040b17);
+                break;
+            case 2:
+                palette(0xff130a12,0xff31192c,0xffecacd3,0xffffe0ed,0xffe8c4d8,0xff130a12);
+                break;
+            case 3:
+                palette(0xff000000,0xff10121a,0xffacc2ff,0xffeeeeef,0xffcfd3df,0xff000000);
+                glass=false;textGlass=false;borderStrength=72;
+                break;
+            case 4:
+                palette(0xfff4f0ff,0xfffdfbff,0xff7458f4,0xff2b225a,0xff463d68,0xffe4faf4);
+                gradient=true;glassStrength=86;borderStrength=66;glow=5;corners=30;opacity=95;
+                break;
+            case 5:
+                palette(0xffeee8ff,0xfffaf8ff,0xff8057f6,0xff30256a,0xff4a4074,0xffdfd5ff);
+                gradient=true;glassStrength=90;borderStrength=76;glow=6;corners=30;opacity=94;
+                break;
+            case 6:
+                palette(0xfffff6f8,0xffffffff,0xffa51442,0xff71162f,0xff4f333d,0xfff7e1e8);
+                gradient=true;glass=false;textGlass=false;borderStrength=48;corners=28;opacity=100;
+                break;
+            case 7:
+                palette(0xff4b35bc,0xfff7f3ff,0xff58e2d2,0xff231857,0xff392d65,0xff8b6cec);
+                gradient=true;glassStrength=92;borderStrength=78;glow=8;corners=30;opacity=96;
+                break;
+            case 8:
+                palette(0xfff8f7ff,0xffffffff,0xff6d4be8,0xff251a57,0xff433a66,0xffebe6ff);
+                gradient=true;glassStrength=78;borderStrength=60;glow=3;corners=30;opacity=97;
+                break;
+            case 9:
+                palette(0xff03172d,0xff082844,0xff56d8ff,0xffeaf8ff,0xffcbe7f5,0xff0b3d65);
+                gradient=true;glassStrength=94;borderStrength=90;glow=10;corners=28;opacity=94;
+                break;
+            case 10:
+                palette(0xfffff3f6,0xffffffff,0xffc23e66,0xff8a1b3a,0xff563943,0xfff7dfe7);
+                gradient=true;glassStrength=72;borderStrength=58;glow=3;corners=30;opacity=98;
+                break;
+            case 11:
+                palette(0xfff3f6ff,0xffffffff,0xff54cdbb,0xff2a225f,0xff443d68,0xffe9e2ff);
+                gradient=true;glassStrength=82;borderStrength=62;glow=4;corners=30;opacity=96;
+                break;
+            case 12:
+                palette(0xff100b27,0xff21163f,0xffa66cff,0xfff4ecff,0xffdacdf0,0xff2a1547);
+                gradient=true;glassStrength=92;borderStrength=84;glow=9;corners=28;opacity=94;
+                break;
+            default:
+                palette(0xfffaf7ff,0xffffffff,0xffd25f9f,0xff302353,0xff51445f,0xfffcecf5);
+                gradient=true;glassStrength=76;borderStrength=58;glow=4;corners=30;opacity=97;
+                break;
+        }
+        name=PRESETS[i];
+    }
+    private void palette(int bg,int card,int highlight,int arabicInk,int translationInk,int end){
+        background=bg;surface=card;accent=highlight;arabic=arabicInk;translation=translationInk;gradientEnd=end;
     }
     int effectiveSurface(){return mix(background,surface,opacity/100f);}
     int surfaceHighlight(){return glass&&!reducedEffects?mix(effectiveSurface(),accent,.06f*glassStrength/100f):effectiveSurface();}
