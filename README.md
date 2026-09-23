@@ -46,11 +46,15 @@ Quran pronunciation now uses an on-demand local Surah architecture instead of pu
 of megabytes of recitation inside the base APK. The reviewed source lock pins an immutable
 `Quranic-Recitation-Data` snapshot and Abdul Basit Abdul Samad (Mujawwad). Each Surah is one
 original human-recitation Ogg Opus file plus compact word-level protobuf timings. The user may
-download one Surah from its reader screen or choose Download All. A verified Surah is atomically
-installed into app-private storage; after that, word taps and ambient recall overlays seek the
-local file and do not use the network. Quran text, Hadith, search, learning and recall remain usable
+download one Surah from its reader screen or choose Download All. Interrupted downloads are kept
+as revision-scoped partial files and resume with HTTP Range when the origin supports it; a partial
+Surah is never playable. A verified Surah is atomically installed into app-private storage; after
+that, word taps and ambient recall overlays seek the local file and do not use the network. Quran text, Hadith, search, learning and recall remain usable
 without audio or internet. Normal Gradle/direct release builds never download or bundle Quran
-recitation bytes, so the base APK stays small. The remaining architecture still lacks the full wider
+recitation bytes, so the base APK stays small. The upstream dataset metadata is tagged Apache-2.0,
+but its own data-license notice says recording ownership may belong to reciters/studios/original
+sources; this preview therefore treats recording rights as not independently cleared and remains
+non-commercial pending separate rights review. The remaining architecture still lacks the full wider
 Hadith catalog, reviewed morphology/sense graph, calibrated FSRS and a signed general content-pack updater.
 
 ## Signed release APK without Gradle downloads
