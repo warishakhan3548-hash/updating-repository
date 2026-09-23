@@ -131,10 +131,14 @@ def main():
         if len(clips)!=int(meta.get("words") or -1):
             raise SystemExit(f"Surah {key} word count mismatch")
         cursor=0
-        for offset,length,word_id in clips:
-            if offset!=cursor:
-                raise SystemExit(f"Non-contiguous audio range before {word_id}")
-            cursor+=length
+        with pack.open("rb") as packed:
+            for offset,length,word_id in clips:
+                if offset!=cursor:
+                    raise SystemExit(f"Non-contiguous audio range before {word_id}")
+                packed.seek(offset)
+                if packed.read(4)!=b"OggS":
+                    raise SystemExit(f"Indexed clip does not begin with OggS: {word_id}")
+                cursor+=length
         if cursor!=pack.stat().st_size:
             raise SystemExit(f"Surah {key} indexed bytes do not cover the whole pack")
 
