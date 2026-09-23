@@ -11,3 +11,5 @@ local.properties
 __pycache__/
 tmp/
 app/src/main/assets/quran.sqlite
+app/src/main/assets/hadith.sqlite
+app/src/main/assets/hadith-manifest.json
