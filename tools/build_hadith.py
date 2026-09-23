@@ -13,6 +13,8 @@ import sqlite3
 import unicodedata
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+CATALOG = ROOT / "tools" / "hadith-catalog.json"
 BUILDER_VERSION = "2"
 
 
@@ -357,6 +359,22 @@ def import_jsonl(db, source_dir: Path, manifest):
         extra = sorted(actual - set(required))
         if missing or (manifest.get("exact_collection_set", False) and extra):
             raise ValueError(f"Collection coverage mismatch; missing={missing}, extra={extra}")
+
+    if manifest.get("require_catalog_complete", False):
+        catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+        expected_titles = {
+            str(item["name_en"]).strip().casefold()
+            for item in catalog.get("collections", [])
+            if str(item.get("name_en") or "").strip()
+        }
+        actual_titles = {
+            str(row[0]).strip().casefold()
+            for row in db.execute("SELECT name_en FROM collection")
+            if str(row[0] or "").strip()
+        }
+        missing_titles = sorted(expected_titles - actual_titles)
+        if missing_titles:
+            raise ValueError("Full Hadith catalog not present; missing titles: " + ", ".join(missing_titles))
     return counters
 
 
