@@ -520,8 +520,23 @@ public final class MainActivity extends Activity {
 
     private void refreshRecitation(){if(recitationBanner==null||isDestroyed())return;recitationBanner.setText(app.recitationLabel+" · Controls");recitationBanner.setVisibility(app.recitationActive?View.VISIBLE:View.GONE);}
     private void playAyah(Ayah a){
-        if(!getSharedPreferences("recitation",0).getBoolean("chosen",false)){audioControls(a);return;}
-        if(translationSpeech!=null)translationSpeech.stop();RecitationService.command(this,RecitationService.PLAY,a.surah,a.number);
+        if(a==null)return;
+        if(translationSpeech!=null)translationSpeech.stop();
+        android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);
+        String reciter=RecitationDownloads.valid(preferences.getString("reciter",RecitationDownloads.IDS[0]));
+        boolean reciterOffline=app.recitationDownloads!=null&&app.recitationDownloads.ready(reciter,a.surah,content.surah(a.surah).count);
+        List<ContentStore.Word> words=content.words(a.id);
+
+        // The large "Quran audio" download is the verified isolated-word pack. If it is present,
+        // the ayah play button must actually work offline instead of failing on a remote reciter.
+        if(!reciterOffline&&app.audio!=null&&app.audio.canPlay(words)){
+            stopService(new Intent(this,RecitationService.class));
+            if(app.audio.playSequence(words)){toast("Playing downloaded word audio");return;}
+        }
+
+        if(!preferences.getBoolean("chosen",false)){audioControls(a);return;}
+        if(app.audio!=null)app.audio.stop();
+        RecitationService.command(this,RecitationService.PLAY,a.surah,a.number);
     }
     private void audioControls(Ayah a){
         if(a==null)return;LinearLayout page=sheet("Recitation & audio");Dialog dialog=activeDialog;
@@ -539,7 +554,9 @@ public final class MainActivity extends Activity {
         page.addView(button("Download all Surahs · "+RecitationDownloads.NAMES[RecitationDownloads.index(selected)],()->{
             new AlertDialog.Builder(this).setTitle("Download this reciter?").setMessage("All 114 Surahs will use significant data and storage. Completed ayahs are kept if you pause or reconnect.").setNegativeButton("Cancel",null).setPositiveButton("Download",(d,w)->downloadRecitation(selected,1,114)).show();}));gap(page,8);
         if(app.recitationDownloads.busy){caption(page,app.recitationDownloads.progress);page.addView(button("Pause downloads",()->app.recitationDownloads.cancelled=true));}
-        gap(page,12);caption(page,RecitationDownloads.ATTRIBUTION);page.addView(button("Word pronunciation downloads",()->audioSurahPrompt(a.surah)));
+        gap(page,12);caption(page,RecitationDownloads.ATTRIBUTION);
+        page.addView(button("Word audio · This Surah",()->audioSurahPrompt(a.surah)));gap(page,8);
+        page.addView(button("Word audio · Download All",this::downloadAllAudio));
     }
     private void downloadRecitation(String reciter,int first,int last){
         if(app.recitationDownloads.busy){toast("A download is already running");return;}
@@ -1096,7 +1113,11 @@ public final class MainActivity extends Activity {
         gap(page,12);
 
         page.addView(settingsRow("moon","Focus mode",()->{quietReader=true;tab=1;reading=true;settingsDialog.dismiss();}));gap(page,9);
-        page.addView(settingsRow("speaker","Quran audio",this::downloadAllAudio));gap(page,9);
+        page.addView(settingsRow("speaker","Quran audio",()->{
+            Ayah current=content.ayah(readingPosition==null?"Q:"+readerSurah+":"+readerStart:readingPosition.anchorId);
+            if(current==null)current=content.ayah("Q:"+readerSurah+":"+readerStart);
+            audioControls(current);
+        }));gap(page,9);
         page.addView(settingsRow("clock","Set timer",this::ambientSettings));gap(page,9);
         page.addView(settingsRow("share","Open in other apps",()->{if(app.ambientRunning){settingsDialog.dismiss();openOtherApps();}else ambientSettings();}));gap(page,12);
 
