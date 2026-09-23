@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Static guard for Aaris's offline-first runtime/build contract.
+"""Static guard for Aaris's offline-first isolated-word Quran pronunciation contract.
 
-Quran text, Hadith, search, learning and recall must remain local and usable with no network.
-The sole runtime network boundary is explicit user-requested Quran recitation download:
-QuranAudioDownloadManager.java may fetch immutable per-Surah audio/timing files, which are then
-validated and stored privately for local playback. Normal Gradle builds never acquire audio.
+Quran text, Hadith, search, learning and recall remain local. Runtime network access is allowed only
+after an explicit user audio-download action. Pronunciation itself must use complete isolated word
+clips; timestamp slicing of a full-Surah recording is forbidden.
 """
 import json
 import re
@@ -13,17 +12,15 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 MANIFEST=ROOT/"app/src/main/AndroidManifest.xml"
 APP_JAVA=ROOT/"app/src/main/java"
+ASSETS=ROOT/"app/src/main/assets"
 GRADLE=ROOT/"app/build.gradle"
 AUDIO_DOWNLOADER=APP_JAVA/"com/aaris/quran/QuranAudioDownloadManager.java"
 AUDIO_STORE=APP_JAVA/"com/aaris/quran/QuranAudioStore.java"
+AUDIO_PLAYER=APP_JAVA/"com/aaris/quran/WordAudioPlayer.java"
 AUDIO_LOCK=ROOT/"source-vault/quran-audio/on-demand-source-lock.json"
+AUDIO_CATALOG=ASSETS/"quran-audio-word-catalog.json"
 
-NETWORK_IMPORTS=(
-    "java.net.",
-    "okhttp3.",
-    "retrofit2.",
-    "io.ktor.client.",
-)
+NETWORK_IMPORTS=("java.net.","okhttp3.","retrofit2.","io.ktor.client.")
 ALLOWED_BUILD_SCRIPTS={
     "tools/check_offline_contract.py",
     "tools/build_content.py",
@@ -38,10 +35,8 @@ def fail(message):
 
 def main():
     manifest=MANIFEST.read_text(encoding="utf-8")
-    if 'android.permission.INTERNET' not in manifest:
-        fail("on-demand Quran audio requires INTERNET permission")
-    if manifest.count('android.permission.INTERNET')!=1:
-        fail("INTERNET permission must be declared exactly once")
+    if manifest.count("android.permission.INTERNET")!=1:
+        fail("on-demand pronunciation requires exactly one INTERNET permission")
 
     offenders=[]
     for path in APP_JAVA.rglob("*.java"):
@@ -53,51 +48,58 @@ def main():
     if offenders:
         fail("; ".join(offenders))
 
-    if not AUDIO_DOWNLOADER.is_file() or not AUDIO_STORE.is_file() or not AUDIO_LOCK.is_file():
-        fail("on-demand Quran audio source/store/downloader wiring is incomplete")
+    if not AUDIO_DOWNLOADER.is_file() or not AUDIO_STORE.is_file() or not AUDIO_PLAYER.is_file() or not AUDIO_LOCK.is_file():
+        fail("isolated-word Quran pronunciation wiring is incomplete")
     lock=json.loads(AUDIO_LOCK.read_text(encoding="utf-8"))
-    if lock.get("schema")!=1 or lock.get("delivery")!="ON_DEMAND_SURAH_LOCAL_V1":
-        fail("unsupported on-demand Quran audio source lock")
+    if lock.get("schema")!=2 or lock.get("delivery")!="ISOLATED_WORD_SURAH_CONTAINER_V1":
+        fail("unsupported isolated-word audio source lock")
+    if lock.get("repo_id")!="zaibihassan/Quranic-Word-By-Word-Audio-Data":
+        fail("isolated-word source repository changed")
+    if lock.get("style")!="muallim" or lock.get("extension")!="opus":
+        fail("isolated-word pronunciation style/format changed")
     if lock.get("download_policy")!="EXPLICIT_USER_ACTION_ONLY":
-        fail("Quran audio may only download after explicit user action")
+        fail("Quran pronunciation may only download after explicit user action")
     if lock.get("resume_policy")!="REVISION_SCOPED_PARTIAL_HTTP_RANGE":
-        fail("Quran audio resume policy is not revision-scoped")
+        fail("Quran pronunciation resume policy is not revision-scoped")
+    if lock.get("playback_policy")!="COMPLETE_ISOLATED_CLIP_FROM_ZERO_TO_NATURAL_COMPLETION":
+        fail("Quran pronunciation playback policy no longer requires complete isolated clips")
     if lock.get("apk_policy")!="NO_QURAN_AUDIO_BYTES_IN_BASE_APK":
-        fail("Quran audio APK policy changed")
-    if lock.get("use_scope")!="NON_COMMERCIAL_PREVIEW_PENDING_RECORDING_RIGHTS_CLEARANCE":
-        fail("Quran audio recording-rights boundary is missing")
+        fail("Quran pronunciation APK policy changed")
+    if int(lock.get("canonical_quran_audio_words") or 0)!=77326:
+        fail("canonical isolated-word count changed")
+
     downloader=AUDIO_DOWNLOADER.read_text(encoding="utf-8")
     store=AUDIO_STORE.read_text(encoding="utf-8")
+    player=AUDIO_PLAYER.read_text(encoding="utf-8")
     revision=str(lock.get("revision") or "")
-    repo_id=str(lock.get("repo_id") or "")
-    alignment_hash=str(lock.get("canonical_quran_alignment_sha256") or "")
-    alignment_words=int(lock.get("canonical_quran_audio_words") or 0)
+    alignment=str(lock.get("canonical_quran_alignment_sha256") or "")
     if len(revision)!=40 or revision not in store:
-        fail("runtime audio source revision differs from reviewed lock")
-    if repo_id not in downloader:
-        fail("runtime audio repository differs from reviewed lock")
-    if len(alignment_hash)!=64 or alignment_hash not in store:
-        fail("runtime audio Quran alignment differs from reviewed lock")
-    if alignment_words!=77326:
-        fail("runtime audio canonical word count differs from reviewed lock")
-    content_store=(APP_JAVA/"com/aaris/quran/ContentStore.java").read_text(encoding="utf-8")
-    quran_app=(APP_JAVA/"com/aaris/quran/QuranApp.java").read_text(encoding="utf-8")
-    if "audio_alignment_sha256" not in content_store or "audioAlignmentHash" not in quran_app:
-        fail("runtime audio is not wired through stable semantic Quran identity")
+        fail("runtime isolated-word source revision differs from reviewed lock")
+    if len(alignment)!=64 or alignment not in store:
+        fail("runtime pronunciation Quran alignment differs from reviewed lock")
+    if lock.get("repo_id") not in store:
+        fail("runtime pronunciation source identity differs from reviewed lock")
+    if "AARISQW1" not in store or "ISOLATED_WORD_SURAH_CONTAINER_V1" not in store:
+        fail("runtime isolated-word container parser is missing")
     if "HttpURLConnection" not in downloader:
-        fail("audio downloader no longer has an explicit reviewed HTTPS boundary")
+        fail("audio downloader no longer has the reviewed HTTPS boundary")
     if 'setRequestProperty("Range","bytes="+existing+"-")' not in downloader:
         fail("audio downloader lost resumable HTTP Range support")
-    if '".partial-"+REVISION.substring(0,12)' not in downloader:
+    if '".partial-"+SOURCE_REVISION.substring(0,12)' not in store:
         fail("partial audio is no longer scoped to the immutable source revision")
-    if "http://" in downloader:
-        fail("audio downloader contains cleartext HTTP")
-    if "https://huggingface.co/datasets/" not in downloader:
-        fail("audio downloader source is not the reviewed Hugging Face dataset")
-    if "6875b35e45cc83107daf3ab7d3a8bd8b2baa51b3" not in downloader and "SOURCE_REVISION" not in downloader:
-        fail("audio downloader is not pinned to the reviewed immutable source revision")
+    if 'REPO="warishakhan3548-hash/updating-repository"' not in downloader:
+        fail("runtime pack host repository changed")
 
-    # Playback/storage must never contain their own network fallback.
+    # This is the core pronunciation rule: never seek into a continuous recitation and never stop
+    # it on a guessed timestamp. Each MediaPlayer data source must already be one complete word clip.
+    forbidden_player_tokens=("seekTo(","SEEK_CLOSEST","startMs","endMs","postDelayed(")
+    found=[token for token in forbidden_player_tokens if token in player]
+    if found:
+        fail("timestamp/full-Surah word slicing returned: "+", ".join(found))
+    if "setDataSource(opened.getFD(),clip.offset,clip.length)" not in player:
+        fail("player no longer addresses one complete isolated clip by byte range")
+
+    # Playback/storage must never contain a network fallback.
     for rel in (
         "com/aaris/quran/QuranAudioStore.java",
         "com/aaris/quran/WordAudioPlayer.java",
@@ -107,25 +109,63 @@ def main():
         if re.search(r"https?://|URLConnection|HttpURLConnection|java\.net\.",text):
             fail(f"{rel} contains a network path; only QuranAudioDownloadManager may download")
 
+    content_store=(APP_JAVA/"com/aaris/quran/ContentStore.java").read_text(encoding="utf-8")
+    quran_app=(APP_JAVA/"com/aaris/quran/QuranApp.java").read_text(encoding="utf-8")
+    if "audio_alignment_sha256" not in content_store or "audioAlignmentHash" not in quran_app:
+        fail("runtime pronunciation is not bound to stable semantic Quran word identity")
+
+    # Catalog is tiny metadata only. Every public URL/hash must be fixed before release.
+    if not AUDIO_CATALOG.is_file():
+        fail("isolated-word Surah catalog is missing from base assets")
+    catalog=json.loads(AUDIO_CATALOG.read_text(encoding="utf-8"))
+    if (catalog.get("schema")!=1 or catalog.get("delivery")!="ISOLATED_WORD_SURAH_CONTAINER_V1" or
+        catalog.get("source_revision")!=revision or
+        catalog.get("canonical_quran_alignment_sha256")!=alignment or
+        int(catalog.get("canonical_quran_audio_words") or 0)!=77326 or
+        int(catalog.get("surahs") or 0)!=114):
+        fail("isolated-word Surah catalog binding is invalid")
+    packs=catalog.get("packs")
+    if not isinstance(packs,dict) or len(packs)!=114:
+        fail("isolated-word Surah catalog must contain exactly 114 packs")
+    words=0
+    for s in range(1,115):
+        key=f"{s:03d}";meta=packs.get(key)
+        if not isinstance(meta,dict):
+            fail(f"missing Surah pack metadata: {key}")
+        url=str(meta.get("url") or "")
+        sha=str(meta.get("sha256") or "")
+        count=int(meta.get("words") or 0);size=int(meta.get("bytes") or 0)
+        if (not url.startswith("https://github.com/warishakhan3548-hash/updating-repository/releases/download/") or
+            not url.endswith(f"/{key}.aqp") or len(sha)!=64 or count<1 or size<64):
+            fail(f"invalid immutable Surah pack metadata: {key}")
+        words+=count
+    if words!=77326:
+        fail("catalog Surah word totals do not equal canonical pronunciation coverage")
+
+    # No actual pronunciation bytes may ever enter the base APK.
+    binary_suffixes={".aqp",".opus",".pb",".pack"}
+    accidental=[p for p in ASSETS.rglob("*") if p.is_file() and p.suffix.lower() in binary_suffixes]
+    if accidental:
+        fail("Quran pronunciation binary found in APK assets: "+", ".join(str(p.relative_to(ROOT)) for p in accidental))
+
     gradle=GRADLE.read_text(encoding="utf-8")
     network_maintainer_scripts={
         *(p.name for p in (ROOT/"tools").glob("acquire_*.py")),
         "complete_quran_audio_pack.py",
+        "build_word_audio_surah_packs.py",
     }
     for name in sorted(network_maintainer_scripts):
         if name in gradle:
-            fail(f"normal Android build references one-time network maintainer script {name}")
-
+            fail(f"normal Android build references maintainer acquisition/packing tool {name}")
     if "assets.srcDir activeQuranAudioSource" in gradle or "verifyQuranAudioPack" in gradle:
         fail("legacy monolithic Quran audio is still wired into the APK build")
 
-    # Every Python script invoked by the Android build must be an explicitly reviewed offline tool.
     invoked=set(re.findall(r"['\"](tools/[A-Za-z0-9_.-]+\.py)['\"]",gradle))
     unexpected=invoked-ALLOWED_BUILD_SCRIPTS
     if unexpected:
         fail("unreviewed Python build scripts: "+", ".join(sorted(unexpected)))
 
-    print("PASS: Quran/Hadith/search stay offline; network is isolated to explicit immutable Surah-audio downloads")
+    print("PASS: complete isolated Quran word clips only; base content stays offline and audio binaries stay out of the APK")
 
 
 if __name__=="__main__":
