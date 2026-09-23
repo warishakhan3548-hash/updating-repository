@@ -35,12 +35,20 @@ reading anchors, source word meanings, opt-in word/phrase/ayah and consecutive-a
 recall, Quran lexical/fragment search and evidence export. Mixed remembered quotations show
 separate cited excerpts, ambiguous alternatives and unmatched words; they never become a new
 source quote. The Yaad tab provides an opt-in timed overlay over other apps; Android
-permission is required. The Hadith tab is now local-only: it never opens Sunnah.com. When a verified `hadith.sqlite`
-pack is bundled it supports Collection → Book → Chapter → Hadith navigation and local Arabic/
-English/reference search. Until a redistribution-cleared source pack is placed under
-`source-vault/hadith/active`, the Hadith tab truthfully reports that no local pack is installed.
-The remaining architecture still lacks the actual full Hadith corpus, reviewed morphology/sense
-graph, FSRS, audio and a signed content-pack updater.
+permission is required. The Hadith tab is now local-only: it never opens Sunnah.com. A verified
+explicit Hadith pack under `source-vault/hadith/active` has priority; otherwise the build derives
+the checked-in, hash-locked Open-Hadith-Data core-nine Arabic source into a local `hadith.sqlite`.
+That local pack supports Collection → Book → Chapter → Hadith navigation and local Arabic/
+English/reference search where those language layers exist. This is real offline core-nine coverage,
+not a claim that every collection in the wider Sunnah.com catalog is vendored.
+
+Quran word audio also has a complete local-only pipeline: a reviewed immutable source lock, one-time
+acquisition helper, deterministic compaction into 114 seekable Surah packs + SQLite byte index,
+runtime hash/coverage checks, and a process-wide local player. Normal verification and both Gradle
+and direct-SDK release builds never acquire audio from the network. The remaining audio work is to
+vendor the actual large verified `source-vault/quran-audio/active` payload into the repository.
+The remaining architecture still lacks the full wider Hadith catalog, reviewed morphology/sense
+graph, calibrated FSRS and a signed content-pack updater.
 
 ## Signed release APK without Gradle downloads
 
