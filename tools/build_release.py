@@ -69,14 +69,57 @@ def main():
     app_id = setting('applicationId', True)
     version_name, version_code = setting('versionName', True), setting('versionCode')
     min_sdk, target_sdk = setting('minSdk'), setting('targetSdk')
+    # Enforce the same offline/content contracts as the normal Gradle path. Acquisition helpers
+    # are deliberately excluded: release builds may consume only repository-local source bytes.
+    run(['python3', ROOT / 'tools/check_offline_contract.py'])
     run(['python3', ROOT / 'tools/build_content.py'])
     assets = ROOT / 'app/src/main/assets'
     content = json.loads((assets / 'content-manifest.json').read_text())
     if digest(assets / 'quran.sqlite') != content['sqlite_sha256']:
         raise SystemExit('Content pack differs from its manifest')
+
+    # Reproduce Gradle's local-only Hadith selection. A verified explicit pack wins; otherwise
+    # derive the bundled core-nine pack only from the checked-in, hash-locked vendored source.
+    hadith_sqlite = assets / 'hadith.sqlite'
+    hadith_manifest_path = assets / 'hadith-manifest.json'
+    hadith_sqlite.unlink(missing_ok=True)
+    hadith_manifest_path.unlink(missing_ok=True)
+    explicit_hadith = ROOT / 'source-vault/hadith/active'
+    vendored_hadith = ROOT / 'source-vault/hadith/open-hadith-data'
+    generated_hadith = ROOT / 'build/generated/hadith-source'
+    hadith_source = None
+    if (explicit_hadith / 'manifest.json').is_file():
+        hadith_source = explicit_hadith
+    elif (vendored_hadith / 'SOURCE.json').is_file():
+        run(['python3', ROOT / 'tools/prepare_open_hadith_data.py',
+             '--source', vendored_hadith, '--output', generated_hadith])
+        hadith_source = generated_hadith
+    if hadith_source is not None:
+        run(['python3', ROOT / 'tools/build_hadith.py',
+             '--source', hadith_source, '--output', hadith_sqlite])
+    hadith_manifest = json.loads(hadith_manifest_path.read_text()) if hadith_manifest_path.is_file() else None
+    if (hadith_manifest is None) != (not hadith_sqlite.is_file()):
+        raise SystemExit('Incomplete generated Hadith release assets')
+
+    # Quran word audio is optional, but any checked-in active payload must pass the full local
+    # verifier against this exact Quran SQLite and reviewed source lock before it can be packaged.
+    audio_active = ROOT / 'source-vault/quran-audio/active'
+    audio_payload = audio_active / 'quran-audio'
+    audio_manifest = None
+    if audio_payload.exists():
+        run(['python3', ROOT / 'tools/check_quran_audio.py',
+             '--source', audio_active,
+             '--quran-db', assets / 'quran.sqlite',
+             '--source-lock', ROOT / 'source-vault/quran-audio/source-lock.json'])
+        audio_manifest = json.loads((audio_payload / 'manifest.json').read_text())
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='aaris-release-') as temporary:
         work = Path(temporary)
+        packaging_assets = work / 'assets'
+        shutil.copytree(assets, packaging_assets)
+        if audio_manifest is not None:
+            shutil.copytree(audio_payload, packaging_assets / 'quran-audio')
         manifest = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml')
         manifest.getroot().set('package', app_id)
         application = manifest.getroot().find('application')
@@ -90,7 +133,8 @@ def main():
         for folder in [generated, classes, dex]:
             folder.mkdir()
         run([aapt, 'compile', '--dir', ROOT / 'app/src/main/res', '-o', resources])
-        run([aapt, 'link', '--manifest', manifest_file, '-I', args.android_jar, '-A', assets,
+        run([aapt, 'link', '--manifest', manifest_file, '-I', args.android_jar, '-A', packaging_assets,
+             '-0', 'pack',
              '--min-sdk-version', min_sdk, '--target-sdk-version', target_sdk,
              '--version-code', version_code, '--version-name', version_name,
              '--java', generated, '-o', unsigned, resources])
@@ -127,16 +171,49 @@ def main():
             raise SystemExit('Unexpected package identity/debug/SDK flags')
         with zipfile.ZipFile(signed) as z:
             required = ['AndroidManifest.xml', 'resources.arsc', 'classes.dex', 'assets/quran.sqlite', 'assets/fonts/AmiriQuran.ttf']
+            if hadith_manifest is not None:
+                required += ['assets/hadith.sqlite', 'assets/hadith-manifest.json']
+            if audio_manifest is not None:
+                required += ['assets/quran-audio/manifest.json', 'assets/quran-audio/index.sqlite']
+                required += [f'assets/quran-audio/packs/{surah:03d}.pack' for surah in range(1, 115)]
             if z.testzip() is not None or any(name not in z.namelist() for name in required):
                 raise SystemExit('APK payload is incomplete')
             if hashlib.sha256(z.read('assets/quran.sqlite')).hexdigest() != content['sqlite_sha256']:
                 raise SystemExit('APK scripture pack changed during packaging')
+            if hadith_manifest is not None:
+                if hashlib.sha256(z.read('assets/hadith.sqlite')).hexdigest() != hadith_manifest['sqlite_sha256']:
+                    raise SystemExit('APK Hadith pack changed during packaging')
+            if audio_manifest is not None:
+                if z.read('assets/quran-audio/manifest.json') != (audio_payload / 'manifest.json').read_bytes():
+                    raise SystemExit('APK Quran audio manifest changed during packaging')
+                if hashlib.sha256(z.read('assets/quran-audio/index.sqlite')).hexdigest() != audio_manifest['index_sha256']:
+                    raise SystemExit('APK Quran audio index changed during packaging')
+                for surah in range(1, 115):
+                    key = f'{surah:03d}'
+                    name = f'assets/quran-audio/packs/{key}.pack'
+                    info = z.getinfo(name)
+                    if info.compress_type != zipfile.ZIP_STORED:
+                        raise SystemExit(f'Quran audio pack {key} was compressed; AssetFileDescriptor playback would fail')
+                    expected = audio_manifest['surah_packs'][key]
+                    if info.file_size != int(expected['bytes']):
+                        raise SystemExit(f'APK Quran audio pack size mismatch: {key}')
+                    h = hashlib.sha256()
+                    with z.open(name) as stream:
+                        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                            h.update(chunk)
+                    if h.hexdigest() != expected['sha256']:
+                        raise SystemExit(f'APK Quran audio pack hash mismatch: {key}')
         shutil.copyfile(signed, args.output)
     report = {
         'application_id': app_id, 'version_name': version_name, 'version_code': int(version_code),
         'min_sdk': int(min_sdk), 'target_sdk': int(target_sdk), 'variant': 'release',
         'debuggable': False, 'aab_built': False, 'apk_sha256': digest(args.output),
         'apk_bytes': args.output.stat().st_size, 'quran_pack_sha256': content['sqlite_sha256'],
+        'hadith_pack_bundled': hadith_manifest is not None,
+        'hadith_records': int(hadith_manifest['records']) if hadith_manifest is not None else 0,
+        'quran_audio_bundled': audio_manifest is not None,
+        'quran_audio_pack_id': audio_manifest.get('pack_id') if audio_manifest is not None else None,
+        'quran_audio_words': int(audio_manifest['word_count']) if audio_manifest is not None else 0,
         'source_commit': run(['git', '-C', ROOT, 'rev-parse', 'HEAD'], capture=True).strip(),
         'source_tree': run(['git', '-C', ROOT, 'rev-parse', 'HEAD^{tree}'], capture=True).strip(),
         'source_tree_dirty': bool(run(['git', '-C', ROOT, 'status', '--porcelain'], capture=True).strip()),
