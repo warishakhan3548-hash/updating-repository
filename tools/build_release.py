@@ -101,14 +101,27 @@ def main():
     if (hadith_manifest is None) != (not hadith_sqlite.is_file()):
         raise SystemExit('Incomplete generated Hadith release assets')
 
-    # Quran audio is intentionally excluded from the base APK. Users download immutable
-    # per-Surah recitation/timing pairs later into app-private storage. Refuse the old monolithic
-    # payload if it is present so the direct SDK builder cannot accidentally recreate a huge APK.
+    # Quran pronunciation is intentionally excluded from the base APK. Users download immutable
+    # per-Surah isolated-word containers later into app-private storage. Only the tiny catalog JSON
+    # is allowed in assets; any audio/container bytes in the base APK are a release-blocking error.
     audio_payload = ROOT / 'source-vault/quran-audio/active/quran-audio'
     accidental_audio_asset = assets / 'quran-audio'
-    if audio_payload.exists() or accidental_audio_asset.exists():
-        raise SystemExit('Bundled Quran audio detected; on-demand Surah audio must stay outside the APK')
-    audio_policy = {'state': 'on_demand_surah'}
+    binary_audio_assets = [
+        p for p in assets.rglob('*')
+        if p.is_file() and p.suffix.lower() in {'.aqp','.opus','.pb','.pack'}
+    ]
+    if audio_payload.exists() or accidental_audio_asset.exists() or binary_audio_assets:
+        raise SystemExit('Bundled Quran audio detected; only quran-audio-word-catalog.json may be packaged')
+    audio_catalog = assets / 'quran-audio-word-catalog.json'
+    if not audio_catalog.is_file():
+        raise SystemExit('Missing isolated-word Quran audio catalog')
+    catalog = json.loads(audio_catalog.read_text())
+    if (catalog.get('schema') != 1 or
+        catalog.get('delivery') != 'ISOLATED_WORD_SURAH_CONTAINER_V1' or
+        catalog.get('surahs') != 114 or
+        catalog.get('canonical_quran_audio_words') != 77326):
+        raise SystemExit('Invalid isolated-word Quran audio catalog')
+    audio_policy = {'state': 'on_demand_isolated_word_surah'}
     audio_manifest = None
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -219,7 +232,7 @@ def main():
         'hadith_pack_bundled': hadith_manifest is not None,
         'hadith_records': int(hadith_manifest['records']) if hadith_manifest is not None else 0,
         'quran_audio_policy_state': audio_policy.get('state'),
-        'quran_audio_delivery': 'user_requested_surah_download_to_app_private_storage',
+        'quran_audio_delivery': 'user_requested_isolated_word_surah_container_to_app_private_storage',
         'quran_audio_bundled': audio_manifest is not None,
         'quran_audio_pack_id': audio_manifest.get('pack_id') if audio_manifest is not None else None,
         'quran_audio_manifest_sha256': digest(audio_payload / 'manifest.json') if audio_manifest is not None else None,
