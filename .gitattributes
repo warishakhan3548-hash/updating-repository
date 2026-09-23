@@ -5,10 +5,3 @@ source-vault/hadith/**/*.sqlite filter=lfs diff=lfs merge=lfs -text
 source-vault/hadith/**/*.jsonl.raw filter=lfs diff=lfs merge=lfs -text
 
 # Quran pronunciation source packs are large immutable binary assets.
-source-vault/quran-audio/**/*.opus filter=lfs diff=lfs merge=lfs -text
-source-vault/quran-audio/**/*.mp3 filter=lfs diff=lfs merge=lfs -text
-source-vault/quran-audio/**/*.ogg filter=lfs diff=lfs merge=lfs -text
-source-vault/quran-audio/**/*.wav filter=lfs diff=lfs merge=lfs -text
-source-vault/quran-audio/**/*.pb filter=lfs diff=lfs merge=lfs -text
-source-vault/quran-audio/**/*.zip filter=lfs diff=lfs merge=lfs -text
-source-vault/quran-audio/**/*.pack filter=lfs diff=lfs merge=lfs -text
