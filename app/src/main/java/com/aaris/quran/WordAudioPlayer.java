@@ -5,8 +5,14 @@ import android.media.*;
 import android.os.Handler;
 import android.os.Looper;
 import java.io.*;
+import java.util.*;
 
-/** Single process-wide owner for complete isolated Quran word-clip playback. */
+/**
+ * Single process-wide owner for exact isolated Quran word clips.
+ *
+ * A single word tap and an ayah fallback use the same player. Ayah playback chains the verified
+ * local word clips in Quran order and holds audio focus across the whole sequence.
+ */
 final class WordAudioPlayer implements AutoCloseable {
     private final QuranAudioStore store;
     private final AudioManager audio;
@@ -15,6 +21,9 @@ final class WordAudioPlayer implements AutoCloseable {
     private final Handler main=new Handler(Looper.getMainLooper());
     private MediaPlayer player;
     private RandomAccessFile source;
+    private List<ContentStore.Word> sequence=Collections.emptyList();
+    private int sequenceIndex;
+    private Runnable sequenceComplete;
     private int generation;
 
     WordAudioPlayer(Context context,QuranAudioStore store){
@@ -31,51 +40,97 @@ final class WordAudioPlayer implements AutoCloseable {
 
     boolean available(){return store!=null;}
     boolean canPlay(ContentStore.Word word){return store!=null&&store.canAddress(word);}
+    boolean canPlay(List<ContentStore.Word> words){
+        if(store==null||words==null||words.isEmpty())return false;
+        for(ContentStore.Word word:words)if(word==null||!store.canAddress(word))return false;
+        return true;
+    }
 
     synchronized boolean play(ContentStore.Word word){
-        generation++;releaseLocked();
-        if(store==null)return false;
-        QuranAudioStore.Clip clip=store.clip(word);
+        if(word==null)return false;
+        return playSequence(Collections.singletonList(word),null);
+    }
+
+    synchronized boolean playSequence(List<ContentStore.Word> words){
+        return playSequence(words,null);
+    }
+
+    synchronized boolean playSequence(List<ContentStore.Word> words,Runnable complete){
+        generation++;
+        releaseLocked();
+        if(!canPlay(words))return false;
+        if(audio==null||audio.requestAudioFocus(focus)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED)return false;
+        sequence=new ArrayList<>(words);sequenceIndex=0;sequenceComplete=complete;
+        if(openCurrentLocked(generation))return true;
+        Runnable done=finishSequenceLocked();if(done!=null)main.post(done);return false;
+    }
+
+    private boolean openCurrentLocked(int token){
+        if(token!=generation||sequenceIndex<0||sequenceIndex>=sequence.size())return false;
+        QuranAudioStore.Clip clip=store.clip(sequence.get(sequenceIndex));
         if(clip==null||!clip.container.isFile()||clip.offset<0||clip.length<32)return false;
         try{
-            if(audio==null||audio.requestAudioFocus(focus)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED)return false;
-            final int token=generation;
             RandomAccessFile opened=new RandomAccessFile(clip.container,"r");
             MediaPlayer next=new MediaPlayer();
             next.setAudioAttributes(attributes);
             next.setDataSource(opened.getFD(),clip.offset,clip.length);
             next.setOnPreparedListener(p->{
                 synchronized(WordAudioPlayer.this){
-                    if(player!=p||generation!=token){finishResources(p,opened,false);return;}
-                    try{p.start();}catch(IllegalStateException invalid){finish(p);}
+                    if(player!=p||generation!=token){finishResources(p,opened);return;}
+                    try{p.start();}catch(IllegalStateException invalid){failSequence(p,token);}
                 }
             });
-            next.setOnCompletionListener(this::finish);
-            next.setOnErrorListener((p,what,extra)->{finish(p);return true;});
+            next.setOnCompletionListener(p->advance(p,token));
+            next.setOnErrorListener((p,what,extra)->{failSequence(p,token);return true;});
             source=opened;player=next;next.prepareAsync();
             return true;
         }catch(IOException|RuntimeException failure){
-            releaseLocked();return false;
+            releaseCurrentLocked();return false;
         }
+    }
+
+    private void advance(MediaPlayer completed,int token){
+        Runnable done=null;
+        synchronized(this){
+            if(player!=completed||generation!=token){safeRelease(completed);return;}
+            releaseCurrentLocked();sequenceIndex++;
+            if(sequenceIndex<sequence.size()){
+                if(!openCurrentLocked(token))done=finishSequenceLocked();
+            }else done=finishSequenceLocked();
+        }
+        if(done!=null)main.post(done);
+    }
+
+    private void failSequence(MediaPlayer failed,int token){
+        Runnable done=null;
+        synchronized(this){
+            if(generation!=token){safeRelease(failed);return;}
+            if(player==failed)releaseCurrentLocked();else safeRelease(failed);
+            done=finishSequenceLocked();
+        }
+        if(done!=null)main.post(done);
     }
 
     synchronized void stop(){generation++;releaseLocked();}
 
-    private void finish(MediaPlayer completed){
-        synchronized(this){
-            if(player!=completed){safeRelease(completed);return;}
-            player=null;RandomAccessFile opened=source;source=null;
-            safeRelease(completed);safeClose(opened);abandonFocus();
-        }
+    private Runnable finishSequenceLocked(){
+        releaseCurrentLocked();
+        sequence=Collections.emptyList();sequenceIndex=0;
+        Runnable done=sequenceComplete;sequenceComplete=null;
+        abandonFocus();return done;
     }
-    private void finishResources(MediaPlayer p,RandomAccessFile opened,boolean abandon){
-        safeRelease(p);safeClose(opened);if(abandon)abandonFocus();
-    }
-    private void releaseLocked(){
+
+    private void releaseCurrentLocked(){
         MediaPlayer old=player;player=null;RandomAccessFile opened=source;source=null;
         if(old!=null){try{old.stop();}catch(IllegalStateException ignored){}safeRelease(old);}
-        safeClose(opened);abandonFocus();
+        safeClose(opened);
     }
+
+    private void releaseLocked(){
+        releaseCurrentLocked();sequence=Collections.emptyList();sequenceIndex=0;sequenceComplete=null;abandonFocus();
+    }
+
+    private static void finishResources(MediaPlayer p,RandomAccessFile opened){safeRelease(p);safeClose(opened);}
     private void abandonFocus(){if(audio!=null)try{audio.abandonAudioFocusRequest(focus);}catch(RuntimeException ignored){}}
     private static void safeRelease(MediaPlayer p){if(p!=null)try{p.release();}catch(RuntimeException ignored){}}
     private static void safeClose(Closeable c){if(c!=null)try{c.close();}catch(IOException ignored){}}
