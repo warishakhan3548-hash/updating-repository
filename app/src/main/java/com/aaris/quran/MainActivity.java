@@ -266,7 +266,7 @@ public final class MainActivity extends Activity {
         TextView name=arabic(s.arabic,28);page.addView(name,new LinearLayout.LayoutParams(-1,-2));
         TextView latin=text(this,s.name,24,INK);latin.setGravity(Gravity.CENTER);latin.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(latin);
         TextView sub=text(this,s.meaning+"  ·  "+s.count+" ayat",12,MUTED);sub.setGravity(Gravity.CENTER);page.addView(sub);gap(page,10);
-        TextView interaction=text(this,"Lafz par tap karein · Meaning dekhein",12,MUTED);interaction.setGravity(Gravity.CENTER);page.addView(interaction);gap(page,22);
+        TextView interaction=text(this,"Tap a word · View meaning",12,MUTED);interaction.setGravity(Gravity.CENTER);page.addView(interaction);gap(page,22);
         List<Ayah> ayahs=content.page(readerSurah,readerStart,8);
         for(Ayah a:ayahs){
             LinearLayout panel=card(page,Surface.Kind.MUSHAF);
@@ -330,11 +330,11 @@ public final class MainActivity extends Activity {
         if(word.id.equals(selectedWordId)){wordDetails(word);return;}
         hidePeek();selectedWordId=word.id;selectedVerse=owner;owner.select(word);learning.event(word.id,Recall.Kind.PEEK,word.ayahId);
         LinearLayout peek=column(this);pad(peek,20,16);peek.setBackground(new Surface(this,Surface.Kind.SHEET,true));
-        LinearLayout top=row(this);TextView ar=arabic(word.arabic,30);ar.setGravity(Gravity.RIGHT);top.addView(ar,new LinearLayout.LayoutParams(0,-2,1));top.addView(iconButton("close","Meaning band karein",this::hidePeek));peek.addView(top);
+        LinearLayout top=row(this);TextView ar=arabic(word.arabic,30);ar.setGravity(Gravity.RIGHT);top.addView(ar,new LinearLayout.LayoutParams(0,-2,1));top.addView(iconButton("close","Close meaning",this::hidePeek));peek.addView(top);
         TextView meaning=text(this,word.gloss(language),18,INK);if(language.equals("ur"))meaning.setTextDirection(View.TEXT_DIRECTION_RTL);peek.addView(meaning);
         if(word.transliteration!=null){gap(peek,4);caption(peek,word.transliteration);}
-        gap(peek,10);LinearLayout actions=row(this);actions.addView(button("Aur samjhein",()->wordDetails(word)),new LinearLayout.LayoutParams(0,-2,1));
-        if(word.hasGloss()){TextView remember=button("Yaad karaayein",()->enroll(word.id,word.ayahId));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.leftMargin=dp(this,8);actions.addView(remember,p);}peek.addView(actions);
+        gap(peek,10);LinearLayout actions=row(this);actions.addView(button("Understand More",()->wordDetails(word)),new LinearLayout.LayoutParams(0,-2,1));
+        if(word.hasGloss()){TextView remember=button("Remember This",()->enroll(word.id,word.ayahId));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.leftMargin=dp(this,8);actions.addView(remember,p);}peek.addView(actions);
         TextView source=text(this,"Source word meaning · "+word.ayahId.replace("Q:",""),10,MUTED);peek.addView(source);
         Rect line=owner.wordLines(word);int[] viewport=new int[2],surface=new int[2];
         if(line==null||readerScroll==null){wordDetails(word);return;}
