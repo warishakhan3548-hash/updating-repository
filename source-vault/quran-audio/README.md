@@ -80,9 +80,14 @@ Typical flow:
    A source update must be explicit and reviewable: update `source-vault/quran-audio/source-lock.json` (repo/revision/license/style/hash/count) first; the acquisition helper does not follow a floating branch.
 3. Run the network-free verifier:
    `python3 tools/check_quran_audio.py --source source-vault/quran-audio/active --quran-db app/src/main/assets/quran.sqlite --source-lock source-vault/quran-audio/source-lock.json`
-4. Commit the generated active pack as ordinary Git files (deduplicated `.pack` chunks + index/manifest/license metadata).
+4. Finalize the verified local pack and arm deletion safety:
+   `python3 tools/finalize_quran_audio_policy.py`
+   This step performs no network access; it re-verifies the pack and pins its exact manifest hash
+   and pack ID in `release-policy.json`.
+5. Commit the generated active pack as ordinary Git files (deduplicated `.pack` chunks +
+   index/manifest/license metadata) together with the updated `release-policy.json`.
 
-After step 4, a normal fresh checkout contains the pronunciation bytes directly; no Git LFS pull is required. Each content-addressed chunk is capped at 32 MiB and the total audio payload at 650 MiB so ordinary Git remains inside the reviewed storage envelope. Gradle
+After step 5, a normal fresh checkout contains the pronunciation bytes directly; no Git LFS pull is required. Each content-addressed chunk is capped at 32 MiB and the total audio payload at 650 MiB so ordinary Git remains inside the reviewed storage envelope. Gradle
 does not call Hugging Face, Quran.com, Sunnah.com, a CDN, or any other content website.
 
 ## Runtime behavior
