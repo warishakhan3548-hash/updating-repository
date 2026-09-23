@@ -40,7 +40,7 @@ final class HadithStore implements AutoCloseable {
         "h.id,h.collection_id,h.book_id,h.chapter_id,h.record_number,h.arabic,h.english,"+
         "h.urdu,h.bangla,h.narrator_en,h.isnad_ar,h.isnad_en,h.matn_ar,h.matn_en,h.source_ref";
     private SQLiteDatabase db;
-    final String packHash,packId,contentVersion,sourceName,sourceVersion;
+    final String packHash,packId,contentVersion,sourceName,sourceVersion,redistributionBasis;
     final int recordCount,collectionCount;
 
     static HadithStore openIfBundled(Context context) throws Exception {
@@ -63,6 +63,7 @@ final class HadithStore implements AutoCloseable {
         contentVersion=manifest.getString("content_version");
         sourceName=manifest.getString("source_name");
         sourceVersion=manifest.getString("source_version");
+        redistributionBasis=manifest.optString("redistribution_basis","Source license recorded in pack manifest");
         recordCount=manifest.getInt("records");
         collectionCount=manifest.getInt("collections");
         if(packHash.length()!=64||recordCount<1||collectionCount<1)throw new IOException("Invalid Hadith manifest");
