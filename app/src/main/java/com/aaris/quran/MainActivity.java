@@ -704,7 +704,7 @@ public final class MainActivity extends Activity {
         LinearLayout page=sheet(content.surah(a.surah).name+" · "+a.number);
         page.addView(primary("Study ayah · Translations & compare",()->studyAyah(a)));gap(page,10);
         page.addView(button("Play · Reciter & audio",()->audioControls(a)));gap(page,10);
-        page.addView(button("Copy ayah",()->{((ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText(a.id,a.arabic+"\n["+a.id+"]"));toast("Ayah copied");}));gap(page,10);
+        page.addView(button("Copy ayah",()->{((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText(a.id,a.arabic+"\n["+a.id+"]"));toast("Ayah copied");}));gap(page,10);
         if(app.translations!=null)page.addView(button("Listen to translation · Device voice",()->{stopService(new Intent(this,RecitationService.class));if(app.audio!=null)app.audio.stop();translationSpeech.speak(app.translations.get(translationId,a.id));}));gap(page,10);
         page.addView(button(learning.bookmarked(a.id)?"Bookmark hataayein":"Bookmark karein",()->{learning.toggleBookmark(a.id);toast(learning.bookmarked(a.id)?"Bookmark save hua":"Bookmark hata diya");activeDialog.dismiss();}));gap(page,10);
         page.addView(button("Yeh ayah yaad karaayein",()->{enroll(a.id,a.id);activeDialog.dismiss();}));gap(page,10);
@@ -768,7 +768,7 @@ public final class MainActivity extends Activity {
             TranslationStore.Entry entry=app.translations==null?null:app.translations.get(translationId,a.id);
             String evidence=a.arabic+"\n["+a.id+"]\nTanzil Project · https://tanzil.net/";
             if(entry!=null)evidence+="\n\n"+entry.text+(entry.footnotes.isEmpty()?"":"\n"+entry.footnotes)+"\n"+entry.edition.attribution();
-            ((ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText(a.id,evidence));toast("Attributed text copied");
+            ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText(a.id,evidence));toast("Attributed text copied");
         }));gap(page,8);
         page.addView(button("Add to research PDF",()->{
             if(selectedEvidence.size()>=50&&!selectedEvidence.contains(a.id)){toast("Select up to 50 ayahs");return;}
@@ -1173,13 +1173,14 @@ public final class MainActivity extends Activity {
             app.io.execute(()->{try{
                 byte[] bytes=hadith?ResearchExport.hadith(this,app.hadith,hits,lang,query,researchPrompt):ResearchExport.quran(this,content,app.translations,edition,ayahs,matches,query,researchPrompt);
                 Uri uri=ResearchFiles.write(this,bytes);ui.post(()->{sharingPdf=false;if(isDestroyed()||isFinishing())return;
-                    Intent intent=new Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM,uri).putExtra(Intent.EXTRA_TEXT,researchPrompt)
-                        .setClipData(ClipData.newRawUri("Aaris research PDF",uri)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    Intent intent=new Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM,uri).putExtra(Intent.EXTRA_TEXT,researchPrompt);
+                    intent.setClipData(ClipData.newRawUri("Aaris research PDF",uri));
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     try{startActivity(Intent.createChooser(intent,"Share research PDF"));}catch(ActivityNotFoundException e){toast("No PDF receiving app is installed");}
                 });
             }catch(Exception e){ui.post(()->{sharingPdf=false;toast("PDF could not be created. Try fewer records.");});}});
         }));gap(page,10);
-        page.addView(button("Copy AI research prompt",()->{((ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Research prompt",ResearchExport.prompt(template.getSelectedItemPosition(),custom.getText().toString())));toast("Prompt copied");}));
+        page.addView(button("Copy AI research prompt",()->{((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Research prompt",ResearchExport.prompt(template.getSelectedItemPosition(),custom.getText().toString())));toast("Prompt copied");}));
         if(!hadith){gap(page,10);page.addView(button("Evidence tools · ZIP & reference check",this::research));}
     }
     private void research(){
