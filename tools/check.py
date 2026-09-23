@@ -63,6 +63,7 @@ def main():
         assert hdb.execute('PRAGMA user_version').fetchone()[0] == 2
         assert hdb.execute('SELECT count(*) FROM collection').fetchone()[0] == hmanifest['collections']
         assert hdb.execute('SELECT count(*) FROM hadith').fetchone()[0] == hmanifest['records']
+        assert hdb.execute('SELECT count(*) FROM hadith_fts').fetchone()[0] == hmanifest['records']
         assert not hdb.execute('PRAGMA foreign_key_check').fetchall()
         for arabic, expected in hdb.execute('SELECT arabic,source_sha256 FROM hadith'):
             assert hashlib.sha256(arabic.encode()).hexdigest() == expected
@@ -119,6 +120,8 @@ def main():
         columns = {row[1] for row in fixture_db.execute('PRAGMA table_info(hadith)')}
         assert {'search_ar', 'search_latin', 'source_sha256', 'record_kind'} <= columns
         assert fixture_db.execute('SELECT count(*) FROM hadith').fetchone()[0] == 1
+        assert fixture_db.execute('SELECT count(*) FROM hadith_fts').fetchone()[0] == 1
+        assert fixture_db.execute("SELECT count(*) FROM hadith_fts WHERE hadith_fts MATCH 'تجريبي'").fetchone()[0] == 1
         assert fixture_db.execute('SELECT count(*) FROM grade_assertion').fetchone()[0] == 1
         assert not fixture_db.execute('PRAGMA foreign_key_check').fetchall()
         fixture_db.close()
