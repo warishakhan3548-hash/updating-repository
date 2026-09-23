@@ -6,6 +6,9 @@ import json
 import sqlite3
 from pathlib import Path
 
+MAX_SURAH_PACK_BYTES = 95 * 1024 * 1024
+MAX_TOTAL_PACK_BYTES = 650 * 1024 * 1024
+
 
 def file_hash(path: Path) -> str:
     h=hashlib.sha256()
@@ -150,6 +153,8 @@ def main():
             raise SystemExit(f"Surah {key} pack hash mismatch")
         if pack.stat().st_size!=int(meta.get("bytes") or -1):
             raise SystemExit(f"Surah {key} pack size mismatch")
+        if pack.stat().st_size>MAX_SURAH_PACK_BYTES:
+            raise SystemExit(f"Surah {key} pack exceeds ordinary-Git safety limit")
 
         clips=grouped.get(surah,[])
         if len(clips)!=int(meta.get("words") or -1):
@@ -165,6 +170,12 @@ def main():
                 cursor+=length
         if cursor!=pack.stat().st_size:
             raise SystemExit(f"Surah {key} indexed bytes do not cover the whole pack")
+
+    total_pack_bytes=sum((source/pack_root/f"{surah:03d}.pack").stat().st_size for surah in range(1,115))
+    if total_pack_bytes>MAX_TOTAL_PACK_BYTES:
+        raise SystemExit("Quran audio pack exceeds reviewed repository size budget")
+    if int(manifest.get("total_pack_bytes") or -1)!=total_pack_bytes:
+        raise SystemExit("Quran audio total size metadata mismatch")
 
     unexpected={
         str(p.relative_to(source))
