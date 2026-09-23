@@ -44,6 +44,8 @@ def main():
     lock=json.loads(args.source_lock.read_text(encoding="utf-8"))
     if lock.get("schema")!=1:
         raise SystemExit("Unsupported Quran audio source lock schema")
+    if manifest.get("source_lock_sha256")!=file_hash(args.source_lock):
+        raise SystemExit("Quran audio pack was not built from the current reviewed source lock")
 
     if manifest.get("schema_version")!=2:
         raise SystemExit("Unsupported Quran audio manifest schema")
