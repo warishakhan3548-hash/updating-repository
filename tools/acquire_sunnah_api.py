@@ -308,6 +308,7 @@ def main():
     parser.add_argument("--source-version", default=None)
     parser.add_argument("--delay-seconds", type=float, default=1.1)
     parser.add_argument("--allow-partial-catalog", action="store_true")
+    parser.add_argument("--refresh", action="store_true", help="Discard cached raw API snapshots and reacquire them.")
     args = parser.parse_args()
 
     key = os.environ.get(args.key_env, "").strip()
@@ -321,6 +322,10 @@ def main():
     raw_dir = output / "raw"
     records_dir = output / "records"
     licenses_dir = output / "LICENSES"
+    if args.refresh and raw_dir.exists():
+        shutil.rmtree(raw_dir)
+    if records_dir.exists():
+        shutil.rmtree(records_dir)
     raw_dir.mkdir(exist_ok=True)
     records_dir.mkdir(exist_ok=True)
     licenses_dir.mkdir(exist_ok=True)
@@ -349,11 +354,12 @@ def main():
 
     source_version = args.source_version or datetime.now(timezone.utc).strftime("api-v1-%Y%m%d")
     edition = source_version.replace(":", "-").replace("/", "-")
-    normalized = records_dir / "official-api.jsonl"
     imported = []
-    with normalized.open("w", encoding="utf-8") as out:
-        for collection in collections:
-            folder = raw_dir / safe_component(str(collection["name"]))
+    for collection in collections:
+        slug = str(collection["name"])
+        folder = raw_dir / safe_component(slug)
+        normalized = records_dir / (safe_component(slug) + ".jsonl")
+        with normalized.open("w", encoding="utf-8") as out:
             imported.append(normalize_collection(folder, group_by_title, edition, source_version, out))
 
     source_files = []
