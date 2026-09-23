@@ -13,6 +13,16 @@ The required manifest is:
 
 `source-vault/quran-audio/active/quran-audio/manifest.json`
 
+Release availability is tracked separately in:
+
+`source-vault/quran-audio/release-policy.json`
+
+While the large vendor import has never completed, that policy is `pending_vendor_import` and a
+build remains fully offline with pronunciation disabled. `tools/complete_quran_audio_pack.py`
+changes it to `required` only after the exact local pack passes full verification, pinning the
+manifest SHA-256 and pack ID. From then on deleting/replacing the local audio causes a build failure;
+there is never a network reacquisition fallback.
+
 Word clips use canonical coordinates, but Aaris does **not** ship 77k individual APK assets.
 The one-time packer content-addresses every clip by SHA-256, stores byte-identical pronunciations
 only once, and writes the unique audio into small seekable chunk packs plus a compact SQLite index.
