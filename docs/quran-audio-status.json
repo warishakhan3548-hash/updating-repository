@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "feature": "offline_quran_word_pronunciation",
+  "status": "ARCHITECTURE_READY_ACTIVE_AUDIO_PENDING",
+  "canonical_quran_sqlite_sha256": "521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1",
+  "canonical_policy": "SOURCE_ALIGNED_W_ONLY",
+  "safe_word_audio_target": 77326,
+  "expected_surah_pack_files": 114,
+  "source": {
+    "provider": "Hugging Face dataset snapshot",
+    "repo_id": "zaibihassan/Quranic-Word-By-Word-Audio-Data",
+    "revision": "9796e08caae700f44266255da320adf6e5ab4114",
+    "style": "muallim",
+    "format": "Ogg Opus",
+    "declared_license": "Apache-2.0"
+  },
+  "implemented": {
+    "word_tap_autoplay": true,
+    "meaning_popup_preserved": true,
+    "speaker_replay": true,
+    "ambient_recall_autoplay": true,
+    "ambient_replay": true,
+    "single_process_audio_owner": true,
+    "canonical_word_id_mapping": true,
+    "quran_hash_binding": true,
+    "source_lock_verification": true,
+    "per_surah_hash_verification": true,
+    "packed_byte_range_verification": true,
+    "runtime_network_fallback": false,
+    "android_internet_permission": false,
+    "normal_gradle_network_acquisition": false
+  },
+  "active_pack": {
+    "manifest_committed": false,
+    "surah_pack_files_committed": 0,
+    "ready_for_runtime_audio": false
+  },
+  "completion_rule": "Do not mark this feature complete until source-vault/quran-audio/active contains a verified manifest, index.sqlite, license/provenance files, and exactly 114 Surah .pack files."
+}
