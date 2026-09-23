@@ -163,6 +163,8 @@ def main():
 
             seen = set()
             count = 0
+            first_number = None
+            last_number = None
             reader = csv.reader(joined_lines(resolved[collection_id]), strict=True)
             for row_no, row in enumerate(reader, 1):
                 if not row or all(not str(v).strip() for v in row):
@@ -179,6 +181,9 @@ def main():
                 if number in seen:
                     raise SystemExit(f"{collection_id}: duplicate record number {number}")
                 seen.add(number)
+                if first_number is None:
+                    first_number = number
+                last_number = number
 
                 hid = f"H:{collection_id}:{edition}:0:{number}"
                 out.write(compact({
@@ -199,6 +204,28 @@ def main():
 
             if count == 0:
                 raise SystemExit(f"{collection_id}: no records parsed")
+
+            definition = definitions[collection_id]
+            expected_count = int(definition.get("expected_record_count") or 0)
+            expected_first = str(definition.get("expected_first_record") or "")
+            expected_last = str(definition.get("expected_last_record") or "")
+            if expected_count and count != expected_count:
+                raise SystemExit(
+                    f"{collection_id}: record coverage mismatch; expected {expected_count}, got {count}")
+            if expected_first and first_number != expected_first:
+                raise SystemExit(
+                    f"{collection_id}: first record mismatch; expected {expected_first}, got {first_number}")
+            if expected_last and last_number != expected_last:
+                raise SystemExit(
+                    f"{collection_id}: last record mismatch; expected {expected_last}, got {last_number}")
+            if expected_count and expected_first == "1" and expected_last == str(expected_count):
+                missing = [str(n) for n in range(1, expected_count + 1) if str(n) not in seen]
+                if missing:
+                    preview = ", ".join(missing[:10])
+                    raise SystemExit(
+                        f"{collection_id}: contiguous record coverage has gaps: {preview}" +
+                        (" …" if len(missing) > 10 else ""))
+
             counts[collection_id] = count
 
     files = {
