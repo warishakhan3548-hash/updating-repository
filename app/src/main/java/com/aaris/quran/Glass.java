@@ -97,6 +97,7 @@ final class Glass {
                 case "close":c.drawLine(6,6,18,18,p);c.drawLine(6,18,18,6,p);break;
                 case "check":a.moveTo(4,12);a.lineTo(9,17);a.lineTo(20,6);c.drawPath(a,p);break;
                 case "share":c.drawCircle(5,12,2,p);c.drawCircle(19,5,2,p);c.drawCircle(19,19,2,p);c.drawLine(7,11,17,6,p);c.drawLine(7,13,17,18,p);break;
+                case "speaker":a.moveTo(4,10);a.lineTo(8,10);a.lineTo(13,6);a.lineTo(13,18);a.lineTo(8,14);a.lineTo(4,14);a.close();c.drawPath(a,p);c.drawArc(14,8,20,16,-55,110,false,p);c.drawArc(14,5,23,19,-55,110,false,p);break;
                 case "moon":a.moveTo(17,3);a.cubicTo(5,1,1,17,12,21);a.cubicTo(18,23,22,18,22,14);a.cubicTo(13,18,9,8,17,3);c.drawPath(a,p);break;
                 default:for(int i=0;i<3;i++)c.drawCircle(5+i*7,12,0.7f,p);
             }c.restore();
