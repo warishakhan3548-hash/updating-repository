@@ -2,8 +2,8 @@
 """One-time acquisition helper for a pinned Hugging Face Quran word-audio snapshot.
 
 IMPORTANT: this tool is never invoked by Gradle or Android runtime. Its only purpose is to make
-an explicit, reviewable source-vault import. After the resulting active pack is committed (normally
-through Git LFS), future builds use repository-local bytes only.
+an explicit, reviewable source-vault import. After the resulting active pack is committed as
+ordinary repository files, future builds use repository-local bytes only.
 """
 import argparse
 import hashlib
