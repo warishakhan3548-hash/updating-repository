@@ -99,8 +99,7 @@ def prepareVendoredHadithSource = tasks.register('prepareVendoredHadithSource') 
 def hadithPack = tasks.register('prepareHadithPack') {
     dependsOn prepareVendoredHadithSource
     inputs.file rootProject.file('tools/build_hadith.py')
-    inputs.dir activeHadithSource
-    inputs.dir generatedHadithSource
+    // Empty-safe: explicit active pack is optional; vendored fallback is generated when absent.\n    inputs.files rootProject.fileTree(activeHadithSource)\n    inputs.dir generatedHadithSource
     outputs.files file('src/main/assets/hadith.sqlite'), file('src/main/assets/hadith-manifest.json')
     doLast {
         def explicitManifest = new File(activeHadithSource, 'manifest.json')
