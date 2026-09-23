@@ -16,6 +16,7 @@ public final class QuranApp extends Application {
     final Handler main=new Handler(Looper.getMainLooper());
     volatile ContentStore content;
     volatile LearningStore learning;
+    volatile HadithStore hadith;
     volatile SearchEngine search;
     volatile String loadError;
     ExportStaging exports;
@@ -37,7 +38,7 @@ public final class QuranApp extends Application {
             public void onActivityDestroyed(Activity a){}
         });
         exports=new ExportStaging(new File(getFilesDir(),"export-staging"));io.execute(()->{
-            try{content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();}
+            try{content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();hadith=new HadithStore(this);}
             catch(Exception e){loadError="Offline content khul nahi saka: "+e.getMessage();}
             finally{ready.countDown();}
         });
