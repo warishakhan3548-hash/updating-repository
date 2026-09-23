@@ -38,7 +38,7 @@ public final class QuranApp extends Application {
             public void onActivityDestroyed(Activity a){}
         });
         exports=new ExportStaging(new File(getFilesDir(),"export-staging"));io.execute(()->{
-            try{content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();hadith=new HadithStore(this);}
+            try{content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();hadith=HadithStore.openIfBundled(this);}
             catch(Exception e){loadError="Offline content khul nahi saka: "+e.getMessage();}
             finally{ready.countDown();}
         });
