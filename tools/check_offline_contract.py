@@ -106,8 +106,10 @@ def main():
         "com/aaris/quran/AmbientRecallService.java",
     ):
         text=(APP_JAVA/rel).read_text(encoding="utf-8")
-        if re.search(r"https?://|URLConnection|HttpURLConnection|java\.net\.",text):
-            fail(f"{rel} contains a network path; only QuranAudioDownloadManager may download")
+        # Catalog provenance/download URLs may be stored as inert strings. These classes must not
+        # have any networking capability; only QuranAudioDownloadManager may open a connection.
+        if re.search(r"URLConnection|HttpURLConnection|java\.net\.",text):
+            fail(f"{rel} contains network-capable code; only QuranAudioDownloadManager may download")
 
     content_store=(APP_JAVA/"com/aaris/quran/ContentStore.java").read_text(encoding="utf-8")
     quran_app=(APP_JAVA/"com/aaris/quran/QuranApp.java").read_text(encoding="utf-8")
