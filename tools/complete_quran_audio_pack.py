@@ -5,7 +5,7 @@ This is deliberately NOT a Gradle task. It is a one-time acquisition/finalizatio
 1) rebuild canonical Quran content from vendored sources,
 2) verify the reviewed source lock matches that exact Quran SQLite,
 3) acquire the immutable pinned upstream snapshot,
-4) compact SOURCE_ALIGNED word clips into 114 local Surah pack files,
+4) deduplicate SOURCE_ALIGNED word clips into small local content-addressed chunk packs,
 5) run the fully network-free pack verifier.
 
 After this succeeds, commit source-vault/quran-audio/active to the repository. Future Android
@@ -52,14 +52,19 @@ def main():
         "--source-lock",LOCK)
 
     lock=json.loads(LOCK.read_text(encoding="utf-8"))
+    manifest=json.loads((ACTIVE/"quran-audio"/"manifest.json").read_text(encoding="utf-8"))
     packs=sorted((ACTIVE/"quran-audio"/"packs").glob("*.pack"))
-    if len(packs)!=114:
-        raise SystemExit(f"Expected 114 final Surah pack files, found {len(packs)}")
+    expected_packs=int(manifest.get("pack_file_count") or 0)
+    if expected_packs<1 or len(packs)!=expected_packs:
+        raise SystemExit(f"Final chunk pack count mismatch: manifest={expected_packs}, files={len(packs)}")
 
     print()
     print("Quran word-audio pack is locally complete and verified.")
     print(f"Canonical safe words: {lock['expected_word_count']}")
-    print("Surah pack files: 114")
+    print(f"Unique audio clips: {manifest['unique_clip_count']}")
+    print(f"Deduplicated references: {manifest['deduplicated_reference_count']}")
+    print(f"Chunk pack files: {expected_packs}")
+    print(f"Packed audio bytes: {manifest['total_pack_bytes']}")
     print("Runtime/build network dependency: none after these files are committed")
     print("Next: review and commit source-vault/quran-audio/active as ordinary Git files.")
 
