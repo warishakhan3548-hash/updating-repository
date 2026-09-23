@@ -15,13 +15,21 @@ Existing bookmarks and Recall events remain separate from collections and pins.
 
 ## Shared appearance
 
-One persisted model drives the reader, surfaces and preview. The original six
-palettes remain; Easy Reading adds larger text, real bold and reduced effects.
-Background, cards, Arabic, translation and accent colors have hue, saturation and
-light/dark controls. Advanced finish controls expose separate Arabic/translation
+One persisted model drives the reader, surfaces and preview. The original
+Emerald Glass, Ocean Blue, Rose Glass and Midnight looks remain. Clean White,
+Warm Paper and Easy Reading were removed from the one-tap preset strip and replaced
+with premium token recipes: Lavender Aqua, Violet Glass, Burgundy Pearl, Lavender
+Studio, Pearl Violet, Sapphire Neon, Rose Luxe, Mint Lilac, Amethyst Night and
+Pearl Rose. These are not duplicated screens: every look feeds the same Appearance
+model and the same production renderer, changing palette, gradient, card opacity,
+corners, glass strength, border strength and glow in one deterministic preset.
+The Start with a look strip renders miniature visual cards instead of flat text chips.
+Background, cards, Arabic, translation and accent colors still have hue, saturation
+and light/dark controls. Advanced finish controls expose separate Arabic/translation
 opacity, glass strength, borders, subtle glow, card opacity, corners and a static
-two-color background. Reduced effects suppresses text effects and background
-gradients. No live backdrop blur or animated shader is added.
+two-color background. Reduced effects remains available as a manual preference and
+suppresses text effects and background gradients. No live backdrop blur or animated
+shader is added.
 
 The preview uses the actual installed 1:1 translation, attribution and RTL direction,
 alongside canonical Arabic and the shared production renderers. Displayed text
