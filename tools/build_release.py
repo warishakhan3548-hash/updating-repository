@@ -105,8 +105,9 @@ def main():
     # per-Surah recitation/timing pairs later into app-private storage. Refuse the old monolithic
     # payload if it is present so the direct SDK builder cannot accidentally recreate a huge APK.
     audio_payload = ROOT / 'source-vault/quran-audio/active/quran-audio'
-    if audio_payload.exists():
-        raise SystemExit('Legacy bundled Quran audio detected; on-demand Surah audio must stay outside the APK')
+    accidental_audio_asset = assets / 'quran-audio'
+    if audio_payload.exists() or accidental_audio_asset.exists():
+        raise SystemExit('Bundled Quran audio detected; on-demand Surah audio must stay outside the APK')
     audio_policy = {'state': 'on_demand_surah'}
     audio_manifest = None
 
