@@ -180,7 +180,7 @@ public final class MainActivity extends Activity {
         LinearLayout intro=card(page,Surface.Kind.HERO);
         intro.addView(label(store.collectionCount+" COLLECTIONS · "+store.recordCount+" RECORDS"));gap(intro,10);
         intro.addView(text(this,"Read Hadith,\nwithout leaving Aaris.",27,INK));gap(intro,10);
-        caption(intro,"Pack "+store.contentVersion+" · "+store.sourceName+" · "+store.sourceVersion+" · Verified local SQLite");
+        caption(intro,"Pack "+store.contentVersion+" · "+store.sourceName+" · "+store.sourceVersion+" · Verified local SQLite\n"+store.redistributionBasis);
 
         EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);
         query.setTextSize(16);query.setSingleLine(true);query.setHint("Search Arabic, English or Hadith number");
