@@ -43,8 +43,13 @@ public final class QuranApp extends Application {
             try{
                 content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();
                 try{hadith=HadithStore.openIfBundled(this);}catch(Exception e){hadith=null;hadithLoadError="Hadith pack could not be opened: "+e.getMessage();}
-                try{wordAudio=QuranAudioStore.openIfBundled(this);}catch(Exception e){wordAudio=null;wordAudioLoadError="Quran audio pack could not be opened: "+e.getMessage();}
-                audio=new WordAudioPlayer(this,wordAudio);
+                try{
+                    wordAudio=QuranAudioStore.openIfBundled(this);
+                    audio=new WordAudioPlayer(this,wordAudio);
+                }catch(Exception e){
+                    wordAudio=null;audio=null;
+                    wordAudioLoadError="Quran audio pack could not be opened: "+e.getMessage();
+                }
             }catch(Exception e){loadError="Offline content khul nahi saka: "+e.getMessage();}
             finally{ready.countDown();}
         });
