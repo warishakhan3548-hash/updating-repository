@@ -43,8 +43,9 @@ English/reference search where those language layers exist. This is real offline
 not a claim that every collection in the wider Sunnah.com catalog is vendored.
 
 Quran word audio also has a complete local-only pipeline: a reviewed immutable source lock, one-time
-acquisition helper, deterministic compaction into 114 seekable Surah packs + SQLite byte index,
-runtime hash/coverage checks, and a process-wide local player. Normal verification and both Gradle
+acquisition helper, deterministic content-addressed deduplication into small seekable chunk packs +
+a SQLite byte index, runtime hash/coverage checks, and a process-wide local player. Normal
+verification and both Gradle
 and direct-SDK release builds never acquire audio from the network. The remaining audio work is to
 vendor the actual large verified `source-vault/quran-audio/active` payload into the repository.
 The remaining architecture still lacks the full wider Hadith catalog, reviewed morphology/sense
