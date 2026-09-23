@@ -132,6 +132,7 @@ def main():
             "--license", declared_license,
             "--style", style,
             "--extension", extension,
+            "--source-lock", str(args.source_lock),
         ], check=True, cwd=ROOT)
 
     print("Pinned local audio pack is ready. Review it, then commit source-vault/quran-audio/active as ordinary Git files.")
