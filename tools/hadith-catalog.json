@@ -1,0 +1,186 @@
+{
+  "schema": 1,
+  "captured_from": "https://sunnah.com/",
+  "captured_on": "2026-09-23",
+  "note": "Catalog metadata only. This file does not grant permission to copy or redistribute any source text.",
+  "collections": [
+    {
+      "id": "bukhari",
+      "group": "nine_books",
+      "name_en": "Sahih al-Bukhari",
+      "name_ar": "صحيح البخاري"
+    },
+    {
+      "id": "muslim",
+      "group": "nine_books",
+      "name_en": "Sahih Muslim",
+      "name_ar": "صحيح مسلم"
+    },
+    {
+      "id": "nasai",
+      "group": "nine_books",
+      "name_en": "Sunan an-Nasa'i",
+      "name_ar": "سنن النسائي"
+    },
+    {
+      "id": "abudawud",
+      "group": "nine_books",
+      "name_en": "Sunan Abi Dawud",
+      "name_ar": "سنن أبي داود"
+    },
+    {
+      "id": "tirmidhi",
+      "group": "nine_books",
+      "name_en": "Jami` at-Tirmidhi",
+      "name_ar": "جامع الترمذي"
+    },
+    {
+      "id": "ibnmajah",
+      "group": "nine_books",
+      "name_en": "Sunan Ibn Majah",
+      "name_ar": "سنن ابن ماجه"
+    },
+    {
+      "id": "malik",
+      "group": "nine_books",
+      "name_en": "Muwatta Malik",
+      "name_ar": "موطأ مالك"
+    },
+    {
+      "id": "ahmad",
+      "group": "nine_books",
+      "name_en": "Musnad Ahmad",
+      "name_ar": "مسند أحمد"
+    },
+    {
+      "id": "darimi",
+      "group": "nine_books",
+      "name_en": "Sunan ad-Darimi",
+      "name_ar": "سنن الدارمي"
+    },
+    {
+      "id": "ibn_khuzayma",
+      "group": "other_primary",
+      "name_en": "Sahih Ibn Khuzayma",
+      "name_ar": "صحيح ابن خزيمة"
+    },
+    {
+      "id": "ibn_hibban",
+      "group": "other_primary",
+      "name_en": "Sahih Ibn Hibban",
+      "name_ar": "صحيح ابن حبان"
+    },
+    {
+      "id": "mustadrak_hakim",
+      "group": "other_primary",
+      "name_en": "Mustadrak al-Hakim",
+      "name_ar": "مستدرك الحاكم"
+    },
+    {
+      "id": "musannaf_abd_al_razzaq",
+      "group": "other_primary",
+      "name_en": "Musannaf `Abd ar-Razzaq",
+      "name_ar": "مصنف عبد الرزاق"
+    },
+    {
+      "id": "musannaf_ibn_abi_shayba",
+      "group": "other_primary",
+      "name_en": "Musannaf Ibn Abi Shayba",
+      "name_ar": "مصنف ابن ابي شىيبة"
+    },
+    {
+      "id": "daraqutni",
+      "group": "other_primary",
+      "name_en": "Sunan ad-Daraqutni",
+      "name_ar": "سنن الدارقطني"
+    },
+    {
+      "id": "bayhaqi_kubra",
+      "group": "other_primary",
+      "name_en": "As-Sunan al-Kubra li al-Bayhaqi",
+      "name_ar": "السُّنَن الْكُبْرَىٰ لِلْبَيْهَقِيّ"
+    },
+    {
+      "id": "nasai_kubra",
+      "group": "other_primary",
+      "name_en": "Sunan an-Nasa'i al-Kubra",
+      "name_ar": "السُّنَن الكُبْرَى النَّسَائي"
+    },
+    {
+      "id": "adab_mufrad",
+      "group": "other_primary",
+      "name_en": "Al-Adab Al-Mufrad",
+      "name_ar": "الأدب المفرد"
+    },
+    {
+      "id": "shamail",
+      "group": "other_primary",
+      "name_en": "Ash-Shama'il Al-Muhammadiyah",
+      "name_ar": "الشمائل المحمدية"
+    },
+    {
+      "id": "nawawi40",
+      "group": "selections",
+      "name_en": "An-Nawawi's 40 Hadith",
+      "name_ar": "الأربعون النووية"
+    },
+    {
+      "id": "riyad",
+      "group": "selections",
+      "name_en": "Riyad as-Salihin",
+      "name_ar": "رياض الصالحين"
+    },
+    {
+      "id": "mishkat",
+      "group": "selections",
+      "name_en": "Mishkat al-Masabih",
+      "name_ar": "مشكاة المصابيح"
+    },
+    {
+      "id": "bulugh",
+      "group": "selections",
+      "name_en": "Bulugh al-Maram",
+      "name_ar": "بلوغ المرام"
+    },
+    {
+      "id": "forty_collections",
+      "group": "selections",
+      "name_en": "Collections of Forty",
+      "name_ar": "الأربعينات",
+      "kind": "group"
+    },
+    {
+      "id": "hisn",
+      "group": "selections",
+      "name_en": "Hisn al-Muslim",
+      "name_ar": "حصن المسلم",
+      "kind": "dua_collection"
+    },
+    {
+      "id": "quran_virtues",
+      "group": "selections",
+      "name_en": "Special Virtues of the Qur'an's Chapters and Verses",
+      "name_ar": "الجامع المختصر لفضائل الآيات والسور"
+    }
+  ],
+  "nested_collections": [
+    {
+      "parent": "forty_collections",
+      "id": "forty_nawawi",
+      "name_en": "Forty Hadith of an-Nawawi",
+      "name_ar": "الأربعون النووية"
+    },
+    {
+      "parent": "forty_collections",
+      "id": "forty_qudsi",
+      "name_en": "Forty Hadith Qudsi",
+      "name_ar": "الحديث القدسي"
+    },
+    {
+      "parent": "forty_collections",
+      "id": "forty_shah_waliullah",
+      "name_en": "Forty Hadith of Shah Waliullah Dehlawi",
+      "name_ar": "أربعون شاه ولي الله الدهلوي"
+    }
+  ]
+}
