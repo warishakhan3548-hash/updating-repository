@@ -22,12 +22,11 @@ final class QuranAudioStore {
     final boolean complete;
 
     static QuranAudioStore openIfBundled(Context context) throws Exception {
-        String raw;
-        try {
-            raw=ContentStore.asset(context,MANIFEST);
-        } catch(FileNotFoundException missing) {
-            return null;
-        }
+        boolean folder=false;
+        String[] root=context.getAssets().list("");
+        if(root!=null)for(String name:root)if("quran-audio".equals(name)){folder=true;break;}
+        if(!folder)return null;
+        String raw=ContentStore.asset(context,MANIFEST);
         return new QuranAudioStore(context,new JSONObject(raw));
     }
 
