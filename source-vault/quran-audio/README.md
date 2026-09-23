@@ -60,7 +60,7 @@ Typical flow:
    `python3 tools/check_quran_audio.py --source source-vault/quran-audio/active --quran-db app/src/main/assets/quran.sqlite`
 4. Commit the generated active pack as ordinary Git files (114 `.pack` files + index/manifest/license metadata).
 
-After step 4, a normal fresh checkout contains the pronunciation bytes directly; no Git LFS pull is required. Gradle
+After step 4, a normal fresh checkout contains the pronunciation bytes directly; no Git LFS pull is required. The packer refuses any Surah pack above 95 MiB or a total audio payload above 650 MiB so ordinary Git remains within the reviewed storage envelope. Gradle
 does not call Hugging Face, Quran.com, Sunnah.com, a CDN, or any other content website.
 
 ## Runtime behavior
