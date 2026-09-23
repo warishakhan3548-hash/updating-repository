@@ -140,6 +140,13 @@ public final class MainActivity extends Activity {
     private LinearLayout card(LinearLayout parent,Surface.Kind kind){LinearLayout v=column(this);pad(v,22,20);v.setBackground(new Surface(this,kind,highContrast));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,16);parent.addView(v,lp);return v;}
     private TextView button(String title,Runnable click){return action(title,click,false);}
     private TextView primary(String title,Runnable click){return action(title,click,true);}
+    private View settingsRow(String icon,String title,Runnable click){
+        LinearLayout row=row(this);pad(row,14,9);row.setMinimumHeight(dp(this,52));row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setClickable(true);
+        Glass.Icon glyph=new Glass.Icon(this,icon);glyph.color=MINT;row.addView(glyph,new LinearLayout.LayoutParams(dp(this,24),dp(this,24)));
+        TextView label=text(this,title,15,INK);label.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));pad(label,12,0);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        Glass.Icon next=new Glass.Icon(this,"next");next.color=MUTED;row.addView(next,new LinearLayout.LayoutParams(dp(this,20),dp(this,20)));
+        row.setContentDescription(title);row.setOnClickListener(v->click.run());return row;
+    }
     private TextView action(String title,Runnable click,boolean primary){TextView b=text(this,title,14,primary?HIGH_INK:INK);b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setGravity(Gravity.CENTER);pad(b,16,13);b.setMinimumHeight(dp(this,48));b.setBackground(Glass.touch(this,primary?Surface.Kind.PRIMARY:Surface.Kind.BUTTON,highContrast));b.setFocusable(true);b.setOnClickListener(v->click.run());return b;}
     private TextView label(String text){TextView v=Glass.text(this,text,11,GOLD);v.setLetterSpacing(.12f);return v;}
     private void gap(LinearLayout v,int dp){View gap=new View(this);v.addView(gap,new LinearLayout.LayoutParams(1,Glass.dp(this,dp)));}
@@ -391,7 +398,7 @@ public final class MainActivity extends Activity {
 
         Switch due=new Switch(this);due.setText("Pending items only");due.setTextColor(INK);due.setChecked(AmbientSettings.dueOnly(this));due.setMinimumHeight(dp(this,48));page.addView(due);gap(page,12);
 
-        page.addView(button(ambientItems()+" items selected",this::chooseAmbientItems));gap(page,14);
+        page.addView(settingsRow("cards",ambientItems()+" items selected",this::chooseAmbientItems));gap(page,14);
 
         java.util.function.Consumer<Boolean> start=preview->{
             int value;try{value=Integer.parseInt(minutes.getText().toString());}catch(NumberFormatException e){value=0;}
@@ -402,14 +409,14 @@ public final class MainActivity extends Activity {
         };
 
         page.addView(primary(app.ambientRunning?"Apply timer":"Start timer",()->{openOtherAppsAfterAmbientStart=false;start.accept(false);}));gap(page,9);
-        page.addView(button("Open in other apps",()->{
+        page.addView(settingsRow("share","Open in other apps",()->{
             if(app.ambientRunning){dialog.dismiss();openOtherApps();}
             else{openOtherAppsAfterAmbientStart=true;start.accept(false);}
         }));gap(page,9);
-        page.addView(button("Test (10 seconds)",()->{openOtherAppsAfterAmbientStart=true;start.accept(true);}));gap(page,9);
+        page.addView(settingsRow("clock","Test (10 seconds)",()->{openOtherAppsAfterAmbientStart=true;start.accept(true);}));gap(page,9);
 
         if(app.ambientRunning){
-            page.addView(button("Stop timer",()->{openOtherAppsAfterAmbientStart=false;AmbientSettings.status(this,false,"Stopped");stopService(new Intent(this,AmbientRecallService.class));dialog.dismiss();ui.postDelayed(this::show,250);}));
+            page.addView(settingsRow("close","Stop timer",()->{openOtherAppsAfterAmbientStart=false;AmbientSettings.status(this,false,"Stopped");stopService(new Intent(this,AmbientRecallService.class));dialog.dismiss();ui.postDelayed(this::show,250);}));
         }
     }
     private void chooseAmbientItems(){
@@ -1064,8 +1071,8 @@ public final class MainActivity extends Activity {
         LinearLayout page=sheet("Reading settings");Dialog settingsDialog=activeDialog;
         settingsDialog.setOnDismissListener(d->{if(activeDialog==settingsDialog){activeDialog=null;show();}});
 
-        page.addView(button("Appearance",this::appearanceStudio));gap(page,9);
-        page.addView(button("Translation",this::translationSettings));gap(page,12);
+        page.addView(settingsRow("settings","Appearance",this::appearanceStudio));gap(page,9);
+        page.addView(settingsRow("copy","Translation",this::translationSettings));gap(page,12);
 
         page.addView(label("ARABIC SIZE"));gap(page,6);
         ArabicText sample=arabic(content.ayah("Q:1:1").arabic,arabicSize);page.addView(sample);
@@ -1088,17 +1095,17 @@ public final class MainActivity extends Activity {
         contrast.setOnCheckedChangeListener((b,v)->{highContrast=v;learning.set("contrast",""+v);sample.setReliefEnabled(!v);backdrop.highContrast=v;backdrop.invalidate();});
         gap(page,12);
 
-        page.addView(button("Focus mode",()->{quietReader=true;tab=1;reading=true;settingsDialog.dismiss();}));gap(page,9);
-        page.addView(button("Quran audio",this::downloadAllAudio));gap(page,9);
-        page.addView(button("Set timer",this::ambientSettings));gap(page,9);
-        page.addView(button("Open in other apps",()->{if(app.ambientRunning){settingsDialog.dismiss();openOtherApps();}else ambientSettings();}));gap(page,12);
+        page.addView(settingsRow("moon","Focus mode",()->{quietReader=true;tab=1;reading=true;settingsDialog.dismiss();}));gap(page,9);
+        page.addView(settingsRow("speaker","Quran audio",this::downloadAllAudio));gap(page,9);
+        page.addView(settingsRow("clock","Set timer",this::ambientSettings));gap(page,9);
+        page.addView(settingsRow("share","Open in other apps",()->{if(app.ambientRunning){settingsDialog.dismiss();openOtherApps();}else ambientSettings();}));gap(page,12);
 
-        page.addView(button("Sources & licenses",this::sources));gap(page,9);
-        page.addView(button("Export learning",this::backup));gap(page,9);
-        page.addView(button("Backup & restore",this::restorePicker));gap(page,9);
-        page.addView(button("Study & collections",this::studyLibrary));gap(page,9);
-        page.addView(button("Translation drafts",this::translationDrafts));gap(page,9);
-        page.addView(button("Clear search history",()->new AlertDialog.Builder(this).setTitle("Clear search history?")
+        page.addView(settingsRow("book","Sources & licenses",this::sources));gap(page,9);
+        page.addView(settingsRow("download","Export learning",this::backup));gap(page,9);
+        page.addView(settingsRow("cards","Backup & restore",this::restorePicker));gap(page,9);
+        page.addView(settingsRow("bookmark","Study & collections",this::studyLibrary));gap(page,9);
+        page.addView(settingsRow("copy","Translation drafts",this::translationDrafts));gap(page,9);
+        page.addView(settingsRow("close","Clear search history",()->new AlertDialog.Builder(this).setTitle("Clear search history?")
             .setMessage("Only your confirmed search shortcuts will be removed.").setNegativeButton("Cancel",null)
             .setPositiveButton("Clear",(d,w)->{learning.clearSearchShortcuts();toast("Search history cleared");}).show()));gap(page,12);
 
