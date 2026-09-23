@@ -148,18 +148,29 @@ def main():
         for surah in range(1,115):
             pack_path=packs/f"{surah:03d}.pack"
             count=0
+            # Store exact duplicate clips once per Surah. Canonical Word IDs stay independent;
+            # only their immutable audio byte range may be shared when full SHA-256 matches.
+            seen_clip={}
             with pack_path.open("wb") as out:
                 for word_id,ayah_id,position in by_surah.get(surah,[]):
                     src=source_file(source,ayah_id,int(position),extension)
                     length=src.stat().st_size
                     if length<32:
                         raise ValueError(f"Suspiciously small source audio: {src}")
-                    offset=out.tell()
-                    with src.open("rb") as inp:
-                        if inp.read(4)!=b"OggS":
-                            raise ValueError(f"Source clip is not an Ogg container: {src}")
-                        inp.seek(0)
-                        shutil.copyfileobj(inp,out,1024*1024)
+                    clip_hash=file_hash(src)
+                    existing=seen_clip.get(clip_hash)
+                    if existing is None:
+                        offset=out.tell()
+                        with src.open("rb") as inp:
+                            if inp.read(4)!=b"OggS":
+                                raise ValueError(f"Source clip is not an Ogg container: {src}")
+                            inp.seek(0)
+                            shutil.copyfileobj(inp,out,1024*1024)
+                        seen_clip[clip_hash]=(offset,length)
+                    else:
+                        offset,existing_length=existing
+                        if existing_length!=length:
+                            raise ValueError(f"Impossible SHA-256/length collision for {src}")
                     _,ayah=coordinate(ayah_id)
                     db.execute("INSERT INTO clip VALUES(?,?,?,?,?,?)",
                                (word_id,surah,ayah,int(position),offset,length))
@@ -173,6 +184,7 @@ def main():
                 "sha256":file_hash(pack_path),
                 "bytes":pack_bytes,
                 "words":count,
+                "unique_clips":len(seen_clip),
             }
 
         total_pack_bytes=sum(meta["bytes"] for meta in pack_meta.values())
