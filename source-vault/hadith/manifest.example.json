@@ -1,0 +1,13 @@
+{
+  "pack_id": "replace-with-stable-pack-id",
+  "content_version": "1.0.0",
+  "source_name": "replace-with-source-name",
+  "source_version": "replace-with-source-version-or-commit",
+  "redistribution_basis": "replace-with-explicit-license-or-written-permission",
+  "license_files": [
+    "LICENSES/PERMISSION.txt"
+  ],
+  "files": {
+    "records/collections.jsonl": "REPLACE_WITH_SHA256"
+  }
+}
