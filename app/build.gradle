@@ -62,11 +62,13 @@ tasks.named('preBuild').configure { dependsOn contentPack }
 def verifyQuranAudioPack = tasks.register('verifyQuranAudioPack', Exec) {
     dependsOn contentPack
     onlyIf { new File(activeQuranAudioSource, 'quran-audio/manifest.json').exists() }
+    inputs.file rootProject.file('source-vault/quran-audio/source-lock.json')
     outputs.upToDateWhen { false }
     workingDir rootProject.projectDir
     commandLine 'python3', 'tools/check_quran_audio.py',
         '--source', activeQuranAudioSource.absolutePath,
-        '--quran-db', file('src/main/assets/quran.sqlite').absolutePath
+        '--quran-db', file('src/main/assets/quran.sqlite').absolutePath,
+        '--source-lock', rootProject.file('source-vault/quran-audio/source-lock.json').absolutePath
 }
 tasks.named('preBuild').configure { dependsOn verifyQuranAudioPack }
 
