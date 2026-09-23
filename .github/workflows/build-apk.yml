@@ -26,13 +26,27 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android 35 build tools
+      - name: Resolve Android 35 SDK
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager --version
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -1 || true)"
+          if [ ! -f "$ANDROID_HOME/platforms/android-35/android.jar" ] || [ -z "$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d -name '35*' -print -quit 2>/dev/null)" ]; then
+            if [ -z "$SDKMANAGER" ]; then
+              echo "Android sdkmanager not found" >&2
+              exit 1
+            fi
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+          fi
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d -name '35*' | sort -V | tail -1)"
+          test -f "$ANDROID_HOME/platforms/android-35/android.jar"
+          test -x "$BUILD_TOOLS/aapt2"
+          test -x "$BUILD_TOOLS/zipalign"
+          test -f "$BUILD_TOOLS/lib/d8.jar"
+          test -f "$BUILD_TOOLS/lib/apksigner.jar"
+          echo "BUILD_TOOLS=$BUILD_TOOLS" >> "$GITHUB_ENV"
+          echo "Using $BUILD_TOOLS"
 
       - name: Create temporary release signing key
         shell: bash
@@ -48,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          python3 tools/build_release.py             --android-jar "$ANDROID_HOME/platforms/android-35/android.jar"             --build-tools "$ANDROID_HOME/build-tools/35.0.0"             --keystore "$RUNNER_TEMP/aaris-preview.p12"             --alias aaris-preview             --password-file "$RUNNER_TEMP/aaris-preview-password.txt"             --output "dist/Aaris-Quran-0.4.0-release-preview.apk"
+          python3 tools/build_release.py             --android-jar "$ANDROID_HOME/platforms/android-35/android.jar"             --build-tools "$BUILD_TOOLS"             --keystore "$RUNNER_TEMP/aaris-preview.p12"             --alias aaris-preview             --password-file "$RUNNER_TEMP/aaris-preview-password.txt"             --output "dist/Aaris-Quran-0.4.0-release-preview.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
