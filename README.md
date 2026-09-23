@@ -17,6 +17,7 @@ python3 tools/build_hadith.py --source source-vault/hadith/active
 ```
 
 Progress and known limitations: [docs/PROGRESS.md](docs/PROGRESS.md).
+Reader personalization, translations, recitation and research search: [docs/READER_PERSONALIZATION.md](docs/READER_PERSONALIZATION.md).
 Architecture coverage and remaining work: [docs/ARCHITECTURE_STATUS.md](docs/ARCHITECTURE_STATUS.md).
 The generated SQLite pack is not checked in; its archived sources and deterministic builder are.
 
@@ -42,7 +43,18 @@ That local pack supports Collection → Book → Chapter → Hadith navigation a
 English/reference search where those language layers exist. This is real offline core-nine coverage,
 not a claim that every collection in the wider Sunnah.com catalog is vendored.
 
-Quran pronunciation uses on-demand **isolated word recordings** so the base APK stays small
+Today now opens the shared Appearance Studio: six starting looks, independent colors,
+live preview, actual Quran/Naskh/Bold fonts, size/spacing, saved styles and undo/redo.
+Complete archived Hindi, Urdu and English translations appear below ayahs, with edition
+attribution; Arabic word taps stay available. Search accepts paragraphs and ranks textual
+overlap, typo and supported pronunciation matches. Hadith search covers all installed books
+without deduplicating separate narration IDs. Search results can be selected and shared as
+a local, attributed PDF through Android's share sheet. Whole-ayah recitation adds an optional
+Mishary/Al-Husary/Minshawi catalog, continuous playback and selected-reciter downloads.
+It is separate from the isolated-word pronunciation system below. Core builds never fetch it.
+Native compilation and device QA for this integration remain pending; no APK was produced.
+
+Quran word pronunciation uses on-demand **isolated word recordings** so the base APK stays small
 without cutting words out of one continuous recitation. The reviewed source lock pins
 `zaibihassan/Quranic-Word-By-Word-Audio-Data` at immutable revision
 `9796e08caae700f44266255da320adf6e5ab4114` and the Muallim teacher-style Opus set. A one-time

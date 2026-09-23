@@ -17,3 +17,7 @@ app/src/main/assets/hadith-manifest.json
 # Quran audio acquisition/packing staging must never be committed.
 source-vault/quran-audio/active.tmp/
 source-vault/quran-audio/active.old/
+
+app/src/main/assets/translations.sqlite
+app/src/main/assets/translations-manifest.json
+app/src/main/assets/*.tmp

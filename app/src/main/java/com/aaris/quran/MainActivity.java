@@ -26,6 +26,9 @@ public final class MainActivity extends Activity {
     private ContentStore content;
     private LearningStore learning;
     private Typeface arabicFont;
+    private Appearance appearance;
+    private String translationId="hindi_omari";
+    private TranslationSpeech translationSpeech;
     private FrameLayout root,overlay;
     private LinearLayout layout,body,header,bottom;
     private Glass.Backdrop backdrop;
@@ -47,7 +50,15 @@ public final class MainActivity extends Activity {
     private boolean preparingExport;
     private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending;
     private JSONObject pendingRestore;
-    private String searchQuery="";
+    private String searchQuery="",hadithQuery="";
+    private final List<HadithStore.Hit> hadithHits=new ArrayList<>();
+    private final Set<String> selectedHadith=new LinkedHashSet<>();
+    private final List<SearchEngine.Result> quranHits=new ArrayList<>();
+    private View hadithShare;
+    private int hadithTotal;
+    private boolean sharingPdf;
+    private TextView recitationBanner,recitationDownloadStatus;
+    private Runnable recitationListener;
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
     private final Map<String,JSONObject> selectionTrace=new LinkedHashMap<>();
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
@@ -57,7 +68,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);app=(QuranApp)getApplication();
         if(state!=null){pendingAmbient=state.getBoolean("pending_ambient");previewAmbient=state.getBoolean("preview_ambient");ambientResumePending=state.getBoolean("ambient_resume_pending");}
         if(state!=null&&ExportStaging.validToken(state.getString("pending_export")))pendingExport=state.getString("pending_export");
-        arabicFont=Typeface.createFromAsset(getAssets(),"fonts/AmiriQuran.ttf");
+        appearance=Appearance.load(this);Glass.apply(appearance);arabicFont=appearance.typeface(this);
         if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
         root=new FrameLayout(this);backdrop=new Glass.Backdrop(this);root.addView(backdrop,new FrameLayout.LayoutParams(-1,-1));
         layout=column(this);root.addView(layout,new FrameLayout.LayoutParams(-1,-1));
@@ -70,10 +81,10 @@ public final class MainActivity extends Activity {
         app.ready(()->{
             if(isFinishing()||isDestroyed())return;
             if(app.loadError!=null){loading.setText(app.loadError+"\nApp ko dobara kholein. Aapki learning alag surakshit hai.");return;}
-            content=app.content;learning=app.learning;
-            language=learning.get("language","hi");
+            content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;
+            language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");translationSpeech=new TranslationSpeech(this);
             highContrast=Boolean.parseBoolean(learning.get("contrast","false"));
-            arabicSize=clamp(parseFloat(learning.get("arabic_size","32"),32),24,46);
+            arabicSize=appearance.arabicSize;
             String last=learning.get("position","Q:1:1");Ayah a=content.ayah(last);
             if(a!=null){readerSurah=a.surah;readerStart=a.number;}
             if(state!=null){tab=state.getInt("tab",1);reading=state.getBoolean("reading",true);quietReader=state.getBoolean("quiet_reader",false);readerSurah=state.getInt("surah",readerSurah);readerStart=state.getInt("start",readerStart);
@@ -92,12 +103,16 @@ public final class MainActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
     @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();if(learning!=null&&readingPosition!=null){learning.set("reader_anchor",readingPosition.encode());learning.set("position",readingPosition.anchorId);}super.onPause();}
-    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();super.onDestroy();}
+    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void show(){
-        if(content==null||isDestroyed()||isFinishing())return;captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;backdrop.highContrast=highContrast;backdrop.invalidate();
+        if(content==null||isDestroyed()||isFinishing())return;
+        int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        getWindow().getDecorView().setSystemUiVisibility(Appearance.luminance(appearance.background)>.38?bars|light:bars&~light);
+        getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;backdrop.highContrast=highContrast;backdrop.invalidate();
         header=row(this);pad(header,20,10);layout.addView(header,new LinearLayout.LayoutParams(-1,-2));
         body=column(this);layout.addView(body,new LinearLayout.LayoutParams(-1,0,1));
+        recitationBanner=button("",()->audioControls(content.ayah("Q:"+app.recitationSurah+":"+app.recitationAyah)));layout.addView(recitationBanner);refreshRecitation();
         bottom=row(this);pad(bottom,6,5);bottom.setBackground(new Surface(this,Surface.Kind.NAV,highContrast));LinearLayout.LayoutParams navSize=new LinearLayout.LayoutParams(-1,-2);navSize.setMargins(dp(this,16),dp(this,6),dp(this,16),dp(this,10));layout.addView(bottom,navSize);
         if(tab==0)today();else if(tab==1){if(reading)reader();else library();}else if(tab==2)hadithLibrary();else map();
         nav("sun","Today",0);nav("book","Quran",1);nav("hadith","Hadith",2);nav("cards","Yaad",3);
@@ -111,7 +126,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams item=new LinearLayout.LayoutParams(0,-2,1);item.setMargins(dp(this,3),0,dp(this,3),0);bottom.addView(v,item);
     }
     private View iconButton(String icon,String description,Runnable action){
-        FrameLayout f=new FrameLayout(this);f.setMinimumHeight(dp(this,48));f.setMinimumWidth(dp(this,48));f.setContentDescription(description);f.setFocusable(true);f.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
+        FrameLayout f=new FrameLayout(this);f.setMinimumHeight(dp(this,48));f.setMinimumWidth(dp(this,48));f.setContentDescription(description);f.setTooltipText(description);f.setFocusable(true);f.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
         Glass.Icon view=new Glass.Icon(this,icon);FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(dp(this,23),dp(this,23),Gravity.CENTER);f.addView(view,p);f.setOnClickListener(v->action.run());return f;
     }
     private void heading(String eyebrow,String title){
@@ -126,7 +141,7 @@ public final class MainActivity extends Activity {
     private TextView action(String title,Runnable click,boolean primary){TextView b=text(this,title,14,primary?HIGH_INK:INK);b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setGravity(Gravity.CENTER);pad(b,16,13);b.setMinimumHeight(dp(this,48));b.setBackground(Glass.touch(this,primary?Surface.Kind.PRIMARY:Surface.Kind.BUTTON,highContrast));b.setFocusable(true);b.setOnClickListener(v->click.run());return b;}
     private TextView label(String text){TextView v=Glass.text(this,text,11,GOLD);v.setLetterSpacing(.12f);return v;}
     private void gap(LinearLayout v,int dp){View gap=new View(this);v.addView(gap,new LinearLayout.LayoutParams(1,Glass.dp(this,dp)));}
-    private ArabicText arabic(String value,float size){ArabicText v=new ArabicText(this);v.setText(value);v.setTextSize(size);v.setReliefEnabled(!highContrast);v.setTypeface(arabicFont);v.setTextDirection(View.TEXT_DIRECTION_RTL);v.setGravity(Gravity.CENTER);v.setLineSpacing(dp(this,10),1.08f);return v;}
+    private ArabicText arabic(String value,float size){ArabicText v=new ArabicText(this);v.setText(value);v.setTextSize(size);v.setReliefEnabled(!highContrast);v.setTypeface(arabicFont);v.setTextDirection(View.TEXT_DIRECTION_RTL);v.setGravity(Gravity.CENTER);v.setLineSpacing(dp(this,appearance.spacing),1.08f);return v;}
     private void caption(LinearLayout v,String value){TextView t=text(this,value,13,MUTED);t.setLineSpacing(dp(this,3),1.12f);v.addView(t);}
     private void toast(String value){if(!isDestroyed()&&!isFinishing())Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
 
@@ -164,9 +179,22 @@ public final class MainActivity extends Activity {
         TextView bookmarkCount=text(this,learning.bookmarks().size()+" bookmarks · Always offline",11,MUTED);
         bookmarkCount.setGravity(Gravity.CENTER);hero.addView(bookmarkCount);
         gap(page,18);
+        LinearLayout personal=card(page,Surface.Kind.PANEL);personal.addView(label("PERSONALIZE AARIS"));gap(personal,10);
+        personal.addView(button("Appearance · Colors & fonts",this::appearanceStudio));gap(personal,8);
+        personal.addView(button("Translation & reading",this::settings));gap(personal,8);
+        personal.addView(button("Reciter & downloads",()->audioControls(content.ayah("Q:"+readerSurah+":"+readerStart))));
+    }
+    private void appearanceStudio(){
+        Dialog previous=activeDialog;activeDialog=null;if(previous!=null)previous.dismiss();
+        activeDialog=AppearanceStudio.show(this,content.ayah("Q:1:1").arabic,()->{
+            activeDialog=null;if(isFinishing()||isChangingConfigurations())return;
+            appearance=Appearance.load(this);Glass.apply(appearance);arabicFont=appearance.typeface(this);arabicSize=appearance.arabicSize;show();
+        });
     }
     private void hadithLibrary(){
-        heading("HADITH · OFFLINE", "Hadith Library");LinearLayout page=scrollBody();
+        heading("HADITH · OFFLINE", "Hadith Library");
+        hadithShare=iconButton("share","Share search results as PDF",()->shareResearch(true));hadithShare.setVisibility(View.GONE);header.addView(hadithShare);
+        hadithHits.clear();selectedHadith.clear();hadithTotal=0;LinearLayout page=scrollBody();
         HadithStore store=app.hadith;
         if(store==null){
             LinearLayout unavailable=card(page,Surface.Kind.HERO);
@@ -184,10 +212,10 @@ public final class MainActivity extends Activity {
         caption(intro,"Pack "+store.contentVersion+" · "+store.sourceName+" · "+store.sourceVersion+" · Verified local SQLite\n"+languages+"\n"+store.redistributionBasis);
 
         EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);
-        query.setTextSize(16);query.setSingleLine(true);query.setHint(store.searchHint());
-        query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(512)});pad(query,14,10);
+        query.setTextSize(16);query.setMinLines(1);query.setMaxLines(4);query.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);query.setHint(store.searchHint()+" · paste a paragraph");
+        query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(16384)});pad(query,14,10);
         query.setBackground(new Surface(this,Surface.Kind.BUTTON,highContrast));
-        page.addView(query,new LinearLayout.LayoutParams(-1,dp(this,54)));gap(page,8);
+        page.addView(query,new LinearLayout.LayoutParams(-1,-2));gap(page,8);
 
         TextView status=text(this,"All collections are stored locally in this pack.",12,MUTED);page.addView(status);gap(page,14);
         LinearLayout list=column(this);page.addView(list);
@@ -210,24 +238,25 @@ public final class MainActivity extends Activity {
         collections.run();
 
         query.addTextChangedListener(watcher(()->{
-            String q=query.getText().toString().trim();
-            if(debounce!=null)ui.removeCallbacks(debounce);
-            searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);
+            String q=query.getText().toString().trim();hadithQuery=q;hadithHits.clear();selectedHadith.clear();hadithShare.setVisibility(View.GONE);list.removeAllViews();
+            if(debounce!=null)ui.removeCallbacks(debounce);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);
             if(q.isEmpty()){status.setText("All collections are stored locally in this pack.");collections.run();return;}
-            status.setText("Searching local Hadith pack…");int generation=searchGeneration.get();
-            debounce=()->{searchTask=app.searchWorker.submit(()->{
-                try{
-                    List<HadithStore.Record> results=store.search(q,50);
-                    ui.post(()->{
-                        if(isDestroyed()||tab!=2||searchGeneration.get()!=generation)return;
-                        list.removeAllViews();status.setText(results.isEmpty()?"No local match found.":results.size()+" local matches");
-                        for(HadithStore.Record record:results)hadithResultCard(list,record);
-                    });
-                }catch(CancellationException ignored){}catch(Exception e){
-                    ui.post(()->{if(tab==2&&searchGeneration.get()==generation)status.setText("Local search could not finish.");});
-                }
-            });};ui.postDelayed(debounce,250);
+            status.setText("Searching all local collections…");int generation=searchGeneration.get();
+            debounce=()->loadHadithSearch(q,0,generation,list,status);ui.postDelayed(debounce,250);
         }));
+    }
+    private void loadHadithSearch(String q,int offset,int generation,LinearLayout list,TextView status){
+        searchTask=app.searchWorker.submit(()->{try{
+            HadithStore.SearchPage response=app.hadith.searchPage(q,50,offset);
+            ui.post(()->{if(isDestroyed()||tab!=2||searchGeneration.get()!=generation)return;
+                hadithTotal=response.total;hadithHits.addAll(response.hits);
+                status.setText(response.total==0?"No matching local records. Try a shorter phrase or another spelling.":hadithHits.size()+" of "+response.total+" matches · High → Medium → Low");
+                for(HadithStore.Hit hit:response.hits){LinearLayout wrapper=column(this);list.addView(wrapper);TextView match=label(hit.match.band+" MATCH · "+hit.match.matched+" / "+hit.match.total+" words");wrapper.addView(match);
+                    hadithResultCard(wrapper,hit.record);CheckBox select=new CheckBox(this);select.setText("Select for PDF");select.setTextColor(INK);select.setMinHeight(dp(this,48));select.setChecked(selectedHadith.contains(hit.record.id));wrapper.addView(select);select.setOnCheckedChangeListener((v,checked)->{if(checked)selectedHadith.add(hit.record.id);else selectedHadith.remove(hit.record.id);});gap(wrapper,16);}
+                hadithShare.setVisibility(hadithHits.isEmpty()?View.GONE:View.VISIBLE);
+                if(hadithHits.size()<response.total){TextView more=button("Load next 50 matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadHadithSearch(q,hadithHits.size(),generation,list,status);});}
+            });
+        }catch(CancellationException ignored){}catch(Exception error){ui.post(()->{if(!isDestroyed()&&searchGeneration.get()==generation)status.setText("Search could not finish. Please try again.");});}});
     }
 
     private void hadithResultCard(LinearLayout parent,HadithStore.Record record){
@@ -235,16 +264,17 @@ public final class MainActivity extends Activity {
         HadithStore.CollectionInfo info=store.collection(record.collectionId);
         LinearLayout c=card(parent,Surface.Kind.PANEL);
         c.addView(label((info==null?record.collectionId:info.nameEn)+" · "+record.number));gap(c,10);
-        TextView ar=arabic(record.matnAr==null?record.arabic:record.matnAr,25);ar.setMaxLines(4);c.addView(ar);gap(c,8);
+        TextView ar=arabic(record.matnAr==null?record.arabic:record.matnAr,25);c.addView(ar);gap(c,8);
         HadithStore.DisplayTranslation translation=store.translation(record,language);
         if(translation!=null){
             TextView translated=text(this,translation.text,13,MUTED);
-            translated.setMaxLines(3);translated.setEllipsize(TextUtils.TruncateAt.END);
+            translated.setTextIsSelectable(true);
             if("ur".equals(translation.language)||"ar".equals(translation.language)){
                 translated.setTextDirection(View.TEXT_DIRECTION_RTL);translated.setGravity(Gravity.RIGHT);
             }
             c.addView(translated);gap(c,6);caption(c,translation.provenance);
         }
+        List<String> grades=store.grades(record.id);if(!grades.isEmpty())caption(c,String.join(" · ",grades));
         c.setFocusable(true);c.setContentDescription((info==null?"Hadith":info.nameEn)+" "+record.number);
         c.setOnClickListener(v->hadithRecord(record.id));
     }
@@ -403,33 +433,84 @@ public final class MainActivity extends Activity {
         header.addView(iconButton("search","Quran mein khojein",this::searchScreen));
         LinearLayout page=scrollBody();pad(page,16,8);readerScroll=(ScrollView)page.getParent();renderedPage="Q:"+readerSurah+":"+readerStart;
         readerScroll.setOnScrollChangeListener((View v,int x,int y,int oldX,int oldY)->{if(y!=oldY)hidePeek();});
-        LinearLayout tools=row(this);TextView surahs=button("Surahs  ↓",()->{reading=false;show();});tools.addView(surahs,new LinearLayout.LayoutParams(0,-2,1));TextView readingStyle=button("Aa · Reading",this::settings);LinearLayout.LayoutParams styleSize=new LinearLayout.LayoutParams(0,-2,1);styleSize.leftMargin=dp(this,8);tools.addView(readingStyle,styleSize);TextView audioPack=button(app.wordAudio!=null&&app.wordAudio.installedSurah(readerSurah)?"Audio ✓":"Audio ↓",()->audioSurahPrompt(readerSurah));LinearLayout.LayoutParams audioSize=new LinearLayout.LayoutParams(0,-2,1);audioSize.leftMargin=dp(this,8);tools.addView(audioPack,audioSize);page.addView(tools);gap(page,14);
+        LinearLayout tools=row(this);TextView surahs=button("Surahs  ↓",()->{reading=false;show();});tools.addView(surahs,new LinearLayout.LayoutParams(0,-2,1));TextView readingStyle=button("Aa · Reading",this::settings);LinearLayout.LayoutParams styleSize=new LinearLayout.LayoutParams(0,-2,1);styleSize.leftMargin=dp(this,8);tools.addView(readingStyle,styleSize);TextView audioPack=button(app.wordAudio!=null&&app.wordAudio.installedSurah(readerSurah)?"Word audio ✓":"Word audio ↓",()->audioSurahPrompt(readerSurah));LinearLayout.LayoutParams audioSize=new LinearLayout.LayoutParams(0,-2,1);audioSize.leftMargin=dp(this,8);tools.addView(audioPack,audioSize);page.addView(tools);gap(page,8);page.addView(button("Translation · "+(app.translations==null?"Unavailable":app.translations.edition(translationId).language.toUpperCase(Locale.ROOT))+" ↓",this::translationSettings));gap(page,14);
         TextView name=arabic(s.arabic,28);page.addView(name,new LinearLayout.LayoutParams(-1,-2));
         TextView latin=text(this,s.name,24,INK);latin.setGravity(Gravity.CENTER);latin.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(latin);
         TextView sub=text(this,s.meaning+"  ·  "+s.count+" ayat",12,MUTED);sub.setGravity(Gravity.CENTER);page.addView(sub);gap(page,10);
         TextView interaction=text(this,"Tap a word · View meaning",12,MUTED);interaction.setGravity(Gravity.CENTER);page.addView(interaction);gap(page,22);
+        String reciter=getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]);
+        boolean recitationOffline=app.recitationDownloads.ready(reciter,readerSurah,s.count);
         List<Ayah> ayahs=content.page(readerSurah,readerStart,8);
         for(Ayah a:ayahs){
             LinearLayout panel=card(page,Surface.Kind.MUSHAF);
             LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"%d : %d",a.surah,a.number),12,MUTED);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
+            View play=iconButton("play","Play ayah "+a.number+(recitationOffline?" · Surah downloaded":""),()->playAyah(a));
+            if(recitationOffline){Glass.Icon tick=new Glass.Icon(this,"check");tick.color=0xff44b57d;FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(dp(this,14),dp(this,14),Gravity.BOTTOM|Gravity.RIGHT);((FrameLayout)play).addView(tick,badge);}bar.addView(play);
+            bar.addView(iconButton("bookmark",learning.bookmarked(a.id)?"Remove bookmark":"Save ayah",()->{learning.toggleBookmark(a.id);toast(learning.bookmarked(a.id)?"Ayah saved":"Bookmark removed");}));
             View menu=iconButton("more","Ayah "+a.number+": bookmark, meaning, yaad aur share",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,48)));panel.addView(bar);gap(panel,8);
             List<ContentStore.Word> words=content.words(a.id);
-            QuranText verse=new QuranText(this,arabicFont,a,words,arabicSize,this::tapWord);verse.setReliefEnabled(!highContrast);readerVerses.put(a.id,verse);panel.addView(verse,new LinearLayout.LayoutParams(-1,-2));
+            QuranText verse=new QuranText(this,arabicFont,a,words,arabicSize,this::tapWord);verse.setReliefEnabled(!highContrast);verse.setLineSpacing(dp(this,appearance.spacing),1.08f);readerVerses.put(a.id,verse);panel.addView(verse,new LinearLayout.LayoutParams(-1,-2));
+            addTranslation(panel,a);
             for(ContentStore.Word w:words){Recall.State memory=learning.states().get(w.id);if(memory!=null&&memory.active&&memory.reviews>0&&memory.due<=System.currentTimeMillis()){
                 gap(panel,12);TextView recall=button("Chuna hua lafz · Meaning yaad karein",()->review(w.id));panel.addView(recall);break;
             }}
         }
         LinearLayout pager=row(this);
-        TextView previous=button("← Pichhli",()->{if(readerStart>1)open(readerSurah,Math.max(1,readerStart-8));else if(readerSurah>1)open(readerSurah-1,Math.max(1,content.surah(readerSurah-1).count-7));});
+        TextView previous=button("← Previous",()->{if(readerStart>1)open(readerSurah,Math.max(1,readerStart-8));else if(readerSurah>1)open(readerSurah-1,Math.max(1,content.surah(readerSurah-1).count-7));});
         pager.addView(previous,new LinearLayout.LayoutParams(0,-2,1));
         TextView counter=text(this,readerStart+"–"+Math.min(s.count,readerStart+7)+" / "+s.count,12,MUTED);counter.setGravity(Gravity.CENTER);pager.addView(counter,new LinearLayout.LayoutParams(0,-2,1));
-        TextView next=button("Agli →",()->{if(readerStart+8<=s.count)open(readerSurah,readerStart+8);else if(readerSurah<114)open(readerSurah+1,1);});pager.addView(next,new LinearLayout.LayoutParams(0,-2,1));page.addView(pager);gap(page,12);
-        page.addView(button("Yaad saath rahe · Overlay timer",this::ambientSettings));gap(page,12);
+        TextView next=button("Next →",()->{if(readerStart+8<=s.count)open(readerSurah,readerStart+8);else if(readerSurah<114)open(readerSurah+1,1);});pager.addView(next,new LinearLayout.LayoutParams(0,-2,1));page.addView(pager);gap(page,12);
+        page.addView(button("Recall Companion · Timer",this::ambientSettings));gap(page,12);
         TextView source=text(this,"Tanzil Project · Uthmani 1.1",11,MUTED);source.setGravity(Gravity.CENTER);source.setOnClickListener(v->sources());page.addView(source);gap(page,12);
         if(quietReader){header.setVisibility(View.GONE);bottom.setVisibility(View.GONE);page.addView(button("Controls dikhaayein",()->{quietReader=false;show();}));}
         restoreReaderPosition();
     }
 
+    private void refreshRecitation(){if(recitationBanner==null||isDestroyed())return;recitationBanner.setText(app.recitationLabel+" · Controls");recitationBanner.setVisibility(app.recitationActive?View.VISIBLE:View.GONE);}
+    private void playAyah(Ayah a){
+        if(!getSharedPreferences("recitation",0).getBoolean("chosen",false)){audioControls(a);return;}
+        if(translationSpeech!=null)translationSpeech.stop();RecitationService.command(this,RecitationService.PLAY,a.surah,a.number);
+    }
+    private void audioControls(Ayah a){
+        if(a==null)return;LinearLayout page=sheet("Recitation & audio");Dialog dialog=activeDialog;
+        android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);String selected=preferences.getString("reciter",RecitationDownloads.IDS[0]);
+        caption(page,"Choose a reciter. Play continues from this ayah; your choice is remembered.");gap(page,12);
+        for(int i=0;i<RecitationDownloads.IDS.length;i++){String id=RecitationDownloads.IDS[i];page.addView(button((id.equals(selected)?"✓ ":"")+RecitationDownloads.NAMES[i],()->{preferences.edit().putString("reciter",id).putBoolean("chosen",true).apply();audioControls(a);}));gap(page,8);}
+        Switch mode=new Switch(this);mode.setText("Continue to the end of this Surah");mode.setTextColor(INK);mode.setMinHeight(dp(this,48));mode.setChecked(preferences.getBoolean("continuous",true));mode.setOnCheckedChangeListener((b,v)->preferences.edit().putBoolean("continuous",v).apply());page.addView(mode);
+        LinearLayout repeats=row(this);for(int n:new int[]{1,3,5})repeats.addView(button("Repeat "+n+(preferences.getInt("repeat",1)==n?" ✓":""),()->{preferences.edit().putInt("repeat",n).apply();audioControls(a);}));page.addView(repeats);gap(page,12);
+        page.addView(primary("Play from "+a.surah+":"+a.number,()->{preferences.edit().putBoolean("chosen",true).apply();dialog.dismiss();playAyah(a);}));gap(page,8);
+        if(app.recitationActive){LinearLayout transport=row(this);transport.addView(iconButton("back","Previous ayah",()->RecitationService.command(this,RecitationService.PREVIOUS,a.surah,a.number)));transport.addView(button("Play / Pause",()->RecitationService.command(this,RecitationService.PAUSE,a.surah,a.number)));transport.addView(iconButton("next","Next ayah",()->RecitationService.command(this,RecitationService.NEXT,a.surah,a.number)));page.addView(transport);page.addView(button("Stop playback",()->stopService(new Intent(this,RecitationService.class))));}
+        gap(page,12);recitationDownloadStatus=text(this,app.recitationDownloads.progress,13,MUTED);page.addView(recitationDownloadStatus);
+        boolean offline=app.recitationDownloads.ready(selected,a.surah,content.surah(a.surah).count);
+        caption(page,offline?"✓ This Surah is downloaded for the selected reciter":"Play needs internet for ayahs not yet downloaded. Saved ayahs play offline.");
+        page.addView(button(offline?"Downloaded ✓":"Download this Surah",()->downloadRecitation(selected,a.surah,a.surah)));gap(page,8);
+        page.addView(button("Download all Surahs · "+RecitationDownloads.NAMES[RecitationDownloads.index(selected)],()->{
+            new AlertDialog.Builder(this).setTitle("Download this reciter?").setMessage("All 114 Surahs will use significant data and storage. Completed ayahs are kept if you pause or reconnect.").setNegativeButton("Cancel",null).setPositiveButton("Download",(d,w)->downloadRecitation(selected,1,114)).show();}));gap(page,8);
+        if(app.recitationDownloads.busy){caption(page,app.recitationDownloads.progress);page.addView(button("Pause downloads",()->app.recitationDownloads.cancelled=true));}
+        gap(page,12);caption(page,RecitationDownloads.ATTRIBUTION);page.addView(button("Word pronunciation downloads",()->audioSurahPrompt(a.surah)));
+    }
+    private void downloadRecitation(String reciter,int first,int last){
+        if(app.recitationDownloads.busy){toast("A download is already running");return;}
+        toast("Download started. Keep Aaris open for this download.");
+        app.audioWorker.execute(()->{try{app.recitationDownloads.download(content,reciter,first,last,()->ui.post(()->{if(recitationDownloadStatus!=null&&!isDestroyed())recitationDownloadStatus.setText(app.recitationDownloads.progress);}));ui.post(()->toast(app.recitationDownloads.progress));}
+        catch(Exception e){ui.post(()->toast("Download paused. Completed ayahs are safe; tap Download to continue."));}});
+    }
+    private void addTranslation(LinearLayout panel,Ayah ayah){
+        if(app.translations==null){gap(panel,10);caption(panel,"Translation pack unavailable on this installation.");return;}
+        TranslationStore.Entry entry=app.translations.get(translationId,ayah.id);if(entry==null)return;
+        gap(panel,14);TextView translated=text(this,entry.text,appearance.translationSize,Appearance.readable(appearance.translation,appearance.effectiveSurface()));
+        translated.setTextDirection("ur".equals(entry.edition.language)?View.TEXT_DIRECTION_RTL:View.TEXT_DIRECTION_FIRST_STRONG);
+        translated.setGravity("ur".equals(entry.edition.language)?Gravity.RIGHT:Gravity.LEFT);translated.setTextIsSelectable(true);panel.addView(translated);gap(panel,8);
+        TextView attribution=text(this,entry.edition.attribution(),11,MUTED);panel.addView(attribution);
+        if(!entry.footnotes.isEmpty())panel.addView(button("Translation notes",()->{LinearLayout p=sheet("Translation notes");caption(p,entry.edition.attribution());TextView notes=text(this,entry.footnotes,17,INK);notes.setTextIsSelectable(true);notes.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);p.addView(notes);}));
+    }
+    private void translationSettings(){
+        LinearLayout page=sheet("Translation");Dialog dialog=activeDialog;dialog.setOnDismissListener(d->{if(activeDialog==dialog){activeDialog=null;show();}});
+        caption(page,"A full translation below every ayah. Tap Arabic words for their separate word meanings.");gap(page,12);
+        if(app.translations==null){caption(page,"The translation pack could not be opened. Arabic reading is available.");return;}
+        for(TranslationStore.Edition e:app.translations.editions){page.addView(button((translationId.equals(e.id)?"✓ ":"")+e.title,()->{translationId=e.id;learning.set("translation_edition",e.id);dialog.dismiss();}));gap(page,8);caption(page,e.description+" · v"+e.version);}
+        gap(page,14);caption(page,"Reading script: original. Hindi uses देवनागरी, Urdu uses اردو, English uses Roman letters. A reviewed Urdu-to-Devanagari edition is not installed.");
+    }
     private void captureReaderPosition(){
         if(readerScroll==null||readerScroll==restoringReader||!readerScroll.isAttachedToWindow()||readerVerses.isEmpty())return;
         if(readerScroll.getScrollY()==0){readingPosition=new ReadingPosition(renderedPage,renderedPage,0,0,true);return;}
@@ -497,6 +578,7 @@ public final class MainActivity extends Activity {
         peek.announceForAccessibility(word.gloss(language));
     }
     private void playWordAudio(ContentStore.Word word,boolean explicit){
+        if(explicit&&app.recitationActive)stopService(new Intent(this,RecitationService.class));
         if(app.audio!=null&&app.audio.play(word))return;
         if(explicit)toast(app.wordAudioLoadError==null?"Is Surah ka audio pehle download karein":app.wordAudioLoadError);
     }
@@ -605,6 +687,9 @@ public final class MainActivity extends Activity {
     }
     private void ayahActions(Ayah a){
         LinearLayout page=sheet(content.surah(a.surah).name+" · "+a.number);
+        page.addView(button("Play · Reciter & audio",()->audioControls(a)));gap(page,10);
+        page.addView(button("Copy ayah",()->{((ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText(a.id,a.arabic+"\n["+a.id+"]"));toast("Ayah copied");}));gap(page,10);
+        if(app.translations!=null)page.addView(button("Listen to translation · Device voice",()->{stopService(new Intent(this,RecitationService.class));if(app.audio!=null)app.audio.stop();translationSpeech.speak(app.translations.get(translationId,a.id));}));gap(page,10);
         page.addView(button(learning.bookmarked(a.id)?"Bookmark hataayein":"Bookmark karein",()->{learning.toggleBookmark(a.id);toast(learning.bookmarked(a.id)?"Bookmark save hua":"Bookmark hata diya");activeDialog.dismiss();}));gap(page,10);
         page.addView(button("Yeh ayah yaad karaayein",()->{enroll(a.id,a.id);activeDialog.dismiss();}));gap(page,10);
         page.addView(button("Chhota hissa yaad karaayein",()->choosePhrase(a)));gap(page,10);
@@ -740,34 +825,40 @@ public final class MainActivity extends Activity {
     private void searchScreen(){
         captureReaderPosition();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();hidePeek();searching=true;layout.removeAllViews();
         header=row(this);pad(header,16,10);layout.addView(header);header.addView(iconButton("back","Reader par waapas",this::show));
-        TextView title=text(this,"Quran mein khojein",22,INK);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));header.addView(iconButton("share","Research aur evidence",this::research));
+        TextView title=text(this,"Quran mein khojein",22,INK);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));header.addView(iconButton("share","Share search results as PDF",()->shareResearch(false)));
         LinearLayout fieldContainer=column(this);pad(fieldContainer,20,0);layout.addView(fieldContainer);
-        EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);query.setTextSize(17);query.setHint("Arabic, Hindi, Urdu… ya 2:255");query.setMinLines(1);query.setMaxLines(4);query.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(4096)});pad(query,16,8);query.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));fieldContainer.addView(query,new LinearLayout.LayoutParams(-1,-2));
+        EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);query.setTextSize(17);query.setHint("Arabic, Hindi, Urdu… ya 2:255");query.setMinLines(1);query.setMaxLines(4);query.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(16384)});pad(query,16,8);query.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));fieldContainer.addView(query,new LinearLayout.LayoutParams(-1,-2));
         gap(fieldContainer,12);LinearLayout chips=row(this);chips.addView(button("Quran · Offline",()->{}));TextView hadith=button("Hadith ↗",()->{tab=2;quietReader=false;show();});LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-2,-2);hp.leftMargin=dp(this,8);chips.addView(hadith,hp);fieldContainer.addView(chips);gap(fieldContainer,12);
         body=column(this);layout.addView(body,new LinearLayout.LayoutParams(-1,0,1));LinearLayout results=scrollBody();
         TextView status=text(this,"Ayah reference, Arabic phrase ya source word meaning se khojein.",14,MUTED);results.addView(status);gap(results,16);
         LinearLayout list=column(this);results.addView(list);
         Runnable run=()->{
-            searchQuery=query.getText().toString();int generation=searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);
+            searchQuery=query.getText().toString();quranHits.clear();int generation=searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);
             if(debounce!=null)ui.removeCallbacks(debounce);
             String q=searchQuery.trim();if(q.isEmpty()){list.removeAllViews();evidenceControls.clear();status.setText("Ayah reference, Arabic phrase ya source word meaning se khojein.");return;}
             status.setText("Offline search…");
             debounce=()->{searchTask=app.searchWorker.submit(()->{
                 try {
-                    if(app.search==null)app.search=content.buildSearch();SearchEngine.Response response=app.search.search(q,30);
+                    if(app.search==null)app.search=content.buildSearch(app.translations);SearchEngine.Response response=app.search.search(q,6236);
                     ui.post(()->{if(isDestroyed()||!searching||searchGeneration.get()!=generation)return;
-                        list.removeAllViews();evidenceControls.clear();status.setText(response.intent.equals("QUERY_LIMIT")?"Ek baar mein 8 chhoti search lines tak likhein; lambi query ko chhota karein.":response.fragments!=null?"Poora Arabic phrase nahi mila. Alag source hisse neeche dekhein.":response.results.isEmpty()?"Bharosemand match nahi mila. Chhota phrase ya doosri spelling try karein.":response.results.size()+" results · Sirf local Quran source");
+                        list.removeAllViews();evidenceControls.clear();status.setText(response.intent.equals("QUERY_LIMIT")?"Paste up to 16,384 characters per search.":response.fragments!=null?"Poora Arabic phrase nahi mila. Alag source hisse neeche dekhein.":response.results.isEmpty()?"Bharosemand match nahi mila. Chhota phrase ya doosri spelling try karein.":response.results.size()+" of "+response.trace.getOrDefault("accepted",response.results.size())+" matches · Highest word coverage first");
                         if(response.fragments!=null)showFragments(list,response,query);
-                        for(SearchEngine.Result result:response.results){
-                            LinearLayout c=card(list,Surface.Kind.PANEL);c.addView(label(result.strength==SearchEngine.Strength.STRONG_TEXT?"STRONG TEXT MATCH":"RELATED WORD MEANING / TEXT"));gap(c,8);
-                            Ayah a=result.ayah;c.addView(text(MainActivity.this,content.surah(a.surah).name+" · "+a.surah+":"+a.number,18,INK));gap(c,10);TextView text=arabic(a.arabic,25);c.addView(text);gap(c,12);
-                            caption(c,String.join(" · ",result.reasons));gap(c,14);c.addView(evidenceActions(a,retrievalTrace(response,result)));
-                        }
+                        appendQuranResults(list,response,0,status);
                     });
                 }catch(CancellationException ignored){}catch(Exception e){ui.post(()->{if(!isDestroyed()&&searchGeneration.get()==generation)status.setText("Search abhi khul nahi saka. Dobara try karein.");});}
             });};ui.postDelayed(debounce,220);
         };
         query.addTextChangedListener(watcher(run));query.setText(searchQuery);query.setSelection(query.length());
+    }
+    private void appendQuranResults(LinearLayout list,SearchEngine.Response response,int offset,TextView status){
+        int end=Math.min(offset+50,response.results.size());
+        for(SearchEngine.Result result:response.results.subList(offset,end)){
+            quranHits.add(result);LinearLayout c=card(list,Surface.Kind.PANEL);c.addView(label(result.match.band+" MATCH · "+result.match.matched+" / "+result.match.total+" words"));gap(c,8);
+            Ayah a=result.ayah;c.addView(text(this,content.surah(a.surah).name+" · "+a.surah+":"+a.number,18,INK));gap(c,10);c.addView(arabic(a.arabic,25));gap(c,12);
+            addTranslation(c,a);caption(c,String.join(" · ",result.reasons));gap(c,14);c.addView(evidenceActions(a,retrievalTrace(response,result)));
+        }
+        if(!response.results.isEmpty())status.setText(end+" of "+response.results.size()+" matches · High → Medium → Low");
+        if(end<response.results.size()){TextView more=button("Load next 50 matches",()->{});list.addView(more);more.setOnClickListener(v->{list.removeView(more);appendQuranResults(list,response,end,status);});}
     }
     private LinearLayout evidenceActions(Ayah ayah,JSONObject trace){
         LinearLayout actions=row(this);actions.addView(button("Ayah kholein",()->open(ayah.surah,ayah.number)),new LinearLayout.LayoutParams(0,-2,1));
@@ -806,11 +897,12 @@ public final class MainActivity extends Activity {
         if(!response.results.isEmpty()){list.addView(label("POORI QUERY SE RELATED RESULTS"));gap(list,12);}
     }
     private void settings(){
-        LinearLayout page=sheet("Apni reading");Dialog settingsDialog=activeDialog;
+        LinearLayout page=sheet("Reading settings");Dialog settingsDialog=activeDialog;
         settingsDialog.setOnDismissListener(d->{if(activeDialog==settingsDialog){activeDialog=null;show();}});
-        page.addView(label("ARABIC KA SIZE"));gap(page,8);ArabicText sample=arabic(content.ayah("Q:1:1").arabic,arabicSize);page.addView(sample);
+        page.addView(button("Appearance · Live preview",this::appearanceStudio));gap(page,10);page.addView(button("Translation · Language & scholar",this::translationSettings));gap(page,14);
+        page.addView(label("ARABIC SIZE"));gap(page,8);ArabicText sample=arabic(content.ayah("Q:1:1").arabic,arabicSize);page.addView(sample);
         SeekBar slider=new SeekBar(this);slider.setMax(22);slider.setProgress((int)arabicSize-24);page.addView(slider);slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
-            public void onProgressChanged(SeekBar s,int p,boolean user){arabicSize=24+p;sample.setTextSize(arabicSize);}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){learning.set("arabic_size",""+arabicSize);}
+            public void onProgressChanged(SeekBar s,int p,boolean user){arabicSize=24+p;sample.setTextSize(arabicSize);}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){learning.set("arabic_size",""+arabicSize);appearance.arabicSize=(int)arabicSize;appearance.save(MainActivity.this);}
         });gap(page,16);page.addView(label("WORD MEANING KI ZABAAN"));gap(page,10);
         LinearLayout langs=row(this);for(String lang:new String[]{"hi","ur","en"}){String name=lang.equals("hi")?"हिन्दी":lang.equals("ur")?"اردو":"English";TextView b=button(name+(language.equals(lang)?" ✓":""),()->{language=lang;learning.set("language",lang);settings();});langs.addView(b,new LinearLayout.LayoutParams(0,-2,1));}page.addView(langs);gap(page,18);
         Switch contrast=new Switch(this);contrast.setText("Zyada contrast");contrast.setTextColor(INK);contrast.setChecked(highContrast);contrast.setMinHeight(dp(this,48));page.addView(contrast);contrast.setOnCheckedChangeListener((b,v)->{highContrast=v;learning.set("contrast",""+v);sample.setReliefEnabled(!v);backdrop.highContrast=v;backdrop.invalidate();});
@@ -826,8 +918,10 @@ public final class MainActivity extends Activity {
         else caption(page,"Word pronunciation storage abhi available nahi hai.");
         gap(page,12);
         caption(page,"Yeh non-commercial preview hai. Imported gloss data paid app, subscription ya advertisements ke liye cleared nahi hai.");gap(page,14);
-        for(String[] item:new String[][]{{"Tanzil notice","licenses/TANZIL.txt"},{"Word meanings license","licenses/DATA-QURAN.txt"},{"Amiri font license","licenses/AMIRI-OFL.txt"}}){page.addView(button(item[0],()->{LinearLayout p=sheet(item[0]);try{TextView v=text(this,ContentStore.asset(this,item[1]),12,MUTED);v.setTextIsSelectable(true);p.addView(v);}catch(IOException e){caption(p,"License file unavailable");}}));gap(page,8);}
+        for(String[] item:new String[][]{{"Tanzil notice","licenses/TANZIL.txt"},{"Word meanings license","licenses/DATA-QURAN.txt"},{"Amiri Quran font license","licenses/AMIRI-OFL.txt"},{"Amiri Naskh font license","licenses/AMIRI-TEXT-OFL.txt"}}){page.addView(button(item[0],()->{LinearLayout p=sheet(item[0]);try{TextView v=text(this,ContentStore.asset(this,item[1]),12,MUTED);v.setTextIsSelectable(true);p.addView(v);}catch(IOException e){caption(p,"License file unavailable");}}));gap(page,8);}
         page.addView(button("Tanzil source website",()->openWebsite(Uri.parse("https://tanzil.net/"))));gap(page,10);
+        if(app.translations!=null){for(TranslationStore.Edition edition:app.translations.editions)caption(page,edition.attribution()+"\n"+edition.description);caption(page,app.translations.notice);}
+        caption(page,RecitationDownloads.ATTRIBUTION);
         caption(page,"Pack SHA-256\n"+content.packHash+"\nScheduler: "+Recall.VERSION+"\nSearch: "+SearchEngine.VERSION);
     }
     private void hideKeyboard(){View view=getCurrentFocus();if(view!=null)((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(view.getWindowToken(),0);}
@@ -875,7 +969,7 @@ public final class MainActivity extends Activity {
             return new JSONObject().put("selection_origin","SEARCH").put("engine",SearchEngine.VERSION)
                 .put("query",response.query).put("intent",response.intent).put("query_variants",variants)
                 .put("matched_variants",new JSONArray(result.matchedVariants)).put("strength",result.strength.name())
-                .put("reasons",new JSONArray(result.reasons)).put("transformation_cost",result.transformationCost)
+                .put("reasons",new JSONArray(result.reasons)).put("transformation_cost",result.transformationCost).put("match_band",result.match.band.name()).put("matched_words",result.match.matched).put("query_words",result.match.total)
                 .put("counts",new JSONObject(response.trace));
         }catch(JSONException e){throw new IllegalStateException(e);}
     }
@@ -895,6 +989,28 @@ public final class MainActivity extends Activity {
         }catch(JSONException e){throw new IllegalStateException(e);}
     }
 
+    private void shareResearch(boolean hadith){
+        if(sharingPdf){toast("PDF is being prepared…");return;}
+        List<HadithStore.Hit> hits=new ArrayList<>();List<Ayah> ayahs=new ArrayList<>();Map<String,String> matches=new LinkedHashMap<>();
+        if(hadith){for(HadithStore.Hit h:hadithHits)if(selectedHadith.isEmpty()||selectedHadith.contains(h.record.id))hits.add(h);}
+        else{for(SearchEngine.Result r:quranHits){matches.put(r.ayah.id,r.match.band+" TEXT MATCH · "+r.match.matched+" / "+r.match.total+" query words");if(selectedEvidence.isEmpty())ayahs.add(r.ayah);}if(!selectedEvidence.isEmpty())for(String id:selectedEvidence){Ayah a=content.ayah(id);if(a!=null)ayahs.add(a);}}
+        int count=hadith?hits.size():ayahs.size();if(count==0){toast("Search or select records first");return;}
+        LinearLayout page=sheet("Share research PDF");Dialog dialog=activeDialog;
+        caption(page,count+" complete source records will be exported. "+(hadith&&count<hadithTotal?"There are "+hadithTotal+" matches in total; this PDF includes selected or loaded results.":"Selected records, or the currently displayed results, are included."));gap(page,14);
+        page.addView(primary("Share PDF · "+count+" records",()->{
+            sharingPdf=true;dialog.dismiss();toast("Preparing PDF on your phone…");String query=hadith?hadithQuery:searchQuery,edition=translationId,lang=language;
+            app.io.execute(()->{try{
+                byte[] bytes=hadith?ResearchExport.hadith(this,app.hadith,hits,lang,query):ResearchExport.quran(this,content,app.translations,edition,ayahs,matches,query);
+                Uri uri=ResearchFiles.write(this,bytes);ui.post(()->{sharingPdf=false;if(isDestroyed()||isFinishing())return;
+                    Intent intent=new Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM,uri).putExtra(Intent.EXTRA_TEXT,ResearchExport.PROMPT)
+                        .setClipData(ClipData.newRawUri("Aaris research PDF",uri)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    try{startActivity(Intent.createChooser(intent,"Share research PDF"));}catch(ActivityNotFoundException e){toast("No PDF receiving app is installed");}
+                });
+            }catch(Exception e){ui.post(()->{sharingPdf=false;toast("PDF could not be created. Try fewer records.");});}});
+        }));gap(page,10);
+        page.addView(button("Copy AI research prompt",()->{((ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Research prompt",ResearchExport.PROMPT));toast("Prompt copied");}));
+        if(!hadith){gap(page,10);page.addView(button("Evidence tools · ZIP & reference check",this::research));}
+    }
     private void research(){
         LinearLayout page=sheet("Evidence aur research");caption(page,"Search result se ayat chunein. Export mein original Quran, reference aur source checksum jaayega.");gap(page,12);
         page.addView(text(this,selectedEvidence.size()+" ayat chuni hui hain",21,INK));gap(page,14);

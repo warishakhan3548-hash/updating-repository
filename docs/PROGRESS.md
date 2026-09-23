@@ -381,3 +381,30 @@ download the Gradle distribution; analyzer setup is still in progress.
   chooses to store.
 - Real-device Opus seek accuracy, slow/interrupted-download behavior and final installed/release
   size measurements still need physical Android QA. No APK/AAB was built and no CI workflow was run.
+
+## Checkpoint 21: reader personalization, translations and ranked research (2026-09-23)
+
+- Today → Personalize Aaris opens one shared Appearance Studio with live preview, six starting
+  palettes, independent colors, glass/plain finishes, real Amiri Quran/Naskh/Bold fonts,
+  size/spacing, undo/redo and named saved styles. Word taps and original Quran text remain intact.
+- Archived Hindi/Urdu/English QuranEnc translations cover 6,236 ayahs each and build locally
+  into a separate checksum-verified SQLite pack. Source edition, version, footnotes and notices
+  stay attached. No build-time website fetch or automatic Urdu script conversion is introduced.
+- Quran paragraph search now scores all pasted lines together. Full and partial overlaps,
+  bounded spelling repairs and supported Roman/Devanagari pronunciation shadows return original
+  source records. Hadith search uses a generated global token index across all installed books,
+  preserves separate narration IDs and uses Bukhari/Muslim only to break equal relevance scores.
+- Search exposes local PDF sharing of selected/loaded complete records, source references and
+  match labels through temporary read-only URI grants. The export count/scope is explicit;
+  copying an AI research prompt is an explicit separate action.
+- Mishary, Al-Husary and Minshawi whole-ayah playback is a separate optional remote catalog with
+  user-triggered downloads, continuous/repeat playback and a foreground media notification.
+  Existing word pronunciation now uses the repository's pinned isolated clips, superseding
+  Checkpoint 20's timestamp-slicing description. Whole-ayah audio is not mirrored into GitHub.
+- Validation: 123 JVM core checks, 15/15 full-corpus retrieval cases, 20 absent queries, all
+  6,236 coordinates and 77,881 word ranges passed. The real core-nine Hadith pack rebuilt with
+  62,169 records. Three translation editions total 18,708 records. Corpus MRR@10 was 0.967
+  on this small engineering set; this is not a scholarly accuracy or phone-speed benchmark.
+- Android SDK/device compilation, visual checks, PDF receiving apps and media lifecycle QA
+  remain pending. No APK/AAB or CI run. See READER_PERSONALIZATION.md for the exact feature
+  scope and remaining transliteration, Hadith language and advanced retrieval work.

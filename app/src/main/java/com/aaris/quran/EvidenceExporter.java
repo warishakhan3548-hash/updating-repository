@@ -67,10 +67,12 @@ final class EvidenceExporter {
             return pages.bytes();
         }
     }
-    private static final class Pages implements AutoCloseable {
+    static final class Pages implements AutoCloseable {
         final PdfDocument doc=new PdfDocument();PdfDocument.Page page;float y=44;int number;
-        Pages(){next();}
-        void finish(){if(page!=null){Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setTextSize(9);p.setColor(Color.DKGRAY);page.getCanvas().drawText("Tanzil Project · https://tanzil.net/     |     "+number,40,817,p);doc.finishPage(page);page=null;}}
+        final String footer;
+        Pages(){this("Tanzil Project · https://tanzil.net/");}
+        Pages(String footer){this.footer=footer;next();}
+        void finish(){if(page!=null){Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setTextSize(9);p.setColor(Color.DKGRAY);page.getCanvas().drawText(footer+"     |     "+number,40,817,p);doc.finishPage(page);page=null;}}
         void next(){finish();page=doc.startPage(new PdfDocument.PageInfo.Builder(595,842,++number).create());y=44;}
         void block(String text,Typeface font,int size,boolean rtl){
             TextPaint paint=new TextPaint(Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.BLACK);paint.setTypeface(font);paint.setTextSize(size);

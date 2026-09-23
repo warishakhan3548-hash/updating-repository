@@ -13,11 +13,19 @@ import java.util.concurrent.*;
 public final class QuranApp extends Application {
     final ExecutorService io=Executors.newSingleThreadExecutor();
     final ExecutorService searchWorker=Executors.newSingleThreadExecutor();
+    final ExecutorService recitationWorker=Executors.newSingleThreadExecutor();
+    volatile RecitationDownloads recitationDownloads;
+    volatile boolean recitationActive;
+    volatile int recitationSurah=1,recitationAyah=1;
+    volatile String recitationLabel="";
+    Runnable recitationChanged;
     final ExecutorService audioWorker=Executors.newSingleThreadExecutor();
     final Handler main=new Handler(Looper.getMainLooper());
     volatile ContentStore content;
     volatile LearningStore learning;
     volatile HadithStore hadith;
+    volatile TranslationStore translations;
+    volatile String translationError;
     volatile QuranAudioStore wordAudio;
     volatile WordAudioPlayer audio;
     volatile QuranAudioDownloadManager audioDownloads;
@@ -30,6 +38,7 @@ public final class QuranApp extends Application {
     private final CountDownLatch ready=new CountDownLatch(1);
     @Override public void onCreate(){
         super.onCreate();
+        Glass.apply(Appearance.load(this));recitationDownloads=new RecitationDownloads(this);
         AmbientSettings.processStarted(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks(){
             public void onActivityStarted(Activity a){startedActivities++;visibility();}
@@ -44,6 +53,7 @@ public final class QuranApp extends Application {
         exports=new ExportStaging(new File(getFilesDir(),"export-staging"));io.execute(()->{
             try{
                 content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();
+                try{translations=new TranslationStore(this);}catch(Exception e){translationError=e.getMessage();}
                 try{hadith=HadithStore.openIfBundled(this);}catch(Exception e){hadith=null;hadithLoadError="Hadith pack could not be opened: "+e.getMessage();}
                 try{
                     wordAudio=new QuranAudioStore(this,content.audioAlignmentHash);

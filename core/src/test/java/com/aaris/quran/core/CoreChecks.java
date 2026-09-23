@@ -25,11 +25,11 @@ public final class CoreChecks {
         check(search.search("work नहीं",10).results.stream().noneMatch(r->r.ayah.number==2),"Hindi negation preserved");
         check(!search.search("درست",10).results.isEmpty(),"Urdu must reach gloss lane");
         check(search.search("unicorn telescope",10).results.isEmpty(),"Unsupported query abstains");
-        check(search.search("درست\nدرست",10).results.size()==search.search("درست",10).results.size(),"Duplicate variants do not create evidence");
+        check(search.search("درست\nدرست",Collections.emptyList(),10).results.size()==search.search("درست",10).results.size(),"Explicit duplicate variants do not create evidence");
         SearchEngine repeated=new SearchEngine(Arrays.asList(doc(1,"كلمة واحدة","one"),doc(2,"كلمة كلمة واحدة","two")));
         check(repeated.search("كلمة كلمة",10).results.stream().noneMatch(r->r.ayah.number==1),"One token cannot satisfy repeated query words");
         check(search.search("درست",10).trace.get("gloss_bm25")>0,"Trace accounts for Urdu gloss candidates");
-        check(search.search("x".repeat(4097),10).intent.equals("QUERY_LIMIT"),"Oversized queries are not silently truncated");
+        check(search.search("x".repeat(16385),10).intent.equals("QUERY_LIMIT"),"Oversized queries are not silently truncated");
         SearchEngine.Response expanded=search.search("1:2",Collections.singletonList(new SearchEngine.Query("1:3",SearchEngine.Origin.AI)),10);
         check(expanded.results.stream().anyMatch(r->r.ayah.number==2),"Original query retained alongside AI expansions");
         check(expanded.variants.stream().anyMatch(v->v.origin==SearchEngine.Origin.AI),"AI query provenance is retained");
@@ -116,6 +116,7 @@ public final class CoreChecks {
         check(!References.verify("[Q:1:1] and [Q:bad]",snapshot).passed(),"Malformed citation is not ignored beside valid citation");
         check(!References.verify("[Q:1:1] plus \"unsourced quote\"",snapshot).passed(),"Unsupported quote cannot receive a verified badge");
         checks+=FragmentChecks.run();
+        checks+=RankingChecks.run();
         checks+=ExportChecks.run();
         checks+=AmbientChecks.run();
         System.out.println("Core checks: "+checks+" passed");

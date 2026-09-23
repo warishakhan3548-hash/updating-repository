@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "tools" / "hadith-catalog.json"
-BUILDER_VERSION = "2"
+BUILDER_VERSION = "3"
 
 
 def digest(path: Path) -> str:
@@ -51,6 +51,36 @@ def normalize_latin(value):
     value = "".join(ch for ch in value if not unicodedata.category(ch).startswith("M"))
     return re.sub(r"\s+", " ", value).strip()
 
+
+
+def search_tokens(value):
+    # Match Java TextMatch.normalize without stripping Devanagari vowel signs.
+    value = unicodedata.normalize('NFC', str(value or '')).lower().replace("'", '').replace('’', '')
+    for original, normalized in [('ٱ','ا'),('أ','ا'),('إ','ا'),('آ','ا'),('ى','ي'),('ی','ي'),('ک','ك')]:
+        value=value.replace(original,normalized)
+    chars=[]
+    for ch in value:
+        cp=ord(ch)
+        if 0x610 <= cp <= 0x61a or 0x64b <= cp <= 0x65f or 0x6d6 <= cp <= 0x6ed or cp in (0x670,0x640):
+            continue
+        if ch.isalpha() and 'LATIN' in unicodedata.name(ch,''):
+            chars.extend(c for c in unicodedata.normalize('NFD',ch) if not unicodedata.category(c).startswith('M'))
+        else:
+            chars.append(ch if ch.isalnum() or unicodedata.category(ch).startswith('M') else ' ')
+    return set(''.join(chars).split())
+
+
+def build_search_index(db):
+    for hid,ar,en,ur,bn in db.execute('SELECT rowid,arabic,english,urdu,bangla FROM hadith'):
+        terms=search_tokens(' '.join(str(v or '') for v in (ar,en,ur,bn)))
+        db.executemany('INSERT OR IGNORE INTO search_token VALUES(?,?)', ((t,hid) for t in sorted(terms)))
+    for hid,text in db.execute("SELECT h.rowid,t.text FROM editorial_translation t JOIN hadith h ON h.id=t.hadith_id WHERE status IN ('reviewed','released')"):
+        db.executemany('INSERT OR IGNORE INTO search_token VALUES(?,?)', ((t,hid) for t in sorted(search_tokens(text))))
+    db.execute('INSERT INTO search_vocabulary SELECT token,count(*) FROM search_token GROUP BY token')
+    for (token,) in db.execute('SELECT token FROM search_vocabulary ORDER BY token'):
+        value='^'+token+'$'
+        grams=sorted({value[i:i+3] for i in range(max(0,len(value)-2))})
+        db.executemany('INSERT OR IGNORE INTO search_gram VALUES(?,?)', ((g,token) for g in grams))
 
 
 def title_key(value):
@@ -221,6 +251,9 @@ def open_db(path: Path):
       FOREIGN KEY(hadith_id) REFERENCES hadith(id)
     );
 
+    CREATE TABLE search_token(token TEXT NOT NULL,hadith_rowid INTEGER NOT NULL,PRIMARY KEY(token,hadith_rowid)) WITHOUT ROWID;
+    CREATE TABLE search_vocabulary(token TEXT PRIMARY KEY,df INTEGER NOT NULL) WITHOUT ROWID;
+    CREATE TABLE search_gram(gram TEXT NOT NULL,token TEXT NOT NULL,PRIMARY KEY(gram,token)) WITHOUT ROWID;
     CREATE TABLE provenance(
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -430,6 +463,7 @@ def build(source_dir: Path, output: Path):
     db, tmp = open_db(output)
     try:
         counters = import_jsonl(db, source_dir, manifest)
+        build_search_index(db)
         provenance = {
             "pack_id": manifest["pack_id"],
             "content_version": manifest["content_version"],

@@ -202,3 +202,5 @@ def build():
 
 if __name__ == '__main__':
     build()
+    from build_translations import main as build_translations
+    build_translations()

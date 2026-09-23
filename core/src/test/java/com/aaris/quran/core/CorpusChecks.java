@@ -11,7 +11,7 @@ public final class CorpusChecks {
         List<SearchEngine.Document> documents=new ArrayList<>();
         for(String line:Files.readAllLines(Paths.get(args[0]),StandardCharsets.UTF_8)) {
             String[] p=line.split("\t",-1);String text=decode(p[3]);
-            documents.add(new SearchEngine.Document(new Ayah(Integer.parseInt(p[0]),Integer.parseInt(p[1]),text,References.sha256(text),Integer.parseInt(p[2])),decode(p[4])));
+            documents.add(new SearchEngine.Document(new Ayah(Integer.parseInt(p[0]),Integer.parseInt(p[1]),text,References.sha256(text),Integer.parseInt(p[2])),decode(p[4]),decode(p[5])));
         }
         long started=System.nanoTime();SearchEngine engine=new SearchEngine(documents);
         if(documents.size()!=6236)throw new AssertionError("Full corpus required");
@@ -21,13 +21,16 @@ public final class CorpusChecks {
             {"قُلْ هُوَ ٱللَّهُ أَحَدٌ","Q:112:1"},{"قل هو الله احذ","Q:112:1"},
             {"مالك يوم الدين","Q:1:4"},{"اهدنا الصراط المستقيم","Q:1:6"},
             {"بسم الله الرحمن الرحيم","Q:1:1"},{"الرحمن الرحيم","Q:1:3"},
-            {"إن مع العسر يسرا","Q:94:6"},{"ان مع العسر يسرا","Q:94:6"}
+            {"إن مع العسر يسرا","Q:94:6"},{"ان مع العسر يسرا","Q:94:6"},
+            {"allazena yomenona bil gaib wa yuqimunas salat","Q:2:3"},
+            {"अल्लज़ीना यूमिनून बिल गैब व यूकीमून अस्सलात","Q:2:3"}
         };
         int hit=0;double reciprocal=0;List<Long> times=new ArrayList<>();
         for(String[] test:cases) {
             SearchEngine.Response response=engine.search(test[0],10);times.add(response.elapsedNanos);
             int rank=-1;for(int i=0;i<response.results.size();i++)if(response.results.get(i).ayah.id.equals(test[1])){rank=i+1;break;}
             if(rank<0)throw new AssertionError("Missing "+test[1]+" for "+test[0]+"; got "+response.results.stream().map(r->r.ayah.id).collect(java.util.stream.Collectors.toList()));
+            if(test[1].equals("Q:2:3")&&rank!=1)throw new AssertionError("Pronunciation query should rank 2:3 first");
             hit++;reciprocal+=1.0/rank;
         }
         String[] absent={"quantum flux capacitor","blockchain spaceship","galactic teleportation","neutrino supercomputer",

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "mirror": "https://github.com/risan/quran-json",
+  "mirror_revision": "b197d1ba6711767490c627065c01868f8eb488c7",
+  "source": "https://quranenc.com",
+  "rights_checked": "2026-09-23",
+  "editions": [
+    "hindi_omari",
+    "urdu_junagarhi",
+    "english_rwwad"
+  ],
+  "notice": "QuranEnc.com translations are reproduced with publisher, version, transcript information and footnotes. No content is modified. Report translation observations to QuranEnc.com; maintainers must review source updates before releases. No inappropriate advertisements. Terms: https://quranenc.com/en/home/api. Script conversion is withheld: no unreviewed derivative translation is attributed to the scholar.",
+  "files": {
+    "catalogue.json": "74fc274893dbf2eec954eddf733c47248d4636c1a06b463b725606921d4123e4",
+    "english_rwwad.json": "d5b599f24bc48b9759e9737afb1cb84aebc68070aa618e3afdf553857b1c7763",
+    "hindi_omari.json": "ce5463c940e83f6a8e3cefa4d49fac2e30f8aecc1e9805ab7d8daebfe25a0a1a",
+    "urdu_junagarhi.json": "2741c0001abbe8a588bb70698383a7d7599af105f4e85a6013265978a2ee307d"
+  }
+}

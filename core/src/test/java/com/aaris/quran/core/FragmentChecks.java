@@ -12,7 +12,7 @@ final class FragmentChecks {
         List<SearchEngine.Document> docs=Arrays.asList(doc(1,"شاهد النص الأول في السطر"),doc(2,"شاهد النص الثاني في الصفحة"),doc(3,"شاهد النص الأول في الموضع"));
         SearchEngine search=new SearchEngine(docs);String query="شاهد النص الأول شاهد النص الثاني";
         SearchEngine.Response response=search.search(query,10);FragmentSearch.Report report=response.fragments;
-        check(response.results.isEmpty()&&response.gate.equals("FRAGMENTS_ONLY"),"Fragments cannot be promoted to full-query matches");
+        check(response.results.stream().allMatch(r->r.strength!=SearchEngine.Strength.STRONG_TEXT&&r.match.coverage<1)&&response.gate.equals("FRAGMENTS_ONLY"),"Fragments cannot be promoted to full-query matches");
         check(report!=null&&report.fragments.size()==2&&report.matchedTokens==6&&report.unmatched.isEmpty(),"Both independently cited fragments are recoverable");
         check(report.fragments.get(0).totalOccurrences==2&&report.fragments.get(0).alternatives.size()==2,"Ambiguous origins stay separate");
         check(report.fragments.get(0).alternatives.get(0).ayah.id.equals("Q:1:1")&&report.fragments.get(1).alternatives.get(0).ayah.id.equals("Q:1:2"),"Each fragment retains its own citation");
@@ -25,7 +25,7 @@ final class FragmentChecks {
         check(search.search("شاهد النص",10).fragments==null,"Two common words do not trigger fragmentation");
         check(search.search("شاهد النص الأول إضافات مختلقة بعيدة جدا أخرى",10).fragments==null,"Mostly unsupported queries abstain from fragment suggestions");
         check(search.search("خبر غير موجود",Collections.singletonList(new SearchEngine.Query(query,SearchEngine.Origin.AI)),10).fragments==null,"AI expansion cannot be relabelled as an original-user fragment");
-        check(search.search(query+"\nخبر آخر",10).fragments==null,"Explicit multi-query lines are not stitched together");
+        check(search.search(query+"\nخبر آخر",Collections.emptyList(),10).fragments==null,"Explicit multi-query lines are not stitched together");
         SearchEngine overlap=new SearchEngine(Arrays.asList(doc(1,"أول ثاني ثالث رابع"),doc(2,"رابع خامس سادس")));
         report=overlap.search("أول ثاني ثالث رابع خامس سادس",10).fragments;
         check(report!=null&&report.matchedTokens==6&&report.fragments.size()==2,"Global segmentation avoids greedy overlap losing a recoverable fragment");

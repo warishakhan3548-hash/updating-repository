@@ -123,10 +123,11 @@ final class ContentStore implements AutoCloseable {
         try(Cursor c=db.rawQuery("SELECT * FROM word WHERE surface_key=? AND gloss_en=? AND ayah_id<>? ORDER BY id LIMIT 4",new String[]{w.surface,w.en,w.ayahId})){while(c.moveToNext())result.add(new Word(c));}
         return result;
     }
-    SearchEngine buildSearch() {
+    SearchEngine buildSearch(TranslationStore translations) {
+        Map<String,String> meanings=translations==null?Collections.emptyMap():translations.searchText();
         List<SearchEngine.Document> rows=new ArrayList<>();
-        try(Cursor c=db.rawQuery("SELECT a.*,group_concat(COALESCE(w.gloss_en,'')||' '||COALESCE(w.gloss_hi,'')||' '||COALESCE(w.gloss_ur,'')||' '||COALESCE(w.transliteration,''),' ') FROM ayah a LEFT JOIN word w ON w.ayah_id=a.id GROUP BY a.id ORDER BY a.ordinal",null)) {
-            while(c.moveToNext()){if(Thread.currentThread().isInterrupted())throw new java.util.concurrent.CancellationException();rows.add(new SearchEngine.Document(ayah(c),c.getString(6)));}
+        try(Cursor c=db.rawQuery("SELECT a.*,group_concat(COALESCE(w.gloss_en,'')||' '||COALESCE(w.gloss_hi,'')||' '||COALESCE(w.gloss_ur,'')||' '||COALESCE(w.transliteration,''),' '),group_concat(COALESCE(w.transliteration,''),' ') FROM ayah a LEFT JOIN word w ON w.ayah_id=a.id GROUP BY a.id ORDER BY a.ordinal",null)) {
+            while(c.moveToNext()){if(Thread.currentThread().isInterrupted())throw new java.util.concurrent.CancellationException();rows.add(new SearchEngine.Document(ayah(c),c.getString(6)+" "+meanings.getOrDefault(c.getString(0),""),c.getString(7)));}
         }
         return new SearchEngine(rows);
     }

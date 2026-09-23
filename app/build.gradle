@@ -43,10 +43,12 @@ tasks.named('preBuild').configure { dependsOn offlineContract }
 def contentPack = tasks.register('prepareContentPack', Exec) {
     workingDir rootProject.projectDir
     commandLine 'python3', 'tools/build_content.py'
+    inputs.dir rootProject.file('source-vault/translations')
+    inputs.file rootProject.file('tools/build_translations.py')
     inputs.dir rootProject.file('source-vault/tanzil')
     inputs.dir rootProject.file('source-vault/data-quran')
     inputs.files rootProject.file('tools/build_content.py'), rootProject.file('tools/source-lock.json')
-    outputs.files file('src/main/assets/quran.sqlite'), file('src/main/assets/content-manifest.json')
+    outputs.files file('src/main/assets/quran.sqlite'), file('src/main/assets/content-manifest.json'), file('src/main/assets/translations.sqlite'), file('src/main/assets/translations-manifest.json')
 }
 tasks.named('preBuild').configure { dependsOn contentPack }
 

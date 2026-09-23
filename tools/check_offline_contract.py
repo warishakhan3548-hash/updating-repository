@@ -19,6 +19,7 @@ AUDIO_STORE=APP_JAVA/"com/aaris/quran/QuranAudioStore.java"
 AUDIO_PLAYER=APP_JAVA/"com/aaris/quran/WordAudioPlayer.java"
 AUDIO_LOCK=ROOT/"source-vault/quran-audio/on-demand-source-lock.json"
 AUDIO_CATALOG=ASSETS/"quran-audio-word-catalog.json"
+RECITATION_DOWNLOADER=APP_JAVA/"com/aaris/quran/RecitationDownloads.java"
 
 NETWORK_IMPORTS=("java.net.","okhttp3.","retrofit2.","io.ktor.client.")
 ALLOWED_BUILD_SCRIPTS={
@@ -26,6 +27,7 @@ ALLOWED_BUILD_SCRIPTS={
     "tools/build_content.py",
     "tools/prepare_open_hadith_data.py",
     "tools/build_hadith.py",
+    "tools/build_translations.py",
 }
 
 
@@ -43,10 +45,16 @@ def main():
         text=path.read_text(encoding="utf-8")
         for prefix in NETWORK_IMPORTS:
             if re.search(r"^\s*import\s+"+re.escape(prefix),text,re.MULTILINE):
-                if path.resolve()!=AUDIO_DOWNLOADER.resolve():
+                if path.resolve() not in {AUDIO_DOWNLOADER.resolve(),RECITATION_DOWNLOADER.resolve()}:
                     offenders.append(f"{path.relative_to(ROOT)} imports {prefix}*")
     if offenders:
         fail("; ".join(offenders))
+
+    recitation=RECITATION_DOWNLOADER.read_text(encoding="utf-8")
+    if ('https://cdn.islamic.network/quran/audio/128/' not in recitation or
+        'setInstanceFollowRedirects(false)' not in recitation or
+        'ContentStore.hash(target)' not in recitation):
+        fail("optional whole-ayah audio lost its pinned host, redirect boundary or local corruption check")
 
     if not AUDIO_DOWNLOADER.is_file() or not AUDIO_STORE.is_file() or not AUDIO_PLAYER.is_file() or not AUDIO_LOCK.is_file():
         fail("isolated-word Quran pronunciation wiring is incomplete")
@@ -145,7 +153,7 @@ def main():
         fail("catalog Surah word totals do not equal canonical pronunciation coverage")
 
     # No actual pronunciation bytes may ever enter the base APK.
-    binary_suffixes={".aqp",".opus",".pb",".pack"}
+    binary_suffixes={".aqp",".opus",".pb",".pack",".mp3",".download",".tmp"}
     accidental=[p for p in ASSETS.rglob("*") if p.is_file() and p.suffix.lower() in binary_suffixes]
     if accidental:
         fail("Quran pronunciation binary found in APK assets: "+", ".join(str(p.relative_to(ROOT)) for p in accidental))
@@ -167,7 +175,7 @@ def main():
     if unexpected:
         fail("unreviewed Python build scripts: "+", ".join(sorted(unexpected)))
 
-    print("PASS: complete isolated Quran word clips only; base content stays offline and audio binaries stay out of the APK")
+    print("PASS: isolated word clips and optional whole-ayah audio have separate boundaries; base content stays offline; audio/staging binaries stay out of the APK")
 
 
 if __name__=="__main__":

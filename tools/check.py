@@ -65,6 +65,19 @@ def main():
     assert manifest.get('audio_alignment_words') == audio_words, 'Audio alignment word metadata mismatch'
     assert manifest.get('audio_alignment_sha256') == audio_alignment.hexdigest(), 'Audio semantic alignment hash mismatch'
 
+    translation_manifest = json.loads((assets / 'translations-manifest.json').read_text())
+    translation_pack = assets / 'translations.sqlite'
+    assert hashlib.sha256(translation_pack.read_bytes()).hexdigest() == translation_manifest['sqlite_sha256']
+    tdb = sqlite3.connect(f'file:{translation_pack}?mode=ro', uri=True)
+    assert tdb.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+    coordinates = {row[0] for row in db.execute('SELECT id FROM ayah')}
+    for edition, in tdb.execute('SELECT id FROM edition'):
+        assert {row[0] for row in tdb.execute('SELECT ayah_id FROM translation WHERE edition_id=?', (edition,))} == coordinates
+    translations = {}
+    for aid, text in tdb.execute('SELECT ayah_id,text FROM translation'):
+        translations[aid] = translations.get(aid, '') + ' ' + text
+    tdb.close()
+
     # Quran pronunciation binaries are not build inputs. Only a tiny immutable catalog may ship.
     legacy_audio = ROOT / 'source-vault/quran-audio/active/quran-audio'
     accidental_audio_asset = ROOT / 'app/src/main/assets/quran-audio'
@@ -106,6 +119,7 @@ def main():
         assert hdb.execute('SELECT count(*) FROM collection').fetchone()[0] == hmanifest['collections']
         assert hdb.execute('SELECT count(*) FROM hadith').fetchone()[0] == hmanifest['records']
         assert hdb.execute('SELECT count(*) FROM hadith_fts').fetchone()[0] == hmanifest['records']
+        assert hdb.execute('SELECT count(DISTINCT hadith_rowid) FROM search_token').fetchone()[0] == hmanifest['records']
         assert not hdb.execute('PRAGMA foreign_key_check').fetchall()
         for arabic, expected in hdb.execute('SELECT arabic,source_sha256 FROM hadith'):
             assert hashlib.sha256(arabic.encode()).hexdigest() == expected
@@ -120,12 +134,17 @@ def main():
     assert permissions == {'android.permission.INTERNET', 'android.permission.SYSTEM_ALERT_WINDOW',
                            'android.permission.FOREGROUND_SERVICE',
                            'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+                           'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
                            'android.permission.POST_NOTIFICATIONS'}
     service = application.find('service')
     assert service.get(android + 'name') == '.AmbientRecallService'
     assert service.get(android + 'exported') == 'false'
     assert service.get(android + 'foregroundServiceType') == 'specialUse'
     assert service.find('property').get(android + 'name') == 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE'
+    media = next(s for s in application.findall('service') if s.get(android + 'name') == '.RecitationService')
+    assert media.get(android + 'exported') == 'false' and media.get(android + 'foregroundServiceType') == 'mediaPlayback'
+    provider = next(p for p in application.findall('provider') if p.get(android + 'name') == '.ResearchFiles')
+    assert provider.get(android + 'exported') == 'false' and provider.get(android + 'grantUriPermissions') == 'true'
     sources = sorted((ROOT / 'core/src/main/java').rglob('*.java'))
     tests = sorted((ROOT / 'core/src/test/java').rglob('*.java'))
     with tempfile.TemporaryDirectory(prefix='aaris-check-') as scratch:
@@ -166,6 +185,7 @@ def main():
         assert fixture_db.execute('SELECT count(*) FROM hadith').fetchone()[0] == 1
         assert fixture_db.execute('SELECT count(*) FROM hadith_fts').fetchone()[0] == 1
         assert fixture_db.execute("SELECT count(*) FROM hadith_fts WHERE hadith_fts MATCH 'تجريبي'").fetchone()[0] == 1
+        assert fixture_db.execute("SELECT count(*) FROM search_token WHERE token='تجريبي'").fetchone()[0] == 1
         assert fixture_db.execute('SELECT count(*) FROM grade_assertion').fetchone()[0] == 1
         assert not fixture_db.execute('PRAGMA foreign_key_check').fetchall()
         fixture_db.close()
@@ -178,12 +198,14 @@ def main():
         corpus = Path(scratch) / 'corpus.tsv'
         encode = lambda value: base64.b64encode(value.encode()).decode()
         with corpus.open('w') as out:
-            for surah, number, ordinal, arabic, hints in db.execute('''
+            for surah, number, ordinal, arabic, hints, sounds in db.execute('''
                     SELECT a.surah,a.number,a.ordinal,a.arabic,
                     group_concat(COALESCE(w.gloss_en,'')||' '||COALESCE(w.gloss_hi,'')||' '||
-                    COALESCE(w.gloss_ur,'')||' '||COALESCE(w.transliteration,''),' ')
+                    COALESCE(w.gloss_ur,'')||' '||COALESCE(w.transliteration,''),' '),
+                    group_concat(COALESCE(w.transliteration,''),' ')
                     FROM ayah a LEFT JOIN word w ON w.ayah_id=a.id GROUP BY a.id ORDER BY a.ordinal'''):
-                out.write(f'{surah}\t{number}\t{ordinal}\t{encode(arabic)}\t{encode(hints or "")}\n')
+                hints = (hints or '') + translations.get(f'Q:{surah}:{number}', '')
+                out.write(f'{surah}\t{number}\t{ordinal}\t{encode(arabic)}\t{encode(hints)}\t{encode(sounds or "")}\n')
         subprocess.run([java, '-Xmx256m', '-cp', str(classes), 'com.aaris.quran.core.CorpusChecks', str(corpus)], check=True, cwd=ROOT)
         generated = Path(scratch) / 'generated'
         generated.mkdir()
