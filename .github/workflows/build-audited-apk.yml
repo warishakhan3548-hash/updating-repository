@@ -1,0 +1,70 @@
+name: Build Aaris APK after Appearance audit
+
+on:
+  push:
+    branches:
+      - build-apk-20260923-1711
+
+permissions:
+  contents: read
+
+env:
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout latest source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Resolve Android 35 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -1 || true)"
+          if [ ! -f "$ANDROID_HOME/platforms/android-35/android.jar" ] || [ -z "$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d -name '35*' -print -quit 2>/dev/null)" ]; then
+            test -n "$SDKMANAGER"
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+          fi
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d -name '35*' | sort -V | tail -1)"
+          test -f "$ANDROID_HOME/platforms/android-35/android.jar"
+          test -x "$BUILD_TOOLS/aapt2"
+          test -x "$BUILD_TOOLS/zipalign"
+          test -f "$BUILD_TOOLS/lib/d8.jar"
+          test -f "$BUILD_TOOLS/lib/apksigner.jar"
+          echo "BUILD_TOOLS=$BUILD_TOOLS" >> "$GITHUB_ENV"
+
+      - name: Create temporary release signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASS='aaris-preview-2026'
+          printf '%s' "$PASS" > "$RUNNER_TEMP/aaris-preview-password.txt"
+          keytool -genkeypair -noprompt             -storetype PKCS12             -keystore "$RUNNER_TEMP/aaris-preview.p12"             -storepass "$PASS"             -keypass "$PASS"             -alias aaris-preview             -keyalg RSA -keysize 3072             -validity 3650             -dname "CN=Aaris Preview Build, OU=Build, O=Aaris, ST=Haryana, C=IN"
+
+      - name: Build signed release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 tools/build_release.py             --android-jar "$ANDROID_HOME/platforms/android-35/android.jar"             --build-tools "$BUILD_TOOLS"             --keystore "$RUNNER_TEMP/aaris-preview.p12"             --alias aaris-preview             --password-file "$RUNNER_TEMP/aaris-preview-password.txt"             --output "dist/Aaris-Quran-0.4.0-appearance-audited-release.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aaris-Quran-0.4.0-appearance-audited-release
+          path: |
+            dist/Aaris-Quran-0.4.0-appearance-audited-release.apk
+            dist/Aaris-Quran-0.4.0-appearance-audited-release.build.json
+          if-no-files-found: error
+          retention-days: 7
