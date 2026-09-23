@@ -153,8 +153,8 @@ def open_db(path: Path):
       matn_en TEXT,
       source_ref TEXT NOT NULL,
       source_sha256 TEXT NOT NULL,
-      arabic_search TEXT NOT NULL,
-      english_search TEXT NOT NULL,
+      search_ar TEXT NOT NULL,
+      search_latin TEXT NOT NULL,
       FOREIGN KEY(collection_id) REFERENCES collection(id),
       FOREIGN KEY(book_id) REFERENCES book(id),
       FOREIGN KEY(chapter_id) REFERENCES chapter(id)
@@ -199,8 +199,8 @@ def open_db(path: Path):
     CREATE INDEX hadith_by_book ON hadith(book_id, record_number);
     CREATE INDEX hadith_by_chapter ON hadith(chapter_id, record_number);
     CREATE INDEX hadith_reference_lookup ON hadith_reference(scheme, value);
-    CREATE INDEX hadith_arabic_shadow ON hadith(arabic_search);
-    CREATE INDEX hadith_english_shadow ON hadith(english_search);
+    CREATE INDEX hadith_arabic_shadow ON hadith(search_ar);
+    CREATE INDEX hadith_english_shadow ON hadith(search_latin);
     """)
     return db, tmp
 
