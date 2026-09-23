@@ -57,6 +57,17 @@ def title_key(value):
     value = unicodedata.normalize("NFKD", str(value or "")).casefold()
     return "".join(ch for ch in value if ch.isalnum())
 
+
+def safe_source_path(source_dir: Path, rel: str) -> Path:
+    if not isinstance(rel, str) or not rel or rel.startswith("/") or ".." in Path(rel).parts:
+        raise ValueError(f"Unsafe source path: {rel!r}")
+    root = source_dir.resolve()
+    path = (source_dir / rel).resolve()
+    if path != root and root not in path.parents:
+        raise ValueError(f"Source path escapes pack: {rel}")
+    return path
+
+
 def load_manifest(source_dir: Path):
     path = source_dir / "manifest.json"
     if not path.is_file():
@@ -64,6 +75,8 @@ def load_manifest(source_dir: Path):
     manifest = json.loads(path.read_text(encoding="utf-8"))
     for key in ("pack_id", "content_version", "source_name", "source_version", "redistribution_basis"):
         require_string(manifest, key)
+    if manifest.get("runtime_network_required") is True:
+        raise ValueError("Offline Hadith pack may not require runtime network access")
 
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
@@ -78,14 +91,14 @@ def load_manifest(source_dir: Path):
             raise ValueError("Invalid license file entry")
         if rel not in files:
             raise ValueError(f"License/permission file must also be SHA-256 locked in files: {rel}")
-        p = source_dir / rel
+        p = safe_source_path(source_dir, rel)
         if not p.is_file():
             raise ValueError(f"Missing license/permission file: {rel}")
 
     for rel, expected in files.items():
         if not isinstance(rel, str) or not isinstance(expected, str) or len(expected) != 64:
             raise ValueError(f"Invalid source declaration: {rel!r}")
-        p = source_dir / rel
+        p = safe_source_path(source_dir, rel)
         if not p.is_file():
             raise ValueError(f"Missing source file: {rel}")
         actual = digest(p)
@@ -219,6 +232,8 @@ def open_db(path: Path):
     CREATE INDEX hadith_reference_lookup ON hadith_reference(scheme, value);
     CREATE INDEX hadith_arabic_shadow ON hadith(search_ar);
     CREATE INDEX hadith_english_shadow ON hadith(search_latin);
+    CREATE INDEX editorial_translation_lookup
+      ON editorial_translation(hadith_id,language,status,revision);
     """)
     return db, tmp
 
@@ -303,6 +318,9 @@ def insert_hadith(db, row, seen):
     for item in row.get("editorial_translations", []):
         language = require_string(item, "language").lower()
         revision = require_string(item, "revision")
+        status = require_string(item, "status").lower()
+        if status not in {"draft", "reviewed", "released"}:
+            raise ValueError(f"Unsupported editorial translation status {status!r} for {hid}")
         eid = str(item.get("id") or f"{hid}:T:{language}:{revision}")
         db.execute(
             "INSERT INTO editorial_translation VALUES(?,?,?,?,?,?,?)",
@@ -312,7 +330,7 @@ def insert_hadith(db, row, seen):
                 language,
                 require_string(item, "text"),
                 revision,
-                require_string(item, "status"),
+                status,
                 require_string(item, "source_ref"),
             ),
         )
@@ -324,7 +342,7 @@ def import_jsonl(db, source_dir: Path, manifest):
     for rel in manifest["files"]:
         if not rel.endswith(".jsonl"):
             continue
-        path = source_dir / rel
+        path = safe_source_path(source_dir, rel)
         with path.open(encoding="utf-8") as f:
             for line_no, raw in enumerate(f, 1):
                 if not raw.strip():
@@ -389,8 +407,13 @@ def import_jsonl(db, source_dir: Path, manifest):
         expected_titles = {
             title_key(item["name_en"])
             for item in catalog.get("collections", [])
-            if str(item.get("name_en") or "").strip()
+            if str(item.get("name_en") or "").strip() and item.get("kind") != "group"
         }
+        expected_titles.update(
+            title_key(item["name_en"])
+            for item in catalog.get("nested_collections", [])
+            if str(item.get("name_en") or "").strip()
+        )
         actual_titles = {
             title_key(row[0])
             for row in db.execute("SELECT name_en FROM collection")
@@ -447,7 +470,8 @@ def build(source_dir: Path, output: Path):
             "chapters": counters["chapter"],
             "records": counters["hadith"],
             "editorial_translations": counters["translation"],
-            "source_files": {rel: digest(source_dir / rel) for rel in manifest["files"]},
+            "language_coverage": list(manifest.get("language_coverage") or ["ar"]),
+            "source_files": {rel: digest(safe_source_path(source_dir, rel)) for rel in manifest["files"]},
             "license_files": list(manifest["license_files"]),
             "runtime_network_required": False,
         }
