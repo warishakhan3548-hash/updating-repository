@@ -284,3 +284,33 @@ download the Gradle distribution; analyzer setup is still in progress.
   catalog has been acquired. The remaining catalog entries still require redistribution-cleared
   source material or an approved official API/offline snapshot.
 - No APK/AAB was built and no CI workflow was started.
+
+
+## Checkpoint 18: core-nine Hadith source completed and fail-closed (2026-09-23)
+
+- Completed the previously truncated Musnad Ahmad vendor: records now continue from 21,093 through
+  26,363. The split source totals exactly 14,546,451 bytes, matching the pinned upstream file size.
+- Verified the three split corpora against the pinned upstream source text: Bukhari's 9 parts match
+  the complete upstream text exactly, Muslim's 7 parts match exactly, and Ahmad's 25 parts form
+  three consecutive exact upstream chunks from the first byte through the final byte.
+- Verified the six direct vendored files have the exact upstream Git blob identities recorded in
+  `SOURCE.json`: Nasa'i, Abu Dawud, Tirmidhi, Ibn Majah, Muwatta Malik and Darimi.
+- Locked expected contiguous record coverage in `SOURCE.json`: Bukhari 7,008; Muslim 5,362;
+  Nasa'i 5,662; Abu Dawud 4,590; Tirmidhi 3,891; Ibn Majah 4,332; Malik 1,594; Ahmad 26,363;
+  Darimi 3,367 — total **62,169 Arabic records**.
+- `prepare_open_hadith_data.py` now fails closed on wrong counts, first/last IDs, gaps, duplicates
+  or reconstructed Git-blob mismatch before it can create an installable source pack.
+- `build_hadith.py` now rejects runtime-network packs and unsafe source paths, validates the
+  editable Aaris translation status layer, carries language coverage into the generated manifest,
+  and treats nested Forty collections as real full-catalog targets rather than the grouping card.
+- Gradle now tracks explicit/generated Hadith source directories as task inputs, preventing stale
+  `hadith.sqlite` assets when the local source changes.
+- Runtime reading now supports a separate Aaris editorial translation layer. Released/reviewed
+  local translations can change independently without rewriting the immutable Arabic source;
+  source translations remain a fallback with provenance.
+- Added `tools/check_hadith.py`: a network-free end-to-end verifier that reconstructs the pinned
+  source, expects 9 collections / 62,169 records, builds a temporary SQLite pack, checks FTS,
+  foreign keys, per-record source hashes and per-collection coverage. It does not build an APK.
+- The full Sunnah.com catalog is still not falsely marked as installed. Additional collections
+  remain gated on redistribution-cleared source data or approved official API/offline data.
+- No APK/AAB was built and no CI workflow was started.
