@@ -115,9 +115,19 @@ def main():
         style_dir = snapshot / Path(prefix)
         if not style_dir.is_dir():
             raise SystemExit(f"Pinned dataset snapshot has no downloaded {style} word-audio directory")
-        evidence = snapshot / "README.md"
-        if not evidence.is_file():
+        readme = snapshot / "README.md"
+        if not readme.is_file():
             raise SystemExit("Pinned dataset snapshot has no README license/provenance evidence")
+        evidence = Path(temp) / "UPSTREAM_EVIDENCE.txt"
+        evidence_parts=[("README.md",readme.read_text(encoding="utf-8",errors="replace"))]
+        for name in ("LICENSE","LICENSE.txt","LICENSE.md","LICENSE.apache-2.0"):
+            candidate=snapshot/name
+            if candidate.is_file():
+                evidence_parts.append((name,candidate.read_text(encoding="utf-8",errors="replace")))
+        evidence.write_text(
+            "\n\n".join(f"===== {name} =====\n{text}" for name,text in evidence_parts)+"\n",
+            encoding="utf-8"
+        )
 
         subprocess.run([
             sys.executable,
