@@ -33,21 +33,21 @@ def require_string(obj, key):
 
 def normalize_arabic(value: str) -> str:
     value = unicodedata.normalize("NFC", value)
+    value = (value.replace("ٱ", "ا").replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+                  .replace("ى", "ي").replace("ؤ", "و").replace("ئ", "ي").replace("ـ", ""))
     out = []
     for ch in value:
-        cp = ord(ch)
-        if unicodedata.category(ch).startswith("M") or cp == 0x0640:
-            continue
-        if cp in (0x0671, 0x0622, 0x0623, 0x0625):
-            ch = "ا"
-        out.append(ch)
-    return "".join(out).strip()
+        if not unicodedata.category(ch).startswith("M"):
+            out.append(ch)
+    return re.sub(r"\s+", " ", "".join(out)).strip()
 
 
 def normalize_latin(value):
     if not value:
         return ""
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", value).lower()).strip()
+    value = unicodedata.normalize("NFKD", value).lower()
+    value = "".join(ch for ch in value if not unicodedata.category(ch).startswith("M"))
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def load_manifest(source_dir: Path):
@@ -235,7 +235,7 @@ def insert_hadith(db, row, seen):
         raise ValueError(f"Arabic text hash mismatch for {hid}")
     english = row.get("english")
     db.execute("""INSERT INTO hadith VALUES(
-        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
         hid,
         require_string(row, "collection_id"),
         row.get("book_id"),
