@@ -219,3 +219,19 @@ download the Gradle distribution; analyzer setup is still in progress.
 - No Android SDK or emulator is available in this workspace, so Android API compilation and
   on-device rendering remain unverified for this change. No APK/AAB was built, no release
   workflow was started, and the previously delivered 0.3.0 APK keeps its earlier design.
+
+
+## Checkpoint 15: full offline Hadith pack foundation (2026-09-23)
+
+- Expanded the Hadith target from the original six links to the full current Sunnah.com top-level
+  catalog planning set (26 entries, plus the nested Forty collections) in
+  `tools/hadith-catalog.json`. This is catalog metadata only; it does not copy Hadith text.
+- Added `docs/HADITH_OFFLINE_ARCHITECTURE.md`: Quran and Hadith remain separate immutable packs,
+  with edition-aware IDs, alternate references, attributed grades, per-layer provenance and a
+  separate editable Aaris-authored translation/explanation layer.
+- Added `tools/build_hadith.py`, a deterministic network-free JSONL-to-SQLite builder. It refuses
+  missing licenses/permission records, hash mismatches, duplicate Hadith IDs, broken references and
+  empty packs. It does not scrape or download any website.
+- No Hadith corpus has been imported yet. The existing app must not claim these collections are
+  locally installed until redistribution-cleared source files are added and validated.
+- No APK/AAB was built and no CI workflow was started.
