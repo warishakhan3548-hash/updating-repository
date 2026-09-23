@@ -25,6 +25,7 @@ jobs:
       - name: Verify repository-local content contracts
         run: |
           python3 tools/check_offline_contract.py
+          python3 tools/build_content.py
           python3 tools/check.py
 
       - name: Make release variant installable
