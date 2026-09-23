@@ -180,10 +180,11 @@ public final class MainActivity extends Activity {
         LinearLayout intro=card(page,Surface.Kind.HERO);
         intro.addView(label(store.collectionCount+" COLLECTIONS · "+store.recordCount+" RECORDS"));gap(intro,10);
         intro.addView(text(this,"Read Hadith,\nwithout leaving Aaris.",27,INK));gap(intro,10);
-        caption(intro,"Pack "+store.contentVersion+" · "+store.sourceName+" · "+store.sourceVersion+" · Verified local SQLite\n"+store.redistributionBasis);
+        String languages=store.hasLanguage("en")?"Arabic + local translation layers":"Arabic source · local translation layers supported";
+        caption(intro,"Pack "+store.contentVersion+" · "+store.sourceName+" · "+store.sourceVersion+" · Verified local SQLite\n"+languages+"\n"+store.redistributionBasis);
 
         EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);
-        query.setTextSize(16);query.setSingleLine(true);query.setHint("Search Arabic, English or Hadith number");
+        query.setTextSize(16);query.setSingleLine(true);query.setHint(store.searchHint());
         query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(512)});pad(query,14,10);
         query.setBackground(new Surface(this,Surface.Kind.BUTTON,highContrast));
         page.addView(query,new LinearLayout.LayoutParams(-1,dp(this,54)));gap(page,8);
@@ -235,8 +236,14 @@ public final class MainActivity extends Activity {
         LinearLayout c=card(parent,Surface.Kind.PANEL);
         c.addView(label((info==null?record.collectionId:info.nameEn)+" · "+record.number));gap(c,10);
         TextView ar=arabic(record.matnAr==null?record.arabic:record.matnAr,25);ar.setMaxLines(4);c.addView(ar);gap(c,8);
-        if(record.english!=null&&!record.english.trim().isEmpty()){
-            TextView en=text(this,record.english,13,MUTED);en.setMaxLines(3);en.setEllipsize(TextUtils.TruncateAt.END);c.addView(en);gap(c,8);
+        HadithStore.DisplayTranslation translation=store.translation(record,language);
+        if(translation!=null){
+            TextView translated=text(this,translation.text,13,MUTED);
+            translated.setMaxLines(3);translated.setEllipsize(TextUtils.TruncateAt.END);
+            if("ur".equals(translation.language)||"ar".equals(translation.language)){
+                translated.setTextDirection(View.TEXT_DIRECTION_RTL);translated.setGravity(Gravity.RIGHT);
+            }
+            c.addView(translated);gap(c,6);caption(c,translation.provenance);
         }
         c.setFocusable(true);c.setContentDescription((info==null?"Hadith":info.nameEn)+" "+record.number);
         c.setOnClickListener(v->hadithRecord(record.id));
@@ -300,9 +307,15 @@ public final class MainActivity extends Activity {
         HadithStore.CollectionInfo info=store.collection(record.collectionId);
         LinearLayout page=sheet((info==null?"Hadith":info.nameEn)+" · "+record.number);
         page.addView(arabic(record.arabic,29));gap(page,14);
-        if(record.english!=null&&!record.english.trim().isEmpty()){page.addView(text(this,record.english,16,INK));gap(page,14);}
-        if(record.urdu!=null&&!record.urdu.trim().isEmpty()){
-            TextView ur=text(this,record.urdu,17,INK);ur.setTextDirection(View.TEXT_DIRECTION_RTL);ur.setGravity(Gravity.RIGHT);page.addView(ur);gap(page,14);
+        HadithStore.DisplayTranslation translation=store.translation(record,language);
+        if(translation!=null){
+            TextView translated=text(this,translation.text,16,INK);
+            if("ur".equals(translation.language)||"ar".equals(translation.language)){
+                translated.setTextDirection(View.TEXT_DIRECTION_RTL);translated.setGravity(Gravity.RIGHT);
+            }
+            page.addView(translated);gap(page,8);caption(page,translation.provenance);gap(page,10);
+        }else{
+            caption(page,"Arabic source text only in this offline pack.");gap(page,10);
         }
         if(record.narrator!=null&&!record.narrator.trim().isEmpty())caption(page,"Narrator: "+record.narrator);
         List<String> grades=store.grades(id);if(!grades.isEmpty()){gap(page,12);page.addView(label("GRADING"));for(String grade:grades)caption(page,grade);}
