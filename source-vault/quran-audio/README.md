@@ -25,10 +25,10 @@ only `SOURCE_ALIGNED` canonical `:W:` identities; if alignment is not exact, Aar
 Current canonical counts are intentionally explicit:
 
 - Quran reader tokens: 77,881 total.
-- Prefatory `:B:` tokens: 448; these are excluded from word-audio coordinates.
-- Canonical `:W:` tokens: 77,433.
+- Prefatory `:B:` tokens: 440 in the current canonical build; these are excluded from word-audio coordinates.
+- Canonical `:W:` tokens: 77,441.
 - The 9 fail-closed unaligned ayat contain 115 `:W:` tokens.
-- Therefore the current safe audio target is exactly **77,318 SOURCE_ALIGNED `:W:` identities**.
+- Therefore the current safe audio target is exactly **77,326 SOURCE_ALIGNED `:W:` identities**.
 
 The acquisition preflight compares those identities against the pinned upstream snapshot before
 downloading, and the local pack verifier repeats the identity/range checks before Android packaging.
