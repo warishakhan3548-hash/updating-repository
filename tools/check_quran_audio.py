@@ -49,6 +49,9 @@ def main():
         raise SystemExit("Incomplete Quran word-audio packs may not be bundled as active")
     if not args.quran_db.is_file():
         raise SystemExit("Canonical quran.sqlite is missing")
+    actual_quran_hash=file_hash(args.quran_db)
+    if manifest.get("canonical_quran_sqlite_sha256")!=actual_quran_hash:
+        raise SystemExit("Quran audio pack targets a different canonical quran.sqlite")
 
     for rel in manifest.get("license_files") or []:
         p=source/rel
