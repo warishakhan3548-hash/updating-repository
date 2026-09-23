@@ -66,19 +66,6 @@ def main():
         active=tmp/"active"
         revision="a"*40
         repo_id="selftest/quran-audio"
-
-        run(sys.executable,ROOT/"tools/prepare_quran_audio.py",
-            "--source",source,
-            "--quran-db",db_path,
-            "--output",active,
-            "--license-evidence",evidence,
-            "--source-name","Synthetic Quran Audio",
-            "--source-version",revision,
-            "--source-url",f"https://huggingface.co/datasets/{repo_id}",
-            "--license","Apache-2.0",
-            "--style","muallim",
-            "--extension","opus")
-
         lock=tmp/"source-lock.json"
         lock.write_text(json.dumps({
             "schema":1,
@@ -93,6 +80,19 @@ def main():
             "canonical_quran_sqlite_sha256":sha256(db_path),
             "expected_word_count":3
         },indent=2)+"\n",encoding="utf-8")
+
+        run(sys.executable,ROOT/"tools/prepare_quran_audio.py",
+            "--source",source,
+            "--quran-db",db_path,
+            "--output",active,
+            "--license-evidence",evidence,
+            "--source-name","Synthetic Quran Audio",
+            "--source-version",revision,
+            "--source-url",f"https://huggingface.co/datasets/{repo_id}",
+            "--license","Apache-2.0",
+            "--style","muallim",
+            "--extension","opus",
+            "--source-lock",lock)
 
         run(sys.executable,ROOT/"tools/check_quran_audio.py",
             "--source",active,
