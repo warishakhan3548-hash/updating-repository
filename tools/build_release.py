@@ -175,7 +175,11 @@ def main():
                 required += ['assets/hadith.sqlite', 'assets/hadith-manifest.json']
             if audio_manifest is not None:
                 required += ['assets/quran-audio/manifest.json', 'assets/quran-audio/index.sqlite']
-                required += [f'assets/quran-audio/packs/{surah:03d}.pack' for surah in range(1, 115)]
+                declared_audio_packs = audio_manifest.get('packs') or {}
+                if (not isinstance(declared_audio_packs, dict) or not declared_audio_packs or
+                    len(declared_audio_packs) != int(audio_manifest.get('pack_file_count') or -1)):
+                    raise SystemExit('Invalid Quran audio chunk-pack manifest')
+                required += [f'assets/quran-audio/packs/{key}.pack' for key in sorted(declared_audio_packs)]
             if z.testzip() is not None or any(name not in z.namelist() for name in required):
                 raise SystemExit('APK payload is incomplete')
             if hashlib.sha256(z.read('assets/quran.sqlite')).hexdigest() != content['sqlite_sha256']:
@@ -188,21 +192,26 @@ def main():
                     raise SystemExit('APK Quran audio manifest changed during packaging')
                 if hashlib.sha256(z.read('assets/quran-audio/index.sqlite')).hexdigest() != audio_manifest['index_sha256']:
                     raise SystemExit('APK Quran audio index changed during packaging')
-                for surah in range(1, 115):
-                    key = f'{surah:03d}'
+                total_audio_bytes = 0
+                for key in sorted(declared_audio_packs):
+                    if not (isinstance(key, str) and len(key) == 3 and key.isdigit()):
+                        raise SystemExit(f'Invalid Quran audio chunk-pack key: {key}')
                     name = f'assets/quran-audio/packs/{key}.pack'
                     info = z.getinfo(name)
                     if info.compress_type != zipfile.ZIP_STORED:
                         raise SystemExit(f'Quran audio pack {key} was compressed; AssetFileDescriptor playback would fail')
-                    expected = audio_manifest['surah_packs'][key]
+                    expected = declared_audio_packs[key]
                     if info.file_size != int(expected['bytes']):
                         raise SystemExit(f'APK Quran audio pack size mismatch: {key}')
+                    total_audio_bytes += info.file_size
                     h = hashlib.sha256()
                     with z.open(name) as stream:
                         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
                             h.update(chunk)
                     if h.hexdigest() != expected['sha256']:
                         raise SystemExit(f'APK Quran audio pack hash mismatch: {key}')
+                if total_audio_bytes != int(audio_manifest.get('total_pack_bytes') or -1):
+                    raise SystemExit('APK Quran audio total packed size mismatch')
         shutil.copyfile(signed, args.output)
     report = {
         'application_id': app_id, 'version_name': version_name, 'version_code': int(version_code),
