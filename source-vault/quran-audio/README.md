@@ -52,9 +52,9 @@ Typical flow:
    A source update must be explicit and reviewable: update `source-vault/quran-audio/source-lock.json` (repo/revision/license/style/hash/count) first; the acquisition helper does not follow a floating branch.
 3. Run the network-free verifier:
    `python3 tools/check_quran_audio.py --source source-vault/quran-audio/active --quran-db app/src/main/assets/quran.sqlite`
-4. Commit the generated active pack using Git LFS.
+4. Commit the generated active pack as ordinary Git files (114 `.pack` files + index/manifest/license metadata).
 
-After step 4, a fresh checkout can build pronunciation audio from repository-local bytes. Gradle
+After step 4, a normal fresh checkout contains the pronunciation bytes directly; no Git LFS pull is required. Gradle
 does not call Hugging Face, Quran.com, Sunnah.com, a CDN, or any other content website.
 
 ## Runtime behavior
