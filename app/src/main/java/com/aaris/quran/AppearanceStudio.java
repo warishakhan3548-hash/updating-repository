@@ -100,7 +100,7 @@ final class AppearanceStudio {
         title("Choose what to change");
         HorizontalScrollView layerScroll=new HorizontalScrollView(activity);layerScroll.setHorizontalScrollBarEnabled(false);LinearLayout layerStrip=row(activity);
         for(int i=0;i<LAYER_NAMES.length;i++){View chip=layerChip(i);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(activity,48));p.rightMargin=dp(activity,7);layerStrip.addView(chip,p);}layerScroll.addView(layerStrip);controls.addView(layerScroll);
-        TextView editing=text(activity,"Editing · "+LAYER_NAMES[layer]+" · tap a color, then use the sliders",12,MUTED);editing.setTag("keepColor");editing.setTextColor(0xffb9c4cc);pad(editing,2,8);controls.addView(editing);
+        TextView editing=text(activity,"Editing · "+LAYER_NAMES[layer]+" · choose a color, then move Darkness right for a deeper shade",12,MUTED);editing.setTag("keepColor");editing.setTextColor(0xffb9c4cc);pad(editing,2,8);controls.addView(editing);
 
         title("Seven-color spectrum");
         int[] spectrum={0xffd64b5c,0xffe9853f,0xffe3bd38,0xff35a66f,0xff3f7ce8,0xff4d55b9,0xff9b63d7};
@@ -112,9 +112,16 @@ final class AppearanceStudio {
         LinearLayout neutral=row(activity);neutral.addView(colorSwatch("Black",0xff050505));neutral.addView(colorSwatch("Gray",0xff7d858c));neutral.addView(colorSwatch("White",0xfff7f8fa));controls.addView(neutral);
 
         float[] hsv=new float[3];Color.colorToHSV(color(),hsv);
-        slider("Hue · color family",0,359,(int)hsv[0],v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[0]=v;if(h[1]<.08f)h[1]=.45f;color(Color.HSVToColor(h));});
-        slider("Intensity · faded ↔ vivid",0,100,(int)(hsv[1]*100),v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[1]=v/100f;color(Color.HSVToColor(h));});
-        slider("Brightness · dark ↔ light",0,100,(int)(hsv[2]*100),v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[2]=v/100f;color(Color.HSVToColor(h));});
+        boolean neutralColor=hsv[1]<.04f;
+        int darkness=(int)Math.round(Math.max(0,Math.min(1,(1f-hsv[2])/.88f))*100);
+        slider("Darkness · light ↔ dark",0,100,darkness,v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[2]=1f-.88f*(v/100f);color(Color.HSVToColor(h));});
+        if(!neutralColor){
+            int strength=(int)Math.round(Math.max(0,Math.min(1,(hsv[1]-.08f)/.92f))*100);
+            slider("Color strength · soft ↔ vivid",0,100,strength,v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[1]=.08f+.92f*(v/100f);color(Color.HSVToColor(h));});
+        }else{
+            TextView neutralHelp=text(activity,"Neutral selected · use Darkness to move between white, gray and black.",12,MUTED);neutralHelp.setTag("keepColor");neutralHelp.setTextColor(0xffb9c4cc);controls.addView(neutralHelp);
+        }
+        if(advanced&&!neutralColor)slider("Hue fine tune",0,359,(int)hsv[0],v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[0]=v;color(Color.HSVToColor(h));});
         if(layer==1)slider("Card transparency",25,100,style.opacity,v->style.opacity=v);
         title("Finish");LinearLayout finish=row(activity);finish.addView(action((style.glass?"✓ ":"")+"Glass cards",()->{style.glass=true;commit();renderControls();}));finish.addView(action((!style.glass?"✓ ":"")+"Plain cards",()->{style.glass=false;commit();renderControls();}));controls.addView(finish);
         controls.addView(action((style.textGlass?"✓ ":"")+"Glass text",()->{style.textGlass=!style.textGlass;commit();renderControls();}));
