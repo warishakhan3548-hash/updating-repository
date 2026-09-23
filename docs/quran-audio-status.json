@@ -1,52 +1,58 @@
 {
-  "schema": 1,
-  "feature": "offline_quran_word_pronunciation",
-  "status": "ARCHITECTURE_READY_ACTIVE_AUDIO_PENDING",
+  "schema": 2,
+  "feature": "quran_word_pronunciation",
+  "status": "ON_DEMAND_SURAH_LOCAL_READY_DEVICE_QA_PENDING",
   "canonical_quran_sqlite_sha256": "521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1",
-  "canonical_policy": "SOURCE_ALIGNED_W_ONLY",
-  "safe_word_audio_target": 77326,
+  "delivery": "ON_DEMAND_SURAH_LOCAL_V1",
   "source": {
-    "provider": "Hugging Face dataset snapshot",
-    "repo_id": "zaibihassan/Quranic-Word-By-Word-Audio-Data",
-    "revision": "9796e08caae700f44266255da320adf6e5ab4114",
-    "style": "muallim",
-    "format": "Ogg Opus",
+    "provider": "Hugging Face immutable dataset snapshot",
+    "repo_id": "zaibihassan/Quranic-Recitation-Data",
+    "revision": "6875b35e45cc83107daf3ab7d3a8bd8b2baa51b3",
+    "reciter": "Abdul Basit Abdul Samad (Mujawwad)",
+    "format": "full-Surah Ogg Opus + word-level Protocol Buffer timing",
     "declared_license": "Apache-2.0"
   },
   "implemented": {
-    "word_tap_autoplay": true,
-    "meaning_popup_preserved": true,
-    "speaker_replay": true,
-    "ambient_recall_autoplay": true,
-    "ambient_replay": true,
-    "single_process_audio_owner": true,
-    "canonical_word_id_mapping": true,
-    "quran_hash_binding": true,
-    "source_lock_verification": true,
-    "packed_byte_range_verification": true,
-    "runtime_network_fallback": false,
-    "android_internet_permission": false,
-    "normal_gradle_network_acquisition": false,
-    "content_deduplication": true,
-    "per_pack_hash_verification": true,
-    "unique_clip_range_hash_verification": true,
-    "release_policy_gate": true,
-    "required_pack_deletion_fails_build": true,
-    "unfinalized_payload_rejected": true
+    "original_human_recitation_only": true,
+    "tts_or_voice_synthesis": false,
+    "audio_bundled_in_base_apk": false,
+    "per_surah_download": true,
+    "download_all": true,
+    "explicit_user_download_only": true,
+    "app_private_local_storage": true,
+    "atomic_surah_install": true,
+    "ogg_container_validation": true,
+    "protobuf_timing_validation": true,
+    "immutable_source_revision": true,
+    "canonical_quran_hash_binding": true,
+    "word_tap_local_autoplay_when_installed": true,
+    "speaker_replay_when_installed": true,
+    "ambient_overlay_local_autoplay_when_installed": true,
+    "ambient_overlay_replay_when_installed": true,
+    "overlay_never_auto_downloads": true,
+    "normal_gradle_audio_acquisition": false,
+    "direct_release_audio_acquisition": false,
+    "base_quran_hadith_search_offline_without_audio": true,
+    "runtime_network_scope": "QuranAudioDownloadManager only"
   },
-  "active_pack": {
-    "manifest_committed": false,
-    "ready_for_runtime_audio": false,
-    "pack_files_committed": 0,
-    "release_policy_state": "pending_vendor_import",
-    "required_manifest_sha256": null,
-    "required_pack_id": null
+  "local_pack_shape": {
+    "surahs": 114,
+    "files_per_surah": [
+      "NNN.opus",
+      "NNN.pb"
+    ],
+    "playback": "seek full-Surah original recitation to word timestamp_from and stop at timestamp_to"
   },
-  "completion_rule": "Do not mark this feature complete until source-vault/quran-audio/active contains a verified schema-v3 manifest, index.sqlite, license/provenance files and all manifest-declared content-addressed .pack chunks, and release-policy.json is finalized to required for that exact manifest.",
-  "pack_layout": "CONTENT_ADDRESSED_CHUNKS_V1",
-  "pack_chunk_limit_bytes": 33554432,
-  "authoritative_completion_command": "python3 tools/complete_quran_audio_pack.py",
-  "automatic_replacement_of_existing_pack": false,
-  "normal_build_acquisition": false,
-  "network_free_finalizer_command": "python3 tools/finalize_quran_audio_policy.py"
+  "user_experience": {
+    "surah_screen_button": "Audio ↓ / Audio ✓",
+    "settings_button": "Quran audio · Download All",
+    "after_download": "repeat playback is local/offline",
+    "not_downloaded": "reader and recall still work; pronunciation stays silent until user downloads that Surah"
+  },
+  "remaining": [
+    "real Android device QA for Opus seeking accuracy and word-boundary timing",
+    "real-network download/resume behavior on slow or interrupted connections",
+    "storage-management UI if later requested",
+    "release APK size measurement after next explicit build request"
+  ]
 }
