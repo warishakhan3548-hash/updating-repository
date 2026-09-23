@@ -23,6 +23,7 @@ ALLOWED_BUILD_SCRIPTS={
     "tools/check_offline_contract.py",
     "tools/build_content.py",
     "tools/check_quran_audio.py",
+    "tools/check_quran_audio_policy.py",
     "tools/prepare_open_hadith_data.py",
     "tools/build_hadith.py",
 }
