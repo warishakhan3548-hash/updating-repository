@@ -61,7 +61,9 @@ tasks.named('preBuild').configure { dependsOn contentPack }
 // it. If an active manifest exists, verify exact canonical word coverage before packaging assets.
 def verifyQuranAudioPack = tasks.register('verifyQuranAudioPack', Exec) {
     dependsOn contentPack
-    onlyIf { new File(activeQuranAudioSource, 'quran-audio/manifest.json').exists() }
+    // If any active audio payload is present, verify it fail-closed. This catches interrupted or
+    // partially deleted vendoring instead of silently packaging orphaned binary assets.
+    onlyIf { new File(activeQuranAudioSource, 'quran-audio').exists() }
     inputs.file rootProject.file('source-vault/quran-audio/source-lock.json')
     outputs.upToDateWhen { false }
     workingDir rootProject.projectDir
