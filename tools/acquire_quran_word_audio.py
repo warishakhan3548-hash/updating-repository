@@ -18,26 +18,31 @@ DEFAULT_REPO = "zaibihassan/Quranic-Word-By-Word-Audio-Data"
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--revision", required=True,
-                        help="Pinned 40-hex Hugging Face dataset commit; floating 'main' is refused")
+    parser.add_argument("--revision", default=None,
+                        help="Optional pinned 40-hex Hugging Face dataset commit. If omitted, main is resolved once to an immutable commit before download.")
     parser.add_argument("--repo-id", default=DEFAULT_REPO)
     parser.add_argument("--style", choices=("muallim", "mujawwad"), default="muallim")
     parser.add_argument("--output", type=Path, default=ROOT / "source-vault/quran-audio/active")
     parser.add_argument("--quran-db", type=Path, default=ROOT / "app/src/main/assets/quran.sqlite")
     args = parser.parse_args()
 
-    if not re.fullmatch(r"[0-9a-fA-F]{40}", args.revision):
-        raise SystemExit("--revision must be an immutable 40-hex dataset commit")
     try:
-        from huggingface_hub import snapshot_download
+        from huggingface_hub import HfApi, snapshot_download
     except ImportError:
         raise SystemExit("Install the one-time acquisition dependency: pip install huggingface_hub")
+
+    revision=args.revision
+    if revision is None:
+        revision=str(HfApi().dataset_info(args.repo_id, revision="main").sha or "")
+        print(f"Resolved {args.repo_id}@main -> {revision}", flush=True)
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
+        raise SystemExit("Dataset revision did not resolve to an immutable 40-hex commit")
 
     with tempfile.TemporaryDirectory(prefix="aaris-quran-audio-") as temp:
         snapshot = Path(snapshot_download(
             repo_id=args.repo_id,
             repo_type="dataset",
-            revision=args.revision,
+            revision=revision,
             local_dir=Path(temp) / "snapshot",
             allow_patterns=[
                 f"{args.style}/**",
@@ -63,7 +68,7 @@ def main():
             "--output", str(args.output),
             "--license-evidence", str(evidence),
             "--source-name", "Quranic Word-By-Word Audio Data",
-            "--source-version", args.revision.lower(),
+            "--source-version", revision.lower(),
             "--source-url", f"https://huggingface.co/datasets/{args.repo_id}",
             "--license", "Apache-2.0",
             "--style", args.style,
