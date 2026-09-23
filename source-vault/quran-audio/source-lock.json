@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "repo_id": "zaibihassan/Quranic-Word-By-Word-Audio-Data",
+  "repo_type": "dataset",
+  "revision": "9796e08caae700f44266255da320adf6e5ab4114",
+  "declared_license_tag": "license:apache-2.0",
+  "declared_license": "Apache-2.0",
+  "style": "muallim",
+  "extension": "opus",
+  "canonical_policy": "SOURCE_ALIGNED_W_ONLY",
+  "canonical_quran_sqlite_sha256": "521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1",
+  "expected_word_count": 77318
+}
