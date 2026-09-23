@@ -65,11 +65,32 @@ def main():
     assert manifest.get('audio_alignment_words') == audio_words, 'Audio alignment word metadata mismatch'
     assert manifest.get('audio_alignment_sha256') == audio_alignment.hexdigest(), 'Audio semantic alignment hash mismatch'
 
-    # Quran recitation audio is no longer a build input. The base APK must stay small; only the
-    # user-requested downloader may populate app-private Surah audio after installation.
+    # Quran pronunciation binaries are not build inputs. Only a tiny immutable catalog may ship.
     legacy_audio = ROOT / 'source-vault/quran-audio/active/quran-audio'
     accidental_audio_asset = ROOT / 'app/src/main/assets/quran-audio'
-    assert not legacy_audio.exists() and not accidental_audio_asset.exists(), 'Bundled Quran audio must not be present in a release checkout'
+    binary_audio_assets = [
+        p for p in assets.rglob('*')
+        if p.is_file() and p.suffix.lower() in {'.aqp','.opus','.pb','.pack'}
+    ]
+    assert not legacy_audio.exists() and not accidental_audio_asset.exists(), 'Legacy bundled Quran audio must not be present'
+    assert not binary_audio_assets, 'Quran pronunciation binary leaked into base APK assets'
+    audio_catalog_path = assets / 'quran-audio-word-catalog.json'
+    assert audio_catalog_path.is_file(), 'Missing isolated-word Quran pronunciation catalog'
+    audio_catalog = json.loads(audio_catalog_path.read_text())
+    assert audio_catalog['schema'] == 1
+    assert audio_catalog['delivery'] == 'ISOLATED_WORD_SURAH_CONTAINER_V1'
+    assert audio_catalog['source_revision'] == '9796e08caae700f44266255da320adf6e5ab4114'
+    assert audio_catalog['canonical_quran_alignment_sha256'] == audio_alignment.hexdigest()
+    assert audio_catalog['canonical_quran_audio_words'] == 77326
+    assert audio_catalog['surahs'] == 114
+    assert len(audio_catalog['packs']) == 114
+    assert sum(int(v['words']) for v in audio_catalog['packs'].values()) == 77326
+    assert sum(int(v['bytes']) for v in audio_catalog['packs'].values()) == int(audio_catalog['total_bytes'])
+    for surah in range(1,115):
+        key=f'{surah:03d}'; meta=audio_catalog['packs'][key]
+        assert len(meta['sha256']) == 64 and int(meta['bytes']) > 64 and int(meta['words']) > 0
+        assert meta['url'].startswith('https://github.com/warishakhan3548-hash/updating-repository/releases/download/')
+        assert meta['url'].endswith('/'+key+'.aqp')
 
     # Hadith is a separate optional immutable pack. A build must contain both files or neither.
     hadith_manifest_path = assets / 'hadith-manifest.json'
@@ -188,7 +209,7 @@ def main():
                             *map(str, sources + app + resources_java)], check=True)
             print('Android Java compile: PASS (API jar; not a device or APK test)')
     hadith_state = 'verified local Hadith pack' if hadith_pack.exists() else 'no Hadith pack bundled'
-    print('Content hashes, 6,236 ayahs, 77,881 word ranges, startup manifest, on-demand local Surah audio boundary and '+hadith_state+': PASS')
+    print('Content hashes, 6,236 ayahs, 77,881 word ranges, startup manifest, exact isolated-word Surah audio boundary and '+hadith_state+': PASS')
 
 
 if __name__ == '__main__':
