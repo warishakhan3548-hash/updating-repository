@@ -73,12 +73,17 @@ def main():
             raise SystemExit(f"Canonical isolated-word count changed: {count}")
         if alignment!=lock.get("canonical_quran_alignment_sha256"):
             raise SystemExit("Canonical Quran word identity differs from audio source lock")
-        rows=list(db.execute(
-            "SELECT CAST(substr(ayah_id,3,instr(substr(ayah_id,3),':')-1) AS INTEGER) AS surah,"
-            "CAST(substr(ayah_id,4+instr(substr(ayah_id,3),':')) AS INTEGER) AS ayah,"
-            "position FROM word WHERE position>0 AND id LIKE '%:W:%' "
-            "AND mapping_state='SOURCE_ALIGNED' ORDER BY surah,ayah,position"
+        raw_rows=list(db.execute(
+            "SELECT ayah_id,position FROM word WHERE position>0 AND id LIKE '%:W:%' "
+            "AND mapping_state='SOURCE_ALIGNED'"
         ))
+        rows=[]
+        for ayah_id,pos in raw_rows:
+            parts=str(ayah_id).split(":")
+            if len(parts)!=3 or parts[0]!="Q":
+                raise SystemExit(f"Invalid canonical ayah identity: {ayah_id}")
+            rows.append((int(parts[1]),int(parts[2]),int(pos)))
+        rows.sort()
     finally:
         db.close()
 
