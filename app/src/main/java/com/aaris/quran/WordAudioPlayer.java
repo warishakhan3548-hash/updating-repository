@@ -72,9 +72,12 @@ final class WordAudioPlayer implements AutoCloseable {
 
     private void finish(MediaPlayer completed) {
         synchronized(this) {
-            if(player==completed)player=null;
+            boolean current=player==completed;
+            if(current)player=null;
             safeRelease(completed);
-            abandonFocus();
+            // A delayed callback from an older released clip must never steal focus
+            // from a newer word the user has already tapped.
+            if(current)abandonFocus();
         }
     }
 
