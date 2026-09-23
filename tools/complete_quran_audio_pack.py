@@ -90,7 +90,8 @@ def main():
     print(f"Chunk pack files: {expected_packs}")
     print(f"Packed audio bytes: {manifest['total_pack_bytes']}")
     print("Runtime/build network dependency: none after these files are committed")
-    print("Next: review and commit source-vault/quran-audio/active as ordinary Git files.")
+    print("Release policy: REQUIRED and pinned to this exact verified manifest")
+    print("Next: review and commit source-vault/quran-audio/active plus source-vault/quran-audio/release-policy.json.")
 
 
 if __name__=="__main__":
