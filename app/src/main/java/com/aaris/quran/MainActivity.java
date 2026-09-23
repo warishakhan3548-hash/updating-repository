@@ -172,7 +172,7 @@ public final class MainActivity extends Activity {
             LinearLayout unavailable=card(page,Surface.Kind.HERO);
             unavailable.addView(label("LOCAL CONTENT ONLY"));gap(unavailable,12);
             unavailable.addView(text(this,"Offline Hadith pack\nnot installed yet.",26,INK));gap(unavailable,12);
-            caption(unavailable,"This screen no longer opens a website. A verified Hadith pack must be bundled in the APK before collections are shown.");
+            caption(unavailable,app.hadithLoadError==null?"This screen no longer opens a website. A verified Hadith pack must be bundled in the APK before collections are shown.":app.hadithLoadError);
             gap(unavailable,14);caption(unavailable,"Quran remains fully offline and unchanged.");
             return;
         }
