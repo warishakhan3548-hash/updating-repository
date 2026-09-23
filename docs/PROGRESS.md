@@ -352,3 +352,32 @@ download the Gradle distribution; analyzer setup is still in progress.
   offline but word pronunciation is unavailable rather than falling back to a website.
 - No APK/AAB was built and no CI workflow was added.
 
+
+
+## Checkpoint 20: small base APK + on-demand local Surah recitation (2026-09-23)
+
+- Replaced the planned monolithic repository/APK Quran audio payload with an on-demand Surah model.
+  The base APK no longer includes Quran recitation bytes and normal Gradle/direct-release builds
+  reject the old bundled audio directory if it is present.
+- Pinned `zaibihassan/Quranic-Recitation-Data` at immutable revision
+  `6875b35e45cc83107daf3ab7d3a8bd8b2baa51b3` and selected Abdul Basit Abdul Samad
+  (Mujawwad) for original human Tajweed-oriented recitation. No TTS or generated voice is used.
+- Every downloadable Surah is one full Ogg Opus recitation plus one compact protobuf timing file.
+  A dependency-free protobuf decoder maps canonical Quran word coordinates to millisecond ranges.
+  Word playback seeks the original local Surah recording to the word range rather than storing
+  77,000+ separate clips.
+- Added explicit user-controlled per-Surah download and Download All. Downloads use the immutable
+  source revision, validate HTTPS/Ogg/timing structure, stage privately, then atomically replace the
+  installed Surah directory. Incomplete downloads never become active.
+- Downloaded audio lives only in app-private local storage. Once a Surah is installed, reader word
+  taps, replay, and the existing cross-app recall overlay all use that local recording. The overlay
+  never starts a download by itself; without the Surah pack it remains silent while recall still
+  works.
+- Runtime network access is isolated to `QuranAudioDownloadManager`; Quran text, Hadith, search,
+  learning and recall remain offline-first. The static offline-contract guard now enforces that
+  no other runtime class imports a network client.
+- Added an `Audio ↓ / Audio ✓` control on each Surah reader and a `Quran audio · Download All`
+  control in settings. Base APK size is therefore independent of how much recitation the user later
+  chooses to store.
+- Real-device Opus seek accuracy, slow/interrupted-download behavior and final installed/release
+  size measurements still need physical Android QA. No APK/AAB was built and no CI workflow was run.
