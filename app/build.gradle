@@ -67,6 +67,8 @@ def prepareVendoredHadithSource = tasks.register('prepareVendoredHadithSource') 
 def hadithPack = tasks.register('prepareHadithPack') {
     dependsOn prepareVendoredHadithSource
     inputs.file rootProject.file('tools/build_hadith.py')
+    inputs.dir activeHadithSource
+    inputs.dir generatedHadithSource
     outputs.files file('src/main/assets/hadith.sqlite'), file('src/main/assets/hadith-manifest.json')
     doLast {
         def explicitManifest = new File(activeHadithSource, 'manifest.json')
