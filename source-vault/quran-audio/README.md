@@ -61,7 +61,10 @@ Fast path for maintainers:
 
 `python3 tools/complete_quran_audio_pack.py`
 
-This is an explicit one-time acquisition command. It is never referenced by Gradle.
+This is the **single authoritative** one-time acquisition/finalization command. It is never
+referenced by Gradle. It refuses to replace an existing active pack unless the maintainer
+deliberately passes `--replace`, and performs a conservative 2 GiB free-space preflight before
+downloading/staging the pinned snapshot.
 
 Before acquiring the large source snapshot, the packer/verifier can be tested completely offline:
 
