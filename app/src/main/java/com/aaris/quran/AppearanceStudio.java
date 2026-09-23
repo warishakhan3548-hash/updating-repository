@@ -162,6 +162,18 @@ final class AppearanceStudio {
         android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();bg.setColor(selected?Appearance.mix(style.effectiveSurface(),style.accent,.14f):style.effectiveSurface());bg.setCornerRadius(dp(activity,15));
         bg.setStroke(dp(activity,selected?2:1),selected?style.accent:Appearance.mix(style.accent,style.effectiveSurface(),.72f));b.setBackground(bg);b.setOnClickListener(v->run.run());return b;
     }
+    private View quranWritingCard(int index,String label){
+        boolean selected=style.font==index;Appearance sampleStyle=style.copy();sampleStyle.font=index;
+        int base=selected?Appearance.mix(style.effectiveSurface(),style.accent,.14f):style.effectiveSurface();
+        LinearLayout card=column(activity);card.setTag("keepColor");card.setGravity(Gravity.CENTER);pad(card,6,5);
+        android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();bg.setColor(base);bg.setCornerRadius(dp(activity,16));
+        bg.setStroke(dp(activity,selected?2:1),selected?style.accent:Appearance.mix(style.accent,style.effectiveSurface(),.72f));card.setBackground(bg);
+        TextView sample=text(activity,"م ح ع",22,Appearance.readable(style.arabic,base));sample.setTag("keepColor");sample.setTypeface(sampleStyle.typeface(activity));sample.setGravity(Gravity.CENTER);sample.setTextDirection(View.TEXT_DIRECTION_RTL);card.addView(sample,new LinearLayout.LayoutParams(-1,dp(activity,32)));
+        TextView name=text(activity,(selected?"✓ ":"")+label,11,Appearance.readable(selected?style.accent:style.ink(),base));name.setTag("keepColor");name.setGravity(Gravity.CENTER);card.addView(name,new LinearLayout.LayoutParams(-1,-2));
+        card.setContentDescription(label+" Arabic writing style"+(selected?", selected":""));card.setClickable(true);card.setFocusable(true);
+        card.setOnClickListener(v->{if(style.font!=index){style.font=index;commit();renderControls();}});
+        return card;
+    }
     private void compactSlider(String label,int min,int max,int initial,Change change){
         LinearLayout line=row(activity);TextView caption=text(activity,label,12,style.ink());caption.setTag("keepColor");line.addView(caption,new LinearLayout.LayoutParams(dp(activity,105),-2));
         SeekBar seek=new SeekBar(activity);seek.setMax(max-min);seek.setProgress(initial-min);seek.setContentDescription(label);line.addView(seek,new LinearLayout.LayoutParams(0,dp(activity,42),1));
@@ -220,13 +232,15 @@ final class AppearanceStudio {
         }
         if(layer==1)compactSlider("Card opacity",25,100,style.opacity,v->style.opacity=v);
 
-        title("Reading");
-        LinearLayout fonts=row(activity);
+        title("Quran writing");
+        LinearLayout writing=row(activity);
+        String[] writingNames={"Quran","Naskh","Bold Naskh"};
         for(int i=0;i<Appearance.FONTS.length;i++){
-            final int index=i;View b=compactChoice(Appearance.FONTS[i].replace("Amiri ",""),style.font==i,()->{style.font=index;commit();renderControls();});
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,42),1);if(i<Appearance.FONTS.length-1)p.rightMargin=dp(activity,5);fonts.addView(b,p);
+            View b=quranWritingCard(i,writingNames[i]);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,64),1);if(i<Appearance.FONTS.length-1)p.rightMargin=dp(activity,6);writing.addView(b,p);
         }
-        controls.addView(fonts);
+        controls.addView(writing);
+
+        title("Reading");
         compactSlider("Arabic size",24,54,style.arabicSize,v->style.arabicSize=v);
         compactSlider("Line spacing",2,24,style.spacing,v->style.spacing=v);
         compactSlider("Translation",14,28,style.translationSize,v->style.translationSize=v);
