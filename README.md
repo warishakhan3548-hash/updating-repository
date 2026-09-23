@@ -42,14 +42,16 @@ That local pack supports Collection → Book → Chapter → Hadith navigation a
 English/reference search where those language layers exist. This is real offline core-nine coverage,
 not a claim that every collection in the wider Sunnah.com catalog is vendored.
 
-Quran word audio also has a complete local-only pipeline: a reviewed immutable source lock, one-time
-acquisition helper, deterministic content-addressed deduplication into small seekable chunk packs +
-a SQLite byte index, runtime hash/coverage checks, and a process-wide local player. Normal
-verification and both Gradle
-and direct-SDK release builds never acquire audio from the network. The remaining audio work is to
-vendor the actual large verified `source-vault/quran-audio/active` payload into the repository.
-The remaining architecture still lacks the full wider Hadith catalog, reviewed morphology/sense
-graph, calibrated FSRS and a signed content-pack updater.
+Quran pronunciation now uses an on-demand local Surah architecture instead of putting hundreds
+of megabytes of recitation inside the base APK. The reviewed source lock pins an immutable
+`Quranic-Recitation-Data` snapshot and Abdul Basit Abdul Samad (Mujawwad). Each Surah is one
+original human-recitation Ogg Opus file plus compact word-level protobuf timings. The user may
+download one Surah from its reader screen or choose Download All. A verified Surah is atomically
+installed into app-private storage; after that, word taps and ambient recall overlays seek the
+local file and do not use the network. Quran text, Hadith, search, learning and recall remain usable
+without audio or internet. Normal Gradle/direct release builds never download or bundle Quran
+recitation bytes, so the base APK stays small. The remaining architecture still lacks the full wider
+Hadith catalog, reviewed morphology/sense graph, calibrated FSRS and a signed general content-pack updater.
 
 ## Signed release APK without Gradle downloads
 
