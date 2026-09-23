@@ -34,11 +34,11 @@ final class WordAudioPlayer implements AutoCloseable {
     boolean canPlay(ContentStore.Word word){return store!=null&&store.canAddress(word);}
 
     synchronized boolean play(ContentStore.Word word) {
+        generation++;
+        releaseLocked();
         if(store==null)return false;
         QuranAudioStore.Clip clip=store.clip(word);
         if(clip==null)return false;
-        generation++;
-        releaseLocked();
         AssetFileDescriptor fd=null;
         try {
             fd=store.open(clip);
