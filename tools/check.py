@@ -34,6 +34,11 @@ def main():
     subprocess.run([
         sys.executable, str(ROOT / 'tools/check_offline_contract.py')
     ], check=True, cwd=ROOT)
+    # Exercise the audio packer/verifier even when the large real audio payload has not yet been
+    # vendored. The synthetic fixture must pass, and deliberate corruption must be rejected.
+    subprocess.run([
+        sys.executable, str(ROOT / 'tools/selftest_quran_audio_pack.py')
+    ], check=True, cwd=ROOT)
     java = shutil.which('java')
     if not java and os.environ.get('JAVA_HOME'):
         java = str(Path(os.environ['JAVA_HOME']) / 'bin/java')
