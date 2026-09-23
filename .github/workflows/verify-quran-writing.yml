@@ -1,0 +1,47 @@
+name: Verify Quran writing selector
+
+on:
+  push:
+    branches:
+      - restore-quran-writing-selector
+
+permissions:
+  contents: read
+
+env:
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Resolve Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -1 || true)"
+          if [ ! -f "$ANDROID_HOME/platforms/android-35/android.jar" ] || [ -z "$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d -name '35*' -print -quit 2>/dev/null)" ]; then
+            test -n "$SDKMANAGER"
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+          fi
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d -name '35*' | sort -V | tail -1)"
+          echo "BUILD_TOOLS=$BUILD_TOOLS" >> "$GITHUB_ENV"
+      - name: Signing key
+        shell: bash
+        run: |
+          PASS='appearance-verify-only'
+          printf '%s' "$PASS" > "$RUNNER_TEMP/pass.txt"
+          keytool -genkeypair -noprompt -storetype PKCS12 -keystore "$RUNNER_TEMP/verify.p12" -storepass "$PASS" -keypass "$PASS" -alias verify -keyalg RSA -keysize 2048 -validity 30 -dname "CN=Aaris Verify,O=Aaris,C=IN"
+      - name: Compile and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/build_release.py             --android-jar "$ANDROID_HOME/platforms/android-35/android.jar"             --build-tools "$BUILD_TOOLS"             --keystore "$RUNNER_TEMP/verify.p12"             --alias verify             --password-file "$RUNNER_TEMP/pass.txt"             --output "$RUNNER_TEMP/quran-writing-selector-verify.apk"
