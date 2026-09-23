@@ -46,7 +46,7 @@ public final class QuranApp extends Application {
                 content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();
                 try{hadith=HadithStore.openIfBundled(this);}catch(Exception e){hadith=null;hadithLoadError="Hadith pack could not be opened: "+e.getMessage();}
                 try{
-                    wordAudio=new QuranAudioStore(this,content.packHash);
+                    wordAudio=new QuranAudioStore(this,content.audioAlignmentHash);
                     audio=new WordAudioPlayer(this,wordAudio);
                     audioDownloads=new QuranAudioDownloadManager(wordAudio,audioWorker);
                 }catch(Exception e){
