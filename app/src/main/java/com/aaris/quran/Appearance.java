@@ -15,6 +15,8 @@ final class Appearance {
     int background=0xff030705,surface=0xff14291e,accent=0xff9bc7aa,arabic=0xffe0e4d8,translation=0xffcbd6d0;
     int font=0,arabicSize=32,translationSize=18,spacing=10,opacity=92,corners=26;
     int arabicOpacity=100,translationOpacity=100,glassStrength=100,borderStrength=100,glow=0,gradientEnd=background;
+    int textDepth=0,shadowSoftness=4,shadowStrength=0,textSheen=50,buttonColor=surface;
+    boolean customButtons=false;
     boolean glass=true,textGlass=true,gradient=false,reducedEffects=false;
     String name=PRESETS[0];
     private static final Map<Integer,Typeface> fonts=new HashMap<>();
@@ -27,13 +29,17 @@ final class Appearance {
             a.spacing=bound(j.optInt("spacing",10),2,24);a.opacity=bound(j.optInt("opacity",92),25,100);a.corners=bound(j.optInt("corners",26),0,36);
             a.arabicOpacity=bound(j.optInt("arabicOpacity",100),20,100);a.translationOpacity=bound(j.optInt("translationOpacity",100),20,100);
             a.glassStrength=bound(j.optInt("glassStrength",100),0,100);a.borderStrength=bound(j.optInt("borderStrength",100),0,100);a.glow=bound(j.optInt("glow",0),0,30);
+            a.textDepth=bound(j.optInt("textDepth",0),0,12);a.shadowSoftness=bound(j.optInt("shadowSoftness",4),0,16);
+            a.shadowStrength=bound(j.optInt("shadowStrength",0),0,70);a.textSheen=bound(j.optInt("textSheen",50),0,100);
+            a.buttonColor=j.optInt("buttonColor",a.surface)|0xff000000;a.customButtons=j.optBoolean("customButtons",false);
             a.gradientEnd=j.optInt("gradientEnd",a.background)|0xff000000;a.gradient=j.optBoolean("gradient",false);a.reducedEffects=j.optBoolean("reducedEffects",false);
             a.glass=j.optBoolean("glass",true);a.textGlass=j.optBoolean("textGlass",true);a.name=j.optString("name",PRESETS[0]);
         }catch(Exception ignored){}return a;
     }
-    String encode(){try{return new JSONObject().put("version",2).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation)
+    String encode(){try{return new JSONObject().put("version",3).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation)
         .put("font",font).put("size",arabicSize).put("translationSize",translationSize).put("spacing",spacing).put("opacity",opacity).put("corners",corners)
         .put("arabicOpacity",arabicOpacity).put("translationOpacity",translationOpacity).put("glassStrength",glassStrength).put("borderStrength",borderStrength).put("glow",glow)
+        .put("textDepth",textDepth).put("shadowSoftness",shadowSoftness).put("shadowStrength",shadowStrength).put("textSheen",textSheen).put("buttonColor",buttonColor).put("customButtons",customButtons)
         .put("gradient",gradient).put("gradientEnd",gradientEnd).put("reducedEffects",reducedEffects).put("glass",glass).put("textGlass",textGlass).put("name",name).toString();}catch(Exception e){throw new IllegalStateException(e);}}
     void save(Context c){c.getSharedPreferences("appearance",0).edit().putString("current",encode()).apply();}
     Appearance copy(){return decode(encode());}
@@ -41,6 +47,7 @@ final class Appearance {
         int i=bound(index,0,PRESETS.length-1);
         font=0;arabicSize=32;translationSize=18;spacing=10;opacity=92;corners=26;
         arabicOpacity=100;translationOpacity=100;glassStrength=100;borderStrength=100;glow=0;
+        textDepth=0;shadowSoftness=4;shadowStrength=0;textSheen=50;customButtons=false;
         glass=true;textGlass=true;gradient=false;reducedEffects=false;
         switch(i){
             case 0:
@@ -100,8 +107,15 @@ final class Appearance {
         name=PRESETS[i];
     }
     private void palette(int bg,int card,int highlight,int arabicInk,int translationInk,int end){
-        background=bg;surface=card;accent=highlight;arabic=arabicInk;translation=translationInk;gradientEnd=end;
+        background=bg;surface=card;buttonColor=card;accent=highlight;arabic=arabicInk;translation=translationInk;gradientEnd=end;
     }
+    int buttonSurface(){return customButtons?mix(background,buttonColor,opacity/100f):effectiveSurface();}
+    int buttonInk(){
+        int base=buttonSurface(),primary=mix(base,accent,.15f),highlight=mix(primary,accent,.06f*glassStrength/100f);
+        int target=Math.min(contrast(Color.WHITE,base),contrast(Color.WHITE,highlight))>Math.min(contrast(Color.BLACK,base),contrast(Color.BLACK,highlight))?Color.WHITE:Color.BLACK;
+        return readable(target,base);
+    }
+    int glassInk(float amount){return textInk(mix(arabicInk(),Color.WHITE,amount),100);}
     int effectiveSurface(){return mix(background,surface,opacity/100f);}
     int surfaceHighlight(){return glass&&!reducedEffects?mix(effectiveSurface(),accent,.06f*glassStrength/100f):effectiveSurface();}
     int arabicInk(){return textInk(arabic,arabicOpacity);}
@@ -120,5 +134,7 @@ final class Appearance {
     static double luminance(int c){double v=0;double[] weights={.2126,.7152,.0722};int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};for(int i=0;i<3;i++){double x=rgb[i]/255.;v+=weights[i]*(x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4));}return v;}
     static double contrast(int a,int b){double x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
     static int readable(int color,int on){if(contrast(color,on)>=4.5)return color;int target=contrast(Color.WHITE,on)>contrast(Color.BLACK,on)?Color.WHITE:Color.BLACK;for(int n=1;n<=20;n++){int fixed=mix(color,target,n/20f);if(contrast(fixed,on)>=4.5)return fixed;}return target;}
-    Typeface typeface(Context c){synchronized(fonts){Typeface type=fonts.get(font);if(type==null){String file=font==1?"Amiri-Regular.ttf":font==2?"Amiri-Bold.ttf":"AmiriQuran.ttf";type=Typeface.createFromAsset(c.getAssets(),"fonts/"+file);fonts.put(font,type);}return type;}}
+    Typeface hadithTypeface(Context c){return typeface(c,font==2?2:1);}
+    Typeface typeface(Context c){return typeface(c,font);}
+    private static Typeface typeface(Context c,int font){synchronized(fonts){Typeface type=fonts.get(font);if(type==null){String file=font==1?"Amiri-Regular.ttf":font==2?"Amiri-Bold.ttf":"AmiriQuran.ttf";type=Typeface.createFromAsset(c.getAssets(),"fonts/"+file);fonts.put(font,type);}return type;}}
 }

@@ -35,6 +35,7 @@ final class RecitationDownloads {
         }catch(Exception e){return false;}
     }
     File obtain(String reciter,Ayah a)throws Exception{
+        int globalNumber=RecitationAddress.globalNumber(a);
         reciter=valid(reciter);String key=reciter+":"+a.id;Object lock;synchronized(locks){lock=locks.computeIfAbsent(key,k->new Object());}
         synchronized(lock){
             File target=file(reciter,a),hash=hashFile(reciter,a),directory=target.getParentFile();
@@ -45,7 +46,7 @@ final class RecitationDownloads {
             new File(directory,"complete.json").delete();
             if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("Audio storage unavailable");
             File temporary=new File(directory,a.number+".download");
-            URL url=new URL("https://cdn.islamic.network/quran/audio/128/"+reciter+"/"+RecitationAddress.globalNumber(a)+".mp3");
+            URL url=new URL("https://cdn.islamic.network/quran/audio/128/"+reciter+"/"+globalNumber+".mp3");
             HttpURLConnection connection=(HttpURLConnection)url.openConnection();connection.setConnectTimeout(15000);connection.setReadTimeout(30000);connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Accept-Encoding","identity");connection.setRequestProperty("User-Agent","Aaris-Quran/0.4 recitation");
             try{

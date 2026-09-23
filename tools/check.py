@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import sys
 import xml.etree.ElementTree as ET
+from acquire_sunnah_api import body_text
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,6 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     if not __debug__:
         raise SystemExit('Run checks without -O; integrity assertions must be enabled.')
+    assert body_text('<p>نَصٌّ <b>تَجْرِيبِيٌّ</b></p><p>أَخْبَارٌ &amp; آثار</p>') == 'نَصٌّ تَجْرِيبِيٌّ\nأَخْبَارٌ & آثار'
+    assert body_text('نَصٌّ تَجْرِيبِيٌّ') == 'نَصٌّ تَجْرِيبِيٌّ'
     parser = argparse.ArgumentParser()
     parser.add_argument('--android-jar', type=Path)
     parser.add_argument('--aapt2', type=Path, help='Optional Android resource compiler (requires --android-jar)')
@@ -73,9 +76,16 @@ def main():
     coordinates = {row[0] for row in db.execute('SELECT id FROM ayah')}
     for edition, in tdb.execute('SELECT id FROM edition'):
         assert {row[0] for row in tdb.execute('SELECT ayah_id FROM translation WHERE edition_id=?', (edition,))} == coordinates
+        archived = json.loads((ROOT / 'source-vault/translations' / (edition + '.json')).read_text())
+        for chapter in archived.values():
+            for row in chapter:
+                aid = f"Q:{row['chapter']}:{row['verse']}"
+                assert tdb.execute('SELECT text,footnotes FROM translation WHERE edition_id=? AND ayah_id=?',
+                                   (edition, aid)).fetchone() == (row['text'], row.get('footnotes', '')), ('Translation drift', edition, aid)
     translations = {}
     for aid, text in tdb.execute('SELECT ayah_id,text FROM translation'):
         translations[aid] = translations.get(aid, '') + ' ' + text
+    print('Translation source identity: all 18,708 texts and footnotes match their archived coordinates')
     tdb.close()
 
     # Quran pronunciation binaries are not build inputs. Only a tiny immutable catalog may ship.
@@ -195,6 +205,7 @@ def main():
         subprocess.run([java, 'com.sun.tools.javac.Main', '--release', '17', '-encoding', 'UTF-8',
                         '-d', str(classes), *map(str, sources + tests)], check=True)
         subprocess.run([java, '-cp', str(classes), 'com.aaris.quran.core.CoreChecks'], check=True, cwd=ROOT)
+        subprocess.run([sys.executable, str(ROOT / 'tools/check_hadith_search.py'), '--classes', str(classes)], check=True, cwd=ROOT)
         corpus = Path(scratch) / 'corpus.tsv'
         encode = lambda value: base64.b64encode(value.encode()).decode()
         with corpus.open('w') as out:

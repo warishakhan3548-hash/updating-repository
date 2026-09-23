@@ -471,6 +471,16 @@ def build(source_dir: Path, output: Path):
     try:
         counters = import_jsonl(db, source_dir, manifest)
         build_search_index(db)
+        # Report actual layer coverage instead of treating a manifest language as complete.
+        coverage = {"ar": counters["hadith"]}
+        for language, column in (("en", "english"), ("ur", "urdu"), ("bn", "bangla")):
+            coverage[language] = db.execute(
+                f"SELECT count(*) FROM hadith WHERE {column} IS NOT NULL AND trim({column})<>''"
+            ).fetchone()[0]
+        marked = sum(bool(re.search(r"[\u064b-\u0652\u0670]", text)) for (text,) in db.execute("SELECT arabic FROM hadith"))
+        languages = {code for code, count in coverage.items() if count}
+        languages.update(row[0] for row in db.execute(
+            "SELECT DISTINCT language FROM editorial_translation WHERE status IN ('reviewed','released')"))
         provenance = {
             "pack_id": manifest["pack_id"],
             "content_version": manifest["content_version"],
@@ -511,7 +521,10 @@ def build(source_dir: Path, output: Path):
             "chapters": counters["chapter"],
             "records": counters["hadith"],
             "editorial_translations": counters["translation"],
-            "language_coverage": list(manifest.get("language_coverage") or ["ar"]),
+            "language_coverage": sorted(languages),
+            "imported_translation_record_counts": coverage,
+            "arabic_records_with_vowel_marks": marked,
+            "vocalization_note": "Presence of some marks does not establish complete or reviewed vocalization.",
             "source_files": {rel: digest(safe_source_path(source_dir, rel)) for rel in manifest["files"]},
             "license_files": list(manifest["license_files"]),
             "runtime_network_required": False,

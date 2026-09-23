@@ -66,4 +66,26 @@ public final class HadithQuery {
         return values;
     }
     public String scopeLabel(){return collectionId==null?"All Hadith collections":collectionId;}
+    /** A bound SQLite predicate shared by the runtime and real-pack regression checks. */
+    public static final class Lookup {
+        public final String where;
+        public final List<String> args;
+        private Lookup(String where,List<String> args){this.where=where;this.args=Collections.unmodifiableList(args);}
+    }
+    public Lookup lookup(){
+        List<String> args=new ArrayList<>();String where;
+        if(number!=null){
+            List<String> values=referenceValues();args.addAll(values);args.add(raw);args.addAll(values);
+            List<String> refs=new ArrayList<>();
+            if(collectionId!=null)for(String value:values)refs.add(collectionId+":"+value);
+            args.addAll(refs);
+            where="(h.record_number IN ("+marks(values.size())+") OR h.id IN (SELECT hadith_id FROM hadith_reference WHERE scheme NOT LIKE '%urn%' AND value IN ("+
+                marks(1+values.size()+refs.size())+")))";
+        }else if(raw.startsWith("H:")){where="h.id=?";args.add(raw);}
+        else if(collectionId!=null&&text.isEmpty())where="1";
+        else throw new IllegalStateException("Text query is not a reference lookup");
+        if(collectionId!=null){where+=" AND h.collection_id=?";args.add(collectionId);}
+        return new Lookup(where,args);
+    }
+    private static String marks(int n){return String.join(",",Collections.nCopies(n,"?"));}
 }

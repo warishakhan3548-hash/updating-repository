@@ -42,7 +42,7 @@ final class ResearchExport {
         }
     }
     static byte[] hadith(Context c,HadithStore store,List<HadithStore.Hit> hits,String language,String query,String prompt)throws Exception{
-        Typeface arabic=Typeface.createFromAsset(c.getAssets(),"fonts/AmiriQuran.ttf");
+        Typeface arabic=Typeface.createFromAsset(c.getAssets(),"fonts/Amiri-Regular.ttf");
         try(EvidenceExporter.Pages pages=new EvidenceExporter.Pages("Aaris · Hadith research")){
             header(pages,query,hits.size(),prompt);
             pages.block(store.sourceName+" · "+store.sourceVersion+"\nPack: "+store.packHash+"\n"+store.redistributionBasis,Typeface.DEFAULT,10,false);

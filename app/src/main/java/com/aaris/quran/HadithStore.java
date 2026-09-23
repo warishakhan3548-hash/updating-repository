@@ -229,18 +229,8 @@ final class HadithStore implements AutoCloseable {
         List<Hit> ordered=new ArrayList<>(best);ordered.sort(ORDER);return new SearchPage(raw,new ArrayList<>(ordered.subList(Math.min(start,ordered.size()),ordered.size())),total,start);
     }
     private SearchPage referencePage(HadithQuery query,int cap,int offset){
-        cancelSearch();List<String> args=new ArrayList<>();String predicate;
-        if(query.number!=null){
-            List<String> values=query.referenceValues();String marks=String.join(",",Collections.nCopies(values.size(),"?"));
-            args.addAll(values);args.add(query.raw);args.addAll(values);
-            List<String> refs=new ArrayList<>();
-            if(query.collectionId!=null)for(String value:values)refs.add(query.collectionId+":"+value);
-            args.addAll(refs);
-            predicate="(h.record_number IN ("+marks+") OR h.id IN (SELECT hadith_id FROM hadith_reference WHERE scheme NOT LIKE '%urn%' AND value IN ("+
-                String.join(",",Collections.nCopies(1+values.size()+refs.size(),"?"))+")))";
-        }else if(query.raw.startsWith("H:")){predicate="h.id=?";args.add(query.raw);}
-        else predicate="1";
-        if(query.collectionId!=null){predicate+=" AND h.collection_id=?";args.add(query.collectionId);}
+        cancelSearch();HadithQuery.Lookup lookup=query.lookup();
+        List<String> args=new ArrayList<>(lookup.args);String predicate=lookup.where;
         int total;try(Cursor c=db.rawQuery("SELECT count(*) FROM hadith h WHERE "+predicate,args.toArray(new String[0]))){c.moveToFirst();total=c.getInt(0);}
         args.add(""+cap);args.add(""+offset);List<Hit> hits=new ArrayList<>();
         try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+predicate+

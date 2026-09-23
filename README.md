@@ -43,16 +43,18 @@ That local pack supports Collection → Book → Chapter → Hadith navigation a
 English/reference search where those language layers exist. This is real offline core-nine coverage,
 not a claim that every collection in the wider Sunnah.com catalog is vendored.
 
-Today now opens the shared Appearance Studio: six starting looks, independent colors,
-live preview, actual Quran/Naskh/Bold fonts, size/spacing, saved styles and undo/redo.
+Today now opens the shared Appearance Studio: preset looks, independent card/button/highlight colors,
+live preview, Quran/Naskh/Bold fonts, size/spacing, text depth/shadows/glass sheen, saved styles and undo/redo.
 Complete archived Hindi, Urdu and English translations appear below ayahs, with edition
 attribution; Arabic word taps stay available. Search accepts paragraphs and ranks textual
-overlap, typo and supported pronunciation matches. Hadith search covers all installed books
-without deduplicating separate narration IDs. Search results can be selected and shared as
+overlap, typo and supported pronunciation matches. One shared search box covers Quran and all installed Hadith books, accepts multilingual
+collection + number references and vocalized/plain Arabic, and preserves separate narration IDs. Search results can be selected and shared as
 a local, attributed PDF through Android's share sheet. Whole-ayah recitation adds an optional
 Mishary/Al-Husary/Minshawi catalog, continuous playback and selected-reciter downloads.
 It is separate from the isolated-word pronunciation system below. Core builds never fetch it.
-Native compilation and device QA for this integration remain pending; no APK was produced.
+Native resource/Java compilation and offline regressions pass; physical-device QA remains pending.
+No APK was produced. See [the fix report](docs/SEARCH_READING_FIXES_2026_09.md) for checks and the
+still-missing official Sunnah vocalized/translation source pack.
 
 Quran word pronunciation uses on-demand **isolated word recordings** so the base APK stays small
 without cutting words out of one continuous recitation. The reviewed source lock pins
