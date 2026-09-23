@@ -82,6 +82,8 @@ def main():
         if not path.is_file():
             missing.append(str(path))
             if len(missing)>=20:break
+        elif path.stat().st_size<32 or path.open("rb").read(4)!=b"OggS":
+            raise SystemExit(f"Invalid/corrupt Ogg Opus source clip: {path}")
     if missing:
         raise SystemExit("Source audio does not cover canonical word coordinates: "+", ".join(missing))
 
@@ -130,6 +132,9 @@ def main():
                         raise ValueError(f"Suspiciously small source audio: {src}")
                     offset=out.tell()
                     with src.open("rb") as inp:
+                        if inp.read(4)!=b"OggS":
+                            raise ValueError(f"Source clip is not an Ogg container: {src}")
+                        inp.seek(0)
                         shutil.copyfileobj(inp,out,1024*1024)
                     _,ayah=coordinate(ayah_id)
                     db.execute("INSERT INTO clip VALUES(?,?,?,?,?,?)",
