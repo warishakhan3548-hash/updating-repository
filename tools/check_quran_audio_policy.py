@@ -64,6 +64,10 @@ def main():
 
     manifest_bytes=manifest_path.read_bytes()
     manifest=json.loads(manifest_bytes)
+    if state=="pending_vendor_import":
+        raise SystemExit(
+            "Quran audio payload exists but release policy is still pending; "
+            "finalize it with tools/complete_quran_audio_pack.py before a normal build")
     if state=="required":
         expected_hash=str(policy.get("required_manifest_sha256") or "")
         expected_pack_id=str(policy.get("required_pack_id") or "")
