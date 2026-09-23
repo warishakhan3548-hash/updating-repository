@@ -101,8 +101,11 @@ def main():
         if not path.is_file():
             missing.append(str(path))
             if len(missing)>=20:break
-        elif path.stat().st_size<32 or path.open("rb").read(4)!=b"OggS":
-            raise SystemExit(f"Invalid/corrupt Ogg Opus source clip: {path}")
+        else:
+            with path.open("rb") as probe:
+                header=probe.read(4)
+            if path.stat().st_size<32 or header!=b"OggS":
+                raise SystemExit(f"Invalid/corrupt Ogg Opus source clip: {path}")
     if missing:
         raise SystemExit("Source audio does not cover canonical word coordinates: "+", ".join(missing))
 
