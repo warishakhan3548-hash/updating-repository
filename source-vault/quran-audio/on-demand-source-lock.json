@@ -4,7 +4,10 @@
   "repo_id": "zaibihassan/Quranic-Recitation-Data",
   "repo_type": "dataset",
   "revision": "6875b35e45cc83107daf3ab7d3a8bd8b2baa51b3",
-  "declared_license": "Apache-2.0",
+  "declared_license": "Dataset metadata tag: Apache-2.0",
+  "recording_rights_status": "NOT_INDEPENDENTLY_CLEARED",
+  "recording_rights_notice": "Upstream DATA_LICENSE states that audio recordings may belong to reciters, studios, or original sources and asks downstream users to verify reuse rights.",
+  "use_scope": "NON_COMMERCIAL_PREVIEW_PENDING_RECORDING_RIGHTS_CLEARANCE",
   "reciter_folder": "Abdul Basit Abdul Samad (Mujawwad)",
   "reciter_slug": "abdul-basit-abdul-samad-mujawwad",
   "audio_format": "Ogg Opus",
@@ -15,5 +18,6 @@
   "canonical_quran_sqlite_sha256": "521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1",
   "download_policy": "EXPLICIT_USER_ACTION_ONLY",
   "local_policy": "AFTER_VALIDATED_DOWNLOAD_PLAY_ONLY_FROM_APP_PRIVATE_STORAGE",
+  "resume_policy": "REVISION_SCOPED_PARTIAL_HTTP_RANGE",
   "apk_policy": "NO_QURAN_AUDIO_BYTES_IN_BASE_APK"
 }
