@@ -17,7 +17,6 @@ final class AppearanceStudio {
     private final boolean translationRtl;
     private final LinearLayout root,preview,controls,toolbar;
     private final FrameLayout previewHost;
-    private View editingSwatch;
     private final List<String> history=new ArrayList<>();
     private int historyIndex=0,layer=0;
     private boolean binding,advanced;
@@ -52,7 +51,6 @@ final class AppearanceStudio {
         boolean adjusted=style.adjustedText();
         preview.addView(text(activity,adjusted?"Text contrast adjusted for readable letters":"Your colors · Clear letters · Offline fonts",11,MUTED));
         applyPreviewBackground();
-        updateEditingSwatch();
         recolor(controls);recolor(toolbar);
 
     }
@@ -67,11 +65,6 @@ final class AppearanceStudio {
         if(style.gradient&&!style.reducedEffects)bg=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,new int[]{style.background,Appearance.mix(style.background,style.gradientEnd,.42f)});
         else {bg=new android.graphics.drawable.GradientDrawable();bg.setColor(style.background);}
         root.setBackground(bg);
-    }
-    private void updateEditingSwatch(){
-        if(editingSwatch==null)return;
-        android.graphics.drawable.GradientDrawable sw=new android.graphics.drawable.GradientDrawable();sw.setShape(android.graphics.drawable.GradientDrawable.OVAL);sw.setColor(color());
-        sw.setStroke(dp(activity,1),Appearance.mix(color(),style.ink(),.28f));editingSwatch.setBackground(sw);
     }
     private void recolor(View view){
         if("keepColor".equals(view.getTag()))return;
@@ -110,15 +103,15 @@ final class AppearanceStudio {
         editHue=h[0];editSat=h[1];editVal=h[2];applyEditorColor();
     }
     private View presetCard(Appearance swatch,boolean selected,String label,Runnable run){
-        LinearLayout card=column(activity);pad(card,9,8);card.setGravity(Gravity.CENTER_HORIZONTAL);card.setTag("keepColor");
+        LinearLayout card=column(activity);pad(card,7,5);card.setGravity(Gravity.CENTER_HORIZONTAL);card.setTag("keepColor");
         int cardTone=Appearance.mix(swatch.background,swatch.gradient?swatch.gradientEnd:swatch.surface,.45f);
         android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable(
             android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
             swatch.gradient?new int[]{swatch.background,swatch.gradientEnd}:new int[]{swatch.background,swatch.surface});
         bg.setCornerRadius(dp(activity,20));bg.setStroke(dp(activity,selected?2:1),selected?swatch.accent:Appearance.mix(swatch.accent,cardTone,.55f));card.setBackground(bg);
-        TextView mini=text(activity,"بِسْمِ",17,swatch.arabicInk());mini.setTypeface(swatch.typeface(activity));mini.setGravity(Gravity.CENTER);mini.setTextDirection(View.TEXT_DIRECTION_RTL);
+        TextView mini=text(activity,"بِسْمِ",15,swatch.arabicInk());mini.setTypeface(swatch.typeface(activity));mini.setGravity(Gravity.CENTER);mini.setTextDirection(View.TEXT_DIRECTION_RTL);
         android.graphics.drawable.GradientDrawable miniBg=new android.graphics.drawable.GradientDrawable();miniBg.setColor(swatch.effectiveSurface());miniBg.setCornerRadius(dp(activity,12));miniBg.setStroke(dp(activity,1),Appearance.mix(swatch.accent,swatch.surface,.55f));mini.setBackground(miniBg);
-        card.addView(mini,new LinearLayout.LayoutParams(-1,dp(activity,36)));
+        card.addView(mini,new LinearLayout.LayoutParams(-1,dp(activity,30)));
         TextView name=text(activity,(selected?"✓ ":"")+label,12,Appearance.readable(swatch.ink(),cardTone));name.setGravity(Gravity.CENTER);pad(name,2,5);card.addView(name,new LinearLayout.LayoutParams(-1,-2));
         card.setContentDescription(label+" appearance preset");card.setFocusable(true);card.setClickable(true);card.setOnClickListener(v->run.run());return card;
     }
@@ -199,9 +192,9 @@ final class AppearanceStudio {
         String[] spectrumNames={"Red","Orange","Yellow","Green","Blue","Indigo","Violet"};
         int[] neutrals={0xff050505,0xff7d858c,0xfff7f8fa};String[] neutralNames={"Black","Gray","White"};
         LinearLayout dots=row(activity);dots.setGravity(Gravity.CENTER);
-        for(int i=0;i<spectrum.length;i++){View dot=colorDot(spectrumNames[i],spectrum[i],false);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,32),dp(activity,32));if(i<spectrum.length-1)p.rightMargin=dp(activity,3);dots.addView(dot,p);}
-        View dotGap=new View(activity);dots.addView(dotGap,new LinearLayout.LayoutParams(dp(activity,8),1));
-        for(int i=0;i<neutrals.length;i++){View dot=colorDot(neutralNames[i],neutrals[i],true);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,32),dp(activity,32));if(i<neutrals.length-1)p.rightMargin=dp(activity,4);dots.addView(dot,p);}
+        for(int i=0;i<spectrum.length;i++){View dot=colorDot(spectrumNames[i],spectrum[i],false);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,32),1);if(i<spectrum.length-1)p.rightMargin=dp(activity,2);dots.addView(dot,p);}
+        View dotGap=new View(activity);dots.addView(dotGap,new LinearLayout.LayoutParams(dp(activity,6),1));
+        for(int i=0;i<neutrals.length;i++){View dot=colorDot(neutralNames[i],neutrals[i],true);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,32),1);if(i<neutrals.length-1)p.rightMargin=dp(activity,2);dots.addView(dot,p);}
         controls.addView(dots);
 
         syncEditorColor();boolean neutralColor=editSat<.04f;
@@ -213,7 +206,7 @@ final class AppearanceStudio {
         divider();
         title("Quran & text");
         LinearLayout mushaf=row(activity);TextView mushafLabel=text(activity,"Mushaf",12,style.ink());mushafLabel.setTag("keepColor");mushaf.addView(mushafLabel,new LinearLayout.LayoutParams(dp(activity,82),-2));
-        mushaf.addView(smallPill("Original text",true,null),new LinearLayout.LayoutParams(0,dp(activity,40),1));controls.addView(mushaf);
+        mushaf.addView(smallPill("Original Quran text",true,null),new LinearLayout.LayoutParams(0,dp(activity,40),1));controls.addView(mushaf);
 
         LinearLayout fontRow=row(activity);TextView fontLabel=text(activity,"Quran font",12,style.ink());fontLabel.setTag("keepColor");fontRow.addView(fontLabel,new LinearLayout.LayoutParams(dp(activity,82),-2));
         for(int i=0;i<Appearance.FONTS.length;i++){
@@ -261,7 +254,7 @@ final class AppearanceStudio {
         edits.addView(smallPill("Undo",false,()->{if(historyIndex>0){style=Appearance.decode(history.get(--historyIndex));invalidateEditorColor();style.save(activity);refresh();renderControls();}}),new LinearLayout.LayoutParams(0,dp(activity,42),1));
         LinearLayout.LayoutParams redoP=new LinearLayout.LayoutParams(0,dp(activity,42),1);redoP.leftMargin=dp(activity,5);edits.addView(smallPill("Redo",false,()->{if(historyIndex+1<history.size()){style=Appearance.decode(history.get(++historyIndex));invalidateEditorColor();style.save(activity);refresh();renderControls();}}),redoP);
         LinearLayout.LayoutParams resetP=new LinearLayout.LayoutParams(0,dp(activity,42),1);resetP.leftMargin=dp(activity,5);edits.addView(smallPill("Reset",false,()->{style=new Appearance();invalidateEditorColor();commit();renderControls();}),resetP);
-        LinearLayout.LayoutParams saveP=new LinearLayout.LayoutParams(0,dp(activity,42),1);saveP.leftMargin=dp(activity,5);edits.addView(smallPill("Save style",true,()->{EditText name=new EditText(activity);name.setHint("My style");new AlertDialog.Builder(activity).setTitle("Save style").setView(name).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{String n=name.getText().toString().trim();if(n.isEmpty())n="My style";style.name=n;activity.getSharedPreferences("saved_styles",0).edit().putString(n,style.encode()).apply();commit();renderControls();}).show();}),saveP);
+        LinearLayout.LayoutParams saveP=new LinearLayout.LayoutParams(0,dp(activity,42),1);saveP.leftMargin=dp(activity,5);edits.addView(smallPill("Save",false,()->{EditText name=new EditText(activity);name.setHint("My style");new AlertDialog.Builder(activity).setTitle("Save style").setView(name).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{String n=name.getText().toString().trim();if(n.isEmpty())n="My style";style.name=n;activity.getSharedPreferences("saved_styles",0).edit().putString(n,style.encode()).apply();commit();renderControls();}).show();}),saveP);
         controls.addView(edits);
 
         Map<String,?> saved=activity.getSharedPreferences("saved_styles",0).getAll();
@@ -277,7 +270,6 @@ final class AppearanceStudio {
         recolor(controls);binding=false;
     }
     private interface Change{void set(int value);}
-    private void slider(String label,int min,int max,int initial,Change change){TextView caption=text(activity,label+" · "+initial,13,INK);controls.addView(caption);SeekBar seek=new SeekBar(activity);seek.setMax(max-min);seek.setProgress(initial-min);seek.setContentDescription(label);seek.setMinimumHeight(dp(activity,48));controls.addView(seek);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int value,boolean user){if(!user||binding)return;change.set(min+value);style.name="My style";caption.setText(label+" · "+(min+value));refresh();}public void onStopTrackingTouch(SeekBar s){commit();}});}
     private int color(){return layer==0?style.background:layer==1?style.surface:layer==2?style.arabic:layer==3?style.translation:layer==4?style.accent:style.gradientEnd;}
     private void color(int color){if(layer==0)style.background=color;else if(layer==1)style.surface=color;else if(layer==2)style.arabic=color;else if(layer==3)style.translation=color;else if(layer==4)style.accent=color;else style.gradientEnd=color;}
 }
