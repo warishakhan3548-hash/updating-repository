@@ -47,3 +47,4 @@ jobs:
           python3 tools/build_release.py             --android-jar "$ANDROID_HOME/platforms/android-35/android.jar"             --build-tools "$BUILD_TOOLS"             --keystore "$RUNNER_TEMP/verify.p12"             --alias verify             --password-file "$RUNNER_TEMP/pass.txt"             --output "$RUNNER_TEMP/settings-timer-verify.apk"
 
 # final-state verification
+# icon-row verification
