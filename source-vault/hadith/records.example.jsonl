@@ -1,0 +1,4 @@
+{"type":"collection","id":"example","group":"example","name_en":"Example Collection","name_ar":"مجموعة تجريبية","edition":"example-edition"}
+{"type":"book","id":"example:book:1","collection_id":"example","number":"1","name_en":"Example Book","name_ar":"كتاب تجريبي"}
+{"type":"chapter","id":"example:chapter:1","collection_id":"example","book_id":"example:book:1","number":"1","name_en":"Example Chapter","name_ar":"باب تجريبي"}
+{"type":"hadith","id":"H:example:example-edition:1:1","collection_id":"example","book_id":"example:book:1","chapter_id":"example:chapter:1","record_number":"1","arabic":"نص تجريبي","english":"Example text","source_ref":"example:1","references":[{"scheme":"example","value":"1"}],"grades":[{"id":"grade:example:1","grade":"Example","grader":"Example grader","source_version":"example-source"}]}
