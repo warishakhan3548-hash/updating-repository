@@ -13,9 +13,10 @@ The required manifest is:
 
 `source-vault/quran-audio/active/quran-audio/manifest.json`
 
-Word files use canonical coordinates:
+Word clips use canonical coordinates, but Aaris does **not** ship 77k individual APK assets.
+The one-time packer concatenates them into exactly 114 Surah pack files plus a compact SQLite index:
 
-`quran-audio/word/002/002_255_010.opus` = `Q:2:255:W:10`
+`Q:2:255:W:10` is stored as a byte range inside `quran-audio/packs/002.pack`, with the exact range recorded in `quran-audio/index.sqlite`.
 
 Prefatory Bismillah IDs (`:B:`) are deliberately not guessed or shifted onto word-audio
 coordinates. If a canonical mapping is not exact, Aaris stays silent for that target.
@@ -47,6 +48,6 @@ does not call Hugging Face, Quran.com, Sunnah.com, a CDN, or any other content w
 ## Runtime behavior
 
 The APK never has an online fallback. If the verified pack is bundled, tapping a canonical Quran
-word plays its local clip while the existing meaning UI opens. The same process-wide player is used
+word looks up its verified byte range in the local index and plays that slice from the local Surah pack while the existing meaning UI opens. The same process-wide player is used
 by the timed overlay recall card. If the pack is absent or a target is not canonically addressable,
 meaning/learning still work and audio simply stays unavailable.
