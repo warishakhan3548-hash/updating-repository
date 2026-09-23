@@ -24,19 +24,19 @@ final class QuranAudioStore implements AutoCloseable {
     private static final String MANIFEST="quran-audio/manifest.json";
     private final Context context;
     private SQLiteDatabase index;
-    final String packId,sourceName,sourceVersion,license,style,packRoot,indexAsset,indexHash;
+    final String packId,sourceName,sourceVersion,license,style,packRoot,indexAsset,indexHash,canonicalQuranHash;
     final int wordCount;
     final boolean complete;
 
-    static QuranAudioStore openIfBundled(Context context) throws Exception {
+    static QuranAudioStore openIfBundled(Context context,String quranPackHash) throws Exception {
         boolean folder=false;
         String[] root=context.getAssets().list("");
         if(root!=null)for(String name:root)if("quran-audio".equals(name)){folder=true;break;}
         if(!folder)return null;
-        return new QuranAudioStore(context,new JSONObject(ContentStore.asset(context,MANIFEST)));
+        return new QuranAudioStore(context,new JSONObject(ContentStore.asset(context,MANIFEST)),quranPackHash);
     }
 
-    private QuranAudioStore(Context context,JSONObject manifest) throws Exception {
+    private QuranAudioStore(Context context,JSONObject manifest,String quranPackHash) throws Exception {
         this.context=context.getApplicationContext();
         if(manifest.getInt("schema_version")!=2)throw new IOException("Unsupported Quran audio pack schema");
         if(manifest.optBoolean("runtime_network_required",true))
@@ -49,9 +49,12 @@ final class QuranAudioStore implements AutoCloseable {
         packRoot=required(manifest,"pack_root");
         indexAsset=required(manifest,"index_asset");
         indexHash=required(manifest,"index_sha256");
+        canonicalQuranHash=required(manifest,"canonical_quran_sqlite_sha256");
         wordCount=manifest.getInt("word_count");
         complete=manifest.optBoolean("coverage_complete",false);
-        if(wordCount<1||indexHash.length()!=64)throw new IOException("Invalid Quran audio manifest");
+        if(wordCount<1||indexHash.length()!=64||canonicalQuranHash.length()!=64)throw new IOException("Invalid Quran audio manifest");
+        if(quranPackHash==null||!canonicalQuranHash.equals(quranPackHash))
+            throw new IOException("Quran audio pack was built for a different canonical Quran pack");
         if(!packRoot.startsWith("quran-audio/")||packRoot.contains("..")||
            !indexAsset.startsWith("quran-audio/")||indexAsset.contains(".."))
             throw new IOException("Unsafe Quran audio asset path");
