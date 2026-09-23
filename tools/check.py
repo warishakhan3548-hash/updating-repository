@@ -34,11 +34,6 @@ def main():
     subprocess.run([
         sys.executable, str(ROOT / 'tools/check_offline_contract.py')
     ], check=True, cwd=ROOT)
-    # Exercise the audio packer/verifier even when the large real audio payload has not yet been
-    # vendored. The synthetic fixture must pass, and deliberate corruption must be rejected.
-    subprocess.run([
-        sys.executable, str(ROOT / 'tools/selftest_quran_audio_pack.py')
-    ], check=True, cwd=ROOT)
     java = shutil.which('java')
     if not java and os.environ.get('JAVA_HOME'):
         java = str(Path(os.environ['JAVA_HOME']) / 'bin/java')
@@ -60,16 +55,10 @@ def main():
         assert text[start:end] == word, 'Word/source offset mismatch'
     assert not db.execute('PRAGMA foreign_key_check').fetchall()
 
-    # Enforce audio install state as well as pack integrity. While the large payload has not yet
-    # been vendored, policy explicitly permits offline-without-pronunciation. After a verified
-    # vendor import arms the policy, deletion/replacement becomes a hard local build failure.
-    subprocess.run([
-        sys.executable, str(ROOT / 'tools/check_quran_audio_policy.py'),
-        '--source', str(ROOT / 'source-vault/quran-audio/active'),
-        '--policy', str(ROOT / 'source-vault/quran-audio/release-policy.json'),
-        '--quran-db', str(pack),
-        '--source-lock', str(ROOT / 'source-vault/quran-audio/source-lock.json'),
-    ], check=True, cwd=ROOT)
+    # Quran recitation audio is no longer a build input. The base APK must stay small; only the
+    # user-requested downloader may populate app-private Surah audio after installation.
+    legacy_audio = ROOT / 'source-vault/quran-audio/active/quran-audio'
+    assert not legacy_audio.exists(), 'Legacy bundled Quran audio must not be present in a release checkout'
 
     # Hadith is a separate optional immutable pack. A build must contain both files or neither.
     hadith_manifest_path = assets / 'hadith-manifest.json'
@@ -96,8 +85,10 @@ def main():
     permissions = {p.get(android + 'name') for p in android_manifest.findall('uses-permission')}
     java_sources = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / 'app/src/main/java').rglob('*.java'))
     assert 'https://sunnah.com/' not in java_sources, 'Runtime Hadith website dependency returned'
-    assert permissions == {'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.FOREGROUND_SERVICE',
-                           'android.permission.FOREGROUND_SERVICE_SPECIAL_USE', 'android.permission.POST_NOTIFICATIONS'}
+    assert permissions == {'android.permission.INTERNET', 'android.permission.SYSTEM_ALERT_WINDOW',
+                           'android.permission.FOREGROUND_SERVICE',
+                           'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+                           'android.permission.POST_NOTIFICATIONS'}
     service = application.find('service')
     assert service.get(android + 'name') == '.AmbientRecallService'
     assert service.get(android + 'exported') == 'false'
@@ -186,7 +177,7 @@ def main():
                             *map(str, sources + app + resources_java)], check=True)
             print('Android Java compile: PASS (API jar; not a device or APK test)')
     hadith_state = 'verified local Hadith pack' if hadith_pack.exists() else 'no Hadith pack bundled'
-    print('Content hashes, 6,236 ayahs, 77,881 word ranges, startup manifest and '+hadith_state+': PASS')
+    print('Content hashes, 6,236 ayahs, 77,881 word ranges, startup manifest, on-demand local Surah audio boundary and '+hadith_state+': PASS')
 
 
 if __name__ == '__main__':
