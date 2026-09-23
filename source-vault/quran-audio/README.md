@@ -50,6 +50,12 @@ Fast path for maintainers:
 
 This is an explicit one-time acquisition command. It is never referenced by Gradle.
 
+Before acquiring the large source snapshot, the packer/verifier can be tested completely offline:
+
+`python3 tools/selftest_quran_audio_pack.py`
+
+The self-test builds a tiny synthetic pack, verifies it, then corrupts it and requires fail-closed rejection.
+
 Typical flow:
 
 1. Generate canonical Quran SQLite locally: `python3 tools/build_content.py`
