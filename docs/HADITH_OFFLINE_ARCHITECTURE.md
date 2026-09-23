@@ -101,11 +101,11 @@ pack format can support a one-time in-app import/download later without changing
 ## Migration stages
 
 1. **Catalog (done):** map every current Sunnah.com top-level collection target.
-2. **Importer (next):** deterministic JSONL -> SQLite builder with strict provenance checks.
-3. **Source acquisition:** obtain redistribution-cleared datasets per collection/language.
-4. **Validation:** record counts, duplicate IDs, required Arabic/source references, hash checks.
-5. **Android store:** read-only `HadithStore`, checksum verification, no network requirement.
-6. **UI:** Collection -> Book -> Chapter -> Hadith, local search, bookmarks/notes.
-7. **Evidence/recall:** integrate only after record identities and source versions are stable.
+2. **Importer (done):** deterministic JSONL -> SQLite builder with strict provenance and license hash checks.
+3. **Official acquisition path (done in code):** resumable Sunnah API client that writes a self-contained source vault; it requires an operator-supplied API key and redistribution/offline permission evidence.
+4. **Source acquisition (external prerequisite):** obtain the permission/API access and run the importer. No corpus is claimed before this succeeds.
+5. **Validation (done in code):** source hashes, Arabic text hashes, duplicate IDs, foreign keys, record/collection counts, full-catalog gate and a synthetic builder regression.
+6. **Android store/UI (done in code):** read-only checksum-verified `HadithStore`, Collection -> Book -> Chapter -> Hadith navigation, pagination and local Arabic/English/reference search; no web fallback.
+7. **Evidence/recall (later):** integrate only after the real record identities and source versions are frozen.
 
 Until stage 3 has valid source files, Aaris must not claim that a Hadith collection is installed.
