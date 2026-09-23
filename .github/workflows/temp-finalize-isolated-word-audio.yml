@@ -1,0 +1,122 @@
+name: Finalize isolated Quran word-audio catalog
+
+on:
+  push:
+    branches:
+      - temp-finalize-isolated-word-audio-20260923
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TAG: quran-word-audio-muallim-v1-9796e08
+      EXPECTED_REVISION: 9796e08caae700f44266255da320adf6e5ab4114
+      EXPECTED_ALIGNMENT: 9971ffae866bc3682d11efccd30fdddb1d62bc4718e5f9cd941395e6f16093ce
+    steps:
+      - name: Checkout temporary branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Stop stale duplicate pack builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -u
+          for id in 35836957075 35838522478 35838785550; do
+            gh api -X POST "repos/${{ github.repository }}/actions/runs/$id/cancel" >/dev/null 2>&1 || true
+          done
+
+      - name: Download published catalog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/audio-finalize
+          mkdir -p /tmp/audio-finalize
+          gh release download "$TAG" --repo "${{ github.repository }}" --pattern catalog.json --dir /tmp/audio-finalize
+          test -s /tmp/audio-finalize/catalog.json
+          RID="$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq .id)"
+          gh api --paginate --slurp "repos/${{ github.repository }}/releases/$RID/assets?per_page=100" > /tmp/audio-finalize/assets-pages.json
+
+      - name: Verify all 115 public assets against catalog
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,os,re
+          from pathlib import Path
+
+          root=Path("/tmp/audio-finalize")
+          raw=(root/"catalog.json").read_bytes()
+          catalog=json.loads(raw)
+          pages=json.loads((root/"assets-pages.json").read_text())
+          assets=[]
+          for page in pages:
+              assets.extend(page)
+          by_name={a["name"]:a for a in assets}
+
+          assert catalog["schema"]==1
+          assert catalog["delivery"]=="ISOLATED_WORD_SURAH_CONTAINER_V1"
+          assert catalog["source_revision"]==os.environ["EXPECTED_REVISION"]
+          assert catalog["canonical_quran_alignment_sha256"]==os.environ["EXPECTED_ALIGNMENT"]
+          assert catalog["canonical_quran_audio_words"]==77326
+          assert catalog["surahs"]==114
+          assert len(catalog["packs"])==114
+
+          expected_names={"catalog.json"}|{f"{s:03d}.aqp" for s in range(1,115)}
+          assert set(by_name)==expected_names, (len(by_name), sorted(set(by_name)^expected_names)[:20])
+
+          words=0
+          total=0
+          base=f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{os.environ['TAG']}"
+          for s in range(1,115):
+              key=f"{s:03d}"
+              meta=catalog["packs"][key]
+              asset=by_name[key+".aqp"]
+              assert int(meta["words"])>0
+              assert int(meta["bytes"])==int(asset["size"])
+              assert "sha256:"+meta["sha256"]==asset.get("digest")
+              assert meta["url"]==asset["browser_download_url"]==f"{base}/{key}.aqp"
+              assert asset["state"]=="uploaded"
+              words+=int(meta["words"])
+              total+=int(meta["bytes"])
+
+          assert words==77326
+          assert total==catalog["total_bytes"]
+          catalog_asset=by_name["catalog.json"]
+          assert catalog_asset["size"]==len(raw)
+          assert catalog_asset.get("digest")=="sha256:"+hashlib.sha256(raw).hexdigest()
+          assert catalog_asset["browser_download_url"]==f"{base}/catalog.json"
+          print(json.dumps({
+              "catalog_sha256":hashlib.sha256(raw).hexdigest(),
+              "packs":114,
+              "words":words,
+              "bytes":total,
+              "release_assets":len(assets),
+          },indent=2))
+          PY
+
+      - name: Pin exact verified catalog to main
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp /tmp/audio-finalize/catalog.json /tmp/catalog-verified.json
+          git fetch origin main
+          git checkout -B main origin/main
+          mkdir -p app/src/main/assets
+          cp /tmp/catalog-verified.json app/src/main/assets/quran-audio-word-catalog.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/assets/quran-audio-word-catalog.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Pin verified isolated Quran word-audio catalog [skip ci]"
+            git push origin HEAD:main
+          fi
