@@ -23,7 +23,8 @@ coordinates. If a canonical mapping is not exact, Aaris stays silent for that ta
 ## One-time acquisition
 
 The helper in `tools/acquire_quran_word_audio.py` is an **explicit source acquisition tool**, not
-a build task. It refuses a floating dataset revision and requires an immutable 40-hex revision.
+a build task. If no revision is supplied it resolves `main` once to an immutable 40-hex commit
+before downloading, and records that exact commit in the local pack.
 
 The initial supported source layout is the Muallim/Mujawwad word-audio dataset published as
 `zaibihassan/Quranic-Word-By-Word-Audio-Data`. Its dataset page declares Apache-2.0 and documents
@@ -33,8 +34,9 @@ inside the generated pack and review the source rights before redistribution.
 Typical flow:
 
 1. Generate canonical Quran SQLite locally: `python3 tools/build_content.py`
-2. Acquire a reviewed, pinned dataset snapshot:
-   `python3 tools/acquire_quran_word_audio.py --revision <40-hex-commit>`
+2. Acquire a reviewed snapshot (the helper pins the exact commit before download):
+   `python3 tools/acquire_quran_word_audio.py`
+   Or force a previously reviewed revision with `--revision <40-hex-commit>`.
 3. Run the network-free verifier:
    `python3 tools/check_quran_audio.py --source source-vault/quran-audio/active --quran-db app/src/main/assets/quran.sqlite`
 4. Commit the generated active pack using Git LFS.
