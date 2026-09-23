@@ -183,6 +183,7 @@ def main():
             "pack_root":"quran-audio/packs",
             "index_asset":"quran-audio/index.sqlite",
             "index_sha256":file_hash(index_path),
+            "canonical_quran_sqlite_sha256":file_hash(quran_db),
             "word_count":len(rows),
             "coverage_complete":True,
             "surah_packs":pack_meta,
