@@ -21,6 +21,9 @@ final class AppearanceStudio {
     private final List<String> history=new ArrayList<>();
     private int historyIndex=0,layer=0;
     private boolean binding,advanced;
+    private boolean editHsvValid;
+    private int editHsvLayer=-1;
+    private float editHue,editSat,editVal,gradientSatOffset,gradientValOffset;
     private final Runnable applied;
     static Dialog show(Activity activity,String sample,String translated,boolean rtl,Runnable applied){return new AppearanceStudio(activity,sample,translated,rtl,applied).dialog;}
     private AppearanceStudio(Activity a,String sample,String translated,boolean rtl,Runnable applied){
@@ -76,6 +79,30 @@ final class AppearanceStudio {
         String encoded=style.encode();if(!encoded.equals(history.get(historyIndex))){while(history.size()>historyIndex+1)history.remove(history.size()-1);history.add(encoded);if(history.size()>30)history.remove(0);historyIndex=history.size()-1;}
         style.save(activity);refresh();
     }
+    private void invalidateEditorColor(){editHsvValid=false;editHsvLayer=-1;}
+    private void syncEditorColor(){
+        if(editHsvValid&&editHsvLayer==layer)return;
+        float[] h=new float[3];Color.colorToHSV(color(),h);editHue=h[0];editSat=h[1];editVal=h[2];
+        gradientSatOffset=0;gradientValOffset=0;
+        if(layer==0&&style.gradient){
+            float[] end=new float[3];Color.colorToHSV(style.gradientEnd,end);
+            gradientSatOffset=end[1]-editSat;gradientValOffset=end[2]-editVal;
+        }
+        editHsvLayer=layer;editHsvValid=true;
+    }
+    private void applyEditorColor(){
+        float sat=Math.max(0f,Math.min(1f,editSat)),val=Math.max(0f,Math.min(1f,editVal));
+        color(Color.HSVToColor(new float[]{editHue,sat,val}));
+        if(layer==0&&style.gradient){
+            float endSat=sat<.035f?0f:Math.max(0f,Math.min(1f,sat+gradientSatOffset));
+            float endVal=Math.max(0f,Math.min(1f,val+gradientValOffset));
+            style.gradientEnd=Color.HSVToColor(new float[]{editHue,endSat,endVal});
+        }
+    }
+    private void chooseEditorColor(int value){
+        syncEditorColor();float[] h=new float[3];Color.colorToHSV(value,h);
+        editHue=h[0];editSat=h[1];editVal=h[2];applyEditorColor();
+    }
     private View presetCard(Appearance swatch,boolean selected,String label,Runnable run){
         LinearLayout card=column(activity);pad(card,9,8);card.setGravity(Gravity.CENTER_HORIZONTAL);card.setTag("keepColor");
         int cardTone=Appearance.mix(swatch.background,swatch.gradient?swatch.gradientEnd:swatch.surface,.45f);
@@ -111,7 +138,7 @@ final class AppearanceStudio {
         TextView help=text(activity,LAYER_HELP[index],10,Appearance.readable(Appearance.mix(style.ink(),base,.32f),base));help.setTag("keepColor");help.setMaxLines(2);words.addView(help);
         card.addView(words,new LinearLayout.LayoutParams(0,-2,1));
         card.setContentDescription("Edit "+LAYER_NAMES[index]+". "+LAYER_HELP[index]);card.setFocusable(true);card.setClickable(true);
-        card.setOnClickListener(v->{if(layer!=index){layer=index;renderControls();}});
+        card.setOnClickListener(v->{if(layer!=index){layer=index;invalidateEditorColor();renderControls();}});
         return card;
     }
     private View editingSummary(){
@@ -132,23 +159,23 @@ final class AppearanceStudio {
         TextView dot=text(activity,selected?"✓":"",15,Appearance.readable(0xfff7f8fa,value));dot.setTag("keepColor");dot.setGravity(Gravity.CENTER);
         android.graphics.drawable.GradientDrawable fill=new android.graphics.drawable.GradientDrawable();fill.setShape(android.graphics.drawable.GradientDrawable.OVAL);fill.setColor(value);dot.setBackground(fill);
         FrameLayout.LayoutParams inner=new FrameLayout.LayoutParams(dp(activity,30),dp(activity,30),Gravity.CENTER);outer.addView(dot,inner);
-        outer.setContentDescription(label+" color for "+LAYER_NAMES[layer]+(selected?", selected":""));outer.setTooltipText(label);outer.setOnClickListener(v->{color(value);style.name="My style";commit();renderControls();});
+        outer.setContentDescription(label+" color for "+LAYER_NAMES[layer]+(selected?", selected":""));outer.setTooltipText(label);outer.setOnClickListener(v->{chooseEditorColor(value);style.name="My style";commit();renderControls();});
         return outer;
     }
     private boolean isColorDotSelected(int dotColor,boolean neutral){
-        float[] current=new float[3],dot=new float[3];Color.colorToHSV(color(),current);Color.colorToHSV(dotColor,dot);
+        syncEditorColor();float[] dot=new float[3];Color.colorToHSV(dotColor,dot);
         if(neutral){
-            if(current[1]>.035f)return false;
-            int currentBand=current[2]<.25f?0:current[2]<.78f?1:2;
+            if(editSat>.035f)return false;
+            int currentBand=editVal<.25f?0:editVal<.78f?1:2;
             int dotBand=dot[2]<.25f?0:dot[2]<.78f?1:2;return currentBand==dotBand;
         }
-        if(current[1]<=.035f)return false;
-        float diff=Math.abs(current[0]-dot[0]);diff=Math.min(diff,360f-diff);return diff<18f;
+        if(editSat<=.035f)return false;
+        float diff=Math.abs(editHue-dot[0]);diff=Math.min(diff,360f-diff);return diff<18f;
     }
     private void renderControls(){
         binding=true;controls.removeAllViews();
         title("Start with a look");HorizontalScrollView presets=new HorizontalScrollView(activity);presets.setHorizontalScrollBarEnabled(false);LinearLayout strip=row(activity);
-        for(int i=0;i<Appearance.PRESETS.length;i++){final int index=i;Appearance swatch=style.copy();swatch.preset(i);View b=presetCard(swatch,style.name.equals(Appearance.PRESETS[i]),Appearance.PRESETS[i],()->{style.preset(index);commit();renderControls();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,138),dp(activity,92));p.rightMargin=dp(activity,9);strip.addView(b,p);}presets.addView(strip);controls.addView(presets);
+        for(int i=0;i<Appearance.PRESETS.length;i++){final int index=i;Appearance swatch=style.copy();swatch.preset(i);View b=presetCard(swatch,style.name.equals(Appearance.PRESETS[i]),Appearance.PRESETS[i],()->{style.preset(index);invalidateEditorColor();commit();renderControls();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,138),dp(activity,92));p.rightMargin=dp(activity,9);strip.addView(b,p);}presets.addView(strip);controls.addView(presets);
         TextView simpleGuide=text(activity,"CUSTOMIZE IN 3 EASY STEPS\n1  Tap what you want to change   2  Pick a color   3  Move the sliders",12,0xffcbd5dc);
         simpleGuide.setTag("keepColor");simpleGuide.setTextColor(0xffcbd5dc);pad(simpleGuide,4,10);controls.addView(simpleGuide);
 
@@ -176,21 +203,21 @@ final class AppearanceStudio {
 
         title("3 · Adjust the selected color");
         TextView direction=text(activity,(layer==1?"Card color selected. ":"")+"Move RIGHT to make this exact color darker; LEFT makes it lighter.",12,0xffcbd5dc);direction.setTag("keepColor");direction.setTextColor(0xffcbd5dc);pad(direction,2,4);controls.addView(direction);
-        float[] hsv=new float[3];Color.colorToHSV(color(),hsv);
-        boolean neutralColor=hsv[1]<.04f;
-        int darkness=(int)Math.round((1f-hsv[2])*100);
-        slider("LIGHTER  ←  Darkness  →  DARKER",0,100,darkness,v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[2]=1f-(v/100f);color(Color.HSVToColor(h));});
+        syncEditorColor();
+        boolean neutralColor=editSat<.04f;
+        int darkness=(int)Math.round((1f-editVal)*100);
+        slider("LIGHTER  ←  Darkness  →  DARKER",0,100,darkness,v->{editVal=1f-(v/100f);applyEditorColor();});
         if(!neutralColor){
-            int strength=(int)Math.round(Math.max(0,Math.min(1,(hsv[1]-.05f)/.95f))*100);
-            slider("FADED  ←  Color strength  →  RICH",0,100,strength,v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[1]=.05f+.95f*(v/100f);color(Color.HSVToColor(h));});
+            int strength=(int)Math.round(Math.max(0,Math.min(1,(editSat-.05f)/.95f))*100);
+            slider("FADED  ←  Color strength  →  RICH",0,100,strength,v->{editSat=.05f+.95f*(v/100f);applyEditorColor();});
         }else{
             TextView neutralHelp=text(activity,"Black / Gray / White selected · only the light-to-dark slider is needed.",12,MUTED);neutralHelp.setTag("keepColor");neutralHelp.setTextColor(0xffb9c4cc);controls.addView(neutralHelp);
         }
         if(layer==1)slider("SEE-THROUGH  ←  Card solidity  →  SOLID",25,100,style.opacity,v->style.opacity=v);
-        if(advanced&&!neutralColor)slider("Hue fine tune",0,359,(int)hsv[0],v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[0]=v;color(Color.HSVToColor(h));});
+        if(advanced&&!neutralColor)slider("Hue fine tune",0,359,(int)editHue,v->{editHue=v;applyEditorColor();});
         title("Finish");LinearLayout finish=row(activity);finish.addView(action((style.glass?"✓ ":"")+"Glass cards",()->{style.glass=true;commit();renderControls();}));finish.addView(action((!style.glass?"✓ ":"")+"Plain cards",()->{style.glass=false;commit();renderControls();}));controls.addView(finish);
         controls.addView(action((style.textGlass?"✓ ":"")+"Glass text",()->{style.textGlass=!style.textGlass;commit();renderControls();}));
-        controls.addView(action((advanced?"Hide":"Show")+" advanced finish controls",()->{advanced=!advanced;renderControls();}));
+        controls.addView(action((advanced?"Hide":"Show")+" advanced finish controls",()->{advanced=!advanced;if(!advanced&&layer==5){layer=0;invalidateEditorColor();}renderControls();}));
         if(advanced){
             slider("Arabic opacity",20,100,style.arabicOpacity,v->style.arabicOpacity=v);
             slider("Translation opacity",20,100,style.translationOpacity,v->style.translationOpacity=v);
@@ -198,8 +225,8 @@ final class AppearanceStudio {
             slider("Glass strength",0,100,style.glassStrength,v->style.glassStrength=v);slider("Border strength",0,100,style.borderStrength,v->style.borderStrength=v);
             slider("Soft text glow",0,30,style.glow,v->style.glow=v);
             if(layer!=1)slider("Card opacity",25,100,style.opacity,v->style.opacity=v);slider("Corners",0,36,style.corners,v->style.corners=v);
-            controls.addView(action((style.gradient?"✓ ":"")+"Two-color background",()->{style.gradient=!style.gradient;commit();renderControls();}));
-            if(style.gradient)controls.addView(action((layer==5?"✓ ":"")+"Edit second gradient color",()->{layer=5;renderControls();}));
+            controls.addView(action((style.gradient?"✓ ":"")+"Two-color background",()->{style.gradient=!style.gradient;if(!style.gradient&&layer==5){layer=0;invalidateEditorColor();}else invalidateEditorColor();commit();renderControls();}));
+            if(style.gradient)controls.addView(action((layer==5?"✓ ":"")+"Edit second gradient color",()->{layer=5;invalidateEditorColor();renderControls();}));
             controls.addView(text(activity,"Gradient is optional. Normal users can ignore this section.",12,MUTED));
         }
         controls.addView(action((style.reducedEffects?"✓ ":"")+"Reduced effects",()->{style.reducedEffects=!style.reducedEffects;commit();renderControls();}));
@@ -207,11 +234,11 @@ final class AppearanceStudio {
         controls.addView(text(activity,"Bold uses a real font weight. Fonts do not change the Quran text or its reading tradition.",12,MUTED));
         slider("Arabic size",24,54,style.arabicSize,v->style.arabicSize=v);slider("Line spacing",2,24,style.spacing,v->style.spacing=v);slider("Translation size",14,28,style.translationSize,v->style.translationSize=v);
         title("My styles");LinearLayout edits=row(activity);
-        edits.addView(action("Undo",()->{if(historyIndex>0){style=Appearance.decode(history.get(--historyIndex));style.save(activity);refresh();renderControls();}}));
-        edits.addView(action("Redo",()->{if(historyIndex+1<history.size()){style=Appearance.decode(history.get(++historyIndex));style.save(activity);refresh();renderControls();}}));
-        edits.addView(action("Reset",()->{style=new Appearance();commit();renderControls();}));controls.addView(edits);
+        edits.addView(action("Undo",()->{if(historyIndex>0){style=Appearance.decode(history.get(--historyIndex));invalidateEditorColor();style.save(activity);refresh();renderControls();}}));
+        edits.addView(action("Redo",()->{if(historyIndex+1<history.size()){style=Appearance.decode(history.get(++historyIndex));invalidateEditorColor();style.save(activity);refresh();renderControls();}}));
+        edits.addView(action("Reset",()->{style=new Appearance();invalidateEditorColor();commit();renderControls();}));controls.addView(edits);
         controls.addView(action("Save this style",()->{EditText name=new EditText(activity);name.setHint("My night reading");new AlertDialog.Builder(activity).setTitle("Name your style").setView(name).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{String n=name.getText().toString().trim();if(n.isEmpty())n="My style";style.name=n;activity.getSharedPreferences("saved_styles",0).edit().putString(n,style.encode()).apply();commit();renderControls();}).show();}));
-        for(Map.Entry<String,?> entry:activity.getSharedPreferences("saved_styles",0).getAll().entrySet())if(entry.getValue() instanceof String)controls.addView(action(entry.getKey(),()->{style=Appearance.decode((String)entry.getValue());commit();renderControls();}));
+        for(Map.Entry<String,?> entry:activity.getSharedPreferences("saved_styles",0).getAll().entrySet())if(entry.getValue() instanceof String)controls.addView(action(entry.getKey(),()->{style=Appearance.decode((String)entry.getValue());invalidateEditorColor();commit();renderControls();}));
         recolor(controls);binding=false;
     }
     private interface Change{void set(int value);}
