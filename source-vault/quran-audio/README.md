@@ -63,7 +63,7 @@ Typical flow:
    `python3 tools/acquire_quran_word_audio.py`
    A source update must be explicit and reviewable: update `source-vault/quran-audio/source-lock.json` (repo/revision/license/style/hash/count) first; the acquisition helper does not follow a floating branch.
 3. Run the network-free verifier:
-   `python3 tools/check_quran_audio.py --source source-vault/quran-audio/active --quran-db app/src/main/assets/quran.sqlite`
+   `python3 tools/check_quran_audio.py --source source-vault/quran-audio/active --quran-db app/src/main/assets/quran.sqlite --source-lock source-vault/quran-audio/source-lock.json`
 4. Commit the generated active pack as ordinary Git files (114 `.pack` files + index/manifest/license metadata).
 
 After step 4, a normal fresh checkout contains the pronunciation bytes directly; no Git LFS pull is required. The packer refuses any Surah pack above 95 MiB or a total audio payload above 650 MiB so ordinary Git remains within the reviewed storage envelope. Gradle
