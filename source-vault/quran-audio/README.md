@@ -1,98 +1,89 @@
-# Offline Quran word-audio vault
+# Quran isolated word-audio delivery
 
-Aaris treats pronunciation audio exactly like other immutable source content: **acquire once,
-verify, commit locally, then build/runtime never fetch it from the web**.
+Aaris keeps the base APK small and never synthesizes Quran pronunciation. Pronunciation uses
+**complete human-recorded word clips** from a pinned immutable source.
 
-## Active pack
+## Current architecture
 
-When present, this directory is bundled as Android assets:
+The active delivery contract is:
 
-`source-vault/quran-audio/active/quran-audio/`
+- Source: `zaibihassan/Quranic-Word-By-Word-Audio-Data`
+- Immutable revision: `9796e08caae700f44266255da320adf6e5ab4114`
+- Style: **Muallim** (teacher / repeat-friendly)
+- Format: one complete Ogg/Opus recording per Quran word
+- Safe canonical coverage: exactly **77,326 SOURCE_ALIGNED `:W:` word identities**
+- Base APK: **no Quran audio bytes**
+- Download unit: **one immutable Surah container**
+- Playback: one complete isolated source clip, from its own start to natural completion
+- Full-Surah timestamp slicing: **forbidden**
 
-The required manifest is:
+This directly fixes boundary artifacts such as a word beginning with the end of the previous word
+or being cut before its own ending. Aaris no longer seeks into one continuous recitation for
+word-tap pronunciation.
 
-`source-vault/quran-audio/active/quran-audio/manifest.json`
+## Why one Surah container?
 
-Release availability is tracked separately in:
+The upstream source has 77,000+ individual files. Downloading those one-by-one on a phone would
+create excessive HTTP/file-system overhead. A one-time maintainer packer therefore creates 114
+`.aqp` files — one per Surah.
 
-`source-vault/quran-audio/release-policy.json`
+Each `.aqp` contains:
 
-While the large vendor import has never completed, that policy is `pending_vendor_import` and a
-build remains fully offline with pronunciation disabled. `tools/complete_quran_audio_pack.py`
-changes it to `required` only after the exact local pack passes full verification, pinning the
-manifest SHA-256 and pack ID. From then on deleting/replacing the local audio causes a build failure;
-there is never a network reacquisition fallback.
+1. a tiny coordinate index,
+2. the original isolated Ogg/Opus word clips concatenated **byte-for-byte**.
 
-Word clips use canonical coordinates, but Aaris does **not** ship 77k individual APK assets.
-The one-time packer content-addresses every clip by SHA-256, stores byte-identical pronunciations
-only once, and writes the unique audio into small seekable chunk packs plus a compact SQLite index.
+No clip is transcoded, stretched, trimmed, normalized, merged with a neighbour, or regenerated.
 
-For example, `Q:2:255:W:10` keeps its canonical Word ID while `quran-audio/index.sqlite` records
-the exact chunk ID, byte offset and byte length containing its pronunciation. Another occurrence
-with identical audio bytes may safely point at that same immutable range.
+The index maps:
 
-Prefatory Bismillah IDs (`:B:`) and Quran words whose meaning/source alignment is currently
-`UNMAPPED` are deliberately not guessed or shifted onto audio coordinates. The active pack covers
-only `SOURCE_ALIGNED` canonical `:W:` identities; if alignment is not exact, Aaris stays silent.
+`ayah + word position -> payload offset + exact clip length`
 
-Current canonical counts are intentionally explicit:
+Android uses `MediaPlayer.setDataSource(FileDescriptor, offset, length)` so the selected byte
+range is already one complete Ogg stream. Playback starts at zero for that clip and finishes on
+the clip's own completion event. There is no `seekTo()` and no guessed stop timer.
 
-- Quran reader tokens: 77,881 total.
-- Prefatory `:B:` tokens: 440 in the current canonical build; these are excluded from word-audio coordinates.
-- Canonical `:W:` tokens: 77,441.
-- The 9 fail-closed unaligned ayat contain 115 `:W:` tokens.
-- Therefore the current safe audio target is exactly **77,326 SOURCE_ALIGNED `:W:` identities**.
+## AQP v1
 
-The acquisition preflight compares those identities against the pinned upstream snapshot before
-downloading, and the local pack verifier repeats the identity/range checks before Android packaging.
+Container contract:
 
-## One-time acquisition
+```
+magic      "AARISQW1\n"
+uint32be   index byte length
+index      UTF-8 TSV: ayah<TAB>position<TAB>payload_offset<TAB>length
+payload    complete source .opus files concatenated in Quran coordinate order
+```
 
-The helper in `tools/acquire_quran_word_audio.py` is an **explicit source acquisition tool**, not
-a build task. Its default source is pinned to the reviewed immutable dataset commit
-`9796e08caae700f44266255da320adf6e5ab4114`; it never follows a moving `main` implicitly.
+The per-Surah SHA-256 and exact byte size live in the generated
+`app/src/main/assets/quran-audio-word-catalog.json`. That catalog is tiny metadata and may be
+inside the APK. The `.aqp` binaries themselves are never APK assets.
 
-The initial supported source layout is the Muallim/Mujawwad word-audio dataset published as
-`zaibihassan/Quranic-Word-By-Word-Audio-Data`. Its dataset page declares Apache-2.0 and documents
-complete 114-surah `SURAH_AYAH_WORD` OPUS files. Keep the pinned upstream README/license evidence
-inside the generated pack and review the source rights before redistribution.
+## User flow
 
-Fast path for maintainers:
+- Reader screen: **Audio ↓** downloads only that Surah.
+- Settings: **Quran audio · Download All** downloads all 114 Surah containers.
+- Downloads are explicit user actions only.
+- Interrupted downloads keep a revision-scoped partial file and use HTTP Range resume.
+- A pack becomes playable only after exact size, SHA-256, index, coverage and Ogg-boundary checks.
+- After installation, word tap and the ambient recall overlay both use the same local isolated clip.
+- If a Surah is not installed, Quran reading/meaning/learning/recall still work; pronunciation
+  stays silent until the user chooses to download it.
 
-`python3 tools/complete_quran_audio_pack.py`
+## Build/runtime boundaries
 
-This is the **single authoritative** one-time acquisition/finalization command. It is never
-referenced by Gradle. It refuses to replace an existing active pack unless the maintainer
-deliberately passes `--replace`, and performs a conservative 2 GiB free-space preflight before
-downloading/staging the pinned snapshot.
+Normal Gradle and direct release builds never acquire audio. Build guards fail if any
+`.aqp`, `.opus`, `.pb` or legacy `.pack` pronunciation binary appears inside app assets.
 
-Before acquiring the large source snapshot, the packer/verifier can be tested completely offline:
+The one-time maintainer packer is:
 
-`python3 tools/selftest_quran_audio_pack.py`
+`tools/build_word_audio_surah_packs.py`
 
-The self-test builds a tiny synthetic pack, verifies it, then corrupts it and requires fail-closed rejection.
+It is not a Gradle task. It binds the upstream audio to the stable semantic Quran word identity
+hash rather than raw SQLite serialization bytes.
 
-Typical flow:
+The old monolithic vendoring command is retired and intentionally fail-fast.
 
-1. Generate canonical Quran SQLite locally: `python3 tools/build_content.py`
-2. Acquire the pinned reviewed snapshot:
-   `python3 tools/acquire_quran_word_audio.py`
-   A source update must be explicit and reviewable: update `source-vault/quran-audio/source-lock.json` (repo/revision/license/style/hash/count) first; the acquisition helper does not follow a floating branch.
-3. Run the network-free verifier:
-   `python3 tools/check_quran_audio.py --source source-vault/quran-audio/active --quran-db app/src/main/assets/quran.sqlite --source-lock source-vault/quran-audio/source-lock.json`
-4. Finalize the verified local pack and arm deletion safety:
-   `python3 tools/finalize_quran_audio_policy.py`
-   This step performs no network access; it re-verifies the pack and pins its exact manifest hash
-   and pack ID in `release-policy.json`.
-5. Commit the generated active pack as ordinary Git files (deduplicated `.pack` chunks +
-   index/manifest/license metadata) together with the updated `release-policy.json`.
+## Source / rights note
 
-After step 5, a normal fresh checkout contains the pronunciation bytes directly; no Git LFS pull is required. Each content-addressed chunk is capped at 32 MiB and the total audio payload at 650 MiB so ordinary Git remains inside the reviewed storage envelope. Gradle
-does not call Hugging Face, Quran.com, Sunnah.com, a CDN, or any other content website.
-
-## Runtime behavior
-
-The APK never has an online fallback. If the verified pack is bundled, tapping a canonical Quran
-word looks up its verified chunk + byte range in the local index and plays that slice while the existing meaning UI opens. The same process-wide player is used
-by the timed overlay recall card. If the pack is absent or a target is not canonically addressable,
-meaning/learning still work and audio simply stays unavailable.
+The upstream dataset metadata declares Apache-2.0. Aaris currently treats this as a
+non-commercial preview pending an independent recording-rights review before commercial
+distribution.
