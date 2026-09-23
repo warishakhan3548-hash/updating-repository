@@ -14,9 +14,12 @@ The required manifest is:
 `source-vault/quran-audio/active/quran-audio/manifest.json`
 
 Word clips use canonical coordinates, but Aaris does **not** ship 77k individual APK assets.
-The one-time packer concatenates them into exactly 114 Surah pack files plus a compact SQLite index:
+The one-time packer content-addresses every clip by SHA-256, stores byte-identical pronunciations
+only once, and writes the unique audio into small seekable chunk packs plus a compact SQLite index.
 
-`Q:2:255:W:10` is stored as a byte range inside `quran-audio/packs/002.pack`, with the exact range recorded in `quran-audio/index.sqlite`.
+For example, `Q:2:255:W:10` keeps its canonical Word ID while `quran-audio/index.sqlite` records
+the exact chunk ID, byte offset and byte length containing its pronunciation. Another occurrence
+with identical audio bytes may safely point at that same immutable range.
 
 Prefatory Bismillah IDs (`:B:`) and Quran words whose meaning/source alignment is currently
 `UNMAPPED` are deliberately not guessed or shifted onto audio coordinates. The active pack covers
@@ -64,14 +67,14 @@ Typical flow:
    A source update must be explicit and reviewable: update `source-vault/quran-audio/source-lock.json` (repo/revision/license/style/hash/count) first; the acquisition helper does not follow a floating branch.
 3. Run the network-free verifier:
    `python3 tools/check_quran_audio.py --source source-vault/quran-audio/active --quran-db app/src/main/assets/quran.sqlite --source-lock source-vault/quran-audio/source-lock.json`
-4. Commit the generated active pack as ordinary Git files (114 `.pack` files + index/manifest/license metadata).
+4. Commit the generated active pack as ordinary Git files (deduplicated `.pack` chunks + index/manifest/license metadata).
 
-After step 4, a normal fresh checkout contains the pronunciation bytes directly; no Git LFS pull is required. The packer refuses any Surah pack above 95 MiB or a total audio payload above 650 MiB so ordinary Git remains within the reviewed storage envelope. Gradle
+After step 4, a normal fresh checkout contains the pronunciation bytes directly; no Git LFS pull is required. Each content-addressed chunk is capped at 32 MiB and the total audio payload at 650 MiB so ordinary Git remains inside the reviewed storage envelope. Gradle
 does not call Hugging Face, Quran.com, Sunnah.com, a CDN, or any other content website.
 
 ## Runtime behavior
 
 The APK never has an online fallback. If the verified pack is bundled, tapping a canonical Quran
-word looks up its verified byte range in the local index and plays that slice from the local Surah pack while the existing meaning UI opens. The same process-wide player is used
+word looks up its verified chunk + byte range in the local index and plays that slice while the existing meaning UI opens. The same process-wide player is used
 by the timed overlay recall card. If the pack is absent or a target is not canonically addressable,
 meaning/learning still work and audio simply stays unavailable.
