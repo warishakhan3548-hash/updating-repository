@@ -51,10 +51,19 @@ jobs:
           git clone --no-checkout https://huggingface.co/datasets/zaibihassan/Quranic-Word-By-Word-Audio-Data /tmp/quran-wbw
           cd /tmp/quran-wbw
           git sparse-checkout init --cone
-          git sparse-checkout set dataset/muallim
+          git sparse-checkout set muallim dataset/muallim
           git checkout 9796e08caae700f44266255da320adf6e5ab4114
-          test -f dataset/muallim/001/001_001_001.opus
-          du -sh dataset/muallim
+          if [ -f muallim/001/001_001_001.opus ]; then
+            echo "AUDIO_SOURCE=/tmp/quran-wbw/muallim" >> "$GITHUB_ENV"
+            du -sh muallim
+          elif [ -f dataset/muallim/001/001_001_001.opus ]; then
+            echo "AUDIO_SOURCE=/tmp/quran-wbw/dataset/muallim" >> "$GITHUB_ENV"
+            du -sh dataset/muallim
+          else
+            echo "Pinned Muallim directory not materialized" >&2
+            find . -maxdepth 3 -type d | head -100 >&2
+            exit 1
+          fi
 
       - name: Build 114 exact isolated-word containers
         shell: bash
@@ -63,7 +72,7 @@ jobs:
           rm -rf /tmp/aaris-word-packs
           mkdir -p /tmp/aaris-word-packs
           python tools/build_word_audio_surah_packs.py \
-            --source /tmp/quran-wbw/dataset/muallim \
+            --source "$AUDIO_SOURCE" \
             --quran-db app/src/main/assets/quran.sqlite \
             --source-lock source-vault/quran-audio/on-demand-source-lock.json \
             --output /tmp/aaris-word-packs \
