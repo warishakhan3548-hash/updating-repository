@@ -18,7 +18,7 @@ final class QuranAudioStore {
     static final String SOURCE_NAME="Quranic Recitation Data";
     static final String RIGHTS_NOTICE="source metadata Apache-2.0; recording-rights review pending";
     static final String SOURCE_REVISION="6875b35e45cc83107daf3ab7d3a8bd8b2baa51b3";
-    static final String CANONICAL_QURAN_HASH="521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1";
+    static final String CANONICAL_ALIGNMENT_HASH="dc529dcb8d07549e5837621b6e0f26f9948221545907e9c5d89b035bc412ea1e";
 
     static final class Clip {
         final File audio;
@@ -42,9 +42,9 @@ final class QuranAudioStore {
     private final File root;
     private final Map<Integer,SurahTiming> cache=new HashMap<>();
 
-    QuranAudioStore(Context context,String quranPackHash) throws IOException {
-        if(quranPackHash==null||!CANONICAL_QURAN_HASH.equals(quranPackHash))
-            throw new IOException("Downloaded Quran audio timing is pinned to a different Quran content pack");
+    QuranAudioStore(Context context,String alignmentHash) throws IOException {
+        if(alignmentHash==null||!CANONICAL_ALIGNMENT_HASH.equals(alignmentHash))
+            throw new IOException("Downloaded Quran audio timing is pinned to different canonical word identities");
         root=new File(context.getFilesDir(),"quran-audio/"+PROFILE_ID);
         if(!root.exists()&&!root.mkdirs())throw new IOException("Cannot create local Quran audio storage");
     }
