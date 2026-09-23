@@ -69,6 +69,8 @@ def load_manifest(source_dir: Path):
     for rel in license_files:
         if not isinstance(rel, str) or not rel:
             raise ValueError("Invalid license file entry")
+        if rel not in files:
+            raise ValueError(f"License/permission file must also be SHA-256 locked in files: {rel}")
         p = source_dir / rel
         if not p.is_file():
             raise ValueError(f"Missing license/permission file: {rel}")
