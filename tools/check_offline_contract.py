@@ -48,12 +48,13 @@ def main():
         fail("; ".join(offenders))
 
     gradle=GRADLE.read_text(encoding="utf-8")
-    acquisition_names={
-        p.name for p in (ROOT/"tools").glob("acquire_*.py")
+    network_maintainer_scripts={
+        *(p.name for p in (ROOT/"tools").glob("acquire_*.py")),
+        "complete_quran_audio_pack.py",
     }
-    for name in sorted(acquisition_names):
+    for name in sorted(network_maintainer_scripts):
         if name in gradle:
-            fail(f"normal Android build references one-time acquisition helper {name}")
+            fail(f"normal Android build references one-time network maintainer script {name}")
 
     # Every Python script invoked by the Android build must be an explicitly reviewed offline tool.
     invoked=set(re.findall(r"['\"](tools/[A-Za-z0-9_.-]+\.py)['\"]",gradle))
