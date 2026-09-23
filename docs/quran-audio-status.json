@@ -29,17 +29,24 @@
     "normal_gradle_network_acquisition": false,
     "content_deduplication": true,
     "per_pack_hash_verification": true,
-    "unique_clip_range_hash_verification": true
+    "unique_clip_range_hash_verification": true,
+    "release_policy_gate": true,
+    "required_pack_deletion_fails_build": true,
+    "unfinalized_payload_rejected": true
   },
   "active_pack": {
     "manifest_committed": false,
     "ready_for_runtime_audio": false,
-    "pack_files_committed": 0
+    "pack_files_committed": 0,
+    "release_policy_state": "pending_vendor_import",
+    "required_manifest_sha256": null,
+    "required_pack_id": null
   },
-  "completion_rule": "Do not mark this feature complete until source-vault/quran-audio/active contains a verified schema-v3 manifest, index.sqlite, license/provenance files, and the manifest-declared content-addressed .pack chunks.",
+  "completion_rule": "Do not mark this feature complete until source-vault/quran-audio/active contains a verified schema-v3 manifest, index.sqlite, license/provenance files and all manifest-declared content-addressed .pack chunks, and release-policy.json is finalized to required for that exact manifest.",
   "pack_layout": "CONTENT_ADDRESSED_CHUNKS_V1",
   "pack_chunk_limit_bytes": 33554432,
   "authoritative_completion_command": "python3 tools/complete_quran_audio_pack.py",
   "automatic_replacement_of_existing_pack": false,
-  "normal_build_acquisition": false
+  "normal_build_acquisition": false,
+  "network_free_finalizer_command": "python3 tools/finalize_quran_audio_policy.py"
 }
