@@ -22,7 +22,7 @@ def canonical(db_path: Path):
             row[0]:(int(row[2].split(":")[1]),int(row[2].split(":")[2]),int(row[1]))
             for row in db.execute(
                 "SELECT id,position,ayah_id FROM word "
-                "WHERE position>0 AND id LIKE '%:W:%'"
+                "WHERE position>0 AND id LIKE '%:W:%' AND mapping_state='SOURCE_ALIGNED'"
             )
         }
     finally:
