@@ -322,9 +322,11 @@ download the Gradle distribution; analyzer setup is still in progress.
   77,326 safe `SOURCE_ALIGNED :W:` identities. Acquisition is an explicit maintainer-only step;
   Gradle, normal verification, Android runtime and the direct SDK release builder never acquire
   Quran audio from the network.
-- The local packer compacts word clips into exactly 114 seekable Surah `.pack` files plus a
-  SHA-256 locked SQLite byte-range index. Runtime resolves canonical Word IDs to those local byte
-  ranges and uses one process-wide player; unaligned/prefatory identities are never guessed.
+- The local packer content-addresses every source clip, stores identical audio bytes once, and
+  compacts unique clips into contiguous seekable chunk `.pack` files capped at 32 MiB plus a
+  SHA-256 locked SQLite byte-range index. Runtime resolves canonical Word IDs to exact local
+  `pack_id + offset + length` ranges and uses one process-wide player; unaligned/prefatory
+  identities are never guessed.
 - Active packs fail closed on source-lock mismatch, Quran-core mismatch, incomplete coverage,
   corrupt Ogg clip boundaries, index corruption, pack hash/size mismatch, unsafe paths and the
   reviewed ordinary-Git size envelope. A partial `active/quran-audio` directory now triggers
@@ -333,7 +335,7 @@ download the Gradle distribution; analyzer setup is still in progress.
   a tiny local pack, verifies it, corrupts it, and requires the verifier to reject that corruption.
   Manual offline verification also enforces the Android/build no-network contract.
 - Hardened the official-SDK release builder so it now mirrors local Hadith selection, verifies any
-  active Quran audio pack, includes its manifest/index/all 114 pack assets, stores `.pack` assets
+  active Quran audio pack, includes its manifest/index/all manifest-declared chunk assets, stores `.pack` assets
   uncompressed for `AssetFileDescriptor` playback, and verifies the packaged hashes and byte sizes.
   This closes the previous gap where Gradle understood local audio/Hadith but the direct release
   path could omit them.
