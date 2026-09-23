@@ -468,10 +468,14 @@ public final class MainActivity extends Activity {
     }
     private void hidePeek(){selectedWordId="";if(selectedVerse!=null){selectedVerse.select(null);selectedVerse=null;}if(overlay!=null)overlay.removeAllViews();}
     private void tapWord(ContentStore.Word word,QuranText owner){
-        if(word.id.equals(selectedWordId)){wordDetails(word);return;}
-        hidePeek();selectedWordId=word.id;selectedVerse=owner;owner.select(word);learning.event(word.id,Recall.Kind.PEEK,word.ayahId);
+        if(word.id.equals(selectedWordId)){
+            playWordAudio(word,false);wordDetails(word);return;
+        }
+        hidePeek();playWordAudio(word,false);selectedWordId=word.id;selectedVerse=owner;owner.select(word);learning.event(word.id,Recall.Kind.PEEK,word.ayahId);
         LinearLayout peek=column(this);pad(peek,20,16);peek.setBackground(new Surface(this,Surface.Kind.SHEET,true));
-        LinearLayout top=row(this);TextView ar=arabic(word.arabic,30);ar.setGravity(Gravity.RIGHT);top.addView(ar,new LinearLayout.LayoutParams(0,-2,1));top.addView(iconButton("close","Close meaning",this::hidePeek));peek.addView(top);
+        LinearLayout top=row(this);TextView ar=arabic(word.arabic,30);ar.setGravity(Gravity.RIGHT);top.addView(ar,new LinearLayout.LayoutParams(0,-2,1));
+        if(app.audio!=null&&app.audio.canPlay(word))top.addView(iconButton("speaker","Pronunciation dobara sunein",()->playWordAudio(word,true)));
+        top.addView(iconButton("close","Close meaning",this::hidePeek));peek.addView(top);
         TextView meaning=text(this,word.gloss(language),18,INK);if(language.equals("ur"))meaning.setTextDirection(View.TEXT_DIRECTION_RTL);peek.addView(meaning);
         if(word.transliteration!=null){gap(peek,4);caption(peek,word.transliteration);}
         gap(peek,10);LinearLayout actions=row(this);actions.addView(button("Understand More",()->wordDetails(word)),new LinearLayout.LayoutParams(0,-2,1));
@@ -491,6 +495,11 @@ public final class MainActivity extends Activity {
         params.leftMargin=dp(this,14);params.topMargin=useBottom?viewportBottom-height:viewportTop;overlay.addView(ribbon,params);
         peek.announceForAccessibility(word.gloss(language));
     }
+    private void playWordAudio(ContentStore.Word word,boolean explicit){
+        if(app.audio!=null&&app.audio.play(word))return;
+        if(explicit)toast(app.wordAudioLoadError==null?"Offline pronunciation pack is word ke liye available nahi hai":app.wordAudioLoadError);
+    }
+
     private LinearLayout sheet(String title){
         hidePeek();
         if(activeDialog!=null)activeDialog.dismiss();
@@ -746,6 +755,9 @@ public final class MainActivity extends Activity {
     private void sources(){
         LinearLayout page=sheet("Sources aur bharosa");caption(page,content.sources());gap(page,16);
         caption(page,"Quran: 114 surahs / 6,236 ayat. Original text checksum checked. Meaning: imported source glosses; independent scholarly review abhi pending hai. 9 ayat mein word alignment mismatch ki wajah se body meanings withheld hain.");gap(page,12);
+        if(app.wordAudio!=null)caption(page,"Word pronunciation: verified local pack · "+app.wordAudio.attribution()+" · Runtime internet: nahi");
+        else caption(page,"Word pronunciation: local pack abhi bundled nahi hai. Reader online audio par fallback nahi karega.");
+        gap(page,12);
         caption(page,"Yeh non-commercial preview hai. Imported gloss data paid app, subscription ya advertisements ke liye cleared nahi hai.");gap(page,14);
         for(String[] item:new String[][]{{"Tanzil notice","licenses/TANZIL.txt"},{"Word meanings license","licenses/DATA-QURAN.txt"},{"Amiri font license","licenses/AMIRI-OFL.txt"}}){page.addView(button(item[0],()->{LinearLayout p=sheet(item[0]);try{TextView v=text(this,ContentStore.asset(this,item[1]),12,MUTED);v.setTextIsSelectable(true);p.addView(v);}catch(IOException e){caption(p,"License file unavailable");}}));gap(page,8);}
         page.addView(button("Tanzil source website",()->openWebsite(Uri.parse("https://tanzil.net/"))));gap(page,10);
