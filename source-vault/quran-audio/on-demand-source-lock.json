@@ -15,9 +15,10 @@
   "timing_format": "Protocol Buffers",
   "timing_scope": "word-level milliseconds inside one full-Surah audio file",
   "surahs": 114,
-  "canonical_quran_sqlite_sha256": "521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1",
   "download_policy": "EXPLICIT_USER_ACTION_ONLY",
   "local_policy": "AFTER_VALIDATED_DOWNLOAD_PLAY_ONLY_FROM_APP_PRIVATE_STORAGE",
   "resume_policy": "REVISION_SCOPED_PARTIAL_HTTP_RANGE",
-  "apk_policy": "NO_QURAN_AUDIO_BYTES_IN_BASE_APK"
+  "apk_policy": "NO_QURAN_AUDIO_BYTES_IN_BASE_APK",
+  "canonical_quran_alignment_sha256": "dc529dcb8d07549e5837621b6e0f26f9948221545907e9c5d89b035bc412ea1e",
+  "canonical_quran_audio_words": 77326
 }
