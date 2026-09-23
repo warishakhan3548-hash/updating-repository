@@ -45,6 +45,7 @@ final class QuranAudioStore {
     }
 
     private final File root;
+    private final long catalogBytes;
     private final Map<Integer,PackMeta> catalog=new HashMap<>();
     private final Map<Integer,SurahIndex> cache=new HashMap<>();
 
@@ -60,6 +61,7 @@ final class QuranAudioStore {
            manifest.optInt("surahs")!=114)
             throw new IOException("Quran pronunciation catalog/source binding mismatch");
         JSONObject packs=manifest.getJSONObject("packs");
+        long declaredTotal=manifest.getLong("total_bytes"),computedTotal=0;
         for(int surah=1;surah<=114;surah++){
             String key=String.format(Locale.ROOT,"%03d",surah);
             JSONObject p=packs.getJSONObject(key);
@@ -67,8 +69,10 @@ final class QuranAudioStore {
             String sha=p.getString("sha256"),url=p.getString("url");
             if(words<1||bytes<64||sha.length()!=64||!url.startsWith("https://github.com/"))
                 throw new IOException("Invalid Quran pronunciation pack metadata for Surah "+surah);
-            catalog.put(surah,new PackMeta(surah,words,bytes,sha,url));
+            catalog.put(surah,new PackMeta(surah,words,bytes,sha,url));computedTotal+=bytes;
         }
+        if(declaredTotal<=0||declaredTotal!=computedTotal)throw new IOException("Quran pronunciation catalog total size mismatch");
+        catalogBytes=declaredTotal;
         root=new File(context.getFilesDir(),"quran-audio/"+PROFILE_ID);
         if(!root.exists()&&!root.mkdirs())throw new IOException("Cannot create local Quran pronunciation storage");
     }
@@ -99,6 +103,8 @@ final class QuranAudioStore {
 
     synchronized int installedCount(){int n=0;for(int s=1;s<=114;s++)if(installedSurah(s))n++;return n;}
     synchronized long installedBytes(){long total=0;for(int s=1;s<=114;s++){File f=surahFile(s);if(f.isFile())total+=f.length();}return total;}
+    long totalBytes(){return catalogBytes;}
+    synchronized long remainingBytes(){return Math.max(0,catalogBytes-installedBytes());}
     synchronized void refreshSurah(int surah){cache.remove(surah);}
 
     synchronized Clip clip(ContentStore.Word word){
