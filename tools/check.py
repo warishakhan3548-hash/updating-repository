@@ -14,6 +14,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import sys
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,6 +84,45 @@ def main():
     sources = sorted((ROOT / 'core/src/main/java').rglob('*.java'))
     tests = sorted((ROOT / 'core/src/test/java').rglob('*.java'))
     with tempfile.TemporaryDirectory(prefix='aaris-check-') as scratch:
+        # Always exercise the Hadith builder against a tiny synthetic fixture, even when the
+        # real corpus is not installed. This catches schema/placeholder/search-column drift.
+        fixture_source = Path(scratch) / 'hadith-source'
+        (fixture_source / 'records').mkdir(parents=True)
+        (fixture_source / 'LICENSES').mkdir()
+        fixture_records = fixture_source / 'records' / 'fixture.jsonl'
+        fixture_records.write_bytes((ROOT / 'source-vault/hadith/records.example.jsonl').read_bytes())
+        fixture_permission = fixture_source / 'LICENSES' / 'PERMISSION.txt'
+        fixture_permission.write_text('Engineering test fixture only; not a distributable Hadith corpus.\n')
+        fixture_manifest = {
+            'pack_id': 'hadith-builder-fixture',
+            'content_version': '0',
+            'source_name': 'Aaris synthetic fixture',
+            'source_version': 'fixture-1',
+            'redistribution_basis': 'Synthetic engineering fixture authored in this repository.',
+            'license_files': ['LICENSES/PERMISSION.txt'],
+            'files': {
+                'records/fixture.jsonl': hashlib.sha256(fixture_records.read_bytes()).hexdigest(),
+                'LICENSES/PERMISSION.txt': hashlib.sha256(fixture_permission.read_bytes()).hexdigest(),
+            },
+        }
+        (fixture_source / 'manifest.json').write_text(json.dumps(fixture_manifest, indent=2) + '\n')
+        fixture_output = Path(scratch) / 'hadith-fixture' / 'hadith.sqlite'
+        subprocess.run([
+            sys.executable, str(ROOT / 'tools/build_hadith.py'),
+            '--source', str(fixture_source), '--output', str(fixture_output)
+        ], check=True, cwd=ROOT, stdout=subprocess.DEVNULL)
+        fixture_generated = json.loads((fixture_output.parent / 'hadith-manifest.json').read_text())
+        assert fixture_generated['schema_version'] == 2
+        assert fixture_generated['records'] == 1
+        fixture_db = sqlite3.connect(f'file:{fixture_output}?mode=ro', uri=True)
+        assert fixture_db.execute('PRAGMA user_version').fetchone()[0] == 2
+        columns = {row[1] for row in fixture_db.execute('PRAGMA table_info(hadith)')}
+        assert {'search_ar', 'search_latin', 'source_sha256', 'record_kind'} <= columns
+        assert fixture_db.execute('SELECT count(*) FROM hadith').fetchone()[0] == 1
+        assert fixture_db.execute('SELECT count(*) FROM grade_assertion').fetchone()[0] == 1
+        assert not fixture_db.execute('PRAGMA foreign_key_check').fetchall()
+        fixture_db.close()
+
         classes = Path(scratch) / 'classes'
         classes.mkdir()
         subprocess.run([java, 'com.sun.tools.javac.Main', '--release', '17', '-encoding', 'UTF-8',
