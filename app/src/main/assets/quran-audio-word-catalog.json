@@ -1,0 +1,700 @@
+{
+  "schema": 1,
+  "delivery": "ISOLATED_WORD_SURAH_CONTAINER_V1",
+  "container_magic": "AARISQW1",
+  "repo_id": "zaibihassan/Quranic-Word-By-Word-Audio-Data",
+  "source_revision": "9796e08caae700f44266255da320adf6e5ab4114",
+  "style": "muallim",
+  "audio_format": "Ogg Opus isolated word clips",
+  "canonical_quran_alignment_sha256": "9971ffae866bc3682d11efccd30fdddb1d62bc4718e5f9cd941395e6f16093ce",
+  "canonical_quran_audio_words": 77326,
+  "surahs": 114,
+  "total_bytes": 482314977,
+  "release_base_url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08",
+  "packs": {
+    "001": {
+      "words": 29,
+      "bytes": 228384,
+      "sha256": "d5d4bbaa22fdf1a0f4340b3dcce42cdf0dd2d4cca8a9c8c1192455192bfdefdb",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/001.aqp"
+    },
+    "002": {
+      "words": 6103,
+      "bytes": 38881942,
+      "sha256": "f8bc97573efafa32ecab80e1aae8fcb165410557dda75cc73bc8c187e7b1f22b",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/002.aqp"
+    },
+    "003": {
+      "words": 3481,
+      "bytes": 22289175,
+      "sha256": "dc77d6f2c66090180c6a18c820777919a0c334e8b9ec54c82b49a4ac580ad378",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/003.aqp"
+    },
+    "004": {
+      "words": 3747,
+      "bytes": 23638827,
+      "sha256": "858ef998374baf83ba1cbf97a82d0e54c81ec6a0ed06182e53a586a87aa34ca1",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/004.aqp"
+    },
+    "005": {
+      "words": 2776,
+      "bytes": 17503165,
+      "sha256": "d8fb23cfc7eb793f303e64b3ec45b3d8df952f6da597a1eba8031a59320c2034",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/005.aqp"
+    },
+    "006": {
+      "words": 3050,
+      "bytes": 19071772,
+      "sha256": "2f5f2bd8e54b7f8fdad603e352f3636eea511c0c37c8d8f09e2e899258b8124e",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/006.aqp"
+    },
+    "007": {
+      "words": 3320,
+      "bytes": 20915685,
+      "sha256": "93abf50e29d511c7d9a313a7170f8235c1cf033d9068c35101938e20985e9cad",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/007.aqp"
+    },
+    "008": {
+      "words": 1222,
+      "bytes": 7842882,
+      "sha256": "f81db195e4a31b48e5f4d47d00787ead86e833d0383c2857e3e9ad41e45f5386",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/008.aqp"
+    },
+    "009": {
+      "words": 2498,
+      "bytes": 15927875,
+      "sha256": "ee69741927ef17adb073d0e101e16c9a36b2f33a091b1f715634fe1457ed729d",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/009.aqp"
+    },
+    "010": {
+      "words": 1833,
+      "bytes": 11394433,
+      "sha256": "73374470e5fa1d2e3343236473531c94dabbdbe663ca4018f6f74d750262a1bf",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/010.aqp"
+    },
+    "011": {
+      "words": 1899,
+      "bytes": 11519024,
+      "sha256": "6be1495f63a507635621257cdff1e9be1a232d1dbe747e246637b84d8bfb1afc",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/011.aqp"
+    },
+    "012": {
+      "words": 1777,
+      "bytes": 10568810,
+      "sha256": "b5901f340b8dd37aa7c1c0cbb3e5b363f3367e8d2296968e8b78c873a728aeb5",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/012.aqp"
+    },
+    "013": {
+      "words": 834,
+      "bytes": 5038666,
+      "sha256": "bf38836f7b9bea193abf0934f889518cdfe2d7667713624a93a2894ece1f1731",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/013.aqp"
+    },
+    "014": {
+      "words": 830,
+      "bytes": 5105521,
+      "sha256": "53776fb33b738de9f849e886abb5a07a09c219d376f549733cdaf92555439548",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/014.aqp"
+    },
+    "015": {
+      "words": 655,
+      "bytes": 4124881,
+      "sha256": "06c56b78d652eaf97ffa5a33c13b22745366fea79dc40cc7cf7fb3cface33748",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/015.aqp"
+    },
+    "016": {
+      "words": 1844,
+      "bytes": 11386727,
+      "sha256": "b762083300ca9091f8d16d2a1cc4b565a32021e79875819dc1769b4627cb53cb",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/016.aqp"
+    },
+    "017": {
+      "words": 1556,
+      "bytes": 9419238,
+      "sha256": "d008007b66960b160afa53a8a8875b6ccfe43dd3c4f23bdc29cc96322ac6c7f0",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/017.aqp"
+    },
+    "018": {
+      "words": 1579,
+      "bytes": 9331839,
+      "sha256": "d4edb677352c76323e5c79823fe2db10de49772bf4d14e618e00b5a8c93b7f93",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/018.aqp"
+    },
+    "019": {
+      "words": 961,
+      "bytes": 5771911,
+      "sha256": "961016b76156954fd8062f5d47b5d169a8365c563b45af13e9b028ed8275755e",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/019.aqp"
+    },
+    "020": {
+      "words": 1335,
+      "bytes": 7860339,
+      "sha256": "8577ff36ed43540009eb07687e0efe70f368f0744f2854cd4a3aca497c9f7075",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/020.aqp"
+    },
+    "021": {
+      "words": 1169,
+      "bytes": 7464772,
+      "sha256": "200f5a04f69a0edec08265c7a3872028e8c9586ff76c9ec0061eb19c7d886c87",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/021.aqp"
+    },
+    "022": {
+      "words": 1274,
+      "bytes": 7837593,
+      "sha256": "7ef6dfaed2550a6dbdf810ad7129d644a33381b322eb8848f49f191e9b96419c",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/022.aqp"
+    },
+    "023": {
+      "words": 1050,
+      "bytes": 6557029,
+      "sha256": "c05ac456433ad4301e7b6be7f2fd02b223f94f3defec9d569af6b95e5e3fa420",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/023.aqp"
+    },
+    "024": {
+      "words": 1316,
+      "bytes": 8469917,
+      "sha256": "a14682c04bb51ff97dd79a880a036534f3edd0336e5b131806daa0b4ceb2aa0b",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/024.aqp"
+    },
+    "025": {
+      "words": 893,
+      "bytes": 5559783,
+      "sha256": "fe7e92d1c713ce7e62d64b0654e959981158aaee0e8a81dceff239aec057782f",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/025.aqp"
+    },
+    "026": {
+      "words": 1318,
+      "bytes": 8238160,
+      "sha256": "666e03539c0bb1c382ce3b11d470f886f1479e4decfcac7218174124f1c88b71",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/026.aqp"
+    },
+    "027": {
+      "words": 1151,
+      "bytes": 7188791,
+      "sha256": "38306df114de266e230d0ab7b40f8d8f1bd2f01b6405d76e6086e6f0c11c351c",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/027.aqp"
+    },
+    "028": {
+      "words": 1430,
+      "bytes": 8749570,
+      "sha256": "1cb29e282408ea3dcc0ae9224b8aa95a3faa2d4964665e5ba7639b53b6ce2a4e",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/028.aqp"
+    },
+    "029": {
+      "words": 976,
+      "bytes": 6285439,
+      "sha256": "863de3df2d8d4ba8701004e9953fbd131e0a8a46b78a3f585853c19d012392a0",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/029.aqp"
+    },
+    "030": {
+      "words": 817,
+      "bytes": 5181409,
+      "sha256": "63b19a624515ad4a9886ab1d19741090abf44403ea13a775e1cb39dee89bcbe3",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/030.aqp"
+    },
+    "031": {
+      "words": 546,
+      "bytes": 3293553,
+      "sha256": "d241a0d0e35d711e93134a558e4953e7b363fdc94efdccd9c9964a1b3681a745",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/031.aqp"
+    },
+    "032": {
+      "words": 372,
+      "bytes": 2314628,
+      "sha256": "7b486ecacf675da703ccd7b93d9e865eae056e1498384e6626f43d699159d12d",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/032.aqp"
+    },
+    "033": {
+      "words": 1287,
+      "bytes": 8212598,
+      "sha256": "3cdfb92f9ba8efd7dd3b1f8bc20dffd65f0bb68d08508fea2e136a57a3b2ed58",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/033.aqp"
+    },
+    "034": {
+      "words": 883,
+      "bytes": 5244871,
+      "sha256": "00cc9d6e693f5a5a035f511e8f2cec11f46b6c83c2410355824e92f6cd10f698",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/034.aqp"
+    },
+    "035": {
+      "words": 775,
+      "bytes": 4740913,
+      "sha256": "3d2ce466be404bf4717ff6210e9de7d67906d1746be84c187f3edb97e87fb511",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/035.aqp"
+    },
+    "036": {
+      "words": 725,
+      "bytes": 4513914,
+      "sha256": "da5c02c5839787ae896ef1cf16a6dff7c18f99719af800bf7e5f3c143516f1fd",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/036.aqp"
+    },
+    "037": {
+      "words": 857,
+      "bytes": 5679242,
+      "sha256": "a3fd5a6abe6a5b786edc2f503d499701e32a33ad755ac30ff05efc4ce45907e6",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/037.aqp"
+    },
+    "038": {
+      "words": 733,
+      "bytes": 4483707,
+      "sha256": "2790e64054b7e664fc8330e165fea8cfe530668229920290e1f93706403de37b",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/038.aqp"
+    },
+    "039": {
+      "words": 1172,
+      "bytes": 7192244,
+      "sha256": "dc569b0f0b11519ebf95e35de23972955d41b62587ac138fd09665876600051d",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/039.aqp"
+    },
+    "040": {
+      "words": 1219,
+      "bytes": 7453955,
+      "sha256": "c2c3838a92e2352d7469471b2ce6d938346ada0b8a926554dd8d8827766d66d1",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/040.aqp"
+    },
+    "041": {
+      "words": 794,
+      "bytes": 4910276,
+      "sha256": "28b1c5def8e1eb3e2720bb9721fe8e75a80c06bfe1448718d8a23872c27cf2d3",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/041.aqp"
+    },
+    "042": {
+      "words": 860,
+      "bytes": 5240862,
+      "sha256": "195543d580714238f2aee13272be5fd9b387f45c7664868a8716dac5690a5a26",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/042.aqp"
+    },
+    "043": {
+      "words": 830,
+      "bytes": 5323134,
+      "sha256": "1adaba7bed40c6413d99dd096d1f6ccdb8e72b597a2a445e9366d744f5c55caa",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/043.aqp"
+    },
+    "044": {
+      "words": 346,
+      "bytes": 2208540,
+      "sha256": "2af6d818ace57a7ab8e306020c2579655b1f1b8906f2f4ab48fb4223cd198d7d",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/044.aqp"
+    },
+    "045": {
+      "words": 488,
+      "bytes": 3168293,
+      "sha256": "c75ca8e612a05b84353dcb96302c5328e3032154ef9fed994aee071c7fb37750",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/045.aqp"
+    },
+    "046": {
+      "words": 643,
+      "bytes": 3868819,
+      "sha256": "9c96eb4f539a078da4ad4d8972cce76d3aaa046855e365cae4533475d593b990",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/046.aqp"
+    },
+    "047": {
+      "words": 539,
+      "bytes": 3460351,
+      "sha256": "caf42723da66dccf490d9c75d2e560004ddf8292eed966f9184df7b21432d426",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/047.aqp"
+    },
+    "048": {
+      "words": 560,
+      "bytes": 3527984,
+      "sha256": "37673e38d813e2545ebced62ce12ac5378c620aee5482d604f4919ecc130ed1f",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/048.aqp"
+    },
+    "049": {
+      "words": 347,
+      "bytes": 2217311,
+      "sha256": "341c5ada5dadb135841d278e8a74ba1bba541f07d6a14f40ea1c74bb0a9998f1",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/049.aqp"
+    },
+    "050": {
+      "words": 373,
+      "bytes": 2142030,
+      "sha256": "3a9d89186f188f41368162f513ef6ab506b4a1a86d22438193a169aed84d34ea",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/050.aqp"
+    },
+    "051": {
+      "words": 360,
+      "bytes": 2175374,
+      "sha256": "b3a378714bfe1a665503fa0761da8fb126e88ce21c5ed1f2e7b7a204f7d7c779",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/051.aqp"
+    },
+    "052": {
+      "words": 312,
+      "bytes": 1899972,
+      "sha256": "63aaa1e8bbf987917aad4898fbac599d3eed3ed21e8a7f8193eea486fc86bca8",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/052.aqp"
+    },
+    "053": {
+      "words": 360,
+      "bytes": 2112125,
+      "sha256": "f305c06cba831855fc0bd0a2a6696a994c860d598c8b3344cfafd092c48a32c5",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/053.aqp"
+    },
+    "054": {
+      "words": 342,
+      "bytes": 2032546,
+      "sha256": "2fcc06faf2997301c0251894b820b82989d849cf1a5837cf0573a76d61f50549",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/054.aqp"
+    },
+    "055": {
+      "words": 351,
+      "bytes": 2450230,
+      "sha256": "9cd35882648859a8e9919b47bf97e77182adcab27681a815cdbe2a35850f5692",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/055.aqp"
+    },
+    "056": {
+      "words": 379,
+      "bytes": 2471343,
+      "sha256": "46e9e1fc74c3d990a617cd97b036621c30cd6b9a5a7023cb27fcb40b28f977e5",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/056.aqp"
+    },
+    "057": {
+      "words": 574,
+      "bytes": 3633858,
+      "sha256": "9a9ad325db9442ae8dbd6652b0f81a83440f226d8116f6981b9f6858bad82f9b",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/057.aqp"
+    },
+    "058": {
+      "words": 472,
+      "bytes": 2949961,
+      "sha256": "9a8368ae5c1596d7e5e28ce741a7f1e1b805e70bdd8d75e9510592c3bbb405ab",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/058.aqp"
+    },
+    "059": {
+      "words": 445,
+      "bytes": 2857073,
+      "sha256": "b0dcd5ed6ef1130d3226fda695d9df69738448e89e4e99c3d852efff106bc062",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/059.aqp"
+    },
+    "060": {
+      "words": 348,
+      "bytes": 2225420,
+      "sha256": "3303fb56b308afcade362f6e6d186edd58b990b30735bb5659be3042ab5db1a7",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/060.aqp"
+    },
+    "061": {
+      "words": 221,
+      "bytes": 1430244,
+      "sha256": "dff557559d9c91fe91d47f685a51a4913f94e72a862b595156a10e4a5d0e19c1",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/061.aqp"
+    },
+    "062": {
+      "words": 175,
+      "bytes": 1130584,
+      "sha256": "e97c4947e04778cd55c7ee5e736967ef87241c65b3ef8712bc95dc7cc6c1de45",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/062.aqp"
+    },
+    "063": {
+      "words": 180,
+      "bytes": 1166511,
+      "sha256": "d9d197054a98093a487940104e3a95e99d2c7404c75253ef013c0f291db8f6da",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/063.aqp"
+    },
+    "064": {
+      "words": 241,
+      "bytes": 1561031,
+      "sha256": "262254785c085eb315c98a04eafb22384b864f964ede9b6a9b58917b7bcd06bf",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/064.aqp"
+    },
+    "065": {
+      "words": 287,
+      "bytes": 1755103,
+      "sha256": "98eff96a7fd8fcd63458520ccd5577e995d2cc34d6e058723b606d145f56c419",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/065.aqp"
+    },
+    "066": {
+      "words": 249,
+      "bytes": 1581974,
+      "sha256": "47c1166ada5c8d594b591d0cf471ac4c5961f46b44540852b23baccc134b5b7a",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/066.aqp"
+    },
+    "067": {
+      "words": 333,
+      "bytes": 1947764,
+      "sha256": "9a462981363c4e2449180a929ecea485113986aa602a0df901fad91d50ffec7e",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/067.aqp"
+    },
+    "068": {
+      "words": 300,
+      "bytes": 1826503,
+      "sha256": "8b95ef77de473f6e5e54f1da8b6dbe63f7ab19be98b44d2a150546c36406f0b9",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/068.aqp"
+    },
+    "069": {
+      "words": 258,
+      "bytes": 1588614,
+      "sha256": "b5b43c3ee6b20f750ab4ea399d28ba211f0bfc37f3c63f2b027939feb9a17fb7",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/069.aqp"
+    },
+    "070": {
+      "words": 217,
+      "bytes": 1362289,
+      "sha256": "e8c2fb346bf2e7cc7a6249198a1d4bcb183515710ab21b0a1ad1cbb06676447e",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/070.aqp"
+    },
+    "071": {
+      "words": 226,
+      "bytes": 1357978,
+      "sha256": "6a02c2f647371c81b381034ac9003c3cd4e5b9db1baabdcf55d50ac5f325366f",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/071.aqp"
+    },
+    "072": {
+      "words": 285,
+      "bytes": 1622287,
+      "sha256": "9aa53a60a5a47e2c0e726611fcf502ccc0f21bd7e9156b0b5bcf08ed846360ec",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/072.aqp"
+    },
+    "073": {
+      "words": 199,
+      "bytes": 1214996,
+      "sha256": "648a122fc909ba4dfc1fe928418333fbda9e7ec5f614dee78549cd6842666159",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/073.aqp"
+    },
+    "074": {
+      "words": 255,
+      "bytes": 1488798,
+      "sha256": "a880afb781abd5aaa31df87c818289dc130525b3b95720fc6b8fb3ff814c1f3e",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/074.aqp"
+    },
+    "075": {
+      "words": 164,
+      "bytes": 958129,
+      "sha256": "cb73c8ff78c606095813c830882bccc4548782f9258b4115109daabce81065f4",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/075.aqp"
+    },
+    "076": {
+      "words": 243,
+      "bytes": 1520879,
+      "sha256": "3b447f9d6fe941141dc82230cbaad73bc4765fbbdefdaa2b230bfdada1c8b136",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/076.aqp"
+    },
+    "077": {
+      "words": 181,
+      "bytes": 1212694,
+      "sha256": "8e117c6d580d09a0cb40870f62f1531bcccde143f5ee6bf27b5a9f45d2034c5b",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/077.aqp"
+    },
+    "078": {
+      "words": 173,
+      "bytes": 1172812,
+      "sha256": "9756dc3605cc67d89d0a7f88c3968c2de4e48c20c144f4ff5837acac98e16b1e",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/078.aqp"
+    },
+    "079": {
+      "words": 179,
+      "bytes": 1123376,
+      "sha256": "4fd2125f5e8f64eb39a087c96863c0bfa15c9e69c69460dbbbee0f024b9e253a",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/079.aqp"
+    },
+    "080": {
+      "words": 129,
+      "bytes": 793717,
+      "sha256": "4e804bc1d14936ce8732bbf53eae5fe500a3834de2e256541a6e6e1b129bc00d",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/080.aqp"
+    },
+    "081": {
+      "words": 104,
+      "bytes": 601466,
+      "sha256": "ba888965735eff7b2aa1ff676bdea712fae02985e9278f7a3a52905638390639",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/081.aqp"
+    },
+    "082": {
+      "words": 80,
+      "bytes": 490260,
+      "sha256": "8e16e1ac0f0fb619ccc897945a2993394744916e08ccd357e22cf4c8d00d4d8a",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/082.aqp"
+    },
+    "083": {
+      "words": 169,
+      "bytes": 1092668,
+      "sha256": "ea5d017838a2aea6ac39ea1ef904d776897563930f9f4959b6e378529a7e5e17",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/083.aqp"
+    },
+    "084": {
+      "words": 107,
+      "bytes": 659694,
+      "sha256": "03820fb490af8b899e2a0645dad5d1cb53ed7cf28f98efed67039bf5815b2b82",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/084.aqp"
+    },
+    "085": {
+      "words": 109,
+      "bytes": 658685,
+      "sha256": "d1f794e396d49a4ec9eef0272e4cd54de4e11fa5dc9fe349e753a199e0ae33c0",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/085.aqp"
+    },
+    "086": {
+      "words": 61,
+      "bytes": 369671,
+      "sha256": "a67e0c3f0ccea9028d242ae723130aa40c39b21a548f73ca5f2edbadab75f534",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/086.aqp"
+    },
+    "087": {
+      "words": 72,
+      "bytes": 433841,
+      "sha256": "4feb2fd2284cdb067965d2fcf0c31d5d1012ba0eb9b5f996989718ef346c1d1e",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/087.aqp"
+    },
+    "088": {
+      "words": 92,
+      "bytes": 554592,
+      "sha256": "c60edebc3d4cef84a775981936724c53a8cc3a8e3fe85a93086c7f6cf006609f",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/088.aqp"
+    },
+    "089": {
+      "words": 137,
+      "bytes": 856205,
+      "sha256": "a7e65fa631d38a504f2787e4a006795263c69477d7eb9f3623f2c3d5c447f61d",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/089.aqp"
+    },
+    "090": {
+      "words": 82,
+      "bytes": 483353,
+      "sha256": "70adc0d40bb563be5f6f05bc2f20eb852d1a220a3ca22ed739b73270c0f4294d",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/090.aqp"
+    },
+    "091": {
+      "words": 54,
+      "bytes": 375900,
+      "sha256": "572e21e968f47dfe5edd33c16eeafcd130d540fbc63fd7a8d800116f50a6bea0",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/091.aqp"
+    },
+    "092": {
+      "words": 71,
+      "bytes": 458564,
+      "sha256": "8457102ed7808256c071ffa4d1e3127f5d7141b6e14dfffd63e06c8660f7e7e7",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/092.aqp"
+    },
+    "093": {
+      "words": 40,
+      "bytes": 247410,
+      "sha256": "96d50ac8ee15c514ce1aed1e291bf0f4e2da09777c3520ffbadff6299c8d086f",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/093.aqp"
+    },
+    "094": {
+      "words": 27,
+      "bytes": 143339,
+      "sha256": "45e8da6939ac74a985402970a2f353b4f81848a070621841e5b77802dec5c09b",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/094.aqp"
+    },
+    "095": {
+      "words": 32,
+      "bytes": 198271,
+      "sha256": "f0cbf786a4e6b6210990a3f00f1205724965a6e2217ccece43b5665bc9619cef",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/095.aqp"
+    },
+    "096": {
+      "words": 72,
+      "bytes": 405356,
+      "sha256": "7aa6ef399eb4c54fcc86f61dcad032ed8cf5d0f3aba707d42a7519963d17f754",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/096.aqp"
+    },
+    "097": {
+      "words": 25,
+      "bytes": 132402,
+      "sha256": "78261ab111ebf0ae726f54b9b77284a6b1beb78b38bb4d97effacce523cded0b",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/097.aqp"
+    },
+    "098": {
+      "words": 94,
+      "bytes": 586951,
+      "sha256": "bd577034b287cc43345a93405efe3db912d56c5eb4426e156cb902fb176615f9",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/098.aqp"
+    },
+    "099": {
+      "words": 36,
+      "bytes": 248621,
+      "sha256": "a4341d8ba0d358bdc7b1c8575866ea45433b851fb83f6e693dede450e36427e4",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/099.aqp"
+    },
+    "100": {
+      "words": 40,
+      "bytes": 247402,
+      "sha256": "2950f9031dfe37eacef5964a257c653fb73c160470ae7a5af5ff3acc63743bdd",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/100.aqp"
+    },
+    "101": {
+      "words": 36,
+      "bytes": 226816,
+      "sha256": "e2b0fb6e3d14e0348963008a3a4226e8c0904098092a540d690dbe8210754a71",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/101.aqp"
+    },
+    "102": {
+      "words": 28,
+      "bytes": 174859,
+      "sha256": "30baeaeb745455f585c82ef265e1ba26e28df5ba1cbdbe3c3e11a22ac35c0cab",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/102.aqp"
+    },
+    "103": {
+      "words": 14,
+      "bytes": 87898,
+      "sha256": "488d49dfdf3193119fd6e0bc93961eb270010aaf81282c010689cbb56c07c9c1",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/103.aqp"
+    },
+    "104": {
+      "words": 33,
+      "bytes": 205097,
+      "sha256": "75ab2476cfaec983fa059d89bb80b03a6cf5eeb5ca388bf0c10fab57c03d7f14",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/104.aqp"
+    },
+    "105": {
+      "words": 23,
+      "bytes": 140342,
+      "sha256": "dadd6b5e616cc921290983a34d91d353280ba9243e8642d9107b070ee372fbc5",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/105.aqp"
+    },
+    "106": {
+      "words": 17,
+      "bytes": 106490,
+      "sha256": "72b0700169c281ccff9918f34717681d785bd4ecc5a0c9eda49de9055cc39167",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/106.aqp"
+    },
+    "107": {
+      "words": 25,
+      "bytes": 167826,
+      "sha256": "9bcf3e34dd09c7160ec2413791fe8baa3dee7ea7af2e64302a05b2183c73ef58",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/107.aqp"
+    },
+    "108": {
+      "words": 10,
+      "bytes": 61772,
+      "sha256": "8cc0872a2a10d8e2f8622d586b306e5ced42daee213b3fd59d952ff2a5da72ca",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/108.aqp"
+    },
+    "109": {
+      "words": 26,
+      "bytes": 154921,
+      "sha256": "3323f74739474f1fe760add0c802c5da71f1576d3ae0a47de2c0b1e67119dc36",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/109.aqp"
+    },
+    "110": {
+      "words": 19,
+      "bytes": 124458,
+      "sha256": "0655048042ce3e52d01e805dac93294a933997ee07f4bbe2624b6c446aa4a2d1",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/110.aqp"
+    },
+    "111": {
+      "words": 23,
+      "bytes": 128938,
+      "sha256": "72d9004a180a93ef9e8dbf789477eb324b3cf4c35d8ce0be067830d208e49066",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/111.aqp"
+    },
+    "112": {
+      "words": 15,
+      "bytes": 63856,
+      "sha256": "4ebfdeba201252608a647ca44e6ec42692349d09fbbd98ad8d6d9638ec2364b4",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/112.aqp"
+    },
+    "113": {
+      "words": 23,
+      "bytes": 121340,
+      "sha256": "555b1449e8f9b65870cea43f8f0ce55cfc5e24cba98fbb92b16f2e8f747d5c00",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/113.aqp"
+    },
+    "114": {
+      "words": 20,
+      "bytes": 130744,
+      "sha256": "857a48ac5507576c49fc10a13dac830132aca08931403dc2ee22504ca0b96418",
+      "url": "https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08/114.aqp"
+    }
+  }
+}
