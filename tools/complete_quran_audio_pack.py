@@ -11,8 +11,10 @@ This is deliberately NOT a Gradle task. It is a one-time acquisition/finalizatio
 After this succeeds, commit source-vault/quran-audio/active to the repository. Future Android
 builds/runtime use only those committed bytes and never invoke this script or the network.
 """
+import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -30,9 +32,30 @@ def run(*args):
 
 
 def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--replace",action="store_true",
+                        help="Deliberately replace an existing verified active audio pack.")
+    parser.add_argument("--skip-disk-check",action="store_true",
+                        help="Skip the conservative one-time 2 GiB free-space preflight.")
+    args=parser.parse_args()
+
     if not LOCK.is_file():
         raise SystemExit("Missing reviewed Quran audio source lock")
+    if ACTIVE.exists() and not args.replace:
+        raise SystemExit(
+            "Active Quran audio already exists. Verify/use it as-is, or rerun explicitly with --replace."
+        )
+    if not args.skip_disk_check:
+        free=shutil.disk_usage(ROOT).free
+        required=2*1024*1024*1024
+        if free<required:
+            raise SystemExit(
+                f"At least 2 GiB free disk is required for one-time Quran audio acquisition; free={free}"
+            )
 
+    # Prove the normal Android/build path is still network-independent before this explicit,
+    # one-time network acquisition is allowed to begin.
+    run(sys.executable,ROOT/"tools/check_offline_contract.py")
     run(sys.executable,ROOT/"tools/build_content.py")
 
     try:
