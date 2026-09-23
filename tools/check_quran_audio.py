@@ -33,6 +33,7 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--source",required=True,type=Path)
     parser.add_argument("--quran-db",required=True,type=Path)
+    parser.add_argument("--source-lock",required=True,type=Path)
     args=parser.parse_args()
 
     source=args.source.resolve()
@@ -40,6 +41,9 @@ def main():
     if not manifest_path.is_file():
         raise SystemExit("Missing quran-audio/manifest.json")
     manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
+    lock=json.loads(args.source_lock.read_text(encoding="utf-8"))
+    if lock.get("schema")!=1:
+        raise SystemExit("Unsupported Quran audio source lock schema")
 
     if manifest.get("schema_version")!=2:
         raise SystemExit("Unsupported Quran audio manifest schema")
@@ -52,6 +56,21 @@ def main():
     actual_quran_hash=file_hash(args.quran_db)
     if manifest.get("canonical_quran_sqlite_sha256")!=actual_quran_hash:
         raise SystemExit("Quran audio pack targets a different canonical quran.sqlite")
+    expected_url=f"https://huggingface.co/datasets/{lock.get('repo_id')}"
+    locked_pairs={
+        "source_version":str(lock.get("revision") or "").lower(),
+        "source_url":expected_url,
+        "license":str(lock.get("declared_license") or ""),
+        "style":str(lock.get("style") or ""),
+        "canonical_quran_sqlite_sha256":str(lock.get("canonical_quran_sqlite_sha256") or ""),
+    }
+    for key,expected_value in locked_pairs.items():
+        if str(manifest.get(key) or "").lower()!=expected_value.lower():
+            raise SystemExit(f"Quran audio manifest {key} differs from reviewed source lock")
+    if int(manifest.get("word_count") or 0)!=int(lock.get("expected_word_count") or 0):
+        raise SystemExit("Quran audio word count differs from reviewed source lock")
+    if actual_quran_hash!=str(lock.get("canonical_quran_sqlite_sha256") or ""):
+        raise SystemExit("Current quran.sqlite differs from reviewed audio source lock")
 
     for rel in manifest.get("license_files") or []:
         p=source/rel
