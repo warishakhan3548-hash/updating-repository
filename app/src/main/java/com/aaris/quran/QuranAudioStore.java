@@ -52,6 +52,7 @@ final class QuranAudioStore implements AutoCloseable {
         canonicalQuranHash=required(manifest,"canonical_quran_sqlite_sha256");
         wordCount=manifest.getInt("word_count");
         complete=manifest.optBoolean("coverage_complete",false);
+        if(!complete)throw new IOException("Incomplete Quran audio pack may not be activated");
         if(wordCount<1||indexHash.length()!=64||canonicalQuranHash.length()!=64)throw new IOException("Invalid Quran audio manifest");
         if(quranPackHash==null||!canonicalQuranHash.equals(quranPackHash))
             throw new IOException("Quran audio pack was built for a different canonical Quran pack");
