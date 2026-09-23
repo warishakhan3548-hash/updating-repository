@@ -145,11 +145,32 @@ def catalog_groups(path: Path):
     data = json.loads(path.read_text(encoding="utf-8"))
     mapping = {}
     expected_titles = set()
+    parent_groups = {}
+
+    # Group cards (for example "Collections of Forty") are navigation containers,
+    # not installable Hadith collections. Keep their grouping metadata, but require
+    # the concrete nested collections instead. This mirrors build_hadith.py's
+    # full-catalog completeness rule.
     for item in data.get("collections", []):
         title = str(item.get("name_en") or "").strip()
+        group = str(item.get("group") or "other")
+        item_id = str(item.get("id") or "").strip()
+        if item_id:
+            parent_groups[item_id] = group
         if title:
-            expected_titles.add(title_key(title))
-            mapping[title_key(title)] = str(item.get("group") or "other")
+            mapping[title_key(title)] = group
+            if item.get("kind") != "group":
+                expected_titles.add(title_key(title))
+
+    for item in data.get("nested_collections", []):
+        title = str(item.get("name_en") or "").strip()
+        if not title:
+            continue
+        parent = str(item.get("parent") or "").strip()
+        group = parent_groups.get(parent, "other")
+        mapping[title_key(title)] = group
+        expected_titles.add(title_key(title))
+
     return mapping, expected_titles
 
 
@@ -214,6 +235,7 @@ def fetch_raw_collection(api: Api, collection, raw_dir: Path):
 
 def normalize_collection(folder: Path, group_by_title, edition, source_version, out):
     collection = json.loads((folder / "collection.json").read_text(encoding="utf-8"))
+    language_coverage = {"ar"}
     slug = str(collection["name"])
     title_en, title_ar = collection_titles(collection)
     group = group_by_title.get(title_key(title_en), "other")
@@ -263,6 +285,15 @@ def normalize_collection(folder: Path, group_by_title, edition, source_version, 
             arabic = text_for(languages, "ar", "ara", "arabic")
             if not arabic:
                 raise ValueError(f"{slug}:{number}: official API response has no Arabic body")
+            english = text_for(languages, "en", "eng", "english")
+            urdu = text_for(languages, "ur", "urd", "urdu")
+            bangla = text_for(languages, "bn", "ben", "bangla", "bengali")
+            if english:
+                language_coverage.add("en")
+            if urdu:
+                language_coverage.add("ur")
+            if bangla:
+                language_coverage.add("bn")
 
             references = [{"scheme": "sunnah-api-ref", "value": f"{slug}:{number}"}]
             grades = []
@@ -291,14 +322,14 @@ def normalize_collection(folder: Path, group_by_title, edition, source_version, 
                 "type": "hadith", "id": hid, "collection_id": slug,
                 "book_id": book_fk, "chapter_id": chapter_fk, "record_number": number,
                 "record_kind": "hadith", "arabic": arabic,
-                "english": text_for(languages, "en", "eng", "english"),
-                "urdu": text_for(languages, "ur", "urd", "urdu"),
-                "bangla": text_for(languages, "bn", "ben", "bangla", "bengali"),
+                "english": english,
+                "urdu": urdu,
+                "bangla": bangla,
                 "source_ref": f"sunnah-api:{slug}:{number}",
                 "references": references, "grades": grades,
             }) + "\n")
             count += 1
-    return slug, title_en, count
+    return slug, title_en, count, sorted(language_coverage)
 
 
 def main():
@@ -379,6 +410,10 @@ def main():
         source_files.append(p)
 
     files = {str(p.relative_to(output)): sha256(p) for p in source_files}
+    language_coverage = {"ar"}
+    for item in imported:
+        language_coverage.update(item[3])
+
     manifest = {
         "pack_id": f"sunnah-official-api-{edition}",
         "content_version": datetime.now(timezone.utc).strftime("%Y.%m.%d"),
@@ -392,6 +427,7 @@ def main():
         "require_catalog_complete": not args.allow_partial_catalog,
         "catalog_complete": not missing_titles,
         "catalog_missing_titles": missing_titles,
+        "language_coverage": [code for code in ("ar", "en", "ur", "bn") if code in language_coverage],
         "acquired_at": datetime.now(timezone.utc).isoformat(),
         "runtime_network_required": False,
     }
