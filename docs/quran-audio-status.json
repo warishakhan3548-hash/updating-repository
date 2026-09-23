@@ -10,7 +10,9 @@
     "revision": "6875b35e45cc83107daf3ab7d3a8bd8b2baa51b3",
     "reciter": "Abdul Basit Abdul Samad (Mujawwad)",
     "format": "full-Surah Ogg Opus + word-level Protocol Buffer timing",
-    "declared_license": "Apache-2.0"
+    "declared_license": "Dataset metadata tag: Apache-2.0",
+    "recording_rights_status": "NOT_INDEPENDENTLY_CLEARED",
+    "use_scope": "NON_COMMERCIAL_PREVIEW_PENDING_RECORDING_RIGHTS_CLEARANCE"
   },
   "implemented": {
     "original_human_recitation_only": true,
@@ -33,7 +35,11 @@
     "normal_gradle_audio_acquisition": false,
     "direct_release_audio_acquisition": false,
     "base_quran_hadith_search_offline_without_audio": true,
-    "runtime_network_scope": "QuranAudioDownloadManager only"
+    "runtime_network_scope": "QuranAudioDownloadManager only",
+    "interrupted_download_resume": true,
+    "revision_scoped_partial_downloads": true,
+    "http_range_resume": true,
+    "partial_download_never_playable": true
   },
   "local_pack_shape": {
     "surahs": 114,
@@ -47,11 +53,13 @@
     "surah_screen_button": "Audio ↓ / Audio ✓",
     "settings_button": "Quran audio · Download All",
     "after_download": "repeat playback is local/offline",
-    "not_downloaded": "reader and recall still work; pronunciation stays silent until user downloads that Surah"
+    "not_downloaded": "reader and recall still work; pronunciation stays silent until user downloads that Surah",
+    "interrupted_download": "retry resumes the same revision-scoped partial Surah when the server supports HTTP Range; otherwise it restarts safely"
   },
   "remaining": [
     "real Android device QA for Opus seeking accuracy and word-boundary timing",
-    "real-network download/resume behavior on slow or interrupted connections",
+    "real-network QA for HTTP Range resume, redirects, and interrupted connections",
+    "independent recording-rights clearance before any commercial distribution",
     "storage-management UI if later requested",
     "release APK size measurement after next explicit build request"
   ]
