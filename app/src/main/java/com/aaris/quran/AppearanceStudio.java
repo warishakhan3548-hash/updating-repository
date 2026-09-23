@@ -16,6 +16,8 @@ final class AppearanceStudio {
     private final String sample,translationSample;
     private final boolean translationRtl;
     private final LinearLayout preview,controls,toolbar;
+    private final FrameLayout previewHost;
+    private View editingSwatch;
     private final List<String> history=new ArrayList<>();
     private int historyIndex=0,layer=0;
     private boolean binding,advanced;
@@ -26,7 +28,10 @@ final class AppearanceStudio {
         dialog=new Dialog(a);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);LinearLayout root=column(a);pad(root,16,12);root.setBackgroundColor(0xff10171e);
         toolbar=row(a);TextView heading=text(a,"Appearance",23,0xffedf1ed);toolbar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
         toolbar.addView(action("Done",dialog::dismiss));root.addView(toolbar);
-        preview=column(a);pad(preview,18,14);ScrollView previewScroll=new ScrollView(a);previewScroll.addView(preview);root.addView(previewScroll,new LinearLayout.LayoutParams(-1,Math.min(dp(a,300),a.getResources().getDisplayMetrics().heightPixels*45/100)));
+        previewHost=new FrameLayout(a);pad(previewHost,10,10);
+        preview=column(a);pad(preview,18,14);ScrollView previewScroll=new ScrollView(a);previewScroll.setFillViewport(true);previewScroll.addView(preview);
+        previewHost.addView(previewScroll,new FrameLayout.LayoutParams(-1,-1));
+        root.addView(previewHost,new LinearLayout.LayoutParams(-1,Math.min(dp(a,300),a.getResources().getDisplayMetrics().heightPixels*45/100)));
         ScrollView scroll=new ScrollView(a);controls=column(a);pad(controls,0,10);scroll.addView(controls);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         dialog.setContentView(root);dialog.setOnDismissListener(d->{style.save(a);Glass.apply(style);applied.run();});dialog.show();
         Window window=dialog.getWindow();if(window!=null){window.setLayout(-1,-1);window.setBackgroundDrawableResource(android.R.color.transparent);}
@@ -43,10 +48,21 @@ final class AppearanceStudio {
         LinearLayout actions=row(activity);for(String icon:new String[]{"play","bookmark","share"}){Glass.Icon v=new Glass.Icon(activity,icon);actions.addView(v,new LinearLayout.LayoutParams(dp(activity,48),dp(activity,38)));}preview.addView(actions);
         boolean adjusted=style.adjustedText();
         preview.addView(text(activity,adjusted?"Text contrast adjusted for readable letters":"Your colors · Clear letters · Offline fonts",11,MUTED));
-        if(style.gradient&&!style.reducedEffects)((View)preview.getParent()).setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,new int[]{style.background,style.gradientEnd}));
-        else ((View)preview.getParent()).setBackgroundColor(style.background);
+        applyPreviewBackground();
+        updateEditingSwatch();
         recolor(controls);recolor(toolbar);
 
+    }
+    private void applyPreviewBackground(){
+        android.graphics.drawable.GradientDrawable bg;
+        if(style.gradient&&!style.reducedEffects)bg=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,new int[]{style.background,style.gradientEnd});
+        else {bg=new android.graphics.drawable.GradientDrawable();bg.setColor(style.background);}
+        bg.setCornerRadius(dp(activity,26));previewHost.setBackground(bg);
+    }
+    private void updateEditingSwatch(){
+        if(editingSwatch==null)return;
+        android.graphics.drawable.GradientDrawable sw=new android.graphics.drawable.GradientDrawable();sw.setShape(android.graphics.drawable.GradientDrawable.OVAL);sw.setColor(color());
+        sw.setStroke(dp(activity,1),Appearance.mix(color(),style.ink(),.28f));editingSwatch.setBackground(sw);
     }
     private void recolor(View view){
         if("keepColor".equals(view.getTag()))return;
@@ -75,8 +91,8 @@ final class AppearanceStudio {
     }
     private static final String[] LAYER_NAMES={"Screen background","Cards","Quran Arabic","Translation","Buttons / highlights","Gradient second color"};
     private static final String[] LAYER_HELP={
-        "Changes the whole screen behind the cards",
-        "Changes Quran and translation card backgrounds",
+        "Changes the whole screen behind the cards; glass cards may softly reflect it",
+        "Changes card tint only; screen background stays separate",
         "Changes only the Arabic Quran letters",
         "Changes only the translated text",
         "Changes buttons, borders and highlighted controls",
@@ -101,23 +117,34 @@ final class AppearanceStudio {
     private View editingSummary(){
         int base=style.effectiveSurface();LinearLayout box=row(activity);pad(box,12,10);box.setTag("keepColor");
         android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();bg.setColor(base);bg.setCornerRadius(dp(activity,18));bg.setStroke(dp(activity,2),style.accent);box.setBackground(bg);
-        View swatch=new View(activity);android.graphics.drawable.GradientDrawable swatchBg=new android.graphics.drawable.GradientDrawable();swatchBg.setColor(color());swatchBg.setCornerRadius(dp(activity,11));swatchBg.setStroke(dp(activity,1),Appearance.mix(color(),style.ink(),.25f));swatch.setBackground(swatchBg);
-        box.addView(swatch,new LinearLayout.LayoutParams(dp(activity,36),dp(activity,36)));
+        editingSwatch=new View(activity);updateEditingSwatch();
+        box.addView(editingSwatch,new LinearLayout.LayoutParams(dp(activity,36),dp(activity,36)));
         LinearLayout words=column(activity);pad(words,9,0);
         TextView now=text(activity,"NOW EDITING · "+LAYER_NAMES[layer].toUpperCase(java.util.Locale.ROOT),13,Appearance.readable(style.accent,base));now.setTag("keepColor");words.addView(now);
         TextView help=text(activity,LAYER_HELP[layer],11,Appearance.readable(Appearance.mix(style.ink(),base,.26f),base));help.setTag("keepColor");words.addView(help);
         box.addView(words,new LinearLayout.LayoutParams(0,-2,1));return box;
     }
-    private View colorSwatch(String label,int value){
-        boolean selected=colorDistance(color(),value)<34;
-        TextView sw=text(activity,(selected?"✓ ":"")+label,12,Appearance.readable(style.ink(),value));
-        sw.setTag("keepColor");sw.setGravity(Gravity.CENTER);sw.setMinHeight(dp(activity,52));pad(sw,11,8);
-        android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();bg.setColor(value);bg.setCornerRadius(dp(activity,18));
-        bg.setStroke(dp(activity,selected?3:1),selected?style.accent:Appearance.mix(value,style.ink(),.28f));sw.setBackground(bg);
-        sw.setContentDescription(label+" color for "+LAYER_NAMES[layer]);sw.setFocusable(true);sw.setOnClickListener(v->{color(value);style.name="My style";commit();renderControls();});
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,86),dp(activity,52));p.rightMargin=dp(activity,7);sw.setLayoutParams(p);return sw;
+    private View colorDot(String label,int value,boolean neutral){
+        boolean selected=isColorDotSelected(value,neutral);
+        FrameLayout outer=new FrameLayout(activity);outer.setTag("keepColor");outer.setFocusable(true);outer.setClickable(true);
+        android.graphics.drawable.GradientDrawable ring=new android.graphics.drawable.GradientDrawable();ring.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        ring.setColor(0x00000000);ring.setStroke(dp(activity,selected?3:1),selected?style.accent:Appearance.mix(value,style.ink(),.22f));outer.setBackground(ring);
+        TextView dot=text(activity,selected?"✓":"",15,Appearance.readable(0xfff7f8fa,value));dot.setTag("keepColor");dot.setGravity(Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable fill=new android.graphics.drawable.GradientDrawable();fill.setShape(android.graphics.drawable.GradientDrawable.OVAL);fill.setColor(value);dot.setBackground(fill);
+        FrameLayout.LayoutParams inner=new FrameLayout.LayoutParams(dp(activity,30),dp(activity,30),Gravity.CENTER);outer.addView(dot,inner);
+        outer.setContentDescription(label+" color for "+LAYER_NAMES[layer]+(selected?", selected":""));outer.setTooltipText(label);outer.setOnClickListener(v->{color(value);style.name="My style";commit();renderControls();});
+        return outer;
     }
-    private int colorDistance(int a,int b){int dr=Color.red(a)-Color.red(b),dg=Color.green(a)-Color.green(b),db=Color.blue(a)-Color.blue(b);return (int)Math.sqrt(dr*dr+dg*dg+db*db);}
+    private boolean isColorDotSelected(int dotColor,boolean neutral){
+        float[] current=new float[3],dot=new float[3];Color.colorToHSV(color(),current);Color.colorToHSV(dotColor,dot);
+        if(neutral){
+            if(current[1]>.035f)return false;
+            int currentBand=current[2]<.25f?0:current[2]<.78f?1:2;
+            int dotBand=dot[2]<.25f?0:dot[2]<.78f?1:2;return currentBand==dotBand;
+        }
+        if(current[1]<=.035f)return false;
+        float diff=Math.abs(current[0]-dot[0]);diff=Math.min(diff,360f-diff);return diff<18f;
+    }
     private void renderControls(){
         binding=true;controls.removeAllViews();
         title("Start with a look");HorizontalScrollView presets=new HorizontalScrollView(activity);presets.setHorizontalScrollBarEnabled(false);LinearLayout strip=row(activity);
@@ -138,21 +165,24 @@ final class AppearanceStudio {
         title("2 · Pick a color");
         int[] spectrum={0xffd64b5c,0xffe9853f,0xffe3bd38,0xff35a66f,0xff3f7ce8,0xff4d55b9,0xff9b63d7};
         String[] spectrumNames={"Red","Orange","Yellow","Green","Blue","Indigo","Violet"};
-        HorizontalScrollView paletteScroll=new HorizontalScrollView(activity);paletteScroll.setHorizontalScrollBarEnabled(false);LinearLayout palette=row(activity);
-        for(int i=0;i<spectrum.length;i++)palette.addView(colorSwatch(spectrumNames[i],spectrum[i]));paletteScroll.addView(palette);controls.addView(paletteScroll);
+        LinearLayout dots=row(activity);dots.setGravity(Gravity.CENTER);
+        for(int i=0;i<spectrum.length;i++){View dot=colorDot(spectrumNames[i],spectrum[i],false);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,40),dp(activity,40));if(i<spectrum.length-1)p.rightMargin=dp(activity,5);dots.addView(dot,p);}controls.addView(dots);
+        TextView dotHint=text(activity,"Tap a dot. The ring shows the selected color family.",11,0xffb9c4cc);dotHint.setTag("keepColor");dotHint.setTextColor(0xffb9c4cc);dotHint.setGravity(Gravity.CENTER);pad(dotHint,2,5);controls.addView(dotHint);
 
-        title("Or choose Black / Gray / White");
-        LinearLayout neutral=row(activity);neutral.addView(colorSwatch("Black",0xff050505));neutral.addView(colorSwatch("Gray",0xff7d858c));neutral.addView(colorSwatch("White",0xfff7f8fa));controls.addView(neutral);
+        title("Neutral");
+        LinearLayout neutral=row(activity);neutral.setGravity(Gravity.CENTER);
+        int[] neutrals={0xff050505,0xff7d858c,0xfff7f8fa};String[] neutralNames={"Black","Gray","White"};
+        for(int i=0;i<neutrals.length;i++){View dot=colorDot(neutralNames[i],neutrals[i],true);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,40),dp(activity,40));if(i<neutrals.length-1)p.rightMargin=dp(activity,12);neutral.addView(dot,p);}controls.addView(neutral);
 
         title("3 · Adjust the selected color");
-        TextView direction=text(activity,"Move RIGHT to make it darker. Move LEFT to make it lighter.",12,0xffcbd5dc);direction.setTag("keepColor");direction.setTextColor(0xffcbd5dc);pad(direction,2,4);controls.addView(direction);
+        TextView direction=text(activity,(layer==1?"Card color selected. ":"")+"Move RIGHT to make this exact color darker; LEFT makes it lighter.",12,0xffcbd5dc);direction.setTag("keepColor");direction.setTextColor(0xffcbd5dc);pad(direction,2,4);controls.addView(direction);
         float[] hsv=new float[3];Color.colorToHSV(color(),hsv);
         boolean neutralColor=hsv[1]<.04f;
-        int darkness=(int)Math.round(Math.max(0,Math.min(1,(1f-hsv[2])/.88f))*100);
-        slider("LIGHTER  ←  Darkness  →  DARKER",0,100,darkness,v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[2]=1f-.88f*(v/100f);color(Color.HSVToColor(h));});
+        int darkness=(int)Math.round((1f-hsv[2])*100);
+        slider("LIGHTER  ←  Darkness  →  DARKER",0,100,darkness,v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[2]=1f-(v/100f);color(Color.HSVToColor(h));});
         if(!neutralColor){
-            int strength=(int)Math.round(Math.max(0,Math.min(1,(hsv[1]-.08f)/.92f))*100);
-            slider("FADED  ←  Color strength  →  RICH",0,100,strength,v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[1]=.08f+.92f*(v/100f);color(Color.HSVToColor(h));});
+            int strength=(int)Math.round(Math.max(0,Math.min(1,(hsv[1]-.05f)/.95f))*100);
+            slider("FADED  ←  Color strength  →  RICH",0,100,strength,v->{float[] h=new float[3];Color.colorToHSV(color(),h);h[1]=.05f+.95f*(v/100f);color(Color.HSVToColor(h));});
         }else{
             TextView neutralHelp=text(activity,"Black / Gray / White selected · only the light-to-dark slider is needed.",12,MUTED);neutralHelp.setTag("keepColor");neutralHelp.setTextColor(0xffb9c4cc);controls.addView(neutralHelp);
         }
