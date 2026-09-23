@@ -1,0 +1,84 @@
+name: Temporary isolated Quran word-audio pack build
+
+on:
+  push:
+    branches:
+      - temp-build-isolated-word-audio-packs-20260923
+
+permissions:
+  contents: write
+
+jobs:
+  build-packs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      TAG: quran-word-audio-muallim-v1-9796e08
+      RELEASE_BASE: https://github.com/warishakhan3548-hash/updating-repository/releases/download/quran-word-audio-muallim-v1-9796e08
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Hugging Face downloader
+        run: python -m pip install --disable-pip-version-check huggingface_hub
+
+      - name: Build canonical Quran DB
+        run: python tools/build_content.py
+
+      - name: Download pinned Muallim isolated clips
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              repo_id="zaibihassan/Quranic-Word-By-Word-Audio-Data",
+              repo_type="dataset",
+              revision="9796e08caae700f44266255da320adf6e5ab4114",
+              local_dir="/tmp/quran-wbw",
+              allow_patterns=["muallim/**","dataset/muallim/**","README.md","LICENSE*","NOTICE*"],
+          )
+          PY
+          if [ -d /tmp/quran-wbw/muallim ]; then
+            echo "AUDIO_SOURCE=/tmp/quran-wbw/muallim" >> "$GITHUB_ENV"
+          elif [ -d /tmp/quran-wbw/dataset/muallim ]; then
+            echo "AUDIO_SOURCE=/tmp/quran-wbw/dataset/muallim" >> "$GITHUB_ENV"
+          else
+            echo "Pinned Muallim directory not found" >&2
+            exit 1
+          fi
+
+      - name: Build 114 exact isolated-word containers
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/aaris-word-packs
+          mkdir -p /tmp/aaris-word-packs
+          python tools/build_word_audio_surah_packs.py             --source "$AUDIO_SOURCE"             --quran-db app/src/main/assets/quran.sqlite             --source-lock source-vault/quran-audio/on-demand-source-lock.json             --output /tmp/aaris-word-packs             --release-base-url "$RELEASE_BASE"
+          test "$(find /tmp/aaris-word-packs -maxdepth 1 -name '*.aqp' | wc -l)" -eq 114
+          test -f /tmp/aaris-word-packs/catalog.json
+          du -sh /tmp/aaris-word-packs
+          sha256sum /tmp/aaris-word-packs/catalog.json
+
+      - name: Create immutable public audio release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
+          gh release create "$TAG"             /tmp/aaris-word-packs/*.aqp             /tmp/aaris-word-packs/catalog.json             --repo "${{ github.repository }}"             --target "b9627755d9a0cba4aaa69da64aebfbbcfdfc7fd8"             --title "Aaris Quran isolated Muallim word audio v1"             --notes "114 on-demand Surah containers. Each payload is built byte-for-byte from pinned isolated Ogg/Opus word clips at Hugging Face revision 9796e08caae700f44266255da320adf6e5ab4114. No full-Surah timestamp slicing and no re-encoding."
+
+      - name: Upload catalog handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: aaris-quran-isolated-word-audio-catalog
+          path: /tmp/aaris-word-packs/catalog.json
+          retention-days: 2
