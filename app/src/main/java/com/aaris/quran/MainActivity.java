@@ -516,13 +516,13 @@ public final class MainActivity extends Activity {
         if(app.wordAudio.installedSurah(surah)){
             new AlertDialog.Builder(this)
                 .setTitle(s.name+" audio")
-                .setMessage("Yeh Surah audio phone par locally installed hai. Word tap aur recall overlay dono isi local original recitation ko use karenge.")
+                .setMessage("Yeh Surah ke isolated word clips phone par locally installed hain. Word tap aur recall overlay exact poora lafz start se natural end tak play karenge.")
                 .setPositiveButton("Theek hai",null).show();
             return;
         }
         new AlertDialog.Builder(this)
             .setTitle(s.name+" audio download karein?")
-            .setMessage("Original human Mujawwad recitation sirf is Surah ke liye download hogi. Download ke baad playback local/offline rahega.")
+            .setMessage("Original human Muallim word-by-word pronunciation sirf is Surah ke liye download hogi. Har lafz apni complete isolated clip se bajega—full-Surah audio ko beech se nahi kaata jayega. Download ke baad playback local/offline rahega.")
             .setNegativeButton("Abhi nahi",null)
             .setPositiveButton("Download",(d,w)->startSurahAudioDownload(surah))
             .show();
@@ -548,7 +548,7 @@ public final class MainActivity extends Activity {
         if(installed>=114){toast("Poora Quran audio already locally installed hai ✓");return;}
         new AlertDialog.Builder(this)
             .setTitle("Download all Quran audio?")
-            .setMessage("114 Surahs ki original Mujawwad recitation download hogi. Base app chhota rahega; audio phone ki private storage mein alag locally save hoga. Wi‑Fi recommended.")
+            .setMessage("114 Surahs ke original isolated Muallim word clips download honge. Base app chhota rahega; audio phone ki private storage mein alag locally save hoga. Har word complete clip ke roop mein bajega. Wi‑Fi recommended.")
             .setNegativeButton("Abhi nahi",null)
             .setPositiveButton("Download All",(d,w)->{
                 toast("Download All shuru… "+installed+"/114 pehle se local");
