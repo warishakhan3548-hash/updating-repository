@@ -5,7 +5,6 @@
   "canonical_quran_sqlite_sha256": "521fdc94f176d3e73e2889a8a4af07259731d289491c08ed1cda9b3f302ab8b1",
   "canonical_policy": "SOURCE_ALIGNED_W_ONLY",
   "safe_word_audio_target": 77326,
-  "expected_surah_pack_files": 114,
   "source": {
     "provider": "Hugging Face dataset snapshot",
     "repo_id": "zaibihassan/Quranic-Word-By-Word-Audio-Data",
@@ -24,16 +23,20 @@
     "canonical_word_id_mapping": true,
     "quran_hash_binding": true,
     "source_lock_verification": true,
-    "per_surah_hash_verification": true,
     "packed_byte_range_verification": true,
     "runtime_network_fallback": false,
     "android_internet_permission": false,
-    "normal_gradle_network_acquisition": false
+    "normal_gradle_network_acquisition": false,
+    "content_deduplication": true,
+    "per_pack_hash_verification": true,
+    "unique_clip_range_hash_verification": true
   },
   "active_pack": {
     "manifest_committed": false,
-    "surah_pack_files_committed": 0,
-    "ready_for_runtime_audio": false
+    "ready_for_runtime_audio": false,
+    "pack_files_committed": 0
   },
-  "completion_rule": "Do not mark this feature complete until source-vault/quran-audio/active contains a verified manifest, index.sqlite, license/provenance files, and exactly 114 Surah .pack files."
+  "completion_rule": "Do not mark this feature complete until source-vault/quran-audio/active contains a verified schema-v3 manifest, index.sqlite, license/provenance files, and the manifest-declared content-addressed .pack chunks.",
+  "pack_layout": "CONTENT_ADDRESSED_CHUNKS_V1",
+  "pack_chunk_limit_bytes": 33554432
 }
