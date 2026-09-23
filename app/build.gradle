@@ -38,7 +38,6 @@ tasks.named('preBuild').configure { dependsOn contentPack }
 // source-vault/hadith/active/manifest.json is present. A stale generated pack is never trusted.
 def hadithSource = rootProject.file('source-vault/hadith/active')
 def hadithPack = tasks.register('prepareHadithPack') {
-    workingDir rootProject.projectDir
     inputs.file rootProject.file('tools/build_hadith.py')
     inputs.dir hadithSource
     outputs.files file('src/main/assets/hadith.sqlite'), file('src/main/assets/hadith-manifest.json')
@@ -55,8 +54,7 @@ def hadithPack = tasks.register('prepareHadithPack') {
             workingDir rootProject.projectDir
             commandLine 'python3', 'tools/build_hadith.py',
                 '--source', hadithSource.absolutePath,
-                '--output', sqlite.absolutePath,
-                '--manifest-output', generatedManifest.absolutePath
+                '--output', sqlite.absolutePath
         }
     }
 }
