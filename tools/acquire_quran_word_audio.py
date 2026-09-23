@@ -134,7 +134,7 @@ def main():
             "--extension", extension,
         ], check=True, cwd=ROOT)
 
-    print("Pinned local audio pack is ready. Review it, then commit source-vault/quran-audio/active via Git LFS.")
+    print("Pinned local audio pack is ready. Review it, then commit source-vault/quran-audio/active as ordinary Git files.")
 
 
 if __name__ == "__main__":
