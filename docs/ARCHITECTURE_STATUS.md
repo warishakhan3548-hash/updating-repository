@@ -13,7 +13,7 @@ An empty table, an interface or a scoring function does not count as a finished 
 | Immutable/mutable separation | Quran opens read-only after checksum verification; learning lives in a separate SQLite database | Signed pack updates, rollback and key rotation; encrypted backup |
 | Durable identity | Quran coordinates; prefatory basmala words; word IDs; exact-range phrase IDs; directed consecutive-ayah transition IDs; edition-aware local Hadith record/reference identities | Reviewed root → lexeme → contextual sense → occurrence graph; cross-edition Hadith narration clustering |
 | Learning ledger | Append-only events, idempotent review IDs, conflicting-ID rejection, replay, opt-in enrollment/pause, monotonic local timestamps across restart/restore | Incremental durable projections and large-history device performance; richer comprehension dimensions |
-| Recall | Word meaning plus phrase/ayah memorization; independently scheduled ayah-transition practice using separately cited ending/opening excerpts; initial read/hide/recall/reveal/self-rating; versioned conservative scheduler; local word-pronunciation playback plumbing shared with recall overlay when a verified audio pack is bundled | Calibrated FSRS adapter; actual vendored Quran audio payload; automatic diagnosis of the failed phrase; learning which cue helps later unaided recall |
+| Recall | Word meaning plus phrase/ayah memorization; independently scheduled ayah-transition practice using separately cited ending/opening excerpts; initial read/hide/recall/reveal/self-rating; versioned conservative scheduler; original human word pronunciation from user-downloaded local Surah recitation, shared with recall overlay; per-Surah download plus Download All | Calibrated FSRS adapter; physical-device Opus seek/timing QA; automatic diagnosis of the failed phrase; learning which cue helps later unaided recall |
 | Natural retrieval | Exact saved word occurrence lookahead, one-day maximum deferral, fresh difficulty cancels deferral; optional reader recall action | Cross-context natural review requires reviewed sense mappings. Similar surfaces/glosses never transfer mastery |
 | Rare-word rescue | Pure relevance/risk/scarcity scoring primitive with finite-value checks | Not wired to a measured exposure forecast or product ranking; no claim of complete rare-word rescue |
 | Quran retrieval | Arabic/gloss BM25 indexes, safe/tolerant query shadows, bounded trigram-assisted spelling candidates, RRF, injective token coverage, exact negation, abstention, multi-query provenance, deterministic ties; bounded exact fragment segmentation with alternatives and unmatched spans | Curated concepts, root/lemma analysis, phonetic transliteration, optional multilingual embeddings/reranker; explicit query locks; native FTS5 adapter if justified |
@@ -106,7 +106,7 @@ The check runner refuses optimized mode rather than silently skipping its assert
   JSON export retains exact code-point spans and original query; TXT/PDF disclose partial scope.
 - Reviewed grammar/pronoun links, personal confusion-pair diagnosis and prerequisite teaching
   still need reviewed content and explicit learning evidence; no tap-based guess is presented as
-  established comprehension. No new cloud service, account, network permission or paid model.
+  established comprehension. No account or paid model. INTERNET permission exists only for explicit user-requested Quran audio pack downloads; Quran/Hadith/search/learning remain local and the overlay never auto-downloads.
 
 ## Implementation references
 
