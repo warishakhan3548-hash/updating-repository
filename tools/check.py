@@ -29,6 +29,11 @@ def main():
     args = parser.parse_args()
     if args.aapt2 and not args.android_jar:
         parser.error('--aapt2 requires --android-jar')
+
+    # The manual verification path must enforce the same no-network contract as Gradle.
+    subprocess.run([
+        sys.executable, str(ROOT / 'tools/check_offline_contract.py')
+    ], check=True, cwd=ROOT)
     java = shutil.which('java')
     if not java and os.environ.get('JAVA_HOME'):
         java = str(Path(os.environ['JAVA_HOME']) / 'bin/java')
@@ -49,6 +54,19 @@ def main():
             'SELECT a.arabic,w.start_cp,w.end_cp,w.arabic FROM word w JOIN ayah a ON a.id=w.ayah_id'):
         assert text[start:end] == word, 'Word/source offset mismatch'
     assert not db.execute('PRAGMA foreign_key_check').fetchall()
+
+    # Quran audio is optional, but any checked-in active payload must be complete and bound to
+    # this exact canonical Quran pack + reviewed source lock. A partial/deleted local pack fails
+    # verification instead of being mistaken for valid audio.
+    audio_active = ROOT / 'source-vault/quran-audio/active'
+    audio_payload = audio_active / 'quran-audio'
+    if audio_payload.exists():
+        subprocess.run([
+            sys.executable, str(ROOT / 'tools/check_quran_audio.py'),
+            '--source', str(audio_active),
+            '--quran-db', str(pack),
+            '--source-lock', str(ROOT / 'source-vault/quran-audio/source-lock.json'),
+        ], check=True, cwd=ROOT)
 
     # Hadith is a separate optional immutable pack. A build must contain both files or neither.
     hadith_manifest_path = assets / 'hadith-manifest.json'
