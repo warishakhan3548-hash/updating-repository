@@ -166,170 +166,148 @@ public final class MainActivity extends Activity {
         gap(page,18);
     }
     private void hadithLibrary(){
-        heading("OFFLINE HADITH", "Hadith");LinearLayout page=scrollBody();
+        heading("HADITH · OFFLINE", "Hadith Library");LinearLayout page=scrollBody();
         HadithStore store=app.hadith;
-        if(store==null||!store.available()){
+        if(store==null){
             LinearLayout unavailable=card(page,Surface.Kind.HERO);
-            unavailable.addView(label("LOCAL LIBRARY"));
-            gap(unavailable,10);
-            unavailable.addView(text(this,"Hadith pack is not installed in this build.",24,INK));
-            gap(unavailable,8);
-            caption(unavailable,store==null?"Hadith storage is still loading.":store.unavailableReason());
-            gap(unavailable,12);
-            caption(unavailable,"Website links are disabled here. Once a verified hadith.sqlite is bundled, every collection opens inside Aaris with no runtime internet dependency.");
+            unavailable.addView(label("LOCAL CONTENT ONLY"));gap(unavailable,12);
+            unavailable.addView(text(this,"Offline Hadith pack\nnot installed yet.",26,INK));gap(unavailable,12);
+            caption(unavailable,"This screen no longer opens a website. A verified Hadith pack must be bundled in the APK before collections are shown.");
+            gap(unavailable,14);caption(unavailable,"Quran remains fully offline and unchanged.");
             return;
         }
 
-        int total=0;for(HadithStore.CollectionInfo collection:store.collections())total+=store.recordCount(collection.id);
-        LinearLayout hero=card(page,Surface.Kind.HERO);
-        hero.addView(label("VERIFIED LOCAL PACK"));gap(hero,10);
-        hero.addView(text(this,store.collections().size()+" collections · "+total+" records",24,INK));
-        gap(hero,6);caption(hero,"Stored on this device · Read-only source pack · No website required");
-        gap(hero,12);caption(hero,"Pack "+store.packId()+" · v"+store.contentVersion()+" · "+store.packHash().substring(0,12)+"…");
+        LinearLayout intro=card(page,Surface.Kind.HERO);
+        intro.addView(label(store.collectionCount+" COLLECTIONS · "+store.recordCount+" RECORDS"));gap(intro,10);
+        intro.addView(text(this,"Read Hadith,\nwithout leaving Aaris.",27,INK));gap(intro,10);
+        caption(intro,"Pack "+store.contentVersion+" · "+store.sourceName+" · "+store.sourceVersion+" · Verified local SQLite");
 
-        EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);query.setTextSize(16);
-        query.setSingleLine(true);query.setHint("Search Arabic, English or Hadith number");
-        query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(512)});
-        pad(query,14,10);query.setBackground(new Surface(this,Surface.Kind.BUTTON,highContrast));
+        EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);
+        query.setTextSize(16);query.setSingleLine(true);query.setHint("Search Arabic, English or Hadith number");
+        query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(512)});pad(query,14,10);
+        query.setBackground(new Surface(this,Surface.Kind.BUTTON,highContrast));
         page.addView(query,new LinearLayout.LayoutParams(-1,dp(this,54)));gap(page,8);
 
-        LinearLayout results=column(this);
-        page.addView(primary("Search Offline",()->{
-            String q=query.getText().toString().trim();results.removeAllViews();
-            if(q.isEmpty()){query.setError("Enter a word, phrase or Hadith number");return;}
-            hideKeyboard();List<HadithStore.Record> matches=store.search(q,null,50);
-            if(matches.isEmpty()){caption(results,"No local match found.");return;}
-            results.addView(label(matches.size()+" LOCAL RESULTS"));gap(results,10);
-            for(HadithStore.Record record:matches)hadithResultCard(results,record);
-        }));
-        gap(page,12);page.addView(results);gap(page,18);
+        TextView status=text(this,"All collections are stored locally in this pack.",12,MUTED);page.addView(status);gap(page,14);
+        LinearLayout list=column(this);page.addView(list);
 
-        String lastGroup="";
-        for(HadithStore.CollectionInfo collection:store.collections()){
-            if(!collection.group.equals(lastGroup)){
-                page.addView(label(hadithGroupTitle(collection.group)));gap(page,10);lastGroup=collection.group;
+        Runnable collections=()->{
+            list.removeAllViews();int index=0;
+            for(HadithStore.CollectionInfo info:store.collections()){
+                LinearLayout c=card(list,Surface.Kind.PANEL);LinearLayout line=row(this);
+                TextView number=text(this,String.format(Locale.ROOT,"%02d",++index),12,GOLD);
+                line.addView(number,new LinearLayout.LayoutParams(dp(this,38),-2));
+                LinearLayout names=column(this);names.addView(text(this,info.nameEn,18,INK));
+                TextView ar=arabic(info.nameAr,24);ar.setGravity(Gravity.LEFT);names.addView(ar);
+                line.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+                TextView arrow=text(this,"›",28,MINT);line.addView(arrow);c.addView(line);gap(c,8);
+                caption(c,info.count+" records · "+info.edition+" · Offline");
+                c.setFocusable(true);c.setContentDescription(info.nameEn+", "+info.count+" records, offline");
+                c.setOnClickListener(v->hadithCollection(info.id));
             }
-            LinearLayout c=card(page,Surface.Kind.PANEL);LinearLayout line=row(this);
-            LinearLayout names=column(this);names.addView(text(this,collection.nameEn,19,INK));
-            TextView ar=arabic(collection.nameAr,24);ar.setGravity(Gravity.LEFT);names.addView(ar);
-            line.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-            TextView arrow=text(this,"›",28,MINT);line.addView(arrow);c.addView(line);
-            gap(c,8);caption(c,store.recordCount(collection.id)+" records · "+collection.edition);
-            c.setFocusable(true);c.setContentDescription(collection.nameEn+", offline collection");
-            c.setOnClickListener(v->hadithCollection(collection));
-        }
-    }
+        };
+        collections.run();
 
-    private String hadithGroupTitle(String group){
-        if("nine_books".equals(group))return "MAJOR COLLECTIONS";
-        if("other_primary".equals(group))return "OTHER PRIMARY COLLECTIONS";
-        if("selections".equals(group))return "SELECTIONS & COMPILATIONS";
-        return group.replace('_',' ').toUpperCase(Locale.ROOT);
-    }
-
-    private void hadithCollection(HadithStore.CollectionInfo collection){
-        HadithStore store=app.hadith;if(store==null||!store.available())return;
-        LinearLayout page=sheet(collection.nameEn);
-        TextView ar=arabic(collection.nameAr,32);page.addView(ar);gap(page,6);
-        caption(page,store.recordCount(collection.id)+" records · "+collection.edition);
-        gap(page,4);caption(page,"Source: "+collection.sourceName+" · "+collection.sourceVersion);
-        gap(page,16);
-
-        EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);query.setTextSize(15);
-        query.setSingleLine(true);query.setHint("Search inside "+collection.nameEn);
-        query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(512)});
-        pad(query,14,9);query.setBackground(new Surface(this,Surface.Kind.BUTTON,true));page.addView(query);
-        gap(page,8);LinearLayout searchResults=column(this);
-        page.addView(button("Search this collection",()->{
-            String q=query.getText().toString().trim();searchResults.removeAllViews();
-            if(q.isEmpty()){query.setError("Enter search text");return;}
-            hideKeyboard();List<HadithStore.Record> matches=store.search(q,collection.id,50);
-            if(matches.isEmpty()){caption(searchResults,"No local match found.");return;}
-            gap(searchResults,10);searchResults.addView(label(matches.size()+" RESULTS"));gap(searchResults,8);
-            for(HadithStore.Record record:matches)hadithResultButton(searchResults,record);
-        }));page.addView(searchResults);gap(page,18);
-
-        List<HadithStore.Book> books=store.books(collection.id);
-        if(books.isEmpty()){
-            page.addView(label("HADITH"));gap(page,10);
-            List<HadithStore.Record> records=store.records(collection.id,null,null,100,0);
-            for(HadithStore.Record record:records)hadithResultButton(page,record);
-            if(store.recordCount(collection.id)>records.size()){gap(page,8);caption(page,"Showing the first "+records.size()+" records. Use offline search to jump to any record.");}
-            return;
-        }
-        page.addView(label("BOOKS"));gap(page,10);
-        for(HadithStore.Book book:books){
-            String title=(book.nameEn==null||book.nameEn.isEmpty())?"Book "+book.number:book.nameEn;
-            TextView b=button(book.number+" · "+title,()->hadithBook(collection,book));
-            page.addView(b);gap(page,8);
-        }
-    }
-
-    private void hadithBook(HadithStore.CollectionInfo collection,HadithStore.Book book){
-        HadithStore store=app.hadith;if(store==null||!store.available())return;
-        String title=(book.nameEn==null||book.nameEn.isEmpty())?"Book "+book.number:book.nameEn;
-        LinearLayout page=sheet(title);
-        if(book.nameAr!=null&&!book.nameAr.isEmpty()){page.addView(arabic(book.nameAr,28));gap(page,8);}
-        caption(page,collection.nameEn+" · Book "+book.number);gap(page,16);
-        List<HadithStore.Chapter> chapters=store.chapters(collection.id,book.id);
-        if(chapters.isEmpty()){
-            List<HadithStore.Record> records=store.records(collection.id,book.id,null,100,0);
-            if(records.isEmpty()){caption(page,"No local records are attached to this book.");return;}
-            for(HadithStore.Record record:records)hadithResultButton(page,record);
-            if(records.size()==100){gap(page,8);caption(page,"Showing the first 100. Use collection search for later records.");}
-            return;
-        }
-        page.addView(label("CHAPTERS"));gap(page,10);
-        for(HadithStore.Chapter chapter:chapters){
-            String name=(chapter.nameEn==null||chapter.nameEn.isEmpty())?"Chapter "+chapter.number:chapter.nameEn;
-            page.addView(button(chapter.number+" · "+name,()->hadithChapter(collection,book,chapter)));gap(page,8);
-        }
-    }
-
-    private void hadithChapter(HadithStore.CollectionInfo collection,HadithStore.Book book,HadithStore.Chapter chapter){
-        HadithStore store=app.hadith;if(store==null||!store.available())return;
-        String title=(chapter.nameEn==null||chapter.nameEn.isEmpty())?"Chapter "+chapter.number:chapter.nameEn;
-        LinearLayout page=sheet(title);
-        if(chapter.nameAr!=null&&!chapter.nameAr.isEmpty()){page.addView(arabic(chapter.nameAr,27));gap(page,8);}
-        caption(page,collection.nameEn+" · Book "+book.number+" · Chapter "+chapter.number);gap(page,16);
-        List<HadithStore.Record> records=store.records(collection.id,book.id,chapter.id,100,0);
-        if(records.isEmpty()){caption(page,"No local records are attached to this chapter.");return;}
-        for(HadithStore.Record record:records)hadithResultButton(page,record);
-        if(records.size()==100){gap(page,8);caption(page,"Showing the first 100. Use offline search for the remaining records.");}
+        query.addTextChangedListener(watcher(()->{
+            String q=query.getText().toString().trim();
+            if(debounce!=null)ui.removeCallbacks(debounce);
+            searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);
+            if(q.isEmpty()){status.setText("All collections are stored locally in this pack.");collections.run();return;}
+            status.setText("Searching local Hadith pack…");int generation=searchGeneration.get();
+            debounce=()->{searchTask=app.searchWorker.submit(()->{
+                try{
+                    List<HadithStore.Record> results=store.search(q,50);
+                    ui.post(()->{
+                        if(isDestroyed()||tab!=2||searchGeneration.get()!=generation)return;
+                        list.removeAllViews();status.setText(results.isEmpty()?"No local match found.":results.size()+" local matches");
+                        for(HadithStore.Record record:results)hadithResultCard(list,record);
+                    });
+                }catch(CancellationException ignored){}catch(Exception e){
+                    ui.post(()->{if(tab==2&&searchGeneration.get()==generation)status.setText("Local search could not finish.");});
+                }
+            });};ui.postDelayed(debounce,250);
+        }));
     }
 
     private void hadithResultCard(LinearLayout parent,HadithStore.Record record){
+        HadithStore store=app.hadith;if(store==null)return;
+        HadithStore.CollectionInfo info=store.collection(record.collectionId);
         LinearLayout c=card(parent,Surface.Kind.PANEL);
-        c.addView(text(this,"Hadith "+record.recordNumber,13,GOLD));gap(c,8);
-        c.addView(arabic(record.arabic,25));
-        String english=record.bestEnglish();
-        if(english!=null){gap(c,10);TextView en=text(this,english.length()>320?english.substring(0,320)+"…":english,14,MUTED);en.setLineSpacing(dp(this,3),1.1f);c.addView(en);}
-        gap(c,12);c.addView(button("Open Hadith",()->hadithDetail(record.id)));
-    }
-
-    private void hadithResultButton(LinearLayout parent,HadithStore.Record record){
-        String title="Hadith "+record.recordNumber;
-        if(record.narratorEn!=null&&!record.narratorEn.trim().isEmpty())title+=" · "+record.narratorEn;
-        parent.addView(button(title,()->hadithDetail(record.id)));gap(parent,8);
-    }
-
-    private void hadithDetail(String id){
-        HadithStore store=app.hadith;if(store==null||!store.available())return;
-        HadithStore.Record record=store.record(id);if(record==null){toast("Hadith record is unavailable");return;}
-        LinearLayout page=sheet("Hadith "+record.recordNumber);
-        page.addView(arabic(record.arabic,29));gap(page,16);
-        if(record.english!=null&&!record.english.trim().isEmpty()){page.addView(label("ENGLISH"));gap(page,6);TextView en=text(this,record.english,16,INK);en.setLineSpacing(dp(this,4),1.12f);page.addView(en);gap(page,14);}
-        if(record.urdu!=null&&!record.urdu.trim().isEmpty()){page.addView(label("URDU"));gap(page,6);TextView ur=text(this,record.urdu,17,INK);ur.setTextDirection(View.TEXT_DIRECTION_RTL);page.addView(ur);gap(page,14);}
-        if(record.narratorEn!=null&&!record.narratorEn.trim().isEmpty()){page.addView(label("NARRATOR"));gap(page,5);caption(page,record.narratorEn);gap(page,12);}
-        List<HadithStore.Grade> grades=store.grades(record.id);
-        if(!grades.isEmpty()){
-            page.addView(label("GRADING"));gap(page,6);
-            for(HadithStore.Grade grade:grades)caption(page,grade.grade+" · "+grade.grader+" · "+grade.sourceVersion);
-            gap(page,12);
+        c.addView(label((info==null?record.collectionId:info.nameEn)+" · "+record.number));gap(c,10);
+        TextView ar=arabic(record.matnAr==null?record.arabic:record.matnAr,25);ar.setMaxLines(4);c.addView(ar);gap(c,8);
+        if(record.english!=null&&!record.english.trim().isEmpty()){
+            TextView en=text(this,record.english,13,MUTED);en.setMaxLines(3);en.setEllipsize(TextUtils.TruncateAt.END);c.addView(en);gap(c,8);
         }
-        page.addView(label("SOURCE"));gap(page,5);caption(page,record.sourceRef);
-        gap(page,5);caption(page,"Local record ID: "+record.id);
-        gap(page,14);caption(page,"Source text is read-only in the installed pack. Aaris-authored translations or notes, when added, remain a separate versioned layer.");
+        c.setFocusable(true);c.setContentDescription((info==null?"Hadith":info.nameEn)+" "+record.number);
+        c.setOnClickListener(v->hadithRecord(record.id));
+    }
+
+    private void hadithCollection(String collectionId){
+        HadithStore store=app.hadith;if(store==null)return;
+        HadithStore.CollectionInfo info=store.collection(collectionId);if(info==null)return;
+        List<HadithStore.BookInfo> books=store.books(collectionId);
+        if(books.isEmpty()){hadithRecordsPage(info.nameEn,collectionId,null,null,0);return;}
+        LinearLayout page=sheet(info.nameEn);TextView ar=arabic(info.nameAr,28);page.addView(ar);gap(page,8);
+        caption(page,info.count+" records · "+info.edition+" · Offline");gap(page,14);
+        for(HadithStore.BookInfo book:books){
+            LinearLayout row=Glass.row(this);pad(row,14,12);row.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));
+            TextView n=text(this,book.number,12,GOLD);row.addView(n,new LinearLayout.LayoutParams(dp(this,42),-2));
+            LinearLayout names=column(this);names.addView(text(this,book.nameEn==null?"Book "+book.number:book.nameEn,16,INK));
+            if(book.nameAr!=null){TextView nameAr=arabic(book.nameAr,22);nameAr.setGravity(Gravity.LEFT);names.addView(nameAr);}
+            names.addView(text(this,book.count+" records",11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+            row.setFocusable(true);row.setOnClickListener(v->hadithBook(collectionId,book));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,8);page.addView(row,lp);
+        }
+    }
+
+    private void hadithBook(String collectionId,HadithStore.BookInfo book){
+        HadithStore store=app.hadith;if(store==null)return;
+        List<HadithStore.ChapterInfo> chapters=store.chapters(collectionId,book.id);
+        String title=book.nameEn==null?"Book "+book.number:book.nameEn;
+        if(chapters.isEmpty()){hadithRecordsPage(title,collectionId,book.id,null,0);return;}
+        LinearLayout page=sheet(title);
+        if(book.nameAr!=null)page.addView(arabic(book.nameAr,26));gap(page,10);
+        page.addView(button("Browse all "+book.count+" records",()->hadithRecordsPage(title,collectionId,book.id,null,0)));gap(page,14);
+        page.addView(label("CHAPTERS"));gap(page,8);
+        for(HadithStore.ChapterInfo chapter:chapters){
+            String name=chapter.nameEn==null?"Chapter "+chapter.number:chapter.nameEn;
+            TextView b=button(chapter.number+" · "+name+"  ("+chapter.count+")",
+                ()->hadithRecordsPage(name,collectionId,book.id,chapter.id,0));
+            b.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);page.addView(b);gap(page,8);
+        }
+    }
+
+    private void hadithRecordsPage(String title,String collectionId,String bookId,String chapterId,int offset){
+        HadithStore store=app.hadith;if(store==null)return;
+        final int size=50;List<HadithStore.Record> records=store.records(collectionId,bookId,chapterId,size,offset);
+        LinearLayout page=sheet(title);caption(page,"Records "+(records.isEmpty()?0:offset+1)+"–"+(offset+records.size())+" · Offline");gap(page,12);
+        for(HadithStore.Record record:records){
+            TextView b=button("Hadith "+record.number,()->hadithRecord(record.id));
+            b.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);page.addView(b);gap(page,8);
+        }
+        if(records.isEmpty())caption(page,"No records in this section.");
+        if(offset>0||records.size()==size){
+            gap(page,10);LinearLayout nav=row(this);
+            if(offset>0){TextView prev=button("← Previous",()->hadithRecordsPage(title,collectionId,bookId,chapterId,Math.max(0,offset-size)));nav.addView(prev,new LinearLayout.LayoutParams(0,-2,1));}
+            if(records.size()==size){TextView next=button("Next →",()->hadithRecordsPage(title,collectionId,bookId,chapterId,offset+size));LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(0,-2,1);np.leftMargin=dp(this,offset>0?8:0);nav.addView(next,np);}
+            page.addView(nav);
+        }
+    }
+
+    private void hadithRecord(String id){
+        HadithStore store=app.hadith;if(store==null)return;
+        HadithStore.Record record=store.record(id);if(record==null)return;
+        HadithStore.CollectionInfo info=store.collection(record.collectionId);
+        LinearLayout page=sheet((info==null?"Hadith":info.nameEn)+" · "+record.number);
+        page.addView(arabic(record.arabic,29));gap(page,14);
+        if(record.english!=null&&!record.english.trim().isEmpty()){page.addView(text(this,record.english,16,INK));gap(page,14);}
+        if(record.urdu!=null&&!record.urdu.trim().isEmpty()){
+            TextView ur=text(this,record.urdu,17,INK);ur.setTextDirection(View.TEXT_DIRECTION_RTL);ur.setGravity(Gravity.RIGHT);page.addView(ur);gap(page,14);
+        }
+        if(record.narrator!=null&&!record.narrator.trim().isEmpty())caption(page,"Narrator: "+record.narrator);
+        List<String> grades=store.grades(id);if(!grades.isEmpty()){gap(page,12);page.addView(label("GRADING"));for(String grade:grades)caption(page,grade);}
+        List<String> refs=store.references(id);if(!refs.isEmpty()){gap(page,12);page.addView(label("REFERENCES"));for(String ref:refs)caption(page,ref);}
+        gap(page,12);caption(page,"Source record: "+record.sourceRef+"\nPack: "+store.packId+" · "+store.contentVersion);
     }
 
     private void openWebsite(Uri uri){hideKeyboard();try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(ActivityNotFoundException e){toast("Is link ko kholne ke liye browser install karein");}}
