@@ -263,3 +263,24 @@ download the Gradle distribution; analyzer setup is still in progress.
   API key/offline dump and redistribution permission were available in this session. Importing
   third-party scraped copies would violate the source-integrity/permission gate.
 - No APK/AAB was built and no CI workflow was started.
+
+
+## Checkpoint 17: vendored Arabic Hadith core-nine wired into build (2026-09-23)
+
+- Vendored the Arabic source corpus for the nine primary books from Open-Hadith-Data into
+  `source-vault/hadith/open-hadith-data/`. Large Bukhari, Muslim and Musnad Ahmad files are stored
+  as byte-preserving parts; the other source files are stored directly.
+- Added the upstream ODbL/Database Contents License text and `SOURCE.json` pinned to upstream
+  commit `1515f6cba21efed20d8916bf55acef1dffa0d2d5`, including original Git blob identities.
+- Added `tools/prepare_open_hadith_data.py`. It runs without network access, reconstructs split
+  files, verifies the exact upstream Git blob SHA-1 before parsing, rejects malformed/duplicate
+  records and generates a SHA-256 locked Arabic-only Aaris source pack.
+- Wired Gradle so an explicit `source-vault/hadith/active` pack remains highest priority; if no
+  explicit full pack exists, the verified vendored nine-book Arabic pack is generated and fed into
+  `tools/build_hadith.py`. There is no website fallback at runtime.
+- Added license/provenance text to the Hadith library UI. The app keeps Quran available even if an
+  optional Hadith pack fails verification.
+- This is real local source coverage for nine collections, not a claim that the full Sunnah.com
+  catalog has been acquired. The remaining catalog entries still require redistribution-cleared
+  source material or an approved official API/offline snapshot.
+- No APK/AAB was built and no CI workflow was started.
