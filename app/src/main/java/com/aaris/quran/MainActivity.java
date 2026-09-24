@@ -53,6 +53,7 @@ public final class MainActivity extends Activity {
     private Runnable debounce;
     private String pendingExport;
     private boolean preparingExport,recitationDownloadQueued;
+    private int recitationListGeneration;
     private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending,openOtherAppsAfterAmbientStart;
     private JSONObject pendingRestore;
     private String searchQuery="",hadithQuery="";
@@ -695,8 +696,13 @@ public final class MainActivity extends Activity {
         page.addView(button("Word audio · Download All",this::downloadAllAudio));
     }
     private void fillRecitationSurahDownloads(LinearLayout list,String reciter){
-        list.removeAllViews();
-        for(int s=1;s<=114;s++){
+        int generation=++recitationListGeneration;list.removeAllViews();
+        appendRecitationSurahDownloads(list,reciter,1,generation);
+    }
+    private void appendRecitationSurahDownloads(LinearLayout list,String reciter,int start,int generation){
+        if(isDestroyed()||generation!=recitationListGeneration)return;
+        int end=Math.min(114,start+17);
+        for(int s=start;s<=end;s++){
             final int surah=s;ContentStore.Surah info=content.surah(surah);
             boolean downloaded=app.recitationDownloads.markedComplete(reciter,surah,info.count);
 
@@ -726,6 +732,7 @@ public final class MainActivity extends Activity {
 
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,5);list.addView(item,lp);
         }
+        if(end<114)list.postOnAnimation(()->appendRecitationSurahDownloads(list,reciter,end+1,generation));
     }
     private void downloadRecitation(String reciter,int first,int last){downloadRecitation(reciter,first,last,null);}
     private void downloadRecitation(String reciter,int first,int last,Runnable finished){
