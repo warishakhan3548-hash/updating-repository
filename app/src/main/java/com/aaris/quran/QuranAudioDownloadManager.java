@@ -137,8 +137,8 @@ final class QuranAudioDownloadManager {
                     }
                     out.getFD().sync();
                 }
-                if(declared>=0&&received!=declared)throw new IOException("Audio download beech mein ruk gaya; retry par resume hoga");
-                if(target.length()!=expectedBytes)throw new IOException("Audio download incomplete hai; retry par resume hoga");
+                if(declared>=0&&received!=declared)throw new IOException("Audio download was interrupted; retry will resume it");
+                if(target.length()!=expectedBytes)throw new IOException("Audio download is incomplete; retry will resume it");
                 return;
             }finally{c.disconnect();}
         }
