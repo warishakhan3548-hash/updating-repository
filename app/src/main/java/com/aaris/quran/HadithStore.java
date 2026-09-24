@@ -280,11 +280,11 @@ final class HadithStore implements AutoCloseable {
     }
     private List<String> spellingCandidates(String term,CancellationSignal signal){
         if(term.length()<4||term.length()>128||TextMatch.negative(term))return Collections.emptyList();int max=term.length()>=8?2:1;
-        Map<String,Integer> distances=new HashMap<>();List<String> grams=new ArrayList<>(Arabic.trigrams(term));
+        Map<String,Integer> distances=new HashMap<>(),overlap=new HashMap<>();List<String> grams=new ArrayList<>(Arabic.trigrams(term));
         if(!grams.isEmpty()){
             String marks=String.join(",",Collections.nCopies(grams.size(),"?"));
             try(Cursor c=db.rawQuery("SELECT token,count(*) AS hits FROM search_gram WHERE gram IN ("+marks+") GROUP BY token ORDER BY hits DESC,token LIMIT 120",grams.toArray(new String[0]),signal)){
-                while(c.moveToNext()){cancelSearch(signal);String word=c.getString(0);if(word.equals(term))continue;int distance=TextMatch.distance(term,word,max);if(distance<=max)distances.put(word,distance);}
+                while(c.moveToNext()){cancelSearch(signal);String word=c.getString(0);if(word.equals(term))continue;int distance=TextMatch.distance(term,word,max);if(distance<=max){distances.put(word,distance);overlap.put(word,c.getInt(1));}}
             }
         }
         if(distances.size()<5){
@@ -292,11 +292,11 @@ final class HadithStore implements AutoCloseable {
             if(!seeds.isEmpty()){
                 String marks=String.join(",",Collections.nCopies(seeds.size(),"?"));
                 try(Cursor c=db.rawQuery("SELECT token FROM search_vocabulary WHERE token IN ("+marks+") ORDER BY token",seeds.toArray(new String[0]),signal)){
-                    while(c.moveToNext()){cancelSearch(signal);String word=c.getString(0);int distance=TextMatch.distance(term,word,max);if(distance<=max)distances.put(word,distance);}
+                    while(c.moveToNext()){cancelSearch(signal);String word=c.getString(0);int distance=TextMatch.distance(term,word,max);if(distance<=max){distances.put(word,distance);overlap.putIfAbsent(word,0);}}
                 }
             }
         }
-        List<String> out=new ArrayList<>(distances.keySet());out.sort(Comparator.comparingInt((String w)->distances.get(w)).thenComparing(w->w));
+        List<String> out=new ArrayList<>(distances.keySet());out.sort(Comparator.comparingInt((String w)->overlap.getOrDefault(w,0)).reversed().thenComparingInt(w->distances.get(w)).thenComparing(w->w));
         return new ArrayList<>(out.subList(0,Math.min(5,out.size())));
     }
     static List<String> spellingSeeds(String term){
