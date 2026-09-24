@@ -11,7 +11,8 @@ import java.util.Map;
 /** One persisted visual model for the reader, sheets, navigation and recall surfaces. */
 final class Appearance {
     static final String[] PRESETS={"Emerald Glass","Ocean Blue","Rose Glass","Midnight","Lavender Aqua","Violet Glass","Burgundy Pearl","Lavender Studio","Pearl Violet","Sapphire Neon","Rose Luxe","Mint Lilac","Amethyst Night","Pearl Rose"};
-    static final String[] FONTS={"Amiri Quran","Amiri Naskh","Amiri Naskh Bold"};
+    static final String[] FONTS={"Amiri Quran","Amiri Naskh","Amiri Naskh Bold","Scheherazade New","Lateef","Harmattan","Noto Naskh Arabic","Noto Kufi Arabic"};
+    private static final String[] FONT_FILES={"AmiriQuran.ttf","Amiri-Regular.ttf","Amiri-Bold.ttf","ScheherazadeNew-Regular.ttf","Lateef-Regular.ttf","Harmattan-Regular.ttf","NotoNaskhArabic.ttf","NotoKufiArabic.ttf"};
     int background=0xff030705,surface=0xff14291e,accent=0xff9bc7aa,arabic=0xffe0e4d8,translation=0xffcbd6d0;
     int font=0,arabicSize=32,translationSize=18,spacing=10,opacity=92,corners=26;
     int arabicOpacity=100,translationOpacity=100,glassStrength=100,borderStrength=100,glow=0,gradientEnd=background;
@@ -25,7 +26,7 @@ final class Appearance {
         Appearance a=new Appearance();try{JSONObject j=new JSONObject(raw);
             a.background=j.optInt("background",a.background)|0xff000000;a.surface=j.optInt("surface",a.surface)|0xff000000;
             a.accent=j.optInt("accent",a.accent)|0xff000000;a.arabic=j.optInt("arabic",a.arabic)|0xff000000;a.translation=j.optInt("translation",a.translation)|0xff000000;
-            a.font=bound(j.optInt("font",0),0,2);a.arabicSize=bound(j.optInt("size",32),24,54);a.translationSize=bound(j.optInt("translationSize",18),14,28);
+            a.font=bound(j.optInt("font",0),0,FONTS.length-1);a.arabicSize=bound(j.optInt("size",32),24,54);a.translationSize=bound(j.optInt("translationSize",18),14,28);
             a.spacing=bound(j.optInt("spacing",10),2,24);a.opacity=bound(j.optInt("opacity",92),25,100);a.corners=bound(j.optInt("corners",26),0,36);
             a.arabicOpacity=bound(j.optInt("arabicOpacity",100),20,100);a.translationOpacity=bound(j.optInt("translationOpacity",100),20,100);
             a.glassStrength=bound(j.optInt("glassStrength",100),0,100);a.borderStrength=bound(j.optInt("borderStrength",100),0,100);a.glow=bound(j.optInt("glow",0),0,30);
@@ -134,7 +135,17 @@ final class Appearance {
     static double luminance(int c){double v=0;double[] weights={.2126,.7152,.0722};int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};for(int i=0;i<3;i++){double x=rgb[i]/255.;v+=weights[i]*(x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4));}return v;}
     static double contrast(int a,int b){double x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
     static int readable(int color,int on){if(contrast(color,on)>=4.5)return color;int target=contrast(Color.WHITE,on)>contrast(Color.BLACK,on)?Color.WHITE:Color.BLACK;for(int n=1;n<=20;n++){int fixed=mix(color,target,n/20f);if(contrast(fixed,on)>=4.5)return fixed;}return target;}
-    Typeface hadithTypeface(Context c){return typeface(c,font==2?2:1);}
+    Typeface hadithTypeface(Context c){return typeface(c);}
     Typeface typeface(Context c){return typeface(c,font);}
-    private static Typeface typeface(Context c,int font){synchronized(fonts){Typeface type=fonts.get(font);if(type==null){String file=font==1?"Amiri-Regular.ttf":font==2?"Amiri-Bold.ttf":"AmiriQuran.ttf";type=Typeface.createFromAsset(c.getAssets(),"fonts/"+file);fonts.put(font,type);}return type;}}
+    private static Typeface typeface(Context c,int font){
+        int index=bound(font,0,FONT_FILES.length-1);
+        synchronized(fonts){
+            Typeface type=fonts.get(index);
+            if(type==null){
+                type=Typeface.createFromAsset(c.getAssets(),"fonts/"+FONT_FILES[index]);
+                fonts.put(index,type);
+            }
+            return type;
+        }
+    }
 }
