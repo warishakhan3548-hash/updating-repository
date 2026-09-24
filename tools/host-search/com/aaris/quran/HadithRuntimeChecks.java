@@ -11,6 +11,8 @@ import java.util.concurrent.*;
 public final class HadithRuntimeChecks {
     static void check(boolean ok,String message){if(!ok)throw new AssertionError(message);}
     public static void main(String[] args)throws Exception{
+        check(HadithStore.spellingSeeds("wrod").contains("word"),"Short transposition repair seed missing");
+        check(HadithStore.spellingSeeds("woard").contains("word"),"Short extra-character repair seed missing");
         Context context=new Context(new File(args[0]),new File(args[1]));
         try(HadithStore store=HadithStore.openIfBundled(context)){
             check(store!=null&&store.recordCount==62169,"Full source pack must open");
