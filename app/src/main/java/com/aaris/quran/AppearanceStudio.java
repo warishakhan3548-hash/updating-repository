@@ -111,17 +111,30 @@ final class AppearanceStudio {
         editHue=h[0];editSat=h[1];editVal=h[2];applyEditorColor();
     }
     private View presetCard(Appearance swatch,boolean selected,String label,Runnable run){
-        LinearLayout card=column(activity);pad(card,9,8);card.setGravity(Gravity.CENTER_HORIZONTAL);card.setTag("keepColor");
+        FrameLayout card=new FrameLayout(activity);card.setTag("keepColor");
         int cardTone=Appearance.mix(swatch.background,swatch.gradient?swatch.gradientEnd:swatch.surface,.45f);
         android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable(
             android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
             swatch.gradient?new int[]{swatch.background,swatch.gradientEnd}:new int[]{swatch.background,swatch.surface});
-        bg.setCornerRadius(dp(activity,20));bg.setStroke(dp(activity,selected?2:1),selected?swatch.accent:Appearance.mix(swatch.accent,cardTone,.55f));card.setBackground(bg);
-        TextView mini=text(activity,"بِسْمِ",17,swatch.arabicInk());mini.setTypeface(swatch.typeface(activity));mini.setGravity(Gravity.CENTER);mini.setTextDirection(View.TEXT_DIRECTION_RTL);
-        android.graphics.drawable.GradientDrawable miniBg=new android.graphics.drawable.GradientDrawable();miniBg.setColor(swatch.effectiveSurface());miniBg.setCornerRadius(dp(activity,12));miniBg.setStroke(dp(activity,1),Appearance.mix(swatch.accent,swatch.surface,.55f));mini.setBackground(miniBg);
-        card.addView(mini,new LinearLayout.LayoutParams(-1,dp(activity,36)));
-        TextView name=text(activity,(selected?"✓ ":"")+label,12,Appearance.readable(swatch.ink(),cardTone));name.setGravity(Gravity.CENTER);pad(name,2,5);card.addView(name,new LinearLayout.LayoutParams(-1,-2));
-        card.setContentDescription(label+" appearance preset");card.setFocusable(true);card.setClickable(true);card.setOnClickListener(v->run.run());return card;
+        bg.setCornerRadius(dp(activity,18));
+        bg.setStroke(dp(activity,selected?2:1),selected?swatch.accent:Appearance.mix(swatch.accent,cardTone,.72f));
+        card.setBackground(bg);
+
+        TextView sample=text(activity,"بِسْمِ",21,swatch.arabicInk());sample.setTag("keepColor");
+        sample.setTypeface(swatch.typeface(activity));sample.setGravity(Gravity.CENTER);sample.setTextDirection(View.TEXT_DIRECTION_RTL);
+        FrameLayout.LayoutParams sp=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);
+        sp.setMargins(dp(activity,7),dp(activity,6),dp(activity,7),dp(activity,6));card.addView(sample,sp);
+
+        if(selected){
+            TextView check=text(activity,"✓",10,Appearance.readable(swatch.accent,cardTone));check.setTag("keepColor");check.setGravity(Gravity.CENTER);
+            android.graphics.drawable.GradientDrawable badge=new android.graphics.drawable.GradientDrawable();badge.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            badge.setColor(Appearance.mix(swatch.accent,cardTone,.16f));check.setBackground(badge);
+            FrameLayout.LayoutParams cp=new FrameLayout.LayoutParams(dp(activity,20),dp(activity,20),Gravity.TOP|Gravity.RIGHT);
+            cp.setMargins(0,dp(activity,4),dp(activity,4),0);card.addView(check,cp);
+        }
+
+        card.setContentDescription(label+" appearance preset"+(selected?", selected":""));card.setTooltipText(label);
+        card.setSelected(selected);card.setFocusable(true);card.setClickable(true);card.setOnClickListener(v->run.run());return card;
     }
     private static final String[] LAYER_NAMES={"Screen","Cards","Arabic text","Translation","Buttons","Gradient","Highlights"};
     private static final String[] LAYER_HELP={
@@ -217,7 +230,7 @@ final class AppearanceStudio {
         for(int i=0;i<Appearance.PRESETS.length;i++){
             final int index=i;Appearance swatch=style.copy();swatch.preset(i);
             View b=presetCard(swatch,style.name.equals(Appearance.PRESETS[i]),Appearance.PRESETS[i],()->{style.preset(index);invalidateEditorColor();commit();renderControls();});
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,116),dp(activity,78));p.rightMargin=dp(activity,7);strip.addView(b,p);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,88),dp(activity,62));p.rightMargin=dp(activity,6);strip.addView(b,p);
         }
         presets.addView(strip);controls.addView(presets);
 
