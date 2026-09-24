@@ -31,7 +31,17 @@ final class QuranText extends ArabicText {
         setGravity(Gravity.RIGHT);setIncludeFontPadding(true);setLineSpacing(Glass.dp(c,10),1.08f);
         setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
         setPadding(Glass.dp(c,3),Glass.dp(c,6),Glass.dp(c,3),Glass.dp(c,8));
-        SpannableString value=new SpannableString(ayah.arabic);
+        String rendered=source;
+        // Tanzil keeps the unnumbered opening Bismillah on the first ayah's source line.
+        // Replace only its separator space at render time: source bytes, hashes and word offsets stay unchanged.
+        for(ContentStore.Word w:words)if(w.position==0&&w.id.contains(":B:")){
+            int split=source.offsetByCodePoints(0,w.end);
+            if(split<source.length()&&source.charAt(split)==' '){
+                StringBuilder formatted=new StringBuilder(source);formatted.setCharAt(split,'\n');rendered=formatted.toString();
+            }
+            break;
+        }
+        SpannableString value=new SpannableString(rendered);
         for(ContentStore.Word w:words) {
             // Pack stores Unicode code-point offsets; Android spans require UTF-16 offsets.
             int start=ayah.arabic.offsetByCodePoints(0,w.start),end=ayah.arabic.offsetByCodePoints(0,w.end);
