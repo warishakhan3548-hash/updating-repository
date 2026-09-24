@@ -112,14 +112,26 @@ def build():
     db.executemany('INSERT INTO surah VALUES(?,?,?,?,?,?)', suras)
     unmatched, mapped, word_count = [], 0, 0
     bismillah = rows[0][2]
+    bismillah_shadow = [shadow(token[2]) for token in source_words(bismillah)]
+    if len(bismillah_shadow) != 4:
+        raise ValueError('Canonical Bismillah must contain exactly four source words')
+    # Tanzil 1.1 deliberately spells the opening Bismillah of Surahs 95 and 97 with a
+    # different diacritic shape. Their body words are text-aligned here, but the published
+    # Aaris pronunciation catalog v1 was built before that alignment correction. Keep those
+    # seven body words outside the v1 audio identity until replacement .aqp packs are published.
+    text_only_audio_ayahs = {(95, 1), (97, 1)}
     for ordinal, (s, a, text) in enumerate(rows):
         aid = f'Q:{s}:{a}'
         db.execute('INSERT INTO ayah VALUES(?,?,?,?,?,?)',
                    (aid, s, a, text, hashlib.sha256(text.encode()).hexdigest(), ordinal))
         tokens = source_words(text)
         # Tanzil txt-2 embeds the opening basmala in first ayahs (except 1 and 9).
-        # Preserve every source byte. Mapping skips those four prefatory words explicitly.
-        prefatory = a == 1 and s not in (1, 9) and text.startswith(bismillah + ' ')
+        # Validate it structurally after removing diacritics instead of requiring byte identity:
+        # 95:1 and 97:1 intentionally use بِّسْمِ while the other openings use بِسْمِ.
+        prefatory = a == 1 and s not in (1, 9)
+        if prefatory:
+            if len(tokens) < 5 or [shadow(token[2]) for token in tokens[:4]] != bismillah_shadow:
+                raise ValueError(f'Unexpected Tanzil Bismillah structure at {aid}')
         prefix_count = 4 if prefatory else 0
         candidates = by_ayah.get((s, a), [])
         body = tokens[prefix_count:]
@@ -138,11 +150,16 @@ def build():
             g = [glosses[lang].get(key) if key else None for lang in ('en', 'hi', 'ur')]
             if key:
                 mapped += 1
+            mapping_state = 'UNMAPPED'
+            if key:
+                mapping_state = ('SOURCE_ALIGNED_TEXT_ONLY'
+                                 if not pre and (s, a) in text_only_audio_ayahs
+                                 else 'SOURCE_ALIGNED')
             db.execute('INSERT INTO word VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (wid, aid, position, start, end, token, shadow(token), *g,
                         translit.get(key) if key else None,
                         f'data-quran:023b2f59:{key}' if key else None,
-                        'SOURCE_ALIGNED' if key else 'UNMAPPED'))
+                        mapping_state))
             word_count += 1
     (ASSETS/'licenses').mkdir(exist_ok=True)
     copyright_start = raw.read_text().index('#  Tanzil Quran Text')
@@ -176,6 +193,11 @@ def build():
     if audio_words != 77326:
         raise ValueError(f'Canonical Quran audio word identities changed: {audio_words}')
     audio_alignment_sha256=audio_alignment.hexdigest()
+    text_only_audio_words=db.execute(
+        "SELECT count(*) FROM word WHERE mapping_state='SOURCE_ALIGNED_TEXT_ONLY'"
+    ).fetchone()[0]
+    if text_only_audio_words != 7:
+        raise ValueError(f'Expected seven text-aligned words deferred from audio v1, found {text_only_audio_words}')
     if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
         raise ValueError('SQLite integrity validation failed')
     if db.execute('PRAGMA foreign_key_check').fetchall():
@@ -186,6 +208,7 @@ def build():
     manifest = {'schema_version':1,'pack_id':'quran-core-1','content_version':'1.0.0',
                 'quran_source_sha256':RAW_SHA,'sqlite_sha256':digest(output),
                 'audio_alignment_sha256':audio_alignment_sha256,'audio_alignment_words':audio_words,
+                'audio_deferred_text_aligned_words':text_only_audio_words,
                 'surahs':114,'ayahs':6236,'words':word_count,'source_aligned_words':mapped,
                 'unmapped_ayah_count':len(unmatched), 'distribution':'NON_COMMERCIAL_PREVIEW',
                 'review_status':'SOURCE_IMPORTED; linguistic review pending',
@@ -193,8 +216,9 @@ def build():
                 'builder_version':'1','signature':None,'update_policy':'APK_BUNDLED_ONLY',
                 'sources':{relative:digest(VAULT/relative) for relative in sorted(lock['source_sha256'])}}
     (ASSETS/'content-manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
-    report = {'summary':{k:manifest[k] for k in ('surahs','ayahs','words','source_aligned_words','unmapped_ayah_count')},
-              'unmapped':unmatched, 'policy':'Fail closed per ayah; never shift word mappings after a mismatch.'}
+    report = {'summary':{k:manifest[k] for k in ('surahs','ayahs','words','source_aligned_words','audio_alignment_words','audio_deferred_text_aligned_words','unmapped_ayah_count')},
+              'unmapped':unmatched,
+              'policy':'Fail closed per ayah; never shift word mappings after a mismatch. Text-aligned words excluded from the pinned audio v1 identity remain explicitly marked until replacement audio containers are published.'}
     (ROOT/'docs/content-validation.json').write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps(report['summary']))
     print('Pack SHA-256:', manifest['sqlite_sha256'])

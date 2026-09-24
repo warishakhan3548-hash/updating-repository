@@ -33,13 +33,15 @@ final class QuranText extends ArabicText {
         setPadding(Glass.dp(c,3),Glass.dp(c,6),Glass.dp(c,3),Glass.dp(c,8));
         String rendered=source;
         // Tanzil keeps the unnumbered opening Bismillah on the first ayah's source line.
-        // Replace only its separator space at render time: source bytes, hashes and word offsets stay unchanged.
-        for(ContentStore.Word w:words)if(w.position==0&&w.id.contains(":B:")){
-            int split=source.offsetByCodePoints(0,w.end);
-            if(split<source.length()&&source.charAt(split)==' '){
+        // Replace only the fourth separator space at render time. This is independent of word
+        // gloss alignment (notably the distinct Bismillah diacritics at 95:1 and 97:1), so source
+        // bytes, hashes and all source offsets remain unchanged.
+        if(ayah.number==1&&ayah.surah!=1&&ayah.surah!=9){
+            int split=-1;
+            for(int word=0;word<4&&split<source.length();word++)split=source.indexOf(' ',split+1);
+            if(split>=0){
                 StringBuilder formatted=new StringBuilder(source);formatted.setCharAt(split,'\n');rendered=formatted.toString();
             }
-            break;
         }
         SpannableString value=new SpannableString(rendered);
         for(ContentStore.Word w:words) {
