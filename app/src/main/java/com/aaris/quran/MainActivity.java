@@ -625,7 +625,7 @@ public final class MainActivity extends Activity {
             item.addView(name,new LinearLayout.LayoutParams(0,-2,1));
 
             Glass.Icon status=new Glass.Icon(this,downloaded?"check":"download");
-            status.color=GOLD;
+            status.color=appearance.buttonInk();
             item.addView(status,new LinearLayout.LayoutParams(dp(this,22),dp(this,22)));
 
             item.setFocusable(true);item.setClickable(true);
