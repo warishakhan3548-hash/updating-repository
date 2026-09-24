@@ -77,7 +77,7 @@ public final class AmbientRecallService extends Service {
     private boolean eligible(){return ready&&!app.activityVisible&&power.isInteractive()&&!keyguard.isKeyguardLocked();}
     private void update(){
         handler.removeCallbacks(tick);if(destroyed||!session.running())return;
-        if(!Settings.canDrawOverlays(this)){finish("Overlay permission hata di gayi. Session stopped.");return;}
+        if(!Settings.canDrawOverlays(this)){finish("Overlay permission was removed. Session stopped.");return;}
         long now=SystemClock.elapsedRealtime();boolean allowed=eligible();
         AmbientSession.Action action=session.advance(now,allowed);
         if(action==AmbientSession.Action.HIDE)removeCard();
@@ -85,7 +85,7 @@ public final class AmbientRecallService extends Service {
             try {
                 List<Recall.State> candidates=new ArrayList<>();
                 for(Recall.State state:app.learning.states().values())if(state.active&&app.content.hasRecallTarget(state.target)){
-                    ContentStore.Word word=app.content.word(state.target);if(word==null||word.hasGloss())candidates.add(state);
+                    ContentStore.Word word=app.content.word(state.target);if(word==null||word.hasGloss(app.learning.get("language","hi")))candidates.add(state);
                 }
                 if(candidates.isEmpty()){finish("Choose a word or ayah from Quran to remember first.");return;}
                 String target=session.choose(candidates,System.currentTimeMillis(),!preview&&AmbientSettings.dueOnly(this));
@@ -105,7 +105,7 @@ public final class AmbientRecallService extends Service {
         if(ayah==null||original==null)throw new IllegalStateException("Missing source target");
         LinearLayout shell=column(windowContext);shell.setBackground(new Surface(windowContext,Surface.Kind.SHEET,true));pad(shell,18,14);
         LinearLayout bar=row(windowContext);LinearLayout title=column(windowContext);
-        TextView brand=text(windowContext,"AARIS · YAAD KA LAMHA",10,GOLD);brand.setLetterSpacing(.1f);title.addView(brand);
+        TextView brand=text(windowContext,"AARIS · RECALL MOMENT",10,GOLD);brand.setLetterSpacing(.1f);title.addView(brand);
         title.addView(text(windowContext,app.content.surah(ayah.surah).name+" · "+ayah.surah+":"+ayah.number,13,MUTED));bar.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         TextView close=control("×",this::dismissCard);close.setContentDescription("Close card; remind me again later");close.setTextSize(27);bar.addView(close,new LinearLayout.LayoutParams(dp(windowContext,48),dp(windowContext,48)));shell.addView(bar);
         int height=displayHeight();int maxBody=Math.max(dp(windowContext,80),Math.min(dp(windowContext,410),height-dp(windowContext,220)));
@@ -126,10 +126,10 @@ public final class AmbientRecallService extends Service {
             if(answer.getVisibility()==View.VISIBLE)return;
             app.learning.event(shownTarget,Recall.Kind.REVEAL,ayah.id);answer.setVisibility(View.VISIBLE);reveal.setVisibility(View.GONE);hint.setVisibility(View.GONE);
             if(word!=null){TextView meaning=text(windowContext,word.gloss(app.learning.get("language","hi")),24,INK);meaning.setGravity(Gravity.CENTER);pad(meaning,0,12);answer.addView(meaning);}
-            else {if(edge!=null){TextView ref=text(windowContext,edge.to.surah+":"+edge.to.number+" · Agli ayah ka aaghaz",12,GOLD);answer.addView(ref);}answer.addView(arabic(original,28));}
+            else {if(edge!=null){TextView ref=text(windowContext,edge.to.surah+":"+edge.to.number+" · Next ayah opening",12,GOLD);answer.addView(ref);}answer.addView(arabic(original,28));}
             TextView question=text(windowContext,"How much did you remember before revealing?",12,MUTED);question.setGravity(Gravity.CENTER);pad(question,0,14);answer.addView(question);
             String eventId=UUID.randomUUID().toString();boolean[] rated={false};
-            String[] labels={"Bhool gaya","Mushkil tha","Yaad tha","Aasaan tha"};Recall.Kind[] kinds={Recall.Kind.AGAIN,Recall.Kind.HARD,Recall.Kind.GOOD,Recall.Kind.EASY};
+            String[] labels={"Again","Hard","Good","Easy"};Recall.Kind[] kinds={Recall.Kind.AGAIN,Recall.Kind.HARD,Recall.Kind.GOOD,Recall.Kind.EASY};
             for(int row=0;row<2;row++){LinearLayout ratings=Glass.row(windowContext);
                 for(int col=0;col<2;col++){int index=row*2+col;TextView rating=control(labels[index],()->{
                     if(rated[0])return;rated[0]=true;app.learning.event(eventId,shownTarget,kinds[index],ayah.id);dismissCard();
