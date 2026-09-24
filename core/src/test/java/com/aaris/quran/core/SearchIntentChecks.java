@@ -81,7 +81,7 @@ public final class SearchIntentChecks {
         for(String value:new String[]{"2:255","٢:٢٥٥","Quran 2:255","कुरान २:२५५"}){
             UnifiedQuery u=UnifiedQuery.parse(value,UnifiedQuery.ALL);check(u.quran&&!u.hadith,"Quran routing: "+value);
         }
-        for(String value:new String[]{"556","Sahih Muslim 5556","صحيح البخاري 1"}){
+        for(String value:new String[]{"556","Sahih Muslim 5556","صحيح البخاري 1","h:bukhari:1:1"}){
             UnifiedQuery u=UnifiedQuery.parse(value,UnifiedQuery.ALL);check(!u.quran&&u.hadith,"Hadith routing: "+value);
         }
         UnifiedQuery both=UnifiedQuery.parse("إِنَّمَا الْأَعْمَالُ",UnifiedQuery.ALL);
