@@ -559,6 +559,9 @@ public final class MainActivity extends Activity {
         String reciter=getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]);
         boolean recitationOffline=app.recitationDownloads.markedComplete(reciter,readerSurah,s.count);
         List<Ayah> ayahs=content.page(readerSurah,readerStart,8);
+        Map<String,List<ContentStore.Word>> pageWords=content.words(ayahs);
+        List<String> pageIds=new ArrayList<>();for(Ayah a:ayahs)pageIds.add(a.id);
+        Map<String,TranslationStore.Entry> pageTranslations=app.translations==null?Collections.emptyMap():app.translations.get(translationId,pageIds);
         Map<String,Recall.State> learningStates=learning.states();long recallNow=System.currentTimeMillis();
         for(Ayah a:ayahs){
             LinearLayout panel=card(page,Surface.Kind.MUSHAF);
@@ -569,9 +572,9 @@ public final class MainActivity extends Activity {
             bar.addView(iconButton("bookmark",learning.bookmarked(a.id)?"Remove bookmark":"Save ayah",()->{learning.toggleBookmark(a.id);toast(learning.bookmarked(a.id)?"Ayah saved":"Bookmark removed");}));
             bar.addView(iconButton("book","Study ayah · translations, compare & notes",()->studyAyah(a)));
             View menu=iconButton("more","Ayah "+a.number+": bookmark, meaning, recall and share",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,48)));panel.addView(bar);gap(panel,8);
-            List<ContentStore.Word> words=content.words(a.id);
+            List<ContentStore.Word> words=pageWords.getOrDefault(a.id,Collections.emptyList());
             QuranText verse=new QuranText(this,arabicFont,a,words,arabicSize,this::tapWord);verse.setReliefEnabled(!highContrast);verse.setLineSpacing(dp(this,appearance.spacing),1.08f);readerVerses.put(a.id,verse);panel.addView(verse,new LinearLayout.LayoutParams(-1,-2));
-            addTranslation(panel,a);
+            renderTranslation(panel,pageTranslations.get(a.id));
             for(ContentStore.Word w:words){Recall.State memory=learningStates.get(w.id);if(memory!=null&&memory.active&&memory.reviews>0&&memory.due<=recallNow){
                 gap(panel,12);TextView recall=button("Selected word · Review meaning",()->review(w.id));panel.addView(recall);break;
             }}
@@ -706,8 +709,11 @@ public final class MainActivity extends Activity {
         });
     }
     private void addTranslation(LinearLayout panel,Ayah ayah){
+        renderTranslation(panel,app.translations==null?null:app.translations.get(translationId,ayah.id));
+    }
+    private void renderTranslation(LinearLayout panel,TranslationStore.Entry entry){
         if(app.translations==null){gap(panel,10);caption(panel,"Translation pack unavailable on this installation.");return;}
-        TranslationStore.Entry entry=app.translations.get(translationId,ayah.id);if(entry==null){caption(panel,"The selected translation is not installed. Choose another in Translation settings.");return;}
+        if(entry==null){caption(panel,"The selected translation is not installed. Choose another in Translation settings.");return;}
         gap(panel,14);TextView translated=text(this,entry.text,appearance.translationSize,appearance.translationInk());
         translated.setTextDirection("ur".equals(entry.edition.language)?View.TEXT_DIRECTION_RTL:View.TEXT_DIRECTION_FIRST_STRONG);
         translated.setGravity("ur".equals(entry.edition.language)?Gravity.RIGHT:Gravity.LEFT);translated.setTextIsSelectable(true);panel.addView(translated);gap(panel,8);
@@ -1262,10 +1268,13 @@ public final class MainActivity extends Activity {
     private void appendQuranBatch(LinearLayout list,SearchEngine.Response response,int cursor,int end,TextView status,int generation){
         if(isDestroyed()||!searching||searchGeneration.get()!=generation)return;
         int batchEnd=Math.min(cursor+SEARCH_RENDER_BATCH,end);
-        for(SearchEngine.Result result:response.results.subList(cursor,batchEnd)){
+        List<SearchEngine.Result> batch=response.results.subList(cursor,batchEnd);
+        List<String> ids=new ArrayList<>();for(SearchEngine.Result result:batch)ids.add(result.ayah.id);
+        Map<String,TranslationStore.Entry> translations=app.translations==null?Collections.emptyMap():app.translations.get(translationId,ids);
+        for(SearchEngine.Result result:batch){
             LinearLayout c=card(list,Surface.Kind.PANEL);c.addView(label(result.match.band+" TEXT MATCH · "+result.match.matched+" / "+result.match.total+" words"));gap(c,8);
             Ayah a=result.ayah;c.addView(text(this,content.surah(a.surah).name+" · "+a.surah+":"+a.number,18,INK));gap(c,10);c.addView(arabic(a.arabic,25));gap(c,12);
-            addTranslation(c,a);caption(c,String.join(" · ",result.reasons));gap(c,14);c.addView(evidenceActions(a,retrievalTrace(response,result)));
+            renderTranslation(c,translations.get(a.id));caption(c,String.join(" · ",result.reasons));gap(c,14);c.addView(evidenceActions(a,retrievalTrace(response,result)));
             c.addView(button("Remember this match",()->rememberSearch(false,response.query,a.id)));
         }
         if(batchEnd<end){status.setText("Showing "+batchEnd+" of "+response.results.size()+"…");list.postOnAnimation(()->appendQuranBatch(list,response,batchEnd,end,status,generation));return;}
