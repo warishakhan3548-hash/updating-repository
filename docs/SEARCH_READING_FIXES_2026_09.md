@@ -35,7 +35,14 @@ undo/redo, saved styles and reduced-effects controls use the same persisted mode
 turns off glyph effects so selection backgrounds do not inherit the text shader. Effects use the
 native glyph renderer; they do not rewrite source characters or apply expensive live blur.
 
-## Source acquisition remains incomplete
+## Source audit on 23 September (updated on 24 September)
+
+The missing Arabic vowel marks described below are now resolved using the vocalized files from the
+same Open-Hadith-Data revision. The original import selected its plain search-oriented CSVs and
+missed the parallel `mushakkala` files. All 62,169 records now import published vowel marks with
+exact number/wording validation. See [the follow-up report](HADITH_VOCALIZATION_2026_09.md).
+Translations and the wider Sunnah catalog remain incomplete. The following counts describe the
+old pack audited on 23 September, not the current vocalized pack.
 
 The checked-in fallback is Open-Hadith-Data, **not Sunnah.com**:
 

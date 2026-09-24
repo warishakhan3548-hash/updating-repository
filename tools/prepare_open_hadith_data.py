@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Prepare the vendored Open-Hadith-Data Arabic corpus for Aaris.
 
-This tool is deliberately network-free. It reconstructs any split repository files, verifies their
-original upstream Git blob SHA-1 values, converts the nine Arabic collections to Aaris JSONL, copies
-license/provenance evidence, and writes a SHA-256 locked manifest consumable by build_hadith.py.
+This tool is deliberately network-free. It verifies the archived plain and vocalized upstream CSVs,
+matches every narration by number and wording, imports the published vocalization, and writes a
+SHA-256 locked manifest consumable by build_hadith.py. The plain CSVs are identity checks only;
+they must never silently become the displayed text again.
 
 It does not invent books, chapters, translations, grades or commentary that are absent upstream.
 """
 import argparse
 import csv
+import gzip
 import hashlib
 import json
 import re
@@ -19,6 +21,17 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / "source-vault" / "hadith" / "open-hadith-data"
 DEFAULT_OUTPUT = ROOT / "build" / "generated" / "hadith-source"
 CATALOG = ROOT / "tools" / "hadith-catalog.json"
+VOWEL_MARKS = re.compile(r"[\u064b-\u0652\u0670]")
+
+
+def display_text(value):
+    """Only remove upstream layout markers/extra spaces, never letters or vowel marks."""
+    return re.sub(r"\s+", " ", value.replace("\u200f", "")).strip()
+
+
+def plain_identity(value):
+    # Deliberately stricter than search: no folding hamza, alef, ya, punctuation or word order.
+    return VOWEL_MARKS.sub("", display_text(value))
 
 
 def sha256(path: Path) -> str:
@@ -50,6 +63,64 @@ def git_blob_sha1(paths):
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
                 h.update(chunk)
     return h.hexdigest()
+
+
+def verify_vocalized(source, definition):
+    meta = definition.get("vocalized")
+    if not isinstance(meta, dict):
+        raise ValueError("Missing vocalized source; refusing to fall back to plain Arabic")
+    path = source / meta["local"]
+    if sha256(path) != meta["compressed_sha256"]:
+        raise ValueError(f"Vocalized archive checksum mismatch: {path}")
+    size = int(meta["uncompressed_bytes"])
+    blob = hashlib.sha1(f"blob {size}\0".encode("ascii"))
+    digest = hashlib.sha256()
+    actual_size = 0
+    with gzip.open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            blob.update(chunk)
+            digest.update(chunk)
+            actual_size += len(chunk)
+    if (actual_size != size or blob.hexdigest() != meta["git_blob_sha1"]
+            or digest.hexdigest() != meta["sha256"]):
+        raise ValueError(f"Vocalized CSV does not reconstruct pinned upstream bytes: {path}")
+    return path
+
+
+def plain_records(paths):
+    records = {}
+    for row in csv.reader(joined_lines(paths), strict=True):
+        if not row or all(not v.strip() for v in row):
+            continue
+        if len(row) != 2 or not re.fullmatch(r"[0-9]+", row[0].strip()):
+            raise ValueError("Malformed plain Arabic identity source")
+        number = row[0].strip()
+        if number in records or not row[1].strip():
+            raise ValueError(f"Duplicate/empty plain Arabic identity: {number}")
+        records[number] = display_text(row[1])
+    return records
+
+
+def vocalized_records(path, columns, baseline):
+    seen = set()
+    with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as f:
+        for row_no, row in enumerate(csv.reader(f, strict=True), 1):
+            if not row or all(not v.strip() for v in row):
+                continue
+            if len(row) != columns:
+                raise ValueError(f"{path.name}: wrong column count at row {row_no}")
+            number, arabic = row[0].strip(), display_text(row[1])
+            if number in seen or not re.fullmatch(r"[0-9]+", number):
+                raise ValueError(f"{path.name}: duplicate/invalid record {number!r}")
+            if not VOWEL_MARKS.search(arabic):
+                raise ValueError(f"{path.name}:{number}: source vowel marks missing")
+            if plain_identity(arabic) != baseline.get(number):
+                raise ValueError(f"{path.name}:{number}: vocalized wording differs from plain identity")
+            seen.add(number)
+            # Column 3, where present, is Arabic commentary, NOT a translation or narration.
+            yield number, arabic
+    if seen != set(baseline):
+        raise ValueError(f"{path.name}: plain/vocalized record coverage differs")
 
 
 def joined_lines(paths):
@@ -97,6 +168,8 @@ def main():
         raise SystemExit("Vendored Hadith source is missing SOURCE.json or LICENSE")
 
     inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    if inventory.get("schema") != 2 or inventory.get("display_variant") != "upstream-vocalized":
+        raise SystemExit("Vocalized inventory required; refusing an unvocalized fallback")
     upstream_commit = str(inventory.get("upstream_commit") or "").strip()
     if not re.fullmatch(r"[0-9a-f]{40}", upstream_commit):
         raise SystemExit("SOURCE.json has no valid pinned upstream commit")
@@ -112,6 +185,11 @@ def main():
 
     verified = {}
     resolved = {}
+    vocalized = {}
+    for key in ("upstream_license", "upstream_readme"):
+        evidence = inventory[key]
+        if git_blob_sha1([source / evidence["local"]]) != evidence["git_blob_sha1"]:
+            raise SystemExit(f"Upstream attribution checksum mismatch: {key}")
     for collection_id in expected_ids:
         item = definitions[collection_id]
         paths = source_paths(source, str(item["local"]))
@@ -122,11 +200,13 @@ def main():
                 f"{collection_id}: vendored bytes do not reconstruct pinned upstream Git blob; "
                 f"expected {expected}, got {actual}")
         resolved[collection_id] = paths
+        vocalized[collection_id] = verify_vocalized(source, item)
         verified[collection_id] = {
             "upstream_path": item["path"],
             "git_blob_sha1": actual,
             "local_files": [str(p.relative_to(source)) for p in paths],
             "bytes": sum(p.stat().st_size for p in paths),
+            "vocalized": item["vocalized"],
         }
 
     if output.exists():
@@ -140,11 +220,13 @@ def main():
 
     shutil.copyfile(license_path, licenses_dir / "ODBL.txt")
     shutil.copyfile(inventory_path, meta_dir / "SOURCE.json")
+    shutil.copyfile(source / "UPSTREAM_README.md", meta_dir / "UPSTREAM_README.md")
 
     catalog = load_catalog()
     edition = "open-hadith-data-" + upstream_commit[:12]
     records_path = records_dir / "open-hadith-data.jsonl"
     counts = {}
+    mark_counts = {}
 
     with records_path.open("w", encoding="utf-8", newline="\n") as out:
         for collection_id in expected_ids:
@@ -165,22 +247,13 @@ def main():
             count = 0
             first_number = None
             last_number = None
-            reader = csv.reader(joined_lines(resolved[collection_id]), strict=True)
-            for row_no, row in enumerate(reader, 1):
-                if not row or all(not str(v).strip() for v in row):
-                    continue
-                if len(row) != 2:
-                    raise SystemExit(
-                        f"{collection_id}: expected two CSV columns at logical row {row_no}, got {len(row)}")
-                number = str(row[0]).strip()
-                arabic = str(row[1]).strip()
-                if not re.fullmatch(r"[0-9]+", number):
-                    raise SystemExit(f"{collection_id}: invalid record number {number!r} at row {row_no}")
-                if not arabic:
-                    raise SystemExit(f"{collection_id}:{number}: empty Arabic source text")
-                if number in seen:
-                    raise SystemExit(f"{collection_id}: duplicate record number {number}")
+            marks = 0
+            baseline = plain_records(resolved[collection_id])
+            reader = vocalized_records(vocalized[collection_id],
+                definitions[collection_id]["vocalized"]["columns"], baseline)
+            for number, arabic in reader:
                 seen.add(number)
+                marks += len(VOWEL_MARKS.findall(arabic))
                 if first_number is None:
                     first_number = number
                 last_number = number
@@ -227,15 +300,17 @@ def main():
                         (" …" if len(missing) > 10 else ""))
 
             counts[collection_id] = count
+            mark_counts[collection_id] = marks
 
     files = {
         "records/open-hadith-data.jsonl": sha256(records_path),
         "LICENSES/ODBL.txt": sha256(licenses_dir / "ODBL.txt"),
         "META/SOURCE.json": sha256(meta_dir / "SOURCE.json"),
+        "META/UPSTREAM_README.md": sha256(meta_dir / "UPSTREAM_README.md"),
     }
     manifest = {
         "pack_id": "aaris-open-hadith-data-arabic-nine",
-        "content_version": upstream_commit[:12],
+        "content_version": upstream_commit[:12] + "-vocalized-v1",
         "source_name": "Open-Hadith-Data",
         "source_version": upstream_commit,
         "redistribution_basis": "ODbL 1.0 database; individual contents under Database Contents License, as declared by upstream LICENSE.",
@@ -247,6 +322,15 @@ def main():
         "require_catalog_complete": False,
         "runtime_network_required": False,
         "language_coverage": ["ar"],
+        "require_vowel_marks": True,
+        "vocalization": {
+            "origin": "published-upstream",
+            "generated": False,
+            "display_cleanup": inventory["display_cleanup"],
+            "records_with_vowel_marks": sum(counts.values()),
+            "collection_vowel_mark_counts": mark_counts,
+            "identity_check": "All record numbers and words match the pinned plain edition after removing vowel marks and layout-only whitespace/RTL markers.",
+        },
         "collection_record_counts": counts,
         "source_inventory": verified,
     }

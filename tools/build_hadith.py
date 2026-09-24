@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "tools" / "hadith-catalog.json"
-BUILDER_VERSION = "4"
+BUILDER_VERSION = "5"
 
 
 def digest(path: Path) -> str:
@@ -478,6 +478,8 @@ def build(source_dir: Path, output: Path):
                 f"SELECT count(*) FROM hadith WHERE {column} IS NOT NULL AND trim({column})<>''"
             ).fetchone()[0]
         marked = sum(bool(re.search(r"[\u064b-\u0652\u0670]", text)) for (text,) in db.execute("SELECT arabic FROM hadith"))
+        if manifest.get("require_vowel_marks") and marked != counters["hadith"]:
+            raise ValueError("Vocalized pack contains records without source vowel marks")
         languages = {code for code, count in coverage.items() if count}
         languages.update(row[0] for row in db.execute(
             "SELECT DISTINCT language FROM editorial_translation WHERE status IN ('reviewed','released')"))
@@ -525,6 +527,7 @@ def build(source_dir: Path, output: Path):
             "imported_translation_record_counts": coverage,
             "arabic_records_with_vowel_marks": marked,
             "vocalization_note": "Presence of some marks does not establish complete or reviewed vocalization.",
+            "vocalization": manifest.get("vocalization"),
             "source_files": {rel: digest(safe_source_path(source_dir, rel)) for rel in manifest["files"]},
             "license_files": list(manifest["license_files"]),
             "runtime_network_required": False,

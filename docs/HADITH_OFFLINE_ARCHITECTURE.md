@@ -10,6 +10,16 @@ history stay in the separate learning database.
 The catalog in `tools/hadith-catalog.json` mirrors the collection names currently exposed on
 Sunnah.com's homepage as a planning target. It is metadata only, not copied Hadith text.
 
+The default core-nine pack is now fully local: 62,169 Open-Hadith-Data Arabic records with the
+published source vowel marks, at pinned revision `1515f6cba21efed20d8916bf55acef1dffa0d2d5`.
+Its original vocalized CSVs are losslessly gzip-archived in Git alongside the older plain CSVs.
+The preparer uses the plain files only to verify record numbers and exact wording. It refuses
+missing marks or mismatches and never falls back to showing plain Arabic. Only U+200F and
+redundant whitespace are removed for layout; letters and vowel marks are retained. Commentary
+columns are preserved in the original archive but are not imported as translations or narrations.
+See [vocalization details](HADITH_VOCALIZATION_2026_09.md). The official Sunnah acquisition stages
+below remain applicable to the wider catalog/translation project, not this completed Arabic pack.
+
 ## Source acquisition rule
 
 Do **not** scrape or mass-copy Sunnah.com. Their published About page says they do not permit

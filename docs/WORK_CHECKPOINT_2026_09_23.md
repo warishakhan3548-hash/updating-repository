@@ -1,5 +1,10 @@
 # Resumable work checkpoint
 
+Superseded for Hadith source work by [the 24 September checkpoint](WORK_CHECKPOINT_2026_09_24.md).
+PR #268 was merged as `8d5ac3787849fab5f291145ac16b62a0492dec4c`. The plain-only limitation below
+was the old import selection, not a limitation of the upstream repository; its vocalized files
+are now archived and imported by the follow-up work.
+
 Base: `4e295a1c3f17297a8600887bd585e14fd4a2755d`.
 Branch: `codex/offline-search-reading-20260923`.
 First remote checkpoint: `135afea841cc68219c47dea9fc2c5d627c255ac3`.
