@@ -86,7 +86,10 @@ final class QuranAudioStore {
     synchronized boolean installedSurah(int surah){
         PackMeta meta=meta(surah);if(meta==null)return false;
         File file=surahFile(surah),marker=markerFile(surah);
-        if(!file.isFile()||file.length()!=meta.bytes)return false;
+        if(!file.isFile()||file.length()!=meta.bytes){cache.remove(surah);return false;}
+        // parseIndex() is the process-lifetime verification boundary. Once cached, repeated word
+        // availability checks must not reopen the marker file for every word on the UI thread.
+        if(cache.containsKey(surah))return true;
         try{
             String marked=marker.isFile()?readSmall(marker,256).trim():"";
             if(!meta.sha256.equals(marked)){
@@ -94,7 +97,7 @@ final class QuranAudioStore {
                 validateContainer(file,meta,true);
                 writeMarker(marker,meta.sha256);
             }
-            if(!cache.containsKey(surah))cache.put(surah,parseIndex(file,meta,false));
+            cache.put(surah,parseIndex(file,meta,false));
             return true;
         }catch(Exception invalid){
             cache.remove(surah);return false;
