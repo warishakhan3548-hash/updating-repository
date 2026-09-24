@@ -168,7 +168,7 @@ final class AppearanceStudio {
         LinearLayout card=column(activity);card.setTag("keepColor");card.setGravity(Gravity.CENTER);pad(card,6,5);
         android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();bg.setColor(base);bg.setCornerRadius(dp(activity,16));
         bg.setStroke(dp(activity,selected?2:1),selected?style.accent:Appearance.mix(style.accent,style.effectiveSurface(),.72f));card.setBackground(bg);
-        TextView sample=text(activity,"م ح ع",22,Appearance.readable(style.arabic,base));sample.setTag("keepColor");sample.setTypeface(sampleStyle.typeface(activity));sample.setGravity(Gravity.CENTER);sample.setTextDirection(View.TEXT_DIRECTION_RTL);card.addView(sample,new LinearLayout.LayoutParams(-1,dp(activity,32)));
+        TextView sample=text(activity,"الرَّحْمَٰنِ",21,Appearance.readable(style.arabic,base));sample.setTag("keepColor");sample.setTypeface(sampleStyle.typeface(activity));sample.setGravity(Gravity.CENTER);sample.setTextDirection(View.TEXT_DIRECTION_RTL);card.addView(sample,new LinearLayout.LayoutParams(-1,dp(activity,34)));
         TextView name=text(activity,(selected?"✓ ":"")+label,11,Appearance.readable(selected?style.accent:style.ink(),base));name.setTag("keepColor");name.setGravity(Gravity.CENTER);card.addView(name,new LinearLayout.LayoutParams(-1,-2));
         card.setContentDescription(label+" Arabic writing style"+(selected?", selected":""));card.setClickable(true);card.setFocusable(true);
         card.setOnClickListener(v->{if(style.font!=index){style.font=index;commit();renderControls();}});
@@ -232,13 +232,14 @@ final class AppearanceStudio {
         }
         if(layer==1)compactSlider("Card opacity",25,100,style.opacity,v->style.opacity=v);
 
-        title("Quran writing");
+        title("Arabic writing · Quran + Hadith");
+        HorizontalScrollView writingScroll=new HorizontalScrollView(activity);writingScroll.setHorizontalScrollBarEnabled(false);
         LinearLayout writing=row(activity);
-        String[] writingNames={"Quran","Naskh","Bold Naskh"};
+        String[] writingNames={"Mushaf","Amiri","Bold","Scheherazade","Lateef","Harmattan","Noto Naskh","Noto Kufi"};
         for(int i=0;i<Appearance.FONTS.length;i++){
-            View b=quranWritingCard(i,writingNames[i]);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,64),1);if(i<Appearance.FONTS.length-1)p.rightMargin=dp(activity,6);writing.addView(b,p);
+            View b=quranWritingCard(i,writingNames[i]);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,116),dp(activity,68));if(i<Appearance.FONTS.length-1)p.rightMargin=dp(activity,6);writing.addView(b,p);
         }
-        controls.addView(writing);
+        writingScroll.addView(writing);controls.addView(writingScroll);
 
         title("Reading");
         compactSlider("Arabic size",24,54,style.arabicSize,v->style.arabicSize=v);
