@@ -47,7 +47,6 @@ final class Glass {
 
             if(appearance.scene==1){
                 // Light Parchment: warm paper, sunlit arcade hints and quiet manuscript corners.
-                paint.setColor((int)(0x18*a*4)<<24|0x00b58b4f); // soft warm veil
                 paint.setColor(Color.argb(Math.round(20*a),181,139,79));
                 canvas.drawRect(0,0,w,h,paint);
 
