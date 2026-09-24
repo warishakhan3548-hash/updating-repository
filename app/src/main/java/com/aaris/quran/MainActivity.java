@@ -429,7 +429,7 @@ public final class MainActivity extends Activity {
     }
 
     private void openWebsite(Uri uri){hideKeyboard();try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(ActivityNotFoundException e){toast("Install a browser to open this link");}}
-    private int ambientItems(){int count=0;for(Recall.State state:learning.states().values())if(state.active&&content.hasRecallTarget(state.target)){ContentStore.Word w=content.word(state.target);if(w==null||w.hasGloss())count++;}return count;}
+    private int ambientItems(){int count=0;for(Recall.State state:learning.states().values())if(state.active&&content.hasRecallTarget(state.target)){ContentStore.Word w=content.word(state.target);if(w==null||w.hasGloss(language))count++;}return count;}
     private void ambientCard(LinearLayout page){
         LinearLayout c=card(page,Surface.Kind.PANEL);
         c.addView(settingsRow("clock",app.ambientRunning?"Recall timer · "+AmbientSettings.minutes(this)+" min":"Recall timer · Off",this::ambientSettings));
@@ -480,7 +480,7 @@ public final class MainActivity extends Activity {
         Ayah a=content.ayah(readingPosition==null?"Q:"+readerSurah+":"+readerStart:readingPosition.anchorId);if(a==null)return;
         page.addView(label(content.surah(a.surah).name+" · "+a.surah+":"+a.number));gap(page,10);
         page.addView(button("Add this ayah",()->{enroll(a.id,a.id);ambientSettings();}));gap(page,12);
-        int count=0;for(ContentStore.Word word:content.words(a.id))if(word.hasGloss()){
+        int count=0;for(ContentStore.Word word:content.words(a.id))if(word.hasGloss(language)){
             if(count++==8)break;LinearLayout row=Glass.row(this);pad(row,8,10);TextView ar=arabic(word.arabic,30);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));
             Recall.State memory=learning.states().get(word.id);TextView meaning=text(this,word.gloss(language)+(memory!=null&&memory.active?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));
             row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(word.gloss(language)+" ✓");});Glass.motion(row);
@@ -757,7 +757,7 @@ public final class MainActivity extends Activity {
         TextView meaning=text(this,word.gloss(language),18,INK);if(language.equals("ur"))meaning.setTextDirection(View.TEXT_DIRECTION_RTL);peek.addView(meaning);
         if(word.transliteration!=null){gap(peek,4);caption(peek,word.transliteration);}
         gap(peek,10);LinearLayout actions=row(this);actions.addView(button("Understand More",()->wordDetails(word)),new LinearLayout.LayoutParams(0,-2,1));
-        if(word.hasGloss()){TextView remember=button("Remember This",()->enroll(word.id,word.ayahId));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.leftMargin=dp(this,8);actions.addView(remember,p);}peek.addView(actions);
+        if(word.hasGloss(language)){TextView remember=button("Remember This",()->enroll(word.id,word.ayahId));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.leftMargin=dp(this,8);actions.addView(remember,p);}peek.addView(actions);
         TextView source=text(this,"Source word meaning · "+word.ayahId.replace("Q:",""),10,MUTED);peek.addView(source);
         Rect line=owner.wordLines(word);int[] viewport=new int[2],surface=new int[2];
         if(line==null||readerScroll==null){wordDetails(word);return;}
@@ -867,7 +867,7 @@ public final class MainActivity extends Activity {
         page.addView(text(this,word.gloss(language),22,INK));if(word.transliteration!=null)caption(page,word.transliteration);
         gap(page,16);caption(page,"Source meaning for this word in this ayah. Other contexts may differ.");
         gap(page,16);caption(page,"Quran "+word.ayahId.replace("Q:","")+" · Word "+word.position+"\nSource: Data Quran / Quran.com");
-        if(word.hasGloss()) {
+        if(word.hasGloss(language)) {
             gap(page,16);page.addView(button("Add word to Recall",()->enroll(word.id,word.ayahId)));
             int count=content.occurrences(word.surface);gap(page,16);page.addView(label("OTHER CONTEXTS"));caption(page,"Found in "+count+" places. Recall progress stays separate for each context.");
             for(ContentStore.Word other:content.related(word)) {
@@ -1103,7 +1103,7 @@ public final class MainActivity extends Activity {
         RecallTarget identity=RecallTarget.parse(target);if(identity==null)return;
         if(identity.kind==RecallTarget.Kind.TRANSITION){reviewTransition(content.transition(target));return;}
         ContentStore.Word word=content.word(target);Ayah a=content.contextFor(target);String source=content.recallText(target);
-        if(a==null||source==null)return;if(word!=null&&!word.hasGloss()){toast("No source meaning is available yet");return;}
+        if(a==null||source==null)return;if(word!=null&&!word.hasGloss(language)){toast("No source meaning is available yet");return;}
         Recall.State state=learning.states().get(target);if(state==null||!state.active){enroll(target,a.id);state=learning.states().get(target);}
         boolean phrase=identity.kind==RecallTarget.Kind.PHRASE;
         LinearLayout page=sheet(phrase?"Practice passage":"Recall");caption(page,content.surah(a.surah).name+" · Ayah "+a.number+(phrase?" · Selected passage":""));gap(page,12);
