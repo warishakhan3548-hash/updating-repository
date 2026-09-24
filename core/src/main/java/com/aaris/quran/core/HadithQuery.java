@@ -19,21 +19,28 @@ public final class HadithQuery {
             "سنن النسائي","النسائي","نسائي","نسائی","नसाई","नसाइ");
         aliases("ibnmajah","sunan ibn majah","ibn majah","ibn maja","ibnmajah",
             "سنن ابن ماجه","ابن ماجه","ابن ماجہ","इब्न माजा","इब्न माजह");
-        aliases("malik","muwatta malik","muwatta imam malik","muwatta","موطا مالك","موطأ مالك","موطا","मुवत्ता मालिक");
+        aliases("malik","muwatta malik","muwatta imam malik","muwatta","موطا مالك","موطأ مالك","موطا","مالك","मुवत्ता मालिक","मालिक");
         aliases("ahmad","musnad ahmad","musnad ahmed","ahmad","مسند احمد","مسند أحمد","मुस्नद अहमद");
         aliases("darimi","sunan ad darimi","sunan darimi","darimi","سنن الدارمي","الدارمي","سنن دارمی","दारिमी");
     }
     public final String raw,collectionId,text,number;
+    public final boolean corrected,sahihCollections;
     private HadithQuery(String raw,String collection,String text,String number){
-        this.raw=raw;collectionId=collection;this.text=text;this.number=number;
+        this(raw,collection,text,number,false,false);
+    }
+    private HadithQuery(String raw,String collection,String text,String number,boolean corrected,boolean sahih){
+        this.raw=raw;collectionId=collection;this.text=text;this.number=number;this.corrected=corrected;sahihCollections=sahih;
     }
     private static void aliases(String id,String... names){
+        ALIASES.put(TextMatch.normalize(id),id);
         for(String name:names)ALIASES.put(TextMatch.normalize(name),id);
     }
     public static HadithQuery parse(String value){return parse(value,Collections.emptyMap());}
     /** Installed names supplement known multilingual aliases, so new packs remain searchable. */
     public static HadithQuery parse(String value,Map<String,String> installedAliases){
         String raw=value==null?"":value.trim(),query=TextMatch.normalize(raw);
+        // Keyboard input often joins the title and number: Bukhari556 / बुखारी५५६.
+        query=query.replaceAll("(?<=[\\p{L}\\p{M}])(?=[0-9])", " ");
         Map<String,String> aliases=new LinkedHashMap<>(ALIASES);
         for(Map.Entry<String,String> entry:installedAliases.entrySet())
             aliases.put(TextMatch.normalize(entry.getKey()),entry.getValue());
@@ -47,8 +54,44 @@ public final class HadithQuery {
         }
         if(best!=null)query=query.equals(best)?"":query.startsWith(best+" ")?
             query.substring(best.length()).trim():query.substring(0,query.length()-best.length()).trim();
+        boolean corrected=false,sahih=false;
+        if(id==null){
+            String[] words=query.split(" ");
+            // Fuzzy titles are accepted only as a standalone book or next to a valid number.
+            // A narrator's name inside Arabic prose must not silently become a book filter.
+            int bestDistance=Integer.MAX_VALUE,bestLength=0;String fuzzyId=null,remainder=null;boolean ambiguous=false;
+            for(int n=1;n<=Math.min(5,words.length);n++)for(boolean prefix:new boolean[]{true,false}){
+                String label=String.join(" ",Arrays.copyOfRange(words,prefix?0:words.length-n,prefix?n:words.length));
+                String rest=String.join(" ",Arrays.copyOfRange(words,prefix?n:0,prefix?words.length:words.length-n));
+                if(!rest.isEmpty()&&reference(rest)==null)continue;
+                String key=titleKey(label);if(key.length()<4)continue;
+                int limit=key.length()>=8?2:1;
+                for(Map.Entry<String,String> entry:aliases.entrySet()){
+                    String target=titleKey(entry.getKey());
+                    int distance=TextMatch.distance(key,target,limit);
+                    if(distance>limit||distance>Math.max(key.length(),target.length())*.25)continue;
+                    if(distance<bestDistance||distance==bestDistance&&n>bestLength){
+                        bestDistance=distance;bestLength=n;fuzzyId=entry.getValue();remainder=rest;ambiguous=false;
+                    }else if(distance==bestDistance&&n==bestLength&&!entry.getValue().equals(fuzzyId))ambiguous=true;
+                }
+            }
+            if(fuzzyId!=null&&!ambiguous){id=fuzzyId;query=remainder;corrected=true;}
+            else {
+                String title=query.split(" ",2)[0];
+                if(titleKey(title).equals("sahih")){
+                    String rest=query.length()==title.length()?"":query.substring(title.length()).trim();
+                    if(rest.isEmpty()||reference(rest)!=null){sahih=true;query=rest;}
+                }
+            }
+        }
         String number=reference(query);
-        return new HadithQuery(raw,id,number==null?query:"",number);
+        return new HadithQuery(raw,id,number==null?query:"",number,corrected,sahih);
+    }
+    private static String titleKey(String value){
+        // Title-only aliases permit mixed-script prefixes and common transliterations.
+        return value.replaceAll("^(?:sahih|sahi|saheeh|sahihh|सहीह|सही|साहिह|صحیح|صحيح)(?: |$)","sahih ")
+            .replace("भुखारी","बुखारी").replace("bukharee","bukhari").replace("bhukhari","bukhari")
+            .replace("bhukari","bukhari").replace("bukhary","bukhari").replace("़","").replace(" ","");
     }
     private static String reference(String value){
         String q=value.replaceFirst("^(?:(?:hadith|hadees|hadeeth|हदीस|हदीथ|حديث|حدیث)\\s+)?(?:(?:number|no|नंबर|नम्बर|نمبر|رقم)\\s+)?","");
@@ -57,7 +100,8 @@ public final class HadithQuery {
         return q.replaceFirst("^0+(?!$|[a-z]$)","");
     }
     public boolean isReference(){return number!=null;}
-    public boolean isHadithIntent(){return collectionId!=null||number!=null||raw.startsWith("H:");}
+    public boolean isHadithIntent(){return collectionId!=null||sahihCollections||number!=null||raw.startsWith("H:");}
+    public boolean isCollectionBrowse(){return (collectionId!=null||sahihCollections)&&text.isEmpty()&&number==null;}
     /** Bare 556 includes 556a/556b; an explicit 556a remains exact. Never includes 5560. */
     public List<String> referenceValues(){
         if(number==null)return Collections.emptyList();
@@ -65,7 +109,9 @@ public final class HadithQuery {
         if(number.matches("[0-9]+"))for(char c='a';c<='z';c++)values.add(number+c);
         return values;
     }
-    public String scopeLabel(){return collectionId==null?"All Hadith collections":collectionId;}
+    public String scopeLabel(){return sahihCollections?"Sahih al-Bukhari & Sahih Muslim":collectionId==null?"All Hadith collections":collectionId;}
+    public String scopeSql(){return collectionId!=null?" AND h.collection_id=?":sahihCollections?" AND h.collection_id IN ('bukhari','muslim')":"";}
+    public void addScopeArgs(List<String> args){if(collectionId!=null)args.add(collectionId);}
     /** A bound SQLite predicate shared by the runtime and real-pack regression checks. */
     public static final class Lookup {
         public final String where;
@@ -82,9 +128,9 @@ public final class HadithQuery {
             where="(h.record_number IN ("+marks(values.size())+") OR h.id IN (SELECT hadith_id FROM hadith_reference WHERE scheme NOT LIKE '%urn%' AND value IN ("+
                 marks(1+values.size()+refs.size())+")))";
         }else if(raw.startsWith("H:")){where="h.id=?";args.add(raw);}
-        else if(collectionId!=null&&text.isEmpty())where="1";
+        else if(isCollectionBrowse())where="1";
         else throw new IllegalStateException("Text query is not a reference lookup");
-        if(collectionId!=null){where+=" AND h.collection_id=?";args.add(collectionId);}
+        where+=scopeSql();addScopeArgs(args);
         return new Lookup(where,args);
     }
     private static String marks(int n){return String.join(",",Collections.nCopies(n,"?"));}

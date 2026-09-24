@@ -3,6 +3,7 @@
 import argparse
 import base64
 import json
+import math
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -59,8 +60,12 @@ def main():
     manifest = json.loads(path.with_name("hadith-manifest.json").read_text())
     if manifest["pack_id"] == "aaris-open-hadith-data-arabic-nine":
         assert len(lookup(db, "556")) == 9
-        for query in ["Bukhari 556", "सही बुखारी ५५६", "صحیح بخاری ۵۵۶", "5 5 6 Sahih Bukhari"]:
+        for query in ["Bukhari 556", "sahih bhukhari 556", "bukahri556", "सही बुखारी ५५६",
+                      "सही भुखारी ५५६", "सहीह बुखारि ५५६", "صحیح بخاری ۵۵۶",
+                      "صحيح البخري ٥٥٦", "5 5 6 Sahih Bukhari"]:
             assert lookup(db, query) == [("bukhari", "556")]
+        assert set(lookup(db, "sahih 556")) == {("bukhari", "556"), ("muslim", "556")}
+        assert {c for c, _ in lookup(db, "sahih")} == {"bukhari", "muslim"}
         assert lookup(db, "Sahih Muslim 5556") == [], "Do not invent missing edition numbers"
     samples = [
         "إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ", "انما الاعمال بالنيات",
@@ -76,6 +81,41 @@ def main():
         for sample, java_tokens in zip(samples, actual):
             assert search_tokens(sample) == set(dec(java_tokens).split()), ("Normalization drift", sample)
         assert len(actual) == len(samples)
+
+        def phrase(query):
+            plan = subprocess.check_output(java + ["phrase", query], text=True).splitlines()
+            where, args = dec(plan[0]), [dec(v) for v in plan[1:]]
+            total = db.execute("SELECT count(*) FROM hadith h WHERE " + where, args).fetchone()[0]
+            rows = db.execute("SELECT h.id,h.arabic FROM hadith h WHERE " + where +
+                              " ORDER BY h.id LIMIT 50", args).fetchall()
+            assert len(rows) == min(50, total)
+            return total, rows
+
+        if manifest["pack_id"] == "aaris-open-hadith-data-arabic-nine":
+            # Exact screenshot query: old OR retrieval fetched 61,313 full records.
+            # The actual production plan must now count in the index and load one page only.
+            marked_query = "حَدَّثَنَا قُتَيْبَةُ بْنُ سَعِيدٍ حَدَّثَنَا"
+            plain_query = "حدثنا قتيبة بن سعيد حدثنا"
+            a, b = phrase(marked_query), phrase(plain_query)
+            assert a == b and a[0] == 643, "Screenshot phrase retrieval/normalization regressed"
+            assert phrase("حدثنا")[0] == 57358, "Common words must support indexed pagination"
+            assert phrase("Tirmidhi " + plain_query)[0] > 0, "Scoped phrase lost"
+
+            # Execute the same bounded candidate plan used on Android, including bind order.
+            query = "حدثنا قتيبه بن سعيد حدثنا"
+            terms = sorted(search_tokens(query))
+            data = scratch / "candidate-plan.tsv"
+            lines = [enc(query)]
+            for term in terms:
+                df = db.execute("SELECT df FROM search_vocabulary WHERE token=?", (term,)).fetchone()
+                weight = max(.25, math.log(1 + manifest["records"] / (1 + (df[0] if df else 0))))
+                lines.append(enc(term) + "\t" + str(weight) + ("\t" + enc("قتيبة") if term == "قتيبه" else ""))
+            data.write_text("\n".join(lines) + "\n")
+            plan = subprocess.check_output(java + ["candidates", str(data)], text=True).splitlines()
+            candidates = db.execute("SELECT h.id FROM hadith h WHERE " + dec(plan[0]), [dec(v) for v in plan[1:]]).fetchall()
+            assert 0 < len(candidates) <= 1201, "Fuzzy retrieval became an unbounded full-record scan"
+            assert any(hid.startswith("H:tirmidhi:") and hid.endswith(":0:1") for (hid,) in candidates)
+            print(f"Screenshot phrase: {a[0]} exact matches, 50 rows/page; typo candidates bounded at {len(candidates)}: PASS")
 
         # Source display is untouched. Both vocalized and plain user text reach the same record.
         row = db.execute("SELECT id FROM hadith WHERE collection_id='bukhari' AND record_number='1'").fetchone()

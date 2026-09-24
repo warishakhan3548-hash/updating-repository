@@ -4,6 +4,8 @@ import android.content.Context;
 import com.aaris.quran.core.Arabic;
 import com.aaris.quran.core.TextMatch;
 import com.aaris.quran.core.HadithQuery;
+import com.aaris.quran.core.HadithSearchPlan;
+import android.os.CancellationSignal;
 import java.util.concurrent.CancellationException;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
@@ -181,8 +183,9 @@ final class HadithStore implements AutoCloseable {
         Hit(Record record,TextMatch match,boolean reference){this.record=record;this.match=match;this.reference=reference;}
     }
     static final class SearchPage {
-        final List<Hit> hits;final int total,offset;final String query;
-        SearchPage(String query,List<Hit> hits,int total,int offset){this.query=query;this.hits=hits;this.total=total;this.offset=offset;}
+        final List<Hit> hits;final int total,offset;final String query;final boolean limited;
+        SearchPage(String query,List<Hit> hits,int total,int offset){this(query,hits,total,offset,false);}
+        SearchPage(String query,List<Hit> hits,int total,int offset,boolean limited){this.query=query;this.hits=hits;this.total=total;this.offset=offset;this.limited=limited;}
     }
     private static final Comparator<Hit> ORDER=(a,b)->{
         int c=Boolean.compare(b.reference,a.reference);if(c!=0)return c;
@@ -191,62 +194,95 @@ final class HadithStore implements AutoCloseable {
         return a.record.id.compareTo(b.record.id);
     };
     List<Record> search(String query,int limit){List<Record> out=new ArrayList<>();for(Hit hit:searchPage(query,limit,0).hits)out.add(hit.record);return out;}
-    SearchPage searchPage(String query,int limit,int offset){
+    private volatile SearchPage cachedText;
+    SearchPage searchPage(String query,int limit,int offset){return searchPage(query,limit,offset,new CancellationSignal());}
+    SearchPage searchPage(String query,int limit,int offset,CancellationSignal signal){
+        cancelSearch(signal);
         String raw=query==null?"":query.trim();int start=Math.max(0,offset),cap=Math.max(1,Math.min(200,limit));
         if(raw.isEmpty()||raw.length()>16384||db==null)return new SearchPage(raw,Collections.emptyList(),0,start);
         HadithQuery intent=HadithQuery.parse(raw,collectionAliases);
-        // A reference is a lookup, never fuzzy prose. A missing number must not return a
-        // different narration merely because its body happens to contain a similar digit.
-        if(intent.isReference()||raw.startsWith("H:")||intent.collectionId!=null&&intent.text.isEmpty())
-            return referencePage(intent,cap,start);
+        if(intent.isReference()||raw.startsWith("H:")||intent.isCollectionBrowse())
+            return referencePage(intent,cap,start,signal);
         List<String> terms=TextMatch.tokens(intent.text);
         if(terms.isEmpty())return new SearchPage(raw,Collections.emptyList(),0,start);
+        SearchPage cached=cachedText;
+        if(cached!=null&&cached.query.equals(raw))return slice(cached,cap,start);
+
+        // A phrase lookup can return the first page immediately, even for very common words.
+        // Count and pagination remain in SQLite; Java never materializes the entire match set.
+        HadithSearchPlan phrase=HadithSearchPlan.phrase(intent);int exact;
+        try(Cursor c=db.rawQuery("SELECT count(*) FROM hadith h WHERE "+phrase.where,phrase.args.toArray(new String[0]),signal)){
+            c.moveToFirst();exact=c.getInt(0);
+        }
+        if(exact>0){
+            List<String> args=new ArrayList<>(phrase.args);args.add(""+cap);args.add(""+start);
+            List<Hit> hits=new ArrayList<>();
+            try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+phrase.where+HadithSearchPlan.ORDER+" LIMIT ? OFFSET ?",args.toArray(new String[0]),signal)){
+                while(c.moveToNext()){
+                    cancelSearch(signal);Record record=new Record(c);
+                    TextMatch match=bestMatch(record,terms,Collections.emptyMap(),Collections.emptyMap(),signal);
+                    if(match.accepted)hits.add(new Hit(record,match,false));
+                }
+            }
+            return new SearchPage(raw,hits,exact,start);
+        }
         Map<String,List<String>> repairs=new HashMap<>();Map<String,Double> weights=new HashMap<>();
-        LinkedHashSet<String> anchors=new LinkedHashSet<>();
         for(String term:new LinkedHashSet<>(terms)){
-            cancelSearch();int df=0;try(Cursor c=db.rawQuery("SELECT df FROM search_vocabulary WHERE token=?",new String[]{term})){if(c.moveToFirst())df=c.getInt(0);}
+            cancelSearch(signal);int df=0;
+            try(Cursor c=db.rawQuery("SELECT df FROM search_vocabulary WHERE token=?",new String[]{term},signal)){if(c.moveToFirst())df=c.getInt(0);}
             weights.put(term,Math.max(.25,Math.log(1.+recordCount/(1.+df))));
         }
         List<String> ranked=new ArrayList<>(weights.keySet());ranked.sort(Comparator.comparingDouble((String t)->weights.get(t)).reversed().thenComparing(t->t));
-        for(String term:ranked.subList(0,Math.min(128,ranked.size()))){
-            anchors.add(term);List<String> alternatives=spellingCandidates(term);repairs.put(term,alternatives);anchors.addAll(alternatives);
-        }
-        List<String> args=new ArrayList<>(anchors);String marks=String.join(",",Collections.nCopies(args.size(),"?"));
-        String ids="SELECT hadith_rowid FROM search_token WHERE token IN ("+marks+")";
-        String scope="";if(intent.collectionId!=null){scope=" AND h.collection_id=?";args.add(intent.collectionId);}
-        PriorityQueue<Hit> best=new PriorityQueue<>(Math.max(1,start+cap),ORDER.reversed());int total=0;
-        try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE h.rowid IN ("+ids+")"+scope,args.toArray(new String[0]))){
+        for(String term:ranked.subList(0,Math.min(HadithSearchPlan.MAX_ANCHORS,ranked.size())))repairs.put(term,spellingCandidates(term,signal));
+        HadithSearchPlan plan=HadithSearchPlan.candidates(intent,repairs,weights);
+        List<Hit> matches=new ArrayList<>();int scanned=0;
+        try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+plan.where,plan.args.toArray(new String[0]),signal)){
             while(c.moveToNext()){
-                cancelSearch();Record record=new Record(c);TextMatch match=TextMatch.compare(terms,TextMatch.tokens(record.arabic),repairs,weights);
-                for(String text:new String[]{record.english,record.urdu,record.bangla})if(text!=null){TextMatch m=TextMatch.compare(terms,TextMatch.tokens(text),repairs,weights);if(m.accepted&&(!match.accepted||TextMatch.compareRank(m,match)<0))match=m;}
-                if(hasEditorialTranslations)try(Cursor translations=db.rawQuery("SELECT text FROM editorial_translation WHERE hadith_id=? AND status IN ('released','reviewed')",new String[]{record.id})){
-                    while(translations.moveToNext()){TextMatch m=TextMatch.compare(terms,TextMatch.tokens(translations.getString(0)),repairs,weights);if(m.accepted&&(!match.accepted||TextMatch.compareRank(m,match)<0))match=m;}
-                }
-                if(!match.accepted)continue;
-                total++;best.add(new Hit(record,match,false));if(best.size()>start+cap)best.poll();
+                cancelSearch(signal);scanned++;Record record=new Record(c);
+                TextMatch match=bestMatch(record,terms,repairs,weights,signal);
+                if(match.accepted)matches.add(new Hit(record,match,false));
             }
         }
-        List<Hit> ordered=new ArrayList<>(best);ordered.sort(ORDER);return new SearchPage(raw,new ArrayList<>(ordered.subList(Math.min(start,ordered.size()),ordered.size())),total,start);
+        cancelSearch(signal);matches.sort(ORDER);
+        SearchPage complete=new SearchPage(raw,Collections.unmodifiableList(matches),matches.size(),0,scanned>HadithSearchPlan.CANDIDATE_LIMIT);
+        cachedText=complete;return slice(complete,cap,start);
     }
-    private SearchPage referencePage(HadithQuery query,int cap,int offset){
-        cancelSearch();HadithQuery.Lookup lookup=query.lookup();
+    private static SearchPage slice(SearchPage page,int cap,int offset){
+        int from=Math.min(offset,page.hits.size()),to=Math.min(from+cap,page.hits.size());
+        return new SearchPage(page.query,new ArrayList<>(page.hits.subList(from,to)),page.total,offset,page.limited);
+    }
+    private TextMatch bestMatch(Record record,List<String> terms,Map<String,List<String>> repairs,Map<String,Double> weights,CancellationSignal signal){
+        TextMatch match=TextMatch.compare(terms,TextMatch.tokens(record.arabic),repairs,weights);
+        for(String text:new String[]{record.english,record.urdu,record.bangla})if(text!=null){
+            cancelSearch(signal);TextMatch m=TextMatch.compare(terms,TextMatch.tokens(text),repairs,weights);
+            if(m.accepted&&(!match.accepted||TextMatch.compareRank(m,match)<0))match=m;
+        }
+        if(hasEditorialTranslations)try(Cursor translations=db.rawQuery("SELECT text FROM editorial_translation WHERE hadith_id=? AND status IN ('released','reviewed')",new String[]{record.id},signal)){
+            while(translations.moveToNext()){
+                cancelSearch(signal);TextMatch m=TextMatch.compare(terms,TextMatch.tokens(translations.getString(0)),repairs,weights);
+                if(m.accepted&&(!match.accepted||TextMatch.compareRank(m,match)<0))match=m;
+            }
+        }
+        return match;
+    }
+    private SearchPage referencePage(HadithQuery query,int cap,int offset,CancellationSignal signal){
+        cancelSearch(signal);HadithQuery.Lookup lookup=query.lookup();
         List<String> args=new ArrayList<>(lookup.args);String predicate=lookup.where;
-        int total;try(Cursor c=db.rawQuery("SELECT count(*) FROM hadith h WHERE "+predicate,args.toArray(new String[0]))){c.moveToFirst();total=c.getInt(0);}
+        int total;try(Cursor c=db.rawQuery("SELECT count(*) FROM hadith h WHERE "+predicate,args.toArray(new String[0]),signal)){c.moveToFirst();total=c.getInt(0);}
         args.add(""+cap);args.add(""+offset);List<Hit> hits=new ArrayList<>();
-        try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+predicate+
-            " ORDER BY CASE h.collection_id WHEN 'bukhari' THEN 0 WHEN 'muslim' THEN 1 ELSE 2 END,h.collection_id,CAST(h.record_number AS INTEGER),h.record_number,h.id LIMIT ? OFFSET ?",args.toArray(new String[0]))){
-            while(c.moveToNext()){cancelSearch();hits.add(new Hit(new Record(c),TextMatch.exactReference(),query.isReference()||query.raw.startsWith("H:")));}
+        try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+predicate+HadithSearchPlan.ORDER+" LIMIT ? OFFSET ?",args.toArray(new String[0]),signal)){
+            while(c.moveToNext()){cancelSearch(signal);hits.add(new Hit(new Record(c),TextMatch.exactReference(),query.isReference()||query.raw.startsWith("H:")));}
         }
         return new SearchPage(query.raw,hits,total,offset);
     }
-    private List<String> spellingCandidates(String term){
+    private List<String> spellingCandidates(String term,CancellationSignal signal){
         if(term.length()<4||term.length()>128||TextMatch.negative(term))return Collections.emptyList();int max=term.length()>=8?2:1;
         List<String> grams=new ArrayList<>(Arabic.trigrams(term));String marks=String.join(",",Collections.nCopies(grams.size(),"?"));List<String> out=new ArrayList<>();
-        try(Cursor c=db.rawQuery("SELECT token,count(*) AS hits FROM search_gram WHERE gram IN ("+marks+") GROUP BY token ORDER BY hits DESC,token LIMIT 120",grams.toArray(new String[0]))){
-            while(c.moveToNext()&&out.size()<5){cancelSearch();String word=c.getString(0);if(!word.equals(term)&&TextMatch.distance(term,word,max)<=max)out.add(word);}
+        try(Cursor c=db.rawQuery("SELECT token,count(*) AS hits FROM search_gram WHERE gram IN ("+marks+") GROUP BY token ORDER BY hits DESC,token LIMIT 120",grams.toArray(new String[0]),signal)){
+            while(c.moveToNext()&&out.size()<5){cancelSearch(signal);String word=c.getString(0);if(!word.equals(term)&&TextMatch.distance(term,word,max)<=max)out.add(word);}
         }return out;
     }
-    private static void cancelSearch(){if(Thread.currentThread().isInterrupted())throw new CancellationException();}
+    private static void cancelSearch(CancellationSignal signal){if(Thread.currentThread().isInterrupted())throw new CancellationException();signal.throwIfCanceled();}
 
     List<String> grades(String id){
         List<String> out=new ArrayList<>();if(db==null)return out;
@@ -269,7 +305,7 @@ final class HadithStore implements AutoCloseable {
     }
 
     String searchHint(){
-        return "Arabic text, Bukhari 556, Muslim 5556 or 556";
+        return "Arabic text, Bukhari 556, Muslim 556 or 556";
     }
 
     DisplayTranslation translation(Record record,String preferredLanguage){
@@ -303,5 +339,5 @@ final class HadithStore implements AutoCloseable {
         return null;
     }
 
-    @Override public void close(){if(db!=null){db.close();db=null;}}
+    @Override public void close(){cachedText=null;if(db!=null){db.close();db=null;}}
 }

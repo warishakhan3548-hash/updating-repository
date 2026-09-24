@@ -428,3 +428,14 @@ Missing marks or mismatches fail preparation. Commentary is not treated as trans
 IDs and search references remain stable; the content version and database checksum change.
 No generated vowel marks, runtime website dependency, APK or CI. Hadith translation acquisition
 and physical-device QA remain unfinished. Details: [source report](HADITH_VOCALIZATION_2026_09.md).
+
+## 2026-09-24 — search runtime and misspelled references
+
+Reproduced the screenshot's Arabic query selecting 61,313 full narrations before returning any
+result. Replaced that scan with indexed exact-phrase pagination and bounded fuzzy candidate
+ranking. Added SQLite cancellation, a deadline, independent corpus workers/results and cached
+fuzzy pagination. Book-name typos now resolve in English/Hindi/Arabic/Urdu; Sahih-only queries
+browse Bukhari/Muslim, and reference numbers remain exact. The actual production HadithStore
+passes a full-corpus host SQLite regression harness, including the screenshot queries. Existing
+core/corpus checks and Android Java/resources compile passed. No APK or CI. Details and recovery:
+[runtime fix report](SEARCH_RUNTIME_FIX_2026_09_24.md).

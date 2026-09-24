@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "tools" / "hadith-catalog.json"
-BUILDER_VERSION = "5"
+BUILDER_VERSION = "6"
 
 
 def digest(path: Path) -> str:
@@ -53,7 +53,7 @@ def normalize_latin(value):
 
 
 
-def search_tokens(value):
+def search_text(value):
     # Match Java TextMatch.normalize without stripping Devanagari vowel signs.
     value = re.sub(r'\[\d+\]', ' ', str(value or '')).replace("'", '').replace('’', '')
     value = unicodedata.normalize('NFKC', value).lower()
@@ -72,7 +72,11 @@ def search_tokens(value):
             chars.extend(c for c in unicodedata.normalize('NFD',ch) if not unicodedata.category(c).startswith('M'))
         else:
             chars.append(ch if ch.isalnum() or unicodedata.category(ch).startswith('M') else ' ')
-    return set(''.join(chars).split())
+    return ' '.join(''.join(chars).split())
+
+
+def search_tokens(value):
+    return set(search_text(value).split())
 
 
 def build_search_index(db):
@@ -335,8 +339,8 @@ def insert_hadith(db, row, seen):
             hid,
             require_string(row, "collection_id"),
             require_string(row, "record_number"),
-            normalize_arabic(arabic),
-            normalize_latin(english),
+            search_text(arabic),
+            search_text(english),
         ),
     )
     for ref in row.get("references", []):

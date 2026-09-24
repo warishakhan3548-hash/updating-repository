@@ -45,7 +45,10 @@ public final class MainActivity extends Activity {
     private Dialog activeDialog;
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final AtomicInteger searchGeneration=new AtomicInteger();
-    private Future<?> searchTask;
+    private Future<?> searchTask,quranSearchTask;
+    private CancellationSignal searchCancellation;
+    private Runnable searchTimeout;
+    private int pendingCorpora,pendingSearchJobs;
     private Runnable debounce;
     private String pendingExport;
     private boolean preparingExport;
@@ -106,13 +109,13 @@ public final class MainActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putBoolean("ambient_open_other_apps",openOtherAppsAfterAmbientStart);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putBoolean("search_open",searching);state.putInt("search_scope",searchScope);state.putString("hadith_query",hadithQuery);state.putInt("voice_scope",pendingVoiceScope);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
     @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();if(learning!=null&&readingPosition!=null){learning.set("reader_anchor",readingPosition.encode());learning.set("position",readingPosition.anchorId);}super.onPause();}
-    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
+    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void show(){
         if(content==null||isDestroyed()||isFinishing())return;
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
         getWindow().getDecorView().setSystemUiVisibility(Appearance.luminance(appearance.background)>.38?bars|light:bars&~light);
-        getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;backdrop.highContrast=highContrast;backdrop.invalidate();
+        getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();cancelSearchWork();if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;backdrop.highContrast=highContrast;backdrop.invalidate();
         header=row(this);pad(header,20,10);layout.addView(header,new LinearLayout.LayoutParams(-1,-2));
         body=column(this);layout.addView(body,new LinearLayout.LayoutParams(-1,0,1));
         recitationBanner=button("",()->audioControls(content.ayah("Q:"+app.recitationSurah+":"+app.recitationAyah)));layout.addView(recitationBanner);refreshRecitation();
@@ -254,22 +257,48 @@ public final class MainActivity extends Activity {
         collections.run();
 
     }
+    private void cancelSearchWork(){
+        if(searchTimeout!=null)ui.removeCallbacks(searchTimeout);searchTimeout=null;
+        if(searchCancellation!=null)searchCancellation.cancel();searchCancellation=null;
+        if(searchTask!=null)searchTask.cancel(true);
+        if(quranSearchTask!=null)quranSearchTask.cancel(true);
+    }
+    private CancellationSignal beginSearch(int generation,TextView status){
+        CancellationSignal signal=new CancellationSignal();searchCancellation=signal;
+        searchTimeout=()->{
+            if(searchGeneration.get()!=generation||searchCancellation!=signal)return;
+            cancelSearchWork();pendingCorpora=0;pendingSearchJobs=0;
+            status.setText("Search took too long. Try a shorter phrase or a book and number.");
+        };
+        ui.postDelayed(searchTimeout,20000);return signal;
+    }
+    private void finishSearch(CancellationSignal signal){
+        if(searchCancellation!=signal)return;
+        if(searchTimeout!=null)ui.removeCallbacks(searchTimeout);searchTimeout=null;searchCancellation=null;
+    }
     private void loadHadithSearch(String q,int offset,int generation,LinearLayout list,TextView status){
+        final CancellationSignal signal=searchCancellation!=null?searchCancellation:beginSearch(generation,status);
+        pendingSearchJobs++;
         searchTask=app.searchWorker.submit(()->{try{
-            HadithStore.SearchPage response=app.hadith.searchPage(q,50,offset);
-            ui.post(()->{if(isDestroyed()||!searching||searchGeneration.get()!=generation)return;
-                appendHadithResults(q,response,generation,list,status);
+            HadithStore.SearchPage response=app.hadith.searchPage(q,50,offset,signal);
+            ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
+                appendHadithResults(q,response,generation,list,status);if(--pendingSearchJobs==0)finishSearch(signal);
             });
-        }catch(CancellationException ignored){}catch(Exception error){ui.post(()->{if(!isDestroyed()&&searching&&searchGeneration.get()==generation)status.setText("Hadith search could not finish. Please try again.");});}});
+        }catch(CancellationException|OperationCanceledException ignored){}catch(Exception error){ui.post(()->{
+            if(!isDestroyed()&&searching&&!signal.isCanceled()&&searchGeneration.get()==generation){
+                if(--pendingSearchJobs==0)finishSearch(signal);status.setText("Hadith search could not finish. Please try again.");
+            }
+        });}});
     }
     private void appendHadithResults(String q,HadithStore.SearchPage response,int generation,LinearLayout list,TextView status){
         hadithTotal=response.total;hadithHits.addAll(response.hits);
         if(response.offset==0)showSearchShortcut(list,true,q);
-        status.setText(response.total==0?(HadithQuery.parse(q).isReference()?"This reference is not in the installed edition. Check its numbering or search an Arabic phrase.":"No Hadith text match in the installed edition."):hadithHits.size()+" of "+response.total+" Hadith matches");
+        status.setText(response.total==0?(HadithQuery.parse(q).isReference()?"This reference is not in the installed edition. Check its numbering or search an Arabic phrase.":"No Hadith text match in the installed edition."):hadithHits.size()+" of "+response.total+(response.limited?" closest Hadith matches · Narrow the phrase for more precision":" Hadith matches"));
         for(HadithStore.Hit hit:response.hits){
             LinearLayout wrapper=column(this);list.addView(wrapper);
-            wrapper.addView(label(hit.reference?"REFERENCE MATCH":hit.match.band+" TEXT MATCH"));
-            if(!hit.reference)caption(wrapper,hit.match.explanation());
+            boolean browse=HadithQuery.parse(q).isCollectionBrowse();
+            wrapper.addView(label(browse?"COLLECTION RECORD":hit.reference?"REFERENCE MATCH":hit.match.band+" TEXT MATCH"));
+            if(!hit.reference&&!browse)caption(wrapper,hit.match.explanation());
             hadithResultCard(wrapper,hit.record);
             wrapper.addView(button("Remember this match",()->rememberSearch(true,q,hit.record.id)));
             CheckBox select=new CheckBox(this);select.setText("Select for PDF");select.setTextColor(INK);select.setMinHeight(dp(this,48));select.setChecked(selectedHadith.contains(hit.record.id));wrapper.addView(select);
@@ -1036,32 +1065,54 @@ public final class MainActivity extends Activity {
         Runnable run=()->{
             searchQuery=query.getText().toString();hadithQuery=searchQuery;quranHits.clear();hadithHits.clear();hadithTotal=0;selectedHadith.clear();
             evidenceControls.clear();list.removeAllViews();
-            int generation=searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);if(debounce!=null)ui.removeCallbacks(debounce);
+            int generation=searchGeneration.incrementAndGet();cancelSearchWork();if(debounce!=null)ui.removeCallbacks(debounce);
             String q=searchQuery.trim();if(q.isEmpty()){status.setText("Search offline, with or without Arabic vowel marks.");return;}
             UnifiedQuery intent=UnifiedQuery.parse(q,searchScope);
-            status.setText(intent.hadithQuery.collectionId!=null?"Searching "+intent.hadithQuery.scopeLabel()+"…":"Searching offline…");
-            debounce=()->{searchTask=app.searchWorker.submit(()->{
-                try {
-                    SearchEngine.Response qr=null;HadithStore.SearchPage hr=null;
-                    if(intent.quran){if(app.search==null)app.search=content.buildSearch(app.translations);qr=app.search.search(intent.quranText,6236);}
-                    if(intent.hadith&&app.hadith!=null)hr=app.hadith.searchPage(q,50,0);
-                    final SearchEngine.Response quran=qr;final HadithStore.SearchPage hadith=hr;
-                    ui.post(()->{if(isDestroyed()||!searching||searchGeneration.get()!=generation)return;
-                        list.removeAllViews();evidenceControls.clear();
-                        status.setText("Offline results"+(intent.hadithQuery.collectionId==null?"":" · "+intent.hadithQuery.scopeLabel()));
-                        if(quran!=null){
-                            list.addView(label("QURAN"));TextView qs=text(this,quran.results.isEmpty()?"No Quran text match. Try a shorter phrase.":"",13,MUTED);list.addView(qs);gap(list,8);
-                            showSearchShortcut(list,false,q);
-                            if(quran.fragments!=null)showFragments(list,quran,query);
-                            appendQuranResults(list,quran,0,qs);
-                        }
-                        if(hadith!=null){
-                            gap(list,12);list.addView(label("HADITH"));TextView hs=text(this,"",13,MUTED);list.addView(hs);gap(list,8);
-                            LinearLayout matches=column(this);list.addView(matches);appendHadithResults(q,hadith,generation,matches,hs);
-                        }else if(intent.hadith)caption(list,"A local Hadith pack is not installed.");
-                    });
-                }catch(CancellationException ignored){}catch(Exception e){ui.post(()->{if(!isDestroyed()&&searching&&searchGeneration.get()==generation)status.setText("Search could not finish. Please try again.");});}
-            });};ui.postDelayed(debounce,220);
+            String scope=intent.hadithQuery.collectionId!=null||intent.hadithQuery.sahihCollections?" · "+intent.hadithQuery.scopeLabel():"";
+            String correction=intent.hadithQuery.corrected?" · Book-name spelling adjusted":"";
+            status.setText("Searching offline"+scope+"…");
+            LinearLayout quranList=column(this),hadithList=column(this);list.addView(quranList);list.addView(hadithList);
+            final CancellationSignal signal=beginSearch(generation,status);
+            pendingCorpora=(intent.quran?1:0)+(intent.hadith?1:0);pendingSearchJobs=pendingCorpora;
+            Runnable finished=()->{
+                if(searchGeneration.get()!=generation||signal.isCanceled())return;
+                if(--pendingSearchJobs==0)finishSearch(signal);
+                if(--pendingCorpora==0){status.setText("Offline results"+scope+correction);}
+                else status.setText("Results arriving · Searching remaining collection…");
+            };
+            debounce=()->{
+                if(signal.isCanceled())return;
+                if(intent.hadith)searchTask=app.searchWorker.submit(()->{
+                    try {
+                        HadithStore.SearchPage result=app.hadith==null?null:app.hadith.searchPage(q,50,0,signal);
+                        ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
+                            hadithList.addView(label("HADITH"));
+                            if(result==null)caption(hadithList,"A local Hadith pack is not installed.");
+                            else {TextView hs=text(this,"",13,MUTED);hadithList.addView(hs);gap(hadithList,8);
+                                LinearLayout matches=column(this);hadithList.addView(matches);appendHadithResults(q,result,generation,matches,hs);}
+                            finished.run();
+                        });
+                    }catch(CancellationException|OperationCanceledException ignored){}catch(Exception error){
+                        android.util.Log.w("AarisSearch","Hadith search failed",error);
+                        ui.post(()->{if(!isDestroyed()&&searching&&!signal.isCanceled()&&searchGeneration.get()==generation){caption(hadithList,"Hadith search could not finish. Please try again.");finished.run();}});
+                    }
+                });
+                if(intent.quran)quranSearchTask=app.quranSearchWorker.submit(()->{
+                    try {
+                        if(app.search==null)app.search=content.buildSearch(app.translations);
+                        final SearchEngine.Response result=app.search.search(intent.quranText,6236);
+                        ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
+                            quranList.addView(label("QURAN"));TextView qs=text(this,result.results.isEmpty()?"No Quran text match. Try a shorter phrase.":"",13,MUTED);quranList.addView(qs);gap(quranList,8);
+                            showSearchShortcut(quranList,false,q);
+                            if(result.fragments!=null)showFragments(quranList,result,query);
+                            appendQuranResults(quranList,result,0,qs);finished.run();
+                        });
+                    }catch(CancellationException ignored){}catch(Exception error){
+                        android.util.Log.w("AarisSearch","Quran search failed",error);
+                        ui.post(()->{if(!isDestroyed()&&searching&&!signal.isCanceled()&&searchGeneration.get()==generation){caption(quranList,"Quran search could not finish. Please try again.");finished.run();}});
+                    }
+                });
+            };ui.postDelayed(debounce,220);
         };
         query.addTextChangedListener(watcher(run));query.setText(searchQuery);query.setSelection(query.length());
     }
@@ -1217,7 +1268,7 @@ public final class MainActivity extends Activity {
             ui.post(()->{if(isDestroyed())return;pendingRestore=backup;new AlertDialog.Builder(this).setTitle("Learning restore karein?").setMessage(count+" history events merge honge. Maujooda history aur notes delete nahi honge.").setNegativeButton("Abhi nahi",(d,w)->pendingRestore=null).setPositiveButton("Merge karein",(d,w)->{JSONObject restore=pendingRestore;pendingRestore=null;app.io.execute(()->{try{learning.restore(restore,content);ui.post(()->{toast("Learning restore ho gayi");show();});}catch(Exception e){ui.post(()->toast("Restore nahi hua; purana data surakshit hai"));}});}).show();});
         }catch(Exception e){ui.post(()->toast("Backup valid nahi hai: "+e.getMessage()));}});
     }
-    @Override public void onBackPressed(){if(overlay.getChildCount()>0){hidePeek();return;}if(searching){searchGeneration.incrementAndGet();if(searchTask!=null)searchTask.cancel(true);show();return;}if(quietReader){quietReader=false;show();return;}if(tab==1&&reading){reading=false;show();return;}if(tab!=1){tab=1;reading=true;show();return;}super.onBackPressed();}
+    @Override public void onBackPressed(){if(overlay.getChildCount()>0){hidePeek();return;}if(searching){searchGeneration.incrementAndGet();cancelSearchWork();show();return;}if(quietReader){quietReader=false;show();return;}if(tab==1&&reading){reading=false;show();return;}if(tab!=1){tab=1;reading=true;show();return;}super.onBackPressed();}
 
     private JSONObject selectionOrigin(String origin){
         try{return new JSONObject().put("selection_origin",origin);}catch(JSONException e){throw new IllegalStateException(e);}

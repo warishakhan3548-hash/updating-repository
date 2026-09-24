@@ -54,8 +54,11 @@ live preview, Quran/Naskh/Bold fonts, size/spacing, text depth/shadows/glass she
 Complete archived Hindi, Urdu and English translations appear below ayahs, with edition
 attribution; Arabic word taps stay available. Search accepts paragraphs and ranks textual
 overlap, typo and supported pronunciation matches. One shared search box covers Quran and all installed Hadith books, accepts multilingual
-collection + number references and vocalized/plain Arabic, and preserves separate narration IDs. Search results can be selected and shared as
-a local, attributed PDF through Android's share sheet. Whole-ayah recitation adds an optional
+collection + number references and vocalized/plain Arabic, and preserves separate narration IDs.
+The search runtime also recognizes bounded book-name typos in English/Hindi/Arabic/Urdu. Exact
+phrases use indexed pagination; fuzzy text uses bounded candidate ranking, SQLite cancellation
+and independent Quran/Hadith workers. See [the runtime fix and checks](docs/SEARCH_RUNTIME_FIX_2026_09_24.md).
+Search results can be selected and shared as a local, attributed PDF through Android's share sheet. Whole-ayah recitation adds an optional
 Mishary/Al-Husary/Minshawi catalog, continuous playback and selected-reciter downloads.
 It is separate from the isolated-word pronunciation system below. Core builds never fetch it.
 Native resource/Java compilation and offline regressions pass; physical-device QA remains pending.
