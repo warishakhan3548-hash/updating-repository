@@ -194,6 +194,19 @@ final class AppearanceStudio {
                     }
                     p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(1f,w*.012f));p.setColor(0x55608E79);
                     canvas.drawArc(new RectF(w*.08f,h*.08f,w*.92f,h*.92f),180,180,false,p);
+                }else if(swatch.scene==5){
+                    LinearGradient blue=new LinearGradient(0,0,w,h,
+                        new int[]{0xFF041938,0xFF0B4E98},null,Shader.TileMode.CLAMP);
+                    p.setShader(blue);canvas.drawRect(0,0,w,h,p);p.setShader(null);
+                    RadialGradient moon=new RadialGradient(w*.73f,h*.20f,w*.34f,
+                        new int[]{0xD8F5FBFF,0x306DB7FF,Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                    p.setShader(moon);canvas.drawRect(0,0,w,h,p);p.setShader(null);
+                    p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(1f,w*.016f));p.setColor(0x995EBEFF);
+                    canvas.drawArc(new RectF(w*.06f,h*.06f,w*.94f,h*.92f),180,180,false,p);
+                    p.setStyle(Paint.Style.FILL);p.setColor(0xCC031B3E);
+                    float base=h*.76f,cx=w*.68f,u=w*.052f;
+                    canvas.drawRect(cx-u*2.2f,base-u*.2f,cx+u*2.2f,base+u*.9f,p);
+                    canvas.drawArc(new RectF(cx-u*1.9f,base-u*2f,cx+u*1.9f,base+u*.1f),180,180,true,p);
                 }
             }
         };
