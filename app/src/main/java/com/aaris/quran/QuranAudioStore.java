@@ -125,10 +125,10 @@ final class QuranAudioStore {
         validateContainer(staging,meta,true);
         File target=surahFile(surah),marker=markerFile(surah),old=new File(root,String.format(Locale.ROOT,".%03d.old",surah));
         delete(old);delete(marker);
-        if(target.exists()&&!target.renameTo(old))throw new IOException("Purana Surah pronunciation replace nahi ho saka");
+        if(target.exists()&&!target.renameTo(old))throw new IOException("Existing Surah pronunciation could not be replaced");
         if(!staging.renameTo(target)){
             if(old.exists())old.renameTo(target);
-            throw new IOException("Verified Surah pronunciation install nahi ho saka");
+            throw new IOException("Verified Surah pronunciation could not be installed");
         }
         try{
             writeMarker(marker,meta.sha256);
@@ -202,8 +202,8 @@ final class QuranAudioStore {
     private static void writeMarker(File marker,String text) throws IOException {
         File tmp=new File(marker.getParentFile(),marker.getName()+".tmp");
         try(FileOutputStream out=new FileOutputStream(tmp)){out.write((text+"\n").getBytes(StandardCharsets.US_ASCII));out.getFD().sync();}
-        if(marker.exists()&&!marker.delete())throw new IOException("Old audio marker clear nahi hua");
-        if(!tmp.renameTo(marker))throw new IOException("Audio marker install nahi hua");
+        if(marker.exists()&&!marker.delete())throw new IOException("Old audio marker could not be cleared");
+        if(!tmp.renameTo(marker))throw new IOException("Audio marker could not be installed");
     }
     private static void delete(File f){if(f!=null&&f.exists())f.delete();}
 }
