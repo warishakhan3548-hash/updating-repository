@@ -22,7 +22,7 @@ final class ContentStore implements AutoCloseable {
         Word(Cursor c){id=c.getString(0);ayahId=c.getString(1);position=c.getInt(2);start=c.getInt(3);end=c.getInt(4);
             arabic=c.getString(5);surface=c.getString(6);en=c.getString(7);hi=c.getString(8);ur=c.getString(9);
             transliteration=c.getString(10);source=c.getString(11);state=c.getString(12);}
-        String gloss(String lang){String result="hi".equals(lang)?hi:"ur".equals(lang)?ur:en;return result==null?"Is lafz ka aligned source meaning abhi nahi hai.":result;}
+        String gloss(String lang){String result="hi".equals(lang)?hi:"ur".equals(lang)?ur:en;return result==null?"No aligned source meaning is available for this word yet.":result;}
         boolean hasGloss(){return "SOURCE_ALIGNED".equals(state)&&en!=null;}
     }
     private final SQLiteDatabase db;
