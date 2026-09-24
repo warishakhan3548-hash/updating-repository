@@ -302,6 +302,8 @@ final class Glass {
                 case "share":c.drawCircle(5,12,2,p);c.drawCircle(19,5,2,p);c.drawCircle(19,19,2,p);c.drawLine(7,11,17,6,p);c.drawLine(7,13,17,18,p);break;
                 case "speaker":a.moveTo(4,10);a.lineTo(8,10);a.lineTo(13,6);a.lineTo(13,18);a.lineTo(8,14);a.lineTo(4,14);a.close();c.drawPath(a,p);c.drawArc(14,8,20,16,-55,110,false,p);c.drawArc(14,5,23,19,-55,110,false,p);break;
                 case "moon":a.moveTo(17,3);a.cubicTo(5,1,1,17,12,21);a.cubicTo(18,23,22,18,22,14);a.cubicTo(13,18,9,8,17,3);c.drawPath(a,p);break;
+                case "plus":c.drawLine(12,4,12,20,p);c.drawLine(4,12,20,12,p);break;
+                case "repeat":c.drawArc(4,5,20,17,205,245,false,p);c.drawLine(5,7,5,3,p);c.drawLine(5,3,9,3,p);c.drawArc(4,7,20,19,25,245,false,p);c.drawLine(19,17,19,21,p);c.drawLine(19,21,15,21,p);break;
                 case "text":c.drawLine(4,6,14,6,p);c.drawLine(9,6,9,19,p);c.drawLine(17,10,21,10,p);c.drawLine(19,10,19,19,p);break;
                 default:for(int i=0;i<3;i++)c.drawCircle(5+i*7,12,0.7f,p);
             }c.restore();
