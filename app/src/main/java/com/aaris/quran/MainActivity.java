@@ -1239,21 +1239,22 @@ public final class MainActivity extends Activity {
             evidenceControls.clear();list.removeAllViews();
             int generation=searchGeneration.incrementAndGet();cancelSearchWork();if(debounce!=null)ui.removeCallbacks(debounce);
             String q=searchQuery.trim();if(q.isEmpty()){status.setText("Search offline, with or without Arabic vowel marks.");return;}
-            UnifiedQuery intent=UnifiedQuery.parse(q,searchScope);
-            String scope=intent.hadithQuery.collectionId!=null||intent.hadithQuery.sahihCollections?" · "+intent.hadithQuery.scopeLabel():"";
-            String correction=intent.hadithQuery.corrected?" · Book-name spelling adjusted":"";
-            status.setText("Searching offline"+scope+"…");
-            LinearLayout quranList=column(this),hadithList=column(this);list.addView(quranList);list.addView(hadithList);
-            final CancellationSignal signal=beginSearch(generation,status);
-            pendingCorpora=(intent.quran?1:0)+(intent.hadith?1:0);pendingSearchJobs=pendingCorpora;
-            Runnable finished=()->{
-                if(searchGeneration.get()!=generation||signal.isCanceled())return;
-                if(--pendingSearchJobs==0)finishSearch(signal);
-                if(--pendingCorpora==0){status.setText("Offline results"+scope+correction);}
-                else status.setText("Results arriving · Searching remaining collection…");
-            };
+            status.setText("Searching offline…");
             debounce=()->{
-                if(signal.isCanceled())return;
+                if(searchGeneration.get()!=generation||isDestroyed()||!searching)return;
+                UnifiedQuery intent=UnifiedQuery.parse(q,searchScope);
+                String scope=intent.hadithQuery.collectionId!=null||intent.hadithQuery.sahihCollections?" · "+intent.hadithQuery.scopeLabel():"";
+                String correction=intent.hadithQuery.corrected?" · Book-name spelling adjusted":"";
+                status.setText("Searching offline"+scope+"…");
+                LinearLayout quranList=column(this),hadithList=column(this);list.addView(quranList);list.addView(hadithList);
+                final CancellationSignal signal=beginSearch(generation,status);
+                pendingCorpora=(intent.quran?1:0)+(intent.hadith?1:0);pendingSearchJobs=pendingCorpora;
+                Runnable finished=()->{
+                    if(searchGeneration.get()!=generation||signal.isCanceled())return;
+                    if(--pendingSearchJobs==0)finishSearch(signal);
+                    if(--pendingCorpora==0){status.setText("Offline results"+scope+correction);}
+                    else status.setText("Results arriving · Searching remaining collection…");
+                };
                 if(intent.hadith)searchTask=app.searchWorker.submit(()->{
                     try {
                         HadithStore.SearchPage result=app.hadith==null?null:app.hadith.searchPage(q,50,0,signal);
