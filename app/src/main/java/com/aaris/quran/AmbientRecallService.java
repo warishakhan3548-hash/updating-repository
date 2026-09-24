@@ -49,7 +49,7 @@ public final class AmbientRecallService extends Service {
     }
     @Override public int onStartCommand(Intent intent,int flags,int startId){
         if(intent==null||STOP.equals(intent.getAction())){finish("Session stopped");return START_NOT_STICKY;}
-        if(!Settings.canDrawOverlays(this)){finish("Doosri apps par dikhane ki permission chahiye");return START_NOT_STICKY;}
+        if(!Settings.canDrawOverlays(this)){finish("Permission to display over other apps is required");return START_NOT_STICKY;}
         preview=intent.getBooleanExtra(PREVIEW,false);
         try {
             NotificationManager manager=getSystemService(NotificationManager.class);
@@ -70,7 +70,7 @@ public final class AmbientRecallService extends Service {
         return new Notification.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_recall_notification)
             .setContentTitle("Keep Quran in mind")
             .setContentText("Every "+AmbientSettings.minutes(this)+" minutes · Tap to stop")
-            .setSubText("Screen lock aur Aaris khulne par timer rukta hai")
+            .setSubText("Timer pauses on the lock screen and while Aaris is open")
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE)
             .addAction(new Notification.Action.Builder(null,"Stop session",stop).build()).build();
     }
