@@ -170,6 +170,45 @@ final class Glass {
 
                 // Distant mosque silhouette kept very faint so the page stays calm and readable.
                 drawMosqueSilhouette(canvas,w,h,Color.argb(Math.round(20*a),54,112,91),h*.63f);
+            }else if(appearance.scene==5){
+                // Moonlit Sapphire: saturated royal-blue night with white scripture and electric glass.
+                LinearGradient sapphire=new LinearGradient(0,0,w,h,
+                    new int[]{Color.argb(Math.round(86*a),8,49,111),Color.argb(Math.round(56*a),13,86,170),Color.TRANSPARENT},
+                    null,Shader.TileMode.CLAMP);
+                paint.setShader(sapphire);canvas.drawRect(0,0,w,h,paint);paint.setShader(null);
+
+                RadialGradient moon=new RadialGradient(w*.72f,h*.13f,Math.max(w,h)*.20f,
+                    new int[]{Color.argb(Math.round(104*a),244,250,255),Color.argb(Math.round(30*a),115,186,255),Color.TRANSPARENT},
+                    null,Shader.TileMode.CLAMP);
+                paint.setShader(moon);canvas.drawRect(0,0,w,h,paint);paint.setShader(null);
+
+                // Cool architectural arch and luminous cyan edge rhythm.
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1f,w*.0021f));
+                paint.setColor(Color.argb(Math.round(62*a),103,192,255));
+                float inset=w*.052f;
+                RectF arch=new RectF(inset,h*.045f,w-inset,h*.56f);
+                canvas.drawArc(arch,180,180,false,paint);
+                canvas.drawLine(inset,h*.30f,inset,h*.63f,paint);
+                canvas.drawLine(w-inset,h*.30f,w-inset,h*.63f,paint);
+
+                // Mosque silhouette and water reflection.
+                drawMosqueSilhouette(canvas,w,h,Color.argb(Math.round(104*a),2,26,61),h*.59f);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.argb(Math.round(38*a),116,190,255));
+                for(int i=0;i<5;i++){
+                    float y=h*(.69f+i*.038f);
+                    canvas.drawRoundRect(new RectF(w*.09f,y,w*.91f,y+h*.005f),w*.012f,w*.012f,paint);
+                }
+
+                // Warm lantern contrast from Image 1.
+                for(float x:new float[]{.08f,.91f}){
+                    RadialGradient lantern=new RadialGradient(w*x,h*.42f,w*.13f,
+                        new int[]{Color.argb(Math.round(86*a),255,191,92),Color.argb(Math.round(24*a),255,159,57),Color.TRANSPARENT},
+                        null,Shader.TileMode.CLAMP);
+                    paint.setShader(lantern);canvas.drawRect(0,0,w,h,paint);
+                }
+                paint.setShader(null);
             }
         }
         private void drawMosqueSilhouette(Canvas canvas,float w,float h,int color,float baseY){
@@ -216,9 +255,9 @@ final class Glass {
             if(fill==null||outer.isEmpty())return;
             int fillAlpha=opacity;
             if(!solid&&appearance.scene>0&&(kind==Kind.MUSHAF||kind==Kind.HERO)){
-                float sceneAlpha=appearance.scene==1?.88f:appearance.scene==3?.76f:appearance.scene==4?.92f:.80f;
+                float sceneAlpha=appearance.scene==1?.88f:appearance.scene==3?.76f:appearance.scene==4?.92f:appearance.scene==5?.74f:.80f;
                 fillAlpha=Math.round(opacity*sceneAlpha);
-            }else if(!solid&&(appearance.scene==2||appearance.scene==3)&&appearance.glass&&kind==Kind.PANEL)
+            }else if(!solid&&(appearance.scene==2||appearance.scene==3||appearance.scene==5)&&appearance.glass&&kind==Kind.PANEL)
                 fillAlpha=Math.round(opacity*.93f);
             p.setColor(Color.WHITE);p.setAlpha(fillAlpha);p.setStyle(Paint.Style.FILL);p.setShader(fill);
             canvas.drawRoundRect(outer,radius,radius,p);
