@@ -64,7 +64,7 @@ public final class QuranApp extends Application {
                     wordAudio=null;audio=null;audioDownloads=null;
                     wordAudioLoadError="Local Quran audio storage could not be opened: "+e.getMessage();
                 }
-            }catch(Exception e){loadError="Offline content khul nahi saka: "+e.getMessage();}
+            }catch(Exception e){loadError="Offline content could not be opened: "+e.getMessage();}
             finally{ready.countDown();}
         });
     }
