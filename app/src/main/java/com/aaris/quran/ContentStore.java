@@ -94,6 +94,20 @@ final class ContentStore implements AutoCloseable {
         try(Cursor c=db.rawQuery("SELECT * FROM word WHERE ayah_id=? ORDER BY start_cp",new String[]{ayahId})){while(c.moveToNext())list.add(new Word(c));}
         return list;
     }
+    Map<String,List<Word>> words(List<Ayah> ayahs) {
+        LinkedHashMap<String,List<Word>> out=new LinkedHashMap<>();
+        if(ayahs==null||ayahs.isEmpty())return out;
+        List<String> ids=new ArrayList<>();
+        for(Ayah ayah:ayahs)if(ayah!=null&&!out.containsKey(ayah.id)){out.put(ayah.id,new ArrayList<>());ids.add(ayah.id);}
+        if(ids.isEmpty())return out;
+        String marks=String.join(",",Collections.nCopies(ids.size(),"?"));
+        try(Cursor c=db.rawQuery("SELECT * FROM word WHERE ayah_id IN ("+marks+") ORDER BY ayah_id,start_cp",ids.toArray(new String[0]))){
+            while(c.moveToNext()){
+                Word word=new Word(c);List<Word> list=out.get(word.ayahId);if(list!=null)list.add(word);
+            }
+        }
+        return out;
+    }
     Word word(String id){try(Cursor c=db.rawQuery("SELECT * FROM word WHERE id=?",new String[]{id})){return c.moveToFirst()?new Word(c):null;}}
     Ayah contextFor(String id) {
         RecallTarget target=RecallTarget.parse(id);return target==null?null:ayah(target.ayahId);
