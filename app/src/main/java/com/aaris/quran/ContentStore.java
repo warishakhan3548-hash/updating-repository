@@ -149,10 +149,39 @@ final class ContentStore implements AutoCloseable {
     SearchEngine buildSearch(TranslationStore translations) {
         Map<String,String> meanings=translations==null?Collections.emptyMap():translations.searchText();
         List<SearchEngine.Document> rows=new ArrayList<>();
-        try(Cursor c=db.rawQuery("SELECT a.*,group_concat(COALESCE(w.gloss_en,'')||' '||COALESCE(w.gloss_hi,'')||' '||COALESCE(w.gloss_ur,'')||' '||COALESCE(w.transliteration,''),' '),group_concat(COALESCE(w.transliteration,''),' ') FROM ayah a LEFT JOIN word w ON w.ayah_id=a.id GROUP BY a.id ORDER BY a.ordinal",null)) {
-            while(c.moveToNext()){if(Thread.currentThread().isInterrupted())throw new java.util.concurrent.CancellationException();rows.add(new SearchEngine.Document(ayah(c),c.getString(6)+" "+meanings.getOrDefault(c.getString(0),""),c.getString(7)));}
+        // Keep source word order explicit. SQLite does not guarantee the input order of
+        // group_concat(), and continuity/phonetic ranking must never depend on query-plan luck.
+        try(Cursor c=db.rawQuery("SELECT a.id,a.surah,a.number,a.arabic,a.sha256,a.ordinal,"+
+                "w.gloss_en,w.gloss_hi,w.gloss_ur,w.transliteration "+
+                "FROM ayah a LEFT JOIN word w ON w.ayah_id=a.id "+
+                "ORDER BY a.ordinal,w.position,w.start_cp",null)) {
+            String currentId=null;Ayah current=null;
+            StringBuilder hints=new StringBuilder(),sounds=new StringBuilder();
+            while(c.moveToNext()){
+                if(Thread.currentThread().isInterrupted())throw new java.util.concurrent.CancellationException();
+                String id=c.getString(0);
+                if(currentId!=null&&!currentId.equals(id)){
+                    appendSearchText(hints,meanings.get(currentId));
+                    rows.add(new SearchEngine.Document(current,hints.toString(),sounds.toString()));
+                    hints.setLength(0);sounds.setLength(0);
+                }
+                if(!id.equals(currentId)){currentId=id;current=ayah(c);}
+                appendSearchText(hints,c.getString(6));
+                appendSearchText(hints,c.getString(7));
+                appendSearchText(hints,c.getString(8));
+                appendSearchText(sounds,c.getString(9));
+            }
+            if(currentId!=null){
+                appendSearchText(hints,meanings.get(currentId));
+                rows.add(new SearchEngine.Document(current,hints.toString(),sounds.toString()));
+            }
         }
         return new SearchEngine(rows);
+    }
+    private static void appendSearchText(StringBuilder out,String value){
+        if(value==null||value.trim().isEmpty())return;
+        if(out.length()>0)out.append(' ');
+        out.append(value);
     }
     String sources(){try(Cursor c=db.rawQuery("SELECT value FROM provenance WHERE key='attribution'",null)){return c.moveToFirst()?c.getString(0):"";}}
     @Override public void close(){db.close();}
