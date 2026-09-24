@@ -136,7 +136,7 @@ public final class AmbientRecallService extends Service {
                 });LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(col==0?0:dp(windowContext,6),0,0,dp(windowContext,6));ratings.addView(rating,p);}answer.addView(ratings);
             }
         });
-        TextView stop=text(windowContext,"Stop session",12,MUTED);stop.setGravity(Gravity.CENTER);stop.setMinimumHeight(dp(windowContext,44));stop.setFocusable(true);stop.setOnClickListener(v->finish("Session stopped"));shell.addView(stop,new LinearLayout.LayoutParams(-1,-2));
+        TextView stop=text(windowContext,"Stop session",12,MUTED);stop.setGravity(Gravity.CENTER);pad(stop,12,8);stop.setMinimumHeight(dp(windowContext,48));stop.setBackground(Glass.touch(windowContext,Surface.Kind.BUTTON,true));stop.setFocusable(true);stop.setOnClickListener(v->finish("Session stopped"));Glass.motion(stop);shell.addView(stop,new LinearLayout.LayoutParams(-1,-2));
         int width=Math.min(dp(windowContext,410),displayWidth()-dp(windowContext,32));
         WindowManager.LayoutParams params=new WindowManager.LayoutParams(width,WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -149,7 +149,7 @@ public final class AmbientRecallService extends Service {
     private int displayHeight(){return Build.VERSION.SDK_INT>=30?windows.getCurrentWindowMetrics().getBounds().height():windowContext.getResources().getDisplayMetrics().heightPixels;}
     private String cue(String source){String[] words=source.split("\\s+");return String.join(" ",Arrays.copyOf(words,Math.min(2,words.length)))+" …";}
     private TextView arabic(String value,int size){ArabicText t=new ArabicText(windowContext);t.setText(value);t.setTextSize(size);t.setReliefEnabled(!Boolean.parseBoolean(app.learning.get("contrast","false")));t.setTypeface(Appearance.load(this).typeface(this));t.setTextDirection(View.TEXT_DIRECTION_RTL);t.setGravity(Gravity.CENTER);t.setLineSpacing(dp(windowContext,8),1.05f);return t;}
-    private TextView control(String value,Runnable action){TextView t=text(windowContext,value,14,INK);t.setGravity(Gravity.CENTER);pad(t,12,10);t.setMinimumHeight(dp(windowContext,48));t.setBackground(Glass.touch(windowContext,Surface.Kind.BUTTON,true));t.setFocusable(true);t.setOnClickListener(v->action.run());return t;}
+    private TextView control(String value,Runnable action){TextView t=text(windowContext,value,14,INK);t.setGravity(Gravity.CENTER);pad(t,12,10);t.setMinimumHeight(dp(windowContext,48));t.setBackground(Glass.touch(windowContext,Surface.Kind.BUTTON,true));t.setFocusable(true);t.setOnClickListener(v->action.run());Glass.motion(t);return t;}
     private void dismissCard(){removeCard();session.dismiss(SystemClock.elapsedRealtime());handler.removeCallbacks(tick);handler.post(tick);}
     private void removeCard(){if(app!=null&&app.audio!=null)app.audio.stop();if(card!=null){try{windows.removeViewImmediate(card);}catch(IllegalArgumentException ignored){}card=null;}}
     private void finish(String message){session.stop();handler.removeCallbacksAndMessages(null);removeCard();app.ambientRunning=false;AmbientSettings.status(this,false,message);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
