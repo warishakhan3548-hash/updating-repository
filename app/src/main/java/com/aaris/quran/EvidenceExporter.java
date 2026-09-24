@@ -16,7 +16,7 @@ import java.util.zip.*;
 final class EvidenceExporter {
     static final class Bundle {String id,json,text;byte[] zip;}
     static Bundle build(Context context,ContentStore store,Collection<String> selection,String query,Map<String,JSONObject> traces) throws Exception {
-        if(selection.isEmpty()||selection.size()>50)throw new IllegalArgumentException("Choose 1–50 ayat");
+        if(selection.isEmpty()||selection.size()>50)throw new IllegalArgumentException("Choose 1–50 ayahs");
         Bundle out=new Bundle();out.id=UUID.randomUUID().toString();JSONArray records=new JSONArray();List<Ayah> ayahs=new ArrayList<>();
         String notice=ContentStore.asset(context,"licenses/TANZIL.txt");
         StringBuilder txt=new StringBuilder("AARIS QURAN — EVIDENCE SNAPSHOT\nBundle: "+out.id+"\nQuery: "+query+"\n\n"+References.reasoningPrompt()+"\n\n");
