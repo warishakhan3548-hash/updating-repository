@@ -332,9 +332,16 @@ final class Glass {
         view.setStateListAnimator(states);return view;
     }
     static <T extends View> T reveal(T view){
-        if(!motionEnabled()){view.animate().cancel();view.setAlpha(1f);view.setTranslationY(0f);return view;}
-        view.animate().cancel();view.setAlpha(.94f);view.setTranslationY(dp(view.getContext(),4));
+        if(!motionEnabled()){view.animate().cancel();view.setAlpha(1f);view.setTranslationX(0f);view.setTranslationY(0f);return view;}
+        view.animate().cancel();view.setTranslationX(0f);view.setAlpha(.94f);view.setTranslationY(dp(view.getContext(),4));
         view.animate().alpha(1f).translationY(0f).setDuration(145L).setInterpolator(new DecelerateInterpolator()).start();
+        return view;
+    }
+    static <T extends View> T revealHorizontal(T view,int direction){
+        if(!motionEnabled()){view.animate().cancel();view.setAlpha(1f);view.setTranslationX(0f);view.setTranslationY(0f);return view;}
+        view.animate().cancel();view.setTranslationY(0f);view.setAlpha(.96f);
+        view.setTranslationX((direction<0?-1:1)*dp(view.getContext(),12));
+        view.animate().alpha(1f).translationX(0f).setDuration(165L).setInterpolator(new DecelerateInterpolator()).start();
         return view;
     }
     static LinearLayout column(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.VERTICAL);return l;}

@@ -47,10 +47,46 @@ final class LearningStore extends SQLiteOpenHelper {
         if(cachedStates==null)cachedStates=Collections.unmodifiableMap(Recall.replay(events(),new Recall.ConservativeScheduler()));
         return cachedStates;
     }
+    private List<Recall.Event> events(Collection<String> targets){
+        LinkedHashSet<String> unique=new LinkedHashSet<>();
+        if(targets!=null)for(String target:targets)if(target!=null&&!target.isEmpty())unique.add(target);
+        if(unique.isEmpty())return Collections.emptyList();
+        // Keep the targeted fast path under SQLite's conservative bind-variable envelope.
+        // Reader pages are far smaller; unusually large callers safely fall back to the cached global projection.
+        if(unique.size()>400){
+            Set<String> wanted=new HashSet<>(unique);List<Recall.Event> filtered=new ArrayList<>();
+            for(Recall.Event event:events())if(wanted.contains(event.target))filtered.add(event);
+            return filtered;
+        }
+        String marks=String.join(",",Collections.nCopies(unique.size(),"?"));List<Recall.Event> list=new ArrayList<>();
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT id,target,kind,at,session,context,scheduler FROM event WHERE target IN ("+marks+") ORDER BY seq",unique.toArray(new String[0]))){
+            while(c.moveToNext())list.add(new Recall.Event(c.getString(0),c.getString(1),Recall.Kind.valueOf(c.getString(2)),c.getLong(3),c.getString(4),c.getString(5),c.getString(6)));
+        }
+        return list;
+    }
+    synchronized Map<String,Recall.State> states(Collection<String> targets){
+        LinkedHashSet<String> unique=new LinkedHashSet<>();
+        if(targets!=null)for(String target:targets)if(target!=null&&!target.isEmpty())unique.add(target);
+        if(unique.isEmpty())return Collections.emptyMap();
+        Map<String,Recall.State> source=cachedStates!=null?cachedStates:Recall.replay(events(unique),new Recall.ConservativeScheduler());
+        LinkedHashMap<String,Recall.State> result=new LinkedHashMap<>();
+        for(String target:unique){Recall.State state=source.get(target);if(state!=null)result.put(target,state);}
+        return Collections.unmodifiableMap(result);
+    }
     String get(String key,String fallback) {
         try(Cursor c=getReadableDatabase().rawQuery("SELECT value FROM setting WHERE key=?",new String[]{key})){return c.moveToFirst()?c.getString(0):fallback;}
     }
-    synchronized void set(String key,String value){ContentValues v=new ContentValues();v.put("key",key);v.put("value",value);getWritableDatabase().insertWithOnConflict("setting",null,v,SQLiteDatabase.CONFLICT_REPLACE);}
+    private static void putSetting(SQLiteDatabase db,String key,String value){
+        ContentValues v=new ContentValues();v.put("key",key);v.put("value",value);
+        db.insertWithOnConflict("setting",null,v,SQLiteDatabase.CONFLICT_REPLACE);
+    }
+    synchronized void set(String key,String value){putSetting(getWritableDatabase(),key,value);}
+    synchronized void setReadingPosition(String position,String anchor){
+        if(position==null||anchor==null)throw new IllegalArgumentException("Reading position is required");
+        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
+        try{putSetting(db,"position",position);putSetting(db,"reader_anchor",anchor);db.setTransactionSuccessful();}
+        finally{db.endTransaction();}
+    }
     /** Explicit query-to-record shortcuts, scoped to the immutable pack; never corpus edits. */
     synchronized void confirmSearch(String scope,String pack,String query,String target){
         String key=com.aaris.quran.core.TextMatch.normalize(query);

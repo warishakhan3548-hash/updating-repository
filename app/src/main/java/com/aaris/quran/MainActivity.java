@@ -34,6 +34,7 @@ public final class MainActivity extends Activity {
     private LinearLayout layout,body,header,bottom;
     private Glass.Backdrop backdrop;
     private int tab=1,readerSurah=1,readerStart=1;
+    private int readerRevealDirection;
     private boolean reading=true,searching=false,highContrast=false,quietReader=false;
     private float arabicSize=32;
     private String language="hi",selectedWordId="";
@@ -120,7 +121,7 @@ public final class MainActivity extends Activity {
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
     @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putBoolean("ambient_open_other_apps",openOtherAppsAfterAmbientStart);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putBoolean("search_open",searching);state.putInt("search_scope",searchScope);state.putString("hadith_query",hadithQuery);state.putInt("voice_scope",pendingVoiceScope);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
     @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
-    @Override protected void onPause(){resumed=false;captureReaderPosition();if(learning!=null&&readingPosition!=null){learning.set("reader_anchor",readingPosition.encode());learning.set("position",readingPosition.anchorId);}super.onPause();}
+    @Override protected void onPause(){resumed=false;captureReaderPosition();if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onPause();}
     @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void show(){
@@ -134,7 +135,9 @@ public final class MainActivity extends Activity {
         bottom=row(this);pad(bottom,6,5);bottom.setBackground(new Surface(this,Surface.Kind.NAV,highContrast));LinearLayout.LayoutParams navSize=new LinearLayout.LayoutParams(-1,-2);navSize.setMargins(dp(this,16),dp(this,6),dp(this,16),dp(this,10));layout.addView(bottom,navSize);
         if(tab==0)today();else if(tab==1){if(reading)reader();else library();}else if(tab==2)hadithLibrary();else map();
         nav("sun","Today",0);nav("book","Quran",1);nav("hadith","Hadith",2);nav("cards","Recall",3);
-        Glass.reveal(body);
+        if(tab==1&&reading&&readerRevealDirection!=0){
+            int direction=readerRevealDirection;readerRevealDirection=0;Glass.revealHorizontal(body,direction);
+        }else{readerRevealDirection=0;Glass.reveal(body);}
     }
     private void nav(String icon,String title,int index){
         LinearLayout v=column(this);v.setGravity(Gravity.CENTER);pad(v,4,7);
@@ -555,16 +558,16 @@ public final class MainActivity extends Activity {
         }));
         fill.run();
     }
-    private void open(int surah,int ayah){readerScroll=null;readerVerses.clear();readerSurah=Math.max(1,Math.min(114,surah));readerStart=Math.max(1,Math.min(content.surah(readerSurah).count,ayah));reading=true;tab=1;String id="Q:"+readerSurah+":"+readerStart;readingPosition=new ReadingPosition(id,id,0,0,true);learning.set("position",id);learning.set("reader_anchor",readingPosition.encode());hideKeyboard();show();}
+    private void open(int surah,int ayah){readerScroll=null;readerVerses.clear();readerSurah=Math.max(1,Math.min(114,surah));readerStart=Math.max(1,Math.min(content.surah(readerSurah).count,ayah));reading=true;tab=1;String id="Q:"+readerSurah+":"+readerStart;readingPosition=new ReadingPosition(id,id,0,0,true);learning.setReadingPosition(id,readingPosition.encode());hideKeyboard();show();}
     private boolean moveReaderPage(int direction){
         if(direction<0){
-            if(readerStart>1){open(readerSurah,Math.max(1,readerStart-8));return true;}
-            if(readerSurah>1){int previous=readerSurah-1;open(previous,Math.max(1,content.surah(previous).count-7));return true;}
+            if(readerStart>1){readerRevealDirection=-1;open(readerSurah,Math.max(1,readerStart-8));return true;}
+            if(readerSurah>1){int previous=readerSurah-1;readerRevealDirection=-1;open(previous,Math.max(1,content.surah(previous).count-7));return true;}
             return false;
         }
         ContentStore.Surah current=content.surah(readerSurah);
-        if(readerStart+8<=current.count){open(readerSurah,readerStart+8);return true;}
-        if(readerSurah<114){open(readerSurah+1,1);return true;}
+        if(readerStart+8<=current.count){readerRevealDirection=1;open(readerSurah,readerStart+8);return true;}
+        if(readerSurah<114){readerRevealDirection=1;open(readerSurah+1,1);return true;}
         return false;
     }
     private void enableReaderSwipe(){
@@ -600,7 +603,9 @@ public final class MainActivity extends Activity {
         List<String> pageIds=new ArrayList<>();for(Ayah a:ayahs)pageIds.add(a.id);
         Map<String,TranslationStore.Entry> pageTranslations=app.translations==null?Collections.emptyMap():app.translations.get(translationId,pageIds);
         Set<String> pageBookmarks=learning.bookmarks(pageIds);
-        Map<String,Recall.State> learningStates=learning.states();long recallNow=System.currentTimeMillis();
+        List<String> pageWordIds=new ArrayList<>();
+        for(List<ContentStore.Word> words:pageWords.values())for(ContentStore.Word word:words)pageWordIds.add(word.id);
+        Map<String,Recall.State> learningStates=learning.states(pageWordIds);long recallNow=System.currentTimeMillis();
         for(Ayah a:ayahs){
             LinearLayout panel=card(page,Surface.Kind.MUSHAF);
             View.OnLongClickListener ayahLongPress=v->{v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);ayahActions(a);return true;};
