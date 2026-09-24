@@ -62,6 +62,18 @@ final class TranslationStore implements AutoCloseable {
     Edition edition(String id){for(Edition e:editions)if(e.id.equals(id))return e;return null;}
     private static LinkedHashSet<String> columns(SQLiteDatabase db,String table){LinkedHashSet<String> result=new LinkedHashSet<>();try(Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null)){while(c.moveToNext())result.add(c.getString(1));}return result;}
     Entry get(String editionId,String ayahId){Edition edition=edition(editionId);if(edition==null)return null;try(Cursor c=db.rawQuery("SELECT text,footnotes FROM translation WHERE edition_id=? AND ayah_id=?",new String[]{edition.id,ayahId})){return c.moveToFirst()?new Entry(edition,c.getString(0),c.getString(1)):null;}}
+    Map<String,Entry> get(String editionId,Collection<String> ayahIds){
+        LinkedHashMap<String,Entry> out=new LinkedHashMap<>();Edition edition=edition(editionId);
+        if(edition==null||ayahIds==null||ayahIds.isEmpty())return out;
+        LinkedHashSet<String> unique=new LinkedHashSet<>();for(String id:ayahIds)if(id!=null&&!id.isEmpty())unique.add(id);
+        if(unique.isEmpty())return out;
+        List<String> args=new ArrayList<>();args.add(edition.id);args.addAll(unique);
+        String marks=String.join(",",Collections.nCopies(unique.size(),"?"));
+        try(Cursor c=db.rawQuery("SELECT ayah_id,text,footnotes FROM translation WHERE edition_id=? AND ayah_id IN ("+marks+")",args.toArray(new String[0]))){
+            while(c.moveToNext())out.put(c.getString(0),new Entry(edition,c.getString(1),c.getString(2)));
+        }
+        return out;
+    }
     Map<String,String> searchText(){Map<String,StringBuilder> builders=new HashMap<>();try(Cursor c=db.rawQuery("SELECT ayah_id,text FROM translation ORDER BY edition_id,ayah_id",null)){while(c.moveToNext())builders.computeIfAbsent(c.getString(0),k->new StringBuilder()).append(c.getString(1)).append(' ');}Map<String,String> result=new HashMap<>();for(Map.Entry<String,StringBuilder> e:builders.entrySet())result.put(e.getKey(),e.getValue().toString());return result;}
     public void close(){db.close();}
 }
