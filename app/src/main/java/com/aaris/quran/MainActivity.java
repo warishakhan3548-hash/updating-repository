@@ -527,7 +527,7 @@ public final class MainActivity extends Activity {
             if(!q.isEmpty()&&!searchable.contains(q))continue;
             LinearLayout row=Glass.row(this);pad(row,16,14);row.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));
             TextView number=text(this,String.format(Locale.ROOT,"%02d",s.id),13,GOLD);row.addView(number,new LinearLayout.LayoutParams(dp(this,38),-2));
-            LinearLayout names=column(this);names.addView(text(this,s.name,17,INK));names.addView(text(this,s.count+" ayat · "+s.meaning,11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+            LinearLayout names=column(this);names.addView(text(this,s.name,17,INK));names.addView(text(this,s.count+" ayahs · "+s.meaning,11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
             TextView ar=arabic(s.arabic,24);row.addView(ar,new LinearLayout.LayoutParams(-2,-2));row.setContentDescription(s.name+", "+s.count+" ayat");row.setFocusable(true);row.setOnClickListener(v->open(s.id,1));Glass.motion(row);
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,10);list.addView(row,lp);
         }};filter.addTextChangedListener(watcher(fill));fill.run();
