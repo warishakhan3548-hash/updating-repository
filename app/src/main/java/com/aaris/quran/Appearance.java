@@ -10,7 +10,7 @@ import java.util.Map;
 
 /** One persisted visual model for the reader, sheets, navigation and recall surfaces. */
 final class Appearance {
-    static final String[] PRESETS={"Moonlit Emerald","Light Parchment"};
+    static final String[] PRESETS={"Moonlit Emerald","Light Parchment","Rose Dusk"};
     static final String[] FONTS={"Amiri Quran","Amiri Naskh","Amiri Naskh Bold","Scheherazade New","Lateef","Harmattan","Noto Naskh Arabic","Noto Kufi Arabic"};
     private static final String[] FONT_FILES={"AmiriQuran.ttf","Amiri-Regular.ttf","Amiri-Bold.ttf","ScheherazadeNew-Regular.ttf","Lateef-Regular.ttf","Harmattan-Regular.ttf","NotoNaskhArabic.ttf","NotoKufiArabic.ttf"};
     int background=0xff021411,surface=0xff0b2a24,accent=0xffd8ba72,arabic=0xffffedcf,translation=0xffeee5d7,appText=0xfff5eddf;
@@ -32,7 +32,7 @@ final class Appearance {
             a.arabicOpacity=bound(j.optInt("arabicOpacity",100),20,100);a.translationOpacity=bound(j.optInt("translationOpacity",100),20,100);
             a.glassStrength=bound(j.optInt("glassStrength",100),0,100);a.borderStrength=bound(j.optInt("borderStrength",100),0,100);a.glow=bound(j.optInt("glow",0),0,30);
             a.textDepth=bound(j.optInt("textDepth",0),0,12);a.shadowSoftness=bound(j.optInt("shadowSoftness",4),0,16);
-            a.scene=bound(j.optInt("scene",0),0,2);a.sceneStrength=bound(j.optInt("sceneStrength",100),0,100);
+            a.scene=bound(j.optInt("scene",0),0,3);a.sceneStrength=bound(j.optInt("sceneStrength",100),0,100);
             a.shadowStrength=bound(j.optInt("shadowStrength",0),0,70);a.textSheen=bound(j.optInt("textSheen",50),0,100);
             a.buttonColor=j.optInt("buttonColor",a.surface)|0xff000000;a.customButtons=j.optBoolean("customButtons",false);
             a.gradientEnd=j.optInt("gradientEnd",a.background)|0xff000000;a.gradient=j.optBoolean("gradient",false);a.reducedEffects=j.optBoolean("reducedEffects",false);
@@ -40,7 +40,7 @@ final class Appearance {
             a.appText=j.has("appText")?(j.optInt("appText",a.appText)|0xff000000):a.autoAppText();
         }catch(Exception ignored){}return a;
     }
-    String encode(){try{return new JSONObject().put("version",5).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation).put("appText",appText)
+    String encode(){try{return new JSONObject().put("version",6).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation).put("appText",appText)
         .put("font",font).put("size",arabicSize).put("translationSize",translationSize).put("spacing",spacing).put("opacity",opacity).put("corners",corners)
         .put("arabicOpacity",arabicOpacity).put("translationOpacity",translationOpacity).put("glassStrength",glassStrength).put("borderStrength",borderStrength).put("glow",glow)
         .put("textDepth",textDepth).put("shadowSoftness",shadowSoftness).put("shadowStrength",shadowStrength).put("textSheen",textSheen).put("buttonColor",buttonColor).put("customButtons",customButtons)
@@ -55,19 +55,28 @@ final class Appearance {
         textDepth=1;shadowSoftness=6;shadowStrength=10;textSheen=30;customButtons=true;
         reducedEffects=false;sceneStrength=100;
         switch(i){
-            case 0: // Approved design #5: cinematic moonlit emerald.
+            case 0: // Moonlit Emerald: deep green night, ivory Quran ink and warm lantern gold.
                 palette(0xff021411,0xff0b2a24,0xffd8ba72,0xffffedcf,0xffeee5d7,0xff073c34);
                 appText=0xfff5eddf;buttonColor=0xff103a32;
                 glass=true;textGlass=true;gradient=true;scene=2;opacity=86;
                 glassStrength=90;borderStrength=68;glow=2;textSheen=34;
                 shadowStrength=14;shadowSoftness=6;corners=30;
                 break;
-            default: // Approved design #4: warm courtyard parchment.
-                palette(0xfff5eddd,0xfffff9ed,0xff17634f,0xff103e32,0xff3f3a31,0xffe8dbc1);
-                appText=0xff17372f;buttonColor=0xfff2e7d3;
+            case 1: // Image 3: warm parchment courtyard with dark emerald Quran text.
+                palette(0xffe8c991,0xffffefd0,0xffb9852e,0xff123b2c,0xff39412d,0xfff6e3b5);
+                appText=0xff17372f;buttonColor=0xfff4dfb7;
+                font=0;arabicSize=38;translationSize=18;spacing=11;
                 glass=false;textGlass=false;gradient=true;scene=1;opacity=97;
-                glassStrength=18;borderStrength=34;glow=0;textSheen=0;
-                textDepth=0;shadowStrength=0;shadowSoftness=3;corners=24;
+                glassStrength=12;borderStrength=46;glow=0;textSheen=0;
+                textDepth=0;shadowStrength=0;shadowSoftness=3;corners=28;
+                break;
+            default: // Image 5: rose-burgundy dusk with sunset glow and warm cream scripture.
+                palette(0xff241116,0xff552a36,0xffff9d8b,0xffffecdc,0xffffe5df,0xff6a2d3b);
+                appText=0xffffeee9;buttonColor=0xff5d2c38;
+                font=0;arabicSize=37;translationSize=18;spacing=11;
+                glass=true;textGlass=true;gradient=true;scene=3;opacity=84;
+                glassStrength=88;borderStrength=62;glow=1;textSheen=24;
+                textDepth=1;shadowStrength=13;shadowSoftness=6;corners=30;
                 break;
         }
         name=PRESETS[i];
