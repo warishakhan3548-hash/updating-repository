@@ -10,7 +10,7 @@ import java.util.Map;
 
 /** One persisted visual model for the reader, sheets, navigation and recall surfaces. */
 final class Appearance {
-    static final String[] PRESETS={"Moonlit Emerald","Light Parchment","Rose Dusk","Ivory Mint"};
+    static final String[] PRESETS={"Moonlit Emerald","Light Parchment","Rose Dusk","Ivory Mint","Moonlit Sapphire"};
     static final String[] FONTS={"Amiri Quran","Amiri Naskh","Amiri Naskh Bold","Scheherazade New","Lateef","Harmattan","Noto Naskh Arabic","Noto Kufi Arabic"};
     private static final String[] FONT_FILES={"AmiriQuran.ttf","Amiri-Regular.ttf","Amiri-Bold.ttf","ScheherazadeNew-Regular.ttf","Lateef-Regular.ttf","Harmattan-Regular.ttf","NotoNaskhArabic.ttf","NotoKufiArabic.ttf"};
     int background=0xff021411,surface=0xff0b2a24,accent=0xffd8ba72,arabic=0xffffedcf,translation=0xffeee5d7,appText=0xfff5eddf;
@@ -32,7 +32,7 @@ final class Appearance {
             a.arabicOpacity=bound(j.optInt("arabicOpacity",100),20,100);a.translationOpacity=bound(j.optInt("translationOpacity",100),20,100);
             a.glassStrength=bound(j.optInt("glassStrength",100),0,100);a.borderStrength=bound(j.optInt("borderStrength",100),0,100);a.glow=bound(j.optInt("glow",0),0,30);
             a.textDepth=bound(j.optInt("textDepth",0),0,12);a.shadowSoftness=bound(j.optInt("shadowSoftness",4),0,16);
-            a.scene=bound(j.optInt("scene",0),0,4);a.sceneStrength=bound(j.optInt("sceneStrength",100),0,100);
+            a.scene=bound(j.optInt("scene",0),0,5);a.sceneStrength=bound(j.optInt("sceneStrength",100),0,100);
             a.shadowStrength=bound(j.optInt("shadowStrength",0),0,70);a.textSheen=bound(j.optInt("textSheen",50),0,100);
             a.buttonColor=j.optInt("buttonColor",a.surface)|0xff000000;a.customButtons=j.optBoolean("customButtons",false);
             a.gradientEnd=j.optInt("gradientEnd",a.background)|0xff000000;a.gradient=j.optBoolean("gradient",false);a.reducedEffects=j.optBoolean("reducedEffects",false);
@@ -40,7 +40,7 @@ final class Appearance {
             a.appText=j.has("appText")?(j.optInt("appText",a.appText)|0xff000000):a.autoAppText();
         }catch(Exception ignored){}return a;
     }
-    String encode(){try{return new JSONObject().put("version",7).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation).put("appText",appText)
+    String encode(){try{return new JSONObject().put("version",8).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation).put("appText",appText)
         .put("font",font).put("size",arabicSize).put("translationSize",translationSize).put("spacing",spacing).put("opacity",opacity).put("corners",corners)
         .put("arabicOpacity",arabicOpacity).put("translationOpacity",translationOpacity).put("glassStrength",glassStrength).put("borderStrength",borderStrength).put("glow",glow)
         .put("textDepth",textDepth).put("shadowSoftness",shadowSoftness).put("shadowStrength",shadowStrength).put("textSheen",textSheen).put("buttonColor",buttonColor).put("customButtons",customButtons)
@@ -78,13 +78,21 @@ final class Appearance {
                 glassStrength=90;borderStrength=66;glow=1;textSheen=26;
                 textDepth=1;shadowStrength=14;shadowSoftness=6;corners=30;
                 break;
-            default: // Selected Image 5: airy ivory/mint daylight with botanical calm.
+            case 3: // Selected Image 5: airy ivory/mint daylight with botanical calm.
                 palette(0xfff3f2e8,0xfffbfaf2,0xff2c8b6f,0xff07483b,0xff445c52,0xffe6eee3);
                 appText=0xff123f35;buttonColor=0xffedf3e9;
                 font=0;arabicSize=38;translationSize=18;spacing=12;
                 glass=false;textGlass=false;gradient=true;scene=4;opacity=97;
                 glassStrength=10;borderStrength=30;glow=0;textSheen=0;
                 textDepth=0;shadowStrength=0;shadowSoftness=3;corners=28;
+                break;
+            default: // Selected blue Image 1: sapphire night, white scripture, luminous blue glass.
+                palette(0xff03162f,0xff0b3f7a,0xff58b8ff,0xffffffff,0xffe7f3ff,0xff062656);
+                appText=0xfff5fbff;buttonColor=0xff0b4a8f;
+                font=0;arabicSize=39;translationSize=18;spacing=12;
+                glass=true;textGlass=true;gradient=true;scene=5;opacity=79;
+                glassStrength=94;borderStrength=86;glow=2;textSheen=28;
+                textDepth=1;shadowStrength=16;shadowSoftness=7;corners=30;
                 break;
         }
         name=PRESETS[i];
