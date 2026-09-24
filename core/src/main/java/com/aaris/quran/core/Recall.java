@@ -28,7 +28,7 @@ public final class Recall {
         public boolean active;
         public final Set<String> successfulContexts=new HashSet<>();
         public State(String target){this.target=target;}
-        public String label(){return reviews==0?"Shuruaat":successes>=4&&successfulContexts.size()>=2?"Mazboot":lapses>successes?"Dobara dekhein":"Seekh rahe hain";}
+        public String label(){return reviews==0?"New":successes>=4&&successfulContexts.size()>=2?"Strong":lapses>successes?"Needs review":"Learning";}
     }
     public interface Scheduler {
         long nextInterval(State before,Kind rating);String version();
