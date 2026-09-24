@@ -38,7 +38,7 @@ public final class HadithQuery {
     public static HadithQuery parse(String value){return parse(value,Collections.emptyMap());}
     /** Installed names supplement known multilingual aliases, so new packs remain searchable. */
     public static HadithQuery parse(String value,Map<String,String> installedAliases){
-        String raw=value==null?"":value.trim(),query=TextMatch.normalize(raw);
+        String raw=value==null?"":value.trim();if(raw.length()>2&&(raw.charAt(0)=='h'||raw.charAt(0)=='H')&&raw.charAt(1)==':')raw="H:"+raw.substring(2);String query=TextMatch.normalize(raw);
         // Keyboard input often joins the title and number: Bukhari556 / बुखारी५५६.
         query=query.replaceAll("(?<=[\\p{L}\\p{M}])(?=[0-9])", " ");
         Map<String,String> aliases=new LinkedHashMap<>(ALIASES);
