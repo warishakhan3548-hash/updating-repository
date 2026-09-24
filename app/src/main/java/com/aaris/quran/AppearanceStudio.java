@@ -136,11 +136,11 @@ final class AppearanceStudio {
         card.setContentDescription(label+" appearance preset"+(selected?", selected":""));card.setTooltipText(label);
         card.setSelected(selected);card.setFocusable(true);card.setClickable(true);card.setOnClickListener(v->run.run());return card;
     }
-    private static final String[] LAYER_NAMES={"Screen","Cards","Arabic text","Translation","Buttons","Gradient","Highlights"};
+    private static final String[] LAYER_NAMES={"Screen","Cards","Arabic text","Translation","Buttons","Gradient","Highlights","App Text"};
     private static final String[] LAYER_HELP={
-        "Whole background","Card tint and glass","Arabic text only","Translated text only","Button fill color","Second gradient color","Icons, borders and highlights"
+        "Whole background","Card tint and glass","Arabic text only","Translated text only","Button fill color","Second gradient color","Icons, borders and highlights","Headings, labels and normal app text"
     };
-    private static final String[] LAYER_ICONS={"sun","cards","book","copy","settings","moon","sun"};
+    private static final String[] LAYER_ICONS={"sun","cards","book","copy","settings","moon","sun","text"};
     private View layerCard(int index){
         boolean selected=layer==index;int base=selected?Appearance.mix(style.effectiveSurface(),style.accent,.16f):style.effectiveSurface();
         LinearLayout card=row(activity);pad(card,9,5);card.setTag("keepColor");card.setGravity(Gravity.CENTER_VERTICAL);
@@ -240,8 +240,9 @@ final class AppearanceStudio {
             for(int j=0;j<2;j++){
                 View card=layerCard(first+j);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,54),1);if(j==0)p.rightMargin=dp(activity,7);pair.addView(card,p);
             }
-            controls.addView(pair);if(first==0){View gap=new View(activity);controls.addView(gap,new LinearLayout.LayoutParams(1,dp(activity,7)));}
+            controls.addView(pair);View gap=new View(activity);controls.addView(gap,new LinearLayout.LayoutParams(1,dp(activity,7)));
         }
+        controls.addView(layerCard(7),new LinearLayout.LayoutParams(-1,dp(activity,54)));
 
         title("Color theme");
         int[] spectrum={0xffd64b5c,0xffe9853f,0xffe3bd38,0xff35a66f,0xff3f7ce8,0xff4d55b9,0xff9b63d7};
@@ -295,7 +296,7 @@ final class AppearanceStudio {
         LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(0,dp(activity,42),1);ep.leftMargin=dp(activity,6);
         effects.addView(compactChoice("Reduced effects",style.reducedEffects,()->{style.reducedEffects=!style.reducedEffects;commit();renderControls();}),ep);controls.addView(effects);
 
-        TextView advancedButton=action((advanced?"Hide":"Advanced"),()->{advanced=!advanced;if(!advanced&&layer>=4){layer=0;invalidateEditorColor();}renderControls();});
+        TextView advancedButton=action((advanced?"Hide":"Advanced"),()->{advanced=!advanced;if(!advanced&&(layer==4||layer==5||layer==6)){layer=0;invalidateEditorColor();}renderControls();});
         controls.addView(advancedButton);
         if(advanced){
             title("Advanced");
@@ -339,6 +340,6 @@ final class AppearanceStudio {
     }
     private interface Change{void set(int value);}
     private void slider(String label,int min,int max,int initial,Change change){TextView caption=text(activity,label+" · "+initial,13,INK);controls.addView(caption);SeekBar seek=new SeekBar(activity);seek.setMax(max-min);seek.setProgress(initial-min);seek.setContentDescription(label);seek.setMinimumHeight(dp(activity,48));controls.addView(seek);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int value,boolean user){if(!user||binding)return;change.set(min+value);style.name="My style";caption.setText(label+" · "+(min+value));refresh();}public void onStopTrackingTouch(SeekBar s){commit();}});}
-    private int color(){return layer==0?style.background:layer==1?style.surface:layer==2?style.arabic:layer==3?style.translation:layer==4?(style.customButtons?style.buttonColor:style.surface):layer==5?style.gradientEnd:style.accent;}
-    private void color(int color){if(layer==0)style.background=color;else if(layer==1)style.surface=color;else if(layer==2)style.arabic=color;else if(layer==3)style.translation=color;else if(layer==4){style.buttonColor=color;style.customButtons=true;}else if(layer==5)style.gradientEnd=color;else style.accent=color;}
+    private int color(){return layer==0?style.background:layer==1?style.surface:layer==2?style.arabic:layer==3?style.translation:layer==4?(style.customButtons?style.buttonColor:style.surface):layer==5?style.gradientEnd:layer==6?style.accent:style.appText;}
+    private void color(int color){if(layer==0)style.background=color;else if(layer==1)style.surface=color;else if(layer==2)style.arabic=color;else if(layer==3)style.translation=color;else if(layer==4){style.buttonColor=color;style.customButtons=true;}else if(layer==5)style.gradientEnd=color;else if(layer==6)style.accent=color;else style.appText=color;}
 }
