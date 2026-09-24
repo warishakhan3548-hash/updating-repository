@@ -49,12 +49,12 @@ final class QuranAudioDownloadManager {
     void downloadAll(Listener listener){
         if(!busy.compareAndSet(false,true)){postError(listener,0,"Audio download is already running");return;}
         cancel=false;io.execute(()->{
-            int completed=0,current=1;
+            int completed=store.installedCount(),current=1;
             try{
                 for(current=1;current<=114;current++){
                     if(cancel)throw new IOException("Download cancelled");
-                    if(!store.installedSurah(current))downloadOne(current);
-                    completed++;postProgress(listener,current,completed,114);
+                    if(store.installedSurah(current))continue;
+                    downloadOne(current);completed++;postProgress(listener,current,completed,114);
                 }
                 postComplete(listener);
             }catch(Exception e){postError(listener,current,safeMessage(e));}
