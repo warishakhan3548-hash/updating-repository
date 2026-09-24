@@ -1237,8 +1237,7 @@ public final class MainActivity extends Activity {
                 });
                 if(intent.quran)quranSearchTask=app.quranSearchWorker.submit(()->{
                     try {
-                        if(app.search==null)app.search=content.buildSearch(app.translations);
-                        final SearchEngine.Response result=app.search.search(intent.quranText,6236);
+                        final SearchEngine.Response result=app.searchIndex().search(intent.quranText,6236);
                         ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
                             quranList.addView(label("QURAN"));TextView qs=text(this,result.results.isEmpty()?"No Quran text match. Try a shorter phrase.":"",13,MUTED);quranList.addView(qs);gap(quranList,8);
                             showSearchShortcut(quranList,false,q);
