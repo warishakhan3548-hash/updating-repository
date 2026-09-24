@@ -48,7 +48,14 @@ final class AppearanceStudio {
         ArabicText arabic=new ArabicText(activity);arabic.setText(sample);arabic.setTypeface(style.typeface(activity));arabic.setTextSize(style.arabicSize);
         arabic.setTextDirection(View.TEXT_DIRECTION_RTL);arabic.setGravity(Gravity.CENTER);arabic.setLineSpacing(dp(activity,style.spacing),1.08f);arabic.setReliefEnabled(true);preview.addView(arabic);
         TextView translation=text(activity,translationSample,style.translationSize,style.translationInk());translation.setTextDirection(translationRtl?View.TEXT_DIRECTION_RTL:View.TEXT_DIRECTION_FIRST_STRONG);translation.setGravity(translationRtl?Gravity.RIGHT:Gravity.LEFT);preview.addView(translation);
-        LinearLayout actions=row(activity);for(String icon:new String[]{"play","bookmark","share"}){Glass.Icon v=new Glass.Icon(activity,icon);v.color=style.buttonInk();v.setBackground(Glass.touch(activity,Glass.Surface.Kind.BUTTON,false));actions.addView(v,new LinearLayout.LayoutParams(dp(activity,48),dp(activity,38)));}preview.addView(actions);
+        LinearLayout actions=row(activity);actions.setGravity(Gravity.LEFT);
+        for(String icon:new String[]{"play","bookmark","share"}){
+            FrameLayout chip=new FrameLayout(activity);chip.setBackground(Glass.touch(activity,Glass.Surface.Kind.BUTTON,false));
+            Glass.Icon v=new Glass.Icon(activity,icon);v.color=style.buttonInk();
+            chip.addView(v,new FrameLayout.LayoutParams(dp(activity,18),dp(activity,18),Gravity.CENTER));
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,36),dp(activity,32));p.rightMargin=dp(activity,6);actions.addView(chip,p);
+        }
+        preview.addView(actions);
         boolean adjusted=style.adjustedText();
         preview.addView(text(activity,adjusted?"Text contrast adjusted for readable letters":"Your colors · Clear letters · Offline fonts",11,MUTED));
         applyPreviewBackground();
@@ -152,7 +159,7 @@ final class AppearanceStudio {
         ring.setColor(0x00000000);ring.setStroke(dp(activity,selected?3:1),selected?style.accent:Appearance.mix(value,style.ink(),.22f));outer.setBackground(ring);
         TextView dot=text(activity,selected?"✓":"",15,Appearance.readable(0xfff7f8fa,value));dot.setTag("keepColor");dot.setGravity(Gravity.CENTER);
         android.graphics.drawable.GradientDrawable fill=new android.graphics.drawable.GradientDrawable();fill.setShape(android.graphics.drawable.GradientDrawable.OVAL);fill.setColor(value);dot.setBackground(fill);
-        FrameLayout.LayoutParams inner=new FrameLayout.LayoutParams(dp(activity,24),dp(activity,24),Gravity.CENTER);outer.addView(dot,inner);
+        FrameLayout.LayoutParams inner=new FrameLayout.LayoutParams(dp(activity,20),dp(activity,20),Gravity.CENTER);outer.addView(dot,inner);
         outer.setContentDescription(label+" color for "+LAYER_NAMES[layer]+(selected?", selected":""));outer.setTooltipText(label);outer.setOnClickListener(v->{chooseEditorColor(value);style.name="My style";commit();renderControls();});
         return outer;
     }
@@ -165,12 +172,23 @@ final class AppearanceStudio {
     private View quranWritingCard(int index,String label){
         boolean selected=style.font==index;Appearance sampleStyle=style.copy();sampleStyle.font=index;
         int base=selected?Appearance.mix(style.effectiveSurface(),style.accent,.14f):style.effectiveSurface();
-        LinearLayout card=column(activity);card.setTag("keepColor");card.setGravity(Gravity.CENTER);pad(card,6,5);
+        FrameLayout card=new FrameLayout(activity);card.setTag("keepColor");
         android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();bg.setColor(base);bg.setCornerRadius(dp(activity,16));
         bg.setStroke(dp(activity,selected?2:1),selected?style.accent:Appearance.mix(style.accent,style.effectiveSurface(),.72f));card.setBackground(bg);
-        TextView sample=text(activity,"الرَّحْمَٰنِ",21,Appearance.readable(style.arabic,base));sample.setTag("keepColor");sample.setTypeface(sampleStyle.typeface(activity));sample.setGravity(Gravity.CENTER);sample.setTextDirection(View.TEXT_DIRECTION_RTL);card.addView(sample,new LinearLayout.LayoutParams(-1,dp(activity,34)));
-        TextView name=text(activity,(selected?"✓ ":"")+label,11,Appearance.readable(selected?style.accent:style.ink(),base));name.setTag("keepColor");name.setGravity(Gravity.CENTER);card.addView(name,new LinearLayout.LayoutParams(-1,-2));
-        card.setContentDescription(label+" Arabic writing style"+(selected?", selected":""));card.setClickable(true);card.setFocusable(true);
+
+        TextView sample=text(activity,"بِسْمِ",23,Appearance.readable(style.arabic,base));sample.setTag("keepColor");
+        sample.setTypeface(sampleStyle.typeface(activity));sample.setGravity(Gravity.CENTER);sample.setTextDirection(View.TEXT_DIRECTION_RTL);
+        FrameLayout.LayoutParams sp=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);sp.setMargins(dp(activity,5),dp(activity,5),dp(activity,5),dp(activity,5));card.addView(sample,sp);
+
+        if(selected){
+            TextView check=text(activity,"✓",10,Appearance.readable(style.accent,base));check.setTag("keepColor");check.setGravity(Gravity.CENTER);
+            android.graphics.drawable.GradientDrawable badge=new android.graphics.drawable.GradientDrawable();badge.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            badge.setColor(Appearance.mix(style.accent,base,.18f));check.setBackground(badge);
+            FrameLayout.LayoutParams cp=new FrameLayout.LayoutParams(dp(activity,20),dp(activity,20),Gravity.TOP|Gravity.RIGHT);cp.setMargins(0,dp(activity,4),dp(activity,4),0);card.addView(check,cp);
+        }
+
+        card.setContentDescription(label+" Arabic writing style"+(selected?", selected":""));card.setTooltipText(label);
+        card.setClickable(true);card.setFocusable(true);card.setSelected(selected);
         card.setOnClickListener(v->{if(style.font!=index){style.font=index;commit();renderControls();}});
         return card;
     }
@@ -216,10 +234,17 @@ final class AppearanceStudio {
         int[] spectrum={0xffd64b5c,0xffe9853f,0xffe3bd38,0xff35a66f,0xff3f7ce8,0xff4d55b9,0xff9b63d7};
         String[] spectrumNames={"Red","Orange","Yellow","Green","Blue","Indigo","Violet"};
         int[] neutrals={0xff050505,0xff7d858c,0xfff7f8fa};String[] neutralNames={"Black","Gray","White"};
-        LinearLayout dots=row(activity);dots.setGravity(Gravity.CENTER);
-        for(int i=0;i<spectrum.length;i++){View dot=colorDot(spectrumNames[i],spectrum[i],false);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,31),dp(activity,31));p.rightMargin=dp(activity,3);dots.addView(dot,p);}
-        View divider=new View(activity);divider.setBackgroundColor(Appearance.mix(style.ink(),style.background,.72f));LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(dp(activity,1),dp(activity,26));dpv.leftMargin=dp(activity,5);dpv.rightMargin=dp(activity,5);dots.addView(divider,dpv);
-        for(int i=0;i<neutrals.length;i++){View dot=colorDot(neutralNames[i],neutrals[i],true);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,31),dp(activity,31));if(i<neutrals.length-1)p.rightMargin=dp(activity,4);dots.addView(dot,p);}
+        LinearLayout dots=row(activity);dots.setGravity(Gravity.CENTER);dots.setClipToPadding(false);
+        for(int i=0;i<spectrum.length;i++){
+            View dot=colorDot(spectrumNames[i],spectrum[i],false);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,27),dp(activity,27));if(i<spectrum.length-1)p.rightMargin=dp(activity,1);dots.addView(dot,p);
+        }
+        View divider=new View(activity);divider.setBackgroundColor(Appearance.mix(style.ink(),style.background,.72f));
+        LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(dp(activity,1),dp(activity,22));dpv.leftMargin=dp(activity,3);dpv.rightMargin=dp(activity,3);dots.addView(divider,dpv);
+        for(int i=0;i<neutrals.length;i++){
+            View dot=colorDot(neutralNames[i],neutrals[i],true);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,27),dp(activity,27));if(i<neutrals.length-1)p.rightMargin=dp(activity,1);dots.addView(dot,p);
+        }
         controls.addView(dots);
 
         title("Adjust");
@@ -233,11 +258,12 @@ final class AppearanceStudio {
         if(layer==1)compactSlider("Card opacity",25,100,style.opacity,v->style.opacity=v);
 
         title("Arabic writing · Quran + Hadith");
-        HorizontalScrollView writingScroll=new HorizontalScrollView(activity);writingScroll.setHorizontalScrollBarEnabled(false);
+        HorizontalScrollView writingScroll=new HorizontalScrollView(activity);writingScroll.setHorizontalScrollBarEnabled(false);writingScroll.setClipToPadding(false);
         LinearLayout writing=row(activity);
         String[] writingNames={"Mushaf","Amiri","Bold","Scheherazade","Lateef","Harmattan","Noto Naskh","Noto Kufi"};
         for(int i=0;i<Appearance.FONTS.length;i++){
-            View b=quranWritingCard(i,writingNames[i]);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,116),dp(activity,68));if(i<Appearance.FONTS.length-1)p.rightMargin=dp(activity,6);writing.addView(b,p);
+            View b=quranWritingCard(i,writingNames[i]);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,82),dp(activity,60));if(i<Appearance.FONTS.length-1)p.rightMargin=dp(activity,6);writing.addView(b,p);
         }
         writingScroll.addView(writing);controls.addView(writingScroll);
 
