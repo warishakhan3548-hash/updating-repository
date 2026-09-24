@@ -21,20 +21,93 @@ final class Glass {
     static final class Backdrop extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         boolean highContrast;
-        private Shader ambient,backgroundGradient;private int cachedAccent,cachedBackground,cachedEnd;
-        Backdrop(Context c){super(c);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
+        private final boolean preview;
+        private Shader ambient,backgroundGradient;private int cachedAccent,cachedBackground,cachedEnd,cachedScene,cachedStrength;
+        Backdrop(Context c){this(c,false);}
+        Backdrop(Context c,boolean preview){super(c);this.preview=preview;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
         @Override protected void onSizeChanged(int w,int h,int oldW,int oldH){
             super.onSizeChanged(w,h,oldW,oldH);
-            cachedAccent=appearance.accent;cachedBackground=appearance.background;cachedEnd=appearance.gradientEnd;
+            cachedAccent=appearance.accent;cachedBackground=appearance.background;cachedEnd=appearance.gradientEnd;cachedScene=appearance.scene;cachedStrength=appearance.sceneStrength;
             if(w>0&&h>0)backgroundGradient=new LinearGradient(0,0,w,h,new int[]{cachedBackground,cachedEnd},null,Shader.TileMode.CLAMP);
             if(w>0&&h>0)ambient=new RadialGradient(w*.55f,h*.26f,Math.max(w,h)*.65f,
                 new int[]{(appearance.accent&0xffffff)|0x14000000,appearance.accent&0xffffff},null,Shader.TileMode.CLAMP);
         }
         @Override protected void onDraw(Canvas canvas){
-            if(cachedAccent!=appearance.accent||cachedBackground!=appearance.background||cachedEnd!=appearance.gradientEnd)onSizeChanged(getWidth(),getHeight(),getWidth(),getHeight());
+            if(cachedAccent!=appearance.accent||cachedBackground!=appearance.background||cachedEnd!=appearance.gradientEnd||cachedScene!=appearance.scene||cachedStrength!=appearance.sceneStrength)onSizeChanged(getWidth(),getHeight(),getWidth(),getHeight());
             canvas.drawColor(BACKGROUND);
             if(!highContrast&&!appearance.reducedEffects&&appearance.gradient&&backgroundGradient!=null){paint.setShader(backgroundGradient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
             if(!highContrast&&!appearance.reducedEffects&&ambient!=null){paint.setShader(ambient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
+            if(!highContrast&&!appearance.reducedEffects&&appearance.scene>0)drawScene(canvas);
+        }
+        private void drawScene(Canvas canvas){
+            final int strength=Math.max(0,Math.min(100,appearance.sceneStrength));
+            final float a=(preview?1f:.42f)*(strength/100f);
+            final float w=getWidth(),h=getHeight();
+            paint.setShader(null);paint.setStyle(Paint.Style.FILL);
+
+            if(appearance.scene==1){
+                // Light Parchment: warm paper, sunlit arcade hints and quiet manuscript corners.
+                paint.setColor((int)(0x18*a*4)<<24|0x00b58b4f); // soft warm veil
+                paint.setColor(Color.argb(Math.round(20*a),181,139,79));
+                canvas.drawRect(0,0,w,h,paint);
+
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1f,w*.002f));
+                paint.setColor(Color.argb(Math.round(58*a),39,100,79));
+                float inset=w*.055f;
+                RectF arch=new RectF(inset,h*.05f,w-inset,h*.52f);
+                canvas.drawArc(arch,180,180,false,paint);
+                canvas.drawLine(inset,h*.285f,inset,h*.62f,paint);
+                canvas.drawLine(w-inset,h*.285f,w-inset,h*.62f,paint);
+
+                paint.setStrokeWidth(Math.max(1f,w*.0015f));
+                paint.setColor(Color.argb(Math.round(48*a),197,158,92));
+                float corner=w*.115f;
+                canvas.drawLine(inset,corner,inset+corner,corner,paint);
+                canvas.drawLine(w-inset-corner,corner,w-inset,corner,paint);
+
+                paint.setStyle(Paint.Style.FILL);
+                RadialGradient sun=new RadialGradient(w*.82f,h*.16f,Math.max(w,h)*.43f,
+                    new int[]{Color.argb(Math.round(72*a),255,247,222),Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                paint.setShader(sun);canvas.drawRect(0,0,w,h,paint);paint.setShader(null);
+
+                // Leaf-shadow rhythm, deliberately abstract so scripture stays the visual focus.
+                paint.setColor(Color.argb(Math.round(24*a),32,90,65));
+                for(int i=0;i<5;i++){
+                    float x=w*(.08f+i*.055f),y=h*(.17f+i*.035f);
+                    canvas.save();canvas.rotate(-28+i*7,x,y);
+                    canvas.drawOval(new RectF(x-w*.018f,y-h*.025f,x+w*.018f,y+h*.025f),paint);canvas.restore();
+                }
+            }else if(appearance.scene==2){
+                // Moonlit Emerald: deep arches, moon haze, lantern warmth and reflected light.
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1f,w*.0022f));
+                paint.setColor(Color.argb(Math.round(46*a),209,184,113));
+                float inset=w*.06f;
+                RectF arch=new RectF(inset,h*.045f,w-inset,h*.56f);
+                canvas.drawArc(arch,180,180,false,paint);
+                canvas.drawLine(inset,h*.30f,inset,h*.64f,paint);
+                canvas.drawLine(w-inset,h*.30f,w-inset,h*.64f,paint);
+
+                paint.setStyle(Paint.Style.FILL);
+                RadialGradient moon=new RadialGradient(w*.78f,h*.13f,Math.max(w,h)*.18f,
+                    new int[]{Color.argb(Math.round(66*a),221,235,229),Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                paint.setShader(moon);canvas.drawRect(0,0,w,h,paint);paint.setShader(null);
+
+                LinearGradient beam=new LinearGradient(w*.18f,0,w*.36f,h*.65f,
+                    new int[]{Color.argb(Math.round(34*a),236,211,152),Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                paint.setShader(beam);canvas.drawRect(0,0,w,h,paint);paint.setShader(null);
+
+                // Warm lantern pools; subtle on the full app, stronger in the live preview.
+                for(float x:new float[]{.12f,.88f}){
+                    RadialGradient lamp=new RadialGradient(w*x,h*.33f,w*.12f,
+                        new int[]{Color.argb(Math.round(72*a),236,179,88),Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                    paint.setShader(lamp);canvas.drawRect(0,0,w,h,paint);
+                }
+                paint.setShader(null);
+                paint.setColor(Color.argb(Math.round(30*a),193,216,205));
+                for(int i=0;i<4;i++)canvas.drawRoundRect(new RectF(w*.08f,h*(.71f+i*.045f),w*.92f,h*(.715f+i*.045f)),w*.01f,w*.01f,paint);
+            }
         }
     }
     static final class Surface extends Drawable {
