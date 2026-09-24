@@ -140,6 +140,36 @@ final class Glass {
                     paint.setShader(bloom);canvas.drawRect(0,0,w,h,paint);
                 }
                 paint.setShader(null);
+            }else if(appearance.scene==4){
+                // Ivory Mint: soft daylight, pale botanical corners and faint mosque architecture.
+                LinearGradient veil=new LinearGradient(0,0,w,h,
+                    new int[]{Color.argb(Math.round(46*a),255,255,248),Color.argb(Math.round(24*a),205,229,213),Color.TRANSPARENT},
+                    null,Shader.TileMode.CLAMP);
+                paint.setShader(veil);canvas.drawRect(0,0,w,h,paint);paint.setShader(null);
+
+                RadialGradient daylight=new RadialGradient(w*.72f,h*.18f,Math.max(w,h)*.48f,
+                    new int[]{Color.argb(Math.round(104*a),255,252,230),Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                paint.setShader(daylight);canvas.drawRect(0,0,w,h,paint);paint.setShader(null);
+
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1f,w*.0018f));
+                paint.setColor(Color.argb(Math.round(32*a),50,126,99));
+                float inset=w*.06f;
+                RectF arch=new RectF(inset,h*.055f,w-inset,h*.55f);
+                canvas.drawArc(arch,180,180,false,paint);
+
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.argb(Math.round(25*a),46,116,89));
+                float[][] leaves={{.06f,.15f,-30f},{.12f,.21f,-18f},{.91f,.12f,28f},{.85f,.20f,18f},{.10f,.73f,-18f},{.90f,.69f,22f}};
+                for(float[] leaf:leaves){
+                    float x=w*leaf[0],y=h*leaf[1];
+                    canvas.save();canvas.rotate(leaf[2],x,y);
+                    canvas.drawOval(new RectF(x-w*.020f,y-h*.030f,x+w*.020f,y+h*.030f),paint);
+                    canvas.restore();
+                }
+
+                // Distant mosque silhouette kept very faint so the page stays calm and readable.
+                drawMosqueSilhouette(canvas,w,h,Color.argb(Math.round(20*a),54,112,91),h*.63f);
             }
         }
         private void drawMosqueSilhouette(Canvas canvas,float w,float h,int color,float baseY){
@@ -186,7 +216,7 @@ final class Glass {
             if(fill==null||outer.isEmpty())return;
             int fillAlpha=opacity;
             if(!solid&&appearance.scene>0&&(kind==Kind.MUSHAF||kind==Kind.HERO)){
-                float sceneAlpha=appearance.scene==1?.88f:appearance.scene==3?.78f:.80f;
+                float sceneAlpha=appearance.scene==1?.88f:appearance.scene==3?.76f:appearance.scene==4?.92f:.80f;
                 fillAlpha=Math.round(opacity*sceneAlpha);
             }else if(!solid&&(appearance.scene==2||appearance.scene==3)&&appearance.glass&&kind==Kind.PANEL)
                 fillAlpha=Math.round(opacity*.93f);
