@@ -15,8 +15,10 @@ final class AppearanceStudio {
     private Appearance style;
     private final String sample,translationSample;
     private final boolean translationRtl;
-    private final LinearLayout preview,controls,toolbar;
+    private final LinearLayout preview,controls,toolbar,root;
     private final FrameLayout previewHost;
+    private final TextView heading;
+    private final Glass.Backdrop previewBackdrop;
     private View editingSwatch;
     private final List<String> history=new ArrayList<>();
     private int historyIndex=0,layer=0;
@@ -28,11 +30,12 @@ final class AppearanceStudio {
     static Dialog show(Activity activity,String sample,String translated,boolean rtl,Runnable applied){return new AppearanceStudio(activity,sample,translated,rtl,applied).dialog;}
     private AppearanceStudio(Activity a,String sample,String translated,boolean rtl,Runnable applied){
         activity=a;this.sample=sample;translationSample=translated;translationRtl=rtl;this.applied=applied;style=Appearance.load(a);history.add(style.encode());
-        dialog=new Dialog(a);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);LinearLayout root=column(a);pad(root,16,12);root.setBackgroundColor(0xff10171e);
-        toolbar=row(a);TextView heading=text(a,"Appearance",23,0xffedf1ed);toolbar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        dialog=new Dialog(a);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);root=column(a);pad(root,16,12);root.setBackgroundColor(style.background);
+        toolbar=row(a);heading=text(a,"Appearance",23,style.appInk());toolbar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
         toolbar.addView(action("Done",dialog::dismiss));root.addView(toolbar);
         previewHost=new FrameLayout(a);pad(previewHost,10,10);
-        preview=column(a);pad(preview,18,14);ScrollView previewScroll=new ScrollView(a);previewScroll.setFillViewport(true);previewScroll.addView(preview);
+        previewBackdrop=new Glass.Backdrop(a,true);previewHost.addView(previewBackdrop,new FrameLayout.LayoutParams(-1,-1));
+        preview=column(a);pad(preview,18,14);ScrollView previewScroll=new ScrollView(a);previewScroll.setFillViewport(true);previewScroll.setBackgroundColor(Color.TRANSPARENT);previewScroll.addView(preview);
         previewHost.addView(previewScroll,new FrameLayout.LayoutParams(-1,-1));
         root.addView(previewHost,new LinearLayout.LayoutParams(-1,Math.min(dp(a,300),a.getResources().getDisplayMetrics().heightPixels*45/100)));
         ScrollView scroll=new ScrollView(a);controls=column(a);pad(controls,0,10);scroll.addView(controls);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
@@ -43,7 +46,8 @@ final class AppearanceStudio {
     private TextView action(String label,Runnable run){TextView b=text(activity,label,14,style.buttonInk());b.setTag("action");pad(b,12,10);b.setGravity(Gravity.CENTER);b.setMinHeight(dp(activity,48));b.setBackground(Glass.touch(activity,Glass.Surface.Kind.BUTTON,false));b.setOnClickListener(v->run.run());b.setFocusable(true);return b;}
     private void title(String label){TextView t=text(activity,label,13,GOLD);pad(t,2,12);controls.addView(t);}
     private void refresh(){
-        Glass.apply(style);preview.removeAllViews();preview.setBackground(new Glass.Surface(activity,Glass.Surface.Kind.MUSHAF,false));
+        Glass.apply(style);root.setBackgroundColor(style.background);heading.setTextColor(style.appInk());previewBackdrop.invalidate();
+        preview.removeAllViews();preview.setBackground(new Glass.Surface(activity,Glass.Surface.Kind.MUSHAF,false));
         preview.addView(text(activity,"LIVE PREVIEW · 1:1",11,MUTED));
         ArabicText arabic=new ArabicText(activity);arabic.setText(sample);arabic.setTypeface(style.typeface(activity));arabic.setTextSize(style.arabicSize);
         arabic.setTextDirection(View.TEXT_DIRECTION_RTL);arabic.setGravity(Gravity.CENTER);arabic.setLineSpacing(dp(activity,style.spacing),1.08f);arabic.setReliefEnabled(true);preview.addView(arabic);
@@ -78,7 +82,7 @@ final class AppearanceStudio {
         if("keepColor".equals(view.getTag()))return;
         if(view instanceof TextView){TextView t=(TextView)view;
             if("action".equals(view.getTag())||view.getTag() instanceof Integer){t.setBackground(Glass.touch(activity,Glass.Surface.Kind.BUTTON,false));t.setTextColor(Appearance.readable(view.getTag() instanceof Integer?(Integer)view.getTag():style.buttonInk(),style.buttonSurface()));}
-            else if(view.getBackground()==null)t.setTextColor(0xffedf1ed);
+            else if(view.getBackground()==null)t.setTextColor(style.appInk());
         }
         if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++)recolor(group.getChildAt(i));}
     }
