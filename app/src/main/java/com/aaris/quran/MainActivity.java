@@ -326,7 +326,7 @@ public final class MainActivity extends Activity {
         }
         if(end<response.hits.size()){
             status.setText("Showing "+(response.offset+end)+" of "+response.total+"…");
-            ui.post(()->appendHadithBatch(q,response,generation,list,status,end));return;
+            list.postOnAnimation(()->appendHadithBatch(q,response,generation,list,status,end));return;
         }
         status.setText(response.total==0?(HadithQuery.parse(q).isReference()?"This reference is not in the installed edition. Check its numbering or search an Arabic phrase.":"No Hadith text match in the installed edition."):hadithHits.size()+" of "+response.total+(response.limited?" closest Hadith matches · Narrow the phrase for more precision":" Hadith matches"));
         if(hadithHits.size()<response.total){TextView more=button("Load next 50 Hadith matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadHadithSearch(q,hadithHits.size(),generation,list,status);});}
@@ -1248,7 +1248,7 @@ public final class MainActivity extends Activity {
             addTranslation(c,a);caption(c,String.join(" · ",result.reasons));gap(c,14);c.addView(evidenceActions(a,retrievalTrace(response,result)));
             c.addView(button("Remember this match",()->rememberSearch(false,response.query,a.id)));
         }
-        if(batchEnd<end){status.setText("Showing "+batchEnd+" of "+response.results.size()+"…");ui.post(()->appendQuranBatch(list,response,batchEnd,end,status,generation));return;}
+        if(batchEnd<end){status.setText("Showing "+batchEnd+" of "+response.results.size()+"…");list.postOnAnimation(()->appendQuranBatch(list,response,batchEnd,end,status,generation));return;}
         if(!response.results.isEmpty())status.setText(end+" of "+response.results.size()+" matches · High → Medium → Low");
         if(end<response.results.size()){TextView more=button("Load next 50 matches",()->{});list.addView(more);more.setOnClickListener(v->{list.removeView(more);appendQuranResults(list,response,end,status);});}
     }
