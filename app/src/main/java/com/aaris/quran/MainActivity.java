@@ -51,7 +51,7 @@ public final class MainActivity extends Activity {
     private int pendingCorpora,pendingSearchJobs;
     private Runnable debounce;
     private String pendingExport;
-    private boolean preparingExport;
+    private boolean preparingExport,recitationDownloadQueued;
     private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending,openOtherAppsAfterAmbientStart;
     private JSONObject pendingRestore;
     private String searchQuery="",hadithQuery="";
@@ -123,6 +123,7 @@ public final class MainActivity extends Activity {
         bottom=row(this);pad(bottom,6,5);bottom.setBackground(new Surface(this,Surface.Kind.NAV,highContrast));LinearLayout.LayoutParams navSize=new LinearLayout.LayoutParams(-1,-2);navSize.setMargins(dp(this,16),dp(this,6),dp(this,16),dp(this,10));layout.addView(bottom,navSize);
         if(tab==0)today();else if(tab==1){if(reading)reader();else library();}else if(tab==2)hadithLibrary();else map();
         nav("sun","Today",0);nav("book","Quran",1);nav("hadith","Hadith",2);nav("cards","Recall",3);
+        Glass.reveal(body);
     }
     private void nav(String icon,String title,int index){
         LinearLayout v=column(this);v.setGravity(Gravity.CENTER);pad(v,4,7);
@@ -530,7 +531,17 @@ public final class MainActivity extends Activity {
             LinearLayout names=column(this);names.addView(text(this,s.name,17,INK));names.addView(text(this,s.count+" ayahs · "+s.meaning,11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
             TextView ar=arabic(s.arabic,24);row.addView(ar,new LinearLayout.LayoutParams(-2,-2));row.setContentDescription(s.name+", "+s.count+" ayahs");row.setFocusable(true);row.setOnClickListener(v->open(s.id,1));Glass.motion(row);
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,10);list.addView(row,lp);
-        }};filter.addTextChangedListener(watcher(fill));fill.run();
+        }};
+        final Runnable[] pendingFilter={null};
+        filter.addTextChangedListener(watcher(()->{
+            if(pendingFilter[0]!=null)ui.removeCallbacks(pendingFilter[0]);
+            pendingFilter[0]=()->{
+                pendingFilter[0]=null;
+                if(filter.isAttachedToWindow())fill.run();
+            };
+            ui.postDelayed(pendingFilter[0],100);
+        }));
+        fill.run();
     }
     private void open(int surah,int ayah){readerScroll=null;readerVerses.clear();readerSurah=Math.max(1,Math.min(114,surah));readerStart=Math.max(1,Math.min(content.surah(readerSurah).count,ayah));reading=true;tab=1;String id="Q:"+readerSurah+":"+readerStart;readingPosition=new ReadingPosition(id,id,0,0,true);learning.set("position",id);learning.set("reader_anchor",readingPosition.encode());hideKeyboard();show();}
     private void reader(){
@@ -668,7 +679,8 @@ public final class MainActivity extends Activity {
     }
     private void downloadRecitation(String reciter,int first,int last){downloadRecitation(reciter,first,last,null);}
     private void downloadRecitation(String reciter,int first,int last,Runnable finished){
-        if(app.recitationDownloads.busy){toast("A download is already running");return;}
+        if(recitationDownloadQueued||app.recitationDownloads.busy){toast("A download is already running");return;}
+        recitationDownloadQueued=true;
         toast("Download started. Keep Aaris open for this download.");
         app.audioWorker.execute(()->{
             try{
@@ -686,6 +698,8 @@ public final class MainActivity extends Activity {
                     toast("Download paused. Completed ayahs are safe; tap Download to continue.");
                     if(finished!=null)finished.run();
                 });
+            }finally{
+                ui.post(()->recitationDownloadQueued=false);
             }
         });
     }
@@ -1389,11 +1403,11 @@ public final class MainActivity extends Activity {
         if(request==OVERLAY_PERMISSION){if(pendingAmbient&&Settings.canDrawOverlays(this))beginAmbient();else {pendingAmbient=false;openOtherAppsAfterAmbientStart=false;toast("Overlay permission is needed for cards over other apps");}return;}
         if(result!=RESULT_OK||data==null||data.getData()==null){if(request==EXPORT){String token=pendingExport;pendingExport=null;app.io.execute(()->discardExport(token));}return;}Uri uri=data.getData();
         if(request==EXPORT){String token=pendingExport;pendingExport=null;if(token==null){toast("Start the export again");return;}app.io.execute(()->{
-            try{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();app.exports.copyTo(token,out);}discardExport(token);ui.post(()->toast("File save ho gayi"));}
+            try{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();app.exports.copyTo(token,out);}discardExport(token);ui.post(()->toast("File saved"));}
             catch(Exception e){ui.post(()->toast("File was not saved; start the export again"));}
         });}
         if(request==IMPORT)app.io.execute(()->{try{
-            ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>ExportStaging.MAX_BYTES)throw new IOException("Backup 64 MiB se bada hai");out.write(b,0,n);}}
+            ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>ExportStaging.MAX_BYTES)throw new IOException("Backup is larger than 64 MiB");out.write(b,0,n);}}
             JSONObject backup=new JSONObject(out.toString("UTF-8"));int count=learning.validateBackup(backup,content);
             ui.post(()->{if(isDestroyed())return;pendingRestore=backup;new AlertDialog.Builder(this).setTitle("Restore learning history?").setMessage(count+" history events will be merged. Existing history and notes will not be deleted.").setNegativeButton("Not now",(d,w)->pendingRestore=null).setPositiveButton("Merge",(d,w)->{JSONObject restore=pendingRestore;pendingRestore=null;app.io.execute(()->{try{learning.restore(restore,content);ui.post(()->{toast("Learning history restored");show();});}catch(Exception e){ui.post(()->toast("Restore failed; existing data is safe"));}});}).show();});
         }catch(Exception e){ui.post(()->toast("Backup is not valid: "+e.getMessage()));}});
@@ -1482,7 +1496,7 @@ public final class MainActivity extends Activity {
             if(selectedEvidence.isEmpty()){toast("Select ayahs from search results first");return;}
             if(!beginExport())return;
             List<String> selection=new ArrayList<>(selectedEvidence);Map<String,JSONObject> traces=new LinkedHashMap<>(selectionTrace);String query=searchQuery;
-            toast("Evidence bundle ban raha hai…");app.io.execute(()->{try{
+            toast("Preparing evidence bundle…");app.io.execute(()->{try{
                 EvidenceExporter.Bundle b=EvidenceExporter.build(this,content,selection,query,traces);learning.saveBundle(b.id,b.json);
                 ui.post(()->{if(!isDestroyed())saveFile("Aaris-Quran-evidence.zip","application/zip",b.zip);});
             }catch(Exception e){ui.post(()->{preparingExport=false;toast("Export failed: "+e.getMessage());});}});

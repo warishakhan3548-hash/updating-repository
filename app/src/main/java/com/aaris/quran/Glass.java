@@ -330,6 +330,12 @@ final class Glass {
         states.addState(new int[]{},released);
         view.setStateListAnimator(states);return view;
     }
+    static <T extends View> T reveal(T view){
+        if(appearance.reducedEffects){view.animate().cancel();view.setAlpha(1f);view.setTranslationY(0f);return view;}
+        view.animate().cancel();view.setAlpha(.94f);view.setTranslationY(dp(view.getContext(),4));
+        view.animate().alpha(1f).translationY(0f).setDuration(145L).setInterpolator(new DecelerateInterpolator()).start();
+        return view;
+    }
     static LinearLayout column(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.VERTICAL);return l;}
     static LinearLayout row(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.HORIZONTAL);l.setGravity(Gravity.CENTER_VERTICAL);return l;}
     static TextView text(Context c,String text,float sp,int color){TextView v=new TextView(c);v.setText(text);v.setTextSize(sp);v.setTextColor(color);v.setFontFeatureSettings("kern");v.setIncludeFontPadding(true);v.setLineSpacing(dp(c,2),1.06f);return v;}

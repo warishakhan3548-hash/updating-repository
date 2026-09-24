@@ -11,16 +11,22 @@ import java.io.File;
 import java.util.concurrent.*;
 
 public final class QuranApp extends Application {
-    final ExecutorService io=Executors.newSingleThreadExecutor();
-    final ExecutorService searchWorker=Executors.newSingleThreadExecutor();
-    final ExecutorService quranSearchWorker=Executors.newSingleThreadExecutor();
-    final ExecutorService recitationWorker=Executors.newSingleThreadExecutor();
+    private static ExecutorService worker(String name){
+        return Executors.newSingleThreadExecutor(r->new Thread(()->{
+            try{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);}catch(RuntimeException ignored){}
+            r.run();
+        },"Aaris-"+name));
+    }
+    final ExecutorService io=worker("io");
+    final ExecutorService searchWorker=worker("hadith-search");
+    final ExecutorService quranSearchWorker=worker("quran-search");
+    final ExecutorService recitationWorker=worker("recitation");
     volatile RecitationDownloads recitationDownloads;
     volatile boolean recitationActive;
     volatile int recitationSurah=1,recitationAyah=1;
     volatile String recitationLabel="";
     Runnable recitationChanged;
-    final ExecutorService audioWorker=Executors.newSingleThreadExecutor();
+    final ExecutorService audioWorker=worker("audio");
     final Handler main=new Handler(Looper.getMainLooper());
     volatile ContentStore content;
     volatile LearningStore learning;
