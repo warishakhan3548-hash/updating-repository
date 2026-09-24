@@ -581,19 +581,87 @@ public final class MainActivity extends Activity {
         gap(page,12);recitationDownloadStatus=text(this,app.recitationDownloads.progress,13,MUTED);page.addView(recitationDownloadStatus);
         boolean offline=app.recitationDownloads.ready(selected,a.surah,content.surah(a.surah).count);
         caption(page,offline?"✓ This Surah is downloaded for the selected reciter":"Play needs internet for ayahs not yet downloaded. Saved ayahs play offline.");
-        page.addView(button(offline?"Downloaded ✓":"Download this Surah",()->downloadRecitation(selected,a.surah,a.surah)));gap(page,8);
+
+        LinearLayout surahDownloads=column(this);
+        final TextView[] currentDownload={null};
+        currentDownload[0]=button(offline?"Downloaded ✓":"Download this Surah",()->{
+            if(app.recitationDownloads.ready(selected,a.surah,content.surah(a.surah).count)){toast(content.surah(a.surah).name+" is already downloaded");return;}
+            downloadRecitation(selected,a.surah,a.surah,()->{
+                if(currentDownload[0]!=null)currentDownload[0].setText("Downloaded ✓");
+                if(surahDownloads.isAttachedToWindow())fillRecitationSurahDownloads(surahDownloads,selected);
+            });
+        });
+        page.addView(currentDownload[0]);gap(page,8);
+
         page.addView(button("Download all Surahs · "+RecitationDownloads.NAMES[RecitationDownloads.index(selected)],()->{
-            new AlertDialog.Builder(this).setTitle("Download this reciter?").setMessage("All 114 Surahs will use significant data and storage. Completed ayahs are kept if you pause or reconnect.").setNegativeButton("Cancel",null).setPositiveButton("Download",(d,w)->downloadRecitation(selected,1,114)).show();}));gap(page,8);
-        if(app.recitationDownloads.busy){caption(page,app.recitationDownloads.progress);page.addView(button("Pause downloads",()->app.recitationDownloads.cancelled=true));}
+            new AlertDialog.Builder(this).setTitle("Download this reciter?").setMessage("All 114 Surahs will use significant data and storage. Completed ayahs are kept if you pause or reconnect.").setNegativeButton("Cancel",null).setPositiveButton("Download",(d,w)->downloadRecitation(selected,1,114,()->{
+                if(currentDownload[0]!=null&&app.recitationDownloads.ready(selected,a.surah,content.surah(a.surah).count))currentDownload[0].setText("Downloaded ✓");
+                if(surahDownloads.isAttachedToWindow())fillRecitationSurahDownloads(surahDownloads,selected);
+            })).show();}));gap(page,12);
+
+        page.addView(label("SURAHS"));gap(page,6);
+        page.addView(surahDownloads);
+        fillRecitationSurahDownloads(surahDownloads,selected);
+
+        if(app.recitationDownloads.busy){gap(page,8);caption(page,app.recitationDownloads.progress);page.addView(button("Pause downloads",()->app.recitationDownloads.cancelled=true));}
         gap(page,12);caption(page,RecitationDownloads.ATTRIBUTION);
         page.addView(button("Word audio · This Surah",()->audioSurahPrompt(a.surah)));gap(page,8);
         page.addView(button("Word audio · Download All",this::downloadAllAudio));
     }
-    private void downloadRecitation(String reciter,int first,int last){
+    private void fillRecitationSurahDownloads(LinearLayout list,String reciter){
+        list.removeAllViews();
+        for(int s=1;s<=114;s++){
+            final int surah=s;ContentStore.Surah info=content.surah(surah);
+            boolean downloaded=app.recitationDownloads.ready(reciter,surah,info.count);
+
+            LinearLayout item=row(this);pad(item,12,8);item.setMinimumHeight(dp(this,46));
+            item.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
+
+            TextView number=text(this,String.format(Locale.ROOT,"%03d",surah),11,MUTED);
+            item.addView(number,new LinearLayout.LayoutParams(dp(this,42),-2));
+
+            TextView name=text(this,info.name,15,INK);
+            name.setSingleLine(true);name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            item.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+
+            Glass.Icon status=new Glass.Icon(this,downloaded?"check":"download");
+            status.color=GOLD;
+            item.addView(status,new LinearLayout.LayoutParams(dp(this,22),dp(this,22)));
+
+            item.setFocusable(true);item.setClickable(true);
+            item.setContentDescription(info.name+(downloaded?", downloaded":", download"));
+            item.setOnClickListener(v->{
+                if(app.recitationDownloads.ready(reciter,surah,info.count)){toast(info.name+" is already downloaded");return;}
+                downloadRecitation(reciter,surah,surah,()->{
+                    if(list.isAttachedToWindow())fillRecitationSurahDownloads(list,reciter);
+                });
+            });
+
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,5);list.addView(item,lp);
+        }
+    }
+    private void downloadRecitation(String reciter,int first,int last){downloadRecitation(reciter,first,last,null);}
+    private void downloadRecitation(String reciter,int first,int last,Runnable finished){
         if(app.recitationDownloads.busy){toast("A download is already running");return;}
         toast("Download started. Keep Aaris open for this download.");
-        app.audioWorker.execute(()->{try{app.recitationDownloads.download(content,reciter,first,last,()->ui.post(()->{if(recitationDownloadStatus!=null&&!isDestroyed())recitationDownloadStatus.setText(app.recitationDownloads.progress);}));ui.post(()->toast(app.recitationDownloads.progress));}
-        catch(Exception e){ui.post(()->toast("Download paused. Completed ayahs are safe; tap Download to continue."));}});
+        app.audioWorker.execute(()->{
+            try{
+                app.recitationDownloads.download(content,reciter,first,last,()->ui.post(()->{
+                    if(recitationDownloadStatus!=null&&!isDestroyed())recitationDownloadStatus.setText(app.recitationDownloads.progress);
+                }));
+                ui.post(()->{
+                    if(isDestroyed()||isFinishing())return;
+                    toast(app.recitationDownloads.progress);
+                    if(finished!=null)finished.run();
+                });
+            }catch(Exception e){
+                ui.post(()->{
+                    if(isDestroyed()||isFinishing())return;
+                    toast("Download paused. Completed ayahs are safe; tap Download to continue.");
+                    if(finished!=null)finished.run();
+                });
+            }
+        });
     }
     private void addTranslation(LinearLayout panel,Ayah ayah){
         if(app.translations==null){gap(panel,10);caption(panel,"Translation pack unavailable on this installation.");return;}
