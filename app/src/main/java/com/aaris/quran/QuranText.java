@@ -19,6 +19,12 @@ final class QuranText extends ArabicText {
     private final int touchSlop;
     private ClickableSpan pressedSpan;
     private float downX,downY;
+    private boolean longPressTriggered;
+    private final Runnable longPress=()->{
+        if(pressedSpan==null||!isPressed())return;
+        longPressTriggered=performLongClick();
+        if(longPressTriggered)setPressed(false);
+    };
     QuranText(Context c,Typeface font,Ayah ayah,List<ContentStore.Word> words,float size,Listener listener) {
         super(c);source=ayah.arabic;touchSlop=ViewConfiguration.get(c).getScaledTouchSlop();setTypeface(font);setTextSize(size);
         setTextDirection(View.TEXT_DIRECTION_RTL);setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
@@ -52,29 +58,33 @@ final class QuranText extends ArabicText {
         ClickableSpan[] spans=((Spanned)text).getSpans(offset,offset+1,ClickableSpan.class);
         return spans.length==0?null:spans[0];
     }
-    private void clearPress(){pressedSpan=null;setPressed(false);}
+    private void clearPress(){removeCallbacks(longPress);pressedSpan=null;setPressed(false);}
     @Override public boolean onTouchEvent(MotionEvent event){
         switch(event.getActionMasked()){
             case MotionEvent.ACTION_DOWN:
+                removeCallbacks(longPress);longPressTriggered=false;
                 pressedSpan=spanAt(event);downX=event.getX();downY=event.getY();
                 if(pressedSpan==null)return false;
-                setPressed(true);return true;
+                setPressed(true);postDelayed(longPress,ViewConfiguration.getLongPressTimeout());return true;
             case MotionEvent.ACTION_MOVE:
-                if(pressedSpan==null)return false;
+                if(pressedSpan==null)return longPressTriggered;
                 if(Math.abs(event.getX()-downX)>touchSlop||Math.abs(event.getY()-downY)>touchSlop){
                     clearPress();
                     ViewParent parent=getParent();if(parent!=null)parent.requestDisallowInterceptTouchEvent(false);
                 }
                 return true;
             case MotionEvent.ACTION_UP:
-                ClickableSpan tapped=pressedSpan;boolean within=tapped!=null&&Math.abs(event.getX()-downX)<=touchSlop&&Math.abs(event.getY()-downY)<=touchSlop;
-                ClickableSpan released=within?spanAt(event):null;clearPress();
+                boolean held=longPressTriggered;
+                ClickableSpan tapped=held?null:pressedSpan;
+                boolean within=tapped!=null&&Math.abs(event.getX()-downX)<=touchSlop&&Math.abs(event.getY()-downY)<=touchSlop;
+                ClickableSpan released=within?spanAt(event):null;clearPress();longPressTriggered=false;
+                if(held)return true;
                 if(tapped!=null&&tapped==released){tapped.onClick(this);performClick();}
                 return tapped!=null;
             case MotionEvent.ACTION_CANCEL:
-                boolean hadPress=pressedSpan!=null;clearPress();return hadPress;
+                boolean hadPress=pressedSpan!=null||longPressTriggered;clearPress();longPressTriggered=false;return hadPress;
             default:
-                return pressedSpan!=null;
+                return pressedSpan!=null||longPressTriggered;
         }
     }
     @Override public boolean performClick(){super.performClick();return true;}

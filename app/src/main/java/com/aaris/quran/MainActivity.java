@@ -481,9 +481,10 @@ public final class MainActivity extends Activity {
         Ayah a=content.ayah(readingPosition==null?"Q:"+readerSurah+":"+readerStart:readingPosition.anchorId);if(a==null)return;
         page.addView(label(content.surah(a.surah).name+" · "+a.surah+":"+a.number));gap(page,10);
         page.addView(button("Add this ayah",()->{enroll(a.id,a.id);ambientSettings();}));gap(page,12);
+        Map<String,Recall.State> savedStates=learning.states();
         int count=0;for(ContentStore.Word word:content.words(a.id))if(word.hasGloss(language)){
             if(count++==8)break;LinearLayout row=Glass.row(this);pad(row,8,10);TextView ar=arabic(word.arabic,30);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));
-            Recall.State memory=learning.states().get(word.id);TextView meaning=text(this,word.gloss(language)+(memory!=null&&memory.active?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));
+            Recall.State memory=savedStates.get(word.id);TextView meaning=text(this,word.gloss(language)+(memory!=null&&memory.active?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));
             row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(word.gloss(language)+" ✓");});Glass.motion(row);
             page.addView(row);gap(page,8);
         }
@@ -591,7 +592,8 @@ public final class MainActivity extends Activity {
         Map<String,Recall.State> learningStates=learning.states();long recallNow=System.currentTimeMillis();
         for(Ayah a:ayahs){
             LinearLayout panel=card(page,Surface.Kind.MUSHAF);
-            panel.setLongClickable(true);panel.setOnLongClickListener(v->{v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);ayahActions(a);return true;});
+            View.OnLongClickListener ayahLongPress=v->{v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);ayahActions(a);return true;};
+            panel.setLongClickable(true);panel.setOnLongClickListener(ayahLongPress);
             LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"%d : %d",a.surah,a.number),12,MUTED);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
             View play=iconButton("play","Play ayah "+a.number+(recitationOffline?" · Surah downloaded":""),()->playAyah(a));
             if(recitationOffline){Glass.Icon tick=new Glass.Icon(this,"check");tick.color=0xff44b57d;FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(dp(this,14),dp(this,14),Gravity.BOTTOM|Gravity.RIGHT);((FrameLayout)play).addView(tick,badge);}bar.addView(play);
@@ -599,7 +601,8 @@ public final class MainActivity extends Activity {
             bar.addView(iconButton("book","Study ayah · translations, compare & notes",()->studyAyah(a)));
             View menu=iconButton("more","Ayah "+a.number+": bookmark, meaning, recall and share",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,48)));panel.addView(bar);gap(panel,8);
             List<ContentStore.Word> words=pageWords.getOrDefault(a.id,Collections.emptyList());
-            QuranText verse=new QuranText(this,arabicFont,a,words,arabicSize,this::tapWord);verse.setReliefEnabled(!highContrast);verse.setLineSpacing(dp(this,appearance.spacing),1.08f);readerVerses.put(a.id,verse);panel.addView(verse,new LinearLayout.LayoutParams(-1,-2));
+            QuranText verse=new QuranText(this,arabicFont,a,words,arabicSize,this::tapWord);verse.setReliefEnabled(!highContrast);verse.setLineSpacing(dp(this,appearance.spacing),1.08f);
+            verse.setLongClickable(true);verse.setOnLongClickListener(ayahLongPress);readerVerses.put(a.id,verse);panel.addView(verse,new LinearLayout.LayoutParams(-1,-2));
             renderTranslation(panel,pageTranslations.get(a.id));
             for(ContentStore.Word w:words){Recall.State memory=learningStates.get(w.id);if(memory!=null&&memory.active&&memory.reviews>0&&memory.due<=recallNow){
                 gap(panel,12);TextView recall=button("Selected word · Review meaning",()->review(w.id));panel.addView(recall);break;
@@ -1220,6 +1223,7 @@ public final class MainActivity extends Activity {
         header=row(this);pad(header,16,10);layout.addView(header);header.addView(iconButton("back","Back to reading",this::show));
         TextView title=text(this,"Search Quran & Hadith",20,INK);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         header.addView(iconButton("share","Share search results as PDF",()->{
+            if(quranHits.isEmpty()&&hadithHits.isEmpty()){toast("Search first, then share results");return;}
             if(quranHits.isEmpty())shareResearch(true);else if(hadithHits.isEmpty())shareResearch(false);
             else new AlertDialog.Builder(this).setTitle("Share results").setItems(new String[]{"Quran results","Hadith results"},(dialog,index)->shareResearch(index==1)).show();
         }));
