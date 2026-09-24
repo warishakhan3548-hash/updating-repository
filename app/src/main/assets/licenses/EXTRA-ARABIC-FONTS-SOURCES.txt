@@ -1,0 +1,13 @@
+Arabic typeface assets added for Aaris Appearance selector.
+
+All added files are redistributed under the SIL Open Font License 1.1.
+Upstream source: https://github.com/google/fonts (main branch)
+
+Files:
+- ScheherazadeNew-Regular.ttf <- ofl/scheherazadenew/ScheherazadeNew-Regular.ttf
+- Lateef-Regular.ttf <- ofl/lateef/Lateef-Regular.ttf
+- Harmattan-Regular.ttf <- ofl/harmattan/Harmattan-Regular.ttf
+- NotoNaskhArabic.ttf <- ofl/notonaskharabic/NotoNaskhArabic[wght].ttf
+- NotoKufiArabic.ttf <- ofl/notokufiarabic/NotoKufiArabic[wght].ttf
+
+The canonical Quran/Hadith source text is never rewritten when a typeface is selected; only Android glyph rendering changes.
