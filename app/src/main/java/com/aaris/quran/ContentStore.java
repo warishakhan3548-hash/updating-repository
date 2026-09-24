@@ -12,6 +12,7 @@ import java.util.*;
 
 /** APK-bundled content, verified before opening read-only. No network or learning writes. */
 final class ContentStore implements AutoCloseable {
+    private static final String PINNED_QURAN_SHA256="4b91f9e6e8ac645d039e4ed85b3be492e795232a31cd22d668ac58238722e26f";
     static final class Surah {
         final int id,count;final String arabic,name,meaning,revelation;
         Surah(Cursor c){id=c.getInt(0);arabic=c.getString(1);name=c.getString(2);meaning=c.getString(3);count=c.getInt(4);revelation=c.getString(5);}
@@ -30,9 +31,14 @@ final class ContentStore implements AutoCloseable {
     final String packHash,audioAlignmentHash;
     ContentStore(Context context) throws Exception {
         JSONObject manifest=new JSONObject(asset(context,"content-manifest.json"));
+        if(manifest.optInt("schema_version",-1)!=1||manifest.optInt("surahs",-1)!=114||manifest.optInt("ayahs",-1)!=6236)
+            throw new IOException("Invalid Quran content manifest");
+        if(!PINNED_QURAN_SHA256.equals(manifest.optString("quran_source_sha256")))
+            throw new IOException("Quran source identity mismatch");
         packHash=manifest.getString("sqlite_sha256");
         audioAlignmentHash=manifest.getString("audio_alignment_sha256");
-        if(audioAlignmentHash.length()!=64||manifest.optInt("audio_alignment_words",-1)!=77326)throw new IOException("Invalid Quran audio alignment identity");
+        if(!packHash.matches("[a-f0-9]{64}")||audioAlignmentHash.length()!=64||manifest.optInt("audio_alignment_words",-1)!=77326)
+            throw new IOException("Invalid Quran content identity");
         File folder=new File(context.getFilesDir(),"evidence");if(!folder.exists()&&!folder.mkdirs())throw new IOException("Cannot create evidence storage");
         File target=new File(folder,"quran-"+packHash.substring(0,16)+".sqlite");
         if(!target.exists()||!packHash.equals(hash(target))) {
@@ -44,10 +50,18 @@ final class ContentStore implements AutoCloseable {
             if(target.exists()&&!target.delete())throw new IOException("Cannot replace corrupt content");
             if(!staging.renameTo(target))throw new IOException("Content install failed");
         }
-        db=SQLiteDatabase.openDatabase(target.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY);
-        try(Cursor c=db.rawQuery("PRAGMA quick_check",null)){if(!c.moveToFirst()||!"ok".equals(c.getString(0)))throw new IOException("Content integrity check failed");}
-        try(Cursor c=db.rawQuery("SELECT * FROM surah ORDER BY id",null)){while(c.moveToNext())surahs.add(new Surah(c));}
-        if(surahs.size()!=114)throw new IOException("Incomplete Quran content");
+        SQLiteDatabase opened=SQLiteDatabase.openDatabase(target.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY);
+        try{
+            try(Cursor c=opened.rawQuery("PRAGMA quick_check",null)){if(!c.moveToFirst()||!"ok".equals(c.getString(0)))throw new IOException("Content integrity check failed");}
+            try(Cursor c=opened.rawQuery("PRAGMA user_version",null)){if(!c.moveToFirst()||c.getInt(0)!=1)throw new IOException("Quran schema mismatch");}
+            try(Cursor c=opened.rawQuery("SELECT count(*) FROM ayah",null)){if(!c.moveToFirst()||c.getInt(0)!=6236)throw new IOException("Incomplete Quran ayah content");}
+            int expectedWords=manifest.optInt("words",-1);
+            try(Cursor c=opened.rawQuery("SELECT count(*) FROM word",null)){if(!c.moveToFirst()||expectedWords<1||c.getInt(0)!=expectedWords)throw new IOException("Incomplete Quran word content");}
+            int ayahSum=0;
+            try(Cursor c=opened.rawQuery("SELECT * FROM surah ORDER BY id",null)){while(c.moveToNext()){Surah s=new Surah(c);surahs.add(s);ayahSum+=s.count;}}
+            if(surahs.size()!=114||ayahSum!=6236)throw new IOException("Incomplete Quran surah metadata");
+        }catch(Exception invalid){opened.close();throw invalid;}
+        db=opened;
     }
     static String asset(Context c,String name) throws IOException {
         try(InputStream in=c.getAssets().open(name);ByteArrayOutputStream out=new ByteArrayOutputStream()) {
