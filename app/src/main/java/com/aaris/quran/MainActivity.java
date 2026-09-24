@@ -136,7 +136,7 @@ public final class MainActivity extends Activity {
         Glass.Icon view=new Glass.Icon(this,icon);view.color=appearance.buttonInk();FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(dp(this,23),dp(this,23),Gravity.CENTER);f.addView(view,p);f.setOnClickListener(v->action.run());return f;
     }
     private void heading(String eyebrow,String title){
-        LinearLayout label=column(this);TextView e=text(this,eyebrow,10,GOLD);e.setLetterSpacing(.18f);label.addView(e);
+        LinearLayout label=column(this);TextView e=text(this,eyebrow,10,INK);e.setLetterSpacing(.18f);label.addView(e);
         TextView h=text(this,title,23,INK);h.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));label.addView(h);
         header.addView(label,new LinearLayout.LayoutParams(0,-2,1));header.addView(iconButton("settings","Reading settings",this::settings));
     }
@@ -152,7 +152,7 @@ public final class MainActivity extends Activity {
         row.setContentDescription(title);row.setOnClickListener(v->click.run());return row;
     }
     private TextView action(String title,Runnable click,boolean primary){TextView b=text(this,title,14,appearance.buttonInk());b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setGravity(Gravity.CENTER);pad(b,16,13);b.setMinimumHeight(dp(this,48));b.setBackground(Glass.touch(this,primary?Surface.Kind.PRIMARY:Surface.Kind.BUTTON,highContrast));b.setFocusable(true);b.setOnClickListener(v->click.run());return b;}
-    private TextView label(String text){TextView v=Glass.text(this,text,11,GOLD);v.setLetterSpacing(.12f);return v;}
+    private TextView label(String text){TextView v=Glass.text(this,text,11,INK);v.setLetterSpacing(.12f);return v;}
     private void gap(LinearLayout v,int dp){View gap=new View(this);v.addView(gap,new LinearLayout.LayoutParams(1,Glass.dp(this,dp)));}
     private ArabicText arabic(String value,float size){ArabicText v=new ArabicText(this);v.setText(value);v.setTextSize(size);v.setReliefEnabled(!highContrast);v.setTypeface(arabicFont);v.setTextDirection(View.TEXT_DIRECTION_RTL);v.setGravity(Gravity.CENTER);v.setLineSpacing(dp(this,appearance.spacing),1.08f);return v;}
     private ArabicText hadithArabic(String value,float size){
@@ -942,7 +942,7 @@ public final class MainActivity extends Activity {
         heading("THODA, LEKIN KAAM KA", "Aapki yaad");LinearLayout page=scrollBody();ambientCard(page);Map<String,Recall.State> states=learning.states();
         int active=0,reviews=0;for(Recall.State state:states.values()){if(state.active)active++;reviews+=state.reviews;}
         LinearLayout hero=card(page,Surface.Kind.HERO);hero.addView(text(this,"Jo seekha, saath rahe.",25,INK));gap(hero,8);caption(hero,"Aapke chune hue alfaaz, hisse aur ayat.");gap(hero,20);
-        LinearLayout metrics=row(this);LinearLayout left=column(this);left.addView(text(this,""+active,32,GOLD));caption(left,"Chune hue items");metrics.addView(left,new LinearLayout.LayoutParams(0,-2,1));LinearLayout right=column(this);right.addView(text(this,""+reviews,32,MINT));caption(right,"Khud kiye recalls");metrics.addView(right,new LinearLayout.LayoutParams(0,-2,1));hero.addView(metrics);
+        LinearLayout metrics=row(this);LinearLayout left=column(this);left.addView(text(this,""+active,32,INK));caption(left,"Chune hue items");metrics.addView(left,new LinearLayout.LayoutParams(0,-2,1));LinearLayout right=column(this);right.addView(text(this,""+reviews,32,INK));caption(right,"Khud kiye recalls");metrics.addView(right,new LinearLayout.LayoutParams(0,-2,1));hero.addView(metrics);
         List<Recall.State> due=dueQueue();
         if(!due.isEmpty()){page.addView(button("Aaj ki yaad-dihani kholein",()->review(due.get(0).target)));gap(page,16);}
         if(active==0){LinearLayout empty=card(page,Surface.Kind.PANEL);empty.addView(text(this,"Pehla lafz chunein",20,INK));gap(empty,8);caption(empty,"Reader mein lafz par tap karke “Yaad karaayein” chunein, ya yahin se shuru karein.");gap(empty,14);empty.addView(primary("Alfaaz chunein",this::chooseAmbientItems));}
