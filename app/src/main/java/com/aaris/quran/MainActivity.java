@@ -555,13 +555,14 @@ public final class MainActivity extends Activity {
         TextView name=arabic(s.arabic,28);page.addView(name,new LinearLayout.LayoutParams(-1,-2));
         TextView latin=text(this,s.name,24,INK);latin.setGravity(Gravity.CENTER);latin.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(latin);
         TextView sub=text(this,s.meaning+"  ·  "+s.count+" ayahs",12,MUTED);sub.setGravity(Gravity.CENTER);page.addView(sub);gap(page,10);
-        TextView interaction=text(this,"Tap a word for meaning · Book icon opens Study",12,MUTED);interaction.setGravity(Gravity.CENTER);page.addView(interaction);gap(page,22);
+        TextView interaction=text(this,"Tap a word for meaning · Long-press an ayah for actions",12,MUTED);interaction.setGravity(Gravity.CENTER);page.addView(interaction);gap(page,22);
         String reciter=getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]);
-        boolean recitationOffline=app.recitationDownloads.ready(reciter,readerSurah,s.count);
+        boolean recitationOffline=app.recitationDownloads.markedComplete(reciter,readerSurah,s.count);
         List<Ayah> ayahs=content.page(readerSurah,readerStart,8);
         Map<String,Recall.State> learningStates=learning.states();long recallNow=System.currentTimeMillis();
         for(Ayah a:ayahs){
             LinearLayout panel=card(page,Surface.Kind.MUSHAF);
+            panel.setLongClickable(true);panel.setOnLongClickListener(v->{v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);ayahActions(a);return true;});
             LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"%d : %d",a.surah,a.number),12,MUTED);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
             View play=iconButton("play","Play ayah "+a.number+(recitationOffline?" · Surah downloaded":""),()->playAyah(a));
             if(recitationOffline){Glass.Icon tick=new Glass.Icon(this,"check");tick.color=0xff44b57d;FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(dp(this,14),dp(this,14),Gravity.BOTTOM|Gravity.RIGHT);((FrameLayout)play).addView(tick,badge);}bar.addView(play);
@@ -592,7 +593,7 @@ public final class MainActivity extends Activity {
         if(translationSpeech!=null)translationSpeech.stop();
         android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);
         String reciter=RecitationDownloads.valid(preferences.getString("reciter",RecitationDownloads.IDS[0]));
-        boolean reciterOffline=app.recitationDownloads!=null&&app.recitationDownloads.ready(reciter,a.surah,content.surah(a.surah).count);
+        boolean reciterOffline=app.recitationDownloads!=null&&app.recitationDownloads.markedComplete(reciter,a.surah,content.surah(a.surah).count);
         List<ContentStore.Word> words=content.words(a.id);
 
         // The large "Quran audio" download is the verified isolated-word pack. If it is present,
@@ -616,13 +617,13 @@ public final class MainActivity extends Activity {
         page.addView(primary("Play from "+a.surah+":"+a.number,()->{preferences.edit().putBoolean("chosen",true).apply();dialog.dismiss();playAyah(a);}));gap(page,8);
         if(app.recitationActive){LinearLayout transport=row(this);transport.addView(iconButton("back","Previous ayah",()->RecitationService.command(this,RecitationService.PREVIOUS,a.surah,a.number)));transport.addView(button("Play / Pause",()->RecitationService.command(this,RecitationService.PAUSE,a.surah,a.number)));transport.addView(iconButton("next","Next ayah",()->RecitationService.command(this,RecitationService.NEXT,a.surah,a.number)));page.addView(transport);page.addView(button("Stop playback",()->stopService(new Intent(this,RecitationService.class))));}
         gap(page,12);recitationDownloadStatus=text(this,app.recitationDownloads.progress,13,MUTED);page.addView(recitationDownloadStatus);
-        boolean offline=app.recitationDownloads.ready(selected,a.surah,content.surah(a.surah).count);
+        boolean offline=app.recitationDownloads.markedComplete(selected,a.surah,content.surah(a.surah).count);
         caption(page,offline?"✓ This Surah is downloaded for the selected reciter":"Play needs internet for ayahs not yet downloaded. Saved ayahs play offline.");
 
         LinearLayout surahDownloads=column(this);
         final TextView[] currentDownload={null};
         currentDownload[0]=button(offline?"Downloaded ✓":"Download this Surah",()->{
-            if(app.recitationDownloads.ready(selected,a.surah,content.surah(a.surah).count)){toast(content.surah(a.surah).name+" is already downloaded");return;}
+            if(app.recitationDownloads.markedComplete(selected,a.surah,content.surah(a.surah).count)){toast(content.surah(a.surah).name+" is already downloaded");return;}
             downloadRecitation(selected,a.surah,a.surah,()->{
                 if(currentDownload[0]!=null)currentDownload[0].setText("Downloaded ✓");
                 if(surahDownloads.isAttachedToWindow())fillRecitationSurahDownloads(surahDownloads,selected);
@@ -632,7 +633,7 @@ public final class MainActivity extends Activity {
 
         page.addView(button("Download all Surahs · "+RecitationDownloads.NAMES[RecitationDownloads.index(selected)],()->{
             new AlertDialog.Builder(this).setTitle("Download this reciter?").setMessage("All 114 Surahs will use significant data and storage. Completed ayahs are kept if you pause or reconnect.").setNegativeButton("Cancel",null).setPositiveButton("Download",(d,w)->downloadRecitation(selected,1,114,()->{
-                if(currentDownload[0]!=null&&app.recitationDownloads.ready(selected,a.surah,content.surah(a.surah).count))currentDownload[0].setText("Downloaded ✓");
+                if(currentDownload[0]!=null&&app.recitationDownloads.markedComplete(selected,a.surah,content.surah(a.surah).count))currentDownload[0].setText("Downloaded ✓");
                 if(surahDownloads.isAttachedToWindow())fillRecitationSurahDownloads(surahDownloads,selected);
             })).show();}));gap(page,12);
 
@@ -668,7 +669,7 @@ public final class MainActivity extends Activity {
             item.setFocusable(true);item.setClickable(true);
             item.setContentDescription(info.name+(downloaded?", downloaded":", download"));
             item.setOnClickListener(v->{
-                if(app.recitationDownloads.ready(reciter,surah,info.count)){toast(info.name+" is already downloaded");return;}
+                if(app.recitationDownloads.markedComplete(reciter,surah,info.count)){toast(info.name+" is already downloaded");return;}
                 downloadRecitation(reciter,surah,surah,()->{
                     if(list.isAttachedToWindow())fillRecitationSurahDownloads(list,reciter);
                 });
