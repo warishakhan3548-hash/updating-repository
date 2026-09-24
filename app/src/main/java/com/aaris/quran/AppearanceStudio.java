@@ -21,7 +21,7 @@ final class AppearanceStudio {
     private View editingSwatch;
     private final List<String> history=new ArrayList<>();
     private int historyIndex=0,layer=0;
-    private boolean binding,advanced;
+    private boolean binding,advanced,refreshPosted;
     private boolean editHsvValid;
     private int editHsvLayer=-1;
     private float editHue,editSat,editVal,gradientSatOffset,gradientValOffset;
@@ -45,7 +45,7 @@ final class AppearanceStudio {
     private TextView action(String label,Runnable run){TextView b=text(activity,label,14,style.buttonInk());b.setTag("action");pad(b,12,10);b.setGravity(Gravity.CENTER);b.setMinHeight(dp(activity,48));b.setBackground(Glass.touch(activity,Glass.Surface.Kind.BUTTON,false));b.setOnClickListener(v->run.run());b.setFocusable(true);Glass.motion(b);return b;}
     private void title(String label){TextView t=text(activity,label,13,GOLD);pad(t,2,12);controls.addView(t);}
     private void refresh(){
-        Glass.apply(style);root.setBackgroundColor(style.background);heading.setTextColor(style.appInk());previewBackdrop.invalidate();
+        refreshPosted=false;Glass.apply(style);root.setBackgroundColor(style.background);heading.setTextColor(style.appInk());previewBackdrop.invalidate();
         preview.removeAllViews();preview.setBackground(new Glass.Surface(activity,Glass.Surface.Kind.MUSHAF,false));
         preview.addView(text(activity,"LIVE PREVIEW · 1:1",11,MUTED));
         ArabicText arabic=new ArabicText(activity);arabic.setText(sample);arabic.setTypeface(style.typeface(activity));arabic.setTextSize(style.arabicSize);
@@ -65,6 +65,10 @@ final class AppearanceStudio {
         updateEditingSwatch();
         recolor(controls);recolor(toolbar);
 
+    }
+    private void scheduleRefresh(){
+        if(refreshPosted)return;refreshPosted=true;
+        root.postOnAnimation(()->{if(!refreshPosted)return;refreshPosted=false;if(dialog.isShowing())refresh();});
     }
     private void applyPreviewBackground(){
         android.graphics.drawable.GradientDrawable bg;
@@ -284,7 +288,7 @@ final class AppearanceStudio {
         LinearLayout line=row(activity);TextView caption=text(activity,label,12,style.ink());caption.setTag("keepColor");line.addView(caption,new LinearLayout.LayoutParams(dp(activity,105),-2));
         SeekBar seek=new SeekBar(activity);seek.setMax(max-min);seek.setProgress(initial-min);seek.setContentDescription(label);line.addView(seek,new LinearLayout.LayoutParams(0,dp(activity,42),1));
         TextView value=text(activity,String.valueOf(initial),12,style.ink());value.setTag("keepColor");value.setGravity(Gravity.CENTER);line.addView(value,new LinearLayout.LayoutParams(dp(activity,36),-2));
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int v,boolean user){if(!user||binding)return;int actual=min+v;change.set(actual);style.name="My style";value.setText(String.valueOf(actual));refresh();}public void onStopTrackingTouch(SeekBar s){commit();}});
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int v,boolean user){if(!user||binding)return;int actual=min+v;change.set(actual);style.name="My style";value.setText(String.valueOf(actual));scheduleRefresh();}public void onStopTrackingTouch(SeekBar s){commit();}});
         controls.addView(line);
     }
     private boolean isColorDotSelected(int dotColor,boolean neutral){
@@ -414,7 +418,7 @@ final class AppearanceStudio {
         recolor(controls);binding=false;
     }
     private interface Change{void set(int value);}
-    private void slider(String label,int min,int max,int initial,Change change){TextView caption=text(activity,label+" · "+initial,13,INK);controls.addView(caption);SeekBar seek=new SeekBar(activity);seek.setMax(max-min);seek.setProgress(initial-min);seek.setContentDescription(label);seek.setMinimumHeight(dp(activity,48));controls.addView(seek);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int value,boolean user){if(!user||binding)return;change.set(min+value);style.name="My style";caption.setText(label+" · "+(min+value));refresh();}public void onStopTrackingTouch(SeekBar s){commit();}});}
+    private void slider(String label,int min,int max,int initial,Change change){TextView caption=text(activity,label+" · "+initial,13,INK);controls.addView(caption);SeekBar seek=new SeekBar(activity);seek.setMax(max-min);seek.setProgress(initial-min);seek.setContentDescription(label);seek.setMinimumHeight(dp(activity,48));controls.addView(seek);seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int value,boolean user){if(!user||binding)return;change.set(min+value);style.name="My style";caption.setText(label+" · "+(min+value));scheduleRefresh();}public void onStopTrackingTouch(SeekBar s){commit();}});}
     private int color(){return layer==0?style.background:layer==1?style.surface:layer==2?style.arabic:layer==3?style.translation:layer==4?(style.customButtons?style.buttonColor:style.surface):layer==5?style.gradientEnd:layer==6?style.accent:style.appText;}
     private void color(int color){if(layer==0)style.background=color;else if(layer==1)style.surface=color;else if(layer==2)style.arabic=color;else if(layer==3)style.translation=color;else if(layer==4){style.buttonColor=color;style.customButtons=true;}else if(layer==5)style.gradientEnd=color;else if(layer==6)style.accent=color;else style.appText=color;}
 }
