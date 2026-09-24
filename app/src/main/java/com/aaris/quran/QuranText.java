@@ -16,8 +16,11 @@ final class QuranText extends ArabicText {
     interface Listener { void onWord(ContentStore.Word word,QuranText owner); }
     private BackgroundColorSpan selected;
     private final String source;
+    private final int touchSlop;
+    private ClickableSpan pressedSpan;
+    private float downX,downY;
     QuranText(Context c,Typeface font,Ayah ayah,List<ContentStore.Word> words,float size,Listener listener) {
-        super(c);source=ayah.arabic;setTypeface(font);setTextSize(size);
+        super(c);source=ayah.arabic;touchSlop=ViewConfiguration.get(c).getScaledTouchSlop();setTypeface(font);setTextSize(size);
         setTextDirection(View.TEXT_DIRECTION_RTL);setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         setGravity(Gravity.RIGHT);setIncludeFontPadding(true);setLineSpacing(Glass.dp(c,10),1.08f);
         setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
@@ -36,6 +39,45 @@ final class QuranText extends ArabicText {
         setContentDescription(ayah.arabic+". Ayah "+ayah.surah+":"+ayah.number);
         setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
     }
+    private ClickableSpan spanAt(MotionEvent event){
+        Layout layout=getLayout();CharSequence text=getText();
+        if(layout==null||!(text instanceof Spanned)||text.length()==0)return null;
+        float x=event.getX()-getTotalPaddingLeft()+getScrollX(),y=event.getY()-getTotalPaddingTop()+getScrollY();
+        if(x<0||y<0||y>layout.getHeight())return null;
+        int line=layout.getLineForVertical((int)y);
+        float left=Math.min(layout.getLineLeft(line),layout.getLineRight(line));
+        float right=Math.max(layout.getLineLeft(line),layout.getLineRight(line));
+        if(x<left||x>right)return null;
+        int offset=Math.min(text.length()-1,Math.max(0,layout.getOffsetForHorizontal(line,x)));
+        ClickableSpan[] spans=((Spanned)text).getSpans(offset,offset+1,ClickableSpan.class);
+        return spans.length==0?null:spans[0];
+    }
+    private void clearPress(){pressedSpan=null;setPressed(false);}
+    @Override public boolean onTouchEvent(MotionEvent event){
+        switch(event.getActionMasked()){
+            case MotionEvent.ACTION_DOWN:
+                pressedSpan=spanAt(event);downX=event.getX();downY=event.getY();
+                if(pressedSpan==null)return false;
+                setPressed(true);return true;
+            case MotionEvent.ACTION_MOVE:
+                if(pressedSpan==null)return false;
+                if(Math.abs(event.getX()-downX)>touchSlop||Math.abs(event.getY()-downY)>touchSlop){
+                    clearPress();
+                    ViewParent parent=getParent();if(parent!=null)parent.requestDisallowInterceptTouchEvent(false);
+                }
+                return true;
+            case MotionEvent.ACTION_UP:
+                ClickableSpan tapped=pressedSpan;boolean within=tapped!=null&&Math.abs(event.getX()-downX)<=touchSlop&&Math.abs(event.getY()-downY)<=touchSlop;
+                ClickableSpan released=within?spanAt(event):null;clearPress();
+                if(tapped!=null&&tapped==released){tapped.onClick(this);performClick();}
+                return tapped!=null;
+            case MotionEvent.ACTION_CANCEL:
+                boolean hadPress=pressedSpan!=null;clearPress();return hadPress;
+            default:
+                return pressedSpan!=null;
+        }
+    }
+    @Override public boolean performClick(){super.performClick();return true;}
     void select(ContentStore.Word word) {
         Spannable value=(Spannable)getText();if(selected!=null)value.removeSpan(selected);selected=null;
         Selection.removeSelection(value);
