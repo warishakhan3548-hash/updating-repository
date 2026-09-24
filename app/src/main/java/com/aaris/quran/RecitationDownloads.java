@@ -19,6 +19,8 @@ final class RecitationDownloads {
     private static final int LOCK_STRIPES=64;
     private final File root;
     private final Object[] locks=new Object[LOCK_STRIPES];
+    private final Map<String,long[]> completionCache=new java.util.concurrent.ConcurrentHashMap<>();
+    private final Set<String> missingCompletions=java.util.concurrent.ConcurrentHashMap.newKeySet();
     volatile boolean cancelled,busy;
     volatile String progress="";
     // v1 cached ordinal-1 audio under the requested coordinate. Its hashes only verify bytes,
@@ -33,27 +35,35 @@ final class RecitationDownloads {
     private File folder(String reciter,int surah){return new File(new File(root,valid(reciter)),""+surah);}
     private File file(String reciter,Ayah a){return new File(folder(reciter,a.surah),a.number+".mp3");}
     private File hashFile(String reciter,Ayah a){return new File(folder(reciter,a.surah),a.number+".sha256");}
-    private JSONObject completion(String reciter,int surah,int ayahs){
-        File marker=new File(folder(reciter,surah),"complete.json");if(!marker.isFile())return null;
+    private String completionKey(String reciter,int surah){return valid(reciter)+":"+surah;}
+    private void invalidateCompletion(String reciter,int surah){
+        String key=completionKey(reciter,surah);completionCache.remove(key);missingCompletions.remove(key);
+    }
+    private long[] completionLengths(String reciter,int surah,int ayahs){
+        String key=completionKey(reciter,surah);long[] cached=completionCache.get(key);
+        if(cached!=null)return cached.length==ayahs+1?cached:null;
+        if(missingCompletions.contains(key))return null;
+        File marker=new File(folder(reciter,surah),"complete.json");
+        if(!marker.isFile()){missingCompletions.add(key);return null;}
         try{
             JSONObject m=new JSONObject(new String(java.nio.file.Files.readAllBytes(marker.toPath()),StandardCharsets.UTF_8));
-            if(m.length()!=ayahs)return null;
-            for(int i=1;i<=ayahs;i++)if(!m.has(""+i)||m.optLong(""+i,-1)<512)return null;
-            return m;
-        }catch(Exception e){return null;}
+            if(m.length()!=ayahs){missingCompletions.add(key);return null;}
+            long[] lengths=new long[ayahs+1];
+            for(int i=1;i<=ayahs;i++){long length=m.optLong(""+i,-1);if(length<512){missingCompletions.add(key);return null;}lengths[i]=length;}
+            completionCache.put(key,lengths);missingCompletions.remove(key);return lengths;
+        }catch(Exception e){missingCompletions.add(key);return null;}
     }
-    /** Fast list-state check: the completion marker is written only after every ayah download finishes. */
-    boolean markedComplete(String reciter,int surah,int ayahs){return completion(reciter,surah,ayahs)!=null;}
+    /** Fast list-state check: parse a completion marker once per process, then use memory. */
+    boolean markedComplete(String reciter,int surah,int ayahs){return completionLengths(reciter,surah,ayahs)!=null;}
     /** O(1) playback readiness: validate only the requested ayah against the completed-Surah marker. */
     boolean ayahReady(String reciter,Ayah ayah,int ayahs){
-        JSONObject m=completion(reciter,ayah.surah,ayahs);if(m==null)return false;File audio=file(reciter,ayah);
-        return audio.isFile()&&audio.length()==m.optLong(""+ayah.number,-1);
+        long[] lengths=completionLengths(reciter,ayah.surah,ayahs);if(lengths==null)return false;File audio=file(reciter,ayah);
+        return audio.isFile()&&audio.length()==lengths[ayah.number];
     }
     /** Strong whole-Surah verification. Run on the download worker, never a render hot path. */
     boolean ready(String reciter,int surah,int ayahs){
-        JSONObject m=completion(reciter,surah,ayahs);if(m==null)return false;File directory=folder(reciter,surah);
-        try{for(int i=1;i<=ayahs;i++){File audio=new File(directory,i+".mp3");if(!audio.isFile()||audio.length()!=m.getLong(""+i))return false;}return true;}
-        catch(Exception e){return false;}
+        long[] lengths=completionLengths(reciter,surah,ayahs);if(lengths==null)return false;File directory=folder(reciter,surah);
+        for(int i=1;i<=ayahs;i++){File audio=new File(directory,i+".mp3");if(!audio.isFile()||audio.length()!=lengths[i])return false;}return true;
     }
     File obtain(String reciter,Ayah a)throws Exception{
         int globalNumber=RecitationAddress.globalNumber(a);
@@ -65,6 +75,7 @@ final class RecitationDownloads {
                 if(expected.equals(ContentStore.hash(target)))return target;
             }
             File completion=new File(directory,"complete.json");
+            invalidateCompletion(reciter,a.surah);
             if(completion.exists()&&!completion.delete())throw new IOException("Could not invalidate stale Surah completion state");
             if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("Audio storage unavailable");
             File temporary=new File(directory,a.number+".download");
@@ -89,7 +100,7 @@ final class RecitationDownloads {
         try{for(int s=startSurah;s<=endSurah&&!cancelled;s++){
             JSONObject completed=new JSONObject();int count=content.surah(s).count;
             for(int a=1;a<=count&&!cancelled;a++){Ayah ayah=content.ayah("Q:"+s+":"+a);File file=obtain(reciter,ayah);completed.put(""+a,file.length());progress=NAMES[index(reciter)]+" · Surah "+s+" · "+a+"/"+count;changed.run();}
-            if(!cancelled){File temp=new File(folder(reciter,s),"complete.tmp"),target=new File(folder(reciter,s),"complete.json");try(FileOutputStream out=new FileOutputStream(temp)){out.write(completed.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}if(target.exists())target.delete();if(!temp.renameTo(target))throw new IOException("Could not finish Surah download");if(!ready(reciter,s,count)){target.delete();throw new IOException("Downloaded Surah verification failed");}}
+            if(!cancelled){File temp=new File(folder(reciter,s),"complete.tmp"),target=new File(folder(reciter,s),"complete.json");try(FileOutputStream out=new FileOutputStream(temp)){out.write(completed.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}invalidateCompletion(reciter,s);if(target.exists()&&!target.delete())throw new IOException("Could not replace Surah completion state");if(!temp.renameTo(target))throw new IOException("Could not finish Surah download");if(!ready(reciter,s,count)){target.delete();invalidateCompletion(reciter,s);throw new IOException("Downloaded Surah verification failed");}}
         }progress=cancelled?"Download paused · completed ayahs are kept":"Download complete";
         }finally{busy=false;changed.run();}
     }
