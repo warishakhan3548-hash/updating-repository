@@ -648,7 +648,7 @@ public final class MainActivity extends Activity {
         list.removeAllViews();
         for(int s=1;s<=114;s++){
             final int surah=s;ContentStore.Surah info=content.surah(surah);
-            boolean downloaded=app.recitationDownloads.ready(reciter,surah,info.count);
+            boolean downloaded=app.recitationDownloads.markedComplete(reciter,surah,info.count);
 
             LinearLayout item=row(this);pad(item,12,8);item.setMinimumHeight(dp(this,46));
             item.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));

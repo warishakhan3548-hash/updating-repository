@@ -16,34 +16,51 @@ final class RecitationDownloads {
     static final String[] IDS={"ar.alafasy","ar.husary","ar.minshawi"};
     static final String[] NAMES={"Mishary Rashid Alafasy","Mahmoud Khalil Al-Husary","Mohamed Siddiq al-Minshawi"};
     static final String ATTRIBUTION="Recitations: Islamic Network / AlQuran.cloud; copyright remains with each reciter. Free non-commercial educational use. https://alquran.cloud/terms-and-conditions";
+    private static final int LOCK_STRIPES=64;
     private final File root;
-    private final Map<String,Object> locks=new HashMap<>();
+    private final Object[] locks=new Object[LOCK_STRIPES];
     volatile boolean cancelled,busy;
     volatile String progress="";
     // v1 cached ordinal-1 audio under the requested coordinate. Its hashes only verify bytes,
     // not verse identity, so those files must never be reused by the corrected mapping.
-    RecitationDownloads(Context c){root=new File(c.getFilesDir(),"recitations-v2-coordinate");}
+    RecitationDownloads(Context c){
+        root=new File(c.getFilesDir(),"recitations-v2-coordinate");
+        for(int i=0;i<locks.length;i++)locks[i]=new Object();
+    }
     static int index(String id){for(int i=0;i<IDS.length;i++)if(IDS[i].equals(id))return i;return 0;}
     static String valid(String id){return IDS[index(id)];}
+    private Object lockFor(String key){return locks[(key.hashCode()&0x7fffffff)%locks.length];}
     private File folder(String reciter,int surah){return new File(new File(root,valid(reciter)),""+surah);}
     private File file(String reciter,Ayah a){return new File(folder(reciter,a.surah),a.number+".mp3");}
     private File hashFile(String reciter,Ayah a){return new File(folder(reciter,a.surah),a.number+".sha256");}
+    private JSONObject completion(String reciter,int surah,int ayahs){
+        File marker=new File(folder(reciter,surah),"complete.json");if(!marker.isFile())return null;
+        try{
+            JSONObject m=new JSONObject(new String(java.nio.file.Files.readAllBytes(marker.toPath()),StandardCharsets.UTF_8));
+            if(m.length()!=ayahs)return null;
+            for(int i=1;i<=ayahs;i++)if(!m.has(""+i)||m.optLong(""+i,-1)<512)return null;
+            return m;
+        }catch(Exception e){return null;}
+    }
+    /** Fast list-state check: the completion marker is written only after every ayah download finishes. */
+    boolean markedComplete(String reciter,int surah,int ayahs){return completion(reciter,surah,ayahs)!=null;}
+    /** Strong current-Surah check: also verifies every expected local file and length. */
     boolean ready(String reciter,int surah,int ayahs){
-        File directory=folder(reciter,surah),marker=new File(directory,"complete.json");if(!marker.isFile())return false;
-        try{JSONObject m=new JSONObject(new String(java.nio.file.Files.readAllBytes(marker.toPath()),StandardCharsets.UTF_8));if(m.length()!=ayahs)return false;
-            for(int i=1;i<=ayahs;i++){File audio=new File(directory,i+".mp3");if(!audio.isFile()||audio.length()!=m.getLong(""+i))return false;}return true;
-        }catch(Exception e){return false;}
+        JSONObject m=completion(reciter,surah,ayahs);if(m==null)return false;File directory=folder(reciter,surah);
+        try{for(int i=1;i<=ayahs;i++){File audio=new File(directory,i+".mp3");if(!audio.isFile()||audio.length()!=m.getLong(""+i))return false;}return true;}
+        catch(Exception e){return false;}
     }
     File obtain(String reciter,Ayah a)throws Exception{
         int globalNumber=RecitationAddress.globalNumber(a);
-        reciter=valid(reciter);String key=reciter+":"+a.id;Object lock;synchronized(locks){lock=locks.computeIfAbsent(key,k->new Object());}
+        reciter=valid(reciter);Object lock=lockFor(reciter+":"+a.id);
         synchronized(lock){
             File target=file(reciter,a),hash=hashFile(reciter,a),directory=target.getParentFile();
             if(target.isFile()&&hash.isFile()){
                 String expected=new String(java.nio.file.Files.readAllBytes(hash.toPath()),StandardCharsets.UTF_8).trim();
                 if(expected.equals(ContentStore.hash(target)))return target;
             }
-            new File(directory,"complete.json").delete();
+            File completion=new File(directory,"complete.json");
+            if(completion.exists()&&!completion.delete())throw new IOException("Could not invalidate stale Surah completion state");
             if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("Audio storage unavailable");
             File temporary=new File(directory,a.number+".download");
             URL url=new URL("https://cdn.islamic.network/quran/audio/128/"+reciter+"/"+globalNumber+".mp3");
