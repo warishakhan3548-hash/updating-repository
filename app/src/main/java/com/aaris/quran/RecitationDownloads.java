@@ -97,9 +97,15 @@ final class RecitationDownloads {
     }
     void download(ContentStore content,String reciter,int startSurah,int endSurah,Runnable changed)throws Exception{
         synchronized(this){if(busy)throw new IOException("Another recitation download is running");busy=true;cancelled=false;}
+        long lastProgressNanos=0L;
         try{for(int s=startSurah;s<=endSurah&&!cancelled;s++){
             JSONObject completed=new JSONObject();int count=content.surah(s).count;
-            for(int a=1;a<=count&&!cancelled;a++){Ayah ayah=content.ayah("Q:"+s+":"+a);File file=obtain(reciter,ayah);completed.put(""+a,file.length());progress=NAMES[index(reciter)]+" · Surah "+s+" · "+a+"/"+count;changed.run();}
+            for(int a=1;a<=count&&!cancelled;a++){
+                Ayah ayah=content.ayah("Q:"+s+":"+a);File file=obtain(reciter,ayah);completed.put(""+a,file.length());
+                progress=NAMES[index(reciter)]+" · Surah "+s+" · "+a+"/"+count;
+                long now=System.nanoTime();
+                if(a==count||lastProgressNanos==0L||now-lastProgressNanos>=250_000_000L){lastProgressNanos=now;changed.run();}
+            }
             if(!cancelled){File temp=new File(folder(reciter,s),"complete.tmp"),target=new File(folder(reciter,s),"complete.json");try(FileOutputStream out=new FileOutputStream(temp)){out.write(completed.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}invalidateCompletion(reciter,s);if(target.exists()&&!target.delete())throw new IOException("Could not replace Surah completion state");if(!temp.renameTo(target))throw new IOException("Could not finish Surah download");if(!ready(reciter,s,count)){target.delete();invalidateCompletion(reciter,s);throw new IOException("Downloaded Surah verification failed");}}
         }progress=cancelled?"Download paused · completed ayahs are kept":"Download complete";
         }finally{busy=false;changed.run();}
