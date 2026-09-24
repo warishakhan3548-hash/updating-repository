@@ -42,7 +42,7 @@ final class AppearanceStudio {
         Window window=dialog.getWindow();if(window!=null){window.setLayout(-1,-1);window.setBackgroundDrawableResource(android.R.color.transparent);}
         refresh();renderControls();
     }
-    private TextView action(String label,Runnable run){TextView b=text(activity,label,14,style.buttonInk());b.setTag("action");pad(b,12,10);b.setGravity(Gravity.CENTER);b.setMinHeight(dp(activity,48));b.setBackground(Glass.touch(activity,Glass.Surface.Kind.BUTTON,false));b.setOnClickListener(v->run.run());b.setFocusable(true);return b;}
+    private TextView action(String label,Runnable run){TextView b=text(activity,label,14,style.buttonInk());b.setTag("action");pad(b,12,10);b.setGravity(Gravity.CENTER);b.setMinHeight(dp(activity,48));b.setBackground(Glass.touch(activity,Glass.Surface.Kind.BUTTON,false));b.setOnClickListener(v->run.run());b.setFocusable(true);Glass.motion(b);return b;}
     private void title(String label){TextView t=text(activity,label,13,GOLD);pad(t,2,12);controls.addView(t);}
     private void refresh(){
         Glass.apply(style);root.setBackgroundColor(style.background);heading.setTextColor(style.appInk());previewBackdrop.invalidate();
@@ -138,7 +138,7 @@ final class AppearanceStudio {
         }
 
         card.setContentDescription(label+" appearance preset"+(selected?", selected":""));card.setTooltipText(label);
-        card.setSelected(selected);card.setFocusable(true);card.setClickable(true);card.setOnClickListener(v->run.run());return card;
+        card.setSelected(selected);card.setFocusable(true);card.setClickable(true);card.setOnClickListener(v->run.run());Glass.motion(card);return card;
     }
     private View presetScene(Appearance swatch){
         return new View(activity){
@@ -227,7 +227,7 @@ final class AppearanceStudio {
         card.addView(label,new LinearLayout.LayoutParams(0,-2,1));
         Glass.Icon next=new Glass.Icon(activity,"next");next.color=Appearance.readable(style.muted(),base);card.addView(next,new LinearLayout.LayoutParams(dp(activity,22),dp(activity,22)));
         card.setContentDescription("Edit "+LAYER_NAMES[index]+". "+LAYER_HELP[index]);card.setFocusable(true);card.setClickable(true);
-        card.setOnClickListener(v->{if(layer!=index){layer=index;invalidateEditorColor();renderControls();}});
+        card.setOnClickListener(v->{if(layer!=index){layer=index;invalidateEditorColor();renderControls();}});Glass.motion(card);
         return card;
     }
     private View editingSummary(){
@@ -248,14 +248,14 @@ final class AppearanceStudio {
         TextView dot=text(activity,selected?"✓":"",15,Appearance.readable(0xfff7f8fa,value));dot.setTag("keepColor");dot.setGravity(Gravity.CENTER);
         android.graphics.drawable.GradientDrawable fill=new android.graphics.drawable.GradientDrawable();fill.setShape(android.graphics.drawable.GradientDrawable.OVAL);fill.setColor(value);dot.setBackground(fill);
         FrameLayout.LayoutParams inner=new FrameLayout.LayoutParams(dp(activity,20),dp(activity,20),Gravity.CENTER);outer.addView(dot,inner);
-        outer.setContentDescription(label+" color for "+LAYER_NAMES[layer]+(selected?", selected":""));outer.setTooltipText(label);outer.setOnClickListener(v->{chooseEditorColor(value);style.name="My style";commit();renderControls();});
+        outer.setContentDescription(label+" color for "+LAYER_NAMES[layer]+(selected?", selected":""));outer.setTooltipText(label);outer.setOnClickListener(v->{chooseEditorColor(value);style.name="My style";commit();renderControls();});Glass.motion(outer);
         return outer;
     }
     private View compactChoice(String label,boolean selected,Runnable run){
         TextView b=text(activity,(selected?"✓ ":"")+label,12,selected?Appearance.readable(style.accent,style.effectiveSurface()):style.ink());
         b.setTag("keepColor");b.setGravity(Gravity.CENTER);b.setMinHeight(dp(activity,42));pad(b,8,5);
         android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();bg.setColor(selected?Appearance.mix(style.effectiveSurface(),style.accent,.14f):style.effectiveSurface());bg.setCornerRadius(dp(activity,15));
-        bg.setStroke(dp(activity,selected?2:1),selected?style.accent:Appearance.mix(style.accent,style.effectiveSurface(),.72f));b.setBackground(bg);b.setOnClickListener(v->run.run());return b;
+        bg.setStroke(dp(activity,selected?2:1),selected?style.accent:Appearance.mix(style.accent,style.effectiveSurface(),.72f));b.setBackground(bg);b.setOnClickListener(v->run.run());b.setFocusable(true);Glass.motion(b);return b;
     }
     private View quranWritingCard(int index,String label){
         boolean selected=style.font==index;Appearance sampleStyle=style.copy();sampleStyle.font=index;
@@ -277,7 +277,7 @@ final class AppearanceStudio {
 
         card.setContentDescription(label+" Arabic writing style"+(selected?", selected":""));card.setTooltipText(label);
         card.setClickable(true);card.setFocusable(true);card.setSelected(selected);
-        card.setOnClickListener(v->{if(style.font!=index){style.font=index;commit();renderControls();}});
+        card.setOnClickListener(v->{if(style.font!=index){style.font=index;commit();renderControls();}});Glass.motion(card);
         return card;
     }
     private void compactSlider(String label,int min,int max,int initial,Change change){
