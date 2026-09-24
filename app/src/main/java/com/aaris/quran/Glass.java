@@ -106,6 +106,55 @@ final class Glass {
                 paint.setShader(null);
                 paint.setColor(Color.argb(Math.round(30*a),193,216,205));
                 for(int i=0;i<4;i++)canvas.drawRoundRect(new RectF(w*.08f,h*(.71f+i*.045f),w*.92f,h*(.715f+i*.045f)),w*.01f,w*.01f,paint);
+            }else if(appearance.scene==3){
+                // Rose Dusk: burgundy twilight, a low sunset and quiet mosque silhouette.
+                LinearGradient dusk=new LinearGradient(0,h*.02f,w,h*.72f,
+                    new int[]{Color.argb(Math.round(82*a),92,35,57),Color.argb(Math.round(54*a),211,87,77),Color.TRANSPARENT},
+                    null,Shader.TileMode.CLAMP);
+                paint.setShader(dusk);canvas.drawRect(0,0,w,h,paint);paint.setShader(null);
+
+                RadialGradient sun=new RadialGradient(w*.72f,h*.33f,Math.max(w,h)*.16f,
+                    new int[]{Color.argb(Math.round(112*a),255,166,111),Color.argb(Math.round(32*a),247,111,94),Color.TRANSPARENT},
+                    null,Shader.TileMode.CLAMP);
+                paint.setShader(sun);canvas.drawRect(0,0,w,h,paint);paint.setShader(null);
+
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1f,w*.002f));
+                paint.setColor(Color.argb(Math.round(48*a),255,167,143));
+                float inset=w*.055f;
+                RectF arch=new RectF(inset,h*.045f,w-inset,h*.56f);
+                canvas.drawArc(arch,180,180,false,paint);
+                canvas.drawLine(inset,h*.30f,inset,h*.62f,paint);
+                canvas.drawLine(w-inset,h*.30f,w-inset,h*.62f,paint);
+
+                paint.setStyle(Paint.Style.FILL);
+                int silhouette=Color.argb(Math.round(92*a),39,16,28);
+                drawMosqueSilhouette(canvas,w,h,silhouette,h*.57f);
+
+                // Soft reflected sunset and floral haze near the lower edges.
+                paint.setColor(Color.argb(Math.round(30*a),255,129,112));
+                for(int i=0;i<4;i++)canvas.drawRoundRect(new RectF(w*.10f,h*(.68f+i*.045f),w*.90f,h*(.685f+i*.045f)),w*.012f,w*.012f,paint);
+                for(float x:new float[]{.08f,.15f,.86f,.93f}){
+                    RadialGradient bloom=new RadialGradient(w*x,h*.72f,w*.11f,
+                        new int[]{Color.argb(Math.round(38*a),202,70,103),Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                    paint.setShader(bloom);canvas.drawRect(0,0,w,h,paint);
+                }
+                paint.setShader(null);
+            }
+        }
+        private void drawMosqueSilhouette(Canvas canvas,float w,float h,int color,float baseY){
+            paint.setShader(null);paint.setStyle(Paint.Style.FILL);paint.setColor(color);
+            float cx=w*.67f,base=baseY,unit=w*.035f;
+            canvas.drawRect(cx-unit*2.7f,base-unit*.35f,cx+unit*2.7f,base+unit*1.5f,paint);
+            RectF dome=new RectF(cx-unit*2.3f,base-unit*2.35f,cx+unit*2.3f,base+unit*.1f);
+            canvas.drawArc(dome,180,180,true,paint);
+            canvas.drawRect(cx-unit*.12f,base-unit*2.65f,cx+unit*.12f,base-unit*2.1f,paint);
+            Path finial=new Path();finial.moveTo(cx,base-unit*3.0f);finial.lineTo(cx-unit*.18f,base-unit*2.62f);finial.lineTo(cx+unit*.18f,base-unit*2.62f);finial.close();canvas.drawPath(finial,paint);
+            for(float dx:new float[]{-4.25f,4.25f}){
+                float x=cx+unit*dx;
+                canvas.drawRect(x-unit*.28f,base-unit*3.0f,x+unit*.28f,base+unit*1.2f,paint);
+                canvas.drawCircle(x,base-unit*3.05f,unit*.42f,paint);
+                Path cap=new Path();cap.moveTo(x,base-unit*3.75f);cap.lineTo(x-unit*.36f,base-unit*3.1f);cap.lineTo(x+unit*.36f,base-unit*3.1f);cap.close();canvas.drawPath(cap,paint);
             }
         }
     }
@@ -136,10 +185,11 @@ final class Glass {
         @Override public void draw(Canvas canvas){
             if(fill==null||outer.isEmpty())return;
             int fillAlpha=opacity;
-            if(!solid&&appearance.scene>0&&(kind==Kind.MUSHAF||kind==Kind.HERO))
-                fillAlpha=Math.round(opacity*(appearance.scene==2?.82f:.93f));
-            else if(!solid&&appearance.scene==2&&appearance.glass&&kind==Kind.PANEL)
-                fillAlpha=Math.round(opacity*.94f);
+            if(!solid&&appearance.scene>0&&(kind==Kind.MUSHAF||kind==Kind.HERO)){
+                float sceneAlpha=appearance.scene==1?.88f:appearance.scene==3?.78f:.80f;
+                fillAlpha=Math.round(opacity*sceneAlpha);
+            }else if(!solid&&(appearance.scene==2||appearance.scene==3)&&appearance.glass&&kind==Kind.PANEL)
+                fillAlpha=Math.round(opacity*.93f);
             p.setColor(Color.WHITE);p.setAlpha(fillAlpha);p.setStyle(Paint.Style.FILL);p.setShader(fill);
             canvas.drawRoundRect(outer,radius,radius,p);
             p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(stroke);p.setShader(rim);p.setAlpha(opacity);
