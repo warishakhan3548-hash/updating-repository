@@ -13,7 +13,7 @@ final class Appearance {
     static final String[] PRESETS={"Emerald Glass","Ocean Blue","Rose Glass","Midnight","Lavender Aqua","Violet Glass","Burgundy Pearl","Lavender Studio","Pearl Violet","Sapphire Neon","Rose Luxe","Mint Lilac","Amethyst Night","Pearl Rose"};
     static final String[] FONTS={"Amiri Quran","Amiri Naskh","Amiri Naskh Bold","Scheherazade New","Lateef","Harmattan","Noto Naskh Arabic","Noto Kufi Arabic"};
     private static final String[] FONT_FILES={"AmiriQuran.ttf","Amiri-Regular.ttf","Amiri-Bold.ttf","ScheherazadeNew-Regular.ttf","Lateef-Regular.ttf","Harmattan-Regular.ttf","NotoNaskhArabic.ttf","NotoKufiArabic.ttf"};
-    int background=0xff030705,surface=0xff14291e,accent=0xff9bc7aa,arabic=0xffe0e4d8,translation=0xffcbd6d0;
+    int background=0xff030705,surface=0xff14291e,accent=0xff9bc7aa,arabic=0xffe0e4d8,translation=0xffcbd6d0,appText=0xffedf1ed;
     int font=0,arabicSize=32,translationSize=18,spacing=10,opacity=92,corners=26;
     int arabicOpacity=100,translationOpacity=100,glassStrength=100,borderStrength=100,glow=0,gradientEnd=background;
     int textDepth=0,shadowSoftness=4,shadowStrength=0,textSheen=50,buttonColor=surface;
@@ -35,9 +35,10 @@ final class Appearance {
             a.buttonColor=j.optInt("buttonColor",a.surface)|0xff000000;a.customButtons=j.optBoolean("customButtons",false);
             a.gradientEnd=j.optInt("gradientEnd",a.background)|0xff000000;a.gradient=j.optBoolean("gradient",false);a.reducedEffects=j.optBoolean("reducedEffects",false);
             a.glass=j.optBoolean("glass",true);a.textGlass=j.optBoolean("textGlass",true);a.name=j.optString("name",PRESETS[0]);
+            a.appText=j.has("appText")?(j.optInt("appText",a.appText)|0xff000000):a.autoAppText();
         }catch(Exception ignored){}return a;
     }
-    String encode(){try{return new JSONObject().put("version",3).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation)
+    String encode(){try{return new JSONObject().put("version",4).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation).put("appText",appText)
         .put("font",font).put("size",arabicSize).put("translationSize",translationSize).put("spacing",spacing).put("opacity",opacity).put("corners",corners)
         .put("arabicOpacity",arabicOpacity).put("translationOpacity",translationOpacity).put("glassStrength",glassStrength).put("borderStrength",borderStrength).put("glow",glow)
         .put("textDepth",textDepth).put("shadowSoftness",shadowSoftness).put("shadowStrength",shadowStrength).put("textSheen",textSheen).put("buttonColor",buttonColor).put("customButtons",customButtons)
@@ -105,7 +106,7 @@ final class Appearance {
                 gradient=true;glassStrength=76;borderStrength=58;glow=4;corners=30;opacity=97;
                 break;
         }
-        name=PRESETS[i];
+        appText=autoAppText();name=PRESETS[i];
     }
     private void palette(int bg,int card,int highlight,int arabicInk,int translationInk,int end){
         background=bg;surface=card;buttonColor=card;accent=highlight;arabic=arabicInk;translation=translationInk;gradientEnd=end;
@@ -113,8 +114,7 @@ final class Appearance {
     int buttonSurface(){return customButtons?mix(background,buttonColor,opacity/100f):effectiveSurface();}
     int buttonInk(){
         int base=buttonSurface(),primary=mix(base,accent,.15f),highlight=mix(primary,accent,.06f*glassStrength/100f);
-        int target=Math.min(contrast(Color.WHITE,base),contrast(Color.WHITE,highlight))>Math.min(contrast(Color.BLACK,base),contrast(Color.BLACK,highlight))?Color.WHITE:Color.BLACK;
-        return readable(target,base);
+        return readableAcross(appText,base,highlight);
     }
     int glassInk(float amount){return textInk(mix(arabicInk(),Color.WHITE,amount),100);}
     int effectiveSurface(){return mix(background,surface,opacity/100f);}
@@ -127,14 +127,32 @@ final class Appearance {
         int target=Math.min(contrast(Color.WHITE,on),contrast(Color.WHITE,end))>Math.min(contrast(Color.BLACK,on),contrast(Color.BLACK,end))?Color.WHITE:Color.BLACK;
         for(int n=1;n<=40;n++){int fixed=mix(requested,target,n/40f);if(contrast(fixed,on)>=4.5&&contrast(fixed,end)>=4.5)return fixed;}return target;
     }
-    boolean adjustedText(){return arabicInk()!=mix(effectiveSurface(),arabic,arabicOpacity/100f)||translationInk()!=mix(effectiveSurface(),translation,translationOpacity/100f);}
-    int ink(){return readable(luminance(effectiveSurface())>.38?0xff16202a:0xffedf1ed,effectiveSurface());}
-    int muted(){return readable(mix(ink(),effectiveSurface(),.25f),effectiveSurface());}
+    boolean adjustedText(){return arabicInk()!=mix(effectiveSurface(),arabic,arabicOpacity/100f)||translationInk()!=mix(effectiveSurface(),translation,translationOpacity/100f)||appInk()!=appText;}
+    private int autoAppText(){
+        int on=effectiveSurface();
+        return luminance(on)>.38?0xff16202a:0xffedf1ed;
+    }
+    int appInk(){return readableAcross(appText,background,effectiveSurface(),surfaceHighlight());}
+    int ink(){return appInk();}
+    int muted(){return readableAcross(mix(appInk(),effectiveSurface(),.30f),background,effectiveSurface(),surfaceHighlight());}
     static int bound(int x,int lo,int hi){return Math.max(lo,Math.min(hi,x));}
     static int mix(int a,int b,float t){return Color.rgb(Math.round(Color.red(a)*(1-t)+Color.red(b)*t),Math.round(Color.green(a)*(1-t)+Color.green(b)*t),Math.round(Color.blue(a)*(1-t)+Color.blue(b)*t));}
     static double luminance(int c){double v=0;double[] weights={.2126,.7152,.0722};int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};for(int i=0;i<3;i++){double x=rgb[i]/255.;v+=weights[i]*(x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4));}return v;}
     static double contrast(int a,int b){double x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
     static int readable(int color,int on){if(contrast(color,on)>=4.5)return color;int target=contrast(Color.WHITE,on)>contrast(Color.BLACK,on)?Color.WHITE:Color.BLACK;for(int n=1;n<=20;n++){int fixed=mix(color,target,n/20f);if(contrast(fixed,on)>=4.5)return fixed;}return target;}
+    static int readableAcross(int color,int... surfaces){
+        if(surfaces==null||surfaces.length==0)return color;
+        boolean ok=true;for(int on:surfaces)if(contrast(color,on)<4.5){ok=false;break;}if(ok)return color;
+        double white=Double.MAX_VALUE,black=Double.MAX_VALUE;
+        for(int on:surfaces){white=Math.min(white,contrast(Color.WHITE,on));black=Math.min(black,contrast(Color.BLACK,on));}
+        int target=white>=black?Color.WHITE:Color.BLACK;
+        for(int n=1;n<=40;n++){
+            int fixed=mix(color,target,n/40f);boolean readable=true;
+            for(int on:surfaces)if(contrast(fixed,on)<4.5){readable=false;break;}
+            if(readable)return fixed;
+        }
+        return target;
+    }
     Typeface hadithTypeface(Context c){return typeface(c);}
     Typeface typeface(Context c){return typeface(c,font);}
     private static Typeface typeface(Context c,int font){

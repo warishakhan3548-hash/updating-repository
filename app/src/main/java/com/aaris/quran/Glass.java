@@ -14,7 +14,7 @@ final class Glass {
         GOLD=0xFFCDBFA3,MINT=0xFFB7CCB8,ARABIC_INK=0xFFD8D8C9,HIGH_INK=0xFFE8E8DB,
         WORD_HIGHLIGHT=0x40587B63;
     static Appearance appearance=new Appearance();
-    static void apply(Appearance a){appearance=a;BACKGROUND=a.background;INK=a.ink();MUTED=a.muted();
+    static void apply(Appearance a){appearance=a;BACKGROUND=a.background;INK=a.appInk();MUTED=a.muted();
         GOLD=Appearance.readable(a.accent,a.effectiveSurface());MINT=GOLD;ARABIC_INK=a.arabicInk();HIGH_INK=INK;
         WORD_HIGHLIGHT=(a.accent&0xffffff)|0x45000000;}
     static int dp(Context c,float value){return (int)(c.getResources().getDisplayMetrics().density*value+0.5f);}
@@ -106,6 +106,7 @@ final class Glass {
                 case "share":c.drawCircle(5,12,2,p);c.drawCircle(19,5,2,p);c.drawCircle(19,19,2,p);c.drawLine(7,11,17,6,p);c.drawLine(7,13,17,18,p);break;
                 case "speaker":a.moveTo(4,10);a.lineTo(8,10);a.lineTo(13,6);a.lineTo(13,18);a.lineTo(8,14);a.lineTo(4,14);a.close();c.drawPath(a,p);c.drawArc(14,8,20,16,-55,110,false,p);c.drawArc(14,5,23,19,-55,110,false,p);break;
                 case "moon":a.moveTo(17,3);a.cubicTo(5,1,1,17,12,21);a.cubicTo(18,23,22,18,22,14);a.cubicTo(13,18,9,8,17,3);c.drawPath(a,p);break;
+                case "text":c.drawLine(4,6,14,6,p);c.drawLine(9,6,9,19,p);c.drawLine(17,10,21,10,p);c.drawLine(19,10,19,19,p);break;
                 default:for(int i=0;i<3;i++)c.drawCircle(5+i*7,12,0.7f,p);
             }c.restore();
         }
