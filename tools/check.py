@@ -208,15 +208,26 @@ def main():
         subprocess.run([sys.executable, str(ROOT / 'tools/check_hadith_search.py'), '--classes', str(classes)], check=True, cwd=ROOT)
         corpus = Path(scratch) / 'corpus.tsv'
         encode = lambda value: base64.b64encode(value.encode()).decode()
+        # Match ContentStore's runtime search document order explicitly. Aggregate input order is
+        # undefined without an aggregate ORDER BY and older Android SQLite versions cannot rely on
+        # newer group_concat ordering syntax.
+        word_hints, word_sounds = {}, {}
+        for aid, en, hi, ur, translit in db.execute(
+                'SELECT ayah_id,gloss_en,gloss_hi,gloss_ur,transliteration '
+                'FROM word ORDER BY ayah_id,position,start_cp'):
+            hints = word_hints.setdefault(aid, [])
+            hints.extend(value for value in (en, hi, ur, translit) if value)
+            if translit:
+                word_sounds.setdefault(aid, []).append(translit)
         with corpus.open('w') as out:
-            for surah, number, ordinal, arabic, hints, sounds in db.execute('''
-                    SELECT a.surah,a.number,a.ordinal,a.arabic,
-                    group_concat(COALESCE(w.gloss_en,'')||' '||COALESCE(w.gloss_hi,'')||' '||
-                    COALESCE(w.gloss_ur,'')||' '||COALESCE(w.transliteration,''),' '),
-                    group_concat(COALESCE(w.transliteration,''),' ')
-                    FROM ayah a LEFT JOIN word w ON w.ayah_id=a.id GROUP BY a.id ORDER BY a.ordinal'''):
-                hints = (hints or '') + translations.get(f'Q:{surah}:{number}', '')
-                out.write(f'{surah}\t{number}\t{ordinal}\t{encode(arabic)}\t{encode(hints)}\t{encode(sounds or "")}\n')
+            for aid, surah, number, ordinal, arabic in db.execute(
+                    'SELECT id,surah,number,ordinal,arabic FROM ayah ORDER BY ordinal'):
+                hints = ' '.join(word_hints.get(aid, []))
+                translated = translations.get(aid, '')
+                if translated:
+                    hints = (hints + ' ' + translated).strip()
+                sounds = ' '.join(word_sounds.get(aid, []))
+                out.write(f'{surah}\t{number}\t{ordinal}\t{encode(arabic)}\t{encode(hints)}\t{encode(sounds)}\n')
         subprocess.run([java, '-Xmx256m', '-cp', str(classes), 'com.aaris.quran.core.CorpusChecks', str(corpus)], check=True, cwd=ROOT)
         generated = Path(scratch) / 'generated'
         generated.mkdir()
