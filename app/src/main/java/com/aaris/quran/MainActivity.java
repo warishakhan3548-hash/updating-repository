@@ -528,7 +528,7 @@ public final class MainActivity extends Activity {
             LinearLayout row=Glass.row(this);pad(row,16,14);row.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));
             TextView number=text(this,String.format(Locale.ROOT,"%02d",s.id),13,GOLD);row.addView(number,new LinearLayout.LayoutParams(dp(this,38),-2));
             LinearLayout names=column(this);names.addView(text(this,s.name,17,INK));names.addView(text(this,s.count+" ayahs · "+s.meaning,11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-            TextView ar=arabic(s.arabic,24);row.addView(ar,new LinearLayout.LayoutParams(-2,-2));row.setContentDescription(s.name+", "+s.count+" ayat");row.setFocusable(true);row.setOnClickListener(v->open(s.id,1));Glass.motion(row);
+            TextView ar=arabic(s.arabic,24);row.addView(ar,new LinearLayout.LayoutParams(-2,-2));row.setContentDescription(s.name+", "+s.count+" ayahs");row.setFocusable(true);row.setOnClickListener(v->open(s.id,1));Glass.motion(row);
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,10);list.addView(row,lp);
         }};filter.addTextChangedListener(watcher(fill));fill.run();
     }
@@ -1493,7 +1493,7 @@ public final class MainActivity extends Activity {
         LinearLayout page=sheet("Check references");caption(page,"Checks against the last exported snapshot. Format: \"exact Arabic quote\" [Q:2:255]. This verifies citations, not the AI's reasoning or a religious conclusion.");
         EditText answer=new EditText(this);answer.setTextColor(INK);answer.setHintTextColor(MUTED);answer.setHint("Paste the AI answer here…");answer.setMinLines(5);answer.setMaxLines(10);answer.setFilters(new InputFilter[]{new InputFilter.LengthFilter(100000)});page.addView(answer);gap(page,14);
         TextView report=text(this,"",15,INK);page.addView(report);
-        page.addView(button("References dekhein",()->{
+        page.addView(button("View references",()->{
             try{Map<String,String> snapshot=BackupValidator.validateBundle(new JSONObject(saved),content);
                 References.Check c=References.verify(answer.getText().toString(),snapshot);
                 report.setText((c.passed()?"Reference IDs match.":"Reference check is incomplete or mismatched.")+"\nFound: "+c.found.size()+" · Missing: "+c.missing.size()+"\nExact quotes checked: "+c.checkedQuotes+" · Mismatch: "+c.badQuotes.size()+" · Quotes without citations: "+c.uncheckedQuotes+"\n"+(c.missing.isEmpty()?"":String.join(", ",c.missing))+"\nOnly double-quoted text immediately followed by a citation is checked. The conclusion itself is not verified.");hideKeyboard();
