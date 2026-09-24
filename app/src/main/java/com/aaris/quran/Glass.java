@@ -311,7 +311,10 @@ final class Glass {
             }c.restore();
         }
     }
-    static Drawable touch(Context c,Surface.Kind kind,boolean solid){return new RippleDrawable(ColorStateList.valueOf(0x1ADCE5D6),new Surface(c,kind,solid),new Surface(c,Surface.Kind.PRIMARY,true));}
+    static Drawable touch(Context c,Surface.Kind kind,boolean solid){
+        int ripple=(appearance.accent&0x00ffffff)|0x24000000;
+        return new RippleDrawable(ColorStateList.valueOf(ripple),new Surface(c,kind,solid),new Surface(c,Surface.Kind.PRIMARY,true));
+    }
     static <T extends View> T motion(T view){
         if(appearance.reducedEffects){
             view.setStateListAnimator(null);view.setScaleX(1f);view.setScaleY(1f);return view;
