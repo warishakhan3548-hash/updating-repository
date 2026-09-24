@@ -69,6 +69,17 @@ public final class MainActivity extends Activity {
     private static final int EXPORT=700,IMPORT=701,OVERLAY_PERMISSION=702,NOTIFICATIONS=703,VOICE_SEARCH=704;
     private static final int SEARCH_RENDER_BATCH=8;
 
+    /** Observes gestures before child dispatch without stealing taps or vertical scrolling. */
+    private static final class GestureScrollView extends ScrollView {
+        private GestureDetector observer;
+        GestureScrollView(Context context){super(context);}
+        void observe(GestureDetector detector){observer=detector;}
+        @Override public boolean dispatchTouchEvent(MotionEvent event){
+            GestureDetector detector=observer;if(detector!=null)detector.onTouchEvent(event);
+            return super.dispatchTouchEvent(event);
+        }
+    }
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);app=(QuranApp)getApplication();
         if(state!=null){pendingVoiceScope=state.getInt("voice_scope",-1);hadithQuery=state.getString("hadith_query","");}
@@ -142,7 +153,7 @@ public final class MainActivity extends Activity {
         TextView h=text(this,title,23,INK);h.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));label.addView(h);
         header.addView(label,new LinearLayout.LayoutParams(0,-2,1));header.addView(iconButton("settings","Reading settings",this::settings));
     }
-    private LinearLayout scrollBody(){ScrollView sc=new ScrollView(this);sc.setFillViewport(false);sc.setClipToPadding(false);sc.setOverScrollMode(View.OVER_SCROLL_NEVER);body.addView(sc,new LinearLayout.LayoutParams(-1,-1));LinearLayout page=column(this);pad(page,20,12);sc.addView(page);return page;}
+    private LinearLayout scrollBody(){GestureScrollView sc=new GestureScrollView(this);sc.setFillViewport(false);sc.setClipToPadding(false);sc.setOverScrollMode(View.OVER_SCROLL_NEVER);body.addView(sc,new LinearLayout.LayoutParams(-1,-1));LinearLayout page=column(this);pad(page,20,12);sc.addView(page);return page;}
     private LinearLayout card(LinearLayout parent,Surface.Kind kind){LinearLayout v=column(this);pad(v,22,20);v.setBackground(new Surface(this,kind,highContrast));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,16);parent.addView(v,lp);return v;}
     private TextView button(String title,Runnable click){return action(title,click,false);}
     private TextView primary(String title,Runnable click){return action(title,click,true);}
@@ -564,10 +575,10 @@ public final class MainActivity extends Activity {
                 if(start==null||end==null)return false;
                 float dx=end.getX()-start.getX(),dy=end.getY()-start.getY(),horizontal=Math.abs(dx);
                 if(horizontal<dp(MainActivity.this,72)||horizontal<Math.abs(dy)*1.35f||Math.abs(velocityX)<minimumFling)return false;
-                hidePeek();return moveReaderPage(dx<0?1:-1);
+                int direction=dx<0?1:-1;hidePeek();ui.post(()->moveReaderPage(direction));return true;
             }
         });
-        readerScroll.setOnTouchListener((view,event)->{detector.onTouchEvent(event);return false;});
+        ((GestureScrollView)readerScroll).observe(detector);
     }
     private void reader(){
         ContentStore.Surah s=content.surah(readerSurah);
