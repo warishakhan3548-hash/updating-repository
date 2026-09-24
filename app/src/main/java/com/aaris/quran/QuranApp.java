@@ -67,10 +67,11 @@ public final class QuranApp extends Application {
             }catch(Exception e){loadError="Offline content could not be opened: "+e.getMessage();}
             finally{
                 ready.countDown();
-                if(loadError==null)main.postDelayed(()->quranSearchWorker.execute(this::warmSearchIndex),450L);
+                if(loadError==null&&!lowRamDevice())main.postDelayed(()->quranSearchWorker.execute(this::warmSearchIndex),450L);
             }
         });
     }
+    private boolean lowRamDevice(){android.app.ActivityManager manager=(android.app.ActivityManager)getSystemService(ACTIVITY_SERVICE);return manager!=null&&manager.isLowRamDevice();}
     synchronized SearchEngine searchIndex(){
         SearchEngine current=search;if(current!=null)return current;
         current=content.buildSearch(translations);search=current;return current;
