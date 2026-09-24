@@ -13,6 +13,7 @@ import java.util.concurrent.*;
 public final class QuranApp extends Application {
     final ExecutorService io=Executors.newSingleThreadExecutor();
     final ExecutorService searchWorker=Executors.newSingleThreadExecutor();
+    final ExecutorService quranSearchWorker=Executors.newSingleThreadExecutor();
     final ExecutorService recitationWorker=Executors.newSingleThreadExecutor();
     volatile RecitationDownloads recitationDownloads;
     volatile boolean recitationActive;

@@ -1,0 +1,20 @@
+{
+  "purpose": "Host-only production HadithStore regression adapter. Not app dependencies; never bundled in the APK.",
+  "artifacts": [
+    {
+      "file": "sqlite-jdbc-3.45.3.0.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/xerial/sqlite-jdbc/3.45.3.0/sqlite-jdbc-3.45.3.0.jar",
+      "sha256": "cd55db695548e9b1ba38070109f809052e9ed377256f6218b9e4cd4ee603ab55"
+    },
+    {
+      "file": "json-20240303.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar",
+      "sha256": "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed"
+    },
+    {
+      "file": "slf4j-api-2.0.12.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/2.0.12/slf4j-api-2.0.12.jar",
+      "sha256": "a79502b8abdfbd722846a27691226a4088682d6d35654f9b80e2a9ccacf7ed47"
+    }
+  ]
+}

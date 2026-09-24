@@ -15,6 +15,20 @@ public final class SearchIntentChecks {
             System.out.println(encode(lookup.where));for(String value:lookup.args)System.out.println(encode(value));
             return;
         }
+        if(args.length>0&&args[0].equals("phrase")){
+            HadithSearchPlan plan=HadithSearchPlan.phrase(HadithQuery.parse(args[1]));
+            System.out.println(encode(plan.where));for(String value:plan.args)System.out.println(encode(value));return;
+        }
+        if(args.length>0&&args[0].equals("candidates")){
+            List<String> lines=Files.readAllLines(Paths.get(args[1]),StandardCharsets.UTF_8);
+            HadithQuery intent=HadithQuery.parse(decode(lines.get(0)));Map<String,Double> weights=new LinkedHashMap<>();Map<String,List<String>> repairs=new LinkedHashMap<>();
+            for(String line:lines.subList(1,lines.size())){
+                String[] row=line.split("\\t");String term=decode(row[0]);weights.put(term,Double.parseDouble(row[1]));
+                repairs.put(term,row.length>2?Arrays.asList(decode(row[2]).split(" ")):Collections.emptyList());
+            }
+            HadithSearchPlan plan=HadithSearchPlan.candidates(intent,repairs,weights);
+            System.out.println(encode(plan.where));for(String value:plan.args)System.out.println(encode(value));return;
+        }
         if(args.length>0&&args[0].equals("tokens")){
             for(String line:Files.readAllLines(Paths.get(args[1]),StandardCharsets.UTF_8))
                 System.out.println(encode(String.join(" ",TextMatch.tokens(decode(line)))));
@@ -42,6 +56,11 @@ public final class SearchIntentChecks {
             {"सही मुस्लिम 5 5 5 6","muslim","5556"},{"556 Sahih Muslim","muslim","556"},
             {"Bukhari:556a","bukhari","556a"},{"५ ५ ६","","556"},{"556","","556"},
             {"Sunan Abu Dawud 00556","abudawud","556"},{"Jami at-Tirmidhi 1","tirmidhi","1"}
+            ,{"sahih bhukhari 556","bukhari","556"},{"bukahri556","bukhari","556"},
+            {"muslem 556","muslim","556"},{"सही भुखारी ५५६","bukhari","556"},
+            {"सहीह बुखारि ५५६","bukhari","556"},{"सही bhukhari 556","bukhari","556"},
+            {"صحيح البخري ٥٥٦","bukhari","556"},{"صحیح بخری ۵۵۶","bukhari","556"},
+            {"556 bukahri","bukhari","556"},{"abu dawod 556","abudawud","556"}
         };
         for(String[] c:cases){HadithQuery q=HadithQuery.parse(c[0]);check(Objects.equals(q.collectionId,c[1].isEmpty()?null:c[1])&&c[2].equals(q.number),"Reference intent: "+c[0]);}
         HadithQuery q=HadithQuery.parse("Bukhari إنما الأعمال بالنيات");
@@ -51,6 +70,14 @@ public final class SearchIntentChecks {
         check(!HadithQuery.parse("556").referenceValues().contains("5560"),"Number family boundary");
         check(HadithQuery.parse("556a").referenceValues().size()==1,"Explicit suffix stays exact");
         check(HadithQuery.parse("2:255").number==null,"Quran coordinate is not a Hadith number");
+        check(HadithQuery.parse("bhukhari").isCollectionBrowse(),"Typo book browsing");
+        for(String value:new String[]{"sahih","sahi","صحيح","सही"}){
+            HadithQuery title=HadithQuery.parse(value);check(title.sahihCollections&&title.isCollectionBrowse(),"Sahih title browsing: "+value);
+            check(!UnifiedQuery.parse(value,UnifiedQuery.ALL).quran,"Collection titles must not turn into Quran pronunciation guesses");
+        }
+        check(HadithQuery.parse("sahih 556").sahihCollections,"Ambiguous Sahih reference searches both collections");
+        check(!HadithQuery.parse("حدثنا قتيبة بن سعيد حدثنا").isHadithIntent(),"Narration text is not a fuzzy collection title");
+        check(!HadithQuery.parse("قال مسلم حدثنا").isHadithIntent(),"Names within prose do not change the scope");
         for(String value:new String[]{"2:255","٢:٢٥٥","Quran 2:255","कुरान २:२५५"}){
             UnifiedQuery u=UnifiedQuery.parse(value,UnifiedQuery.ALL);check(u.quran&&!u.hadith,"Quran routing: "+value);
         }
