@@ -34,6 +34,7 @@ final class ContentStore implements AutoCloseable {
     final List<Surah> surahs=new ArrayList<>();
     private final int[] surahStarts=new int[115];
     final String packHash,audioAlignmentHash;
+    final int unmappedAyahCount,audioDeferredTextAlignedWords;
     ContentStore(Context context) throws Exception {
         JSONObject manifest=new JSONObject(asset(context,"content-manifest.json"));
         if(manifest.optInt("schema_version",-1)!=1||manifest.optInt("surahs",-1)!=114||manifest.optInt("ayahs",-1)!=6236)
@@ -42,7 +43,10 @@ final class ContentStore implements AutoCloseable {
             throw new IOException("Quran source identity mismatch");
         packHash=manifest.getString("sqlite_sha256");
         audioAlignmentHash=manifest.getString("audio_alignment_sha256");
-        if(!packHash.matches("[a-f0-9]{64}")||audioAlignmentHash.length()!=64||manifest.optInt("audio_alignment_words",-1)!=77326)
+        unmappedAyahCount=manifest.optInt("unmapped_ayah_count",-1);
+        audioDeferredTextAlignedWords=manifest.optInt("audio_deferred_text_aligned_words",0);
+        if(!packHash.matches("[a-f0-9]{64}")||audioAlignmentHash.length()!=64||manifest.optInt("audio_alignment_words",-1)!=77326||
+            unmappedAyahCount<0||audioDeferredTextAlignedWords<0)
             throw new IOException("Invalid Quran content identity");
         File folder=new File(context.getFilesDir(),"evidence");if(!folder.exists()&&!folder.mkdirs())throw new IOException("Cannot create evidence storage");
         File target=new File(folder,"quran-"+packHash.substring(0,16)+".sqlite");
