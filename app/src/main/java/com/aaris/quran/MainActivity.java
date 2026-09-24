@@ -1357,7 +1357,7 @@ public final class MainActivity extends Activity {
         page.addView(primary("Done",settingsDialog::dismiss));
     }
     private void sources(){
-        LinearLayout page=sheet("Sources aur bharosa");caption(page,content.sources());gap(page,16);
+        LinearLayout page=sheet("Sources & integrity");caption(page,content.sources());gap(page,16);
         caption(page,"Quran: 114 surahs / 6,236 ayahs. Original text checksum verified. Meanings: imported source word glosses; independent scholarly review is still pending. Word-level meanings are withheld for 9 ayahs where alignment could not be verified.");gap(page,12);
         if(app.wordAudio!=null)caption(page,"Word pronunciation: "+app.wordAudio.installedCount()+"/114 Surahs locally installed · "+app.wordAudio.attribution()+". Audio is fetched only after your Download action; installed Surahs replay without network access.");
         else caption(page,"Word pronunciation storage is not available yet.");
