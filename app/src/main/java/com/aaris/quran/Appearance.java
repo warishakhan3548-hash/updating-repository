@@ -13,13 +13,13 @@ final class Appearance {
     static final String[] PRESETS={"Moonlit Emerald","Light Parchment"};
     static final String[] FONTS={"Amiri Quran","Amiri Naskh","Amiri Naskh Bold","Scheherazade New","Lateef","Harmattan","Noto Naskh Arabic","Noto Kufi Arabic"};
     private static final String[] FONT_FILES={"AmiriQuran.ttf","Amiri-Regular.ttf","Amiri-Bold.ttf","ScheherazadeNew-Regular.ttf","Lateef-Regular.ttf","Harmattan-Regular.ttf","NotoNaskhArabic.ttf","NotoKufiArabic.ttf"};
-    int background=0xff030705,surface=0xff14291e,accent=0xff9bc7aa,arabic=0xffe0e4d8,translation=0xffcbd6d0,appText=0xffedf1ed;
-    int font=0,arabicSize=32,translationSize=18,spacing=10,opacity=92,corners=26;
-    int arabicOpacity=100,translationOpacity=100,glassStrength=100,borderStrength=100,glow=0,gradientEnd=background;
-    int textDepth=0,shadowSoftness=4,shadowStrength=0,textSheen=50,buttonColor=surface;
-    int scene=0,sceneStrength=100;
-    boolean customButtons=false;
-    boolean glass=true,textGlass=true,gradient=false,reducedEffects=false;
+    int background=0xff021411,surface=0xff0b2a24,accent=0xffd8ba72,arabic=0xffffedcf,translation=0xffeee5d7,appText=0xfff5eddf;
+    int font=0,arabicSize=36,translationSize=18,spacing=11,opacity=86,corners=30;
+    int arabicOpacity=100,translationOpacity=100,glassStrength=90,borderStrength=68,glow=2,gradientEnd=0xff073c34;
+    int textDepth=1,shadowSoftness=6,shadowStrength=14,textSheen=34,buttonColor=0xff103a32;
+    int scene=2,sceneStrength=100;
+    boolean customButtons=true;
+    boolean glass=true,textGlass=true,gradient=true,reducedEffects=false;
     String name=PRESETS[0];
     private static final Map<Integer,Typeface> fonts=new HashMap<>();
     static Appearance load(Context context){return decode(context.getSharedPreferences("appearance",0).getString("current","{}"));}
