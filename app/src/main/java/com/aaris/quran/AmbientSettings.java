@@ -13,8 +13,8 @@ final class AmbientSettings {
         prefs(c).edit().putInt("minutes",minutes).putBoolean("due_only",dueOnly).apply();
     }
     static void status(Context c,boolean running,String message){prefs(c).edit().putBoolean("was_running",running).putString("status",message).apply();}
-    static String status(Context c){return prefs(c).getString("status","Abhi band hai");}
-    static void processStarted(Context c){if(prefs(c).getBoolean("was_running",false))status(c,false,"Pichhla session ruk gaya. Shuru karein par tap karein.");}
+    static String status(Context c){return prefs(c).getString("status","Off");}
+    static void processStarted(Context c){if(prefs(c).getBoolean("was_running",false))status(c,false,"Previous session stopped. Tap Start to begin again.");}
     static boolean askedNotifications(Context c){return prefs(c).getBoolean("notification_asked",false);}
     static void notificationsAsked(Context c){prefs(c).edit().putBoolean("notification_asked",true).apply();}
 }
