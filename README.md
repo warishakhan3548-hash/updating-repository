@@ -11,8 +11,8 @@ Requirements: Python 3.10+, JDK 17, Android SDK 35. No paid service or API key.
 
 ```sh
 python3 tools/build_content.py
-# Optional: only after source-vault/hadith/active/manifest.json contains a cleared local pack
-python3 tools/build_hadith.py --source source-vault/hadith/active
+python3 tools/prepare_open_hadith_data.py
+python3 tools/build_hadith.py --source build/generated/hadith-source
 ./gradlew :core:coreCheck :app:assembleDebug
 ```
 
@@ -25,7 +25,10 @@ Offline verification (without CI or an APK build):
 
 ```sh
 python3 tools/build_content.py
+python3 tools/prepare_open_hadith_data.py
+python3 tools/build_hadith.py --source build/generated/hadith-source
 python3 tools/check.py
+python3 tools/check_hadith.py
 # Also check native Java/resources when the Android SDK is available:
 python3 tools/check.py --android-jar "$ANDROID_HOME/platforms/android-35/android.jar" \
   --aapt2 "$ANDROID_HOME/build-tools/35.0.0/aapt2"
@@ -38,7 +41,10 @@ separate cited excerpts, ambiguous alternatives and unmatched words; they never 
 source quote. The Yaad tab provides an opt-in timed overlay over other apps; Android
 permission is required. The Hadith tab is now local-only: it never opens Sunnah.com. A verified
 explicit Hadith pack under `source-vault/hadith/active` has priority; otherwise the build derives
-the checked-in, hash-locked Open-Hadith-Data core-nine Arabic source into a local `hadith.sqlite`.
+the checked-in, hash-locked Open-Hadith-Data core-nine **vocalized Arabic** source into a local
+`hadith.sqlite`. All 62,169 records include published source vowel marks. Every narration's number
+and wording are checked against the corresponding plain edition before import; identities stay
+stable. Lossless source archives live in Git, so Hadith rebuilds need no download or API key.
 That local pack supports Collection → Book → Chapter → Hadith navigation and local Arabic/
 English/reference search where those language layers exist. This is real offline core-nine coverage,
 not a claim that every collection in the wider Sunnah.com catalog is vendored.
@@ -53,8 +59,9 @@ a local, attributed PDF through Android's share sheet. Whole-ayah recitation add
 Mishary/Al-Husary/Minshawi catalog, continuous playback and selected-reciter downloads.
 It is separate from the isolated-word pronunciation system below. Core builds never fetch it.
 Native resource/Java compilation and offline regressions pass; physical-device QA remains pending.
-No APK was produced. See [the fix report](docs/SEARCH_READING_FIXES_2026_09.md) for checks and the
-still-missing official Sunnah vocalized/translation source pack.
+No APK was produced. See [the fix report](docs/SEARCH_READING_FIXES_2026_09.md) and the
+[vocalized source report](docs/HADITH_VOCALIZATION_2026_09.md). Hadith translations and the wider
+Sunnah catalog remain separate unfinished content work; the installed Arabic source is Open-Hadith-Data.
 
 Quran word pronunciation uses on-demand **isolated word recordings** so the base APK stays small
 without cutting words out of one continuous recitation. The reviewed source lock pins
@@ -104,6 +111,11 @@ Those glosses are CC BY-NC-ND 4.0 and keep their original values. This bundled p
 non-commercial: no paid sales, subscriptions or ads. They are imported source glosses,
 not newly authored tafsir or independently reviewed Aaris meanings. Consult original sources.
 Font: Amiri Project, SIL OFL 1.1. All notices are available offline inside the app.
+Hadith: Open-Hadith-Data at `1515f6cba21efed20d8916bf55acef1dffa0d2d5`,
+https://github.com/mhashim6/Open-Hadith-Data — ODbL 1.0 / Database Contents License.
+Original vocalized CSVs and commentary are archived losslessly. The reader imports only the
+narration column, removing redundant whitespace and U+200F layout markers while retaining every
+Arabic letter and vowel mark. No machine-generated diacritics or translations are included.
 
 ## Recovery
 

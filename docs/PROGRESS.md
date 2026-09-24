@@ -417,3 +417,14 @@ Naskh Hadith layout and configurable text depth/shadow/glass/button colors are i
 Local regressions, complete translation/source alignment and Android compilation passed.
 Official Sunnah vocalized Arabic/translation acquisition remains blocked by absent API access;
 no complete content import is claimed. Details: [fix report](SEARCH_READING_FIXES_2026_09.md).
+
+## 2026-09-24 — published Hadith vocalization
+
+The upstream source already contained vocalized counterparts of all nine collections; the old
+import selected only the plain search-oriented CSVs. Archived all nine original vocalized files
+losslessly in Git, with source hashes, license and README. The offline preparer now imports their
+vowel marks and verifies all 62,169 collection/number/wording identities against the old edition.
+Missing marks or mismatches fail preparation. Commentary is not treated as translation. Existing
+IDs and search references remain stable; the content version and database checksum change.
+No generated vowel marks, runtime website dependency, APK or CI. Hadith translation acquisition
+and physical-device QA remain unfinished. Details: [source report](HADITH_VOCALIZATION_2026_09.md).

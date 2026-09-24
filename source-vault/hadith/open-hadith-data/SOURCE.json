@@ -1,9 +1,9 @@
 {
-  "schema": 1,
+  "schema": 2,
   "upstream_repository": "mhashim6/Open-Hadith-Data",
   "upstream_commit": "1515f6cba21efed20d8916bf55acef1dffa0d2d5",
   "license": "ODbL 1.0 / Database Contents License",
-  "note": "Arabic source corpus only. Aaris verifies the pinned upstream Git blob identity plus contiguous record coverage. This source does not grant permission to reuse unrelated Sunnah.com translations, grades, commentary, or website presentation.",
+  "note": "Both plain and vocalized CSVs come from the same pinned upstream revision. Every record is matched by collection, number and Arabic wording before importing vocalization. No generated diacritics or translations. Reference numbering belongs to this edition, not Sunnah.com.",
   "collections": {
     "bukhari": {
       "path": "Sahih_Al-Bukhari/sahih_al-bukhari_ahadith.utf8.csv",
@@ -11,7 +11,16 @@
       "local": "bukhari.parts",
       "expected_record_count": 7008,
       "expected_first_record": "1",
-      "expected_last_record": "7008"
+      "expected_last_record": "7008",
+      "vocalized": {
+        "path": "Sahih_Al-Bukhari/sahih_al-bukhari_ahadith_mushakkala_mufassala.utf8.csv",
+        "git_blob_sha1": "c2462efc47797b5f3331ab18f249b4c5b22be64c",
+        "uncompressed_bytes": 47158870,
+        "sha256": "b03f661876fc4089520800b9231b57a1564baff734344ea8914494b86e2eb708",
+        "local": "vocalized/bukhari.csv.gz",
+        "compressed_sha256": "2e11a131c8e58fc3f7629acad14bf8e59cc0b74f57aae370d7d8926a4ce916ac",
+        "columns": 3
+      }
     },
     "muslim": {
       "path": "Sahih_Muslim/sahih_muslim_ahadith.utf8.csv",
@@ -19,7 +28,16 @@
       "local": "muslim.parts",
       "expected_record_count": 5362,
       "expected_first_record": "1",
-      "expected_last_record": "5362"
+      "expected_last_record": "5362",
+      "vocalized": {
+        "path": "Sahih_Muslim/sahih_muslim_ahadith_mushakkala_mufassala.utf8.csv",
+        "git_blob_sha1": "d0ad74773e63d6a0107b352c2aaf076c8828ed66",
+        "uncompressed_bytes": 18741232,
+        "sha256": "79232c8d7c27fef161d8f33ca169f9754741cfe14957dde2ac76893374998943",
+        "local": "vocalized/muslim.csv.gz",
+        "compressed_sha256": "2249f90b7aad9a0dd9a1f064bd80ec6fb2637007ee41f6ca6a54aba5fe53b6a7",
+        "columns": 3
+      }
     },
     "nasai": {
       "path": "Sunan_Al-Nasai/sunan_al-nasai_ahadith.utf8.csv",
@@ -27,7 +45,16 @@
       "local": "nasai.csv",
       "expected_record_count": 5662,
       "expected_first_record": "1",
-      "expected_last_record": "5662"
+      "expected_last_record": "5662",
+      "vocalized": {
+        "path": "Sunan_Al-Nasai/sunan_al-nasai_ahadith_mushakkala_mufassala.utf8.csv",
+        "git_blob_sha1": "b2b94360c1987385259e7eda906d1244994a0349",
+        "uncompressed_bytes": 9064720,
+        "sha256": "21d677b02a39722f039f9a79f06706e71a0a09a18cc1aa71df6f90d994bf11c2",
+        "local": "vocalized/nasai.csv.gz",
+        "compressed_sha256": "941e62435f651a9a8d1b4e2ae7e1705fa815d6838cea1f6111baff49c72c524e",
+        "columns": 3
+      }
     },
     "abudawud": {
       "path": "Sunan_Abu-Dawud/sunan_abu-dawud_ahadith.utf8.csv",
@@ -35,7 +62,16 @@
       "local": "abudawud.csv",
       "expected_record_count": 4590,
       "expected_first_record": "1",
-      "expected_last_record": "4590"
+      "expected_last_record": "4590",
+      "vocalized": {
+        "path": "Sunan_Abu-Dawud/sunan_abu-dawud_ahadith_mushakkala_mufassala.utf8.csv",
+        "git_blob_sha1": "321da497da10a747c93995172d8e8053486cfa91",
+        "uncompressed_bytes": 23674773,
+        "sha256": "68918ef593d5154d38c1d00bad3ae8237510cb35eeb3ebf22b4a1f9fa3b2799f",
+        "local": "vocalized/abudawud.csv.gz",
+        "compressed_sha256": "2eb068c5781bbf1e22abd6b6cf51d580961547ebdf7fddc0fa6d58aa0b8ef23c",
+        "columns": 3
+      }
     },
     "tirmidhi": {
       "path": "Sunan_Al-Tirmidhi/sunan_al-tirmidhi_ahadith.utf8.csv",
@@ -43,7 +79,16 @@
       "local": "tirmidhi.csv",
       "expected_record_count": 3891,
       "expected_first_record": "1",
-      "expected_last_record": "3891"
+      "expected_last_record": "3891",
+      "vocalized": {
+        "path": "Sunan_Al-Tirmidhi/sunan_al-tirmidhi_ahadith_mushakkala_mufassala.utf8.csv",
+        "git_blob_sha1": "1e55aef7b7f0f7df49e806e67288bb0469947095",
+        "uncompressed_bytes": 28500904,
+        "sha256": "136b4467116a59dd81b9633306960898d6f8fd34c3a3aa3579d2d0ba130b3ce9",
+        "local": "vocalized/tirmidhi.csv.gz",
+        "compressed_sha256": "72cd97e9f7bfb2d06d0afaee628eef8cde423fcf898fcdbb0f12a597b79acac9",
+        "columns": 3
+      }
     },
     "ibnmajah": {
       "path": "Sunan_Ibn-Maja/sunan_ibn-maja_ahadith.utf8.csv",
@@ -51,7 +96,16 @@
       "local": "ibnmajah.csv",
       "expected_record_count": 4332,
       "expected_first_record": "1",
-      "expected_last_record": "4332"
+      "expected_last_record": "4332",
+      "vocalized": {
+        "path": "Sunan_Ibn-Maja/sunan_ibn-maja_ahadith_mushakkala_mufassala.utf8.csv",
+        "git_blob_sha1": "efe37b20eaa0d568e7ec4827b183cc381ca72e75",
+        "uncompressed_bytes": 7990237,
+        "sha256": "88b2fec03dbaff0b6d8e36d9b4b3989d1526a0aa8f81a8cdd56e1de95a7d5f68",
+        "local": "vocalized/ibnmajah.csv.gz",
+        "compressed_sha256": "519026b6652bddfec0f76911d7f112b3047b3b6fcf26d34aa7c56dedc05f2066",
+        "columns": 3
+      }
     },
     "malik": {
       "path": "Maliks_Muwataa/maliks_muwataa_ahadith.utf8.csv",
@@ -59,7 +113,16 @@
       "local": "malik.csv",
       "expected_record_count": 1594,
       "expected_first_record": "1",
-      "expected_last_record": "1594"
+      "expected_last_record": "1594",
+      "vocalized": {
+        "path": "Maliks_Muwataa/maliks_muwataa_ahadith_mushakkala_mufassala.utf8.csv",
+        "git_blob_sha1": "6c3144d1d4a5f41a687e75408d98de25fcc82e7b",
+        "uncompressed_bytes": 12187025,
+        "sha256": "d306930f056bb0a74745a4453fbef04cc80765213554b052a29427e24702ece0",
+        "local": "vocalized/malik.csv.gz",
+        "compressed_sha256": "896d59d0c4fe66a5812cb730c5de05d9f2249616fc40918433f771af425eacc8",
+        "columns": 3
+      }
     },
     "ahmad": {
       "path": "Musnad_Ahmad_Ibn-Hanbal/musnad_ahmad_ibn-hanbal_ahadith.utf8.csv",
@@ -67,7 +130,16 @@
       "local": "ahmad.parts",
       "expected_record_count": 26363,
       "expected_first_record": "1",
-      "expected_last_record": "26363"
+      "expected_last_record": "26363",
+      "vocalized": {
+        "path": "Musnad_Ahmad_Ibn-Hanbal/musnad_ahmad_ibn-hanbal_ahadith_mushakkala.utf8.csv",
+        "git_blob_sha1": "aa5c3838790c93c785edcc8affd34f783627f2c6",
+        "uncompressed_bytes": 28688776,
+        "sha256": "41553fee47fe582a8d0b60fbea1f71b867df44d40adac94dcfe742571a8bce24",
+        "local": "vocalized/ahmad.csv.gz",
+        "compressed_sha256": "1fb8c57743c970f461f3368170e715cd30a739348c9db3e91f7c43807b62c172",
+        "columns": 2
+      }
     },
     "darimi": {
       "path": "Sunan_Al-Darimi/sunan_al-darimi_ahadith.utf8.csv",
@@ -75,7 +147,26 @@
       "local": "darimi.csv",
       "expected_record_count": 3367,
       "expected_first_record": "1",
-      "expected_last_record": "3367"
+      "expected_last_record": "3367",
+      "vocalized": {
+        "path": "Sunan_Al-Darimi/sunan_al-darimi_ahadith_mushakkala_mufassala.utf8.csv",
+        "git_blob_sha1": "c6bcfadd7021d309a7e70aa6894d24e6276de58f",
+        "uncompressed_bytes": 3004407,
+        "sha256": "bb995abb07a513cf76743e9580787e80c7ce5bd08dd6108c13e01d936a048327",
+        "local": "vocalized/darimi.csv.gz",
+        "compressed_sha256": "2e71d2c5365b2792e8bf16ee5fbb124c0f2c3464aeebc35315f63a2ba16afd8c",
+        "columns": 2
+      }
     }
+  },
+  "display_variant": "upstream-vocalized",
+  "display_cleanup": "Remove U+200F RIGHT-TO-LEFT MARK and collapse whitespace only. Preserve all Arabic letters, punctuation and vowel marks. Original CSV bytes are archived losslessly.",
+  "upstream_readme": {
+    "local": "UPSTREAM_README.md",
+    "git_blob_sha1": "ffb69d1c50b78022885d2fcd63f5815af5185c7f"
+  },
+  "upstream_license": {
+    "local": "LICENSE",
+    "git_blob_sha1": "b7cb51e6c96781d50bd6ac8d8897a5d199048e90"
   }
 }
