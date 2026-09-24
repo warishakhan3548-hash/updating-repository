@@ -1,8 +1,7 @@
 package com.aaris.quran;
 
 import android.app.*;
-import android.graphics.Color;
-import android.graphics.Typeface;
+import android.graphics.*;
 import android.view.*;
 import android.widget.*;
 import java.util.*;
@@ -123,6 +122,7 @@ final class AppearanceStudio {
         bg.setCornerRadius(dp(activity,18));
         bg.setStroke(dp(activity,selected?2:1),selected?swatch.accent:Appearance.mix(swatch.accent,cardTone,.72f));
         card.setBackground(bg);
+        View art=presetScene(swatch);card.addView(art,new FrameLayout.LayoutParams(-1,-1));
 
         TextView sample=text(activity,"بِسْمِ",21,swatch.arabicInk());sample.setTag("keepColor");
         sample.setTypeface(swatch.typeface(activity));sample.setGravity(Gravity.CENTER);sample.setTextDirection(View.TEXT_DIRECTION_RTL);
@@ -139,6 +139,49 @@ final class AppearanceStudio {
 
         card.setContentDescription(label+" appearance preset"+(selected?", selected":""));card.setTooltipText(label);
         card.setSelected(selected);card.setFocusable(true);card.setClickable(true);card.setOnClickListener(v->run.run());return card;
+    }
+    private View presetScene(Appearance swatch){
+        return new View(activity){
+            final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+            @Override protected void onDraw(Canvas canvas){
+                float w=getWidth(),h=getHeight();if(w<=0||h<=0)return;
+                int end=swatch.gradient?swatch.gradientEnd:swatch.surface;
+                p.setStyle(Paint.Style.FILL);
+                p.setShader(new LinearGradient(0,0,w,h,new int[]{swatch.background,end},null,Shader.TileMode.CLAMP));
+                canvas.drawRoundRect(new RectF(0,0,w,h),dp(activity,18),dp(activity,18),p);p.setShader(null);
+
+                if(swatch.scene==1){
+                    RadialGradient sun=new RadialGradient(w*.78f,h*.20f,w*.58f,
+                        new int[]{0xB8FFF5D2,0x18F0C979,Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                    p.setShader(sun);canvas.drawRect(0,0,w,h,p);p.setShader(null);
+                    p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(1f,w*.018f));p.setColor(0x72A06C26);
+                    RectF arch=new RectF(w*.08f,h*.08f,w*.92f,h*.90f);canvas.drawArc(arch,180,180,false,p);
+                    p.setStyle(Paint.Style.FILL);p.setColor(0x33335D43);
+                    canvas.drawOval(new RectF(w*.05f,h*.15f,w*.22f,h*.42f),p);
+                    canvas.drawOval(new RectF(w*.78f,h*.10f,w*.94f,h*.34f),p);
+                }else if(swatch.scene==2){
+                    RadialGradient moon=new RadialGradient(w*.76f,h*.20f,w*.34f,
+                        new int[]{0x9AE8F1E9,0x18318A76,Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                    p.setShader(moon);canvas.drawRect(0,0,w,h,p);p.setShader(null);
+                    p.setColor(0x72D8BA72);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(1f,w*.014f));
+                    canvas.drawArc(new RectF(w*.05f,h*.06f,w*.95f,h*.92f),180,180,false,p);
+                }else if(swatch.scene==3){
+                    LinearGradient sky=new LinearGradient(0,0,w,h,
+                        new int[]{0x784A1731,0x90C75A53,0x10241116},null,Shader.TileMode.CLAMP);
+                    p.setShader(sky);canvas.drawRect(0,0,w,h,p);p.setShader(null);
+                    RadialGradient sun=new RadialGradient(w*.70f,h*.42f,w*.26f,
+                        new int[]{0xB8FFAA73,0x28F56C61,Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                    p.setShader(sun);canvas.drawRect(0,0,w,h,p);p.setShader(null);
+                    p.setStyle(Paint.Style.FILL);p.setColor(0xAA2B1320);
+                    float base=h*.76f,cx=w*.69f,u=w*.055f;
+                    canvas.drawRect(cx-u*2.2f,base-u*.2f,cx+u*2.2f,base+u*.9f,p);
+                    canvas.drawArc(new RectF(cx-u*1.9f,base-u*2.0f,cx+u*1.9f,base+u*.1f),180,180,true,p);
+                    for(float dx:new float[]{-3.4f,3.4f}){
+                        float x=cx+u*dx;canvas.drawRect(x-u*.22f,base-u*2.7f,x+u*.22f,base+u*.7f,p);
+                    }
+                }
+            }
+        };
     }
     private static final String[] LAYER_NAMES={"Screen","Cards","Arabic text","Translation","Buttons","Gradient","Highlights","App Text"};
     private static final String[] LAYER_HELP={
