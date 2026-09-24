@@ -27,16 +27,16 @@ final class Appearance {
         Appearance a=new Appearance();try{JSONObject j=new JSONObject(raw);
             a.background=j.optInt("background",a.background)|0xff000000;a.surface=j.optInt("surface",a.surface)|0xff000000;
             a.accent=j.optInt("accent",a.accent)|0xff000000;a.arabic=j.optInt("arabic",a.arabic)|0xff000000;a.translation=j.optInt("translation",a.translation)|0xff000000;
-            a.font=bound(j.optInt("font",0),0,FONTS.length-1);a.arabicSize=bound(j.optInt("size",32),24,54);a.translationSize=bound(j.optInt("translationSize",18),14,28);
-            a.spacing=bound(j.optInt("spacing",10),2,24);a.opacity=bound(j.optInt("opacity",92),25,100);a.corners=bound(j.optInt("corners",26),0,36);
-            a.arabicOpacity=bound(j.optInt("arabicOpacity",100),20,100);a.translationOpacity=bound(j.optInt("translationOpacity",100),20,100);
-            a.glassStrength=bound(j.optInt("glassStrength",100),0,100);a.borderStrength=bound(j.optInt("borderStrength",100),0,100);a.glow=bound(j.optInt("glow",0),0,30);
-            a.textDepth=bound(j.optInt("textDepth",0),0,12);a.shadowSoftness=bound(j.optInt("shadowSoftness",4),0,16);
-            a.scene=bound(j.optInt("scene",0),0,5);a.sceneStrength=bound(j.optInt("sceneStrength",100),0,100);
-            a.shadowStrength=bound(j.optInt("shadowStrength",0),0,70);a.textSheen=bound(j.optInt("textSheen",50),0,100);
-            a.buttonColor=j.optInt("buttonColor",a.surface)|0xff000000;a.customButtons=j.optBoolean("customButtons",false);
-            a.gradientEnd=j.optInt("gradientEnd",a.background)|0xff000000;a.gradient=j.optBoolean("gradient",false);a.reducedEffects=j.optBoolean("reducedEffects",false);
-            a.glass=j.optBoolean("glass",true);a.textGlass=j.optBoolean("textGlass",true);a.name=j.optString("name",PRESETS[0]);
+            a.font=bound(j.optInt("font",a.font),0,FONTS.length-1);a.arabicSize=bound(j.optInt("size",a.arabicSize),24,54);a.translationSize=bound(j.optInt("translationSize",a.translationSize),14,28);
+            a.spacing=bound(j.optInt("spacing",a.spacing),2,24);a.opacity=bound(j.optInt("opacity",a.opacity),25,100);a.corners=bound(j.optInt("corners",a.corners),0,36);
+            a.arabicOpacity=bound(j.optInt("arabicOpacity",a.arabicOpacity),20,100);a.translationOpacity=bound(j.optInt("translationOpacity",a.translationOpacity),20,100);
+            a.glassStrength=bound(j.optInt("glassStrength",a.glassStrength),0,100);a.borderStrength=bound(j.optInt("borderStrength",a.borderStrength),0,100);a.glow=bound(j.optInt("glow",a.glow),0,30);
+            a.textDepth=bound(j.optInt("textDepth",a.textDepth),0,12);a.shadowSoftness=bound(j.optInt("shadowSoftness",a.shadowSoftness),0,16);
+            a.scene=bound(j.optInt("scene",a.scene),0,5);a.sceneStrength=bound(j.optInt("sceneStrength",a.sceneStrength),0,100);
+            a.shadowStrength=bound(j.optInt("shadowStrength",a.shadowStrength),0,70);a.textSheen=bound(j.optInt("textSheen",a.textSheen),0,100);
+            a.buttonColor=j.optInt("buttonColor",a.buttonColor)|0xff000000;a.customButtons=j.optBoolean("customButtons",a.customButtons);
+            a.gradientEnd=j.optInt("gradientEnd",a.gradientEnd)|0xff000000;a.gradient=j.optBoolean("gradient",a.gradient);a.reducedEffects=j.optBoolean("reducedEffects",a.reducedEffects);
+            a.glass=j.optBoolean("glass",a.glass);a.textGlass=j.optBoolean("textGlass",a.textGlass);a.name=j.optString("name",a.name);
             a.appText=j.has("appText")?(j.optInt("appText",a.appText)|0xff000000):a.autoAppText();
         }catch(Exception ignored){}return a;
     }

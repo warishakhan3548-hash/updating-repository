@@ -130,7 +130,7 @@ public final class MainActivity extends Activity {
         if(tab==index)v.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
         Glass.Icon i=new Glass.Icon(this,icon);i.color=tab==index?appearance.buttonInk():MUTED;v.addView(i,new LinearLayout.LayoutParams(dp(this,22),dp(this,22)));
         TextView t=text(this,title,11,tab==index?appearance.buttonInk():MUTED);t.setGravity(Gravity.CENTER);v.addView(t);
-        v.setContentDescription(title);v.setSelected(tab==index);v.setFocusable(true);v.setMinimumHeight(dp(this,56));v.setOnClickListener(x->{tab=index;quietReader=false;if(index==1)reading=true;show();});Glass.motion(v);
+        v.setContentDescription(title);v.setSelected(tab==index);v.setFocusable(true);v.setMinimumHeight(dp(this,56));v.setOnClickListener(x->{if(tab==index&&(index!=1||reading))return;tab=index;quietReader=false;if(index==1)reading=true;show();});Glass.motion(v);
         LinearLayout.LayoutParams item=new LinearLayout.LayoutParams(0,-2,1);item.setMargins(dp(this,3),0,dp(this,3),0);bottom.addView(v,item);
     }
     private View iconButton(String icon,String description,Runnable action){
@@ -559,6 +559,7 @@ public final class MainActivity extends Activity {
         String reciter=getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]);
         boolean recitationOffline=app.recitationDownloads.ready(reciter,readerSurah,s.count);
         List<Ayah> ayahs=content.page(readerSurah,readerStart,8);
+        Map<String,Recall.State> learningStates=learning.states();long recallNow=System.currentTimeMillis();
         for(Ayah a:ayahs){
             LinearLayout panel=card(page,Surface.Kind.MUSHAF);
             LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"%d : %d",a.surah,a.number),12,MUTED);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
@@ -570,7 +571,7 @@ public final class MainActivity extends Activity {
             List<ContentStore.Word> words=content.words(a.id);
             QuranText verse=new QuranText(this,arabicFont,a,words,arabicSize,this::tapWord);verse.setReliefEnabled(!highContrast);verse.setLineSpacing(dp(this,appearance.spacing),1.08f);readerVerses.put(a.id,verse);panel.addView(verse,new LinearLayout.LayoutParams(-1,-2));
             addTranslation(panel,a);
-            for(ContentStore.Word w:words){Recall.State memory=learning.states().get(w.id);if(memory!=null&&memory.active&&memory.reviews>0&&memory.due<=System.currentTimeMillis()){
+            for(ContentStore.Word w:words){Recall.State memory=learningStates.get(w.id);if(memory!=null&&memory.active&&memory.reviews>0&&memory.due<=recallNow){
                 gap(panel,12);TextView recall=button("Selected word · Review meaning",()->review(w.id));panel.addView(recall);break;
             }}
         }
@@ -1236,8 +1237,7 @@ public final class MainActivity extends Activity {
                 });
                 if(intent.quran)quranSearchTask=app.quranSearchWorker.submit(()->{
                     try {
-                        if(app.search==null)app.search=content.buildSearch(app.translations);
-                        final SearchEngine.Response result=app.search.search(intent.quranText,6236);
+                        final SearchEngine.Response result=app.searchIndex().search(intent.quranText,6236);
                         ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
                             quranList.addView(label("QURAN"));TextView qs=text(this,result.results.isEmpty()?"No Quran text match. Try a shorter phrase.":"",13,MUTED);quranList.addView(qs);gap(quranList,8);
                             showSearchShortcut(quranList,false,q);
@@ -1356,7 +1356,7 @@ public final class MainActivity extends Activity {
         page.addView(primary("Done",settingsDialog::dismiss));
     }
     private void sources(){
-        LinearLayout page=sheet("Sources aur bharosa");caption(page,content.sources());gap(page,16);
+        LinearLayout page=sheet("Sources & integrity");caption(page,content.sources());gap(page,16);
         caption(page,"Quran: 114 surahs / 6,236 ayahs. Original text checksum verified. Meanings: imported source word glosses; independent scholarly review is still pending. Word-level meanings are withheld for 9 ayahs where alignment could not be verified.");gap(page,12);
         if(app.wordAudio!=null)caption(page,"Word pronunciation: "+app.wordAudio.installedCount()+"/114 Surahs locally installed · "+app.wordAudio.attribution()+". Audio is fetched only after your Download action; installed Surahs replay without network access.");
         else caption(page,"Word pronunciation storage is not available yet.");
@@ -1381,7 +1381,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void discardExport(String token){if(token!=null)try{app.exports.discard(token);}catch(IOException ignored){}}
-    private boolean beginExport(){if(preparingExport||pendingExport!=null){toast("Pehla export poora hone dein");return false;}preparingExport=true;return true;}
+    private boolean beginExport(){if(preparingExport||pendingExport!=null){toast("Finish the current export first");return false;}preparingExport=true;return true;}
     private void backup(){
         if(!beginExport())return;
         app.io.execute(()->{try{byte[] data=learning.backup().toString(2).getBytes(StandardCharsets.UTF_8);ui.post(()->{if(!isDestroyed())saveFile("Aaris-Quran-learning.json","application/json",data);});}catch(Exception e){ui.post(()->{preparingExport=false;toast("Backup could not be created");});}});

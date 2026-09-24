@@ -36,18 +36,31 @@ final class TranslationStore implements AutoCloseable {
         SQLiteDatabase opened=SQLiteDatabase.openDatabase(target.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY);
         try{
             try(Cursor cur=opened.rawQuery("PRAGMA quick_check",null)){if(!cur.moveToFirst()||!"ok".equals(cur.getString(0)))throw new IOException("Translation integrity check failed");}
+            if(!columns(opened,"edition").equals(new LinkedHashSet<>(Arrays.asList("id","language","title","description","version","source")))||
+                !columns(opened,"translation").equals(new LinkedHashSet<>(Arrays.asList("edition_id","ayah_id","text","footnotes"))))
+                throw new IOException("Translation schema mismatch");
+            try(Cursor cur=opened.rawQuery("SELECT count(*) FROM translation t LEFT JOIN edition e ON e.id=t.edition_id WHERE e.id IS NULL",null)){
+                if(!cur.moveToFirst()||cur.getInt(0)!=0)throw new IOException("Translation pack contains orphan rows");
+            }
             try(Cursor cur=opened.rawQuery("SELECT * FROM edition ORDER BY CASE language WHEN 'hi' THEN 0 WHEN 'ur' THEN 1 ELSE 2 END",null)){while(cur.moveToNext())editions.add(new Edition(cur));}
             LinkedHashSet<String> expected=new LinkedHashSet<>();for(int i=0;i<expectedEditions.length();i++)expected.add(expectedEditions.getString(i));
-            LinkedHashSet<String> actual=new LinkedHashSet<>();for(Edition edition:editions)actual.add(edition.id);
-            if(!actual.equals(expected))throw new IOException("Translation editions do not match the manifest");
-            for(Edition edition:editions)try(Cursor cur=opened.rawQuery("SELECT count(*) FROM translation WHERE edition_id=? AND text IS NOT NULL AND trim(text)<>''",new String[]{edition.id})){
-                if(!cur.moveToFirst()||cur.getInt(0)!=6236)throw new IOException("Incomplete translation edition: "+edition.id);
+            if(expected.size()!=expectedEditions.length())throw new IOException("Duplicate translation edition in manifest");
+            LinkedHashSet<String> actual=new LinkedHashSet<>();for(Edition edition:editions){
+                if(edition.id==null||edition.id.trim().isEmpty()||edition.language==null||edition.language.trim().isEmpty()||edition.title==null||edition.title.trim().isEmpty()||edition.version==null||edition.version.trim().isEmpty())
+                    throw new IOException("Incomplete translation edition metadata");
+                actual.add(edition.id);
             }
+            if(!actual.equals(expected))throw new IOException("Translation editions do not match the manifest");
+            for(Edition edition:editions)try(Cursor cur=opened.rawQuery("SELECT count(*),count(DISTINCT ayah_id) FROM translation WHERE edition_id=? AND text IS NOT NULL AND trim(text)<>''",new String[]{edition.id})){
+                if(!cur.moveToFirst()||cur.getInt(0)!=6236||cur.getInt(1)!=6236)throw new IOException("Incomplete translation edition: "+edition.id);
+            }
+            try(Cursor cur=opened.rawQuery("SELECT count(DISTINCT ayah_id) FROM translation",null)){if(!cur.moveToFirst()||cur.getInt(0)!=6236)throw new IOException("Translation coordinate coverage mismatch");}
             try(Cursor cur=opened.rawQuery("SELECT count(*) FROM translation",null)){if(!cur.moveToFirst()||cur.getInt(0)!=6236*expected.size())throw new IOException("Unexpected translation row count");}
         }catch(Exception invalid){opened.close();throw invalid;}
         db=opened;
     }
     Edition edition(String id){for(Edition e:editions)if(e.id.equals(id))return e;return null;}
+    private static LinkedHashSet<String> columns(SQLiteDatabase db,String table){LinkedHashSet<String> result=new LinkedHashSet<>();try(Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null)){while(c.moveToNext())result.add(c.getString(1));}return result;}
     Entry get(String editionId,String ayahId){Edition edition=edition(editionId);if(edition==null)return null;try(Cursor c=db.rawQuery("SELECT text,footnotes FROM translation WHERE edition_id=? AND ayah_id=?",new String[]{edition.id,ayahId})){return c.moveToFirst()?new Entry(edition,c.getString(0),c.getString(1)):null;}}
     Map<String,String> searchText(){Map<String,StringBuilder> builders=new HashMap<>();try(Cursor c=db.rawQuery("SELECT ayah_id,text FROM translation ORDER BY edition_id,ayah_id",null)){while(c.moveToNext())builders.computeIfAbsent(c.getString(0),k->new StringBuilder()).append(c.getString(1)).append(' ');}Map<String,String> result=new HashMap<>();for(Map.Entry<String,StringBuilder> e:builders.entrySet())result.put(e.getKey(),e.getValue().toString());return result;}
     public void close(){db.close();}

@@ -106,22 +106,27 @@ final class HadithStore implements AutoCloseable {
             if(target.exists()&&!target.delete())throw new IOException("Cannot replace corrupt Hadith pack");
             if(!staging.renameTo(target))throw new IOException("Hadith pack install failed");
         }
-        db=SQLiteDatabase.openDatabase(target.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY);
-        try(Cursor c=db.rawQuery("PRAGMA quick_check",null)){
-            if(!c.moveToFirst()||!"ok".equals(c.getString(0)))throw new IOException("Hadith integrity check failed");
+        SQLiteDatabase opened=SQLiteDatabase.openDatabase(target.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY);
+        try{
+            try(Cursor c=opened.rawQuery("PRAGMA quick_check",null)){
+                if(!c.moveToFirst()||!"ok".equals(c.getString(0)))throw new IOException("Hadith integrity check failed");
+            }
+            try(Cursor c=opened.rawQuery("PRAGMA user_version",null)){
+                if(!c.moveToFirst()||c.getInt(0)!=2)throw new IOException("Hadith schema mismatch");
+            }
+            try(Cursor c=opened.rawQuery("SELECT count(*) FROM hadith",null)){
+                if(!c.moveToFirst()||c.getInt(0)!=recordCount)throw new IOException("Hadith record count mismatch");
+            }
+            try(Cursor c=opened.rawQuery("SELECT count(*) FROM collection",null)){
+                if(!c.moveToFirst()||c.getInt(0)!=collectionCount)throw new IOException("Hadith collection count mismatch");
+            }
+            db=opened;
+            collectionCache=Collections.unmodifiableList(loadCollections());
+            for(CollectionInfo info:collectionCache){collectionAliases.put(info.id,info.id);collectionAliases.put(info.nameEn,info.id);collectionAliases.put(info.nameAr,info.id);}
+            try(Cursor c=opened.rawQuery("SELECT 1 FROM editorial_translation WHERE status IN ('released','reviewed') LIMIT 1",null)){hasEditorialTranslations=c.moveToFirst();}
+        }catch(Exception invalid){
+            db=null;opened.close();throw invalid;
         }
-        try(Cursor c=db.rawQuery("PRAGMA user_version",null)){
-            if(!c.moveToFirst()||c.getInt(0)!=2)throw new IOException("Hadith schema mismatch");
-        }
-        try(Cursor c=db.rawQuery("SELECT count(*) FROM hadith",null)){
-            if(!c.moveToFirst()||c.getInt(0)!=recordCount)throw new IOException("Hadith record count mismatch");
-        }
-        try(Cursor c=db.rawQuery("SELECT count(*) FROM collection",null)){
-            if(!c.moveToFirst()||c.getInt(0)!=collectionCount)throw new IOException("Hadith collection count mismatch");
-        }
-        collectionCache=Collections.unmodifiableList(loadCollections());
-        for(CollectionInfo info:collectionCache){collectionAliases.put(info.id,info.id);collectionAliases.put(info.nameEn,info.id);collectionAliases.put(info.nameAr,info.id);}
-        try(Cursor c=db.rawQuery("SELECT 1 FROM editorial_translation WHERE status IN ('released','reviewed') LIMIT 1",null)){hasEditorialTranslations=c.moveToFirst();}
     }
 
     private List<CollectionInfo> loadCollections(){
