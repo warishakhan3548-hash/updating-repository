@@ -35,7 +35,7 @@ final class QuranAudioDownloadManager {
 
     void downloadSurah(int surah,Listener listener){
         if(surah<1||surah>114){postError(listener,surah,"Invalid Surah");return;}
-        if(!busy.compareAndSet(false,true)){postError(listener,surah,"Audio download already chal raha hai");return;}
+        if(!busy.compareAndSet(false,true)){postError(listener,surah,"Audio download is already running");return;}
         cancel=false;io.execute(()->{
             try{
                 if(!store.installedSurah(surah))downloadOne(surah);
@@ -47,7 +47,7 @@ final class QuranAudioDownloadManager {
     }
 
     void downloadAll(Listener listener){
-        if(!busy.compareAndSet(false,true)){postError(listener,0,"Audio download already chal raha hai");return;}
+        if(!busy.compareAndSet(false,true)){postError(listener,0,"Audio download is already running");return;}
         cancel=false;io.execute(()->{
             int completed=0,current=1;
             try{
@@ -121,7 +121,7 @@ final class QuranAudioDownloadManager {
 
                 long declared=c.getContentLengthLong();
                 long finalDeclared=declared<0?-1:(append?existing+declared:declared);
-                if(finalDeclared>expectedBytes)throw new IOException("Surah pronunciation expected size se badi hai");
+                if(finalDeclared>expectedBytes)throw new IOException("Surah pronunciation is larger than the verified catalog size");
                 long needed=Math.max(0,expectedBytes-(append?existing:0))+STORAGE_HEADROOM_BYTES;
                 long usable=parent.getUsableSpace();
                 if(usable>0&&usable<needed)throw new IOException("Not enough phone storage for this audio download");
@@ -132,7 +132,7 @@ final class QuranAudioDownloadManager {
                     while((n=in.read(b))!=-1){
                         if(cancel)throw new IOException("Download cancelled");
                         received+=n;long total=(append?existing:0)+received;
-                        if(total>expectedBytes)throw new IOException("Downloaded pronunciation expected size se badi hai");
+                        if(total>expectedBytes)throw new IOException("Downloaded pronunciation is larger than the verified catalog size");
                         out.write(b,0,n);
                     }
                     out.getFD().sync();
