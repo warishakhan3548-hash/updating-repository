@@ -44,7 +44,12 @@ final class RecitationDownloads {
     }
     /** Fast list-state check: the completion marker is written only after every ayah download finishes. */
     boolean markedComplete(String reciter,int surah,int ayahs){return completion(reciter,surah,ayahs)!=null;}
-    /** Strong current-Surah check: also verifies every expected local file and length. */
+    /** O(1) playback readiness: validate only the requested ayah against the completed-Surah marker. */
+    boolean ayahReady(String reciter,Ayah ayah,int ayahs){
+        JSONObject m=completion(reciter,ayah.surah,ayahs);if(m==null)return false;File audio=file(reciter,ayah);
+        return audio.isFile()&&audio.length()==m.optLong(""+ayah.number,-1);
+    }
+    /** Strong whole-Surah verification. Run on the download worker, never a render hot path. */
     boolean ready(String reciter,int surah,int ayahs){
         JSONObject m=completion(reciter,surah,ayahs);if(m==null)return false;File directory=folder(reciter,surah);
         try{for(int i=1;i<=ayahs;i++){File audio=new File(directory,i+".mp3");if(!audio.isFile()||audio.length()!=m.getLong(""+i))return false;}return true;}
@@ -84,7 +89,7 @@ final class RecitationDownloads {
         try{for(int s=startSurah;s<=endSurah&&!cancelled;s++){
             JSONObject completed=new JSONObject();int count=content.surah(s).count;
             for(int a=1;a<=count&&!cancelled;a++){Ayah ayah=content.ayah("Q:"+s+":"+a);File file=obtain(reciter,ayah);completed.put(""+a,file.length());progress=NAMES[index(reciter)]+" · Surah "+s+" · "+a+"/"+count;changed.run();}
-            if(!cancelled){File temp=new File(folder(reciter,s),"complete.tmp"),target=new File(folder(reciter,s),"complete.json");try(FileOutputStream out=new FileOutputStream(temp)){out.write(completed.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}if(target.exists())target.delete();if(!temp.renameTo(target))throw new IOException("Could not finish Surah download");}
+            if(!cancelled){File temp=new File(folder(reciter,s),"complete.tmp"),target=new File(folder(reciter,s),"complete.json");try(FileOutputStream out=new FileOutputStream(temp)){out.write(completed.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}if(target.exists())target.delete();if(!temp.renameTo(target))throw new IOException("Could not finish Surah download");if(!ready(reciter,s,count)){target.delete();throw new IOException("Downloaded Surah verification failed");}}
         }progress=cancelled?"Download paused · completed ayahs are kept":"Download complete";
         }finally{busy=false;changed.run();}
     }

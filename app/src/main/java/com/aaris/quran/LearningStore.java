@@ -112,9 +112,17 @@ final class LearningStore extends SQLiteOpenHelper {
         if(encoded.length()>65536)throw new IllegalArgumentException("Local records exceed backup size limit");set(key,encoded);
     }
     boolean bookmarked(String id){try(Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM bookmark WHERE ayah_id=?",new String[]{id})){return c.moveToFirst();}}
-    synchronized void toggleBookmark(String id) {
-        if(bookmarked(id)){getWritableDatabase().delete("bookmark","ayah_id=?",new String[]{id});return;}
-        ContentValues v=new ContentValues();v.put("ayah_id",id);v.put("created",System.currentTimeMillis());getWritableDatabase().insert("bookmark",null,v);
+    Set<String> bookmarks(Collection<String> candidates){
+        LinkedHashSet<String> result=new LinkedHashSet<>();if(candidates==null||candidates.isEmpty())return result;
+        LinkedHashSet<String> ids=new LinkedHashSet<>();for(String id:candidates)if(id!=null&&!id.isEmpty())ids.add(id);
+        if(ids.isEmpty())return result;
+        String marks=String.join(",",Collections.nCopies(ids.size(),"?"));
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT ayah_id FROM bookmark WHERE ayah_id IN ("+marks+")",ids.toArray(new String[0]))){while(c.moveToNext())result.add(c.getString(0));}
+        return result;
+    }
+    synchronized boolean toggleBookmark(String id) {
+        if(bookmarked(id)){getWritableDatabase().delete("bookmark","ayah_id=?",new String[]{id});return false;}
+        ContentValues v=new ContentValues();v.put("ayah_id",id);v.put("created",System.currentTimeMillis());getWritableDatabase().insertOrThrow("bookmark",null,v);return true;
     }
     List<String> bookmarks(){List<String> ids=new ArrayList<>();try(Cursor c=getReadableDatabase().rawQuery("SELECT ayah_id FROM bookmark ORDER BY created DESC",null)){while(c.moveToNext())ids.add(c.getString(0));}return ids;}
     String note(String id){try(Cursor c=getReadableDatabase().rawQuery("SELECT text FROM note WHERE target=?",new String[]{id})){return c.moveToFirst()?c.getString(0):"";}}
