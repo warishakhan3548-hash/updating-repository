@@ -562,6 +562,7 @@ public final class MainActivity extends Activity {
         Map<String,List<ContentStore.Word>> pageWords=content.words(ayahs);
         List<String> pageIds=new ArrayList<>();for(Ayah a:ayahs)pageIds.add(a.id);
         Map<String,TranslationStore.Entry> pageTranslations=app.translations==null?Collections.emptyMap():app.translations.get(translationId,pageIds);
+        Set<String> pageBookmarks=learning.bookmarks(pageIds);
         Map<String,Recall.State> learningStates=learning.states();long recallNow=System.currentTimeMillis();
         for(Ayah a:ayahs){
             LinearLayout panel=card(page,Surface.Kind.MUSHAF);
@@ -569,7 +570,7 @@ public final class MainActivity extends Activity {
             LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"%d : %d",a.surah,a.number),12,MUTED);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
             View play=iconButton("play","Play ayah "+a.number+(recitationOffline?" · Surah downloaded":""),()->playAyah(a));
             if(recitationOffline){Glass.Icon tick=new Glass.Icon(this,"check");tick.color=0xff44b57d;FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(dp(this,14),dp(this,14),Gravity.BOTTOM|Gravity.RIGHT);((FrameLayout)play).addView(tick,badge);}bar.addView(play);
-            bar.addView(iconButton("bookmark",learning.bookmarked(a.id)?"Remove bookmark":"Save ayah",()->{learning.toggleBookmark(a.id);toast(learning.bookmarked(a.id)?"Ayah saved":"Bookmark removed");}));
+            bar.addView(iconButton("bookmark",pageBookmarks.contains(a.id)?"Remove bookmark":"Save ayah",()->toast(learning.toggleBookmark(a.id)?"Ayah saved":"Bookmark removed")));
             bar.addView(iconButton("book","Study ayah · translations, compare & notes",()->studyAyah(a)));
             View menu=iconButton("more","Ayah "+a.number+": bookmark, meaning, recall and share",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,48)));panel.addView(bar);gap(panel,8);
             List<ContentStore.Word> words=pageWords.getOrDefault(a.id,Collections.emptyList());
@@ -914,7 +915,7 @@ public final class MainActivity extends Activity {
         page.addView(button("Play · Reciter & audio",()->audioControls(a)));gap(page,10);
         page.addView(button("Copy ayah",()->{((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText(a.id,a.arabic+"\n["+a.id+"]"));toast("Ayah copied");}));gap(page,10);
         if(app.translations!=null)page.addView(button("Listen to translation · Device voice",()->{stopService(new Intent(this,RecitationService.class));if(app.audio!=null)app.audio.stop();translationSpeech.speak(app.translations.get(translationId,a.id));}));gap(page,10);
-        page.addView(button(learning.bookmarked(a.id)?"Remove bookmark":"Bookmark",()->{learning.toggleBookmark(a.id);toast(learning.bookmarked(a.id)?"Bookmark saved":"Bookmark removed");activeDialog.dismiss();}));gap(page,10);
+        page.addView(button(learning.bookmarked(a.id)?"Remove bookmark":"Bookmark",()->{boolean saved=learning.toggleBookmark(a.id);toast(saved?"Bookmark saved":"Bookmark removed");activeDialog.dismiss();}));gap(page,10);
         page.addView(button("Add ayah to Recall",()->{enroll(a.id,a.id);activeDialog.dismiss();}));gap(page,10);
         page.addView(button("Add passage to Recall",()->choosePhrase(a)));gap(page,10);
         if(a.number<content.surah(a.surah).count){page.addView(button("Practice next-ayah transition",()->review(RecallTarget.transition(a.id,a.number+1))));gap(page,10);}
