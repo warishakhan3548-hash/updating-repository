@@ -520,7 +520,7 @@ public final class MainActivity extends Activity {
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==NOTIFICATIONS)beginAmbient();}
     private void library(){
         heading("114 SURAHS · OFFLINE", "Quran al-Kareem");LinearLayout page=scrollBody();
-        EditText filter=new EditText(this);filter.setSingleLine(true);filter.setTextColor(INK);filter.setHintTextColor(MUTED);filter.setHint("Surah ka naam ya number");filter.setTextSize(15);pad(filter,14,8);filter.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));page.addView(filter,new LinearLayout.LayoutParams(-1,dp(this,52)));gap(page,16);
+        EditText filter=new EditText(this);filter.setSingleLine(true);filter.setTextColor(INK);filter.setHintTextColor(MUTED);filter.setHint("Surah name or number");filter.setTextSize(15);pad(filter,14,8);filter.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));page.addView(filter,new LinearLayout.LayoutParams(-1,dp(this,52)));gap(page,16);
         LinearLayout list=column(this);page.addView(list);
         Runnable fill=()->{list.removeAllViews();String q=Arabic.tolerant(filter.getText().toString());for(ContentStore.Surah s:content.surahs){
             String searchable=Arabic.tolerant(s.name+" "+s.arabic+" "+s.meaning+" "+s.id);
@@ -535,9 +535,9 @@ public final class MainActivity extends Activity {
     private void open(int surah,int ayah){readerScroll=null;readerVerses.clear();readerSurah=Math.max(1,Math.min(114,surah));readerStart=Math.max(1,Math.min(content.surah(readerSurah).count,ayah));reading=true;tab=1;String id="Q:"+readerSurah+":"+readerStart;readingPosition=new ReadingPosition(id,id,0,0,true);learning.set("position",id);learning.set("reader_anchor",readingPosition.encode());hideKeyboard();show();}
     private void reader(){
         ContentStore.Surah s=content.surah(readerSurah);
-        header.addView(iconButton("back","Surah ki list",()->{reading=false;show();}));
+        header.addView(iconButton("back","Surah list",()->{reading=false;show();}));
         LinearLayout titles=column(this);pad(titles,12,0);titles.addView(label("AARIS · OFFLINE"));titles.addView(text(this,"Quran",23,INK));header.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
-        header.addView(iconButton("search","Quran mein khojein",this::searchScreen));
+        header.addView(iconButton("search","Search Quran",this::searchScreen));
         LinearLayout page=scrollBody();pad(page,16,8);readerScroll=(ScrollView)page.getParent();renderedPage="Q:"+readerSurah+":"+readerStart;
         readerScroll.setOnScrollChangeListener((View v,int x,int y,int oldX,int oldY)->{if(y!=oldY)hidePeek();});
         LinearLayout tools=row(this);TextView surahs=button("Surahs  ↓",()->{reading=false;show();});tools.addView(surahs,new LinearLayout.LayoutParams(0,-2,1));TextView readingStyle=button("Aa · Reading",this::settings);LinearLayout.LayoutParams styleSize=new LinearLayout.LayoutParams(0,-2,1);styleSize.leftMargin=dp(this,8);tools.addView(readingStyle,styleSize);TextView audioPack=button(app.wordAudio!=null&&app.wordAudio.installedSurah(readerSurah)?"Word audio ✓":"Word audio ↓",()->audioSurahPrompt(readerSurah));LinearLayout.LayoutParams audioSize=new LinearLayout.LayoutParams(0,-2,1);audioSize.leftMargin=dp(this,8);tools.addView(audioPack,audioSize);page.addView(tools);gap(page,8);page.addView(button("Translation · "+(app.translations==null||app.translations.edition(translationId)==null?"Unavailable":app.translations.edition(translationId).language.toUpperCase(Locale.ROOT))+" ↓",this::translationSettings));gap(page,14);
@@ -743,7 +743,12 @@ public final class MainActivity extends Activity {
             }
         });
     }
-    private void hidePeek(){selectedWordId="";if(selectedVerse!=null){selectedVerse.select(null);selectedVerse=null;}if(overlay!=null)overlay.removeAllViews();}
+    private void hidePeek(){
+        if(selectedWordId.isEmpty()&&selectedVerse==null&&(overlay==null||overlay.getChildCount()==0))return;
+        selectedWordId="";
+        if(selectedVerse!=null){selectedVerse.select(null);selectedVerse=null;}
+        if(overlay!=null&&overlay.getChildCount()>0)overlay.removeAllViews();
+    }
     private void tapWord(ContentStore.Word word,QuranText owner){
         if(word.id.equals(selectedWordId)){
             playWordAudio(word,false);wordDetails(word);return;
