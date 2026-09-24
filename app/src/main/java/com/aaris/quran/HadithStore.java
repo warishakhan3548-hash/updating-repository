@@ -280,10 +280,40 @@ final class HadithStore implements AutoCloseable {
     }
     private List<String> spellingCandidates(String term,CancellationSignal signal){
         if(term.length()<4||term.length()>128||TextMatch.negative(term))return Collections.emptyList();int max=term.length()>=8?2:1;
-        List<String> grams=new ArrayList<>(Arabic.trigrams(term));String marks=String.join(",",Collections.nCopies(grams.size(),"?"));List<String> out=new ArrayList<>();
-        try(Cursor c=db.rawQuery("SELECT token,count(*) AS hits FROM search_gram WHERE gram IN ("+marks+") GROUP BY token ORDER BY hits DESC,token LIMIT 120",grams.toArray(new String[0]),signal)){
-            while(c.moveToNext()&&out.size()<5){cancelSearch(signal);String word=c.getString(0);if(!word.equals(term)&&TextMatch.distance(term,word,max)<=max)out.add(word);}
-        }return out;
+        Map<String,Integer> distances=new HashMap<>();List<String> grams=new ArrayList<>(Arabic.trigrams(term));
+        if(!grams.isEmpty()){
+            String marks=String.join(",",Collections.nCopies(grams.size(),"?"));
+            try(Cursor c=db.rawQuery("SELECT token,count(*) AS hits FROM search_gram WHERE gram IN ("+marks+") GROUP BY token ORDER BY hits DESC,token LIMIT 120",grams.toArray(new String[0]),signal)){
+                while(c.moveToNext()){cancelSearch(signal);String word=c.getString(0);if(word.equals(term))continue;int distance=TextMatch.distance(term,word,max);if(distance<=max)distances.put(word,distance);}
+            }
+        }
+        if(distances.size()<5){
+            List<String> seeds=spellingSeeds(term);
+            if(!seeds.isEmpty()){
+                String marks=String.join(",",Collections.nCopies(seeds.size(),"?"));
+                try(Cursor c=db.rawQuery("SELECT token FROM search_vocabulary WHERE token IN ("+marks+") ORDER BY token",seeds.toArray(new String[0]),signal)){
+                    while(c.moveToNext()){cancelSearch(signal);String word=c.getString(0);int distance=TextMatch.distance(term,word,max);if(distance<=max)distances.put(word,distance);}
+                }
+            }
+        }
+        List<String> out=new ArrayList<>(distances.keySet());out.sort(Comparator.comparingInt((String w)->distances.get(w)).thenComparing(w->w));
+        return new ArrayList<>(out.subList(0,Math.min(5,out.size())));
+    }
+    static List<String> spellingSeeds(String term){
+        int[] codePoints=term.codePoints().toArray();
+        if(codePoints.length<2||codePoints.length>12)return Collections.emptyList();
+        LinkedHashSet<String> seeds=new LinkedHashSet<>();
+        for(int i=0;i+1<codePoints.length;i++)if(codePoints[i]!=codePoints[i+1]){
+            int swap=codePoints[i];codePoints[i]=codePoints[i+1];codePoints[i+1]=swap;
+            seeds.add(new String(codePoints,0,codePoints.length));
+            codePoints[i+1]=codePoints[i];codePoints[i]=swap;
+        }
+        if(codePoints.length>2)for(int skip=0;skip<codePoints.length;skip++){
+            int[] shortened=new int[codePoints.length-1];int at=0;
+            for(int i=0;i<codePoints.length;i++)if(i!=skip)shortened[at++]=codePoints[i];
+            seeds.add(new String(shortened,0,shortened.length));
+        }
+        return new ArrayList<>(seeds);
     }
     private static void cancelSearch(CancellationSignal signal){if(Thread.currentThread().isInterrupted())throw new CancellationException();signal.throwIfCanceled();}
 
