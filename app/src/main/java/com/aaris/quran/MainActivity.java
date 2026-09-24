@@ -1347,7 +1347,7 @@ public final class MainActivity extends Activity {
         page.addView(primary("Done",settingsDialog::dismiss));
     }
     private void sources(){
-        LinearLayout page=sheet("Sources aur bharosa");caption(page,content.sources());gap(page,16);
+        LinearLayout page=sheet("Sources & integrity");caption(page,content.sources());gap(page,16);
         caption(page,"Quran: 114 surahs / 6,236 ayahs. Original text checksum verified. Meanings: imported source word glosses; independent scholarly review is still pending. Word-level meanings are withheld for 9 ayahs where alignment could not be verified.");gap(page,12);
         if(app.wordAudio!=null)caption(page,"Word pronunciation: "+app.wordAudio.installedCount()+"/114 Surahs locally installed · "+app.wordAudio.attribution()+". Audio is fetched only after your Download action; installed Surahs replay without network access.");
         else caption(page,"Word pronunciation storage is not available yet.");
@@ -1372,7 +1372,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void discardExport(String token){if(token!=null)try{app.exports.discard(token);}catch(IOException ignored){}}
-    private boolean beginExport(){if(preparingExport||pendingExport!=null){toast("Pehla export poora hone dein");return false;}preparingExport=true;return true;}
+    private boolean beginExport(){if(preparingExport||pendingExport!=null){toast("Finish the current export first");return false;}preparingExport=true;return true;}
     private void backup(){
         if(!beginExport())return;
         app.io.execute(()->{try{byte[] data=learning.backup().toString(2).getBytes(StandardCharsets.UTF_8);ui.post(()->{if(!isDestroyed())saveFile("Aaris-Quran-learning.json","application/json",data);});}catch(Exception e){ui.post(()->{preparingExport=false;toast("Backup could not be created");});}});
@@ -1394,11 +1394,11 @@ public final class MainActivity extends Activity {
         if(request==OVERLAY_PERMISSION){if(pendingAmbient&&Settings.canDrawOverlays(this))beginAmbient();else {pendingAmbient=false;openOtherAppsAfterAmbientStart=false;toast("Overlay permission is needed for cards over other apps");}return;}
         if(result!=RESULT_OK||data==null||data.getData()==null){if(request==EXPORT){String token=pendingExport;pendingExport=null;app.io.execute(()->discardExport(token));}return;}Uri uri=data.getData();
         if(request==EXPORT){String token=pendingExport;pendingExport=null;if(token==null){toast("Start the export again");return;}app.io.execute(()->{
-            try{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();app.exports.copyTo(token,out);}discardExport(token);ui.post(()->toast("File save ho gayi"));}
+            try{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();app.exports.copyTo(token,out);}discardExport(token);ui.post(()->toast("File saved"));}
             catch(Exception e){ui.post(()->toast("File was not saved; start the export again"));}
         });}
         if(request==IMPORT)app.io.execute(()->{try{
-            ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>ExportStaging.MAX_BYTES)throw new IOException("Backup 64 MiB se bada hai");out.write(b,0,n);}}
+            ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>ExportStaging.MAX_BYTES)throw new IOException("Backup is larger than 64 MiB");out.write(b,0,n);}}
             JSONObject backup=new JSONObject(out.toString("UTF-8"));int count=learning.validateBackup(backup,content);
             ui.post(()->{if(isDestroyed())return;pendingRestore=backup;new AlertDialog.Builder(this).setTitle("Restore learning history?").setMessage(count+" history events will be merged. Existing history and notes will not be deleted.").setNegativeButton("Not now",(d,w)->pendingRestore=null).setPositiveButton("Merge",(d,w)->{JSONObject restore=pendingRestore;pendingRestore=null;app.io.execute(()->{try{learning.restore(restore,content);ui.post(()->{toast("Learning history restored");show();});}catch(Exception e){ui.post(()->toast("Restore failed; existing data is safe"));}});}).show();});
         }catch(Exception e){ui.post(()->toast("Backup is not valid: "+e.getMessage()));}});
@@ -1487,7 +1487,7 @@ public final class MainActivity extends Activity {
             if(selectedEvidence.isEmpty()){toast("Select ayahs from search results first");return;}
             if(!beginExport())return;
             List<String> selection=new ArrayList<>(selectedEvidence);Map<String,JSONObject> traces=new LinkedHashMap<>(selectionTrace);String query=searchQuery;
-            toast("Evidence bundle ban raha hai…");app.io.execute(()->{try{
+            toast("Preparing evidence bundle…");app.io.execute(()->{try{
                 EvidenceExporter.Bundle b=EvidenceExporter.build(this,content,selection,query,traces);learning.saveBundle(b.id,b.json);
                 ui.post(()->{if(!isDestroyed())saveFile("Aaris-Quran-evidence.zip","application/zip",b.zip);});
             }catch(Exception e){ui.post(()->{preparingExport=false;toast("Export failed: "+e.getMessage());});}});
