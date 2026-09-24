@@ -10,13 +10,14 @@ import java.util.Map;
 
 /** One persisted visual model for the reader, sheets, navigation and recall surfaces. */
 final class Appearance {
-    static final String[] PRESETS={"Emerald Glass","Ocean Blue"};
+    static final String[] PRESETS={"Moonlit Emerald","Light Parchment"};
     static final String[] FONTS={"Amiri Quran","Amiri Naskh","Amiri Naskh Bold","Scheherazade New","Lateef","Harmattan","Noto Naskh Arabic","Noto Kufi Arabic"};
     private static final String[] FONT_FILES={"AmiriQuran.ttf","Amiri-Regular.ttf","Amiri-Bold.ttf","ScheherazadeNew-Regular.ttf","Lateef-Regular.ttf","Harmattan-Regular.ttf","NotoNaskhArabic.ttf","NotoKufiArabic.ttf"};
     int background=0xff030705,surface=0xff14291e,accent=0xff9bc7aa,arabic=0xffe0e4d8,translation=0xffcbd6d0,appText=0xffedf1ed;
     int font=0,arabicSize=32,translationSize=18,spacing=10,opacity=92,corners=26;
     int arabicOpacity=100,translationOpacity=100,glassStrength=100,borderStrength=100,glow=0,gradientEnd=background;
     int textDepth=0,shadowSoftness=4,shadowStrength=0,textSheen=50,buttonColor=surface;
+    int scene=0,sceneStrength=100;
     boolean customButtons=false;
     boolean glass=true,textGlass=true,gradient=false,reducedEffects=false;
     String name=PRESETS[0];
@@ -31,6 +32,7 @@ final class Appearance {
             a.arabicOpacity=bound(j.optInt("arabicOpacity",100),20,100);a.translationOpacity=bound(j.optInt("translationOpacity",100),20,100);
             a.glassStrength=bound(j.optInt("glassStrength",100),0,100);a.borderStrength=bound(j.optInt("borderStrength",100),0,100);a.glow=bound(j.optInt("glow",0),0,30);
             a.textDepth=bound(j.optInt("textDepth",0),0,12);a.shadowSoftness=bound(j.optInt("shadowSoftness",4),0,16);
+            a.scene=bound(j.optInt("scene",0),0,2);a.sceneStrength=bound(j.optInt("sceneStrength",100),0,100);
             a.shadowStrength=bound(j.optInt("shadowStrength",0),0,70);a.textSheen=bound(j.optInt("textSheen",50),0,100);
             a.buttonColor=j.optInt("buttonColor",a.surface)|0xff000000;a.customButtons=j.optBoolean("customButtons",false);
             a.gradientEnd=j.optInt("gradientEnd",a.background)|0xff000000;a.gradient=j.optBoolean("gradient",false);a.reducedEffects=j.optBoolean("reducedEffects",false);
@@ -38,28 +40,37 @@ final class Appearance {
             a.appText=j.has("appText")?(j.optInt("appText",a.appText)|0xff000000):a.autoAppText();
         }catch(Exception ignored){}return a;
     }
-    String encode(){try{return new JSONObject().put("version",4).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation).put("appText",appText)
+    String encode(){try{return new JSONObject().put("version",5).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation).put("appText",appText)
         .put("font",font).put("size",arabicSize).put("translationSize",translationSize).put("spacing",spacing).put("opacity",opacity).put("corners",corners)
         .put("arabicOpacity",arabicOpacity).put("translationOpacity",translationOpacity).put("glassStrength",glassStrength).put("borderStrength",borderStrength).put("glow",glow)
         .put("textDepth",textDepth).put("shadowSoftness",shadowSoftness).put("shadowStrength",shadowStrength).put("textSheen",textSheen).put("buttonColor",buttonColor).put("customButtons",customButtons)
-        .put("gradient",gradient).put("gradientEnd",gradientEnd).put("reducedEffects",reducedEffects).put("glass",glass).put("textGlass",textGlass).put("name",name).toString();}catch(Exception e){throw new IllegalStateException(e);}}
+        .put("gradient",gradient).put("gradientEnd",gradientEnd).put("reducedEffects",reducedEffects).put("glass",glass).put("textGlass",textGlass)
+        .put("scene",scene).put("sceneStrength",sceneStrength).put("name",name).toString();}catch(Exception e){throw new IllegalStateException(e);}}
     void save(Context c){c.getSharedPreferences("appearance",0).edit().putString("current",encode()).apply();}
     Appearance copy(){return decode(encode());}
     void preset(int index){
         int i=bound(index,0,PRESETS.length-1);
-        font=0;arabicSize=32;translationSize=18;spacing=10;opacity=92;corners=26;
-        arabicOpacity=100;translationOpacity=100;glassStrength=100;borderStrength=100;glow=0;
-        textDepth=0;shadowSoftness=4;shadowStrength=0;textSheen=50;customButtons=false;
-        glass=true;textGlass=true;gradient=false;reducedEffects=false;
+        font=0;arabicSize=36;translationSize=18;spacing=11;opacity=92;corners=28;
+        arabicOpacity=100;translationOpacity=100;glassStrength=86;borderStrength=72;glow=0;
+        textDepth=1;shadowSoftness=6;shadowStrength=10;textSheen=30;customButtons=true;
+        reducedEffects=false;sceneStrength=100;
         switch(i){
-            case 0:
-                palette(0xff030705,0xff14291e,0xff9bc7aa,0xffe0e4d8,0xffcbd6d0,0xff030705);
+            case 0: // Approved design #5: cinematic moonlit emerald.
+                palette(0xff021411,0xff0b2a24,0xffd8ba72,0xffffedcf,0xffeee5d7,0xff073c34);
+                appText=0xfff5eddf;buttonColor=0xff103a32;
+                glass=true;textGlass=true;gradient=true;scene=2;opacity=86;
+                glassStrength=90;borderStrength=68;glow=2;textSheen=34;
+                shadowStrength=14;shadowSoftness=6;corners=30;
                 break;
-            default:
-                palette(0xff040b17,0xff13243c,0xff84baff,0xffd9eaff,0xffc8dcf7,0xff040b17);
+            default: // Approved design #4: warm courtyard parchment.
+                palette(0xfff5eddd,0xfffff9ed,0xff17634f,0xff103e32,0xff3f3a31,0xffe8dbc1);
+                appText=0xff17372f;buttonColor=0xfff2e7d3;
+                glass=false;textGlass=false;gradient=true;scene=1;opacity=97;
+                glassStrength=18;borderStrength=34;glow=0;textSheen=0;
+                textDepth=0;shadowStrength=0;shadowSoftness=3;corners=24;
                 break;
         }
-        appText=autoAppText();name=PRESETS[i];
+        name=PRESETS[i];
     }
     private void palette(int bg,int card,int highlight,int arabicInk,int translationInk,int end){
         background=bg;surface=card;buttonColor=card;accent=highlight;arabic=arabicInk;translation=translationInk;gradientEnd=end;
