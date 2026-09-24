@@ -31,8 +31,8 @@
     "sequential_tanween": false,
     "tatweel_below_superscript_alef": false
   },
-  "vault_artifact": "source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/quran-uthmani.txt",
-  "licence_snapshot": "source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/LICENSE_SOURCE.html",
-  "checksum_file": "source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/sha256.txt",
-  "project_mirror": "source-vault/quran/tanzil/1.1/uthmani-marks-sajdah-rub/quran-uthmani.txt"
+  "vault_artifact": "source-vault/tanzil/quran-uthmani.txt",
+  "licence_snapshot": "source-vault/tanzil/LICENSE_SOURCE.html",
+  "checksum_file": "tools/source-lock.json",
+  "project_mirror": "source-vault/tanzil/quran-uthmani.txt"
 }
