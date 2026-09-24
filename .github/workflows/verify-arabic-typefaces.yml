@@ -1,0 +1,60 @@
+name: Verify Arabic typeface library
+
+on:
+  push:
+    branches:
+      - arabic-typeface-library-20260924
+
+permissions:
+  contents: read
+
+env:
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate font binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in             app/src/main/assets/fonts/AmiriQuran.ttf             app/src/main/assets/fonts/Amiri-Regular.ttf             app/src/main/assets/fonts/Amiri-Bold.ttf             app/src/main/assets/fonts/ScheherazadeNew-Regular.ttf             app/src/main/assets/fonts/Lateef-Regular.ttf             app/src/main/assets/fonts/Harmattan-Regular.ttf             app/src/main/assets/fonts/NotoNaskhArabic.ttf             app/src/main/assets/fonts/NotoKufiArabic.ttf
+          do
+            test -s "$f"
+            fc-scan --format '%{family}\n' "$f" | head -1
+          done
+
+      - name: Resolve Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -1 || true)"
+          if [ ! -f "$ANDROID_HOME/platforms/android-35/android.jar" ] || [ -z "$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d -name '35*' -print -quit 2>/dev/null)" ]; then
+            test -n "$SDKMANAGER"
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+          fi
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d -name '35*' | sort -V | tail -1)"
+          echo "BUILD_TOOLS=$BUILD_TOOLS" >> "$GITHUB_ENV"
+
+      - name: Temporary signing key
+        shell: bash
+        run: |
+          PASS='typeface-verify-only'
+          printf '%s' "$PASS" > "$RUNNER_TEMP/pass.txt"
+          keytool -genkeypair -noprompt -storetype PKCS12 -keystore "$RUNNER_TEMP/verify.p12" -storepass "$PASS" -keypass "$PASS" -alias verify -keyalg RSA -keysize 2048 -validity 30 -dname "CN=Aaris Verify,O=Aaris,C=IN"
+
+      - name: Compile and package release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/build_release.py             --android-jar "$ANDROID_HOME/platforms/android-35/android.jar"             --build-tools "$BUILD_TOOLS"             --keystore "$RUNNER_TEMP/verify.p12"             --alias verify             --password-file "$RUNNER_TEMP/pass.txt"             --output "$RUNNER_TEMP/arabic-typefaces-verify.apk"
