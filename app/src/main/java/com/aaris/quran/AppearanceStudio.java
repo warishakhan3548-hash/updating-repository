@@ -18,6 +18,11 @@ final class AppearanceStudio {
     private final FrameLayout previewHost;
     private final TextView heading;
     private final Glass.Backdrop previewBackdrop;
+    private ArabicText previewArabic;
+    private TextView previewLabel,previewTranslation,previewHint;
+    private LinearLayout previewActions;
+    private final List<Glass.Icon> previewActionIcons=new ArrayList<>();
+    private final List<FrameLayout> previewActionChips=new ArrayList<>();
     private View editingSwatch;
     private final List<String> history=new ArrayList<>();
     private int historyIndex=0,layer=0;
@@ -44,31 +49,43 @@ final class AppearanceStudio {
     }
     private TextView action(String label,Runnable run){TextView b=text(activity,label,14,style.buttonInk());b.setTag("action");pad(b,12,10);b.setGravity(Gravity.CENTER);b.setMinHeight(dp(activity,48));b.setBackground(Glass.touch(activity,Glass.Surface.Kind.BUTTON,false));b.setOnClickListener(v->run.run());b.setFocusable(true);Glass.motion(b);return b;}
     private void title(String label){TextView t=text(activity,label,13,GOLD);pad(t,2,12);controls.addView(t);}
-    private void refresh(){
-        refreshPosted=false;Glass.apply(style);root.setBackgroundColor(style.background);heading.setTextColor(style.appInk());previewBackdrop.invalidate();
-        preview.removeAllViews();preview.setBackground(new Glass.Surface(activity,Glass.Surface.Kind.MUSHAF,false));
-        preview.addView(text(activity,"LIVE PREVIEW · 1:1",11,MUTED));
-        ArabicText arabic=new ArabicText(activity);arabic.setText(sample);arabic.setTypeface(style.typeface(activity));arabic.setTextSize(style.arabicSize);
-        arabic.setTextDirection(View.TEXT_DIRECTION_RTL);arabic.setGravity(Gravity.CENTER);arabic.setLineSpacing(dp(activity,style.spacing),1.08f);arabic.setReliefEnabled(true);preview.addView(arabic);
-        TextView translation=text(activity,translationSample,style.translationSize,style.translationInk());translation.setTextDirection(translationRtl?View.TEXT_DIRECTION_RTL:View.TEXT_DIRECTION_FIRST_STRONG);translation.setGravity(translationRtl?Gravity.RIGHT:Gravity.LEFT);preview.addView(translation);
-        LinearLayout actions=row(activity);actions.setGravity(Gravity.LEFT);
+    private void initPreview(){
+        if(previewArabic!=null)return;
+        previewLabel=text(activity,"LIVE PREVIEW · 1:1",11,MUTED);preview.addView(previewLabel);
+        previewArabic=new ArabicText(activity);previewArabic.setText(sample);previewArabic.setTextDirection(View.TEXT_DIRECTION_RTL);previewArabic.setGravity(Gravity.CENTER);preview.addView(previewArabic);
+        previewTranslation=text(activity,translationSample,style.translationSize,style.translationInk());
+        previewTranslation.setTextDirection(translationRtl?View.TEXT_DIRECTION_RTL:View.TEXT_DIRECTION_FIRST_STRONG);
+        previewTranslation.setGravity(translationRtl?Gravity.RIGHT:Gravity.LEFT);preview.addView(previewTranslation);
+        previewActions=row(activity);previewActions.setGravity(Gravity.LEFT);
         for(String icon:new String[]{"play","bookmark","share"}){
-            FrameLayout chip=new FrameLayout(activity);chip.setBackground(Glass.touch(activity,Glass.Surface.Kind.BUTTON,false));
-            Glass.Icon v=new Glass.Icon(activity,icon);v.color=style.buttonInk();
-            chip.addView(v,new FrameLayout.LayoutParams(dp(activity,18),dp(activity,18),Gravity.CENTER));
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,36),dp(activity,32));p.rightMargin=dp(activity,6);actions.addView(chip,p);
+            FrameLayout chip=new FrameLayout(activity);Glass.Icon glyph=new Glass.Icon(activity,icon);
+            chip.addView(glyph,new FrameLayout.LayoutParams(dp(activity,18),dp(activity,18),Gravity.CENTER));
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(activity,36),dp(activity,32));p.rightMargin=dp(activity,6);previewActions.addView(chip,p);
+            previewActionChips.add(chip);previewActionIcons.add(glyph);
         }
-        preview.addView(actions);
-        boolean adjusted=style.adjustedText();
-        preview.addView(text(activity,adjusted?"Text contrast adjusted for readable letters":"Your colors · Clear letters · Offline fonts",11,MUTED));
-        applyPreviewBackground();
-        updateEditingSwatch();
-        recolor(controls);recolor(toolbar);
-
+        preview.addView(previewActions);
+        previewHint=text(activity,"",11,MUTED);preview.addView(previewHint);
+    }
+    private void refresh(){refresh(true);}
+    private void refresh(boolean recolorChrome){
+        refreshPosted=false;Glass.apply(style);root.setBackgroundColor(style.background);heading.setTextColor(style.appInk());previewBackdrop.invalidate();
+        initPreview();preview.setBackground(new Glass.Surface(activity,Glass.Surface.Kind.MUSHAF,false));
+        previewLabel.setTextColor(MUTED);
+        previewArabic.setTypeface(style.typeface(activity));previewArabic.setTextSize(style.arabicSize);
+        previewArabic.setLineSpacing(dp(activity,style.spacing),1.08f);previewArabic.setReliefEnabled(true);
+        previewTranslation.setTextSize(style.translationSize);previewTranslation.setTextColor(style.translationInk());
+        for(int i=0;i<previewActionIcons.size();i++){
+            FrameLayout chip=previewActionChips.get(i);Glass.Icon glyph=previewActionIcons.get(i);
+            chip.setBackground(Glass.touch(activity,Glass.Surface.Kind.BUTTON,false));glyph.color=style.buttonInk();glyph.invalidate();
+        }
+        previewHint.setText(style.adjustedText()?"Text contrast adjusted for readable letters":"Your colors · Clear letters · Offline fonts");
+        previewHint.setTextColor(MUTED);
+        applyPreviewBackground();updateEditingSwatch();
+        if(recolorChrome){recolor(controls);recolor(toolbar);}
     }
     private void scheduleRefresh(){
         if(refreshPosted)return;refreshPosted=true;
-        root.postOnAnimation(()->{if(!refreshPosted)return;refreshPosted=false;if(dialog.isShowing())refresh();});
+        root.postOnAnimation(()->{if(!refreshPosted)return;refreshPosted=false;if(dialog.isShowing())refresh(false);});
     }
     private void applyPreviewBackground(){
         android.graphics.drawable.GradientDrawable bg;
