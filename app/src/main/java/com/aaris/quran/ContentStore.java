@@ -24,7 +24,11 @@ final class ContentStore implements AutoCloseable {
             arabic=c.getString(5);surface=c.getString(6);en=c.getString(7);hi=c.getString(8);ur=c.getString(9);
             transliteration=c.getString(10);source=c.getString(11);state=c.getString(12);}
         String gloss(String lang){String result="hi".equals(lang)?hi:"ur".equals(lang)?ur:en;return result==null?"No aligned source meaning is available for this word yet.":result;}
-        boolean hasGloss(String lang){String result="hi".equals(lang)?hi:"ur".equals(lang)?ur:en;return "SOURCE_ALIGNED".equals(state)&&result!=null&&!result.trim().isEmpty();}
+        boolean hasGloss(String lang){
+            String result="hi".equals(lang)?hi:"ur".equals(lang)?ur:en;
+            boolean textAligned="SOURCE_ALIGNED".equals(state)||"SOURCE_ALIGNED_TEXT_ONLY".equals(state);
+            return textAligned&&result!=null&&!result.trim().isEmpty();
+        }
     }
     private final SQLiteDatabase db;
     final List<Surah> surahs=new ArrayList<>();
