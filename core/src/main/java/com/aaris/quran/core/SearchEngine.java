@@ -5,7 +5,7 @@ import java.util.regex.*;
 
 /** Rebuildable deterministic indexes. Matching text is not a religious conclusion. */
 public final class SearchEngine {
-    public static final String VERSION = "ranked-7";
+    public static final String VERSION = "ranked-8-short-typo";
     public enum Strength { STRONG_TEXT, RELATED }
     public enum Origin { USER, AI }
     public static final class Query {
@@ -100,6 +100,7 @@ public final class SearchEngine {
     private final Index arabic=new Index(),gloss=new Index(),sound=new Index();
     private final Map<String,List<String>> glossVocabulary=new HashMap<>(),soundVocabulary=new HashMap<>();
     private final Map<String,List<String>> trigramVocabulary=new HashMap<>();
+    private final Map<Integer,List<String>> arabicByLength=new HashMap<>(),glossByLength=new HashMap<>(),soundByLength=new HashMap<>();
     private final FragmentSearch fragments;
     private static final Pattern COORDINATE=Pattern.compile("^(?:Q:)?([0-9]{1,3})\\s*[:：]\\s*([0-9]{1,3})$",Pattern.CASE_INSENSITIVE);
     private static final Set<String> NEGATION=new HashSet<>(Arrays.asList(
@@ -116,6 +117,7 @@ public final class SearchEngine {
             List<String> sounds=TextMatch.phoneticTokens(doc.transliteration);sound.add(String.join(" ",sounds),d);
         }
         arabic.finish();gloss.finish();sound.finish();
+        indexByLength(arabic.terms.keySet(),arabicByLength);indexByLength(gloss.terms.keySet(),glossByLength);indexByLength(sound.terms.keySet(),soundByLength);
         for(String word:sound.terms.keySet())for(String gram:Arabic.trigrams(word))soundVocabulary.computeIfAbsent(gram,k->new ArrayList<>()).add(word);
         for(String word:gloss.terms.keySet())for(String gram:Arabic.trigrams(word))glossVocabulary.computeIfAbsent(gram,k->new ArrayList<>()).add(word);
         List<String> vocabulary=new ArrayList<>(arabic.terms.keySet());Collections.sort(vocabulary);
@@ -192,7 +194,7 @@ public final class SearchEngine {
         Set<Integer> pool=new TreeSet<>(lexical.keySet());pool.addAll(meanings.keySet());pool.addAll(phonetic.keySet());
         for(String term:new LinkedHashSet<>(terms))if(Arabic.hasArabic(term)){List<String> alternatives=repairs(term,terms.size()>=3);arRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:arabic.terms.get(w))pool.add(p.doc);}
         for(String term:new LinkedHashSet<>(hints)){List<String> alternatives=glossRepairs(term);glossRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:gloss.terms.get(w))pool.add(p.doc);}
-        if(sounds.size()>=3)for(String term:new LinkedHashSet<>(sounds)){List<String> alternatives=spellingAlternatives(term,soundVocabulary,3);soundRepairs.put(term,alternatives);for(String word:alternatives)for(Posting p:sound.terms.get(word))pool.add(p.doc);}
+        if(sounds.size()>=3)for(String term:new LinkedHashSet<>(sounds)){List<String> alternatives=spellingAlternatives(term,soundVocabulary,soundByLength,3);soundRepairs.put(term,alternatives);for(String word:alternatives)for(Posting p:sound.terms.get(word))pool.add(p.doc);}
         allCandidates.addAll(pool);trace.merge("arabic_bm25",lexical.size(),Integer::sum);trace.merge("gloss_bm25",meanings.size(),Integer::sum);trace.merge("phonetic",phonetic.size(),Integer::sum);
         Map<String,Double> weights=weights(terms,arabic),hintWeights=weights(hints,gloss);List<Result> out=new ArrayList<>();
         for(int d:pool){cancelled();
@@ -210,12 +212,26 @@ public final class SearchEngine {
         out.sort(RESULT_ORDER);return out;
     }
     private Map<String,Double> weights(List<String> query,Index index){Map<String,Double> weights=new HashMap<>();for(String term:query){List<Posting> posting=index.terms.get(term);weights.put(term,Math.max(.25,Math.log(1.+docs.size()/(1.+(posting==null?0:posting.size())))));}return weights;}
-    private List<String> glossRepairs(String term){return spellingAlternatives(term,glossVocabulary,4);}
-    private List<String> spellingAlternatives(String term,Map<String,List<String>> vocabulary,int min){
+    private List<String> glossRepairs(String term){return spellingAlternatives(term,glossVocabulary,glossByLength,4);}
+    private static void indexByLength(Set<String> words,Map<Integer,List<String>> index){
+        for(String word:words)index.computeIfAbsent(word.length(),k->new ArrayList<>()).add(word);
+        for(List<String> bucket:index.values())Collections.sort(bucket);
+    }
+    private static void addShortRepairs(String term,int max,Map<Integer,List<String>> byLength,Map<String,Integer> overlap,Map<String,Integer> distances){
+        if(term.length()<4||term.length()>6)return;
+        for(int length=Math.max(1,term.length()-max);length<=term.length()+max;length++)for(String word:byLength.getOrDefault(length,Collections.emptyList())){
+            cancelled();if(word.equals(term)||distances.containsKey(word))continue;
+            int distance=TextMatch.distance(term,word,max);if(distance<=max){distances.put(word,distance);overlap.putIfAbsent(word,0);}
+        }
+    }
+    private List<String> spellingAlternatives(String term,Map<String,List<String>> vocabulary,Map<Integer,List<String>> byLength,int min){
         if(term.length()<min||term.length()>128||TextMatch.negative(term))return Collections.emptyList();int max=term.length()>=8?2:1;Map<String,Integer> overlap=new HashMap<>();
         for(String gram:Arabic.trigrams(term))for(String w:vocabulary.getOrDefault(gram,Collections.emptyList()))if(!w.equals(term)&&Math.abs(w.length()-term.length())<=max)overlap.merge(w,1,Integer::sum);
-        List<String> words=new ArrayList<>(overlap.keySet());words.sort(Comparator.comparingInt((String w)->overlap.get(w)).reversed().thenComparing(w->w));List<String> out=new ArrayList<>();
-        for(int i=0;i<Math.min(160,words.size())&&out.size()<8;i++){String w=words.get(i);if(TextMatch.distance(term,w,max)<=max)out.add(w);}return out;
+        List<String> words=new ArrayList<>(overlap.keySet());words.sort(Comparator.comparingInt((String w)->overlap.get(w)).reversed().thenComparing(w->w));Map<String,Integer> distances=new HashMap<>();
+        for(int i=0;i<Math.min(160,words.size());i++){String w=words.get(i);int distance=TextMatch.distance(term,w,max);if(distance<=max)distances.put(w,distance);}
+        addShortRepairs(term,max,byLength,overlap,distances);
+        List<String> out=new ArrayList<>(distances.keySet());out.sort(Comparator.comparingInt((String w)->distances.get(w)).thenComparing(Comparator.comparingInt((String w)->overlap.getOrDefault(w,0)).reversed()).thenComparing(w->w));
+        return new ArrayList<>(out.subList(0,Math.min(8,out.size())));
     }
     private static final Comparator<Result> RESULT_ORDER=(a,b)->{
         int c=TextMatch.compareRank(a.match,b.match);if(c!=0)return c;
@@ -232,6 +248,7 @@ public final class SearchEngine {
             if(!w.equals(term)&&Math.abs(w.length()-term.length())<=max&&!NEGATION.contains(w))overlap.merge(w,1,Integer::sum);
         Map<String,Integer> distances=new HashMap<>();
         for(String w:overlap.keySet()){cancelled();int distance=TextMatch.distance(term,w,max);if(distance<=max)distances.put(w,distance);}
+        addShortRepairs(term,max,arabicByLength,overlap,distances);
         List<String> ranked=new ArrayList<>(distances.keySet());ranked.sort(Comparator.comparingInt((String w)->distances.get(w))
             .thenComparing(Comparator.comparingInt((String w)->overlap.get(w)).reversed()).thenComparing(w->w));
         // Uthmani small-alif spellings can share only one trigram with ordinary typed words.

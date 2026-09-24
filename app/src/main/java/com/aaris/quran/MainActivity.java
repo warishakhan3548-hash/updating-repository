@@ -67,6 +67,7 @@ public final class MainActivity extends Activity {
     private final Map<String,JSONObject> selectionTrace=new LinkedHashMap<>();
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
     private static final int EXPORT=700,IMPORT=701,OVERLAY_PERMISSION=702,NOTIFICATIONS=703,VOICE_SEARCH=704;
+    private static final int SEARCH_RENDER_BATCH=8;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);app=(QuranApp)getApplication();
@@ -128,12 +129,12 @@ public final class MainActivity extends Activity {
         if(tab==index)v.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
         Glass.Icon i=new Glass.Icon(this,icon);i.color=tab==index?appearance.buttonInk():MUTED;v.addView(i,new LinearLayout.LayoutParams(dp(this,22),dp(this,22)));
         TextView t=text(this,title,11,tab==index?appearance.buttonInk():MUTED);t.setGravity(Gravity.CENTER);v.addView(t);
-        v.setContentDescription(title);v.setSelected(tab==index);v.setFocusable(true);v.setMinimumHeight(dp(this,56));v.setOnClickListener(x->{tab=index;quietReader=false;if(index==1)reading=true;show();});
+        v.setContentDescription(title);v.setSelected(tab==index);v.setFocusable(true);v.setMinimumHeight(dp(this,56));v.setOnClickListener(x->{tab=index;quietReader=false;if(index==1)reading=true;show();});Glass.motion(v);
         LinearLayout.LayoutParams item=new LinearLayout.LayoutParams(0,-2,1);item.setMargins(dp(this,3),0,dp(this,3),0);bottom.addView(v,item);
     }
     private View iconButton(String icon,String description,Runnable action){
         FrameLayout f=new FrameLayout(this);f.setMinimumHeight(dp(this,48));f.setMinimumWidth(dp(this,48));f.setContentDescription(description);f.setTooltipText(description);f.setFocusable(true);f.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
-        Glass.Icon view=new Glass.Icon(this,icon);view.color=appearance.buttonInk();FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(dp(this,23),dp(this,23),Gravity.CENTER);f.addView(view,p);f.setOnClickListener(v->action.run());return f;
+        Glass.Icon view=new Glass.Icon(this,icon);view.color=appearance.buttonInk();FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(dp(this,23),dp(this,23),Gravity.CENTER);f.addView(view,p);f.setOnClickListener(v->action.run());Glass.motion(f);return f;
     }
     private void heading(String eyebrow,String title){
         LinearLayout label=column(this);TextView e=text(this,eyebrow,10,INK);e.setLetterSpacing(.18f);label.addView(e);
@@ -149,7 +150,7 @@ public final class MainActivity extends Activity {
         Glass.Icon glyph=new Glass.Icon(this,icon);glyph.color=MINT;row.addView(glyph,new LinearLayout.LayoutParams(dp(this,24),dp(this,24)));
         TextView label=text(this,title,15,INK);label.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));pad(label,12,0);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
         Glass.Icon next=new Glass.Icon(this,"next");next.color=MUTED;row.addView(next,new LinearLayout.LayoutParams(dp(this,20),dp(this,20)));
-        row.setContentDescription(title);row.setOnClickListener(v->click.run());return row;
+        row.setContentDescription(title);row.setOnClickListener(v->click.run());Glass.motion(row);return row;
     }
     private View quickAction(String icon,String title,String meta,Runnable click){
         LinearLayout box=column(this);box.setGravity(Gravity.CENTER);pad(box,8,10);box.setMinimumHeight(dp(this,82));
@@ -157,16 +158,16 @@ public final class MainActivity extends Activity {
         Glass.Icon glyph=new Glass.Icon(this,icon);glyph.color=MINT;LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(dp(this,28),dp(this,28));gp.gravity=Gravity.CENTER;box.addView(glyph,gp);
         TextView name=text(this,title,13,INK);name.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));name.setGravity(Gravity.CENTER);box.addView(name);
         if(meta!=null&&!meta.isEmpty()){TextView small=text(this,meta,10,MUTED);small.setGravity(Gravity.CENTER);box.addView(small);}
-        box.setContentDescription(title+(meta==null||meta.isEmpty()?"":", "+meta));box.setOnClickListener(v->click.run());return box;
+        box.setContentDescription(title+(meta==null||meta.isEmpty()?"":", "+meta));box.setOnClickListener(v->click.run());Glass.motion(box);return box;
     }
     private View actionChip(String icon,String title,Runnable click){
         LinearLayout chip=row(this);pad(chip,12,9);chip.setGravity(Gravity.CENTER);chip.setMinimumHeight(dp(this,46));
         chip.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));chip.setFocusable(true);chip.setClickable(true);
         Glass.Icon glyph=new Glass.Icon(this,icon);glyph.color=appearance.buttonInk();chip.addView(glyph,new LinearLayout.LayoutParams(dp(this,20),dp(this,20)));
         TextView name=text(this,title,13,appearance.buttonInk());name.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));pad(name,8,0);chip.addView(name);
-        chip.setContentDescription(title);chip.setOnClickListener(v->click.run());return chip;
+        chip.setContentDescription(title);chip.setOnClickListener(v->click.run());Glass.motion(chip);return chip;
     }
-    private TextView action(String title,Runnable click,boolean primary){TextView b=text(this,title,14,appearance.buttonInk());b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setGravity(Gravity.CENTER);pad(b,16,13);b.setMinimumHeight(dp(this,48));b.setBackground(Glass.touch(this,primary?Surface.Kind.PRIMARY:Surface.Kind.BUTTON,highContrast));b.setFocusable(true);b.setOnClickListener(v->click.run());return b;}
+    private TextView action(String title,Runnable click,boolean primary){TextView b=text(this,title,14,appearance.buttonInk());b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setGravity(Gravity.CENTER);pad(b,16,13);b.setMinimumHeight(dp(this,48));b.setBackground(Glass.touch(this,primary?Surface.Kind.PRIMARY:Surface.Kind.BUTTON,highContrast));b.setFocusable(true);b.setOnClickListener(v->click.run());Glass.motion(b);return b;}
     private TextView label(String text){TextView v=Glass.text(this,text,11,INK);v.setLetterSpacing(.12f);return v;}
     private void gap(LinearLayout v,int dp){View gap=new View(this);v.addView(gap,new LinearLayout.LayoutParams(1,Glass.dp(this,dp)));}
     private ArabicText arabic(String value,float size){ArabicText v=new ArabicText(this);v.setText(value);v.setTextSize(size);v.setReliefEnabled(!highContrast);v.setTypeface(arabicFont);v.setTextDirection(View.TEXT_DIRECTION_RTL);v.setGravity(Gravity.CENTER);v.setLineSpacing(dp(this,appearance.spacing),1.08f);return v;}
@@ -266,7 +267,7 @@ public final class MainActivity extends Activity {
                 TextView arrow=text(this,"›",28,MINT);line.addView(arrow);c.addView(line);gap(c,8);
                 caption(c,info.count+" Hadith records · Offline");
                 c.setFocusable(true);c.setContentDescription(info.nameEn+", "+info.count+" records, offline");
-                c.setOnClickListener(v->hadithCollection(info.id));
+                c.setOnClickListener(v->hadithCollection(info.id));Glass.motion(c);
             }
         };
         collections.run();
@@ -308,10 +309,14 @@ public final class MainActivity extends Activity {
     private void appendHadithResults(String q,HadithStore.SearchPage response,int generation,LinearLayout list,TextView status){
         hadithTotal=response.total;hadithHits.addAll(response.hits);
         if(response.offset==0)showSearchShortcut(list,true,q);
-        status.setText(response.total==0?(HadithQuery.parse(q).isReference()?"This reference is not in the installed edition. Check its numbering or search an Arabic phrase.":"No Hadith text match in the installed edition."):hadithHits.size()+" of "+response.total+(response.limited?" closest Hadith matches · Narrow the phrase for more precision":" Hadith matches"));
-        for(HadithStore.Hit hit:response.hits){
+        appendHadithBatch(q,response,generation,list,status,0);
+    }
+    private void appendHadithBatch(String q,HadithStore.SearchPage response,int generation,LinearLayout list,TextView status,int cursor){
+        if(isDestroyed()||!searching||searchGeneration.get()!=generation)return;
+        boolean browse=HadithQuery.parse(q).isCollectionBrowse();
+        int end=Math.min(cursor+SEARCH_RENDER_BATCH,response.hits.size());
+        for(HadithStore.Hit hit:response.hits.subList(cursor,end)){
             LinearLayout wrapper=column(this);list.addView(wrapper);
-            boolean browse=HadithQuery.parse(q).isCollectionBrowse();
             wrapper.addView(label(browse?"COLLECTION RECORD":hit.reference?"REFERENCE MATCH":hit.match.band+" TEXT MATCH"));
             if(!hit.reference&&!browse)caption(wrapper,hit.match.explanation());
             hadithResultCard(wrapper,hit.record);
@@ -319,6 +324,11 @@ public final class MainActivity extends Activity {
             CheckBox select=new CheckBox(this);select.setText("Select for PDF");select.setTextColor(INK);select.setMinHeight(dp(this,48));select.setChecked(selectedHadith.contains(hit.record.id));wrapper.addView(select);
             select.setOnCheckedChangeListener((v,checked)->{if(checked)selectedHadith.add(hit.record.id);else selectedHadith.remove(hit.record.id);});gap(wrapper,16);
         }
+        if(end<response.hits.size()){
+            status.setText("Showing "+(response.offset+end)+" of "+response.total+"…");
+            ui.post(()->appendHadithBatch(q,response,generation,list,status,end));return;
+        }
+        status.setText(response.total==0?(HadithQuery.parse(q).isReference()?"This reference is not in the installed edition. Check its numbering or search an Arabic phrase.":"No Hadith text match in the installed edition."):hadithHits.size()+" of "+response.total+(response.limited?" closest Hadith matches · Narrow the phrase for more precision":" Hadith matches"));
         if(hadithHits.size()<response.total){TextView more=button("Load next 50 Hadith matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadHadithSearch(q,hadithHits.size(),generation,list,status);});}
     }
 
@@ -340,7 +350,7 @@ public final class MainActivity extends Activity {
         }
         List<String> grades=store.grades(record.id);if(!grades.isEmpty())caption(c,String.join(" · ",grades));
         c.setFocusable(true);c.setContentDescription((info==null?"Hadith":info.nameEn)+" "+record.number);
-        c.setOnClickListener(v->hadithRecord(record.id));
+        c.setOnClickListener(v->hadithRecord(record.id));Glass.motion(c);
     }
 
     private void hadithCollection(String collectionId){
@@ -356,7 +366,7 @@ public final class MainActivity extends Activity {
             LinearLayout names=column(this);names.addView(text(this,book.nameEn==null?"Book "+book.number:book.nameEn,16,INK));
             if(book.nameAr!=null){TextView nameAr=hadithArabic(book.nameAr,22);names.addView(nameAr);}
             names.addView(text(this,book.count+" records",11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-            row.setFocusable(true);row.setOnClickListener(v->hadithBook(collectionId,book));
+            row.setFocusable(true);row.setOnClickListener(v->hadithBook(collectionId,book));Glass.motion(row);
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,8);page.addView(row,lp);
         }
     }
@@ -473,7 +483,7 @@ public final class MainActivity extends Activity {
         int count=0;for(ContentStore.Word word:content.words(a.id))if(word.hasGloss()){
             if(count++==8)break;LinearLayout row=Glass.row(this);pad(row,8,10);TextView ar=arabic(word.arabic,30);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));
             Recall.State memory=learning.states().get(word.id);TextView meaning=text(this,word.gloss(language)+(memory!=null&&memory.active?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));
-            row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(word.gloss(language)+" ✓");});
+            row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(word.gloss(language)+" ✓");});Glass.motion(row);
             page.addView(row);gap(page,8);
         }
         gap(page,10);page.addView(primary("Back to timer",this::ambientSettings));gap(page,8);
@@ -518,7 +528,7 @@ public final class MainActivity extends Activity {
             LinearLayout row=Glass.row(this);pad(row,16,14);row.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));
             TextView number=text(this,String.format(Locale.ROOT,"%02d",s.id),13,GOLD);row.addView(number,new LinearLayout.LayoutParams(dp(this,38),-2));
             LinearLayout names=column(this);names.addView(text(this,s.name,17,INK));names.addView(text(this,s.count+" ayat · "+s.meaning,11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-            TextView ar=arabic(s.arabic,24);row.addView(ar,new LinearLayout.LayoutParams(-2,-2));row.setContentDescription(s.name+", "+s.count+" ayat");row.setFocusable(true);row.setOnClickListener(v->open(s.id,1));
+            TextView ar=arabic(s.arabic,24);row.addView(ar,new LinearLayout.LayoutParams(-2,-2));row.setContentDescription(s.name+", "+s.count+" ayat");row.setFocusable(true);row.setOnClickListener(v->open(s.id,1));Glass.motion(row);
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,10);list.addView(row,lp);
         }};filter.addTextChangedListener(watcher(fill));fill.run();
     }
@@ -651,6 +661,7 @@ public final class MainActivity extends Activity {
                     if(list.isAttachedToWindow())fillRecitationSurahDownloads(list,reciter);
                 });
             });
+            Glass.motion(item);
 
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,5);list.addView(item,lp);
         }
@@ -1008,7 +1019,7 @@ public final class MainActivity extends Activity {
         LinearLayout page=sheet("Word by word · "+a.surah+":"+a.number);
         caption(page,"Source word meanings only; this is not a full translation or tafsir.");gap(page,12);
         for(ContentStore.Word word:content.words(a.id)) {
-            LinearLayout row=Glass.row(this);pad(row,4,10);TextView ar=arabic(word.arabic,28);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));TextView gloss=text(this,word.gloss(language),16,INK);row.addView(gloss,new LinearLayout.LayoutParams(0,-2,1));row.setFocusable(true);row.setOnClickListener(v->wordDetails(word));page.addView(row);
+            LinearLayout row=Glass.row(this);pad(row,4,10);TextView ar=arabic(word.arabic,28);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));TextView gloss=text(this,word.gloss(language),16,INK);row.addView(gloss,new LinearLayout.LayoutParams(0,-2,1));row.setFocusable(true);row.setOnClickListener(v->wordDetails(word));Glass.motion(row);page.addView(row);
         }
     }
     private void editNote(String target){
@@ -1224,13 +1235,20 @@ public final class MainActivity extends Activity {
         query.addTextChangedListener(watcher(run));query.setText(searchQuery);query.setSelection(query.length());
     }
     private void appendQuranResults(LinearLayout list,SearchEngine.Response response,int offset,TextView status){
-        int end=Math.min(offset+50,response.results.size());
-        for(SearchEngine.Result result:response.results.subList(offset,end)){
-            quranHits.add(result);LinearLayout c=card(list,Surface.Kind.PANEL);c.addView(label(result.match.band+" TEXT MATCH · "+result.match.matched+" / "+result.match.total+" words"));gap(c,8);
+        int generation=searchGeneration.get(),end=Math.min(offset+50,response.results.size());
+        if(offset<end)quranHits.addAll(response.results.subList(offset,end));
+        appendQuranBatch(list,response,offset,end,status,generation);
+    }
+    private void appendQuranBatch(LinearLayout list,SearchEngine.Response response,int cursor,int end,TextView status,int generation){
+        if(isDestroyed()||!searching||searchGeneration.get()!=generation)return;
+        int batchEnd=Math.min(cursor+SEARCH_RENDER_BATCH,end);
+        for(SearchEngine.Result result:response.results.subList(cursor,batchEnd)){
+            LinearLayout c=card(list,Surface.Kind.PANEL);c.addView(label(result.match.band+" TEXT MATCH · "+result.match.matched+" / "+result.match.total+" words"));gap(c,8);
             Ayah a=result.ayah;c.addView(text(this,content.surah(a.surah).name+" · "+a.surah+":"+a.number,18,INK));gap(c,10);c.addView(arabic(a.arabic,25));gap(c,12);
             addTranslation(c,a);caption(c,String.join(" · ",result.reasons));gap(c,14);c.addView(evidenceActions(a,retrievalTrace(response,result)));
             c.addView(button("Remember this match",()->rememberSearch(false,response.query,a.id)));
         }
+        if(batchEnd<end){status.setText("Showing "+batchEnd+" of "+response.results.size()+"…");ui.post(()->appendQuranBatch(list,response,batchEnd,end,status,generation));return;}
         if(!response.results.isEmpty())status.setText(end+" of "+response.results.size()+" matches · High → Medium → Low");
         if(end<response.results.size()){TextView more=button("Load next 50 matches",()->{});list.addView(more);more.setOnClickListener(v->{list.removeView(more);appendQuranResults(list,response,end,status);});}
     }

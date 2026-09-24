@@ -5,7 +5,9 @@ import android.graphics.*;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.RippleDrawable;
 import android.content.res.ColorStateList;
+import android.animation.*;
 import android.view.*;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.*;
 
 /** Smoked emerald glass over black. Cached paints; no wallpaper, live blur or bright bloom. */
@@ -310,6 +312,21 @@ final class Glass {
         }
     }
     static Drawable touch(Context c,Surface.Kind kind,boolean solid){return new RippleDrawable(ColorStateList.valueOf(0x1ADCE5D6),new Surface(c,kind,solid),new Surface(c,Surface.Kind.PRIMARY,true));}
+    static <T extends View> T motion(T view){
+        if(appearance.reducedEffects){
+            view.setStateListAnimator(null);view.setScaleX(1f);view.setScaleY(1f);return view;
+        }
+        StateListAnimator states=new StateListAnimator();
+        AnimatorSet pressed=new AnimatorSet();
+        pressed.playTogether(ObjectAnimator.ofFloat(view,View.SCALE_X,.985f),ObjectAnimator.ofFloat(view,View.SCALE_Y,.985f));
+        pressed.setDuration(70L);
+        AnimatorSet released=new AnimatorSet();
+        released.playTogether(ObjectAnimator.ofFloat(view,View.SCALE_X,1f),ObjectAnimator.ofFloat(view,View.SCALE_Y,1f));
+        released.setDuration(135L);released.setInterpolator(new DecelerateInterpolator());
+        states.addState(new int[]{android.R.attr.state_pressed},pressed);
+        states.addState(new int[]{},released);
+        view.setStateListAnimator(states);return view;
+    }
     static LinearLayout column(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.VERTICAL);return l;}
     static LinearLayout row(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.HORIZONTAL);l.setGravity(Gravity.CENTER_VERTICAL);return l;}
     static TextView text(Context c,String text,float sp,int color){TextView v=new TextView(c);v.setText(text);v.setTextSize(sp);v.setTextColor(color);v.setFontFeatureSettings("kern");v.setIncludeFontPadding(true);v.setLineSpacing(dp(c,2),1.06f);return v;}

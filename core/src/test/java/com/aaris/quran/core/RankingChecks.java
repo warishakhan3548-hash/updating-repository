@@ -15,6 +15,8 @@ final class RankingChecks {
         require(results.get(0).match.band==TextMatch.Band.HIGH,"Complete phrase is high text match");
         require(search.search("actions depend on intensions",10).results.get(0).ayah.number==1,"Translation typo retrieves original record");
         require(TextMatch.distance("word","wrod",1)==1,"Adjacent keyboard transposition");
+        SearchEngine shortTypo=new SearchEngine(Collections.singletonList(new SearchEngine.Document(new Ayah(1,1,"اختبار","short",1),"word","")));
+        require(shortTypo.search("wrod",10).results.get(0).ayah.number==1,"Short typo with no shared trigram still retrieves the source");
         require(!TextMatch.compare(TextMatch.tokens("not present here"),TextMatch.tokens("present here"),Collections.emptyMap(),Collections.emptyMap()).accepted,"Unmatched negation does not disappear");
         String paragraph="distinctive ".repeat(90)+"anchor";
         SearchEngine longSearch=new SearchEngine(Arrays.asList(new SearchEngine.Document(new Ayah(1,1,"اختبار","x",1),paragraph)));
@@ -54,7 +56,7 @@ final class RankingChecks {
                 if(xy<=0&&yz<=0)require(TextMatch.compareHadith(x,sx,z,sz)<=0,"Near-equal source order remains transitive");
             }
         require(nearA.explanation().contains("spelling repairs"),"Match explanations expose transformations");
-        return 19;
+        return 20;
     }
     private static void require(boolean value,String message){if(!value)throw new AssertionError(message);}
 }
