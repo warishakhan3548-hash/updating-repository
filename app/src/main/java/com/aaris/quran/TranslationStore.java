@@ -4,6 +4,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import java.io.*;
 import java.util.*;
 
@@ -22,7 +23,8 @@ final class TranslationStore implements AutoCloseable {
     private final SQLiteDatabase db;
     TranslationStore(Context c)throws Exception{
         JSONObject manifest=new JSONObject(ContentStore.asset(c,"translations-manifest.json"));packHash=manifest.getString("sqlite_sha256");notice=manifest.getString("notice");
-        if(!packHash.matches("[a-f0-9]{64}"))throw new IOException("Invalid translation pack hash");
+        JSONArray expectedEditions=manifest.getJSONArray("editions");
+        if(manifest.optInt("schema",-1)!=1||expectedEditions.length()<1||!packHash.matches("[a-f0-9]{64}"))throw new IOException("Invalid translation pack identity");
         File target=new File(c.getFilesDir(),"translations-"+packHash.substring(0,16)+".sqlite");
         if(!target.isFile()||!ContentStore.hash(target).equals(packHash)){
             File temp=new File(c.getFilesDir(),"translations.installing");
@@ -31,8 +33,19 @@ final class TranslationStore implements AutoCloseable {
             if(target.exists()&&!target.delete())throw new IOException("Could not replace translation pack");
             if(!temp.renameTo(target))throw new IOException("Translation install failed");
         }
-        db=SQLiteDatabase.openDatabase(target.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY);
-        try(Cursor cur=db.rawQuery("SELECT * FROM edition ORDER BY CASE language WHEN 'hi' THEN 0 WHEN 'ur' THEN 1 ELSE 2 END",null)){while(cur.moveToNext())editions.add(new Edition(cur));}
+        SQLiteDatabase opened=SQLiteDatabase.openDatabase(target.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY);
+        try{
+            try(Cursor cur=opened.rawQuery("PRAGMA quick_check",null)){if(!cur.moveToFirst()||!"ok".equals(cur.getString(0)))throw new IOException("Translation integrity check failed");}
+            try(Cursor cur=opened.rawQuery("SELECT * FROM edition ORDER BY CASE language WHEN 'hi' THEN 0 WHEN 'ur' THEN 1 ELSE 2 END",null)){while(cur.moveToNext())editions.add(new Edition(cur));}
+            LinkedHashSet<String> expected=new LinkedHashSet<>();for(int i=0;i<expectedEditions.length();i++)expected.add(expectedEditions.getString(i));
+            LinkedHashSet<String> actual=new LinkedHashSet<>();for(Edition edition:editions)actual.add(edition.id);
+            if(!actual.equals(expected))throw new IOException("Translation editions do not match the manifest");
+            for(Edition edition:editions)try(Cursor cur=opened.rawQuery("SELECT count(*) FROM translation WHERE edition_id=? AND text IS NOT NULL AND trim(text)<>''",new String[]{edition.id})){
+                if(!cur.moveToFirst()||cur.getInt(0)!=6236)throw new IOException("Incomplete translation edition: "+edition.id);
+            }
+            try(Cursor cur=opened.rawQuery("SELECT count(*) FROM translation",null)){if(!cur.moveToFirst()||cur.getInt(0)!=6236*expected.size())throw new IOException("Unexpected translation row count");}
+        }catch(Exception invalid){opened.close();throw invalid;}
+        db=opened;
     }
     Edition edition(String id){for(Edition e:editions)if(e.id.equals(id))return e;return null;}
     Entry get(String editionId,String ayahId){Edition edition=edition(editionId);if(edition==null)return null;try(Cursor c=db.rawQuery("SELECT text,footnotes FROM translation WHERE edition_id=? AND ayah_id=?",new String[]{edition.id,ayahId})){return c.moveToFirst()?new Entry(edition,c.getString(0),c.getString(1)):null;}}
