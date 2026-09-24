@@ -53,6 +53,10 @@ final class HadithStore implements AutoCloseable {
     private SQLiteDatabase db;
     private boolean hasEditorialTranslations;
     private final Map<String,String> collectionAliases=new LinkedHashMap<>();
+    private static final int SPELLING_CACHE_LIMIT=256;
+    private final Map<String,List<String>> spellingCache=Collections.synchronizedMap(new LinkedHashMap<String,List<String>>(64,.75f,true){
+        @Override protected boolean removeEldestEntry(Map.Entry<String,List<String>> eldest){return size()>SPELLING_CACHE_LIMIT;}
+    });
     private final List<CollectionInfo> collectionCache;
     final String packHash,packId,contentVersion,sourceName,sourceVersion,redistributionBasis;
     final int recordCount,collectionCount;
@@ -284,7 +288,10 @@ final class HadithStore implements AutoCloseable {
         return new SearchPage(query.raw,hits,total,offset);
     }
     private List<String> spellingCandidates(String term,CancellationSignal signal){
-        if(term.length()<4||term.length()>128||TextMatch.negative(term))return Collections.emptyList();int max=term.length()>=8?2:1;
+        cancelSearch(signal);
+        if(term.length()<4||term.length()>128||TextMatch.negative(term))return Collections.emptyList();
+        List<String> cached=spellingCache.get(term);if(cached!=null)return cached;
+        int max=term.length()>=8?2:1;
         Map<String,Integer> distances=new HashMap<>(),overlap=new HashMap<>();List<String> grams=new ArrayList<>(Arabic.trigrams(term));
         if(!grams.isEmpty()){
             String marks=String.join(",",Collections.nCopies(grams.size(),"?"));
@@ -302,7 +309,7 @@ final class HadithStore implements AutoCloseable {
             }
         }
         List<String> out=new ArrayList<>(distances.keySet());out.sort(Comparator.comparingInt((String w)->overlap.getOrDefault(w,0)).reversed().thenComparingInt(w->distances.get(w)).thenComparing(w->w));
-        return new ArrayList<>(out.subList(0,Math.min(5,out.size())));
+        List<String> result=Collections.unmodifiableList(new ArrayList<>(out.subList(0,Math.min(5,out.size()))));spellingCache.put(term,result);return result;
     }
     static List<String> spellingSeeds(String term){
         int[] codePoints=term.codePoints().toArray();

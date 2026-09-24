@@ -544,6 +544,30 @@ public final class MainActivity extends Activity {
         fill.run();
     }
     private void open(int surah,int ayah){readerScroll=null;readerVerses.clear();readerSurah=Math.max(1,Math.min(114,surah));readerStart=Math.max(1,Math.min(content.surah(readerSurah).count,ayah));reading=true;tab=1;String id="Q:"+readerSurah+":"+readerStart;readingPosition=new ReadingPosition(id,id,0,0,true);learning.set("position",id);learning.set("reader_anchor",readingPosition.encode());hideKeyboard();show();}
+    private boolean moveReaderPage(int direction){
+        if(direction<0){
+            if(readerStart>1){open(readerSurah,Math.max(1,readerStart-8));return true;}
+            if(readerSurah>1){int previous=readerSurah-1;open(previous,Math.max(1,content.surah(previous).count-7));return true;}
+            return false;
+        }
+        ContentStore.Surah current=content.surah(readerSurah);
+        if(readerStart+8<=current.count){open(readerSurah,readerStart+8);return true;}
+        if(readerSurah<114){open(readerSurah+1,1);return true;}
+        return false;
+    }
+    private void enableReaderSwipe(){
+        final int minimumFling=ViewConfiguration.get(this).getScaledMinimumFlingVelocity();
+        GestureDetector detector=new GestureDetector(this,new GestureDetector.SimpleOnGestureListener(){
+            @Override public boolean onDown(MotionEvent event){return true;}
+            @Override public boolean onFling(MotionEvent start,MotionEvent end,float velocityX,float velocityY){
+                if(start==null||end==null)return false;
+                float dx=end.getX()-start.getX(),dy=end.getY()-start.getY(),horizontal=Math.abs(dx);
+                if(horizontal<dp(MainActivity.this,72)||horizontal<Math.abs(dy)*1.35f||Math.abs(velocityX)<minimumFling)return false;
+                hidePeek();return moveReaderPage(dx<0?1:-1);
+            }
+        });
+        readerScroll.setOnTouchListener((view,event)->{detector.onTouchEvent(event);return false;});
+    }
     private void reader(){
         ContentStore.Surah s=content.surah(readerSurah);
         header.addView(iconButton("back","Surah list",()->{reading=false;show();}));
@@ -551,6 +575,7 @@ public final class MainActivity extends Activity {
         header.addView(iconButton("search","Search Quran",this::searchScreen));
         LinearLayout page=scrollBody();pad(page,16,8);readerScroll=(ScrollView)page.getParent();renderedPage="Q:"+readerSurah+":"+readerStart;
         readerScroll.setOnScrollChangeListener((View v,int x,int y,int oldX,int oldY)->{if(y!=oldY)hidePeek();});
+        enableReaderSwipe();
         LinearLayout tools=row(this);TextView surahs=button("Surahs  ↓",()->{reading=false;show();});tools.addView(surahs,new LinearLayout.LayoutParams(0,-2,1));TextView readingStyle=button("Aa · Reading",this::settings);LinearLayout.LayoutParams styleSize=new LinearLayout.LayoutParams(0,-2,1);styleSize.leftMargin=dp(this,8);tools.addView(readingStyle,styleSize);TextView audioPack=button(app.wordAudio!=null&&app.wordAudio.installedSurah(readerSurah)?"Word audio ✓":"Word audio ↓",()->audioSurahPrompt(readerSurah));LinearLayout.LayoutParams audioSize=new LinearLayout.LayoutParams(0,-2,1);audioSize.leftMargin=dp(this,8);tools.addView(audioPack,audioSize);page.addView(tools);gap(page,8);page.addView(button("Translation · "+(app.translations==null||app.translations.edition(translationId)==null?"Unavailable":app.translations.edition(translationId).language.toUpperCase(Locale.ROOT))+" ↓",this::translationSettings));gap(page,14);
         TextView name=arabic(s.arabic,28);page.addView(name,new LinearLayout.LayoutParams(-1,-2));
         TextView latin=text(this,s.name,24,INK);latin.setGravity(Gravity.CENTER);latin.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(latin);
@@ -581,10 +606,10 @@ public final class MainActivity extends Activity {
             }}
         }
         LinearLayout pager=row(this);
-        TextView previous=button("← Previous",()->{if(readerStart>1)open(readerSurah,Math.max(1,readerStart-8));else if(readerSurah>1)open(readerSurah-1,Math.max(1,content.surah(readerSurah-1).count-7));});
+        TextView previous=button("← Previous",()->moveReaderPage(-1));
         pager.addView(previous,new LinearLayout.LayoutParams(0,-2,1));
-        TextView counter=text(this,readerStart+"–"+Math.min(s.count,readerStart+7)+" / "+s.count,12,MUTED);counter.setGravity(Gravity.CENTER);pager.addView(counter,new LinearLayout.LayoutParams(0,-2,1));
-        TextView next=button("Next →",()->{if(readerStart+8<=s.count)open(readerSurah,readerStart+8);else if(readerSurah<114)open(readerSurah+1,1);});pager.addView(next,new LinearLayout.LayoutParams(0,-2,1));page.addView(pager);gap(page,12);
+        TextView counter=text(this,readerStart+"–"+Math.min(s.count,readerStart+7)+" / "+s.count,12,MUTED);counter.setGravity(Gravity.CENTER);counter.setContentDescription("Ayahs "+readerStart+" to "+Math.min(s.count,readerStart+7)+" of "+s.count+" · Swipe horizontally to change page");pager.addView(counter,new LinearLayout.LayoutParams(0,-2,1));
+        TextView next=button("Next →",()->moveReaderPage(1));pager.addView(next,new LinearLayout.LayoutParams(0,-2,1));page.addView(pager);gap(page,12);
         page.addView(button("Recall Companion · Timer",this::ambientSettings));gap(page,12);
         TextView source=text(this,"Tanzil Project · Uthmani 1.1",11,MUTED);source.setGravity(Gravity.CENTER);source.setOnClickListener(v->sources());page.addView(source);gap(page,12);
         if(quietReader){header.setVisibility(View.GONE);bottom.setVisibility(View.GONE);page.addView(button("Show controls",()->{quietReader=false;show();}));}
@@ -864,6 +889,7 @@ public final class MainActivity extends Activity {
                 final int[] lastToast={installed};
                 app.audioDownloads.downloadAll(new QuranAudioDownloadManager.Listener(){
                     public void onProgress(int surah,int completed,int total){
+                        if(isDestroyed()||isFinishing())return;
                         if(completed==total||completed-lastToast[0]>=10){lastToast[0]=completed;toast("Quran audio "+completed+"/"+total+" locally saved");}
                     }
                     public void onComplete(){if(!isDestroyed()&&!isFinishing()){toast("All Quran audio installed offline ✓");if(tab==1&&reading)show();}}
