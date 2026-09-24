@@ -597,7 +597,7 @@ public final class MainActivity extends Activity {
         if(translationSpeech!=null)translationSpeech.stop();
         android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);
         String reciter=RecitationDownloads.valid(preferences.getString("reciter",RecitationDownloads.IDS[0]));
-        boolean reciterOffline=app.recitationDownloads!=null&&app.recitationDownloads.markedComplete(reciter,a.surah,content.surah(a.surah).count);
+        boolean reciterOffline=app.recitationDownloads!=null&&app.recitationDownloads.ayahReady(reciter,a,content.surah(a.surah).count);
         List<ContentStore.Word> words=content.words(a.id);
 
         // The large "Quran audio" download is the verified isolated-word pack. If it is present,
