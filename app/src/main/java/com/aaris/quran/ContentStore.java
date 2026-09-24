@@ -28,6 +28,7 @@ final class ContentStore implements AutoCloseable {
     }
     private final SQLiteDatabase db;
     final List<Surah> surahs=new ArrayList<>();
+    private final int[] surahStarts=new int[115];
     final String packHash,audioAlignmentHash;
     ContentStore(Context context) throws Exception {
         JSONObject manifest=new JSONObject(asset(context,"content-manifest.json"));
@@ -58,7 +59,9 @@ final class ContentStore implements AutoCloseable {
             int expectedWords=manifest.optInt("words",-1);
             try(Cursor c=opened.rawQuery("SELECT count(*) FROM word",null)){if(!c.moveToFirst()||expectedWords<1||c.getInt(0)!=expectedWords)throw new IOException("Incomplete Quran word content");}
             int ayahSum=0;
-            try(Cursor c=opened.rawQuery("SELECT * FROM surah ORDER BY id",null)){while(c.moveToNext()){Surah s=new Surah(c);surahs.add(s);ayahSum+=s.count;}}
+            try(Cursor c=opened.rawQuery("SELECT * FROM surah ORDER BY id",null)){while(c.moveToNext()){
+                Surah s=new Surah(c);surahStarts[s.id]=ayahSum;surahs.add(s);ayahSum+=s.count;
+            }}
             if(surahs.size()!=114||ayahSum!=6236)throw new IOException("Incomplete Quran surah metadata");
         }catch(Exception invalid){opened.close();throw invalid;}
         db=opened;
@@ -117,15 +120,21 @@ final class ContentStore implements AutoCloseable {
         if(first==null||last==null)return null;
         return a.arabic.substring(a.arabic.offsetByCodePoints(0,first.start),a.arabic.offsetByCodePoints(0,last.end));
     }
+    private int ordinal(int surah,int ayah){
+        if(surah<1||surah>surahs.size())return -1;
+        Surah info=surahs.get(surah-1);if(ayah<1||ayah>info.count)return -1;
+        return surahStarts[surah]+ayah-1;
+    }
     List<Recall.Opportunity> upcoming(Collection<Recall.State> states,String fromId) {
-        Ayah from=ayah(fromId);if(from==null)return Collections.emptyList();
+        RecallTarget from=RecallTarget.parse(fromId);
+        int fromOrdinal=from==null?-1:ordinal(from.surah,from.ayah);if(fromOrdinal<0)return Collections.emptyList();
         List<Recall.Opportunity> opportunities=new ArrayList<>();
         for(Recall.State state:states) {
             if(!state.active)continue;RecallTarget target=RecallTarget.parse(state.target);
             // Only the SAME saved word occurrence is proven here. Surface similarity is not sense identity.
             if(target==null||target.kind!=RecallTarget.Kind.WORD)continue;
-            Ayah next=ayah(target.ayahId);if(next==null)continue;
-            int distance=next.ordinal-from.ordinal;
+            int nextOrdinal=ordinal(target.surah,target.ayah);if(nextOrdinal<0)continue;
+            int distance=nextOrdinal-fromOrdinal;
             if(distance>=0&&distance<=10)opportunities.add(new Recall.Opportunity(state.target,distance,true));
         }
         return opportunities;
