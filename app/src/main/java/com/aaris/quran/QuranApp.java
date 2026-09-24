@@ -71,8 +71,21 @@ public final class QuranApp extends Application {
                     wordAudioLoadError="Local Quran audio storage could not be opened: "+e.getMessage();
                 }
             }catch(Exception e){loadError="Offline content could not be opened: "+e.getMessage();}
-            finally{ready.countDown();}
+            finally{
+                ready.countDown();
+                if(loadError==null&&!lowRamDevice())main.postDelayed(()->{
+                    if(activityVisible)quranSearchWorker.execute(this::warmSearchIndex);
+                },1200L);
+            }
         });
+    }
+    private boolean lowRamDevice(){android.app.ActivityManager manager=(android.app.ActivityManager)getSystemService(ACTIVITY_SERVICE);return manager!=null&&manager.isLowRamDevice();}
+    synchronized SearchEngine searchIndex(){
+        SearchEngine current=search;if(current!=null)return current;
+        current=content.buildSearch(translations);search=current;return current;
+    }
+    private void warmSearchIndex(){
+        try{searchIndex();}catch(CancellationException ignored){}catch(Exception e){android.util.Log.w("AarisSearch","Quran search warm-up failed",e);}
     }
     void ready(Runnable callback){io.execute(()->{try{ready.await();main.post(callback);}catch(InterruptedException e){Thread.currentThread().interrupt();}});}
 }
