@@ -179,6 +179,21 @@ final class AppearanceStudio {
                     for(float dx:new float[]{-3.4f,3.4f}){
                         float x=cx+u*dx;canvas.drawRect(x-u*.22f,base-u*2.7f,x+u*.22f,base+u*.7f,p);
                     }
+                }else if(swatch.scene==4){
+                    LinearGradient mint=new LinearGradient(0,0,w,h,
+                        new int[]{0xFFF8F7EF,0xFFE7F0E6},null,Shader.TileMode.CLAMP);
+                    p.setShader(mint);canvas.drawRect(0,0,w,h,p);p.setShader(null);
+                    RadialGradient light=new RadialGradient(w*.72f,h*.18f,w*.58f,
+                        new int[]{0xC8FFFCE8,0x20BFD7C4,Color.TRANSPARENT},null,Shader.TileMode.CLAMP);
+                    p.setShader(light);canvas.drawRect(0,0,w,h,p);p.setShader(null);
+                    p.setStyle(Paint.Style.FILL);p.setColor(0x5532735A);
+                    float[][] leaves={{.08f,.18f,-28f},{.16f,.27f,-14f},{.88f,.16f,28f},{.82f,.28f,16f}};
+                    for(float[] leaf:leaves){
+                        float x=w*leaf[0],y=h*leaf[1];canvas.save();canvas.rotate(leaf[2],x,y);
+                        canvas.drawOval(new RectF(x-w*.035f,y-h*.10f,x+w*.035f,y+h*.10f),p);canvas.restore();
+                    }
+                    p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(1f,w*.012f));p.setColor(0x55608E79);
+                    canvas.drawArc(new RectF(w*.08f,h*.08f,w*.92f,h*.92f),180,180,false,p);
                 }
             }
         };
