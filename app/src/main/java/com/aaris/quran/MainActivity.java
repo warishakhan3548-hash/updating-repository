@@ -122,7 +122,13 @@ public final class MainActivity extends Activity {
         recitationBanner=button("",()->audioControls(content.ayah("Q:"+app.recitationSurah+":"+app.recitationAyah)));layout.addView(recitationBanner);refreshRecitation();
         bottom=row(this);pad(bottom,6,5);bottom.setBackground(new Surface(this,Surface.Kind.NAV,highContrast));LinearLayout.LayoutParams navSize=new LinearLayout.LayoutParams(-1,-2);navSize.setMargins(dp(this,16),dp(this,6),dp(this,16),dp(this,10));layout.addView(bottom,navSize);
         if(tab==0)today();else if(tab==1){if(reading)reader();else library();}else if(tab==2)hadithLibrary();else map();
-        nav("sun","Today",0);nav("book","Quran",1);nav("hadith","Hadith",2);nav("cards","Recall",3);
+        nav("sun","Today",0);nav("book","Quran",1);nav("hadith","Hadith",2);nav("cards","Recall",3);animateScreenIn();
+    }
+    private void animateScreenIn(){
+        if(body==null)return;body.animate().cancel();
+        if(appearance.reducedEffects){body.setAlpha(1f);body.setTranslationY(0f);return;}
+        body.setAlpha(.94f);body.setTranslationY(dp(this,6));
+        body.animate().alpha(1f).translationY(0f).setDuration(160L).start();
     }
     private void nav(String icon,String title,int index){
         LinearLayout v=column(this);v.setGravity(Gravity.CENTER);pad(v,4,7);
@@ -1222,8 +1228,7 @@ public final class MainActivity extends Activity {
                 });
                 if(intent.quran)quranSearchTask=app.quranSearchWorker.submit(()->{
                     try {
-                        if(app.search==null)app.search=content.buildSearch(app.translations);
-                        final SearchEngine.Response result=app.search.search(intent.quranText,6236);
+                        final SearchEngine.Response result=app.searchIndex().search(intent.quranText,6236);
                         ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
                             quranList.addView(label("QURAN"));TextView qs=text(this,result.results.isEmpty()?"No Quran text match. Try a shorter phrase.":"",13,MUTED);quranList.addView(qs);gap(quranList,8);
                             showSearchShortcut(quranList,false,q);
@@ -1237,7 +1242,7 @@ public final class MainActivity extends Activity {
                 });
             };ui.postDelayed(debounce,220);
         };
-        query.addTextChangedListener(watcher(run));query.setText(searchQuery);query.setSelection(query.length());
+        query.addTextChangedListener(watcher(run));query.setText(searchQuery);query.setSelection(query.length());animateScreenIn();
     }
     private void appendQuranResults(LinearLayout list,SearchEngine.Response response,int offset,TextView status){
         int generation=searchGeneration.get(),end=Math.min(offset+50,response.results.size());
