@@ -71,7 +71,7 @@ public final class QuranApp extends Application {
             }
         });
     }
-    SearchEngine searchIndex(){
+    synchronized SearchEngine searchIndex(){
         SearchEngine current=search;if(current!=null)return current;
         current=content.buildSearch(translations);search=current;return current;
     }
