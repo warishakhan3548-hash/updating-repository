@@ -54,7 +54,7 @@ public final class AmbientRecallService extends Service {
         try {
             NotificationManager manager=getSystemService(NotificationManager.class);
             NotificationChannel channel=new NotificationChannel(CHANNEL,"Quran recall session",NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Chalu session ka status aur band karne ka control");channel.setShowBadge(false);manager.createNotificationChannel(channel);
+            channel.setDescription("Running session status and stop control");channel.setShowBadge(false);manager.createNotificationChannel(channel);
             if(Build.VERSION.SDK_INT>=34)startForeground(NOTIFICATION,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
             else startForeground(NOTIFICATION,notification());
         }catch(RuntimeException e){finish("Session could not start. Open Aaris and try again.");return START_NOT_STICKY;}
