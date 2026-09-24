@@ -183,6 +183,7 @@ final class ContentStore implements AutoCloseable {
                 appendSearchText(hints,c.getString(6));
                 appendSearchText(hints,c.getString(7));
                 appendSearchText(hints,c.getString(8));
+                appendSearchText(hints,c.getString(9));
                 appendSearchText(sounds,c.getString(9));
             }
             if(currentId!=null){
