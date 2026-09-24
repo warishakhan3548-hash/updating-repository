@@ -127,7 +127,7 @@ final class Appearance {
         int target=Math.min(contrast(Color.WHITE,on),contrast(Color.WHITE,end))>Math.min(contrast(Color.BLACK,on),contrast(Color.BLACK,end))?Color.WHITE:Color.BLACK;
         for(int n=1;n<=40;n++){int fixed=mix(requested,target,n/40f);if(contrast(fixed,on)>=4.5&&contrast(fixed,end)>=4.5)return fixed;}return target;
     }
-    boolean adjustedText(){return arabicInk()!=mix(effectiveSurface(),arabic,arabicOpacity/100f)||translationInk()!=mix(effectiveSurface(),translation,translationOpacity/100f);}
+    boolean adjustedText(){return arabicInk()!=mix(effectiveSurface(),arabic,arabicOpacity/100f)||translationInk()!=mix(effectiveSurface(),translation,translationOpacity/100f)||appInk()!=appText;}
     private int autoAppText(){
         int on=effectiveSurface();
         return luminance(on)>.38?0xff16202a:0xffedf1ed;
