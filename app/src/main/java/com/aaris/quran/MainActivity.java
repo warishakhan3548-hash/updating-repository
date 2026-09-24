@@ -1422,7 +1422,9 @@ public final class MainActivity extends Activity {
     }
     private void sources(){
         LinearLayout page=sheet("Sources & integrity");caption(page,content.sources());gap(page,16);
-        caption(page,"Quran: 114 surahs / 6,236 ayahs. Original text checksum verified. Meanings: imported source word glosses; independent scholarly review is still pending. Word-level meanings are withheld for 9 ayahs where alignment could not be verified.");gap(page,12);
+        String alignmentStatus=content.unmappedAyahCount==0?"All ayahs have source-aligned word records.":"Word-level meanings are withheld for "+content.unmappedAyahCount+" ayahs where alignment could not be verified.";
+        caption(page,"Quran: 114 surahs / 6,236 ayahs. Original text checksum verified. Meanings: imported source word glosses; independent scholarly review is still pending. "+alignmentStatus);gap(page,12);
+        if(content.audioDeferredTextAlignedWords>0){caption(page,content.audioDeferredTextAlignedWords+" source-aligned words are intentionally excluded from the pinned word-audio v1 identity until replacement audio is published.");gap(page,12);}
         if(app.wordAudio!=null)caption(page,"Word pronunciation: "+app.wordAudio.installedCount()+"/114 Surahs locally installed · "+app.wordAudio.attribution()+". Audio is fetched only after your Download action; installed Surahs replay without network access.");
         else caption(page,"Word pronunciation storage is not available yet.");
         gap(page,12);
