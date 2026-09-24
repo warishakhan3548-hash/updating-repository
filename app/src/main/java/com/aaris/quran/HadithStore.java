@@ -53,6 +53,7 @@ final class HadithStore implements AutoCloseable {
     private SQLiteDatabase db;
     private boolean hasEditorialTranslations;
     private final Map<String,String> collectionAliases=new LinkedHashMap<>();
+    private final List<CollectionInfo> collectionCache;
     final String packHash,packId,contentVersion,sourceName,sourceVersion,redistributionBasis;
     final int recordCount,collectionCount;
     final Set<String> languageCoverage;
@@ -118,11 +119,12 @@ final class HadithStore implements AutoCloseable {
         try(Cursor c=db.rawQuery("SELECT count(*) FROM collection",null)){
             if(!c.moveToFirst()||c.getInt(0)!=collectionCount)throw new IOException("Hadith collection count mismatch");
         }
-        for(CollectionInfo info:collections()){collectionAliases.put(info.id,info.id);collectionAliases.put(info.nameEn,info.id);collectionAliases.put(info.nameAr,info.id);}
+        collectionCache=Collections.unmodifiableList(loadCollections());
+        for(CollectionInfo info:collectionCache){collectionAliases.put(info.id,info.id);collectionAliases.put(info.nameEn,info.id);collectionAliases.put(info.nameAr,info.id);}
         try(Cursor c=db.rawQuery("SELECT 1 FROM editorial_translation WHERE status IN ('released','reviewed') LIMIT 1",null)){hasEditorialTranslations=c.moveToFirst();}
     }
 
-    List<CollectionInfo> collections(){
+    private List<CollectionInfo> loadCollections(){
         List<CollectionInfo> out=new ArrayList<>();
         if(db==null)return out;
         try(Cursor c=db.rawQuery("SELECT c.id,c.group_name,c.name_en,c.name_ar,c.edition,count(h.id) "+
@@ -131,11 +133,12 @@ final class HadithStore implements AutoCloseable {
         return out;
     }
 
+    List<CollectionInfo> collections(){return new ArrayList<>(collectionCache);}
+
     CollectionInfo collection(String id){
-        if(db==null)return null;
-        try(Cursor c=db.rawQuery("SELECT c.id,c.group_name,c.name_en,c.name_ar,c.edition,count(h.id) "+
-            "FROM collection c LEFT JOIN hadith h ON h.collection_id=c.id WHERE c.id=? GROUP BY c.id",
-            new String[]{id})){return c.moveToFirst()?new CollectionInfo(c):null;}
+        if(id==null)return null;
+        for(CollectionInfo info:collectionCache)if(id.equals(info.id))return info;
+        return null;
     }
 
     List<BookInfo> books(String collectionId){
@@ -318,7 +321,7 @@ final class HadithStore implements AutoCloseable {
         else{candidates.add(preferred);candidates.add("en");}
 
         for(String language:candidates){
-            try(Cursor cursor=db.rawQuery(
+            if(hasEditorialTranslations)try(Cursor cursor=db.rawQuery(
                 "SELECT text,revision,status,source_ref FROM editorial_translation "+
                 "WHERE hadith_id=? AND language=? AND status IN ('released','reviewed') "+
                 "ORDER BY CASE status WHEN 'released' THEN 0 ELSE 1 END,rowid DESC LIMIT 1",
