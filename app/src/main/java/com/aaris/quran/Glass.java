@@ -135,9 +135,14 @@ final class Glass {
         }
         @Override public void draw(Canvas canvas){
             if(fill==null||outer.isEmpty())return;
-            p.setColor(Color.WHITE);p.setAlpha(opacity);p.setStyle(Paint.Style.FILL);p.setShader(fill);
+            int fillAlpha=opacity;
+            if(!solid&&appearance.scene>0&&(kind==Kind.MUSHAF||kind==Kind.HERO))
+                fillAlpha=Math.round(opacity*(appearance.scene==2?.82f:.93f));
+            else if(!solid&&appearance.scene==2&&appearance.glass&&kind==Kind.PANEL)
+                fillAlpha=Math.round(opacity*.94f);
+            p.setColor(Color.WHITE);p.setAlpha(fillAlpha);p.setStyle(Paint.Style.FILL);p.setShader(fill);
             canvas.drawRoundRect(outer,radius,radius,p);
-            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(stroke);p.setShader(rim);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(stroke);p.setShader(rim);p.setAlpha(opacity);
             canvas.drawRoundRect(outer,radius,radius,p);p.setShader(null);
             if(!solid&&!appearance.reducedEffects&&appearance.borderStrength>0&&(kind==Kind.MUSHAF||kind==Kind.HERO)){
                 p.setColor(0xFF8EA18F);p.setAlpha(18*opacity*appearance.borderStrength/255/100);p.setStrokeWidth(stroke*.6f);
