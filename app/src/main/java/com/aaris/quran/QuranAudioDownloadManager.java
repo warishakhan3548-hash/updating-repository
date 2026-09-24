@@ -70,7 +70,7 @@ final class QuranAudioDownloadManager {
         if(cancel)throw new IOException("Download cancelled");
         try{store.installDownloaded(surah,partial);}
         catch(Exception invalid){partial.delete();throw invalid;}
-        if(!store.installedSurah(surah))throw new IOException("Installed Surah pronunciation verification fail hui");
+        if(!store.installedSurah(surah))throw new IOException("Installed Surah pronunciation verification failed");
     }
 
     private void downloadResumable(String address,File target,long expectedBytes) throws IOException {
@@ -84,16 +84,16 @@ final class QuranAudioDownloadManager {
                 catch(InterruptedException x){Thread.currentThread().interrupt();throw new IOException("Audio download interrupted",x);}
             }
         }
-        throw last==null?new IOException("Audio download complete nahi hua"):last;
+        throw last==null?new IOException("Audio download did not complete"):last;
     }
 
     private void downloadAttempt(String address,File target,long expectedBytes) throws IOException {
         if(expectedBytes<64)throw new IOException("Invalid expected Surah pronunciation size");
         File parent=target.getParentFile();
-        if(parent==null||(!parent.exists()&&!parent.mkdirs()))throw new IOException("Audio temporary storage available nahi hai");
+        if(parent==null||(!parent.exists()&&!parent.mkdirs()))throw new IOException("Temporary audio storage is not available");
         long existing=target.isFile()?target.length():0L;
         if(existing==expectedBytes)return;
-        if(existing<0||existing>expectedBytes){if(target.exists()&&!target.delete())throw new IOException("Invalid partial audio clear nahi hua");existing=0;}
+        if(existing<0||existing>expectedBytes){if(target.exists()&&!target.delete())throw new IOException("Invalid partial audio could not be cleared");existing=0;}
 
         boolean restarted=false;
         while(true){
@@ -104,9 +104,9 @@ final class QuranAudioDownloadManager {
             if(existing>0)c.setRequestProperty("Range","bytes="+existing+"-");
             try{
                 int code=c.getResponseCode();
-                if(!"https".equalsIgnoreCase(c.getURL().getProtocol()))throw new IOException("Audio download HTTPS se bahar redirect hua");
+                if(!"https".equalsIgnoreCase(c.getURL().getProtocol()))throw new IOException("Audio download redirected away from HTTPS");
                 if(existing>0&&code==416&&!restarted){
-                    if(target.exists()&&!target.delete())throw new IOException("Stale partial audio clear nahi hua");
+                    if(target.exists()&&!target.delete())throw new IOException("Stale partial audio could not be cleared");
                     existing=0;restarted=true;continue;
                 }
                 if(code!=200&&code!=206)throw new IOException("Audio server HTTP "+code);
@@ -114,7 +114,7 @@ final class QuranAudioDownloadManager {
                 if(append){
                     String range=c.getHeaderField("Content-Range"),prefix="bytes "+existing+"-";
                     if(range==null||!range.startsWith(prefix)){
-                        if(target.exists()&&!target.delete())throw new IOException("Mismatched partial audio clear nahi hua");
+                        if(target.exists()&&!target.delete())throw new IOException("Mismatched partial audio could not be cleared");
                         existing=0;restarted=true;continue;
                     }
                 }else if(existing>0){existing=0;}
@@ -124,7 +124,7 @@ final class QuranAudioDownloadManager {
                 if(finalDeclared>expectedBytes)throw new IOException("Surah pronunciation expected size se badi hai");
                 long needed=Math.max(0,expectedBytes-(append?existing:0))+STORAGE_HEADROOM_BYTES;
                 long usable=parent.getUsableSpace();
-                if(usable>0&&usable<needed)throw new IOException("Phone storage kam hai; audio download ke liye jagah khaali karein");
+                if(usable>0&&usable<needed)throw new IOException("Not enough phone storage for this audio download");
 
                 long received=0;
                 try(InputStream in=new BufferedInputStream(c.getInputStream());FileOutputStream out=new FileOutputStream(target,append)){
@@ -147,5 +147,5 @@ final class QuranAudioDownloadManager {
     private void postProgress(Listener l,int surah,int completed,int total){if(l!=null)main.post(()->l.onProgress(surah,completed,total));}
     private void postComplete(Listener l){if(l!=null)main.post(l::onComplete);}
     private void postError(Listener l,int surah,String message){if(l!=null)main.post(()->l.onError(surah,message));}
-    private static String safeMessage(Exception e){String m=e.getMessage();return m==null||m.trim().isEmpty()?"Audio download complete nahi hua":m;}
+    private static String safeMessage(Exception e){String m=e.getMessage();return m==null||m.trim().isEmpty()?"Audio download did not complete":m;}
 }
