@@ -24,7 +24,7 @@ final class Appearance {
     private static final Map<Integer,Typeface> fonts=new HashMap<>();
     static Appearance load(Context context){return decode(context.getSharedPreferences("appearance",0).getString("current","{}"));}
     static Appearance decode(String raw){
-        Appearance a=new Appearance();try{JSONObject j=new JSONObject(raw);
+        Appearance a=new Appearance();try{JSONObject j=new JSONObject(raw);if(j.length()==0)return a;
             a.background=j.optInt("background",a.background)|0xff000000;a.surface=j.optInt("surface",a.surface)|0xff000000;
             a.accent=j.optInt("accent",a.accent)|0xff000000;a.arabic=j.optInt("arabic",a.arabic)|0xff000000;a.translation=j.optInt("translation",a.translation)|0xff000000;
             a.font=bound(j.optInt("font",0),0,FONTS.length-1);a.arabicSize=bound(j.optInt("size",32),24,54);a.translationSize=bound(j.optInt("translationSize",18),14,28);
