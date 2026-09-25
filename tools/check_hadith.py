@@ -74,14 +74,15 @@ def checked_hadeethenc():
             assert parsed[language]["version"] == str(meta["version"])
 
     canonical = parsed["ar"]["records"]
+    withheld = {}
     for language in ("en", "ur", "hi"):
         records = parsed[language]["records"]
         assert set(records) <= set(canonical)
-        for hid, row in records.items():
-            assert source_identity(row["arabic"]) == source_identity(canonical[hid]["arabic"]), (
-                "HadeethEnc Arabic/source drift", language, hid
-            )
-    return manifest, parsed
+        withheld[language] = [
+            hid for hid, row in records.items()
+            if source_identity(row["arabic"]) != source_identity(canonical[hid]["arabic"])
+        ]
+    return manifest, parsed, withheld
 
 
 def main():
@@ -101,10 +102,10 @@ def main():
     if core_total != 62169:
         raise SystemExit(f"Unexpected pinned record total: {core_total}")
 
-    hadeethenc_manifest, hadeethenc = checked_hadeethenc()
+    hadeethenc_manifest, hadeethenc, he_withheld = checked_hadeethenc()
     he_count = len(hadeethenc["ar"]["records"])
     he_translation_counts = {
-        language: len(hadeethenc[language]["records"])
+        language: len(hadeethenc[language]["records"]) - len(he_withheld[language])
         for language in ("en", "ur", "hi")
     }
     expected_all = dict(expected_core)
@@ -134,6 +135,7 @@ def main():
         assert prepared_manifest["required_collection_ids"] == CORE_IDS + ["hadeethenc"]
         assert prepared_manifest["require_vowel_marks_collection_ids"] == CORE_IDS
         assert prepared_manifest["hadeethenc_translation_record_counts"] == he_translation_counts
+        assert prepared_manifest["hadeethenc_withheld_translation_ids"] == he_withheld
 
         subprocess.run([
             sys.executable,
@@ -236,6 +238,13 @@ def main():
                     upstream = hadeethenc[language]["records"].get(hid)
                     if not upstream:
                         continue
+                    if hid in he_withheld[language]:
+                        assert db.execute(
+                            "SELECT count(*) FROM editorial_translation t JOIN hadith h ON h.id=t.hadith_id "
+                            "WHERE h.collection_id='hadeethenc' AND h.record_number=? AND t.language=?",
+                            (hid, language)
+                        ).fetchone()[0] == 0, ("Withheld translation was installed", language, hid)
+                        continue
                     translated = db.execute(
                         "SELECT text FROM editorial_translation t JOIN hadith h ON h.id=t.hadith_id "
                         "WHERE h.collection_id='hadeethenc' AND h.record_number=? AND t.language=? "
@@ -278,6 +287,7 @@ def main():
         "hadeethenc_records": he_count,
         "records": final_total,
         "hadeethenc_translation_records": he_translation_counts,
+        "hadeethenc_withheld_translation_ids": he_withheld,
         "hadeethenc_versions": {
             item["language"]: item["version"] for item in hadeethenc_manifest["languages"]
         },
