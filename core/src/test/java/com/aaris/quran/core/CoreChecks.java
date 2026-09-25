@@ -41,6 +41,8 @@ public final class CoreChecks {
         check(!Arabic.glossSearch("की").equals(Arabic.glossSearch("क")),"Hindi signs must not be stripped");
         check(MeaningSearch.romanizeHindi("एक सहाबी ने नबी को वुज़ू करते देखा").contains("ek sahabi"),"Hindi gets a deterministic Hinglish search shadow");
         check(MeaningSearch.alternatives("prayer").contains("नमाज"),"Trusted concept aliases bridge English to Hindi");
+        check(MeaningSearch.focusTokens(TextMatch.tokens("एक सहाबी ने नबी को वुज़ू करते देखा")).containsAll(Arrays.asList("एक","सहाबी","नबी","वुज़ू","करते","देखा")),"Meaning focus removes grammar without deleting content");
+        check(MeaningSearch.focusTokens(TextMatch.tokens("नमाज के बाद नहीं")).containsAll(Arrays.asList("नमाज","बाद","नहीं")),"Meaning focus preserves order/negation terms");
         String remembered="नमाज के लिए वुज़ू";
         SearchEngine recalled=new SearchEngine(Arrays.asList(
             doc(1,"مصدر اول",remembered+" "+MeaningSearch.romanizeHindi(remembered)),
