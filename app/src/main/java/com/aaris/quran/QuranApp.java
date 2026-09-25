@@ -23,6 +23,7 @@ public final class QuranApp extends Application {
     final ExecutorService hadithBrowseWorker=worker("hadith-browse");
     final ExecutorService quranSearchWorker=worker("quran-search");
     final ExecutorService recitationWorker=worker("recitation");
+    final ExecutorService recitationStatusWorker=worker("recitation-status");
     final ExecutorService readerWorker=worker("reader-prefetch");
     volatile RecitationDownloads recitationDownloads;
     volatile boolean recitationActive;

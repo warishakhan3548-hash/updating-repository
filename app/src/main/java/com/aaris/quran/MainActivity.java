@@ -58,7 +58,8 @@ public final class MainActivity extends Activity {
     private boolean preparingExport,wordAudioSummaryPending;
     private int recitationDownloadGeneration;
     private Runnable recitationDownloadCompletion;
-    private int recitationListGeneration,libraryListGeneration;
+    private volatile int recitationListGeneration;
+    private int libraryListGeneration;
     private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending,openOtherAppsAfterAmbientStart;
     private JSONObject pendingRestore;
     private String searchQuery="",hadithQuery="";
@@ -883,10 +884,14 @@ public final class MainActivity extends Activity {
             }}
         }
         LinearLayout pager=row(this);
-        TextView previous=button("← Previous",()->moveReaderPage(-1));
+        boolean hasPrevious=readerStart>1||readerSurah>1,hasNext=readerStart+8<=s.count||readerSurah<114;
+        TextView previous=button(hasPrevious?"← Previous":"Start of Quran",()->moveReaderPage(-1));
+        previous.setEnabled(hasPrevious);previous.setAlpha(hasPrevious?1f:.48f);previous.setContentDescription(hasPrevious?"Previous Quran page":"Start of Quran");
         pager.addView(previous,new LinearLayout.LayoutParams(0,-2,1));
         TextView counter=text(this,readerStart+"–"+Math.min(s.count,readerStart+7)+" / "+s.count,12,MUTED);counter.setGravity(Gravity.CENTER);counter.setContentDescription("Ayahs "+readerStart+" to "+Math.min(s.count,readerStart+7)+" of "+s.count+" · Swipe horizontally to change page");pager.addView(counter,new LinearLayout.LayoutParams(0,-2,1));
-        TextView next=button("Next →",()->moveReaderPage(1));pager.addView(next,new LinearLayout.LayoutParams(0,-2,1));page.addView(pager);gap(page,12);
+        TextView next=button(hasNext?"Next →":"End of Quran",()->moveReaderPage(1));
+        next.setEnabled(hasNext);next.setAlpha(hasNext?1f:.48f);next.setContentDescription(hasNext?"Next Quran page":"End of Quran");
+        pager.addView(next,new LinearLayout.LayoutParams(0,-2,1));page.addView(pager);gap(page,12);
         page.addView(button("Recall Companion · Timer",this::ambientSettings));gap(page,12);
         TextView source=text(this,"Tanzil Project · Uthmani 1.1",11,MUTED);source.setGravity(Gravity.CENTER);source.setOnClickListener(v->sources());page.addView(source);gap(page,12);
         if(quietReader){header.setVisibility(View.GONE);bottom.setVisibility(View.GONE);page.addView(button("Show controls",()->{quietReader=false;show();}));}
@@ -975,6 +980,7 @@ public final class MainActivity extends Activity {
     }
     private void audioControls(Ayah a){
         if(a==null)return;LinearLayout page=sheet("Recitation & audio");Dialog dialog=activeDialog;
+        dialog.setOnDismissListener(d->{recitationListGeneration++;if(activeDialog==dialog)activeDialog=null;});
         android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);String selected=preferences.getString("reciter",RecitationDownloads.IDS[0]);
         caption(page,"Choose a reciter. Play continues from this ayah; your choice is remembered.");gap(page,12);
         for(int i=0;i<RecitationDownloads.IDS.length;i++){String id=RecitationDownloads.IDS[i];page.addView(button((id.equals(selected)?"✓ ":"")+RecitationDownloads.NAMES[i],()->{preferences.edit().putString("reciter",id).putBoolean("chosen",true).apply();audioControls(a);}));gap(page,8);}
@@ -1018,14 +1024,37 @@ public final class MainActivity extends Activity {
     }
     private void fillRecitationSurahDownloads(LinearLayout list,String reciter){
         int generation=++recitationListGeneration;list.removeAllViews();
-        appendRecitationSurahDownloads(list,reciter,1,generation);
+        caption(list,"Checking saved Surahs…");
+        try{
+            app.recitationStatusWorker.execute(()->{
+                boolean[] downloaded=new boolean[115];
+                try{
+                    for(int s=1;s<=114;s++){
+                        if(Thread.currentThread().isInterrupted()||generation!=recitationListGeneration)return;
+                        downloaded[s]=app.recitationDownloads.markedComplete(reciter,s,content.surah(s).count);
+                    }
+                }catch(RuntimeException error){
+                    android.util.Log.w("AarisRecitation","Downloaded Surah status scan failed",error);
+                    ui.post(()->{
+                        if(isDestroyed()||isFinishing()||generation!=recitationListGeneration||!list.isAttachedToWindow())return;
+                        list.removeAllViews();caption(list,"Downloaded Surah status could not be checked. Reopen this panel to try again.");
+                    });return;
+                }
+                ui.post(()->{
+                    if(isDestroyed()||isFinishing()||generation!=recitationListGeneration||!list.isAttachedToWindow())return;
+                    list.removeAllViews();appendRecitationSurahDownloads(list,reciter,downloaded,1,generation);
+                });
+            });
+        }catch(RejectedExecutionException rejected){
+            list.removeAllViews();caption(list,"Downloaded Surah status could not be checked. Reopen this panel to try again.");
+        }
     }
-    private void appendRecitationSurahDownloads(LinearLayout list,String reciter,int start,int generation){
-        if(isDestroyed()||generation!=recitationListGeneration)return;
+    private void appendRecitationSurahDownloads(LinearLayout list,String reciter,boolean[] downloadedStatus,int start,int generation){
+        if(isDestroyed()||isFinishing()||generation!=recitationListGeneration||!list.isAttachedToWindow())return;
         int end=Math.min(114,start+17);
         for(int s=start;s<=end;s++){
             final int surah=s;ContentStore.Surah info=content.surah(surah);
-            boolean downloaded=app.recitationDownloads.markedComplete(reciter,surah,info.count);
+            boolean downloaded=downloadedStatus[surah];
 
             LinearLayout item=row(this);pad(item,12,8);item.setMinimumHeight(dp(this,46));
             item.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
@@ -1044,7 +1073,7 @@ public final class MainActivity extends Activity {
             item.setFocusable(true);item.setClickable(true);
             item.setContentDescription(info.name+(downloaded?", downloaded":", download"));
             item.setOnClickListener(v->{
-                if(app.recitationDownloads.markedComplete(reciter,surah,info.count)){toast(info.name+" is already downloaded");return;}
+                if(downloadedStatus[surah]){toast(info.name+" is already downloaded");return;}
                 downloadRecitation(reciter,surah,surah,()->{
                     if(list.isAttachedToWindow())fillRecitationSurahDownloads(list,reciter);
                 });
@@ -1053,7 +1082,7 @@ public final class MainActivity extends Activity {
 
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,5);list.addView(item,lp);
         }
-        if(end<114)list.postOnAnimation(()->appendRecitationSurahDownloads(list,reciter,end+1,generation));
+        if(end<114)list.postOnAnimation(()->appendRecitationSurahDownloads(list,reciter,downloadedStatus,end+1,generation));
     }
     private void downloadRecitation(String reciter,int first,int last){downloadRecitation(reciter,first,last,null);}
     private void downloadRecitation(String reciter,int first,int last,Runnable finished){
