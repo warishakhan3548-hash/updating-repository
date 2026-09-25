@@ -54,7 +54,7 @@ public final class MainActivity extends Activity {
     private int pendingCorpora,pendingSearchJobs;
     private Runnable debounce;
     private String pendingExport;
-    private boolean preparingExport;
+    private boolean preparingExport,wordAudioSummaryPending;
     private int recitationDownloadGeneration;
     private Runnable recitationDownloadCompletion;
     private int recitationListGeneration,libraryListGeneration;
@@ -1027,17 +1027,37 @@ public final class MainActivity extends Activity {
     private void downloadAllAudio(){
         if(app.wordAudio==null||app.audioDownloads==null){toast("Audio downloads are not available yet");return;}
         if(app.audioDownloads.busy()){toast("A word-audio download is already running");return;}
-        int installed=app.wordAudio.installedCount();
-        if(installed>=114){toast("All Quran audio is already installed offline ✓");return;}
-        double remainingMb=app.wordAudio.remainingBytes()/(1024d*1024d);
-        new AlertDialog.Builder(this)
-            .setTitle("Download all Quran audio?")
-            .setMessage(String.format(Locale.ROOT,"Downloads word-by-word pronunciation for all 114 Surahs. About %.0f MB remains. Audio stays in private app storage. Wi‑Fi recommended.",remainingMb))
-            .setNegativeButton("Not now",null)
-            .setPositiveButton("Download All",(d,w)->{
-                toast("Download All started… "+installed+"/114 already offline");
-                app.audioDownloads.downloadAll(new WordAudioDownloadUi(this,0,true,installed));
-            }).show();
+        if(wordAudioSummaryPending){toast("Checking offline audio…");return;}
+        wordAudioSummaryPending=true;toast("Checking offline audio…");
+        final QuranAudioStore store=app.wordAudio;
+        try{
+            app.audioWorker.execute(()->{
+                QuranAudioStore.InstallationSummary summary=null;RuntimeException failure=null;
+                try{summary=store.installationSummary();}catch(RuntimeException e){failure=e;}
+                final QuranAudioStore.InstallationSummary result=summary;final RuntimeException error=failure;
+                ui.post(()->{
+                    wordAudioSummaryPending=false;
+                    if(isDestroyed()||isFinishing())return;
+                    if(error!=null){toast("Offline audio could not be checked");return;}
+                    if(app.audioDownloads==null){toast("Audio downloads are not available yet");return;}
+                    if(app.audioDownloads.busy()){toast("A word-audio download is already running");return;}
+                    int installed=result.installed;
+                    if(installed>=114){toast("All Quran audio is already installed offline ✓");return;}
+                    double remainingMb=Math.max(0,store.totalBytes()-result.installedBytes)/(1024d*1024d);
+                    new AlertDialog.Builder(this)
+                        .setTitle("Download all Quran audio?")
+                        .setMessage(String.format(Locale.ROOT,"Downloads word-by-word pronunciation for all 114 Surahs. About %.0f MB remains. Audio stays in private app storage. Wi‑Fi recommended.",remainingMb))
+                        .setNegativeButton("Not now",null)
+                        .setPositiveButton("Download All",(d,w)->{
+                            if(app.audioDownloads.busy()){toast("A word-audio download is already running");return;}
+                            toast("Download All started… "+installed+"/114 already offline");
+                            app.audioDownloads.downloadAll(new WordAudioDownloadUi(this,0,true,installed));
+                        }).show();
+                });
+            });
+        }catch(RejectedExecutionException rejected){
+            wordAudioSummaryPending=false;toast("Offline audio check could not start");
+        }
     }
 
     private LinearLayout sheet(String title){
