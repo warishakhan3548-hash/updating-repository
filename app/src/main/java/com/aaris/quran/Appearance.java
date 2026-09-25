@@ -112,8 +112,9 @@ final class Appearance {
         background=bg;surface=card;buttonColor=card;accent=highlight;arabic=arabicInk;translation=translationInk;gradientEnd=end;
     }
     int buttonSurface(){return customButtons?mix(background,buttonColor,opacity/100f):effectiveSurface();}
+    boolean rendersGradient(){return gradient&&!reducedEffects;}
     int effectiveCardOpacity(){
-        if(!autoBalance||!gradient)return opacity;
+        if(!autoBalance||!rendersGradient())return opacity;
         double spread=contrast(background,gradientEnd);
         int floor=spread>=4.0?62:spread>=2.5?48:25;
         return Math.max(opacity,floor);
@@ -150,10 +151,10 @@ final class Appearance {
     int glassInk(float amount){return textInk(mix(arabicInk(),Color.WHITE,amount),100);}
     int foilInk(float amount){return readableAcross(mix(arabicInk(),accent,amount),effectiveSurface(),surfaceHighlight(),effectiveSurfaceAtGradientEnd(),surfaceHighlightAtGradientEnd());}
     int effectiveSurface(){return effectiveSurfaceOn(background);}
-    int effectiveSurfaceAtGradientEnd(){return gradient?effectiveSurfaceOn(gradientEnd):effectiveSurface();}
+    int effectiveSurfaceAtGradientEnd(){return rendersGradient()?effectiveSurfaceOn(gradientEnd):effectiveSurface();}
     private int effectiveSurfaceOn(int backdrop){return mix(backdrop,surface,effectiveCardOpacity()/100f);}
     int surfaceHighlight(){return surfaceHighlightOn(background);}
-    int surfaceHighlightAtGradientEnd(){return gradient?surfaceHighlightOn(gradientEnd):surfaceHighlight();}
+    int surfaceHighlightAtGradientEnd(){return rendersGradient()?surfaceHighlightOn(gradientEnd):surfaceHighlight();}
     private int surfaceHighlightOn(int backdrop){
         if(!glass||reducedEffects)return effectiveSurfaceOn(backdrop);
         int tinted=Appearance.mix(surface,accent,.06f*glassStrength/100f);
@@ -175,15 +176,15 @@ final class Appearance {
         return "Arabic "+grade(arabicScore)+" · Translation "+grade(translationScore)+" · UI "+grade(uiScore)+(adjustedText()?" · Auto-adjusted":"");
     }
     private double minContrast(int ink){return Math.min(Math.min(contrast(ink,effectiveSurface()),contrast(ink,surfaceHighlight())),Math.min(contrast(ink,effectiveSurfaceAtGradientEnd()),contrast(ink,surfaceHighlightAtGradientEnd())));}
-    private double uiMinContrast(int ink){return Math.min(minContrast(ink),Math.min(contrast(ink,background),contrast(ink,gradient?gradientEnd:background)));}
+    private double uiMinContrast(int ink){return Math.min(minContrast(ink),Math.min(contrast(ink,background),contrast(ink,rendersGradient()?gradientEnd:background)));}
     private static String grade(double ratio){return ratio>=7.0?"AAA":ratio>=4.5?"AA":"Protected";}
     private int autoAppText(){
         int on=effectiveSurface();
         return luminance(on)>.38?0xff16202a:0xffedf1ed;
     }
-    int appInk(){return readableAcross(appText,background,gradient?gradientEnd:background,effectiveSurface(),effectiveSurfaceAtGradientEnd(),surfaceHighlight(),surfaceHighlightAtGradientEnd());}
+    int appInk(){return readableAcross(appText,background,rendersGradient()?gradientEnd:background,effectiveSurface(),effectiveSurfaceAtGradientEnd(),surfaceHighlight(),surfaceHighlightAtGradientEnd());}
     int ink(){return appInk();}
-    int muted(){return readableAcross(mix(appInk(),effectiveSurface(),.30f),background,gradient?gradientEnd:background,effectiveSurface(),effectiveSurfaceAtGradientEnd(),surfaceHighlight(),surfaceHighlightAtGradientEnd());}
+    int muted(){return readableAcross(mix(appInk(),effectiveSurface(),.30f),background,rendersGradient()?gradientEnd:background,effectiveSurface(),effectiveSurfaceAtGradientEnd(),surfaceHighlight(),surfaceHighlightAtGradientEnd());}
     static int bound(int x,int lo,int hi){return Math.max(lo,Math.min(hi,x));}
     static int mix(int a,int b,float t){return Color.rgb(Math.round(Color.red(a)*(1-t)+Color.red(b)*t),Math.round(Color.green(a)*(1-t)+Color.green(b)*t),Math.round(Color.blue(a)*(1-t)+Color.blue(b)*t));}
     static double luminance(int c){double v=0;double[] weights={.2126,.7152,.0722};int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};for(int i=0;i<3;i++){double x=rgb[i]/255.;v+=weights[i]*(x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4));}return v;}
