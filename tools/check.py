@@ -272,6 +272,9 @@ def main():
         assert 'hadithBrowseWorker.submit' in java_method(method), f'{method} must load Hadith data off the UI thread'
     recitation_status = java_method('fillRecitationSurahDownloads')
     recitation_rows = java_method('appendRecitationSurahDownloads')
+    recitation_controls = java_method('audioControls')
+    assert 'private volatile int recitationListGeneration;' in main_activity_text, 'Recitation status generation must be visible across UI and background threads'
+    assert 'recitationListGeneration++' in recitation_controls and 'setOnDismissListener' in recitation_controls, 'Closing recitation controls must invalidate any stale background status scan'
     assert 'recitationStatusWorker.execute' in recitation_status, 'Recitation Surah status discovery must run off the Android UI thread'
     assert 'markedComplete(' in recitation_status, 'Background recitation status discovery must use the existing verified completion marker'
     assert 'markedComplete(' not in recitation_rows, 'Rendering the 114-Surah download list must not perform filesystem status reads on the UI thread'
