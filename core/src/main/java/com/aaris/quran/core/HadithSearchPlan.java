@@ -16,8 +16,8 @@ public final class HadithSearchPlan {
         String where="h.id IN (SELECT hadith_id FROM hadith_fts WHERE hadith_fts MATCH ?)"+intent.scopeSql();
         intent.addScopeArgs(args);return new HadithSearchPlan(where,args);
     }
-    public static HadithSearchPlan candidates(HadithQuery intent,Map<String,List<String>> repairs,Map<String,Double> weights){
-        List<String> ranked=new ArrayList<>(new LinkedHashSet<>(TextMatch.tokens(intent.text)));
+    public static HadithSearchPlan candidates(HadithQuery intent,List<String> anchorTerms,Map<String,List<String>> repairs,Map<String,Double> weights){
+        List<String> ranked=new ArrayList<>(new LinkedHashSet<>(anchorTerms));
         ranked.sort(Comparator.comparingDouble((String t)->weights.getOrDefault(t,1.)).reversed().thenComparing(t->t));
         ranked=ranked.subList(0,Math.min(MAX_ANCHORS,ranked.size()));
         List<String> args=new ArrayList<>();Map<String,Double> anchors=new LinkedHashMap<>();
