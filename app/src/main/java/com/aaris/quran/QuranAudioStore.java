@@ -92,10 +92,11 @@ final class QuranAudioStore {
         if(cache.containsKey(surah))return true;
         try{
             String marked=marker.isFile()?readSmall(marker,256).trim():"";
-            if(!meta.sha256.equals(marked)){
-                // Crash-safe recovery: an atomically renamed complete file may exist before marker write.
+            if(!markerMatches(marked,file,meta)){
+                // Crash-safe recovery and old-marker migration: bind the verified digest to the
+                // exact installed file metadata, so a replaced same-size container is rechecked.
                 validateContainer(file,meta,true);
-                writeMarker(marker,meta.sha256);
+                writeMarker(marker,markerValue(file,meta));
             }
             cache.put(surah,parseIndex(file,meta,false));
             return true;
@@ -134,7 +135,7 @@ final class QuranAudioStore {
             throw new IOException("Verified Surah pronunciation could not be installed");
         }
         try{
-            writeMarker(marker,meta.sha256);
+            writeMarker(marker,markerValue(target,meta));
             cache.put(surah,parseIndex(target,meta,false));
         }catch(Exception fail){
             delete(marker);delete(target);if(old.exists())old.renameTo(target);throw fail;
@@ -194,6 +195,15 @@ final class QuranAudioStore {
             byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)sha.update(b,0,n);
         }
         StringBuilder out=new StringBuilder();for(byte b:sha.digest())out.append(String.format(Locale.ROOT,"%02x",b&255));return out.toString();
+    }
+    private static String markerValue(File file,PackMeta meta){
+        return "v2\n"+meta.sha256+"\n"+file.length()+"\n"+file.lastModified();
+    }
+    private static boolean markerMatches(String value,File file,PackMeta meta){
+        String[] parts=value.split("\\n",-1);
+        if(parts.length!=4||!"v2".equals(parts[0])||!meta.sha256.equals(parts[1]))return false;
+        try{return Long.parseLong(parts[2])==file.length()&&Long.parseLong(parts[3])==file.lastModified();}
+        catch(NumberFormatException invalid){return false;}
     }
     private static String readSmall(File file,int max) throws IOException {
         if(file.length()>max)throw new IOException("Marker too large");
