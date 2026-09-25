@@ -86,6 +86,26 @@ def main():
             assert search_tokens(sample) == set(dec(java_tokens).split()), ("Normalization drift", sample)
         assert len(actual) == len(samples)
 
+        hindi_samples = [
+            row[0] for row in db.execute(
+                "SELECT text FROM editorial_translation WHERE language='hi' AND status='released' "
+                "ORDER BY hadith_id LIMIT 120"
+            )
+        ]
+        hindi_samples += [
+            row[0] for row in db.execute(
+                "SELECT text FROM search_context WHERE language='hi' ORDER BY id LIMIT 120"
+            )
+        ]
+        if hindi_samples:
+            roman_source = scratch / "hindi-romanization.tsv"
+            roman_source.write_text("\n".join(enc(value) for value in hindi_samples) + "\n")
+            java_roman = subprocess.check_output(java + ["romanize", str(roman_source)], text=True).splitlines()
+            assert len(java_roman) == len(hindi_samples)
+            for source_text, encoded_roman in zip(hindi_samples, java_roman):
+                assert romanize_hindi(source_text) == dec(encoded_roman), ("Hindi romanization drift", source_text)
+            print(f"Hindi build/runtime romanization parity: {len(hindi_samples)} real source rows PASS")
+
         def phrase(query):
             plan = subprocess.check_output(java + ["phrase", query], text=True).splitlines()
             where, args = dec(plan[0]), [dec(v) for v in plan[1:]]
