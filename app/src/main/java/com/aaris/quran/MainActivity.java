@@ -1460,9 +1460,10 @@ public final class MainActivity extends Activity {
         operationBanner=button("",this::openOperationStatus);layout.addView(operationBanner);refreshOperationUi();
         LinearLayout fieldContainer=column(this);pad(fieldContainer,20,0);layout.addView(fieldContainer);
         EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);query.setTextSize(17);
-        query.setHint("Arabic text, 2:255, 2 255 or Bukhari 556");query.setMinLines(1);query.setMaxLines(4);
+        query.setHint("Paste any remembered text · Arabic, Hindi, Hinglish, English or reference");query.setMinLines(1);query.setMaxLines(4);
         query.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);query.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
-        query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(16384)});pad(query,16,8);query.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));fieldContainer.addView(query,new LinearLayout.LayoutParams(-1,-2));
+        // Long remembered text is accepted intact; LongQuery bounds downstream retrieval work.
+        pad(query,16,8);query.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));fieldContainer.addView(query,new LinearLayout.LayoutParams(-1,-2));
         gap(fieldContainer,8);LinearLayout chips=row(this);String[] scopes={"All","Quran","Hadith"};
         final TextView[] scopeChips=new TextView[scopes.length];final Runnable[] rerunSearch={null};
         for(int i=0;i<scopes.length;i++){
