@@ -21,6 +21,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 from zipfile import ZipFile, BadZipFile
 
+from hadeethenc_xlsx import parse_workbook
+
 ROOT = Path(__file__).resolve().parents[1]
 DEST = ROOT / "source-vault" / "hadith" / "hadeethenc" / "current"
 OFFICIAL_HOST = "hadeethenc.com"
@@ -95,6 +97,13 @@ def fetch(language: str, target: Path) -> dict:
     except BadZipFile as exc:
         raise RuntimeError(f"Invalid XLSX archive for {language}") from exc
 
+    parsed = parse_workbook(target, language)
+    if parsed.get("version") and parsed["version"] != version:
+        raise RuntimeError(
+            f"HadeethEnc metadata version mismatch for {language}: "
+            f"{parsed['version']} != {version}"
+        )
+
     return {
         "language": language,
         "name": LANGUAGES[language]["name"],
@@ -103,6 +112,7 @@ def fetch(language: str, target: Path) -> dict:
         "download_url": final_url,
         "sha256": sha256(target),
         "bytes": target.stat().st_size,
+        "records": len(parsed["records"]),
     }
 
 
