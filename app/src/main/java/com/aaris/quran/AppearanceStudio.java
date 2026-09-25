@@ -29,7 +29,7 @@ final class AppearanceStudio {
     private boolean binding,advanced,refreshPosted;
     private boolean editHsvValid;
     private int editHsvLayer=-1;
-    private float editHue,editSat,editVal,gradientSatOffset,gradientValOffset;
+    private float editHue,editSat,editVal,gradientHueOffset,gradientSatOffset,gradientValOffset;
     private final Runnable applied;
     static Dialog show(Activity activity,String sample,String translated,boolean rtl,Runnable applied){return new AppearanceStudio(activity,sample,translated,rtl,applied).dialog;}
     private AppearanceStudio(Activity a,String sample,String translated,boolean rtl,Runnable applied){
@@ -126,9 +126,11 @@ final class AppearanceStudio {
     private void syncEditorColor(){
         if(editHsvValid&&editHsvLayer==layer)return;
         float[] h=new float[3];Color.colorToHSV(color(),h);editHue=h[0];editSat=h[1];editVal=h[2];
-        gradientSatOffset=0;gradientValOffset=0;
+        gradientHueOffset=0;gradientSatOffset=0;gradientValOffset=0;
         if(layer==0&&style.gradient){
             float[] end=new float[3];Color.colorToHSV(style.gradientEnd,end);
+            gradientHueOffset=end[0]-editHue;
+            if(gradientHueOffset>180f)gradientHueOffset-=360f;else if(gradientHueOffset<-180f)gradientHueOffset+=360f;
             gradientSatOffset=end[1]-editSat;gradientValOffset=end[2]-editVal;
         }
         editHsvLayer=layer;editHsvValid=true;
@@ -137,9 +139,10 @@ final class AppearanceStudio {
         float sat=Math.max(0f,Math.min(1f,editSat)),val=Math.max(0f,Math.min(1f,editVal));
         color(Color.HSVToColor(new float[]{editHue,sat,val}));
         if(layer==0&&style.gradient){
+            float endHue=(editHue+gradientHueOffset)%360f;if(endHue<0f)endHue+=360f;
             float endSat=sat<.035f?0f:Math.max(0f,Math.min(1f,sat+gradientSatOffset));
             float endVal=Math.max(0f,Math.min(1f,val+gradientValOffset));
-            style.gradientEnd=Color.HSVToColor(new float[]{editHue,endSat,endVal});
+            style.gradientEnd=Color.HSVToColor(new float[]{endHue,endSat,endVal});
         }
     }
     private void chooseEditorColor(int value){
