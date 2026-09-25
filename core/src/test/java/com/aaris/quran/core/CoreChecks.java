@@ -33,7 +33,19 @@ public final class CoreChecks {
         SearchEngine repeated=new SearchEngine(Arrays.asList(doc(1,"كلمة واحدة","one"),doc(2,"كلمة كلمة واحدة","two")));
         check(repeated.search("كلمة كلمة",10).results.stream().noneMatch(r->r.ayah.number==1),"One token cannot satisfy repeated query words");
         check(search.search("درست",10).trace.get("gloss_bm25")>0,"Trace accounts for Urdu gloss candidates");
-        check(search.search("x".repeat(16385),10).intent.equals("QUERY_LIMIT"),"Oversized queries are not silently truncated");
+        String hugePrefix=("random filler words ".repeat(650));
+        String hugeSuffix=(" more unrelated remembered wording".repeat(650));
+        LongQuery.Plan hugePlan=LongQuery.plan(hugePrefix+" prayer wudu "+hugeSuffix);
+        check(hugePlan.segmented&&hugePlan.windows.size()<=8&&hugePlan.sourceChars>16384,
+            "Long pasted text is planned into bounded windows instead of rejected");
+        check(hugePlan.windows.stream().anyMatch(w->w.contains("prayer")&&w.contains("wudu")),
+            "Long-query planner keeps salient evidence even in the middle");
+        SearchEngine hugeSearch=new SearchEngine(Arrays.asList(
+            doc(1,"مصدر طويل","नमाज वुज़ू"),
+            doc(2,"مصدر آخر","unrelated")));
+        SearchEngine.Response hugeResponse=hugeSearch.search(hugePrefix+" prayer wudu "+hugeSuffix,10);
+        check(!"QUERY_LIMIT".equals(hugeResponse.intent)&&!hugeResponse.results.isEmpty()&&hugeResponse.results.get(0).ayah.number==1,
+            "Very long Quran query retrieves evidence without a query-limit failure");
         SearchEngine.Response expanded=search.search("1:2",Collections.singletonList(new SearchEngine.Query("1:3",SearchEngine.Origin.AI)),10);
         check(expanded.results.stream().anyMatch(r->r.ayah.number==2),"Original query retained alongside AI expansions");
         check(expanded.variants.stream().anyMatch(v->v.origin==SearchEngine.Origin.AI),"AI query provenance is retained");
