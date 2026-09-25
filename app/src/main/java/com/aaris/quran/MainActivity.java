@@ -288,6 +288,11 @@ public final class MainActivity extends Activity {
         FrameLayout f=new FrameLayout(this);f.setMinimumHeight(dp(this,48));f.setMinimumWidth(dp(this,48));f.setContentDescription(description);f.setTooltipText(description);f.setFocusable(true);f.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
         Glass.Icon view=new Glass.Icon(this,icon);view.color=appearance.buttonInk();FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(dp(this,23),dp(this,23),Gravity.CENTER);f.addView(view,p);f.setOnClickListener(v->action.run());Glass.motion(f);return f;
     }
+    private void updateBookmarkButton(FrameLayout button,Glass.Icon icon,boolean saved){
+        String action=saved?"Remove bookmark":"Save ayah";
+        button.setContentDescription(action);button.setTooltipText(action);button.setSelected(saved);
+        icon.color=saved?Appearance.readable(appearance.accent,appearance.buttonSurface()):appearance.buttonInk();icon.invalidate();
+    }
     private void heading(String eyebrow,String title){
         LinearLayout label=column(this);TextView e=text(this,eyebrow,10,INK);e.setLetterSpacing(.18f);label.addView(e);
         TextView h=text(this,title,23,INK);h.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));label.addView(h);
@@ -901,7 +906,10 @@ public final class MainActivity extends Activity {
             View play=iconButton("play","Play ayah "+a.number+(recitationOffline?" · Surah downloaded":""),()->playAyah(a));
             if(recitationOffline){Glass.Icon tick=new Glass.Icon(this,"check");tick.color=MINT;FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(dp(this,14),dp(this,14),Gravity.BOTTOM|Gravity.RIGHT);((FrameLayout)play).addView(tick,badge);}
             recitationPlayButtons.add(play);bar.addView(play);
-            bar.addView(iconButton("bookmark",pageBookmarks.contains(a.id)?"Remove bookmark":"Save ayah",()->toast(learning.toggleBookmark(a.id)?"Ayah saved":"Bookmark removed")));
+            FrameLayout bookmark=(FrameLayout)iconButton("bookmark","Save ayah",()->{});
+            Glass.Icon bookmarkIcon=(Glass.Icon)bookmark.getChildAt(0);updateBookmarkButton(bookmark,bookmarkIcon,pageBookmarks.contains(a.id));
+            bookmark.setOnClickListener(v->{boolean saved=learning.toggleBookmark(a.id);updateBookmarkButton(bookmark,bookmarkIcon,saved);toast(saved?"Ayah saved":"Bookmark removed");});
+            bar.addView(bookmark);
             bar.addView(iconButton("book","Study ayah · translations, compare & notes",()->studyAyah(a)));
             View menu=iconButton("more","Ayah "+a.number+": bookmark, meaning, recall and share",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,48)));panel.addView(bar);gap(panel,8);
             List<ContentStore.Word> words=pageWords.getOrDefault(a.id,Collections.emptyList());
