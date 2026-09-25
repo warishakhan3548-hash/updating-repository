@@ -243,6 +243,22 @@ def main():
             assert "H:hadeethenc:official:3293" in candidate_ids(remembered_hi)
             assert "H:hadeethenc:official:3293" in candidate_ids(remembered_hinglish)
             print("Hindi/Hinglish remembered-question candidate retrieval: PASS")
+
+            # User-story regression: identify a real HadeethEnc record whose indexed trusted
+            # evidence mentions both the Prophet and ablution, then reach it from Hindi/Hinglish
+            # remembered wording without requiring the display language to match the query.
+            wudu_target = db.execute(
+                "SELECT h.id FROM hadith h "
+                "JOIN search_token p ON p.hadith_rowid=h.rowid AND p.token='prophet' "
+                "JOIN search_token a ON a.hadith_rowid=h.rowid AND a.token='ablution' "
+                "WHERE h.collection_id='hadeethenc' ORDER BY h.rowid LIMIT 1"
+            ).fetchone()
+            assert wudu_target, "Pinned trusted corpus unexpectedly has no Prophet+ablution evidence"
+            story_hi = "एक बार एक सहाबी ने नबी को वुज़ू करते देखा"
+            story_hinglish = "ek baar ek sahabi ne nabi ko wuzu karte dekha"
+            assert wudu_target[0] in candidate_ids(story_hi), ("Hindi remembered wudu story lost", wudu_target[0])
+            assert wudu_target[0] in candidate_ids(story_hinglish), ("Hinglish remembered wudu story lost", wudu_target[0])
+            print("Real Hindi/Hinglish remembered wudu-story retrieval: PASS")
     db.close()
     print("Real Hadith pack: scoped references, suffixes, Unicode digits and vocalized/plain Arabic: PASS")
 
