@@ -222,6 +222,22 @@ def main():
     permissions = {p.get(android + 'name') for p in android_manifest.findall('uses-permission')}
     java_sources = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / 'app/src/main/java').rglob('*.java'))
     assert 'https://sunnah.com/' not in java_sources, 'Runtime Hadith website dependency returned'
+
+    # Large Hadith-pack browsing must never regress to synchronous SQLite reads on the Android UI thread.
+    main_activity_text = (ROOT / 'app/src/main/java/com/aaris/quran/MainActivity.java').read_text(encoding='utf-8')
+    quran_app_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranApp.java').read_text(encoding='utf-8')
+    assert 'hadithBrowseWorker=worker("hadith-browse")' in quran_app_text, 'Missing dedicated Hadith browse worker'
+    def java_method(name):
+        marker = f'    private void {name}('
+        start = main_activity_text.index(marker)
+        end = main_activity_text.find('\n    private ', start + len(marker))
+        return main_activity_text[start:] if end < 0 else main_activity_text[start:end]
+    for method in ('hadithCollection', 'hadithBook', 'hadithRecordsPage', 'hadithRecord'):
+        assert 'hadithBrowseWorker.submit' in java_method(method), f'{method} must load Hadith data off the UI thread'
+    assert 'metadata==null?store.translation' not in main_activity_text, 'Search cards must not query Hadith translation on the UI thread'
+    assert 'metadata==null?store.grades' not in main_activity_text, 'Search cards must not query Hadith grades on the UI thread'
+    assert 'hadith&&app.hadith.record(id)==null' not in main_activity_text, 'Saved Hadith shortcut validation must not query SQLite on the UI thread'
+    assert 'Loading local translations and grades' in main_activity_text and 'hadithBrowseWorker.submit' in java_method('shareResearch'), 'Hadith comparison preview must load metadata off the UI thread'
     assert permissions == {'android.permission.INTERNET', 'android.permission.SYSTEM_ALERT_WINDOW',
                            'android.permission.FOREGROUND_SERVICE',
                            'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',

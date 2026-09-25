@@ -4,6 +4,21 @@ on:
   push:
     branches:
       - 'upgrade/**'
+      - 'audit/**'
+    paths:
+      - '.github/workflows/verify-offline-translations.yml'
+      - 'tools/**'
+      - 'source-vault/translations/**'
+      - 'source-vault/hadith/hadeethenc/**'
+      - 'source-vault/hadith/open-hadith-data/**'
+      - 'app/build.gradle'
+      - 'core/**'
+      - 'app/src/main/java/com/aaris/quran/**'
+      - 'app/src/main/AndroidManifest.xml'
+      - 'app/src/main/res/**'
+  pull_request:
+    branches:
+      - main
     paths:
       - '.github/workflows/verify-offline-translations.yml'
       - 'tools/**'
