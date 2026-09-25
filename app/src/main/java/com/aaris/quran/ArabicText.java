@@ -63,7 +63,7 @@ class ArabicText extends TextView {
             float dx=style.shadowDistance>0?style.shadowDx(density):depth,dy=style.shadowDistance>0?style.shadowDy(density):depth;
             int alpha=Math.min(190,(shadowStrength*2)+(style.textDepth>0?35:0));
             int shadow=(style.resolvedShadowColor()&0xffffff)|(alpha<<24);
-            paint.setShadowLayer(Math.max(.1f,density*style.shadowSoftness/4f),dx,dy,shadow);
+            paint.setShadowLayer(Math.max(.1f,density*style.effectiveShadowSoftness()/4f),dx,dy,shadow);
         }else if(effects&&style.glow>0)
             paint.setShadowLayer(density,0,0,(getCurrentTextColor()&0xffffff)|((style.glow*2)<<24));
         try{super.onDraw(canvas);}finally{paint.setShader(null);paint.clearShadowLayer();}
