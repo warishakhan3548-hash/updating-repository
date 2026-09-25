@@ -19,7 +19,6 @@ public final class LongQuery {
     private static final int WINDOW_STEP=560;
     private static final int MAX_WINDOWS=8;
     private static final int MAX_WINDOW_TERMS=28;
-    private static final int MAX_EVALUATED_WINDOWS=256;
 
     public static final class Plan {
         public final List<String> windows;
@@ -45,18 +44,18 @@ public final class LongQuery {
         }
 
         int total=Math.max(1,1+(Math.max(0,raw.length()-1))/WINDOW_STEP);
-        int evaluationStride=Math.max(1,(int)Math.ceil(total/(double)MAX_EVALUATED_WINDOWS));
         PriorityQueue<Scored> strongest=new PriorityQueue<>(
             Comparator.comparingInt((Scored s)->s.score).thenComparingInt(s->-s.index));
         Map<Integer,Scored> coverage=new LinkedHashMap<>();
         int[] targets={0,Math.max(0,total/3),Math.max(0,(total*2)/3),Math.max(0,total-1)};
 
         for(int index=0;index<total;index++){
-            boolean coverageTarget=false;
-            for(int target:targets)if(Math.abs(index-target)<=Math.max(1,evaluationStride/2)){coverageTarget=true;break;}
-            if(index%evaluationStride!=0&&!coverageTarget)continue;
             int start=Math.min(raw.length()-1,index*WINDOW_STEP);
             int end=Math.min(raw.length(),start+WINDOW_CHARS);
+            // Do not split a supplementary Unicode code point at a UTF-16 boundary.
+            if(start>0&&start<raw.length()&&Character.isLowSurrogate(raw.charAt(start)))start++;
+            if(end<raw.length()&&end>start&&Character.isHighSurrogate(raw.charAt(end-1)))end--;
+            if(end<=start)continue;
             String chunk=raw.substring(start,end);
             Scored candidate=compact(index,start,chunk);
             if(candidate==null)continue;
