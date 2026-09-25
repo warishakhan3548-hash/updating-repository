@@ -250,10 +250,11 @@ final class Glass {
         @Override protected void onBoundsChange(Rect b){
             super.onBoundsChange(b);outer.set(b.left+stroke,b.top+stroke,b.right-stroke,b.bottom-stroke);
             inner.set(outer);inner.inset(inset,inset);if(outer.isEmpty())return;
-            boolean button=kind==Kind.BUTTON||kind==Kind.PRIMARY;
-            int base=button?appearance.buttonSurface():(solid?appearance.effectiveSurface():appearance.surface);
-            if(kind==Kind.PRIMARY)base=Appearance.mix(base,appearance.accent,.15f);
-            int highlight=appearance.glass&&!appearance.reducedEffects&&!solid?Appearance.mix(base,appearance.accent,.06f*appearance.glassStrength/100f):base;
+            boolean button=kind==Kind.BUTTON||kind==Kind.PRIMARY,primary=kind==Kind.PRIMARY;
+            int base=button?appearance.buttonSurface(primary):(solid?appearance.effectiveSurface():appearance.surface);
+            int highlight=button
+                ?(solid?base:appearance.buttonHighlight(primary))
+                :(appearance.glass&&!appearance.reducedEffects&&!solid?Appearance.mix(base,appearance.accent,.06f*appearance.glassStrength/100f):base);
             int cardAlpha=!solid&&!button?Math.round(255*appearance.effectiveCardOpacity()/100f):255;
             int[] colors=new int[]{(highlight&0xffffff)|(cardAlpha<<24),(base&0xffffff)|(cardAlpha<<24)};
             fill=new LinearGradient(outer.left,outer.top,outer.right,outer.bottom,colors,null,Shader.TileMode.CLAMP);
