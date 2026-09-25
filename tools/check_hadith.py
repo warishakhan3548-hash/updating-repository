@@ -154,6 +154,8 @@ def main():
         assert generated["arabic_records_with_vowel_marks"] >= core_total
         assert generated["vocalization"]["origin"] == "published-upstream"
         assert generated["editorial_translations"] == sum(he_translation_counts.values())
+        assert generated["hadeethenc_translation_record_counts"] == he_translation_counts
+        assert generated["hadeethenc_withheld_translation_ids"] == he_withheld
         assert hashlib.sha256(sqlite_path.read_bytes()).hexdigest() == generated["sqlite_sha256"]
 
         db = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
