@@ -111,7 +111,24 @@ final class Appearance {
     private void palette(int bg,int card,int highlight,int arabicInk,int translationInk,int end){
         background=bg;surface=card;buttonColor=card;accent=highlight;arabic=arabicInk;translation=translationInk;gradientEnd=end;
     }
-    int buttonSurface(){return customButtons?mix(background,buttonColor,opacity/100f):effectiveSurface();}
+    private int buttonBaseSurface(){return customButtons?mix(background,buttonColor,opacity/100f):effectiveSurface();}
+    int buttonSurface(){return buttonSurface(false);}
+    int buttonSurface(boolean primary){
+        int base=buttonBaseSurface();
+        return primary?safeButtonTint(base,.15f):base;
+    }
+    int buttonHighlight(boolean primary){
+        int base=buttonSurface(primary);
+        return glass&&!reducedEffects?safeButtonTint(base,.06f*glassStrength/100f):base;
+    }
+    private int safeButtonTint(int base,float amount){
+        int ink=buttonInk(),steps=Math.max(0,Math.round(amount*100f));
+        for(int step=steps;step>=0;step--){
+            int candidate=mix(base,accent,step/100f);
+            if(contrast(ink,candidate)>=4.5)return candidate;
+        }
+        return base;
+    }
     boolean rendersGradient(){return gradient&&!reducedEffects;}
     int effectiveCardOpacity(){
         if(!autoBalance||!rendersGradient())return opacity;
@@ -144,10 +161,7 @@ final class Appearance {
         if(textFinish==TEXT_FOIL)textSheen=Math.max(textSheen,48);
         if(textFinish==TEXT_SOFT)textSheen=bound(textSheen,12,55);
     }
-    int buttonInk(){
-        int base=buttonSurface(),primary=mix(base,accent,.15f),highlight=mix(primary,accent,.06f*glassStrength/100f);
-        return readableAcross(appText,base,highlight);
-    }
+    int buttonInk(){return readable(appText,buttonBaseSurface());}
     int glassInk(float amount){return textInk(mix(arabicInk(),Color.WHITE,amount),100);}
     int foilInk(float amount){return readableAcross(mix(arabicInk(),accent,amount),effectiveSurface(),surfaceHighlight(),effectiveSurfaceAtGradientEnd(),surfaceHighlightAtGradientEnd());}
     int effectiveSurface(){return effectiveSurfaceOn(background);}
