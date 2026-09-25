@@ -28,7 +28,7 @@ public final class MeaningSearch {
         group(map,"जन्नत","jannat","paradise","جنة");
         group(map,"जहन्नम","jahannam","hell","جهنم");
         group(map,"मस्जिद","masjid","mosque","مسجد");
-        group(map,"अज़ान","अजान","azan","adhan","call to prayer","أذان","اذان");
+        group(map,"अज़ान","अजान","azan","adhan","أذان","اذان");
         group(map,"क़िबला","किबला","qibla","काबा","kaaba","kaaba","قبلة","كعبة");
         Map<String,List<String>> frozen=new HashMap<>();
         for(Map.Entry<String,LinkedHashSet<String>> e:map.entrySet())
