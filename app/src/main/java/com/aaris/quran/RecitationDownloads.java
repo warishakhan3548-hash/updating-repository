@@ -74,6 +74,16 @@ final class RecitationDownloads {
             completionCache.put(key,lengths);missingCompletions.remove(key);return lengths;
         }catch(Exception e){missingCompletions.add(key);return null;}
     }
+    /**
+     * Non-blocking completion state for render hot paths.
+     *  1 = known complete, 0 = known incomplete/missing, -1 = not checked in this process yet.
+     */
+    int markedCompleteState(String reciter,int surah,int ayahs){
+        String key=completionKey(reciter,surah);
+        long[] cached=completionCache.get(key);
+        if(cached!=null)return cached.length==ayahs+1?1:0;
+        return missingCompletions.contains(key)?0:-1;
+    }
     /** Fast list-state check: parse a completion marker once per process, then use memory. */
     boolean markedComplete(String reciter,int surah,int ayahs){return completionLengths(reciter,surah,ayahs)!=null;}
     /** Fast for completed Surahs; paused downloads verify only the requested saved ayah on demand. */
