@@ -17,6 +17,17 @@ final class RankingChecks {
         require(TextMatch.distance("word","wrod",1)==1,"Adjacent keyboard transposition");
         SearchEngine shortTypo=new SearchEngine(Collections.singletonList(new SearchEngine.Document(new Ayah(1,1,"اختبار","short",1),"word","")));
         require(shortTypo.search("wrod",10).results.get(0).ayah.number==1,"Short typo with no shared trigram still retrieves the source");
+        SearchEngine wordForms=new SearchEngine(Arrays.asList(
+            new SearchEngine.Document(new Ayah(1,1,"رحمن","wf1",1),"intent"),
+            new SearchEngine.Document(new Ayah(1,2,"والرحمن","wf2",2),"intentions")));
+        List<SearchEngine.Result> formResults=wordForms.search("رحمن",10).results;
+        require(formResults.size()==2&&formResults.get(0).ayah.number==1&&formResults.get(0).match.band==TextMatch.Band.HIGH,
+            "Exact Arabic word outranks an attached word-form match");
+        require(formResults.get(1).ayah.number==2&&formResults.get(1).match.band==TextMatch.Band.MEDIUM,
+            "Attached Arabic prefixes remain discoverable without being promoted to exact");
+        require(wordForms.search("intent",10).results.stream().anyMatch(r->r.ayah.number==2),
+            "A meaningful Latin subword retrieves its longer source word form");
+        require(wordForms.search("رح",10).results.isEmpty(),"Very short Arabic substrings do not open an unbounded fuzzy lane");
         require(!TextMatch.compare(TextMatch.tokens("not present here"),TextMatch.tokens("present here"),Collections.emptyMap(),Collections.emptyMap()).accepted,"Unmatched negation does not disappear");
         String paragraph="distinctive ".repeat(90)+"anchor";
         SearchEngine longSearch=new SearchEngine(Arrays.asList(new SearchEngine.Document(new Ayah(1,1,"اختبار","x",1),paragraph)));
@@ -56,7 +67,7 @@ final class RankingChecks {
                 if(xy<=0&&yz<=0)require(TextMatch.compareHadith(x,sx,z,sz)<=0,"Near-equal source order remains transitive");
             }
         require(nearA.explanation().contains("spelling repairs"),"Match explanations expose transformations");
-        return 20;
+        return 24;
     }
     private static void require(boolean value,String message){if(!value)throw new AssertionError(message);}
 }
