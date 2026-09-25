@@ -26,12 +26,13 @@ public final class QuranApp extends Application {
     volatile boolean recitationActive;
     volatile int recitationSurah=1,recitationAyah=1;
     volatile String recitationLabel="";
-    Runnable recitationChanged;
+    Runnable recitationChanged,hadithChanged;
     final ExecutorService audioWorker=worker("audio");
     final Handler main=new Handler(Looper.getMainLooper());
     volatile ContentStore content;
     volatile LearningStore learning;
     volatile HadithStore hadith;
+    volatile boolean hadithLoading;
     volatile TranslationStore translations;
     volatile String translationError;
     volatile QuranAudioStore wordAudio;
@@ -63,7 +64,6 @@ public final class QuranApp extends Application {
             try{
                 content=new ContentStore(this);learning=new LearningStore(this);learning.getWritableDatabase();
                 try{translations=new TranslationStore(this);}catch(Exception e){translationError=e.getMessage();}
-                try{hadith=HadithStore.openIfBundled(this);}catch(Exception e){hadith=null;hadithLoadError="Hadith pack could not be opened: "+e.getMessage();}
                 try{
                     wordAudio=new QuranAudioStore(this,content.audioAlignmentHash);
                     audio=new WordAudioPlayer(this,wordAudio);
@@ -72,6 +72,15 @@ public final class QuranApp extends Application {
                     wordAudio=null;audio=null;audioDownloads=null;
                     wordAudioLoadError="Local Quran audio storage could not be opened: "+e.getMessage();
                 }
+                hadithLoading=true;
+                searchWorker.execute(()->{
+                    try{hadith=HadithStore.openIfBundled(this);}
+                    catch(Exception e){hadith=null;hadithLoadError="Hadith pack could not be opened: "+e.getMessage();}
+                    finally{
+                        hadithLoading=false;
+                        main.post(()->{Runnable changed=hadithChanged;if(changed!=null)changed.run();});
+                    }
+                });
             }catch(Exception e){loadError="Offline content could not be opened: "+e.getMessage();}
             finally{
                 ready.countDown();
