@@ -136,6 +136,9 @@ final class HadithStore implements AutoCloseable {
         if(!folder.exists()&&!folder.mkdirs())throw new IOException("Cannot create evidence storage");
         File target=new File(folder,"hadith-"+packHash.substring(0,16)+".sqlite");
         File marker=new File(folder,target.getName()+".verified");
+        // An older hash-named pack cannot satisfy this manifest and is never used as fallback.
+        // Delete it before copying the bundled replacement so upgrades do not require ~2x DB space.
+        cleanupOldPacks(folder,target,marker);
         boolean trustedInstalledFile=verificationMarkerMatches(marker,target,packHash,packBytes);
         boolean fullVerification=!trustedInstalledFile;
         if(fullVerification){
