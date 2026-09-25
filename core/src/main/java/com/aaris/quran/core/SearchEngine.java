@@ -206,7 +206,7 @@ public final class SearchEngine {
             List<String> alternatives=mergeAlternatives(
                 MeaningSearch.alternatives(term),
                 mergeAlternatives(wordFormAlternatives(term,glossVocabulary,hints.size()>1),glossRepairs(term)));
-            glossRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:gloss.terms.get(w))pool.add(p.doc);
+            glossRepairs.put(term,alternatives);for(String w:alternatives){List<Posting> postings=gloss.terms.get(w);if(postings!=null)for(Posting p:postings)pool.add(p.doc);}
         }
         if(sounds.size()>=3)for(String term:new LinkedHashSet<>(sounds)){List<String> alternatives=spellingAlternatives(term,soundVocabulary,soundByLength,3,soundRepairCache);soundRepairs.put(term,alternatives);for(String word:alternatives)for(Posting p:sound.terms.get(word))pool.add(p.doc);}
         allCandidates.addAll(pool);trace.merge("arabic_bm25",lexical.size(),Integer::sum);trace.merge("gloss_bm25",meanings.size(),Integer::sum);trace.merge("phonetic",phonetic.size(),Integer::sum);
