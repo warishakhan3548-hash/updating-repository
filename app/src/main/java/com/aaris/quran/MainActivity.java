@@ -48,7 +48,8 @@ public final class MainActivity extends Activity {
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final AtomicInteger searchGeneration=new AtomicInteger();
     private final AtomicInteger readerPrefetchGeneration=new AtomicInteger();
-    private Future<?> searchTask,quranSearchTask,readerPrefetchTask;
+    private final AtomicInteger hadithBrowseGeneration=new AtomicInteger();
+    private Future<?> searchTask,quranSearchTask,readerPrefetchTask,hadithBrowseTask;
     private CancellationSignal searchCancellation;
     private Runnable searchTimeout;
     private int pendingCorpora,pendingSearchJobs;
@@ -78,6 +79,15 @@ public final class MainActivity extends Activity {
         final HadithStore.DisplayTranslation translation;final List<String> grades;
         HadithCardMeta(HadithStore.DisplayTranslation translation,List<String> grades){
             this.translation=translation;this.grades=grades==null?Collections.emptyList():grades;
+        }
+    }
+    private static final class HadithDetailMeta {
+        final HadithStore.Record record;final HadithStore.DisplayTranslation translation;
+        final List<String> grades,references;
+        HadithDetailMeta(HadithStore.Record record,HadithStore.DisplayTranslation translation,List<String> grades,List<String> references){
+            this.record=record;this.translation=translation;
+            this.grades=grades==null?Collections.emptyList():grades;
+            this.references=references==null?Collections.emptyList():references;
         }
     }
     private static final class ResearchPdfUi {
@@ -227,7 +237,7 @@ public final class MainActivity extends Activity {
     @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
-    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
+    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
@@ -478,14 +488,13 @@ public final class MainActivity extends Activity {
         if(response.nextOffset<response.total){TextView more=button("Load next 50 Hadith matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadHadithSearch(q,response.nextOffset,generation,list,status);});}
     }
 
-    private void hadithResultCard(LinearLayout parent,HadithStore.Record record){hadithResultCard(parent,record,null);}
     private void hadithResultCard(LinearLayout parent,HadithStore.Record record,HadithCardMeta metadata){
         HadithStore store=app.hadith;if(store==null)return;
         HadithStore.CollectionInfo info=store.collection(record.collectionId);
         LinearLayout c=card(parent,Surface.Kind.PANEL);
         c.addView(label((info==null?record.collectionId:info.nameEn)+" · "+record.number));gap(c,10);
         TextView ar=hadithArabic(record.matnAr==null?record.arabic:record.matnAr,Math.min(appearance.arabicSize,28));ar.setMaxLines(5);ar.setEllipsize(TextUtils.TruncateAt.END);c.addView(ar);gap(c,8);
-        HadithStore.DisplayTranslation translation=metadata==null?store.translation(record,readingLanguage()):metadata.translation;
+        HadithStore.DisplayTranslation translation=metadata==null?null:metadata.translation;
         if(translation!=null){
             TextView translated=text(this,translation.text,appearance.translationSize,appearance.translationInk());
             translated.setMaxLines(4);translated.setEllipsize(TextUtils.TruncateAt.END);
@@ -496,50 +505,89 @@ public final class MainActivity extends Activity {
             if(!readingLanguage().equals(translation.language))caption(c,"Showing "+languageName(translation.language)+"; "+languageName(readingLanguage())+" is not installed for this record.");
         }
         else caption(c,languageName(readingLanguage())+" translation is not installed for this record.");
-        List<String> grades=metadata==null?store.grades(record.id):metadata.grades;if(!grades.isEmpty())caption(c,String.join(" · ",grades));
+        List<String> grades=metadata==null?Collections.emptyList():metadata.grades;if(!grades.isEmpty())caption(c,String.join(" · ",grades));
         c.setFocusable(true);c.setContentDescription((info==null?"Hadith":info.nameEn)+" "+record.number);
         c.setOnClickListener(v->hadithRecord(record.id));Glass.motion(c);
     }
 
+    private int beginHadithBrowse(){
+        int generation=hadithBrowseGeneration.incrementAndGet();
+        Future<?> previous=hadithBrowseTask;hadithBrowseTask=null;
+        if(previous!=null)previous.cancel(true);
+        return generation;
+    }
+    private boolean liveHadithBrowse(int generation,View page){
+        return generation==hadithBrowseGeneration.get()&&!isDestroyed()&&!isFinishing()&&page!=null&&page.isAttachedToWindow();
+    }
     private void hadithCollection(String collectionId){
         HadithStore store=app.hadith;if(store==null)return;
         HadithStore.CollectionInfo info=store.collection(collectionId);if(info==null)return;
-        List<HadithStore.BookInfo> books=store.books(collectionId);
-        if(books.isEmpty()){hadithRecordsPage(info.nameEn,collectionId,null,null,0);return;}
-        LinearLayout page=sheet(info.nameEn);TextView ar=arabic(info.nameAr,28);page.addView(ar);gap(page,8);
-        caption(page,info.count+" records · "+info.edition+" · Offline");gap(page,14);
-        for(HadithStore.BookInfo book:books){
-            LinearLayout row=Glass.row(this);pad(row,14,12);row.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));
-            TextView n=text(this,book.number,12,GOLD);row.addView(n,new LinearLayout.LayoutParams(dp(this,42),-2));
-            LinearLayout names=column(this);names.addView(text(this,book.nameEn==null?"Book "+book.number:book.nameEn,16,INK));
-            if(book.nameAr!=null){TextView nameAr=hadithArabic(book.nameAr,22);names.addView(nameAr);}
-            names.addView(text(this,book.count+" records",11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-            row.setFocusable(true);row.setOnClickListener(v->hadithBook(collectionId,book));Glass.motion(row);
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,8);page.addView(row,lp);
-        }
+        int generation=beginHadithBrowse();LinearLayout page=sheet(info.nameEn);
+        page.addView(premiumLoading("Opening "+info.nameEn,"Loading books from the verified local Hadith pack…"));
+        try{
+            hadithBrowseTask=app.hadithBrowseWorker.submit(()->{
+                try{
+                    final List<HadithStore.BookInfo> books=store.books(collectionId);
+                    final List<HadithStore.Record> direct=books.isEmpty()?store.records(collectionId,null,null,50,0):Collections.emptyList();
+                    ui.post(()->{
+                        if(!liveHadithBrowse(generation,page))return;
+                        page.removeAllViews();
+                        if(books.isEmpty()){renderHadithRecordsPage(page,info.nameEn,collectionId,null,null,0,direct);return;}
+                        TextView ar=arabic(info.nameAr,28);page.addView(ar);gap(page,8);
+                        caption(page,info.count+" records · "+info.edition+" · Offline");gap(page,14);
+                        for(HadithStore.BookInfo book:books){
+                            LinearLayout row=Glass.row(this);pad(row,14,12);row.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));
+                            TextView n=text(this,book.number,12,GOLD);row.addView(n,new LinearLayout.LayoutParams(dp(this,42),-2));
+                            LinearLayout names=column(this);names.addView(text(this,book.nameEn==null?"Book "+book.number:book.nameEn,16,INK));
+                            if(book.nameAr!=null){TextView nameAr=hadithArabic(book.nameAr,22);names.addView(nameAr);}
+                            names.addView(text(this,book.count+" records",11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+                            row.setFocusable(true);row.setOnClickListener(v->hadithBook(collectionId,book));Glass.motion(row);
+                            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,8);page.addView(row,lp);
+                        }
+                    });
+                }catch(Exception error){
+                    android.util.Log.w("AarisHadith","Hadith collection could not open",error);
+                    ui.post(()->{if(liveHadithBrowse(generation,page)){page.removeAllViews();caption(page,"This Hadith collection could not be opened. Please try again.");}});
+                }
+            });
+        }catch(RejectedExecutionException rejected){page.removeAllViews();caption(page,"Hadith browsing could not start. Please try again.");}
     }
 
     private void hadithBook(String collectionId,HadithStore.BookInfo book){
         HadithStore store=app.hadith;if(store==null)return;
-        List<HadithStore.ChapterInfo> chapters=store.chapters(collectionId,book.id);
         String title=book.nameEn==null?"Book "+book.number:book.nameEn;
-        if(chapters.isEmpty()){hadithRecordsPage(title,collectionId,book.id,null,0);return;}
-        LinearLayout page=sheet(title);
-        if(book.nameAr!=null)page.addView(arabic(book.nameAr,26));gap(page,10);
-        page.addView(button("Browse all "+book.count+" records",()->hadithRecordsPage(title,collectionId,book.id,null,0)));gap(page,14);
-        page.addView(label("CHAPTERS"));gap(page,8);
-        for(HadithStore.ChapterInfo chapter:chapters){
-            String name=chapter.nameEn==null?"Chapter "+chapter.number:chapter.nameEn;
-            TextView b=button(chapter.number+" · "+name+"  ("+chapter.count+")",
-                ()->hadithRecordsPage(name,collectionId,book.id,chapter.id,0));
-            b.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);page.addView(b);gap(page,8);
-        }
+        int generation=beginHadithBrowse();LinearLayout page=sheet(title);
+        page.addView(premiumLoading("Opening "+title,"Loading chapters from the verified local Hadith pack…"));
+        try{
+            hadithBrowseTask=app.hadithBrowseWorker.submit(()->{
+                try{
+                    final List<HadithStore.ChapterInfo> chapters=store.chapters(collectionId,book.id);
+                    final List<HadithStore.Record> direct=chapters.isEmpty()?store.records(collectionId,book.id,null,50,0):Collections.emptyList();
+                    ui.post(()->{
+                        if(!liveHadithBrowse(generation,page))return;
+                        page.removeAllViews();
+                        if(chapters.isEmpty()){renderHadithRecordsPage(page,title,collectionId,book.id,null,0,direct);return;}
+                        if(book.nameAr!=null)page.addView(arabic(book.nameAr,26));gap(page,10);
+                        page.addView(button("Browse all "+book.count+" records",()->hadithRecordsPage(title,collectionId,book.id,null,0)));gap(page,14);
+                        page.addView(label("CHAPTERS"));gap(page,8);
+                        for(HadithStore.ChapterInfo chapter:chapters){
+                            String name=chapter.nameEn==null?"Chapter "+chapter.number:chapter.nameEn;
+                            TextView b=button(chapter.number+" · "+name+"  ("+chapter.count+")",
+                                ()->hadithRecordsPage(name,collectionId,book.id,chapter.id,0));
+                            b.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);page.addView(b);gap(page,8);
+                        }
+                    });
+                }catch(Exception error){
+                    android.util.Log.w("AarisHadith","Hadith book could not open",error);
+                    ui.post(()->{if(liveHadithBrowse(generation,page)){page.removeAllViews();caption(page,"This Hadith book could not be opened. Please try again.");}});
+                }
+            });
+        }catch(RejectedExecutionException rejected){page.removeAllViews();caption(page,"Hadith browsing could not start. Please try again.");}
     }
 
-    private void hadithRecordsPage(String title,String collectionId,String bookId,String chapterId,int offset){
-        HadithStore store=app.hadith;if(store==null)return;
-        final int size=50;List<HadithStore.Record> records=store.records(collectionId,bookId,chapterId,size,offset);
-        LinearLayout page=sheet(title);caption(page,"Records "+(records.isEmpty()?0:offset+1)+"–"+(offset+records.size())+" · Offline");gap(page,12);
+    private void renderHadithRecordsPage(LinearLayout page,String title,String collectionId,String bookId,String chapterId,int offset,List<HadithStore.Record> records){
+        final int size=50;
+        caption(page,"Records "+(records.isEmpty()?0:offset+1)+"–"+(offset+records.size())+" · Offline");gap(page,12);
         for(HadithStore.Record record:records){
             TextView b=button("Hadith "+record.number,()->hadithRecord(record.id));
             b.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);page.addView(b);gap(page,8);
@@ -553,27 +601,63 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void hadithRecordsPage(String title,String collectionId,String bookId,String chapterId,int offset){
+        HadithStore store=app.hadith;if(store==null)return;
+        int generation=beginHadithBrowse();LinearLayout page=sheet(title);
+        page.addView(premiumLoading("Loading Hadith","Opening saved records from this section…"));
+        try{
+            hadithBrowseTask=app.hadithBrowseWorker.submit(()->{
+                try{
+                    final List<HadithStore.Record> records=store.records(collectionId,bookId,chapterId,50,offset);
+                    ui.post(()->{if(liveHadithBrowse(generation,page)){page.removeAllViews();renderHadithRecordsPage(page,title,collectionId,bookId,chapterId,offset,records);}});
+                }catch(Exception error){
+                    android.util.Log.w("AarisHadith","Hadith records could not load",error);
+                    ui.post(()->{if(liveHadithBrowse(generation,page)){page.removeAllViews();caption(page,"These Hadith records could not be loaded. Please try again.");}});
+                }
+            });
+        }catch(RejectedExecutionException rejected){page.removeAllViews();caption(page,"Hadith browsing could not start. Please try again.");}
+    }
+
     private void hadithRecord(String id){
         HadithStore store=app.hadith;if(store==null)return;
-        HadithStore.Record record=store.record(id);if(record==null)return;
-        HadithStore.CollectionInfo info=store.collection(record.collectionId);
-        LinearLayout page=sheet((info==null?"Hadith":info.nameEn)+" · "+record.number);
-        ArabicText source=hadithArabic(record.arabic,appearance.arabicSize);source.setTextIsSelectable(true);page.addView(source);gap(page,14);
-        HadithStore.DisplayTranslation translation=store.translation(record,readingLanguage());
-        if(translation!=null){
-            TextView translated=text(this,translation.text,appearance.translationSize,appearance.translationInk());translated.setTextIsSelectable(true);
-            if("ur".equals(translation.language)||"ar".equals(translation.language)){
-                translated.setTextDirection(View.TEXT_DIRECTION_RTL);translated.setGravity(Gravity.RIGHT);
-            }
-            page.addView(translated);gap(page,8);caption(page,translation.provenance);gap(page,10);
-            if(!readingLanguage().equals(translation.language))caption(page,"Showing "+languageName(translation.language)+"; "+languageName(readingLanguage())+" is not installed for this record.");
-        }else{
-            caption(page,languageName(readingLanguage())+" translation is not installed for this record · Arabic source text only.");gap(page,10);
-        }
-        if(record.narrator!=null&&!record.narrator.trim().isEmpty())caption(page,"Narrator: "+record.narrator);
-        List<String> grades=store.grades(id);if(!grades.isEmpty()){gap(page,12);page.addView(label("GRADING"));for(String grade:grades)caption(page,grade);}
-        List<String> refs=store.references(id);if(!refs.isEmpty()){gap(page,12);page.addView(label("REFERENCES"));for(String ref:refs)caption(page,ref);}
-        gap(page,12);caption(page,"Source record: "+record.sourceRef+"\nPack: "+store.packId+" · "+store.contentVersion);
+        final String preferredLanguage=readingLanguage();
+        int generation=beginHadithBrowse();LinearLayout page=sheet("Hadith details");
+        page.addView(premiumLoading("Opening Hadith","Loading source text and local evidence…"));
+        try{
+            hadithBrowseTask=app.hadithBrowseWorker.submit(()->{
+                try{
+                    HadithStore.Record record=store.record(id);
+                    final HadithDetailMeta detail=record==null?null:new HadithDetailMeta(
+                        record,store.translation(record,preferredLanguage),store.grades(id),store.references(id));
+                    ui.post(()->{
+                        if(!liveHadithBrowse(generation,page))return;
+                        page.removeAllViews();
+                        if(detail==null){caption(page,"This Hadith record is not available in the installed edition.");return;}
+                        HadithStore.Record recordUi=detail.record;HadithStore.CollectionInfo info=store.collection(recordUi.collectionId);
+                        page.addView(label((info==null?"Hadith":info.nameEn)+" · "+recordUi.number));gap(page,10);
+                        ArabicText source=hadithArabic(recordUi.arabic,appearance.arabicSize);source.setTextIsSelectable(true);page.addView(source);gap(page,14);
+                        HadithStore.DisplayTranslation translation=detail.translation;
+                        if(translation!=null){
+                            TextView translated=text(this,translation.text,appearance.translationSize,appearance.translationInk());translated.setTextIsSelectable(true);
+                            if("ur".equals(translation.language)||"ar".equals(translation.language)){
+                                translated.setTextDirection(View.TEXT_DIRECTION_RTL);translated.setGravity(Gravity.RIGHT);
+                            }
+                            page.addView(translated);gap(page,8);caption(page,translation.provenance);gap(page,10);
+                            if(!preferredLanguage.equals(translation.language))caption(page,"Showing "+languageName(translation.language)+"; "+languageName(preferredLanguage)+" is not installed for this record.");
+                        }else{
+                            caption(page,languageName(preferredLanguage)+" translation is not installed for this record · Arabic source text only.");gap(page,10);
+                        }
+                        if(recordUi.narrator!=null&&!recordUi.narrator.trim().isEmpty())caption(page,"Narrator: "+recordUi.narrator);
+                        if(!detail.grades.isEmpty()){gap(page,12);page.addView(label("GRADING"));for(String grade:detail.grades)caption(page,grade);}
+                        if(!detail.references.isEmpty()){gap(page,12);page.addView(label("REFERENCES"));for(String ref:detail.references)caption(page,ref);}
+                        gap(page,12);caption(page,"Source record: "+recordUi.sourceRef+"\nPack: "+store.packId+" · "+store.contentVersion);
+                    });
+                }catch(Exception error){
+                    android.util.Log.w("AarisHadith","Hadith record could not open",error);
+                    ui.post(()->{if(liveHadithBrowse(generation,page)){page.removeAllViews();caption(page,"This Hadith record could not be opened. Please try again.");}});
+                }
+            });
+        }catch(RejectedExecutionException rejected){page.removeAllViews();caption(page,"Hadith browsing could not start. Please try again.");}
     }
 
     private void openWebsite(Uri uri){hideKeyboard();try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(ActivityNotFoundException e){toast("Install a browser to open this link");}}
@@ -1575,7 +1659,7 @@ public final class MainActivity extends Activity {
                         int firstEnd=Math.min(50,result.results.size());
                         Map<String,TranslationStore.Entry> displayTranslations=prepareQuranTranslations(result,0,firstEnd,resultTranslationId);
                         ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
-                            quranList.addView(label("QURAN"));TextView qs=text(this,result.results.isEmpty()?"No Quran text match. Try a shorter phrase.":"",13,MUTED);quranList.addView(qs);gap(quranList,8);
+                            quranList.addView(label("QURAN"));TextView qs=text(this,result.results.isEmpty()?"No Quran match in the installed evidence. Try another wording or a reference.":"",13,MUTED);quranList.addView(qs);gap(quranList,8);
                             showSearchShortcut(quranList,false,q);
                             if(result.fragments!=null)showFragments(quranList,result,query);
                             appendQuranResults(quranList,result,0,qs,displayTranslations,generation);finished.run();
