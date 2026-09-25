@@ -151,7 +151,15 @@ public final class MainActivity extends Activity {
             if(app.loadError!=null){loading.setText(app.loadError+"\nOpen the app again. Your learning data remains stored separately.");return;}
             content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;operationListener=this::refreshOperationUi;app.operationChanged=operationListener;
             hadithListener=()->{if(isDestroyed()||isFinishing())return;if(searching){String q=searchQuery.trim();if(!q.isEmpty()&&UnifiedQuery.parse(q,searchScope).hadith){Runnable refresh=activeSearchRefresh;if(refresh!=null)refresh.run();}}else if(tab==2)show();};app.hadithChanged=hadithListener;
-            language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");translationSpeech=new TranslationSpeech(this);
+            language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");
+            if(app.translations!=null){
+                TranslationStore.Edition preferred=app.translations.preferredEdition(translationId,language);
+                if(preferred!=null&&!preferred.id.equals(translationId)){
+                    translationId=preferred.id;
+                    learning.set("translation_edition",translationId);
+                }
+            }
+            translationSpeech=new TranslationSpeech(this);
             highContrast=Boolean.parseBoolean(learning.get("contrast","false"));
             arabicSize=appearance.arabicSize;
             String last=learning.get("position","Q:1:1");Ayah a=content.ayah(last);
