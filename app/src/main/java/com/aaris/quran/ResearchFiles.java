@@ -15,8 +15,10 @@ public final class ResearchFiles extends ContentProvider {
         File folder=new File(context.getCacheDir(),"research-pdf");if(!folder.isDirectory()&&!folder.mkdirs())throw new IOException("Cannot create export folder");
         File[] existing=folder.listFiles();if(existing!=null)for(File file:existing)if(file.lastModified()<System.currentTimeMillis()-7L*86400000)file.delete();
         String name=UUID.randomUUID()+".pdf";File target=new File(folder,name),temp=new File(folder,name+".tmp");
-        try(FileOutputStream out=new FileOutputStream(temp)){out.write(bytes);out.getFD().sync();}
-        if(!temp.renameTo(target))throw new IOException("Could not finish PDF");
+        try{
+            try(FileOutputStream out=new FileOutputStream(temp)){out.write(bytes);out.getFD().sync();}
+            if(!temp.renameTo(target))throw new IOException("Could not finish PDF");
+        }finally{if(temp.exists())temp.delete();}
         return new Uri.Builder().scheme("content").authority(context.getPackageName()+".research").appendPath(name).build();
     }
     private File file(Uri uri)throws FileNotFoundException{
