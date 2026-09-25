@@ -1,0 +1,162 @@
+name: Fetch HadeethEnc source snapshot
+
+on:
+  push:
+    branches:
+      - upgrade/trusted-offline-translations-20260925
+    paths:
+      - .github/workflows/fetch-hadeethenc-snapshot.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+
+      - name: Download and verify official HadeethEnc workbooks
+        run: |
+          python3 - <<'PY'
+          import hashlib, io, json, re, time, urllib.error, urllib.request, zipfile
+          from datetime import datetime, timezone
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          OUT = Path("source-vault/hadith/hadeethenc-official")
+          OUT.mkdir(parents=True, exist_ok=True)
+          URLS = {
+              "en": "https://hadeethenc.com/en/browse/download/en",
+              "hi": "https://hadeethenc.com/en/browse/download/hi",
+              "ur": "https://hadeethenc.com/en/browse/download/ur",
+          }
+          NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+
+          def fetch(url):
+              last = None
+              for attempt in range(8):
+                  req = urllib.request.Request(url, headers={
+                      "User-Agent": "Aaris-Offline-SourceVault/1.0",
+                      "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*",
+                  })
+                  try:
+                      with urllib.request.urlopen(req, timeout=90) as response:
+                          data = response.read()
+                          return data, dict(response.headers.items())
+                  except urllib.error.HTTPError as exc:
+                      last = exc
+                      if exc.code != 429:
+                          raise
+                      delay = int(exc.headers.get("Retry-After") or min(10 * (attempt + 1), 60))
+                      time.sleep(delay)
+              raise RuntimeError(f"Could not download after retries: {url}: {last}")
+
+          def shared_strings(z):
+              try:
+                  root = ET.fromstring(z.read("xl/sharedStrings.xml"))
+              except KeyError:
+                  return []
+              out = []
+              for si in root.findall("m:si", NS):
+                  out.append("".join(t.text or "" for t in si.iterfind(".//m:t", NS)))
+              return out
+
+          def first_sheet(z):
+              wb = ET.fromstring(z.read("xl/workbook.xml"))
+              sheet = wb.find("m:sheets/m:sheet", NS)
+              if sheet is None:
+                  raise RuntimeError("Workbook has no worksheet")
+              rel_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+              rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+              target = None
+              for rel in rels:
+                  if rel.attrib.get("Id") == rel_id:
+                      target = rel.attrib.get("Target")
+                      break
+              if not target:
+                  raise RuntimeError("Worksheet relationship missing")
+              target = target.lstrip("/")
+              return target if target.startswith("xl/") else "xl/" + target
+
+          def workbook_summary(data):
+              with zipfile.ZipFile(io.BytesIO(data)) as z:
+                  required = {"[Content_Types].xml", "xl/workbook.xml"}
+                  if not required.issubset(set(z.namelist())):
+                      raise RuntimeError("Download is not a valid XLSX workbook")
+                  strings = shared_strings(z)
+                  sheet_path = first_sheet(z)
+                  root = ET.fromstring(z.read(sheet_path))
+                  dim = root.find("m:dimension", NS)
+                  dimension = dim.attrib.get("ref", "") if dim is not None else ""
+                  rows = []
+                  for row in root.findall(".//m:sheetData/m:row", NS)[:8]:
+                      vals = []
+                      for cell in row.findall("m:c", NS):
+                          kind = cell.attrib.get("t")
+                          v = cell.find("m:v", NS)
+                          text = ""
+                          if v is not None and v.text is not None:
+                              if kind == "s":
+                                  idx = int(v.text)
+                                  text = strings[idx] if 0 <= idx < len(strings) else ""
+                              else:
+                                  text = v.text
+                          elif kind == "inlineStr":
+                              text = "".join(t.text or "" for t in cell.iterfind(".//m:t", NS))
+                          vals.append(text)
+                      rows.append(vals)
+                  version_hints = [s for s in strings if re.search(r"(?i)version|الإصدار|نسخة", s)][:20]
+                  return {"dimension": dimension, "preview_rows": rows, "version_hints": version_hints}
+
+          snapshot = {
+              "schema": 1,
+              "source": "HadeethEnc.com",
+              "source_home": "https://hadeethenc.com/en",
+              "terms_url": "https://hadeethenc.com/en",
+              "fetched_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+              "runtime_network_required": False,
+              "languages": {},
+              "redistribution_basis": (
+                  "HadeethEnc permits download and republication when source text is unchanged, "
+                  "publisher/source and version are retained, source updates are respected, and "
+                  "inappropriate advertising is not placed with the content."
+              ),
+          }
+          for lang, url in URLS.items():
+              data, headers = fetch(url)
+              if len(data) < 10000 or data[:2] != b"PK":
+                  raise RuntimeError(f"{lang}: response is not an XLSX file ({len(data)} bytes)")
+              summary = workbook_summary(data)
+              path = OUT / f"hadeethenc-{lang}.xlsx"
+              path.write_bytes(data)
+              snapshot["languages"][lang] = {
+                  "url": url,
+                  "file": path.name,
+                  "sha256": hashlib.sha256(data).hexdigest(),
+                  "bytes": len(data),
+                  "etag": headers.get("ETag"),
+                  "last_modified": headers.get("Last-Modified"),
+                  **summary,
+              }
+
+          (OUT / "SOURCE.json").write_text(
+              json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Commit immutable source snapshot
+        run: |
+          git config user.name "Aaris Source Vault"
+          git config user.email "actions@users.noreply.github.com"
+          git add source-vault/hadith/hadeethenc-official
+          if git diff --cached --quiet; then
+            echo "Snapshot already current"
+            exit 0
+          fi
+          git commit -m "Vendor official HadeethEnc en hi ur snapshot [hadeethenc snapshot]"
+          git push origin HEAD:${{ github.ref_name }}
