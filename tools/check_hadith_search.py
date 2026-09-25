@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 
-from build_hadith import search_tokens, search_text, romanize_hindi
+from build_hadith import search_tokens, search_text, romanize_hindi, SEARCH_FIELD_BOUNDARY
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -173,6 +173,25 @@ def main():
                 "Hindi HadeethEnc phrase is not reachable through production FTS", sample_hi[0]
             )
             print("Hindi HadeethEnc exact-phrase retrieval: PASS")
+
+            layered_id = db.execute(
+                "SELECT hadith_id FROM editorial_translation GROUP BY hadith_id HAVING count(*)>=2 ORDER BY hadith_id LIMIT 1"
+            ).fetchone()[0]
+            layered_texts = [
+                search_text(row[0]) for row in db.execute(
+                    "SELECT text FROM editorial_translation WHERE hadith_id=? AND status='released' ORDER BY rowid",
+                    (layered_id,)
+                ) if search_text(row[0])
+            ]
+            assert len(layered_texts) >= 2
+            fts_latin = db.execute("SELECT latin FROM hadith_fts WHERE hadith_id=?", (layered_id,)).fetchone()[0]
+            assert (layered_texts[0] + " " + SEARCH_FIELD_BOUNDARY + " " + layered_texts[1]) in fts_latin, (
+                "Evidence fields lost their phrase boundary", layered_id
+            )
+            assert db.execute(
+                "SELECT count(*) FROM search_token WHERE token=?", (SEARCH_FIELD_BOUNDARY,)
+            ).fetchone()[0] == 0
+            print("Cross-field exact-phrase boundary: PASS")
 
             hindi_roman = romanize_hindi(sample_hi[1])
             hindi_roman_tokens = search_text(hindi_roman).split()[:7]
