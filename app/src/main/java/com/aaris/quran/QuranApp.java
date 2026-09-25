@@ -20,6 +20,7 @@ public final class QuranApp extends Application {
     }
     final ExecutorService io=worker("io");
     final ExecutorService searchWorker=worker("hadith-search");
+    final ExecutorService hadithBrowseWorker=worker("hadith-browse");
     final ExecutorService quranSearchWorker=worker("quran-search");
     final ExecutorService recitationWorker=worker("recitation");
     final ExecutorService readerWorker=worker("reader-prefetch");
