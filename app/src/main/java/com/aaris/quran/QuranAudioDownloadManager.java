@@ -12,7 +12,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Explicit user-initiated downloader for immutable isolated-word Surah containers. */
 final class QuranAudioDownloadManager {
     interface Listener {
-        void onProgress(int surah,int completed,int total);
         void onComplete();
         void onError(int surah,String message);
     }
@@ -26,16 +25,25 @@ final class QuranAudioDownloadManager {
 
     private final QuranAudioStore store;
     private final ExecutorService io;
+    private final Runnable changed;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicBoolean busy=new AtomicBoolean(false);
     private final Object connectionLock=new Object();
     private volatile boolean cancel;
     private HttpURLConnection activeConnection;
+    private volatile String progress="";
+    private volatile int activeSurah;
+    private volatile int percent=-1;
 
-    QuranAudioDownloadManager(QuranAudioStore store,ExecutorService io){this.store=store;this.io=io;}
+    QuranAudioDownloadManager(QuranAudioStore store,ExecutorService io,Runnable changed){this.store=store;this.io=io;this.changed=changed;}
     boolean busy(){return busy.get();}
+    String progress(){return progress;}
+    int activeSurah(){return activeSurah;}
+    int percent(){return percent;}
     void cancel(){
         cancel=true;
+        if(busy.get())progress="Pausing word audio…";
+        notifyChanged();
         HttpURLConnection connection;
         synchronized(connectionLock){connection=activeConnection;}
         if(connection!=null)connection.disconnect();
@@ -44,62 +52,77 @@ final class QuranAudioDownloadManager {
     void downloadSurah(int surah,Listener listener){
         if(surah<1||surah>114){postError(listener,surah,"Invalid Surah");return;}
         if(!busy.compareAndSet(false,true)){postError(listener,surah,"Audio download is already running");return;}
-        cancel=false;
+        cancel=false;activeSurah=surah;percent=0;progress="Word audio · Surah "+surah+" · starting…";notifyChanged();
         try{
             io.execute(()->{
                 String failure=null;
                 try{
-                    if(!store.installedSurah(surah))downloadOne(surah);
+                    if(!store.installedSurah(surah))downloadOne(surah,0,1);
                     if(cancel)throw new IOException("Download cancelled");
-                    postProgress(listener,surah,1,1);
+                    percent=100;progress="Word audio · Surah "+surah+" · downloaded ✓";
                 }catch(Exception e){failure=safeMessage(e);}
                 finally{busy.set(false);}
-                if(failure==null)postComplete(listener);else postError(listener,surah,failure);
+                if(failure==null){notifyChanged();postComplete(listener);}
+                else{progress=terminalProgress(failure);notifyChanged();postError(listener,surah,failure);}
             });
         }catch(RejectedExecutionException rejected){
-            busy.set(false);
+            busy.set(false);progress="Word audio could not start";notifyChanged();
             postError(listener,surah,"Audio download could not start");
         }
     }
 
     void downloadAll(Listener listener){
         if(!busy.compareAndSet(false,true)){postError(listener,0,"Audio download is already running");return;}
-        cancel=false;
+        cancel=false;activeSurah=0;percent=-1;progress="Checking installed word audio…";notifyChanged();
         try{
             io.execute(()->{
                 int completed=store.installedCount(),current=1;String failure=null;
                 try{
+                    progress="Word audio · "+completed+"/114 saved";
                     for(current=1;current<=114;current++){
                         if(cancel)throw new IOException("Download cancelled");
                         if(store.installedSurah(current))continue;
-                        downloadOne(current);completed++;postProgress(listener,current,completed,114);
+                        activeSurah=current;percent=0;progress="Word audio · "+completed+"/114 saved · Surah "+current+" · starting…";
+                        downloadOne(current,completed,114);completed++;percent=100;
+                        progress="Word audio · "+completed+"/114 saved";notifyChanged();
                     }
                 }catch(Exception e){failure=safeMessage(e);}
                 finally{busy.set(false);}
-                if(failure==null)postComplete(listener);else postError(listener,current,failure);
+                if(failure==null){activeSurah=0;percent=100;progress="All Quran word audio downloaded ✓";notifyChanged();postComplete(listener);}
+                else{progress=terminalProgress(failure);notifyChanged();postError(listener,current,failure);}
             });
         }catch(RejectedExecutionException rejected){
-            busy.set(false);
+            busy.set(false);progress="Word audio could not start";notifyChanged();
             postError(listener,0,"Audio download could not start");
         }
     }
 
-    private void downloadOne(int surah) throws Exception {
+    private interface TransferProgress {void changed(long downloaded,long total);}
+
+    private void downloadOne(int surah,int completed,int total) throws Exception {
         QuranAudioStore.PackMeta meta=store.meta(surah);
         if(meta==null)throw new IOException("Surah pronunciation catalog missing");
         File partial=store.partialFile(surah);
-        downloadResumable(meta.url,partial,meta.bytes);
+        downloadResumable(meta.url,partial,meta.bytes,(downloaded,totalBytes)->{
+            activeSurah=surah;
+            int value=(int)Math.max(0L,Math.min(100L,(downloaded*100L)/Math.max(1L,totalBytes)));
+            percent=value;
+            progress=total<=1
+                ?"Word audio · Surah "+surah+" · "+value+"%"
+                :"Word audio · "+completed+"/"+total+" saved · Surah "+surah+" · "+value+"%";
+            notifyChanged();
+        });
         if(cancel)throw new IOException("Download cancelled");
         try{store.installDownloaded(surah,partial);}
         catch(Exception invalid){partial.delete();throw invalid;}
         if(!store.installedSurah(surah))throw new IOException("Installed Surah pronunciation verification failed");
     }
 
-    private void downloadResumable(String address,File target,long expectedBytes) throws IOException {
+    private void downloadResumable(String address,File target,long expectedBytes,TransferProgress progressListener) throws IOException {
         IOException last=null;
         for(int attempt=1;attempt<=MAX_ATTEMPTS;attempt++){
             if(cancel)throw new IOException("Download cancelled");
-            try{downloadAttempt(address,target,expectedBytes);return;}
+            try{downloadAttempt(address,target,expectedBytes,progressListener);return;}
             catch(IOException failure){
                 last=failure;
                 if(cancel)throw new IOException("Download cancelled",failure);
@@ -111,13 +134,14 @@ final class QuranAudioDownloadManager {
         throw last==null?new IOException("Audio download did not complete"):last;
     }
 
-    private void downloadAttempt(String address,File target,long expectedBytes) throws IOException {
+    private void downloadAttempt(String address,File target,long expectedBytes,TransferProgress progressListener) throws IOException {
         if(expectedBytes<64)throw new IOException("Invalid expected Surah pronunciation size");
         File parent=target.getParentFile();
         if(parent==null||(!parent.exists()&&!parent.mkdirs()))throw new IOException("Temporary audio storage is not available");
         long existing=target.isFile()?target.length():0L;
-        if(existing==expectedBytes)return;
+        if(existing==expectedBytes){progressListener.changed(expectedBytes,expectedBytes);return;}
         if(existing<0||existing>expectedBytes){if(target.exists()&&!target.delete())throw new IOException("Invalid partial audio could not be cleared");existing=0;}
+        progressListener.changed(existing,expectedBytes);
 
         boolean restarted=false;
         while(true){
@@ -135,7 +159,7 @@ final class QuranAudioDownloadManager {
                 if(!"https".equalsIgnoreCase(c.getURL().getProtocol()))throw new IOException("Audio download redirected away from HTTPS");
                 if(existing>0&&code==416&&!restarted){
                     if(target.exists()&&!target.delete())throw new IOException("Stale partial audio could not be cleared");
-                    existing=0;restarted=true;continue;
+                    existing=0;progressListener.changed(0,expectedBytes);restarted=true;continue;
                 }
                 if(code!=200&&code!=206)throw new IOException("Audio server HTTP "+code);
                 boolean append=existing>0&&code==206;
@@ -143,9 +167,9 @@ final class QuranAudioDownloadManager {
                     String range=c.getHeaderField("Content-Range"),prefix="bytes "+existing+"-";
                     if(range==null||!range.startsWith(prefix)){
                         if(target.exists()&&!target.delete())throw new IOException("Mismatched partial audio could not be cleared");
-                        existing=0;restarted=true;continue;
+                        existing=0;progressListener.changed(0,expectedBytes);restarted=true;continue;
                     }
-                }else if(existing>0){existing=0;}
+                }else if(existing>0){existing=0;progressListener.changed(0,expectedBytes);}
 
                 long declared=c.getContentLengthLong();
                 long finalDeclared=declared<0?-1:(append?existing+declared:declared);
@@ -154,7 +178,7 @@ final class QuranAudioDownloadManager {
                 long usable=parent.getUsableSpace();
                 if(usable>0&&usable<needed)throw new IOException("Not enough phone storage for this audio download");
 
-                long received=0;
+                long received=0,lastProgressNanos=0L;
                 try(InputStream in=new BufferedInputStream(c.getInputStream());FileOutputStream out=new FileOutputStream(target,append)){
                     byte[] b=new byte[64*1024];int n;
                     while((n=in.read(b))!=-1){
@@ -162,12 +186,16 @@ final class QuranAudioDownloadManager {
                         received+=n;long total=(append?existing:0)+received;
                         if(total>expectedBytes)throw new IOException("Downloaded pronunciation is larger than the verified catalog size");
                         out.write(b,0,n);
+                        long now=System.nanoTime();
+                        if(total==expectedBytes||lastProgressNanos==0L||now-lastProgressNanos>=250_000_000L){
+                            lastProgressNanos=now;progressListener.changed(total,expectedBytes);
+                        }
                     }
                     out.getFD().sync();
                 }
                 if(declared>=0&&received!=declared)throw new IOException("Audio download was interrupted; retry will resume it");
                 if(target.length()!=expectedBytes)throw new IOException("Audio download is incomplete; retry will resume it");
-                return;
+                progressListener.changed(expectedBytes,expectedBytes);return;
             }finally{
                 synchronized(connectionLock){if(activeConnection==c)activeConnection=null;}
                 c.disconnect();
@@ -175,8 +203,14 @@ final class QuranAudioDownloadManager {
         }
     }
 
-    private void postProgress(Listener l,int surah,int completed,int total){if(l!=null)main.post(()->l.onProgress(surah,completed,total));}
+    private void notifyChanged(){
+        if(changed==null)return;
+        if(Looper.myLooper()==Looper.getMainLooper())changed.run();else main.post(changed);
+    }
     private void postComplete(Listener l){if(l!=null)main.post(l::onComplete);}
     private void postError(Listener l,int surah,String message){if(l!=null)main.post(()->l.onError(surah,message));}
+    private static String terminalProgress(String failure){
+        return "Download cancelled".equals(failure)?"Word audio paused · partial download kept":"Word audio stopped · "+failure;
+    }
     private static String safeMessage(Exception e){String m=e.getMessage();return m==null||m.trim().isEmpty()?"Audio download did not complete":m;}
 }

@@ -27,7 +27,7 @@ public final class QuranApp extends Application {
     volatile boolean recitationActive;
     volatile int recitationSurah=1,recitationAyah=1;
     volatile String recitationLabel="";
-    Runnable recitationChanged,hadithChanged;
+    Runnable recitationChanged,hadithChanged,operationChanged;
     final ExecutorService audioWorker=worker("audio");
     final ExecutorService recitationDownloadWorker=worker("recitation-download");
     final Handler main=new Handler(Looper.getMainLooper());
@@ -70,7 +70,7 @@ public final class QuranApp extends Application {
                 try{
                     wordAudio=new QuranAudioStore(this,content.audioAlignmentHash);
                     audio=new WordAudioPlayer(this,wordAudio);
-                    audioDownloads=new QuranAudioDownloadManager(wordAudio,audioWorker);
+                    audioDownloads=new QuranAudioDownloadManager(wordAudio,audioWorker,this::notifyOperationChanged);
                 }catch(Exception e){
                     wordAudio=null;audio=null;audioDownloads=null;
                     wordAudioLoadError="Local Quran audio storage could not be opened: "+e.getMessage();
@@ -106,6 +106,11 @@ public final class QuranApp extends Application {
     }
     private void warmSearchIndex(){
         try{searchIndex();}catch(CancellationException ignored){}catch(Exception e){android.util.Log.w("AarisSearch","Quran search warm-up failed",e);}
+    }
+    void notifyOperationChanged(){
+        if(Looper.myLooper()==Looper.getMainLooper()){
+            Runnable current=operationChanged;if(current!=null)current.run();
+        }else main.post(()->{Runnable current=operationChanged;if(current!=null)current.run();});
     }
     void ready(Runnable callback){
         if(callback==null)return;
