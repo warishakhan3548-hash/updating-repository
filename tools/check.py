@@ -292,6 +292,13 @@ def main():
     assert 'more.setEnabled(true);more.setText("Load next 50 Hadith matches");' in hadith_search_page and 'Retry below.' in hadith_search_page, 'Hadith pagination failures must restore the same retry control'
     assert 'catch(CancellationException|OperationCanceledException ignored){ui.post' in hadith_search_page and 'searchGeneration.get()==generation&&more!=null&&more.isAttachedToWindow()' in hadith_search_page, 'Timed-out Hadith pagination must restore retry unless the search generation has actually changed'
     assert 'list.removeView(more)' not in hadith_search_batch and 'loadHadithSearch(q,response.nextOffset,generation,list,status,more)' in hadith_search_batch, 'Hadith load-more taps must not destroy their only retry affordance before success'
+    quran_search_page = java_method('loadQuranResults')
+    quran_search_batch = java_method('appendQuranBatch')
+    assert 'more.setEnabled(false);more.setText("Loading next 50 Quran matches…");' in quran_search_page, 'Quran pagination must keep the existing load-more control visible while loading'
+    assert 'more.getParent() instanceof ViewGroup' in quran_search_page and 'removeView(more)' in quran_search_page, 'Quran pagination should remove the old load-more control only after the next page succeeds'
+    assert 'more.setEnabled(true);more.setText("Load next 50 matches");' in quran_search_page and 'Retry below.' in quran_search_page, 'Quran pagination failures must restore the same retry control'
+    assert 'catch(CancellationException ignored){ui.post' in quran_search_page and 'searchGeneration.get()==generation&&more!=null&&more.isAttachedToWindow()' in quran_search_page, 'Cancelled Quran pagination must restore retry only while the same search is still active'
+    assert 'list.removeView(more)' not in quran_search_batch and 'loadQuranResults(list,response,end,status,generation,more)' in quran_search_batch, 'Quran load-more taps must not destroy their only retry affordance before success'
     recitation_status = java_method('fillRecitationSurahDownloads')
     recitation_rows = java_method('appendRecitationSurahDownloads')
     recitation_controls = java_method('audioControls')
