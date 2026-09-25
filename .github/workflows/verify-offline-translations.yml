@@ -3,7 +3,7 @@ name: Verify offline trusted translations
 on:
   push:
     branches:
-      - upgrade/offline-trusted-translations-20260925
+      - 'upgrade/**'
     paths:
       - '.github/workflows/verify-offline-translations.yml'
       - 'tools/**'
@@ -11,8 +11,8 @@ on:
       - 'source-vault/hadith/hadeethenc/**'
       - 'source-vault/hadith/open-hadith-data/**'
       - 'app/build.gradle'
-      - 'app/src/main/java/com/aaris/quran/HadithStore.java'
-      - 'app/src/main/java/com/aaris/quran/TranslationStore.java'
+      - 'core/**'
+      - 'app/src/main/java/com/aaris/quran/**'
   workflow_dispatch:
 
 concurrency:
@@ -41,5 +41,11 @@ jobs:
       - name: Run offline integrity and search regressions
         run: |
           set -euo pipefail
-          python3 tools/check.py
+          ANDROID_JAR="${ANDROID_HOME:-}/platforms/android-35/android.jar"
+          AAPT2="${ANDROID_HOME:-}/build-tools/35.0.0/aapt2"
+          if [[ -f "$ANDROID_JAR" && -x "$AAPT2" ]]; then
+            python3 tools/check.py --android-jar "$ANDROID_JAR" --aapt2 "$AAPT2"
+          else
+            python3 tools/check.py
+          fi
           python3 tools/check_hadith.py
