@@ -451,6 +451,7 @@ public final class MainActivity extends Activity {
             c.addView(translated);gap(c,6);caption(c,translation.provenance);
             if(!readingLanguage().equals(translation.language))caption(c,"Showing "+languageName(translation.language)+"; "+languageName(readingLanguage())+" is not installed for this record.");
         }
+        else caption(c,languageName(readingLanguage())+" translation is not installed for this record.");
         List<String> grades=metadata==null?store.grades(record.id):metadata.grades;if(!grades.isEmpty())caption(c,String.join(" · ",grades));
         c.setFocusable(true);c.setContentDescription((info==null?"Hadith":info.nameEn)+" "+record.number);
         c.setOnClickListener(v->hadithRecord(record.id));Glass.motion(c);
@@ -523,7 +524,7 @@ public final class MainActivity extends Activity {
             page.addView(translated);gap(page,8);caption(page,translation.provenance);gap(page,10);
             if(!readingLanguage().equals(translation.language))caption(page,"Showing "+languageName(translation.language)+"; "+languageName(readingLanguage())+" is not installed for this record.");
         }else{
-            caption(page,"Arabic source text only in this offline pack.");gap(page,10);
+            caption(page,languageName(readingLanguage())+" translation is not installed for this record · Arabic source text only.");gap(page,10);
         }
         if(record.narrator!=null&&!record.narrator.trim().isEmpty())caption(page,"Narrator: "+record.narrator);
         List<String> grades=store.grades(id);if(!grades.isEmpty()){gap(page,12);page.addView(label("GRADING"));for(String grade:grades)caption(page,grade);}
