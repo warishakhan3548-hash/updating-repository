@@ -30,12 +30,13 @@ public final class QuranApp extends Application {
     volatile boolean recitationActive;
     volatile int recitationSurah=1,recitationAyah=1;
     volatile String recitationLabel="";
-    Runnable recitationChanged,hadithChanged,operationChanged,researchPdfChanged;
+    Runnable recitationChanged,hadithChanged,operationChanged,researchPdfChanged,preparedExportChanged;
     final ExecutorService audioWorker=worker("audio");
     final ExecutorService audioStatusWorker=worker("audio-status");
     final ExecutorService recitationDownloadWorker=worker("recitation-download");
     final Handler main=new Handler(Looper.getMainLooper());
     final AtomicBoolean researchPdfBusy=new AtomicBoolean(false);
+    final AtomicBoolean exportPrepareBusy=new AtomicBoolean(false);
     final AtomicBoolean exportWriteBusy=new AtomicBoolean(false);
     volatile ContentStore content;
     volatile LearningStore learning;
@@ -54,6 +55,7 @@ public final class QuranApp extends Application {
     private int startedActivities;
     private boolean searchWarmPending;
     private ResearchPdfResult pendingResearchPdf;
+    private PreparedExportResult pendingPreparedExport;
     private final CountDownLatch ready=new CountDownLatch(1);
 
     static final class ResearchPdfResult {
@@ -75,6 +77,42 @@ public final class QuranApp extends Application {
     }
     private void notifyResearchPdfChanged(){
         main.post(()->{Runnable current=researchPdfChanged;if(current!=null)current.run();});
+    }
+
+    static final class PreparedExportResult {
+        final String token,name,type,error;
+        PreparedExportResult(String token,String name,String type,String error){this.token=token;this.name=name;this.type=type;this.error=error;}
+    }
+    synchronized void publishPreparedExport(String token,String name,String type){
+        PreparedExportResult old=pendingPreparedExport;
+        pendingPreparedExport=new PreparedExportResult(token,name,type,null);
+        discardPreparedExport(old);
+        notifyPreparedExportChanged();
+    }
+    synchronized void publishPreparedExportFailure(String error){
+        PreparedExportResult old=pendingPreparedExport;
+        pendingPreparedExport=new PreparedExportResult(null,null,null,error);
+        discardPreparedExport(old);
+        notifyPreparedExportChanged();
+    }
+    PreparedExportResult takePreparedExportResult(){
+        PreparedExportResult result;
+        synchronized(this){
+            result=pendingPreparedExport;
+            if(result==null)return null;
+            pendingPreparedExport=null;
+            exportPrepareBusy.set(false);
+        }
+        notifyOperationChanged();
+        return result;
+    }
+    private void discardPreparedExport(PreparedExportResult result){
+        if(result==null||result.token==null||exports==null)return;
+        try{exports.discard(result.token);}catch(Exception ignored){}
+    }
+    private void notifyPreparedExportChanged(){
+        main.post(()->{Runnable current=preparedExportChanged;if(current!=null)current.run();});
+        notifyOperationChanged();
     }
     @Override public void onCreate(){
         super.onCreate();
