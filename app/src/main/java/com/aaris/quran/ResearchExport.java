@@ -49,7 +49,7 @@ final class ResearchExport {
             for(HadithStore.Hit hit:hits){
                 HadithStore.Record record=hit.record;HadithStore.CollectionInfo collection=store.collection(record.collectionId);
                 pages.block((collection==null?record.collectionId:collection.nameEn)+" · Hadith "+record.number+"\n["+record.id+"]",Typeface.DEFAULT_BOLD,13,false);
-                pages.block(hit.match.band+" TEXT MATCH · "+hit.match.explanation(),Typeface.DEFAULT,10,false);
+                pages.block(hit.reference?"REFERENCE MATCH":hit.match.band+" TEXT MATCH · "+hit.match.explanation(),Typeface.DEFAULT,10,false);
                 pages.block(record.arabic,arabic,22,true);
                 HadithStore.DisplayTranslation translated=store.translation(record,language);
                 if(translated!=null){pages.block(translated.text,"ur".equals(translated.language)?arabic:Typeface.DEFAULT,14,"ur".equals(translated.language));pages.block("Translation language: "+translated.language+"\n"+translated.provenance,Typeface.DEFAULT,10,false);}
