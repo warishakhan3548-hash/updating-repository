@@ -80,15 +80,22 @@ def generatedHadithSource = file("$buildDir/generated/hadith-source")
 def prepareVendoredHadithSource = tasks.register('prepareVendoredHadithSource') {
     inputs.file rootProject.file('tools/prepare_open_hadith_data.py')
     inputs.file rootProject.file('tools/hadith-catalog.json')
+    inputs.files rootProject.fileTree(activeHadithSource)
     inputs.dir vendoredHadithSource
     outputs.dir generatedHadithSource
     doLast {
         if (new File(activeHadithSource, 'manifest.json').exists()) {
+            // Keep the fallback output deterministic. If the explicit pack is later removed,
+            // the active-source input change forces this task to rebuild instead of exposing a
+            // stale generated directory from an older vendored snapshot.
+            delete generatedHadithSource
+            generatedHadithSource.mkdirs()
             logger.lifecycle('Using explicit source-vault/hadith/active pack; vendored fallback preparation skipped.')
             return
         }
         if (!new File(vendoredHadithSource, 'SOURCE.json').exists()) {
             delete generatedHadithSource
+            generatedHadithSource.mkdirs()
             logger.lifecycle('No explicit or vendored Hadith source pack is available.')
             return
         }
@@ -104,6 +111,7 @@ def prepareVendoredHadithSource = tasks.register('prepareVendoredHadithSource') 
 def hadithPack = tasks.register('prepareHadithPack') {
     dependsOn prepareVendoredHadithSource
     inputs.file rootProject.file('tools/build_hadith.py')
+    inputs.file rootProject.file('tools/hadith-catalog.json')
     // Empty-safe: explicit active pack is optional; vendored fallback is generated when absent.
     inputs.files rootProject.fileTree(activeHadithSource)
     inputs.dir generatedHadithSource
