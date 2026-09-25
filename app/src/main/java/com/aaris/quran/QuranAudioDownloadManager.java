@@ -6,6 +6,7 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Explicit user-initiated downloader for immutable isolated-word Surah containers. */
@@ -36,32 +37,44 @@ final class QuranAudioDownloadManager {
     void downloadSurah(int surah,Listener listener){
         if(surah<1||surah>114){postError(listener,surah,"Invalid Surah");return;}
         if(!busy.compareAndSet(false,true)){postError(listener,surah,"Audio download is already running");return;}
-        cancel=false;io.execute(()->{
-            String failure=null;
-            try{
-                if(!store.installedSurah(surah))downloadOne(surah);
-                if(cancel)throw new IOException("Download cancelled");
-                postProgress(listener,surah,1,1);
-            }catch(Exception e){failure=safeMessage(e);}
-            finally{busy.set(false);}
-            if(failure==null)postComplete(listener);else postError(listener,surah,failure);
-        });
+        cancel=false;
+        try{
+            io.execute(()->{
+                String failure=null;
+                try{
+                    if(!store.installedSurah(surah))downloadOne(surah);
+                    if(cancel)throw new IOException("Download cancelled");
+                    postProgress(listener,surah,1,1);
+                }catch(Exception e){failure=safeMessage(e);}
+                finally{busy.set(false);}
+                if(failure==null)postComplete(listener);else postError(listener,surah,failure);
+            });
+        }catch(RejectedExecutionException rejected){
+            busy.set(false);
+            postError(listener,surah,"Audio download could not start");
+        }
     }
 
     void downloadAll(Listener listener){
         if(!busy.compareAndSet(false,true)){postError(listener,0,"Audio download is already running");return;}
-        cancel=false;io.execute(()->{
-            int completed=0,current=1;String failure=null;
-            try{
-                for(current=1;current<=114;current++){
-                    if(cancel)throw new IOException("Download cancelled");
-                    if(!store.installedSurah(current))downloadOne(current);
-                    completed++;postProgress(listener,current,completed,114);
-                }
-            }catch(Exception e){failure=safeMessage(e);}
-            finally{busy.set(false);}
-            if(failure==null)postComplete(listener);else postError(listener,current,failure);
-        });
+        cancel=false;
+        try{
+            io.execute(()->{
+                int completed=0,current=1;String failure=null;
+                try{
+                    for(current=1;current<=114;current++){
+                        if(cancel)throw new IOException("Download cancelled");
+                        if(!store.installedSurah(current))downloadOne(current);
+                        completed++;postProgress(listener,current,completed,114);
+                    }
+                }catch(Exception e){failure=safeMessage(e);}
+                finally{busy.set(false);}
+                if(failure==null)postComplete(listener);else postError(listener,current,failure);
+            });
+        }catch(RejectedExecutionException rejected){
+            busy.set(false);
+            postError(listener,0,"Audio download could not start");
+        }
     }
 
     private void downloadOne(int surah) throws Exception {
