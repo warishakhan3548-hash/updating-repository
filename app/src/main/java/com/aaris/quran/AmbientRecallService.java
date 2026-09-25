@@ -29,7 +29,8 @@ public final class AmbientRecallService extends Service {
     private KeyguardManager keyguard;
     private View card;
     private Typeface font;
-    private boolean destroyed,ready,receiverRegistered,preview;
+    private boolean destroyed,ready,receiverRegistered,preview,candidateLoading;
+    private int candidateGeneration;
     private long cardShownAt;
     private final Runnable tick=this::update;
     private final BroadcastReceiver screen=new BroadcastReceiver(){
@@ -81,20 +82,48 @@ public final class AmbientRecallService extends Service {
         long now=SystemClock.elapsedRealtime();boolean allowed=eligible();
         AmbientSession.Action action=session.advance(now,allowed);
         if(action==AmbientSession.Action.HIDE)removeCard();
-        if(action==AmbientSession.Action.SHOW){
-            try {
-                List<Recall.State> candidates=new ArrayList<>();
-                for(Recall.State state:app.learning.states().values())if(state.active&&app.content.hasRecallTarget(state.target)){
-                    ContentStore.Word word=app.content.word(state.target);if(word==null||word.hasGloss(app.learning.get("language","hi")))candidates.add(state);
-                }
-                if(candidates.isEmpty()){finish("Choose a word or ayah from Quran to remember first.");return;}
-                String target=session.choose(candidates,System.currentTimeMillis(),!preview&&AmbientSettings.dueOnly(this));
-                if(target==null)session.dismiss(now);else {showCard(target);session.presented(target);cardShownAt=now;preview=false;}
-            }catch(RuntimeException e){finish("Card could not open. Open Aaris and restart the session.");return;}
-        }
+        if(action==AmbientSession.Action.SHOW)prepareCard();
         // A dismissed/ignored card is not a failed review. Never leave a stale card indefinitely.
         if(card!=null&&now-cardShownAt>=2*Recall.MINUTE)dismissCard();
         if(!destroyed&&session.running())handler.postDelayed(tick,allowed&&!session.showing()?Math.max(100,Math.min(1000,session.remaining())):1000);
+    }
+    private void prepareCard(){
+        if(candidateLoading||destroyed||!session.running()||!session.showing())return;
+        candidateLoading=true;final int token=++candidateGeneration;
+        try{
+            app.readerWorker.execute(()->{
+                List<Recall.State> candidates=new ArrayList<>();RuntimeException failure=null;
+                try{
+                    String language=app.learning.get("language","hi");
+                    for(Recall.State state:app.learning.states().values()){
+                        if(!state.active)continue;
+                        RecallTarget target=RecallTarget.parse(state.target);if(target==null)continue;
+                        ContentStore.Word word=null;boolean valid;
+                        if(target.kind==RecallTarget.Kind.WORD||target.kind==RecallTarget.Kind.PREFATORY_WORD){
+                            word=app.content.word(state.target);valid=word!=null;
+                        }else valid=app.content.hasRecallTarget(state.target);
+                        if(valid&&(word==null||word.hasGloss(language)))candidates.add(state);
+                    }
+                }catch(RuntimeException error){failure=error;}
+                final RuntimeException problem=failure;
+                handler.post(()->{
+                    if(token!=candidateGeneration)return;
+                    candidateLoading=false;
+                    if(destroyed||!session.running()||!session.showing())return;
+                    if(problem!=null){finish("Card could not open. Open Aaris and restart the session.");return;}
+                    long now=SystemClock.elapsedRealtime();
+                    if(!eligible()){session.dismiss(now);handler.post(tick);return;}
+                    if(candidates.isEmpty()){finish("Choose a word or ayah from Quran to remember first.");return;}
+                    try{
+                        String target=session.choose(candidates,System.currentTimeMillis(),!preview&&AmbientSettings.dueOnly(this));
+                        if(target==null){session.dismiss(now);handler.post(tick);}
+                        else{showCard(target);session.presented(target);cardShownAt=now;preview=false;}
+                    }catch(RuntimeException error){finish("Card could not open. Open Aaris and restart the session.");}
+                });
+            });
+        }catch(java.util.concurrent.RejectedExecutionException rejected){
+            candidateLoading=false;finish("Card could not open. Open Aaris and restart the session.");
+        }
     }
     private void showCard(String shownTarget){
         removeCard();
@@ -152,8 +181,8 @@ public final class AmbientRecallService extends Service {
     private TextView control(String value,Runnable action){TextView t=text(windowContext,value,14,INK);t.setGravity(Gravity.CENTER);pad(t,12,10);t.setMinimumHeight(dp(windowContext,48));t.setBackground(Glass.touch(windowContext,Surface.Kind.BUTTON,true));t.setFocusable(true);t.setOnClickListener(v->action.run());Glass.motion(t);return t;}
     private void dismissCard(){removeCard();session.dismiss(SystemClock.elapsedRealtime());handler.removeCallbacks(tick);handler.post(tick);}
     private void removeCard(){if(app!=null&&app.audio!=null)app.audio.stop();if(card!=null){try{windows.removeViewImmediate(card);}catch(IllegalArgumentException ignored){}card=null;}}
-    private void finish(String message){session.stop();handler.removeCallbacksAndMessages(null);removeCard();app.ambientRunning=false;AmbientSettings.status(this,false,message);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
+    private void finish(String message){candidateGeneration++;candidateLoading=false;session.stop();handler.removeCallbacksAndMessages(null);removeCard();app.ambientRunning=false;AmbientSettings.status(this,false,message);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
     @Override public void onConfigurationChanged(Configuration config){super.onConfigurationChanged(config);if(card!=null)dismissCard();}
-    @Override public void onDestroy(){destroyed=true;handler.removeCallbacksAndMessages(null);removeCard();session.stop();if(receiverRegistered)unregisterReceiver(screen);if(app.visibilityChanged==tick)app.visibilityChanged=null;if(app.ambientRunning)AmbientSettings.status(this,false,"Session stopped. Restart it from the app.");app.ambientRunning=false;super.onDestroy();}
+    @Override public void onDestroy(){destroyed=true;candidateGeneration++;candidateLoading=false;handler.removeCallbacksAndMessages(null);removeCard();session.stop();if(receiverRegistered)unregisterReceiver(screen);if(app.visibilityChanged==tick)app.visibilityChanged=null;if(app.ambientRunning)AmbientSettings.status(this,false,"Session stopped. Restart it from the app.");app.ambientRunning=false;super.onDestroy();}
     @Override public IBinder onBind(Intent intent){return null;}
 }
