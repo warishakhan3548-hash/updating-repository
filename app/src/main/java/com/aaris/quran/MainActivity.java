@@ -66,6 +66,7 @@ public final class MainActivity extends Activity {
     private boolean sharingPdf;
     private TextView recitationBanner,recitationDownloadStatus;
     private Runnable recitationListener,hadithListener,activeSearchRefresh;
+    private boolean hadithRefreshPending;
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
     private final Map<String,JSONObject> selectionTrace=new LinkedHashMap<>();
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
@@ -108,7 +109,19 @@ public final class MainActivity extends Activity {
             if(isFinishing()||isDestroyed())return;
             if(app.loadError!=null){loading.setText(app.loadError+"\nOpen the app again. Your learning data remains stored separately.");return;}
             content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;
-            hadithListener=()->{if(isDestroyed()||isFinishing())return;if(searching){String q=searchQuery.trim();if(!q.isEmpty()&&searchCancellation==null&&UnifiedQuery.parse(q,searchScope).hadith){Runnable refresh=activeSearchRefresh;if(refresh!=null)refresh.run();}}else if(tab==2)show();};app.hadithChanged=hadithListener;
+            hadithListener=()->{
+                if(isDestroyed()||isFinishing())return;
+                if(searching){
+                    String q=searchQuery.trim();
+                    if(!q.isEmpty()&&UnifiedQuery.parse(q,searchScope).hadith){
+                        Runnable refresh=activeSearchRefresh;
+                        if(refresh!=null){
+                            if(searchCancellation==null)refresh.run();
+                            else hadithRefreshPending=true;
+                        }
+                    }
+                }else if(tab==2)show();
+            };app.hadithChanged=hadithListener;
             language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");translationSpeech=new TranslationSpeech(this);
             highContrast=Boolean.parseBoolean(learning.get("contrast","false"));
             arabicSize=appearance.arabicSize;
@@ -311,6 +324,7 @@ public final class MainActivity extends Activity {
 
     }
     private void cancelSearchWork(){
+        hadithRefreshPending=false;
         if(searchTimeout!=null)ui.removeCallbacks(searchTimeout);searchTimeout=null;
         if(searchCancellation!=null)searchCancellation.cancel();searchCancellation=null;
         if(searchTask!=null)searchTask.cancel(true);
@@ -328,6 +342,11 @@ public final class MainActivity extends Activity {
     private void finishSearch(CancellationSignal signal){
         if(searchCancellation!=signal)return;
         if(searchTimeout!=null)ui.removeCallbacks(searchTimeout);searchTimeout=null;searchCancellation=null;
+        if(hadithRefreshPending){
+            hadithRefreshPending=false;
+            Runnable refresh=activeSearchRefresh;
+            if(searching&&refresh!=null)ui.post(refresh);
+        }
     }
     private Map<String,HadithCardMeta> prepareHadithCards(HadithStore.SearchPage response,String preferredLanguage,CancellationSignal signal){
         LinkedHashMap<String,HadithCardMeta> out=new LinkedHashMap<>();HadithStore store=app.hadith;
@@ -1368,7 +1387,7 @@ public final class MainActivity extends Activity {
                         Map<String,HadithCardMeta> metadata=result==null?Collections.emptyMap():prepareHadithCards(result,preferredHadithLanguage,signal);
                         ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
                             hadithList.addView(label("HADITH"));
-                            if(result==null)caption(hadithList,"A local Hadith pack is not installed.");
+                            if(result==null)caption(hadithList,app.hadithLoading?"Hadith library is still opening; results will refresh automatically.":"A local Hadith pack is not installed.");
                             else {TextView hs=text(this,"",13,MUTED);hadithList.addView(hs);gap(hadithList,8);
                                 LinearLayout matches=column(this);hadithList.addView(matches);appendHadithResults(q,result,metadata,generation,matches,hs);}
                             finished.run();
