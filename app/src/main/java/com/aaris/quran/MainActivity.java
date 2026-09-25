@@ -682,7 +682,7 @@ public final class MainActivity extends Activity {
             panel.setLongClickable(true);panel.setOnLongClickListener(ayahLongPress);
             LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"%d : %d",a.surah,a.number),12,MUTED);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
             View play=iconButton("play","Play ayah "+a.number+(recitationOffline?" · Surah downloaded":""),()->playAyah(a));
-            if(recitationOffline){Glass.Icon tick=new Glass.Icon(this,"check");tick.color=0xff44b57d;FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(dp(this,14),dp(this,14),Gravity.BOTTOM|Gravity.RIGHT);((FrameLayout)play).addView(tick,badge);}bar.addView(play);
+            if(recitationOffline){Glass.Icon tick=new Glass.Icon(this,"check");tick.color=MINT;FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(dp(this,14),dp(this,14),Gravity.BOTTOM|Gravity.RIGHT);((FrameLayout)play).addView(tick,badge);}bar.addView(play);
             bar.addView(iconButton("bookmark",pageBookmarks.contains(a.id)?"Remove bookmark":"Save ayah",()->toast(learning.toggleBookmark(a.id)?"Ayah saved":"Bookmark removed")));
             bar.addView(iconButton("book","Study ayah · translations, compare & notes",()->studyAyah(a)));
             View menu=iconButton("more","Ayah "+a.number+": bookmark, meaning, recall and share",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,48)));panel.addView(bar);gap(panel,8);
