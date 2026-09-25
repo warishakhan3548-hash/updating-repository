@@ -134,6 +134,10 @@ def main():
         assert hdb.execute('SELECT count(*) FROM hadith').fetchone()[0] == hmanifest['records']
         assert hdb.execute('SELECT count(*) FROM hadith_fts').fetchone()[0] == hmanifest['records']
         assert hdb.execute('SELECT count(*) FROM search_context').fetchone()[0] == hmanifest.get('search_contexts', 0)
+        legacy_shadow_indexes = {row[0] for row in hdb.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('hadith_arabic_shadow','hadith_english_shadow')"
+        )}
+        assert not legacy_shadow_indexes, f'Unused duplicate Hadith shadow indexes returned: {legacy_shadow_indexes}'
         assert hdb.execute('SELECT count(DISTINCT hadith_rowid) FROM search_token').fetchone()[0] == hmanifest['records']
         assert not hdb.execute('PRAGMA foreign_key_check').fetchall()
         for arabic, expected in hdb.execute('SELECT arabic,source_sha256 FROM hadith'):
