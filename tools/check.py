@@ -135,6 +135,8 @@ def main():
         assert hdb.execute('SELECT count(*) FROM hadith').fetchone()[0] == hmanifest['records']
         assert hdb.execute('SELECT count(*) FROM hadith_fts').fetchone()[0] == hmanifest['records']
         assert hdb.execute('SELECT count(*) FROM search_context').fetchone()[0] == hmanifest.get('search_contexts', 0)
+        indexes={row[0] for row in hdb.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        assert 'grade_assertion_lookup' in indexes, 'Hadith grade lookup index missing'
         legacy_shadow_indexes = {row[0] for row in hdb.execute(
             "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('hadith_arabic_shadow','hadith_english_shadow')"
         )}
