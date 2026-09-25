@@ -59,10 +59,10 @@ final class QuranAudioDownloadManager {
                 try{
                     if(!store.installedSurah(surah))downloadOne(surah,listener,0,1);
                     if(cancel)throw new IOException("Download cancelled");
-                    percent=100;progress="Word audio · Surah "+surah+" · downloaded ✓";notifyChanged();
+                    percent=100;progress="Word audio · Surah "+surah+" · downloaded ✓";
                 }catch(Exception e){failure=safeMessage(e);}
                 finally{busy.set(false);}
-                if(failure==null)postComplete(listener);
+                if(failure==null){notifyChanged();postComplete(listener);}
                 else{progress=terminalProgress(failure);notifyChanged();postError(listener,surah,failure);}
             });
         }catch(RejectedExecutionException rejected){
@@ -169,7 +169,7 @@ final class QuranAudioDownloadManager {
                         if(target.exists()&&!target.delete())throw new IOException("Mismatched partial audio could not be cleared");
                         existing=0;progressListener.changed(0,expectedBytes);restarted=true;continue;
                     }
-                }else if(existing>0){existing=0;}
+                }else if(existing>0){existing=0;progressListener.changed(0,expectedBytes);}
 
                 long declared=c.getContentLengthLong();
                 long finalDeclared=declared<0?-1:(append?existing+declared:declared);
