@@ -1303,11 +1303,21 @@ public final class MainActivity extends Activity {
         }));
         LinearLayout fieldContainer=column(this);pad(fieldContainer,20,0);layout.addView(fieldContainer);
         EditText query=new EditText(this);query.setTextColor(INK);query.setHintTextColor(MUTED);query.setTextSize(17);
-        query.setHint("Arabic text, 2:255, Bukhari 556 or 556");query.setMinLines(1);query.setMaxLines(4);
+        query.setHint("Arabic text, 2:255, 2 255 or Bukhari 556");query.setMinLines(1);query.setMaxLines(4);
         query.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);query.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
         query.setFilters(new InputFilter[]{new InputFilter.LengthFilter(16384)});pad(query,16,8);query.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));fieldContainer.addView(query,new LinearLayout.LayoutParams(-1,-2));
         gap(fieldContainer,8);LinearLayout chips=row(this);String[] scopes={"All","Quran","Hadith"};
-        for(int i=0;i<scopes.length;i++){final int scope=i;TextView chip=button((searchScope==i?"✓ ":"")+scopes[i],()->{searchScope=scope;searchScreen();});chips.addView(chip,new LinearLayout.LayoutParams(0,-2,1));}
+        final TextView[] scopeChips=new TextView[scopes.length];final Runnable[] rerunSearch={null};
+        for(int i=0;i<scopes.length;i++){
+            final int scope=i;TextView chip=button((searchScope==i?"✓ ":"")+scopes[i],()->{
+                if(searchScope==scope)return;
+                searchScope=scope;
+                for(int j=0;j<scopeChips.length;j++)if(scopeChips[j]!=null)
+                    scopeChips[j].setText((searchScope==j?"✓ ":"")+scopes[j]);
+                Runnable rerun=rerunSearch[0];if(rerun!=null)rerun.run();
+            });
+            scopeChips[i]=chip;chips.addView(chip,new LinearLayout.LayoutParams(0,-2,1));
+        }
         fieldContainer.addView(chips);gap(fieldContainer,8);fieldContainer.addView(button("Voice search",()->voiceSearch(false)));
         body=column(this);layout.addView(body,new LinearLayout.LayoutParams(-1,0,1));LinearLayout results=scrollBody();
         TextView status=text(this,"Search offline, with or without Arabic vowel marks.",14,MUTED);results.addView(status);gap(results,12);
@@ -1368,6 +1378,7 @@ public final class MainActivity extends Activity {
                 });
             };ui.postDelayed(debounce,220);
         };
+        rerunSearch[0]=run;
         query.addTextChangedListener(watcher(run));query.setText(searchQuery);query.setSelection(query.length());
     }
     private Map<String,TranslationStore.Entry> prepareQuranTranslations(SearchEngine.Response response,int offset,int end,String edition){
