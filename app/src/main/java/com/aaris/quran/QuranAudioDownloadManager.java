@@ -12,8 +12,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Explicit user-initiated downloader for immutable isolated-word Surah containers. */
 final class QuranAudioDownloadManager {
     interface Listener {
-        void onTransfer(int surah,long downloadedBytes,long totalBytes);
-        void onProgress(int surah,int completed,int total);
         void onComplete();
         void onError(int surah,String message);
     }
@@ -27,6 +25,7 @@ final class QuranAudioDownloadManager {
 
     private final QuranAudioStore store;
     private final ExecutorService io;
+    private final Runnable changed;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicBoolean busy=new AtomicBoolean(false);
     private final Object connectionLock=new Object();
@@ -36,7 +35,7 @@ final class QuranAudioDownloadManager {
     private volatile int activeSurah;
     private volatile int percent=-1;
 
-    QuranAudioDownloadManager(QuranAudioStore store,ExecutorService io){this.store=store;this.io=io;}
+    QuranAudioDownloadManager(QuranAudioStore store,ExecutorService io,Runnable changed){this.store=store;this.io=io;this.changed=changed;}
     boolean busy(){return busy.get();}
     String progress(){return progress;}
     int activeSurah(){return activeSurah;}
@@ -44,6 +43,7 @@ final class QuranAudioDownloadManager {
     void cancel(){
         cancel=true;
         if(busy.get())progress="Pausing word audio…";
+        notifyChanged();
         HttpURLConnection connection;
         synchronized(connectionLock){connection=activeConnection;}
         if(connection!=null)connection.disconnect();
@@ -52,29 +52,28 @@ final class QuranAudioDownloadManager {
     void downloadSurah(int surah,Listener listener){
         if(surah<1||surah>114){postError(listener,surah,"Invalid Surah");return;}
         if(!busy.compareAndSet(false,true)){postError(listener,surah,"Audio download is already running");return;}
-        cancel=false;activeSurah=surah;percent=0;progress="Word audio · Surah "+surah+" · starting…";
+        cancel=false;activeSurah=surah;percent=0;progress="Word audio · Surah "+surah+" · starting…";notifyChanged();
         try{
             io.execute(()->{
                 String failure=null;
                 try{
                     if(!store.installedSurah(surah))downloadOne(surah,listener,0,1);
                     if(cancel)throw new IOException("Download cancelled");
-                    percent=100;progress="Word audio · Surah "+surah+" · downloaded ✓";
-                    postProgress(listener,surah,1,1);
+                    percent=100;progress="Word audio · Surah "+surah+" · downloaded ✓";notifyChanged();
                 }catch(Exception e){failure=safeMessage(e);}
                 finally{busy.set(false);}
                 if(failure==null)postComplete(listener);
-                else{progress=terminalProgress(failure);postError(listener,surah,failure);}
+                else{progress=terminalProgress(failure);notifyChanged();postError(listener,surah,failure);}
             });
         }catch(RejectedExecutionException rejected){
-            busy.set(false);progress="Word audio could not start";
+            busy.set(false);progress="Word audio could not start";notifyChanged();
             postError(listener,surah,"Audio download could not start");
         }
     }
 
     void downloadAll(Listener listener){
         if(!busy.compareAndSet(false,true)){postError(listener,0,"Audio download is already running");return;}
-        cancel=false;activeSurah=0;percent=-1;progress="Checking installed word audio…";
+        cancel=false;activeSurah=0;percent=-1;progress="Checking installed word audio…";notifyChanged();
         try{
             io.execute(()->{
                 int completed=store.installedCount(),current=1;String failure=null;
@@ -85,15 +84,15 @@ final class QuranAudioDownloadManager {
                         if(store.installedSurah(current))continue;
                         activeSurah=current;percent=0;progress="Word audio · "+completed+"/114 saved · Surah "+current+" · starting…";
                         downloadOne(current,listener,completed,114);completed++;percent=100;
-                        progress="Word audio · "+completed+"/114 saved";postProgress(listener,current,completed,114);
+                        progress="Word audio · "+completed+"/114 saved";notifyChanged();
                     }
                 }catch(Exception e){failure=safeMessage(e);}
                 finally{busy.set(false);}
-                if(failure==null){activeSurah=0;percent=100;progress="All Quran word audio downloaded ✓";postComplete(listener);}
-                else{progress=terminalProgress(failure);postError(listener,current,failure);}
+                if(failure==null){activeSurah=0;percent=100;progress="All Quran word audio downloaded ✓";notifyChanged();postComplete(listener);}
+                else{progress=terminalProgress(failure);notifyChanged();postError(listener,current,failure);}
             });
         }catch(RejectedExecutionException rejected){
-            busy.set(false);progress="Word audio could not start";
+            busy.set(false);progress="Word audio could not start";notifyChanged();
             postError(listener,0,"Audio download could not start");
         }
     }
@@ -111,7 +110,7 @@ final class QuranAudioDownloadManager {
             progress=total<=1
                 ?"Word audio · Surah "+surah+" · "+value+"%"
                 :"Word audio · "+completed+"/"+total+" saved · Surah "+surah+" · "+value+"%";
-            postTransfer(listener,surah,downloaded,totalBytes);
+            notifyChanged();
         });
         if(cancel)throw new IOException("Download cancelled");
         try{store.installDownloaded(surah,partial);}
@@ -204,8 +203,10 @@ final class QuranAudioDownloadManager {
         }
     }
 
-    private void postTransfer(Listener l,int surah,long downloaded,long total){if(l!=null)main.post(()->l.onTransfer(surah,downloaded,total));}
-    private void postProgress(Listener l,int surah,int completed,int total){if(l!=null)main.post(()->l.onProgress(surah,completed,total));}
+    private void notifyChanged(){
+        if(changed==null)return;
+        if(Looper.myLooper()==Looper.getMainLooper())changed.run();else main.post(changed);
+    }
     private void postComplete(Listener l){if(l!=null)main.post(l::onComplete);}
     private void postError(Listener l,int surah,String message){if(l!=null)main.post(()->l.onError(surah,message));}
     private static String terminalProgress(String failure){
