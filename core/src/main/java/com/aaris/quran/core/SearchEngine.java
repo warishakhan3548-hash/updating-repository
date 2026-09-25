@@ -193,7 +193,7 @@ public final class SearchEngine {
         return new Response(raw,intent,new ArrayList<>(results.subList(0,count)),variants,trace,started,partial);
     }
     private List<Result> retrieve(Variant variant,Set<Integer> allCandidates,Map<String,Integer> trace) {
-        List<String> terms=Arabic.tokens(variant.tolerant),hints=TextMatch.tokens(variant.original),sounds=TextMatch.phoneticTokens(variant.original);
+        List<String> terms=Arabic.tokens(variant.tolerant),hints=TextMatch.tokens(variant.original),focusedHints=MeaningSearch.focusTokens(hints),sounds=TextMatch.phoneticTokens(variant.original);
         if(variant.safe.codePointCount(0,variant.safe.length())<2)return Collections.emptyList();
         Map<Integer,Double> lexical=arabic.rank(terms),meanings=gloss.rank(hints),phonetic=sound.rank(sounds);
         Map<String,List<String>> arRepairs=new HashMap<>(),glossRepairs=new HashMap<>(),soundRepairs=new HashMap<>();
@@ -214,10 +214,14 @@ public final class SearchEngine {
         for(int d:pool){cancelled();
             TextMatch ar=TextMatch.compare(terms,arabic.tokens.get(d),arRepairs,weights);
             TextMatch hint=TextMatch.compare(hints,gloss.tokens.get(d),glossRepairs,hintWeights);
+            TextMatch focused=focusedHints.equals(hints)?hint:TextMatch.compare(focusedHints,gloss.tokens.get(d),glossRepairs,hintWeights);
             TextMatch phone=TextMatch.compare(sounds,sound.tokens.get(d),soundRepairs,Collections.emptyMap());
             boolean exact=Arabic.hasArabic(variant.original)&&phrase(safe.get(d),variant.safe);
             TextMatch chosen=ar;String reason="Arabic text overlap";double penalty=0;
             if(!ar.accepted||hint.accepted&&TextMatch.compareRank(hint,ar)<0){chosen=hint;reason="Translation / source word meaning";penalty=.005;}
+            if(focused!=hint&&focused.accepted&&(!chosen.accepted||focused.band.ordinal()<chosen.band.ordinal())){
+                chosen=focused;reason="Remembered meaning / translation concepts";penalty=.02;
+            }
             if(!hints.stream().anyMatch(TextMatch::negative)&&!sounds.isEmpty()&&sounds.size()>=Math.min(2,hints.size())&&sounds.size()>=hints.size()*.6&&phone.accepted&&phone.coverage>=.8&&phone.exact>=Math.min(2,sounds.size())&&(!chosen.accepted||TextMatch.compareRank(phone,chosen)<0&&phone.score-.08>chosen.score)){chosen=phone;reason="Similar pronunciation; check the original text";penalty=.08;}
             if(!chosen.accepted)continue;
             List<String> reasons=Arrays.asList(reason,chosen.explanation(), "Match level is text similarity, not authenticity");
