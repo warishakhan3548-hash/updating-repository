@@ -77,6 +77,7 @@ def prepare(output: Path) -> dict:
         parsed[language] = workbook["records"]
 
     canonical = parsed["ar"]
+    withheld = {}
     for language in ("en", "ur", "hi"):
         translated = parsed[language]
         extra = sorted(set(translated) - set(canonical), key=int)
@@ -84,14 +85,13 @@ def prepare(output: Path) -> dict:
             raise ValueError(
                 f"HadeethEnc {language} contains ids absent from Arabic source: {extra[:10]}"
             )
-        drift = [
+        # A translated row is attached only when the Arabic evidence embedded in that same
+        # official workbook agrees with the current official Arabic workbook. Source snapshots
+        # are still archived losslessly, but mismatching rows are withheld rather than guessed.
+        withheld[language] = [
             hid for hid, row in translated.items()
             if source_identity(row["arabic"]) != source_identity(canonical[hid]["arabic"])
         ]
-        if drift:
-            raise ValueError(
-                f"HadeethEnc {language} Arabic/source identity drift: {drift[:10]}"
-            )
 
     records_dir = output / "records"
     licenses_dir = output / "LICENSES"
@@ -128,7 +128,7 @@ def prepare(output: Path) -> dict:
             editorial = []
             for language in ("en", "ur", "hi"):
                 translated = parsed[language].get(hid)
-                if not translated:
+                if not translated or hid in withheld[language]:
                     continue
                 text = str(translated.get("translation") or "").strip()
                 if not text:
@@ -177,6 +177,7 @@ def prepare(output: Path) -> dict:
         "collection_id": "hadeethenc",
         "records": len(canonical),
         "translation_counts": translation_counts,
+        "withheld_translation_ids": withheld,
         "versions": versions,
         "vowel_marked_records": vowel_marked,
         "files": {
