@@ -356,7 +356,8 @@ final class HadithStore implements AutoCloseable {
     private static List<String> mergeAlternatives(List<String> first,List<String> second){
         LinkedHashSet<String> merged=new LinkedHashSet<>();
         if(first!=null)merged.addAll(first);if(second!=null)merged.addAll(second);
-        return new ArrayList<>(merged);
+        List<String> out=new ArrayList<>(merged);
+        return out.size()<=12?out:new ArrayList<>(out.subList(0,12));
     }
 
     static List<String> spellingSeeds(String term){
