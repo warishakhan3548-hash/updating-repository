@@ -452,6 +452,8 @@ public final class MainActivity extends Activity {
         return out;
     }
     private void loadHadithSearch(String q,int offset,int generation,LinearLayout list,TextView status){
+        if(searchGeneration.get()!=generation||isDestroyed()||!searching)return;
+        setSearchBusy(true);status.setText("Loading next Hadith matches…");
         final CancellationSignal signal=searchCancellation!=null?searchCancellation:beginSearch(generation,status);
         final String preferredLanguage=readingLanguage();pendingSearchJobs++;
         searchTask=app.searchWorker.submit(()->{try{
