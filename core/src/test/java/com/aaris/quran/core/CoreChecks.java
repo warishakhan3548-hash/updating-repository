@@ -67,6 +67,10 @@ public final class CoreChecks {
         check(romanDirect.ayah.number==1&&!romanDirect.meaning,"Literal Hinglish shadow remains a text match");
         check(MeaningSearch.usesConceptBridge(TextMatch.tokens("prayer wudu"),TextMatch.tokens("नमाज वुज़ू")),"Concept bridge detection is explicit");
         check(!MeaningSearch.usesConceptBridge(TextMatch.tokens("namaz vuzu"),TextMatch.tokens("namaz vuzu")),"Literal normalized words are not mislabeled as meaning");
+        check(!MeaningSearch.usesConceptBridge(TextMatch.tokens("namaz vuzu"),TextMatch.tokens("नमाज वुज़ू")),"Cross-script transliteration stays text evidence");
+        check(MeaningSearch.usesConceptBridge(TextMatch.tokens("prayer"),TextMatch.tokens("नमाज")),"True synonym translation is meaning evidence");
+        check(!MeaningSearch.alternatives("nabi").contains("rasul")&&!MeaningSearch.alternatives("rasul").contains("nabi"),"Nabi and Rasul remain distinct concepts");
+        check(!MeaningSearch.alternatives("roza").contains("fast"),"Ambiguous bare English fast is not a religious synonym");
         SearchEngine rememberedQuestion=new SearchEngine(Arrays.asList(
             doc(1,"مصدر ثالث","दो रकात नमाज फर्ज बाद करना"),
             doc(2,"مصدر رابع","कहाँ लिखा ये unrelated")));
