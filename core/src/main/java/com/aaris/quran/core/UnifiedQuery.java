@@ -16,6 +16,15 @@ public final class UnifiedQuery {
     }
     public static UnifiedQuery parse(String raw,int scope){
         String text=raw==null?"":raw.trim();
+        // A long paste is free-text evidence, not a reference parser problem. Route it without
+        // normalizing the entire paragraph on the UI thread; each corpus performs bounded
+        // background LongQuery planning.
+        if(text.length()>LongQuery.SHORT_CHARS){
+            HadithQuery h=HadithQuery.parse("");
+            if(scope==QURAN)return new UnifiedQuery(true,false,text,h);
+            if(scope==HADITH)return new UnifiedQuery(false,true,text,h);
+            return new UnifiedQuery(true,true,text,h);
+        }
         String q=Arabic.asciiDigits(text).replace('：',':')
             .replaceFirst("(?iu)^(?:quran|qur'an|कुरान|क़ुरआन|قرآن|القرآن)\\s*[:\\-]?\\s*","");
         Matcher coordinate=QURAN_COORDINATE.matcher(q);
