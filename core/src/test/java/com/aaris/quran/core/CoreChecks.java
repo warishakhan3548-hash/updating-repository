@@ -42,7 +42,9 @@ public final class CoreChecks {
         check(MeaningSearch.romanizeHindi("एक सहाबी ने नबी को वुज़ू करते देखा").contains("ek sahabi"),"Hindi gets a deterministic Hinglish search shadow");
         check(MeaningSearch.alternatives("prayer").contains("नमाज"),"Trusted concept aliases bridge English to Hindi");
         check(!MeaningSearch.alternatives("qibla").contains("kaaba")&&!MeaningSearch.alternatives("zakat").contains("charity"),"Related Islamic concepts are not collapsed into false synonyms");
-        check(MeaningSearch.focusTokens(TextMatch.tokens("एक सहाबी ने नबी को वुज़ू करते देखा")).containsAll(Arrays.asList("एक","सहाबी","नबी","वुज़ू","करते","देखा")),"Meaning focus removes grammar without deleting content");
+        List<String> rememberedFocus=MeaningSearch.focusTokens(TextMatch.tokens("एक बार एक सहाबी ने नबी को वुज़ू करते देखा"));
+        check(rememberedFocus.containsAll(Arrays.asList("एक","सहाबी","नबी","वुज़ू"))&&!rememberedFocus.contains("बार")&&!rememberedFocus.contains("करते")&&!rememberedFocus.contains("देखा"),"Meaning focus removes narrative scaffolding while preserving numeric/content evidence");
+        check(MeaningSearch.focusTokens(TextMatch.tokens("एक रकात नमाज")).contains("एक"),"Numeric one is preserved outside the once/ek-baar phrase");
         check(MeaningSearch.focusTokens(TextMatch.tokens("नमाज के बाद नहीं")).containsAll(Arrays.asList("नमाज","बाद","नहीं")),"Meaning focus preserves order/negation terms");
         List<String> scaffold=MeaningSearch.focusTokens(TextMatch.tokens("ये कहाँ पर लिखा है कि दो रकात नमाज फर्ज के बाद ये करना है"));
         check(scaffold.containsAll(Arrays.asList("दो","रकात","नमाज","फर्ज","बाद","करना"))&&!scaffold.contains("कहाँ")&&!scaffold.contains("लिखा")&&!scaffold.contains("ये"),"Remembered-question scaffolding cannot dominate concept retrieval");
