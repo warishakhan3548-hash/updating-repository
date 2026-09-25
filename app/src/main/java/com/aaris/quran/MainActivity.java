@@ -772,7 +772,8 @@ public final class MainActivity extends Activity {
         currentDownload[0]=button(offline?"Downloaded ✓":"Download this Surah",()->{
             if(app.recitationDownloads.markedComplete(selected,a.surah,content.surah(a.surah).count)){toast(content.surah(a.surah).name+" is already downloaded");return;}
             downloadRecitation(selected,a.surah,a.surah,()->{
-                if(currentDownload[0]!=null)currentDownload[0].setText("Downloaded ✓");
+                boolean completed=app.recitationDownloads.markedComplete(selected,a.surah,content.surah(a.surah).count);
+                if(currentDownload[0]!=null)currentDownload[0].setText(completed?"Downloaded ✓":"Download this Surah");
                 if(surahDownloads.isAttachedToWindow())fillRecitationSurahDownloads(surahDownloads,selected);
             });
         });
