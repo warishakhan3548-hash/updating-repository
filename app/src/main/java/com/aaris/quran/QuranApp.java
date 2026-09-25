@@ -95,5 +95,9 @@ public final class QuranApp extends Application {
     private void warmSearchIndex(){
         try{searchIndex();}catch(CancellationException ignored){}catch(Exception e){android.util.Log.w("AarisSearch","Quran search warm-up failed",e);}
     }
-    void ready(Runnable callback){io.execute(()->{try{ready.await();main.post(callback);}catch(InterruptedException e){Thread.currentThread().interrupt();}});}
+    void ready(Runnable callback){
+        if(callback==null)return;
+        if(ready.getCount()==0){main.post(callback);return;}
+        io.execute(()->{try{ready.await();main.post(callback);}catch(InterruptedException e){Thread.currentThread().interrupt();}});
+    }
 }
