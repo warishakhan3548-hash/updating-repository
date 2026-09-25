@@ -464,7 +464,11 @@ public final class MainActivity extends Activity {
                 if(more!=null&&more.getParent() instanceof ViewGroup)((ViewGroup)more.getParent()).removeView(more);
                 appendHadithResults(q,response,metadata,generation,list,status);if(--pendingSearchJobs==0)finishSearch(signal);
             });
-        }catch(CancellationException|OperationCanceledException ignored){}catch(Exception error){ui.post(()->{
+        }catch(CancellationException|OperationCanceledException ignored){ui.post(()->{
+            if(!isDestroyed()&&searching&&searchGeneration.get()==generation&&more!=null&&more.isAttachedToWindow()){
+                more.setEnabled(true);more.setText("Load next 50 Hadith matches");
+            }
+        });}catch(Exception error){ui.post(()->{
             if(!isDestroyed()&&searching&&!signal.isCanceled()&&searchGeneration.get()==generation){
                 if(--pendingSearchJobs==0)finishSearch(signal);
                 if(more!=null&&more.isAttachedToWindow()){more.setEnabled(true);more.setText("Load next 50 Hadith matches");}
