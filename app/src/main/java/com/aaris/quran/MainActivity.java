@@ -80,6 +80,32 @@ public final class MainActivity extends Activity {
             this.translation=translation;this.grades=grades==null?Collections.emptyList():grades;
         }
     }
+    private static final class WordAudioDownloadUi implements QuranAudioDownloadManager.Listener {
+        private final WeakReference<MainActivity> owner;
+        private final int requestedSurah;
+        private final boolean all;
+        private int lastProgress;
+        WordAudioDownloadUi(MainActivity activity,int requestedSurah,boolean all,int lastProgress){
+            owner=new WeakReference<>(activity);this.requestedSurah=requestedSurah;this.all=all;this.lastProgress=lastProgress;
+        }
+        private MainActivity activity(){
+            MainActivity activity=owner.get();
+            return activity==null||activity.isDestroyed()||activity.isFinishing()?null:activity;
+        }
+        public void onProgress(int surah,int completed,int total){
+            MainActivity activity=activity();if(activity==null||!all)return;
+            if(completed==total||completed-lastProgress>=10){lastProgress=completed;activity.toast("Quran audio "+completed+"/"+total+" locally saved");}
+        }
+        public void onComplete(){
+            MainActivity activity=activity();if(activity==null)return;
+            if(all){activity.toast("All Quran audio installed offline ✓");if(activity.tab==1&&activity.reading)activity.show();}
+            else{activity.toast(activity.content.surah(requestedSurah).name+" audio saved offline ✓");if(activity.tab==1&&activity.reading&&activity.readerSurah==requestedSurah)activity.show();}
+        }
+        public void onError(int surah,String message){
+            MainActivity activity=activity();if(activity==null)return;
+            activity.toast(all?"Download paused · Surah "+surah+": "+message:"Audio download failed: "+message);
+        }
+    }
 
     /** Observes gestures before child dispatch without stealing taps or vertical scrolling. */
     private static final class GestureScrollView extends ScrollView {
@@ -766,6 +792,7 @@ public final class MainActivity extends Activity {
         gap(page,12);caption(page,RecitationDownloads.ATTRIBUTION);
         page.addView(button("Word audio · This Surah",()->audioSurahPrompt(a.surah)));gap(page,8);
         page.addView(button("Word audio · Download All",this::downloadAllAudio));
+        if(app.audioDownloads!=null&&app.audioDownloads.busy()){gap(page,8);page.addView(button("Pause word-audio download",app.audioDownloads::cancel));}
     }
     private void fillRecitationSurahDownloads(LinearLayout list,String reciter){
         int generation=++recitationListGeneration;list.removeAllViews();
@@ -976,15 +1003,7 @@ public final class MainActivity extends Activity {
     private void startSurahAudioDownload(int surah){
         if(app.audioDownloads==null)return;
         toast(content.surah(surah).name+" audio download started…");
-        app.audioDownloads.downloadSurah(surah,new QuranAudioDownloadManager.Listener(){
-            public void onProgress(int current,int completed,int total){}
-            public void onComplete(){
-                if(isDestroyed()||isFinishing())return;
-                toast(content.surah(surah).name+" audio saved offline ✓");
-                if(tab==1&&reading&&readerSurah==surah)show();
-            }
-            public void onError(int failed,String message){if(!isDestroyed()&&!isFinishing())toast("Audio download failed: "+message);}
-        });
+        app.audioDownloads.downloadSurah(surah,new WordAudioDownloadUi(this,surah,false,0));
     }
 
     private void downloadAllAudio(){
@@ -998,15 +1017,7 @@ public final class MainActivity extends Activity {
             .setNegativeButton("Not now",null)
             .setPositiveButton("Download All",(d,w)->{
                 toast("Download All started… "+installed+"/114 already offline");
-                final int[] lastToast={installed};
-                app.audioDownloads.downloadAll(new QuranAudioDownloadManager.Listener(){
-                    public void onProgress(int surah,int completed,int total){
-                        if(isDestroyed()||isFinishing())return;
-                        if(completed==total||completed-lastToast[0]>=10){lastToast[0]=completed;toast("Quran audio "+completed+"/"+total+" locally saved");}
-                    }
-                    public void onComplete(){if(!isDestroyed()&&!isFinishing()){toast("All Quran audio installed offline ✓");if(tab==1&&reading)show();}}
-                    public void onError(int surah,String message){if(!isDestroyed()&&!isFinishing())toast("Download paused · Surah "+surah+": "+message);}
-                });
+                app.audioDownloads.downloadAll(new WordAudioDownloadUi(this,0,true,installed));
             }).show();
     }
 
