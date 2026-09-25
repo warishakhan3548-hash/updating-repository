@@ -24,7 +24,9 @@ public final class SearchIntentChecks {
             HadithQuery intent=HadithQuery.parse(decode(lines.get(0)));Map<String,Double> weights=new LinkedHashMap<>();Map<String,List<String>> repairs=new LinkedHashMap<>();
             for(String line:lines.subList(1,lines.size())){
                 String[] row=line.split("\\t");String term=decode(row[0]);weights.put(term,Double.parseDouble(row[1]));
-                repairs.put(term,row.length>2?Arrays.asList(decode(row[2]).split(" ")):Collections.emptyList());
+                LinkedHashSet<String> alternatives=new LinkedHashSet<>(MeaningSearch.alternatives(term));
+                if(row.length>2)alternatives.addAll(Arrays.asList(decode(row[2]).split(" ")));
+                repairs.put(term,new ArrayList<>(alternatives));
             }
             List<String> anchors=MeaningSearch.focusTokens(TextMatch.tokens(intent.text));
             HadithSearchPlan plan=HadithSearchPlan.candidates(intent,anchors,repairs,weights);
