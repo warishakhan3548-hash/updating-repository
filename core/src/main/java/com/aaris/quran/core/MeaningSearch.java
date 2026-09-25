@@ -14,13 +14,16 @@ public final class MeaningSearch {
     private static final Set<String> FILLER=new HashSet<>(Arrays.asList(
         "के","की","का","को","ने","से","में","पर","कि","था","थे","थी","है","हैं","हो","रहे","रही","रहा",
         "aur","ke","ki","ka","ko","ne","se","me","mein","par","tha","the","thi","hai","hain","ho","rahe","rahi","raha",
-        "the","a","an","of","to","and","in","is","was","were","that","who","he","she","they","it","his","her","their"
+        "the","a","an","of","to","and","in","is","was","were","that","who","he","she","they","it","his","her","their",
+        "ये","यह","कहाँ","कहा","लिखा","लिखी","लिखे","बताओ","बताइए","बताये","बताएं","कौन","मुझे",
+        "ye","yeh","kaha","kahan","likha","likhi","likhe","batao","bataiye","bataye","kaun","mujhe",
+        "where","written","mentioned","show","find","please","tell","me","which"
     ));
     static {
         Map<String,LinkedHashSet<String>> map=new HashMap<>();
         group(map,"नबी","nabi","prophet","رسول","نبي","रसूल","rasul","messenger");
         group(map,"सहाबी","sahabi","companion","صحابي");
-        group(map,"वुज़ू","वुजू","वजू","wudu","wuzu","wudhu","ablution","وضوء");
+        group(map,"वुज़ू","वुजू","वजू","wudu","wuzu","wudhu","vuzu","wazoo","vazoo","ablution","وضوء");
         group(map,"नमाज़","नमाज","namaz","salah","salat","prayer","صلاة","الصلاة");
         group(map,"फ़र्ज़","फर्ज","farz","fard","obligatory","obligation","فرض");
         group(map,"रकात","रकअत","rakat","rakah","rakaa","ركعة","ركعتين");
@@ -35,6 +38,7 @@ public final class MeaningSearch {
         group(map,"मस्जिद","masjid","mosque","مسجد");
         group(map,"अज़ान","अजान","azan","adhan","أذان","اذان");
         group(map,"क़िबला","किबला","qibla","काबा","kaaba","kaaba","قبلة","كعبة");
+        group(map,"नहीं","नही","nahin","nahi","نہیں","نهيں","not","no");
         Map<String,List<String>> frozen=new HashMap<>();
         for(Map.Entry<String,LinkedHashSet<String>> e:map.entrySet())
             frozen.put(e.getKey(),Collections.unmodifiableList(new ArrayList<>(e.getValue())));
@@ -62,13 +66,15 @@ public final class MeaningSearch {
      */
     public static List<String> focusTokens(List<String> normalizedTokens){
         if(normalizedTokens==null||normalizedTokens.isEmpty())return Collections.emptyList();
-        List<String> focused=new ArrayList<>();
+        LinkedHashSet<String> focused=new LinkedHashSet<>();
         for(String token:normalizedTokens){
             if(token==null||token.isEmpty())continue;
             if(TextMatch.negative(token)||!FILLER.contains(token))focused.add(token);
         }
-        // Never turn a sentence into a one-word semantic guess.
-        return focused.size()>=2?focused:new ArrayList<>(normalizedTokens);
+        // The meaning lane is concept-oriented: conversational repetition must not demand
+        // duplicate source occurrences. The direct text lane still preserves every token.
+        if(focused.size()>=2)return new ArrayList<>(focused);
+        return new ArrayList<>(normalizedTokens);
     }
 
     /** High-confidence, domain-specific aliases only; never generic free-form synonym expansion. */
