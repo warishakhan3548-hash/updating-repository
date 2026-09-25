@@ -93,7 +93,7 @@ public final class MainActivity extends Activity {
             intent.setClipData(ClipData.newRawUri("Aaris research PDF",uri));
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             try{activity.startActivity(Intent.createChooser(intent,"Share research PDF"));}
-            catch(ActivityNotFoundException e){activity.toast("No PDF receiving app is installed");}
+            catch(ActivityNotFoundException e){ResearchFiles.discard(appContext,uri);activity.toast("No PDF receiving app is installed");}
         }
         void failed(){MainActivity activity=activity();if(activity!=null)activity.toast("PDF could not be created. Try fewer records.");}
     }
