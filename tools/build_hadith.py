@@ -142,7 +142,7 @@ def build_search_index(db):
     for rowid,hadith_id,collection_id,record_number,ar,en,ur,bn in db.execute(
             'SELECT rowid,id,collection_id,record_number,arabic,english,urdu,bangla FROM hadith'):
         translated = ' '.join(str(v or '') for v in (en,ur,bn))
-        extra = ' '.join(editorial.get(hadith_id, ()) + contexts.get(hadith_id, ()))
+        extra = ' '.join(editorial.get(hadith_id, []) + contexts.get(hadith_id, []))
         db.execute(
             'INSERT INTO hadith_fts(hadith_id,collection_id,record_number,arabic,latin) VALUES(?,?,?,?,?)',
             (hadith_id, collection_id, record_number, search_text(ar), search_text((translated+' '+extra).strip()))
