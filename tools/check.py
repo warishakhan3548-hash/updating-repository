@@ -259,6 +259,7 @@ def main():
     # Large Hadith-pack browsing must never regress to synchronous SQLite reads on the Android UI thread.
     main_activity_text = (ROOT / 'app/src/main/java/com/aaris/quran/MainActivity.java').read_text(encoding='utf-8')
     quran_app_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranApp.java').read_text(encoding='utf-8')
+    recitation_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationDownloads.java').read_text(encoding='utf-8')
     assert 'private void updateHighContrast(boolean enabled)' in main_activity_text and 'contrast.setOnCheckedChangeListener((b,v)->updateHighContrast(v));' in main_activity_text, 'High-contrast setting must use the live surface refresh path'
     assert 'highContrast=enabled;learning.set("contrast",""+enabled);\n        show();settings();' in main_activity_text, 'High-contrast changes must rebuild both the underlying screen and the open settings sheet immediately'
     assert 'hadithBrowseWorker=worker("hadith-browse")' in quran_app_text, 'Missing dedicated Hadith browse worker'
@@ -273,6 +274,19 @@ def main():
     recitation_status = java_method('fillRecitationSurahDownloads')
     recitation_rows = java_method('appendRecitationSurahDownloads')
     recitation_controls = java_method('audioControls')
+    reader_recitation_verify = java_method('verifyReaderRecitationState')
+    current_recitation_verify = java_method('verifyCurrentRecitationState')
+    reader_method = java_method('reader')
+    assert 'int markedCompleteState(String reciter,int surah,int ayahs)' in recitation_downloads_text, 'Render hot paths need a non-blocking recitation completion tri-state'
+    assert 'completionCache.get(key)' in recitation_downloads_text and 'missingCompletions.contains(key)?0:-1' in recitation_downloads_text, 'Recitation tri-state must consult memory only and expose unknown without filesystem I/O'
+    assert 'markedComplete(' not in reader_method, 'Quran reader rendering must not parse recitation completion markers on the Android UI thread'
+    assert 'markedCompleteState(' in reader_method and 'verifyReaderRecitationState(' in reader_method, 'Quran reader must render from cached recitation state and verify unknown state asynchronously'
+    assert 'recitationStatusWorker.execute' in reader_recitation_verify and 'downloads.markedComplete(' in reader_recitation_verify, 'Reader recitation verification must use the dedicated background status worker'
+    assert 'pageId.equals(renderedPage)' in reader_recitation_verify and 'play.isAttachedToWindow()' in reader_recitation_verify, 'Async reader recitation status must reject stale or detached UI'
+    assert 'markedComplete(' not in recitation_controls, 'Opening or tapping recitation controls must not parse completion markers on the Android UI thread'
+    assert 'markedCompleteState(' in recitation_controls and 'verifyCurrentRecitationState(' in recitation_controls, 'Recitation controls must use cached state with asynchronous verification for unknown status'
+    assert 'recitationStatusWorker.execute' in current_recitation_verify and 'downloads.markedComplete(' in current_recitation_verify, 'Current-Surah recitation status verification must run off the Android UI thread'
+    assert 'dialog.isShowing()' in current_recitation_verify and 'status.isAttachedToWindow()' in current_recitation_verify, 'Recitation sheet status results must be lifecycle-safe'
     assert 'private volatile int recitationListGeneration;' in main_activity_text, 'Recitation status generation must be visible across UI and background threads'
     assert 'recitationListGeneration++' in recitation_controls and 'setOnDismissListener' in recitation_controls, 'Closing recitation controls must invalidate any stale background status scan'
     assert 'recitationStatusWorker.execute' in recitation_status, 'Recitation Surah status discovery must run off the Android UI thread'
@@ -288,7 +302,6 @@ def main():
     assert 'generation==wordAudioPlayGeneration' in play_flow and 'app.recitationDownloads==downloads' in play_flow, 'Async reciter verification must reject stale playback results'
     assert 'reciter.equals(verifiedReciter)' in play_flow, 'Changing reciter while verification is running must invalidate the old result'
     assert 'wordFallbackReady&&(verifiedReciter==null||!reciter.equals(verifiedReciter))' in play_flow, 'Reciter verification should run only when it can affect word-audio fallback selection'
-    reader_method = java_method('reader')
     assert 'boolean hasPrevious=readerStart>1||readerSurah>1,hasNext=readerStart+8<=s.count||readerSurah<114;' in reader_method, 'Reader pager must model Quran boundaries explicitly'
     assert 'previous.setEnabled(hasPrevious)' in reader_method and 'next.setEnabled(hasNext)' in reader_method, 'Reader boundary controls must not remain tappable no-ops'
     assert '"Start of Quran"' in reader_method and '"End of Quran"' in reader_method, 'Reader boundary controls need explicit user feedback'
