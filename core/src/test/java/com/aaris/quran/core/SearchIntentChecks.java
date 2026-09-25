@@ -37,6 +37,11 @@ public final class SearchIntentChecks {
                 System.out.println(encode(String.join(" ",TextMatch.tokens(decode(line)))));
             return;
         }
+        if(args.length>0&&args[0].equals("romanize")){
+            for(String line:Files.readAllLines(Paths.get(args[1]),StandardCharsets.UTF_8))
+                System.out.println(encode(MeaningSearch.romanizeHindi(decode(line))));
+            return;
+        }
         if(args.length>0&&args[0].equals("rank")){
             List<String> lines=Files.readAllLines(Paths.get(args[1]),StandardCharsets.UTF_8);
             String[] heading=lines.get(0).split("\t");List<String> query=TextMatch.tokens(decode(heading[0]));
