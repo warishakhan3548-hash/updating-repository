@@ -196,6 +196,9 @@ def parse_workbook(path: Path, expected_language: str | None = None) -> dict:
                 "grade": _value(row, columns, "grade"),
                 "takhrij_ar": _value(row, columns, "takhrij"),
                 "takhrij": _value(row, columns, "takhrij"),
+                "explanation": _value(row, columns, "explanation"),
+                "benefits": _value(row, columns, "benefits"),
+                "word_meanings": _value(row, columns, "word_meanings"),
                 "link": _value(row, columns, "link"),
             }
         else:
@@ -220,6 +223,10 @@ def parse_workbook(path: Path, expected_language: str | None = None) -> dict:
                 "grade": _value(row, columns, "grade"),
                 "takhrij_ar": _value(row, columns, "takhrij_ar"),
                 "takhrij": _value(row, columns, "takhrij"),
+                "explanation_ar": _value(row, columns, "explanation_ar"),
+                "explanation": _value(row, columns, "explanation"),
+                "benefits_ar": _value(row, columns, "benefits_ar"),
+                "benefits": _value(row, columns, "benefits"),
                 "link": _value(row, columns, "link"),
             }
 

@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "tools" / "hadith-catalog.json"
-BUILDER_VERSION = "7"
+BUILDER_VERSION = "8"
 
 
 def digest(path: Path) -> str:
@@ -75,6 +75,54 @@ def search_text(value):
     return ' '.join(''.join(chars).split())
 
 
+DEV_CONSONANTS = {
+    'क':'k','ख':'kh','ग':'g','घ':'gh','ङ':'ng','च':'ch','छ':'chh','ज':'j','झ':'jh','ञ':'ny',
+    'ट':'t','ठ':'th','ड':'d','ढ':'dh','ण':'n','त':'t','थ':'th','द':'d','ध':'dh','न':'n',
+    'प':'p','फ':'ph','ब':'b','भ':'bh','म':'m','य':'y','र':'r','ल':'l','ळ':'l','व':'v',
+    'श':'sh','ष':'sh','स':'s','ह':'h','क़':'q','ख़':'kh','ग़':'gh','ज़':'z','ड़':'d','ढ़':'dh','फ़':'f','य़':'y',
+}
+DEV_VOWELS = {'अ':'a','आ':'a','इ':'i','ई':'i','उ':'u','ऊ':'u','ऋ':'ri','ए':'e','ऐ':'ai','ओ':'o','औ':'au'}
+DEV_MATRAS = {'ा':'a','ि':'i','ी':'i','ु':'u','ू':'u','ृ':'ri','े':'e','ै':'ai','ो':'o','ौ':'au'}
+
+def romanize_hindi(value):
+    """Lossy search-only Devanagari -> Hinglish shadow; never used for display."""
+    out=[]; consonant=False
+    def finish():
+        nonlocal consonant
+        if consonant and out and out[-1].endswith('a'):
+            out[-1]=out[-1][:-1]
+        consonant=False
+    for ch in str(value or ''):
+        if ch in DEV_CONSONANTS:
+            out.append(DEV_CONSONANTS[ch]+'a'); consonant=True; continue
+        if ch in DEV_VOWELS:
+            out.append(DEV_VOWELS[ch]); consonant=False; continue
+        if ch in DEV_MATRAS:
+            if consonant and out and out[-1].endswith('a'): out[-1]=out[-1][:-1]
+            out.append(DEV_MATRAS[ch]); consonant=False; continue
+        if ch=='्':
+            if consonant and out and out[-1].endswith('a'): out[-1]=out[-1][:-1]
+            consonant=False; continue
+        if ch=='़':
+            if out:
+                if out[-1].endswith('ja'): out[-1]=out[-1][:-2]+'za'
+                elif out[-1].endswith('pha'): out[-1]=out[-1][:-3]+'fa'
+                elif out[-1].endswith('ka'): out[-1]=out[-1][:-2]+'qa'
+            consonant=True; continue
+        if ch in ('ं','ँ'):
+            out.append('n'); consonant=False; continue
+        if ch=='ः':
+            out.append('h'); consonant=False; continue
+        if ch.isdecimal():
+            finish(); out.append(str(unicodedata.decimal(ch))); continue
+        if ch.isalnum():
+            finish(); out.append(ch.lower())
+        else:
+            finish(); out.append(' ')
+    finish()
+    return ' '.join(''.join(out).split())
+
+
 def search_tokens(value):
     return set(search_text(value).split())
 
@@ -84,13 +132,17 @@ def build_search_index(db):
     for hadith_id,text in db.execute(
             "SELECT hadith_id,text FROM editorial_translation WHERE status IN ('reviewed','released') ORDER BY hadith_id,rowid"):
         editorial.setdefault(hadith_id, []).append(text)
+    contexts = {}
+    for hadith_id,text,roman in db.execute(
+            "SELECT hadith_id,text,roman FROM search_context ORDER BY hadith_id,id"):
+        contexts.setdefault(hadith_id, []).extend(v for v in (text, roman) if v)
 
     # Keep the phrase lane multilingual too. FTS is built from immutable source/display strings;
     # it never rewrites a translation or calls a runtime service.
     for rowid,hadith_id,collection_id,record_number,ar,en,ur,bn in db.execute(
             'SELECT rowid,id,collection_id,record_number,arabic,english,urdu,bangla FROM hadith'):
         translated = ' '.join(str(v or '') for v in (en,ur,bn))
-        extra = ' '.join(editorial.get(hadith_id, ()))
+        extra = ' '.join(editorial.get(hadith_id, []) + contexts.get(hadith_id, []))
         db.execute(
             'INSERT INTO hadith_fts(hadith_id,collection_id,record_number,arabic,latin) VALUES(?,?,?,?,?)',
             (hadith_id, collection_id, record_number, search_text(ar), search_text((translated+' '+extra).strip()))
@@ -272,6 +324,17 @@ def open_db(path: Path):
       FOREIGN KEY(hadith_id) REFERENCES hadith(id)
     );
 
+    CREATE TABLE search_context(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hadith_id TEXT NOT NULL,
+      language TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      text TEXT NOT NULL,
+      roman TEXT NOT NULL,
+      source_ref TEXT NOT NULL,
+      FOREIGN KEY(hadith_id) REFERENCES hadith(id)
+    );
+
     CREATE TABLE search_token(token TEXT NOT NULL,hadith_rowid INTEGER NOT NULL,PRIMARY KEY(token,hadith_rowid)) WITHOUT ROWID;
     CREATE TABLE search_vocabulary(token TEXT PRIMARY KEY,df INTEGER NOT NULL) WITHOUT ROWID;
     CREATE TABLE search_gram(gram TEXT NOT NULL,token TEXT NOT NULL,PRIMARY KEY(gram,token)) WITHOUT ROWID;
@@ -290,6 +353,7 @@ def open_db(path: Path):
     CREATE INDEX hadith_english_shadow ON hadith(search_latin);
     CREATE INDEX editorial_translation_lookup
       ON editorial_translation(hadith_id,language,status,revision);
+    CREATE INDEX search_context_lookup ON search_context(hadith_id,language,kind);
     """)
     return db, tmp
 
@@ -380,11 +444,25 @@ def insert_hadith(db, row, seen):
                 require_string(item, "source_ref"),
             ),
         )
+    for item in row.get("search_contexts", []):
+        language = require_string(item, "language").lower()
+        kind = require_string(item, "kind").lower()
+        text = require_string(item, "text")
+        if kind not in {"title", "explanation", "benefits", "word_meanings"}:
+            raise ValueError(f"Unsupported search context kind {kind!r} for {hid}")
+        db.execute(
+            "INSERT INTO search_context(hadith_id,language,kind,text,roman,source_ref) VALUES(?,?,?,?,?,?)",
+            (
+                hid, language, kind, text,
+                romanize_hindi(text) if language == "hi" else "",
+                require_string(item, "source_ref"),
+            ),
+        )
 
 
 def import_jsonl(db, source_dir: Path, manifest):
     seen = set()
-    counters = {"collection": 0, "book": 0, "chapter": 0, "hadith": 0, "translation": 0}
+    counters = {"collection": 0, "book": 0, "chapter": 0, "hadith": 0, "translation": 0, "context": 0}
     for rel in manifest["files"]:
         if not rel.endswith(".jsonl"):
             continue
@@ -428,6 +506,7 @@ def import_jsonl(db, source_dir: Path, manifest):
                         insert_hadith(db, row, seen)
                         counters["hadith"] += 1
                         counters["translation"] += len(row.get("editorial_translations", []))
+                        counters["context"] += len(row.get("search_contexts", []))
                     else:
                         raise ValueError(f"Unknown record type {kind}")
                 except Exception as e:
@@ -559,6 +638,7 @@ def build(source_dir: Path, output: Path):
             "chapters": counters["chapter"],
             "records": counters["hadith"],
             "editorial_translations": counters["translation"],
+            "search_contexts": counters["context"],
             "language_coverage": sorted(languages),
             "imported_translation_record_counts": coverage,
             "arabic_records_with_vowel_marks": marked,

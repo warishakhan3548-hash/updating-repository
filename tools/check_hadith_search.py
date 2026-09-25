@@ -153,6 +153,22 @@ def main():
                 "Hindi HadeethEnc phrase is not reachable through production FTS", sample_hi[0]
             )
             print("Hindi HadeethEnc exact-phrase retrieval: PASS")
+
+            # A remembered Hinglish phrase must also reach trusted Hindi explanation/benefit
+            # context without turning that context into displayed Hadith text.
+            sample_context = db.execute(
+                "SELECT hadith_id,roman FROM search_context "
+                "WHERE language='hi' AND kind IN ('explanation','benefits') "
+                "AND length(roman)>60 ORDER BY id LIMIT 1"
+            ).fetchone()
+            assert sample_context
+            roman_tokens = search_text(sample_context[1]).split()[:7]
+            assert len(roman_tokens) >= 4
+            total, rows = phrase(" ".join(roman_tokens))
+            assert total > 0 and any(hid == sample_context[0] for hid, _ in rows), (
+                "Hinglish meaning context is not reachable through production FTS", sample_context[0]
+            )
+            print("Hinglish HadeethEnc meaning-context retrieval: PASS")
     db.close()
     print("Real Hadith pack: scoped references, suffixes, Unicode digits and vocalized/plain Arabic: PASS")
 

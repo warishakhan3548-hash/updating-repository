@@ -408,8 +408,11 @@ public final class MainActivity extends Activity {
         int end=Math.min(cursor+SEARCH_RENDER_BATCH,response.hits.size());
         for(HadithStore.Hit hit:response.hits.subList(cursor,end)){
             LinearLayout wrapper=column(this);list.addView(wrapper);
-            wrapper.addView(label(browse?"COLLECTION RECORD":hit.reference?"REFERENCE MATCH":hit.match.band+" TEXT MATCH"));
-            if(!hit.reference&&!browse)caption(wrapper,hit.match.explanation());
+            wrapper.addView(label(browse?"COLLECTION RECORD":hit.reference?"REFERENCE MATCH":hit.match.band+(hit.meaning?" MEANING MATCH":" TEXT MATCH")));
+            if(!hit.reference&&!browse){
+                if(hit.meaning)caption(wrapper,"Matched trusted translation context; the source Hadith is shown below.");
+                caption(wrapper,hit.match.explanation());
+            }
             hadithResultCard(wrapper,hit.record,metadata.get(hit.record.id));
             wrapper.addView(button("Remember this match",()->rememberSearch(true,q,hit.record.id)));
             CheckBox select=new CheckBox(this);select.setText("Select for PDF");select.setTextColor(INK);select.setMinHeight(dp(this,48));select.setChecked(selectedHadith.contains(hit.record.id));wrapper.addView(select);

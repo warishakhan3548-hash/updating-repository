@@ -133,6 +133,7 @@ def main():
         assert hdb.execute('SELECT count(*) FROM collection').fetchone()[0] == hmanifest['collections']
         assert hdb.execute('SELECT count(*) FROM hadith').fetchone()[0] == hmanifest['records']
         assert hdb.execute('SELECT count(*) FROM hadith_fts').fetchone()[0] == hmanifest['records']
+        assert hdb.execute('SELECT count(*) FROM search_context').fetchone()[0] == hmanifest.get('search_contexts', 0)
         assert hdb.execute('SELECT count(DISTINCT hadith_rowid) FROM search_token').fetchone()[0] == hmanifest['records']
         assert not hdb.execute('PRAGMA foreign_key_check').fetchall()
         for arabic, expected in hdb.execute('SELECT arabic,source_sha256 FROM hadith'):
@@ -173,6 +174,10 @@ def main():
                     "AND t.source_ref NOT LIKE 'HadeethEnc.com%'", (code,)
                 ).fetchone()[0]
                 assert bad_source == 0, f'HadeethEnc {code} attribution drift'
+                if code == 'hi':
+                    assert hdb.execute(
+                        "SELECT count(*) FROM search_context WHERE language='hi' AND trim(roman)<>''"
+                    ).fetchone()[0] > 0, 'Hindi HadeethEnc context has no Hinglish search shadow'
 
                 # Prove a real translated token participates in the local inverted index.
                 sample = hdb.execute(
@@ -257,6 +262,7 @@ def main():
         assert fixture_db.execute("SELECT count(*) FROM hadith_fts WHERE hadith_fts MATCH 'تجريبي'").fetchone()[0] == 1
         assert fixture_db.execute("SELECT count(*) FROM search_token WHERE token='تجريبي'").fetchone()[0] == 1
         assert fixture_db.execute('SELECT count(*) FROM grade_assertion').fetchone()[0] == 1
+        assert {row[1] for row in fixture_db.execute('PRAGMA table_info(search_context)')} >= {'hadith_id','language','kind','text','roman','source_ref'}
         assert not fixture_db.execute('PRAGMA foreign_key_check').fetchall()
         fixture_db.close()
 
