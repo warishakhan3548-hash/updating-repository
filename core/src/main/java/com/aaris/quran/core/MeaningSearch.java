@@ -30,14 +30,15 @@ public final class MeaningSearch {
         group(map,"सुन्नत","sunnat","sunnah","سنة");
         group(map,"दुआ","dua","supplication","دعاء");
         group(map,"रोज़ा","रोजा","roza","fasting","fast","صوم","صيام");
-        group(map,"ज़कात","जकात","zakat","charity","زكاة");
+        group(map,"ज़कात","जकात","zakat","almsgiving","زكاة");
         group(map,"हज","hajj","pilgrimage","حج");
         group(map,"ईमान","iman","faith","belief","إيمان","ايمان");
         group(map,"जन्नत","jannat","paradise","جنة");
         group(map,"जहन्नम","jahannam","hell","جهنم");
         group(map,"मस्जिद","masjid","mosque","مسجد");
         group(map,"अज़ान","अजान","azan","adhan","أذان","اذان");
-        group(map,"क़िबला","किबला","qibla","काबा","kaaba","kaaba","قبلة","كعبة");
+        group(map,"क़िबला","किबला","qibla","قبلة");
+        group(map,"काबा","kaaba","kaba","كعبة");
         group(map,"नहीं","नही","nahin","nahi","نہیں","نهيں","not","no");
         Map<String,List<String>> frozen=new HashMap<>();
         for(Map.Entry<String,LinkedHashSet<String>> e:map.entrySet())
