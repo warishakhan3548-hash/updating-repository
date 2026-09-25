@@ -255,9 +255,13 @@ final class HadithStore implements AutoCloseable {
         MatchChoice(TextMatch match,boolean meaning){this.match=match;this.meaning=meaning;}
     }
     static final class SearchPage {
-        final List<Hit> hits;final int total,offset;final String query;final boolean limited;
-        SearchPage(String query,List<Hit> hits,int total,int offset){this(query,hits,total,offset,false);}
-        SearchPage(String query,List<Hit> hits,int total,int offset,boolean limited){this.query=query;this.hits=hits;this.total=total;this.offset=offset;this.limited=limited;}
+        final List<Hit> hits;final int total,offset,nextOffset;final String query;final boolean limited;
+        SearchPage(String query,List<Hit> hits,int total,int offset){this(query,hits,total,offset,false,offset+hits.size());}
+        SearchPage(String query,List<Hit> hits,int total,int offset,boolean limited){this(query,hits,total,offset,limited,offset+hits.size());}
+        SearchPage(String query,List<Hit> hits,int total,int offset,boolean limited,int nextOffset){
+            this.query=query;this.hits=hits;this.total=total;this.offset=offset;this.limited=limited;
+            this.nextOffset=Math.max(offset,nextOffset);
+        }
     }
     private static final Comparator<Hit> ORDER=(a,b)->{
         int c=Boolean.compare(b.reference,a.reference);if(c!=0)return c;
@@ -297,7 +301,8 @@ final class HadithStore implements AutoCloseable {
                     if(choice.match.accepted)hits.add(new Hit(record,choice.match,false,choice.meaning));
                 }
             }
-            return new SearchPage(raw,hits,exact,start);
+            int consumed=Math.min(cap,Math.max(0,exact-start));
+            return new SearchPage(raw,hits,exact,start,false,start+consumed);
         }
         List<String> anchorTerms=MeaningSearch.focusTokens(terms);
         Map<String,List<String>> repairs=new HashMap<>();Map<String,Double> weights=new HashMap<>();
@@ -325,7 +330,7 @@ final class HadithStore implements AutoCloseable {
     }
     private static SearchPage slice(SearchPage page,int cap,int offset){
         int from=Math.min(offset,page.hits.size()),to=Math.min(from+cap,page.hits.size());
-        return new SearchPage(page.query,new ArrayList<>(page.hits.subList(from,to)),page.total,offset,page.limited);
+        return new SearchPage(page.query,new ArrayList<>(page.hits.subList(from,to)),page.total,offset,page.limited,to);
     }
     private MatchChoice bestMatch(Record record,List<String> terms,Map<String,List<String>> repairs,Map<String,Double> weights,CancellationSignal signal){
         List<String> focusedTerms=MeaningSearch.focusTokens(terms);
