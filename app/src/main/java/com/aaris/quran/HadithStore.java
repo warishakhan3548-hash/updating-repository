@@ -93,7 +93,9 @@ final class HadithStore implements AutoCloseable {
         languageCoverage=Collections.unmodifiableSet(languages);
         recordCount=manifest.getInt("records");
         collectionCount=manifest.getInt("collections");
-        if(packHash.length()!=64||recordCount<1||collectionCount<1)throw new IOException("Invalid Hadith manifest");
+        if(!packHash.matches("[a-f0-9]{64}")||packId.trim().isEmpty()||contentVersion.trim().isEmpty()||
+            sourceName.trim().isEmpty()||sourceVersion.trim().isEmpty()||recordCount<1||collectionCount<1)
+            throw new IOException("Invalid Hadith manifest");
 
         File folder=new File(context.getFilesDir(),"evidence");
         if(!folder.exists()&&!folder.mkdirs())throw new IOException("Cannot create evidence storage");
