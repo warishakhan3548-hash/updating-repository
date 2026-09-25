@@ -32,6 +32,14 @@ public final class SearchIntentChecks {
             HadithSearchPlan plan=HadithSearchPlan.candidates(intent,anchors,repairs,weights);
             System.out.println(encode(plan.where));for(String value:plan.args)System.out.println(encode(value));return;
         }
+        if(args.length>0&&args[0].equals("longplan")){
+            String value=Files.readString(Paths.get(args[1]),StandardCharsets.UTF_8);
+            LongQuery.Plan plan=LongQuery.plan(value);
+            System.out.println(plan.segmented?"1":"0");
+            System.out.println(plan.sourceWindows);
+            for(String window:plan.windows)System.out.println(encode(window));
+            return;
+        }
         if(args.length>0&&args[0].equals("tokens")){
             for(String line:Files.readAllLines(Paths.get(args[1]),StandardCharsets.UTF_8))
                 System.out.println(encode(String.join(" ",TextMatch.tokens(decode(line)))));
