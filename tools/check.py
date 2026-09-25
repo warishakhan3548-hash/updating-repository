@@ -289,6 +289,7 @@ def main():
     assert 'more.setEnabled(false);more.setText("Loading next 50 Hadith matches…");' in hadith_search_page, 'Hadith pagination must keep the existing load-more control visible while loading'
     assert 'more.getParent() instanceof ViewGroup' in hadith_search_page and 'removeView(more)' in hadith_search_page, 'Hadith pagination should remove the old load-more control only after the next page succeeds'
     assert 'more.setEnabled(true);more.setText("Load next 50 Hadith matches");' in hadith_search_page and 'Retry below.' in hadith_search_page, 'Hadith pagination failures must restore the same retry control'
+    assert 'catch(CancellationException|OperationCanceledException ignored){ui.post' in hadith_search_page and 'searchGeneration.get()==generation&&more!=null&&more.isAttachedToWindow()' in hadith_search_page, 'Timed-out Hadith pagination must restore retry unless the search generation has actually changed'
     assert 'list.removeView(more)' not in hadith_search_batch and 'loadHadithSearch(q,response.nextOffset,generation,list,status,more)' in hadith_search_batch, 'Hadith load-more taps must not destroy their only retry affordance before success'
     recitation_status = java_method('fillRecitationSurahDownloads')
     recitation_rows = java_method('appendRecitationSurahDownloads')
