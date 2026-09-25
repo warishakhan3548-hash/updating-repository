@@ -5,7 +5,7 @@ import java.util.regex.*;
 
 /** Rebuildable deterministic indexes. Matching text is not a religious conclusion. */
 public final class SearchEngine {
-    public static final String VERSION = "ranked-9-word-form";
+    public static final String VERSION = "ranked-10-offline-meaning";
     public enum Strength { STRONG_TEXT, RELATED }
     public enum Origin { USER, AI }
     public static final class Query {
@@ -203,7 +203,9 @@ public final class SearchEngine {
             arRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:arabic.terms.get(w))pool.add(p.doc);
         }
         for(String term:new LinkedHashSet<>(hints)){
-            List<String> alternatives=mergeAlternatives(wordFormAlternatives(term,glossVocabulary,hints.size()>1),glossRepairs(term));
+            List<String> alternatives=mergeAlternatives(
+                MeaningSearch.alternatives(term),
+                mergeAlternatives(wordFormAlternatives(term,glossVocabulary,hints.size()>1),glossRepairs(term)));
             glossRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:gloss.terms.get(w))pool.add(p.doc);
         }
         if(sounds.size()>=3)for(String term:new LinkedHashSet<>(sounds)){List<String> alternatives=spellingAlternatives(term,soundVocabulary,soundByLength,3,soundRepairCache);soundRepairs.put(term,alternatives);for(String word:alternatives)for(Posting p:sound.terms.get(word))pool.add(p.doc);}
