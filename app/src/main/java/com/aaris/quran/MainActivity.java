@@ -418,7 +418,7 @@ public final class MainActivity extends Activity {
             LinearLayout wrapper=column(this);list.addView(wrapper);
             wrapper.addView(label(browse?"COLLECTION RECORD":hit.reference?"REFERENCE MATCH":hit.match.band+(hit.meaning?" MEANING MATCH":" TEXT MATCH")));
             if(!hit.reference&&!browse){
-                if(hit.meaning)caption(wrapper,"Matched trusted translation context; the source Hadith is shown below.");
+                if(hit.meaning)caption(wrapper,"Matched trusted translation/meaning evidence; the source Hadith is shown below.");
                 caption(wrapper,hit.match.explanation());
             }
             hadithResultCard(wrapper,hit.record,metadata.get(hit.record.id));
