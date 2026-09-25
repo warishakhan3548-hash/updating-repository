@@ -23,7 +23,7 @@ final class TranslationStore implements AutoCloseable {
     final List<Edition> editions=new ArrayList<>();final String packHash,notice;
     private static final int ENTRY_CACHE_LIMIT=512;
     private final Map<String,Entry> entryCache=Collections.synchronizedMap(new LinkedHashMap<String,Entry>(ENTRY_CACHE_LIMIT,.75f,true){
-        @Override protected boolean removeEldestEntry(Map.Entry<String,Entry> eldest){return size()>ENTRY_CACHE_LIMIT;}
+        @Override protected boolean removeEldestEntry(Map.Entry<String,TranslationStore.Entry> eldest){return size()>ENTRY_CACHE_LIMIT;}
     });
     private final SQLiteDatabase db;
     TranslationStore(Context c)throws Exception{
