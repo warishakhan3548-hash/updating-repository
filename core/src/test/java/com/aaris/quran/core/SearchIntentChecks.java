@@ -86,6 +86,14 @@ public final class SearchIntentChecks {
         check(HadithQuery.parse("sahih 556").sahihCollections,"Ambiguous Sahih reference searches both collections");
         check(!HadithQuery.parse("حدثنا قتيبة بن سعيد حدثنا").isHadithIntent(),"Narration text is not a fuzzy collection title");
         check(!HadithQuery.parse("قال مسلم حدثنا").isHadithIntent(),"Names within prose do not change the scope");
+        for(String value:new String[]{"Muslim prayer after fard","मुस्लिम नमाज के बाद","مسلم قال الصلاة","Ahmad narrated this","Malik said this"}){
+            check(!HadithQuery.parse(value).isHadithIntent(),"Ambiguous collection-name prefix remains natural prose: "+value);
+            UnifiedQuery u=UnifiedQuery.parse(value,UnifiedQuery.ALL);
+            check(u.quran&&u.hadith,"Natural prose beginning with an ambiguous title searches both corpora: "+value);
+        }
+        check(HadithQuery.parse("Sahih Muslim prayer").collectionId.equals("muslim"),"Explicit Sahih Muslim text scope remains available");
+        check(HadithQuery.parse("Muslim 556").collectionId.equals("muslim"),"Ambiguous title next to a reference still scopes correctly");
+        check(HadithQuery.parse("Musnad Ahmad prayer").collectionId.equals("ahmad"),"Explicit Musnad Ahmad scope remains available");
         for(String value:new String[]{"2:255","٢:٢٥٥","Quran 2:255","कुरान २:२५५","2 255","Q 2/255","Quran: 2.255"}){
             UnifiedQuery u=UnifiedQuery.parse(value,UnifiedQuery.ALL);
             check(u.quran&&!u.hadith&&u.quranText.equals("2:255"),"Quran routing: "+value);
