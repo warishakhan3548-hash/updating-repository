@@ -21,7 +21,8 @@ final class RecitationDownloads {
     private final Object[] locks=new Object[LOCK_STRIPES];
     private final Map<String,long[]> completionCache=new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<String> missingCompletions=java.util.concurrent.ConcurrentHashMap.newKeySet();
-    volatile boolean cancelled,busy;
+    private volatile boolean cancelled;
+    volatile boolean busy;
     volatile String progress="";
     // v1 cached ordinal-1 audio under the requested coordinate. Its hashes only verify bytes,
     // not verse identity, so those files must never be reused by the corrected mapping.
@@ -31,6 +32,12 @@ final class RecitationDownloads {
     }
     static int index(String id){for(int i=0;i<IDS.length;i++)if(IDS[i].equals(id))return i;return 0;}
     static String valid(String id){return IDS[index(id)];}
+    synchronized boolean reserveDownload(){
+        if(busy)return false;
+        busy=true;cancelled=false;progress="Preparing download…";return true;
+    }
+    void cancelDownload(){cancelled=true;}
+    synchronized void releaseDownloadReservation(){busy=false;cancelled=true;progress="Download paused";}
     private Object lockFor(String key){return locks[(key.hashCode()&0x7fffffff)%locks.length];}
     private File folder(String reciter,int surah){return new File(new File(root,valid(reciter)),""+surah);}
     private File file(String reciter,Ayah a){return new File(folder(reciter,a.surah),a.number+".mp3");}
@@ -109,8 +116,8 @@ final class RecitationDownloads {
             }finally{connection.disconnect();temporary.delete();}
         }
     }
-    void download(ContentStore content,String reciter,int startSurah,int endSurah,Runnable changed)throws Exception{
-        synchronized(this){if(busy)throw new IOException("Another recitation download is running");busy=true;cancelled=false;}
+    void runReservedDownload(ContentStore content,String reciter,int startSurah,int endSurah,Runnable changed)throws Exception{
+        synchronized(this){if(!busy)throw new IllegalStateException("Recitation download was not reserved");}
         long lastProgressNanos=0L;
         try{for(int s=startSurah;s<=endSurah&&!cancelled;s++){
             JSONObject completed=new JSONObject();int count=content.surah(s).count;

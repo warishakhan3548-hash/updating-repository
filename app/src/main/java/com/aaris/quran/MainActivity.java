@@ -15,6 +15,7 @@ import com.aaris.quran.Glass.Surface;
 import com.aaris.quran.core.*;
 import org.json.*;
 import java.io.*;
+import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
@@ -53,7 +54,9 @@ public final class MainActivity extends Activity {
     private int pendingCorpora,pendingSearchJobs;
     private Runnable debounce;
     private String pendingExport;
-    private boolean preparingExport,recitationDownloadQueued;
+    private boolean preparingExport;
+    private int recitationDownloadGeneration;
+    private Runnable recitationDownloadCompletion;
     private int recitationListGeneration,libraryListGeneration;
     private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending,openOtherAppsAfterAmbientStart;
     private JSONObject pendingRestore;
@@ -759,7 +762,7 @@ public final class MainActivity extends Activity {
         page.addView(surahDownloads);
         fillRecitationSurahDownloads(surahDownloads,selected);
 
-        if(app.recitationDownloads.busy){gap(page,8);caption(page,app.recitationDownloads.progress);page.addView(button("Pause downloads",()->app.recitationDownloads.cancelled=true));}
+        if(app.recitationDownloads.busy){gap(page,8);caption(page,app.recitationDownloads.progress);page.addView(button("Pause downloads",app.recitationDownloads::cancelDownload));}
         gap(page,12);caption(page,RecitationDownloads.ATTRIBUTION);
         page.addView(button("Word audio · This Surah",()->audioSurahPrompt(a.surah)));gap(page,8);
         page.addView(button("Word audio · Download All",this::downloadAllAudio));
@@ -805,29 +808,43 @@ public final class MainActivity extends Activity {
     }
     private void downloadRecitation(String reciter,int first,int last){downloadRecitation(reciter,first,last,null);}
     private void downloadRecitation(String reciter,int first,int last,Runnable finished){
-        if(recitationDownloadQueued||app.recitationDownloads.busy){toast("A download is already running");return;}
-        recitationDownloadQueued=true;
+        final RecitationDownloads downloads=app.recitationDownloads;
+        if(!downloads.reserveDownload()){toast("A download is already running");return;}
+        final int token=++recitationDownloadGeneration;
+        recitationDownloadCompletion=finished;
+        final WeakReference<MainActivity> owner=new WeakReference<>(this);
+        final ContentStore source=content;
         toast("Download started. Keep Aaris open for this download.");
-        app.recitationDownloadWorker.execute(()->{
-            try{
-                app.recitationDownloads.download(content,reciter,first,last,()->ui.post(()->{
-                    if(recitationDownloadStatus!=null&&!isDestroyed())recitationDownloadStatus.setText(app.recitationDownloads.progress);
-                }));
-                ui.post(()->{
-                    if(isDestroyed()||isFinishing())return;
-                    toast(app.recitationDownloads.progress);
-                    if(finished!=null)finished.run();
+        try{
+            app.recitationDownloadWorker.execute(()->{
+                boolean failed=false;
+                try{
+                    downloads.runReservedDownload(source,reciter,first,last,()->{
+                        MainActivity activity=owner.get();
+                        if(activity==null||activity.isDestroyed())return;
+                        activity.ui.post(()->{
+                            MainActivity current=owner.get();
+                            if(current!=null&&!current.isDestroyed()&&current.recitationDownloadGeneration==token&&current.recitationDownloadStatus!=null)
+                                current.recitationDownloadStatus.setText(downloads.progress);
+                        });
+                    });
+                }catch(Exception e){failed=true;}
+                MainActivity activity=owner.get();
+                if(activity==null||activity.isDestroyed()||activity.isFinishing())return;
+                final boolean didFail=failed;
+                activity.ui.post(()->{
+                    MainActivity current=owner.get();
+                    if(current==null||current.isDestroyed()||current.isFinishing()||current.recitationDownloadGeneration!=token)return;
+                    Runnable completion=current.recitationDownloadCompletion;current.recitationDownloadCompletion=null;
+                    current.toast(didFail?"Download paused. Completed ayahs are safe; tap Download to continue.":downloads.progress);
+                    if(completion!=null)completion.run();
                 });
-            }catch(Exception e){
-                ui.post(()->{
-                    if(isDestroyed()||isFinishing())return;
-                    toast("Download paused. Completed ayahs are safe; tap Download to continue.");
-                    if(finished!=null)finished.run();
-                });
-            }finally{
-                ui.post(()->recitationDownloadQueued=false);
-            }
-        });
+            });
+        }catch(RejectedExecutionException rejected){
+            downloads.releaseDownloadReservation();
+            if(recitationDownloadGeneration==token)recitationDownloadCompletion=null;
+            toast("Download could not start. Try again.");
+        }
     }
     private void addTranslation(LinearLayout panel,Ayah ayah){
         renderTranslation(panel,app.translations==null?null:app.translations.get(translationId,ayah.id));
