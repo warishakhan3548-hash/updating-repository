@@ -1884,19 +1884,29 @@ public final class MainActivity extends Activity {
         List<String> ids=new ArrayList<>();for(SearchEngine.Result result:response.results.subList(offset,end))ids.add(result.ayah.id);
         return app.translations.get(edition,ids);
     }
-    private void loadQuranResults(LinearLayout list,SearchEngine.Response response,int offset,TextView status,int generation){
+    private void loadQuranResults(LinearLayout list,SearchEngine.Response response,int offset,TextView status,int generation,TextView more){
         if(searchGeneration.get()!=generation||offset>=response.results.size())return;
         final int end=Math.min(offset+50,response.results.size());final String edition=translationId;
         setSearchBusy(true);status.setText("Loading next Quran matches…");
+        if(more!=null&&more.isAttachedToWindow()){more.setEnabled(false);more.setText("Loading next 50 Quran matches…");}
         quranSearchTask=app.quranSearchWorker.submit(()->{
             try{
                 Map<String,TranslationStore.Entry> translations=prepareQuranTranslations(response,offset,end,edition);
                 ui.post(()->{if(isDestroyed()||!searching||searchGeneration.get()!=generation)return;
+                    if(more!=null&&more.getParent() instanceof ViewGroup)((ViewGroup)more.getParent()).removeView(more);
                     appendQuranResults(list,response,offset,status,translations,generation);
                 });
-            }catch(CancellationException ignored){}catch(Exception error){
+            }catch(CancellationException ignored){ui.post(()->{
+                if(!isDestroyed()&&searching&&searchGeneration.get()==generation&&more!=null&&more.isAttachedToWindow()){
+                    more.setEnabled(true);more.setText("Load next 50 matches");
+                }
+            });}catch(Exception error){
                 android.util.Log.w("AarisSearch","Quran result page could not load",error);
-                ui.post(()->{if(!isDestroyed()&&searching&&searchGeneration.get()==generation){setSearchBusy(false);status.setText("Could not load more Quran matches. Try again.");}});
+                ui.post(()->{if(!isDestroyed()&&searching&&searchGeneration.get()==generation){
+                    setSearchBusy(false);
+                    if(more!=null&&more.isAttachedToWindow()){more.setEnabled(true);more.setText("Load next 50 matches");}
+                    status.setText("Could not load more Quran matches. Retry below.");
+                }});
             }
         });
     }
@@ -1917,7 +1927,7 @@ public final class MainActivity extends Activity {
         if(batchEnd<end){status.setText("Showing "+batchEnd+" of "+response.results.size()+"…");list.postOnAnimation(()->appendQuranBatch(list,response,batchEnd,end,status,translations,generation));return;}
         if(pendingSearchJobs==0)setSearchBusy(false);
         if(!response.results.isEmpty())status.setText("COORDINATE".equals(response.intent)?end+" reference result":end+" of "+response.results.size()+" matches · High → Medium → Low");
-        if(end<response.results.size()){TextView more=button("Load next 50 matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadQuranResults(list,response,end,status,generation);});}
+        if(end<response.results.size()){TextView more=button("Load next 50 matches",()->{});list.addView(more);more.setOnClickListener(v->loadQuranResults(list,response,end,status,generation,more));}
     }
     private LinearLayout evidenceActions(Ayah ayah,JSONObject trace){
         LinearLayout actions=row(this);actions.addView(button("Open Ayah",()->open(ayah.surah,ayah.number)),new LinearLayout.LayoutParams(0,-2,1));
