@@ -216,7 +216,8 @@ public final class MainActivity extends Activity {
                 readerSurah=Math.max(1,Math.min(114,readerSurah));
                 readerStart=readerPageStart(Math.max(1,Math.min(content.surah(readerSurah).count,readerStart)));
             }
-            if(openRecitationIntent(getIntent()))return;\n            if(getIntent().getBooleanExtra("open_ambient",false)){tab=3;ambientSheetRequested=true;getIntent().removeExtra("open_ambient");}
+            if(openRecitationIntent(getIntent()))return;
+            if(getIntent().getBooleanExtra("open_ambient",false)){tab=3;ambientSheetRequested=true;getIntent().removeExtra("open_ambient");}
             tab=Math.max(0,Math.min(3,tab));
             boolean reopenSearch=state!=null&&state.getBoolean("search_open",false)&&!ambientSheetRequested;
             if(reopenSearch){applyWindowAppearance();searchScreen();}else show();
