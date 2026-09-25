@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "tools" / "hadith-catalog.json"
-BUILDER_VERSION = "8"
+BUILDER_VERSION = "9"
 
 
 def digest(path: Path) -> str:
@@ -349,8 +349,8 @@ def open_db(path: Path):
     CREATE INDEX hadith_by_chapter ON hadith(chapter_id, record_number);
     CREATE INDEX hadith_reference_lookup ON hadith_reference(scheme, value);
     CREATE INDEX hadith_reference_value ON hadith_reference(value, hadith_id);
-    CREATE INDEX hadith_arabic_shadow ON hadith(search_ar);
-    CREATE INDEX hadith_english_shadow ON hadith(search_latin);
+    -- Legacy whole-text B-tree shadows were never used by runtime retrieval. FTS/search_token
+    -- are the bounded search paths; omitting these duplicate indexes saves substantial storage.
     CREATE INDEX editorial_translation_lookup
       ON editorial_translation(hadith_id,language,status,revision);
     CREATE INDEX search_context_lookup ON search_context(hadith_id,language,kind);
