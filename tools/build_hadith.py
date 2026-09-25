@@ -573,6 +573,8 @@ def build(source_dir: Path, output: Path):
             "vocalization_note": "Presence of some marks does not establish complete or reviewed vocalization.",
             "vocalization": manifest.get("vocalization"),
             "vocalized_required_collection_ids": manifest.get("require_vowel_marks_collection_ids", []),
+            "hadeethenc_translation_record_counts": manifest.get("hadeethenc_translation_record_counts", {}),
+            "hadeethenc_withheld_translation_ids": manifest.get("hadeethenc_withheld_translation_ids", {}),
             "source_files": {rel: digest(safe_source_path(source_dir, rel)) for rel in manifest["files"]},
             "license_files": list(manifest["license_files"]),
             "runtime_network_required": False,
