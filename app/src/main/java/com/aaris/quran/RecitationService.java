@@ -82,8 +82,8 @@ public final class RecitationService extends Service {
         session.setPlaybackState(new PlaybackState.Builder().setActions(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_STOP|PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS).setState(state,PlaybackState.PLAYBACK_POSITION_UNKNOWN,state==PlaybackState.STATE_PLAYING?1:0).build());getSystemService(NotificationManager.class).notify(42,notification(message));}
     private PendingIntent action(String action,int request){return PendingIntent.getService(this,request,new Intent(this,RecitationService.class).setAction(action),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);}
     private Notification notification(String message){
-        Intent home=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            .putExtra(OPEN_READER,true).putExtra(OPEN_SURAH,surah).putExtra(OPEN_AYAH,ayah);
+        Intent home=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if(app!=null&&app.recitationActive)home.putExtra(OPEN_READER,true).putExtra(OPEN_SURAH,surah).putExtra(OPEN_AYAH,ayah);
         PendingIntent open=PendingIntent.getActivity(this,10,home,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this,"recitation").setSmallIcon(com.aaris.quran.R.drawable.ic_recall_notification).setContentTitle("Aaris · Recitation").setContentText(message).setContentIntent(open).setOngoing(!paused)
             .addAction(new Notification.Action.Builder(android.R.drawable.ic_media_previous,"Previous",action(PREVIOUS,1)).build())
