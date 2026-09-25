@@ -26,7 +26,8 @@ public final class SearchIntentChecks {
                 String[] row=line.split("\\t");String term=decode(row[0]);weights.put(term,Double.parseDouble(row[1]));
                 repairs.put(term,row.length>2?Arrays.asList(decode(row[2]).split(" ")):Collections.emptyList());
             }
-            HadithSearchPlan plan=HadithSearchPlan.candidates(intent,repairs,weights);
+            List<String> anchors=MeaningSearch.focusTokens(TextMatch.tokens(intent.text));
+            HadithSearchPlan plan=HadithSearchPlan.candidates(intent,anchors,repairs,weights);
             System.out.println(encode(plan.where));for(String value:plan.args)System.out.println(encode(value));return;
         }
         if(args.length>0&&args[0].equals("tokens")){
