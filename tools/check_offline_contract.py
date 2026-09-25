@@ -128,16 +128,20 @@ def main():
     if not AUDIO_CATALOG.is_file():
         fail("isolated-word Surah catalog is missing from base assets")
     catalog=json.loads(AUDIO_CATALOG.read_text(encoding="utf-8"))
+    release_base=str(catalog.get("release_base_url") or "")
     if (catalog.get("schema")!=1 or catalog.get("delivery")!="ISOLATED_WORD_SURAH_CONTAINER_V1" or
+        catalog.get("container_magic")!="AARISQW1" or catalog.get("repo_id")!=lock.get("repo_id") or
         catalog.get("source_revision")!=revision or
         catalog.get("canonical_quran_alignment_sha256")!=alignment or
         int(catalog.get("canonical_quran_audio_words") or 0)!=77326 or
-        int(catalog.get("surahs") or 0)!=114):
+        int(catalog.get("surahs") or 0)!=114 or
+        not release_base.startswith("https://github.com/warishakhan3548-hash/updating-repository/releases/download/")):
         fail("isolated-word Surah catalog binding is invalid")
     packs=catalog.get("packs")
     if not isinstance(packs,dict) or len(packs)!=114:
         fail("isolated-word Surah catalog must contain exactly 114 packs")
     words=0
+    total_bytes=0
     for s in range(1,115):
         key=f"{s:03d}";meta=packs.get(key)
         if not isinstance(meta,dict):
@@ -145,12 +149,15 @@ def main():
         url=str(meta.get("url") or "")
         sha=str(meta.get("sha256") or "")
         count=int(meta.get("words") or 0);size=int(meta.get("bytes") or 0)
-        if (not url.startswith("https://github.com/warishakhan3548-hash/updating-repository/releases/download/") or
-            not url.endswith(f"/{key}.aqp") or len(sha)!=64 or count<1 or size<64):
+        if (url!=f"{release_base}/{key}.aqp" or not re.fullmatch(r"[a-f0-9]{64}",sha) or
+            count<1 or size<64):
             fail(f"invalid immutable Surah pack metadata: {key}")
         words+=count
+        total_bytes+=size
     if words!=77326:
         fail("catalog Surah word totals do not equal canonical pronunciation coverage")
+    if total_bytes!=int(catalog.get("total_bytes") or 0):
+        fail("catalog Surah byte totals do not equal declared download size")
 
     # No actual pronunciation bytes may ever enter the base APK.
     binary_suffixes={".aqp",".opus",".pb",".pack",".mp3",".download",".tmp"}
