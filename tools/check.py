@@ -279,6 +279,14 @@ def main():
     assert 'markedComplete(' in recitation_status, 'Background recitation status discovery must use the existing verified completion marker'
     assert 'markedComplete(' not in recitation_rows, 'Rendering the 114-Surah download list must not perform filesystem status reads on the UI thread'
     assert '!list.isAttachedToWindow()' in recitation_rows, 'Detached recitation sheets must stop incremental row rendering'
+    play_start = main_activity_text.index('    private void playAyah(Ayah a){')
+    play_end = main_activity_text.index('\n    private void audioControls', play_start)
+    play_flow = main_activity_text[play_start:play_end]
+    assert 'recitationStatusWorker.execute' in play_flow, 'Paused reciter verification must run off the Android UI thread'
+    assert 'downloads.ayahReady(reciter,a,ayahCount)' in play_flow, 'Background playback selection must keep strong saved-reciter verification'
+    assert 'app.recitationDownloads.ayahReady(' not in play_flow, 'Play-button flow must not hash paused reciter audio synchronously'
+    assert 'generation==wordAudioPlayGeneration' in play_flow and 'app.recitationDownloads==downloads' in play_flow, 'Async reciter verification must reject stale playback results'
+    assert 'reciter.equals(verifiedReciter)' in play_flow, 'Changing reciter while verification is running must invalidate the old result'
     reader_method = java_method('reader')
     assert 'boolean hasPrevious=readerStart>1||readerSurah>1,hasNext=readerStart+8<=s.count||readerSurah<114;' in reader_method, 'Reader pager must model Quran boundaries explicitly'
     assert 'previous.setEnabled(hasPrevious)' in reader_method and 'next.setEnabled(hasNext)' in reader_method, 'Reader boundary controls must not remain tappable no-ops'
