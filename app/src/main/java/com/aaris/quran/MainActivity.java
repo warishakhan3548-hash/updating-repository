@@ -61,7 +61,7 @@ public final class MainActivity extends Activity {
     private volatile int recitationListGeneration;
     private int libraryListGeneration;
     private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending,openOtherAppsAfterAmbientStart;
-    private JSONObject pendingRestore;
+    private Dialog restorePrompt;
     private String searchQuery="",hadithQuery="";
     private final List<HadithStore.Hit> hadithHits=new ArrayList<>();
     private final Set<String> selectedHadith=new LinkedHashSet<>();
@@ -70,7 +70,7 @@ public final class MainActivity extends Activity {
     private int searchScope=UnifiedQuery.ALL;
     private TextView recitationBanner,operationBanner,recitationDownloadStatus,recitationPauseButton,wordAudioDownloadStatus,wordAudioPauseButton,wordAudioReaderButton;
     private ProgressBar searchProgress;
-    private Runnable recitationListener,hadithListener,operationListener,researchPdfListener,preparedExportListener,activeSearchRefresh;
+    private Runnable recitationListener,hadithListener,operationListener,researchPdfListener,preparedExportListener,restoreImportListener,activeSearchRefresh;
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
     private final Map<String,JSONObject> selectionTrace=new LinkedHashMap<>();
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
@@ -186,7 +186,7 @@ public final class MainActivity extends Activity {
                 TextView error=text(this,app.loadError+"\nOpen the app again. Your learning data remains stored separately.",15,INK);
                 error.setGravity(Gravity.CENTER);pad(error,24,24);layout.addView(error,new LinearLayout.LayoutParams(-1,-1));return;
             }
-            content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;operationListener=this::refreshOperationUi;app.operationChanged=operationListener;researchPdfListener=this::deliverResearchPdfResult;app.researchPdfChanged=researchPdfListener;preparedExportListener=this::deliverPreparedExportResult;app.preparedExportChanged=preparedExportListener;if(resumed){deliverResearchPdfResult();deliverPreparedExportResult();}
+            content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;operationListener=this::refreshOperationUi;app.operationChanged=operationListener;researchPdfListener=this::deliverResearchPdfResult;app.researchPdfChanged=researchPdfListener;preparedExportListener=this::deliverPreparedExportResult;app.preparedExportChanged=preparedExportListener;restoreImportListener=this::deliverRestoreImportResult;app.restoreImportChanged=restoreImportListener;if(resumed){deliverResearchPdfResult();deliverPreparedExportResult();deliverRestoreImportResult();}
             hadithListener=()->{if(isDestroyed()||isFinishing())return;if(searching){String q=searchQuery.trim();if(!q.isEmpty()&&UnifiedQuery.parse(q,searchScope).hadith){Runnable refresh=activeSearchRefresh;if(refresh!=null)refresh.run();}}else if(tab==2)show();};app.hadithChanged=hadithListener;
             language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");
             if(app.translations!=null){
@@ -226,10 +226,10 @@ public final class MainActivity extends Activity {
     private static float clamp(float x,float min,float max){return Math.max(min,Math.min(max,x));}
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
     @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putBoolean("ambient_open_other_apps",openOtherAppsAfterAmbientStart);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putBoolean("search_open",searching);state.putInt("search_scope",searchScope);state.putString("hadith_query",hadithQuery);state.putInt("voice_scope",pendingVoiceScope);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
-    @Override protected void onPostResume(){super.onPostResume();resumed=true;deliverResearchPdfResult();deliverPreparedExportResult();if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
+    @Override protected void onPostResume(){super.onPostResume();resumed=true;deliverResearchPdfResult();deliverPreparedExportResult();deliverRestoreImportResult();if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
-    @Override protected void onDestroy(){wordAudioPromptGeneration++;wordAudioPlayGeneration++;ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(app!=null&&app.researchPdfChanged==researchPdfListener)app.researchPdfChanged=null;if(app!=null&&app.preparedExportChanged==preparedExportListener)app.preparedExportChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
+    @Override protected void onDestroy(){wordAudioPromptGeneration++;wordAudioPlayGeneration++;ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();Dialog restore=restorePrompt;restorePrompt=null;if(restore!=null)restore.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(app!=null&&app.researchPdfChanged==researchPdfListener)app.researchPdfChanged=null;if(app!=null&&app.preparedExportChanged==preparedExportListener)app.preparedExportChanged=null;if(app!=null&&app.restoreImportChanged==restoreImportListener)app.restoreImportChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
@@ -2060,6 +2060,29 @@ public final class MainActivity extends Activity {
             catch(Exception error){app.publishPreparedExportFailure(exportFailure("Backup could not be created",error));}
         });}catch(RejectedExecutionException rejected){app.publishPreparedExportFailure("Backup could not start. Try again.");}
     }
+    private static String restoreFailure(Exception error){
+        String detail=error==null?null:error.getMessage();
+        return detail==null||detail.trim().isEmpty()?"Backup is not valid":"Backup is not valid: "+detail;
+    }
+    private void deliverRestoreImportResult(){
+        if(!resumed||app==null||content==null||isDestroyed()||isFinishing())return;
+        QuranApp.RestoreImportResult result=app.peekRestoreImportResult();if(result==null)return;
+        if(result.error!=null){if(app.clearRestoreImportResult(result))toast(result.error);return;}
+        if(result.backup==null){if(app.clearRestoreImportResult(result))toast("Backup could not be prepared. Try again.");return;}
+        Dialog current=restorePrompt;if(current!=null&&current.isShowing())return;
+        AlertDialog prompt=new AlertDialog.Builder(this).setTitle("Restore learning history?")
+            .setMessage(result.count+" history events will be merged. Existing history and notes will not be deleted.")
+            .setNegativeButton("Not now",(d,w)->app.clearRestoreImportResult(result))
+            .setPositiveButton("Merge",(d,w)->{
+                if(!app.clearRestoreImportResult(result))return;
+                try{app.io.execute(()->{try{
+                    app.learning.restore(result.backup,app.content);
+                    ui.post(()->{if(!isDestroyed()&&!isFinishing()){toast("Learning history restored");show();}});
+                }catch(Exception error){ui.post(()->{if(!isDestroyed()&&!isFinishing())toast("Restore failed; existing data is safe");});}});}
+                catch(RejectedExecutionException rejected){toast("Restore could not start. Try again.");}
+            }).create();
+        restorePrompt=prompt;prompt.setOnDismissListener(d->{if(restorePrompt==prompt)restorePrompt=null;});prompt.show();
+    }
     private void restorePicker(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/json");try{startActivityForResult(intent,IMPORT);}catch(ActivityNotFoundException e){toast("No document picker is available to open the backup");}}
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
@@ -2085,11 +2108,14 @@ public final class MainActivity extends Activity {
             finally{discardExport(token);app.exportWriteBusy.set(false);app.notifyOperationChanged();}
             String resultMessage=message;ui.post(()->{if(!isDestroyed()&&!isFinishing())toast(resultMessage);});
         });}
-        if(request==IMPORT)app.io.execute(()->{try{
-            ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>ExportStaging.MAX_BYTES)throw new IOException("Backup is larger than 64 MiB");out.write(b,0,n);}}
-            JSONObject backup=new JSONObject(out.toString("UTF-8"));int count=learning.validateBackup(backup,content);
-            ui.post(()->{if(isDestroyed())return;pendingRestore=backup;new AlertDialog.Builder(this).setTitle("Restore learning history?").setMessage(count+" history events will be merged. Existing history and notes will not be deleted.").setNegativeButton("Not now",(d,w)->pendingRestore=null).setPositiveButton("Merge",(d,w)->{JSONObject restore=pendingRestore;pendingRestore=null;app.io.execute(()->{try{learning.restore(restore,content);ui.post(()->{toast("Learning history restored");show();});}catch(Exception e){ui.post(()->toast("Restore failed; existing data is safe"));}});}).show();});
-        }catch(Exception e){ui.post(()->toast("Backup is not valid: "+e.getMessage()));}});
+        if(request==IMPORT){
+            try{app.io.execute(()->{try{
+                ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=app.getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>ExportStaging.MAX_BYTES)throw new IOException("Backup is larger than 64 MiB");out.write(b,0,n);}}
+                JSONObject backup=new JSONObject(out.toString("UTF-8"));int count=app.learning.validateBackup(backup,app.content);
+                app.publishRestoreImport(backup,count);
+            }catch(Exception error){app.publishRestoreImportFailure(restoreFailure(error));}});}
+            catch(RejectedExecutionException rejected){app.publishRestoreImportFailure("Backup could not be read. Try again.");}
+        }
     }
     @Override public void onBackPressed(){if(overlay.getChildCount()>0){hidePeek();return;}if(searching){searchGeneration.incrementAndGet();cancelSearchWork();show();return;}if(quietReader){quietReader=false;show();return;}if(tab==1&&reading){reading=false;show();return;}if(tab!=1){tab=1;reading=true;show();return;}super.onBackPressed();}
 

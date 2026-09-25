@@ -8,6 +8,7 @@ import android.os.Handler;
 import android.os.Looper;
 import com.aaris.quran.core.SearchEngine;
 import com.aaris.quran.core.ExportStaging;
+import org.json.JSONObject;
 import java.io.File;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -30,7 +31,7 @@ public final class QuranApp extends Application {
     volatile boolean recitationActive;
     volatile int recitationSurah=1,recitationAyah=1;
     volatile String recitationLabel="";
-    Runnable recitationChanged,hadithChanged,operationChanged,researchPdfChanged,preparedExportChanged;
+    Runnable recitationChanged,hadithChanged,operationChanged,researchPdfChanged,preparedExportChanged,restoreImportChanged;
     final ExecutorService audioWorker=worker("audio");
     final ExecutorService audioStatusWorker=worker("audio-status");
     final ExecutorService recitationDownloadWorker=worker("recitation-download");
@@ -56,6 +57,7 @@ public final class QuranApp extends Application {
     private boolean searchWarmPending;
     private ResearchPdfResult pendingResearchPdf;
     private PreparedExportResult pendingPreparedExport;
+    private RestoreImportResult pendingRestoreImport;
     private final CountDownLatch ready=new CountDownLatch(1);
 
     static final class ResearchPdfResult {
@@ -113,6 +115,27 @@ public final class QuranApp extends Application {
     private void notifyPreparedExportChanged(){
         main.post(()->{Runnable current=preparedExportChanged;if(current!=null)current.run();});
         notifyOperationChanged();
+    }
+
+    static final class RestoreImportResult {
+        final JSONObject backup;final int count;final String error;
+        RestoreImportResult(JSONObject backup,int count,String error){this.backup=backup;this.count=count;this.error=error;}
+    }
+    synchronized void publishRestoreImport(JSONObject backup,int count){
+        pendingRestoreImport=new RestoreImportResult(backup,count,null);
+        notifyRestoreImportChanged();
+    }
+    synchronized void publishRestoreImportFailure(String error){
+        pendingRestoreImport=new RestoreImportResult(null,0,error);
+        notifyRestoreImportChanged();
+    }
+    synchronized RestoreImportResult peekRestoreImportResult(){return pendingRestoreImport;}
+    synchronized boolean clearRestoreImportResult(RestoreImportResult expected){
+        if(pendingRestoreImport!=expected)return false;
+        pendingRestoreImport=null;return true;
+    }
+    private void notifyRestoreImportChanged(){
+        main.post(()->{Runnable current=restoreImportChanged;if(current!=null)current.run();});
     }
     @Override public void onCreate(){
         super.onCreate();
