@@ -31,6 +31,11 @@ final class QuranAudioStore {
             this.surah=surah;this.words=words;this.bytes=bytes;this.sha256=sha256;this.url=url;
         }
     }
+    static final class InvalidDownloadedPackException extends IOException {
+        InvalidDownloadedPackException(Exception cause){
+            super(cause.getMessage()==null?"Downloaded Surah pronunciation verification failed":cause.getMessage(),cause);
+        }
+    }
     static final class Clip {
         final File container;final long offset,length;
         Clip(File container,long offset,long length){this.container=container;this.offset=offset;this.length=length;}
@@ -143,7 +148,8 @@ final class QuranAudioStore {
 
     synchronized void installDownloaded(int surah,File staging) throws Exception {
         PackMeta meta=meta(surah);if(meta==null)throw new IOException("Unknown Surah audio pack");
-        validateContainer(staging,meta,true);
+        try{validateContainer(staging,meta,true);}
+        catch(Exception invalid){throw new InvalidDownloadedPackException(invalid);}
         File target=surahFile(surah),marker=markerFile(surah),old=new File(root,String.format(Locale.ROOT,".%03d.old",surah));
         delete(old);delete(marker);
         if(target.exists()&&!target.renameTo(old))throw new IOException("Existing Surah pronunciation could not be replaced");
