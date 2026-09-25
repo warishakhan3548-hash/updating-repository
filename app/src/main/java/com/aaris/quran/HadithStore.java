@@ -247,7 +247,7 @@ final class HadithStore implements AutoCloseable {
             weights.put(term,Math.max(.25,Math.log(1.+recordCount/(1.+df))));
         }
         List<String> ranked=new ArrayList<>(weights.keySet());ranked.sort(Comparator.comparingDouble((String t)->weights.get(t)).reversed().thenComparing(t->t));
-        for(String term:ranked.subList(0,Math.min(HadithSearchPlan.MAX_ANCHORS,ranked.size())))repairs.put(term,spellingCandidates(term,signal));
+        for(String term:ranked.subList(0,Math.min(HadithSearchPlan.MAX_ANCHORS,ranked.size())))repairs.put(term,spellingCandidates(term,terms.size()>1,signal));
         HadithSearchPlan plan=HadithSearchPlan.candidates(intent,repairs,weights);
         List<Hit> matches=new ArrayList<>();int scanned=0;
         try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+plan.where,plan.args.toArray(new String[0]),signal)){
@@ -289,10 +289,10 @@ final class HadithStore implements AutoCloseable {
         }
         return new SearchPage(query.raw,hits,total,offset);
     }
-    private List<String> spellingCandidates(String term,CancellationSignal signal){
+    private List<String> spellingCandidates(String term,boolean hasContext,CancellationSignal signal){
         cancelSearch(signal);
         boolean arabicTerm=Arabic.hasArabic(term);
-        if(term.length()<(arabicTerm?3:4)||term.length()>128||TextMatch.negative(term))return Collections.emptyList();
+        if(term.length()<(arabicTerm&&hasContext?3:4)||term.length()>128||TextMatch.negative(term))return Collections.emptyList();
         List<String> cached=spellingCache.get(term);if(cached!=null)return cached;
         int max=term.length()>=8?2:1,maxFormExtra=arabicTerm?3:4;
         Map<String,Integer> distances=new HashMap<>(),overlap=new HashMap<>();Set<String> forms=new HashSet<>();
