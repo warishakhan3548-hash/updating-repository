@@ -43,9 +43,13 @@ permission is required. The Hadith tab is local-only: it never opens Sunnah.com.
 explicit Hadith pack under `source-vault/hadith/active` has priority; otherwise the build derives
 one immutable local evidence pack from checked-in sources. The Open-Hadith-Data core-nine contributes
 62,169 **vocalized Arabic** records whose numbering and wording are checked against its pinned plain
-edition. A separate HadeethEnc collection contributes 3,582 official Arabic records plus 2,328
-English, 2,220 Urdu and 2,314 Hindi source translations from hash-locked official workbooks. It is
-kept separate instead of guessing one-to-one mappings onto Bukhari/Muslim/etc. Normal builds use only
+edition. A separate HadeethEnc collection contributes 3,582 official Arabic records. Its hash-locked
+official workbooks contain 2,328 English, 2,220 Urdu and 2,314 Hindi translation rows; after
+cross-checking each translated row's embedded Arabic against the current official Arabic workbook,
+the installed pack safely includes 2,327 English, 2,098 Urdu and 2,252 Hindi translations.
+Rows with source-identity drift remain archived but are quarantined rather than guessed onto an
+Arabic record. HadeethEnc stays separate instead of guessing one-to-one mappings onto
+Bukhari/Muslim/etc. Normal builds use only
 these archived files: no Hadith website or API is contacted. Local phrase/token search indexes
 Arabic, Hindi, Urdu and English layers where present. This is not a claim that every collection in
 the wider Sunnah.com catalog is vendored.
