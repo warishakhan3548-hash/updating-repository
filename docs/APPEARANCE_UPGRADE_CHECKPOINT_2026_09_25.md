@@ -44,4 +44,14 @@ Working branch: `upgrade/smart-appearance-editor-20260925`.
 - Old saved appearance JSON remains backward-compatible through optional v9 defaults.
 - Quran Arabic letter-spacing/tracking was intentionally not added.
 
-Status: implementation complete on branch; PR #310 open and automated verification requested.
+## Final verification
+
+- Final code-bearing branch head: `41f02cc61eee0f4fdfb18378a93f6a6a46110558`.
+- GitHub Actions push run `36162399509`: SUCCESS.
+- Android resource compile + manifest link: PASS.
+- Android Java compile: PASS.
+- Quran/Hadith integrity, search and audio-boundary regressions: PASS.
+- PR #310 was cleanly mergeable and squash-merged.
+- Verified squash merge: `4cfd24748af868f653516041eea2845056f77459`.
+
+Status: merged to `main`. Future appearance work should start from current main at/after the verified squash merge above.
