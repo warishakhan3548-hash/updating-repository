@@ -500,7 +500,7 @@ final class HadithStore implements AutoCloseable {
         else{candidates.add(preferred);candidates.add("en");}
 
         for(String language:candidates){
-            if(hasEditorialTranslations)try(Cursor cursor=db.rawQuery(
+            if(hasEditorialTranslations&&layeredHadithIds.contains(record.id))try(Cursor cursor=db.rawQuery(
                 "SELECT text,revision,status,source_ref FROM editorial_translation "+
                 "WHERE hadith_id=? AND language=? AND status IN ('released','reviewed') "+
                 "ORDER BY CASE status WHEN 'released' THEN 0 ELSE 1 END,rowid DESC LIMIT 1",
