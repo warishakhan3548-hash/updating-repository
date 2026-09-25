@@ -84,6 +84,17 @@ public final class MeaningSearch {
         return found==null?Collections.emptyList():found;
     }
 
+    /** True only when a documented concept alias bridges a query term absent verbatim. */
+    public static boolean usesConceptBridge(List<String> query,List<String> document){
+        if(query==null||document==null||query.isEmpty()||document.isEmpty())return false;
+        Set<String> words=new HashSet<>(document);
+        for(String term:query){
+            if(term==null||term.isEmpty()||words.contains(term))continue;
+            for(String alternative:alternatives(term))if(words.contains(alternative))return true;
+        }
+        return false;
+    }
+
     /**
      * Deterministic Devanagari -> simple Hinglish retrieval shadow.
      * This is intentionally not a display transliteration and may be lossy.
