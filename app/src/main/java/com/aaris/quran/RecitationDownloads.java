@@ -39,7 +39,7 @@ final class RecitationDownloads {
         busy=true;cancelled=false;progress="Preparing download…";return true;
     }
     void cancelDownload(){
-        cancelled=true;
+        cancelled=true;progress="Pausing download…";
         HttpURLConnection connection;
         synchronized(batchConnectionLock){connection=activeBatchConnection;}
         if(connection!=null)connection.disconnect();
@@ -135,16 +135,23 @@ final class RecitationDownloads {
     void runReservedDownload(ContentStore content,String reciter,int startSurah,int endSurah,Runnable changed)throws Exception{
         synchronized(this){if(!busy)throw new IllegalStateException("Recitation download was not reserved");}
         long lastProgressNanos=0L;
-        try{for(int s=startSurah;s<=endSurah&&!cancelled;s++){
-            JSONObject completed=new JSONObject();int count=content.surah(s).count;
-            for(int a=1;a<=count&&!cancelled;a++){
-                Ayah ayah=content.ayah("Q:"+s+":"+a);File file=obtain(reciter,ayah,true);completed.put(""+a,file.length());
-                progress=NAMES[index(reciter)]+" · Surah "+s+" · "+a+"/"+count;
-                long now=System.nanoTime();
-                if(a==count||lastProgressNanos==0L||now-lastProgressNanos>=250_000_000L){lastProgressNanos=now;changed.run();}
+        try{
+            for(int s=startSurah;s<=endSurah&&!cancelled;s++){
+                JSONObject completed=new JSONObject();int count=content.surah(s).count;
+                for(int a=1;a<=count&&!cancelled;a++){
+                    Ayah ayah=content.ayah("Q:"+s+":"+a);File file=obtain(reciter,ayah,true);completed.put(""+a,file.length());
+                    progress=NAMES[index(reciter)]+" · Surah "+s+" · "+a+"/"+count;
+                    long now=System.nanoTime();
+                    if(a==count||lastProgressNanos==0L||now-lastProgressNanos>=250_000_000L){lastProgressNanos=now;changed.run();}
+                }
+                if(!cancelled){File temp=new File(folder(reciter,s),"complete.tmp"),target=new File(folder(reciter,s),"complete.json");try(FileOutputStream out=new FileOutputStream(temp)){out.write(completed.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}invalidateCompletion(reciter,s);if(target.exists()&&!target.delete())throw new IOException("Could not replace Surah completion state");if(!temp.renameTo(target))throw new IOException("Could not finish Surah download");if(!ready(reciter,s,count)){target.delete();invalidateCompletion(reciter,s);throw new IOException("Downloaded Surah verification failed");}}
             }
-            if(!cancelled){File temp=new File(folder(reciter,s),"complete.tmp"),target=new File(folder(reciter,s),"complete.json");try(FileOutputStream out=new FileOutputStream(temp)){out.write(completed.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}invalidateCompletion(reciter,s);if(target.exists()&&!target.delete())throw new IOException("Could not replace Surah completion state");if(!temp.renameTo(target))throw new IOException("Could not finish Surah download");if(!ready(reciter,s,count)){target.delete();invalidateCompletion(reciter,s);throw new IOException("Downloaded Surah verification failed");}}
-        }progress=cancelled?"Download paused · completed ayahs are kept":"Download complete";
+            progress=cancelled?"Download paused · completed ayahs are kept":"Download complete";
+        }catch(Exception failure){
+            progress=cancelled||failure instanceof InterruptedIOException?
+                "Download paused · completed ayahs are kept":
+                "Download stopped · completed ayahs are kept; tap Download to retry";
+            throw failure;
         }finally{busy=false;changed.run();}
     }
 }
