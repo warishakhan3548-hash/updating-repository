@@ -169,6 +169,32 @@ def main():
                 "Hinglish meaning context is not reachable through production FTS", sample_context[0]
             )
             print("Hinglish HadeethEnc meaning-context retrieval: PASS")
+
+            def candidate_ids(query):
+                terms = sorted(search_tokens(query))
+                data = scratch / "remembered-candidate-plan.tsv"
+                lines = [enc(query)]
+                for term in terms:
+                    found = db.execute("SELECT df FROM search_vocabulary WHERE token=?", (term,)).fetchone()
+                    weight = max(.25, math.log(1 + manifest["records"] / (1 + (found[0] if found else 0))))
+                    lines.append(enc(term) + "\t" + str(weight))
+                data.write_text("\n".join(lines) + "\n")
+                plan = subprocess.check_output(java + ["candidates", str(data)], text=True).splitlines()
+                return {
+                    row[0] for row in db.execute(
+                        "SELECT h.id FROM hadith h WHERE " + dec(plan[0]),
+                        [dec(v) for v in plan[1:]]
+                    )
+                }
+
+            # User-style question scaffolding must not crowd the evidence out of the bounded
+            # candidate set. HadeethEnc 3293 explicitly explains two rak'ahs distinct from the
+            # obligatory prayer followed by the istikhara supplication.
+            remembered_hi = "ये कहाँ पर लिखा है कि दो रकात नमाज फर्ज के बाद दुआ करनी है"
+            remembered_hinglish = "ye kaha likha hai ki do rakat namaz farz ke bad dua karni hai"
+            assert "H:hadeethenc:official:3293" in candidate_ids(remembered_hi)
+            assert "H:hadeethenc:official:3293" in candidate_ids(remembered_hinglish)
+            print("Hindi/Hinglish remembered-question candidate retrieval: PASS")
     db.close()
     print("Real Hadith pack: scoped references, suffixes, Unicode digits and vocalized/plain Arabic: PASS")
 
