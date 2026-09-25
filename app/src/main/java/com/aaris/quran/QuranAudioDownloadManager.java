@@ -67,12 +67,12 @@ final class QuranAudioDownloadManager {
         cancel=false;
         try{
             io.execute(()->{
-                int completed=0,current=1;String failure=null;
+                int completed=store.installedCount(),current=1;String failure=null;
                 try{
                     for(current=1;current<=114;current++){
                         if(cancel)throw new IOException("Download cancelled");
-                        if(!store.installedSurah(current))downloadOne(current);
-                        completed++;postProgress(listener,current,completed,114);
+                        if(store.installedSurah(current))continue;
+                        downloadOne(current);completed++;postProgress(listener,current,completed,114);
                     }
                 }catch(Exception e){failure=safeMessage(e);}
                 finally{busy.set(false);}
