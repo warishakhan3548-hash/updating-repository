@@ -111,7 +111,15 @@ final class Appearance {
     private void palette(int bg,int card,int highlight,int arabicInk,int translationInk,int end){
         background=bg;surface=card;buttonColor=card;accent=highlight;arabic=arabicInk;translation=translationInk;gradientEnd=end;
     }
-    int buttonSurface(){return customButtons?mix(background,buttonColor,opacity/100f):effectiveSurface();}
+    int buttonSurface(){return buttonSurface(false);}
+    int buttonSurface(boolean primary){
+        int base=customButtons?mix(background,buttonColor,opacity/100f):effectiveSurface();
+        return primary?mix(base,accent,.15f):base;
+    }
+    int buttonHighlight(boolean primary){
+        int base=buttonSurface(primary);
+        return glass&&!reducedEffects?mix(base,accent,.06f*glassStrength/100f):base;
+    }
     boolean rendersGradient(){return gradient&&!reducedEffects;}
     int effectiveCardOpacity(){
         if(!autoBalance||!rendersGradient())return opacity;
@@ -145,8 +153,9 @@ final class Appearance {
         if(textFinish==TEXT_SOFT)textSheen=bound(textSheen,12,55);
     }
     int buttonInk(){
-        int base=buttonSurface(),primary=mix(base,accent,.15f),highlight=mix(primary,accent,.06f*glassStrength/100f);
-        return readableAcross(appText,base,highlight);
+        return readableAcross(appText,
+            buttonSurface(false),buttonHighlight(false),
+            buttonSurface(true),buttonHighlight(true));
     }
     int glassInk(float amount){return textInk(mix(arabicInk(),Color.WHITE,amount),100);}
     int foilInk(float amount){return readableAcross(mix(arabicInk(),accent,amount),effectiveSurface(),surfaceHighlight(),effectiveSurfaceAtGradientEnd(),surfaceHighlightAtGradientEnd());}
