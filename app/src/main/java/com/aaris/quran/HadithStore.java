@@ -337,14 +337,21 @@ final class HadithStore implements AutoCloseable {
 
         TextMatch context=null;
         if(layeredHadithIds.contains(record.id))try(Cursor docs=db.rawQuery(
-            "SELECT 0,text,'' FROM editorial_translation WHERE hadith_id=? AND status IN ('released','reviewed') "+
-            "UNION ALL SELECT 1,text,roman FROM search_context WHERE hadith_id=?",
+            "SELECT 0,text,'',language FROM editorial_translation WHERE hadith_id=? AND status IN ('released','reviewed') "+
+            "UNION ALL SELECT 1,text,roman,language FROM search_context WHERE hadith_id=?",
             new String[]{record.id,record.id},signal)){
             while(docs.moveToNext()){
                 cancelSearch(signal);boolean meaning=docs.getInt(0)==1;
                 List<String> docTokens=TextMatch.tokens(docs.getString(1));
                 TextMatch m=TextMatch.compare(terms,docTokens,repairs,weights);
                 if(!meaning){
+                    if("hi".equals(docs.getString(3))){
+                        String translationRoman=MeaningSearch.romanizeHindi(docs.getString(1));
+                        if(!translationRoman.isEmpty()){
+                            TextMatch romanTranslation=TextMatch.compare(terms,TextMatch.tokens(translationRoman),repairs,weights);
+                            if(romanTranslation.accepted&&(!m.accepted||TextMatch.compareRank(romanTranslation,m)<0))m=romanTranslation;
+                        }
+                    }
                     if(m.accepted&&(!direct.accepted||TextMatch.compareRank(m,direct)<0))direct=m;
                     continue;
                 }
