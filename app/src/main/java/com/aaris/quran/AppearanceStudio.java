@@ -123,6 +123,9 @@ final class AppearanceStudio {
         style.save(activity);refresh();
     }
     private void invalidateEditorColor(){editHsvValid=false;editHsvLayer=-1;}
+    private void normalizeEditingLayer(){
+        if(layer==5&&!style.gradient){layer=0;invalidateEditorColor();}
+    }
     private void syncEditorColor(){
         if(editHsvValid&&editHsvLayer==layer)return;
         float[] h=new float[3];Color.colorToHSV(color(),h);editHue=h[0];editSat=h[1];editVal=h[2];
@@ -334,6 +337,7 @@ final class AppearanceStudio {
         float diff=Math.abs(editHue-dot[0]);diff=Math.min(diff,360f-diff);return diff<18f;
     }
     private void renderControls(){
+        normalizeEditingLayer();
         binding=true;controls.removeAllViews();editingSwatch=null;
 
         title("Start with a look");
