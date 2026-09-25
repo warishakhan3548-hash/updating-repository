@@ -53,6 +53,7 @@ public final class CoreChecks {
         check(MeaningSearch.focusTokens(TextMatch.tokens("एक बार एक सहाबी ने नबी को देखा")).stream().filter("एक"::equals).count()==1,"Meaning lane deduplicates conversational repetition");
         check(MeaningSearch.focusTokens(TextMatch.tokens("नबी ने कहा नमाज")).contains("कहा")&&
             MeaningSearch.focusTokens(TextMatch.tokens("nabi ne kaha namaz")).contains("kaha"),"Said/kaha is content, not confused with where/kahan");
+        check(!MeaningSearch.focusTokens(TextMatch.tokens("ye kaha likha hai ki do rakat namaz")).contains("kaha"),"Question-pattern kaha is treated as a kahan typo without weakening said/kaha");
         check(TextMatch.negative("nahi")&&TextMatch.negative("nahin")&&TextMatch.negative("नही"),"Common Hinglish/Hindi negation variants are protected");
         Map<String,List<String>> polarityRepairs=new HashMap<>();
         polarityRepairs.put("nahi",MeaningSearch.alternatives("nahi"));
