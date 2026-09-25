@@ -633,6 +633,7 @@ def build(source_dir: Path, output: Path):
             "redistribution_basis": manifest["redistribution_basis"],
             "builder_version": BUILDER_VERSION,
             "sqlite_sha256": output_hash,
+            "sqlite_bytes": output.stat().st_size,
             "collections": counters["collection"],
             "books": counters["book"],
             "chapters": counters["chapter"],
