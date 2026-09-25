@@ -15,8 +15,8 @@ public final class MeaningSearch {
         "के","की","का","को","ने","से","में","पर","कि","था","थे","थी","है","हैं","हो","रहे","रही","रहा",
         "aur","ke","ki","ka","ko","ne","se","me","mein","par","tha","the","thi","hai","hain","ho","rahe","rahi","raha",
         "the","a","an","of","to","and","in","is","was","were","that","who","he","she","they","it","his","her","their",
-        "ये","यह","कहाँ","कहा","लिखा","लिखी","लिखे","बताओ","बताइए","बताये","बताएं","कौन","मुझे",
-        "ye","yeh","kaha","kahan","likha","likhi","likhe","batao","bataiye","bataye","kaun","mujhe",
+        "ये","यह","कहाँ","लिखा","लिखी","लिखे","बताओ","बताइए","बताये","बताएं","कौन","मुझे",
+        "ye","yeh","kahan","likha","likhi","likhe","batao","bataiye","bataye","kaun","mujhe",
         "where","written","mentioned","show","find","please","tell","me","which"
     ));
     static {
