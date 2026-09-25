@@ -32,15 +32,20 @@ final class TranslationSpeech implements AutoCloseable {
         out.sort(Comparator.comparingInt(Voice::getQuality).reversed().thenComparingInt(Voice::getLatency).thenComparing(Voice::getName));
         return out;
     }
+    private Voice preferredVoice(String language,List<Voice> available){
+        android.content.SharedPreferences preferences=context.getSharedPreferences("translation_speech",0);
+        String saved=preferences.getString(language,"");
+        if(!saved.isEmpty())for(Voice voice:available)if(voiceKey(voice).equals(saved))return voice;
+        Voice fallback=available.get(0);
+        preferences.edit().putString(language,voiceKey(fallback)).apply();
+        return fallback;
+    }
     void speak(TranslationStore.Entry entry){
         if(entry==null||closed)return;ensure(()->speakReady(entry));
     }
     private void speakReady(TranslationStore.Entry entry){
         List<Voice> available=voices(entry.edition.language);if(available.isEmpty()){message("Install an offline "+entry.edition.language+" device voice in Android settings");return;}
-        String saved=context.getSharedPreferences("translation_speech",0).getString(entry.edition.language,"");
-        Voice selected=saved.isEmpty()?available.get(0):null;
-        for(Voice voice:available)if(voiceKey(voice).equals(saved)){selected=voice;break;}
-        if(selected==null){message("Your saved device voice is unavailable. Choose another in Translation settings.");return;}
+        Voice selected=preferredVoice(entry.edition.language,available);
         tts.stop();if(tts.setVoice(selected)!=TextToSpeech.SUCCESS){message("This device voice could not be loaded");return;}
         if(tts.speak(entry.text,TextToSpeech.QUEUE_FLUSH,new Bundle(),"translation")==TextToSpeech.ERROR)message("This text could not be spoken by the selected device voice");
     }
@@ -49,8 +54,8 @@ final class TranslationSpeech implements AutoCloseable {
         ensure(()->{
             if(activity.isFinishing()||activity.isDestroyed())return;
             List<Voice> available=voices(sample.edition.language);if(available.isEmpty()){message("Install an offline "+sample.edition.language+" voice in Android settings");return;}
-            String[] labels=new String[available.size()];int checked=-1;
-            String saved=context.getSharedPreferences("translation_speech",0).getString(sample.edition.language,"");
+            Voice current=preferredVoice(sample.edition.language,available);
+            String[] labels=new String[available.size()];int checked=0;String saved=voiceKey(current);
             for(int i=0;i<available.size();i++){Voice voice=available.get(i);labels[i]=voice.getLocale().getDisplayName()+" · Voice "+(i+1);if(voiceKey(voice).equals(saved))checked=i;}
             new AlertDialog.Builder(activity).setTitle("Device voice · Tap to preview")
                 .setSingleChoiceItems(labels,checked,(dialog,which)->{
