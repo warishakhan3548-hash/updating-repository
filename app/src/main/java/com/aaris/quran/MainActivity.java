@@ -56,7 +56,7 @@ public final class MainActivity extends Activity {
     private Runnable debounce;
     private String pendingExport;
     private boolean preparingExport,wordAudioSummaryPending;
-    private int recitationDownloadGeneration;
+    private int recitationDownloadGeneration,wordAudioPromptGeneration,wordAudioPlayGeneration;
     private Runnable recitationDownloadCompletion;
     private volatile int recitationListGeneration;
     private int libraryListGeneration;
@@ -238,7 +238,7 @@ public final class MainActivity extends Activity {
     @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
-    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
+    @Override protected void onDestroy(){wordAudioPromptGeneration++;wordAudioPlayGeneration++;ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
@@ -253,6 +253,7 @@ public final class MainActivity extends Activity {
     }
     private void show(){
         if(content==null||isDestroyed()||isFinishing())return;
+        wordAudioPromptGeneration++;
         applyWindowAppearance();
         captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;activeSearchRefresh=null;searchProgress=null;
         header=row(this);pad(header,20,10);layout.addView(header,new LinearLayout.LayoutParams(-1,-2));
@@ -850,7 +851,7 @@ public final class MainActivity extends Activity {
         LinearLayout page=scrollBody();pad(page,16,8);readerScroll=(ScrollView)page.getParent();renderedPage="Q:"+readerSurah+":"+readerStart;
         readerScroll.setOnScrollChangeListener((View v,int x,int y,int oldX,int oldY)->{if(y!=oldY)hidePeek();});
         enableReaderSwipe();
-        LinearLayout tools=row(this);TextView surahs=button("Surahs  ↓",()->{reading=false;show();});tools.addView(surahs,new LinearLayout.LayoutParams(0,-2,1));TextView readingStyle=button("Aa · Reading",this::settings);LinearLayout.LayoutParams styleSize=new LinearLayout.LayoutParams(0,-2,1);styleSize.leftMargin=dp(this,8);tools.addView(readingStyle,styleSize);wordAudioReaderButton=button(wordAudioReaderLabel(readerSurah),()->audioSurahPrompt(readerSurah));LinearLayout.LayoutParams audioSize=new LinearLayout.LayoutParams(0,-2,1);audioSize.leftMargin=dp(this,8);tools.addView(wordAudioReaderButton,audioSize);page.addView(tools);gap(page,8);page.addView(button("Translation · "+(app.translations==null||app.translations.edition(translationId)==null?"Unavailable":app.translations.edition(translationId).language.toUpperCase(Locale.ROOT))+" ↓",this::translationSettings));gap(page,14);
+        LinearLayout tools=row(this);TextView surahs=button("Surahs  ↓",()->{reading=false;show();});tools.addView(surahs,new LinearLayout.LayoutParams(0,-2,1));TextView readingStyle=button("Aa · Reading",this::settings);LinearLayout.LayoutParams styleSize=new LinearLayout.LayoutParams(0,-2,1);styleSize.leftMargin=dp(this,8);tools.addView(readingStyle,styleSize);wordAudioReaderButton=button(wordAudioReaderLabel(readerSurah),()->audioSurahPrompt(readerSurah));LinearLayout.LayoutParams audioSize=new LinearLayout.LayoutParams(0,-2,1);audioSize.leftMargin=dp(this,8);tools.addView(wordAudioReaderButton,audioSize);page.addView(tools);verifyWordAudioReaderState(readerSurah,wordAudioReaderButton);gap(page,8);page.addView(button("Translation · "+(app.translations==null||app.translations.edition(translationId)==null?"Unavailable":app.translations.edition(translationId).language.toUpperCase(Locale.ROOT))+" ↓",this::translationSettings));gap(page,14);
         TextView name=arabic(s.arabic,28);page.addView(name,new LinearLayout.LayoutParams(-1,-2));
         TextView latin=text(this,s.name,24,INK);latin.setGravity(Gravity.CENTER);latin.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(latin);
         TextView sub=text(this,s.meaning+"  ·  "+s.count+" ayahs",12,MUTED);sub.setGravity(Gravity.CENTER);page.addView(sub);gap(page,10);
@@ -905,7 +906,25 @@ public final class MainActivity extends Activity {
         if(downloads!=null&&downloads.busy()&&downloads.activeSurah()==surah){
             int value=downloads.percent();return value>=0?"Word audio · "+value+"%":"Word audio · Downloading";
         }
-        return app!=null&&app.wordAudio!=null&&app.wordAudio.installedSurah(surah)?"Word audio ✓":"Word audio ↓";
+        QuranAudioStore store=app==null?null:app.wordAudio;
+        if(store==null)return "Word audio";
+        int state=store.installedState(surah);
+        return state>0?"Word audio ✓":state==0?"Word audio ↓":"Word audio · Checking";
+    }
+    private void verifyWordAudioReaderState(int surah,TextView target){
+        QuranAudioStore store=app==null?null:app.wordAudio;
+        if(store==null||target==null||store.installedState(surah)>=0)return;
+        try{
+            app.audioStatusWorker.execute(()->{
+                store.installedSurah(surah);
+                ui.post(()->{
+                    if(isDestroyed()||isFinishing()||readerSurah!=surah||wordAudioReaderButton!=target||!target.isAttachedToWindow())return;
+                    target.setText(wordAudioReaderLabel(surah));
+                });
+            });
+        }catch(RejectedExecutionException rejected){
+            if(wordAudioReaderButton==target)target.setText("Word audio");
+        }
     }
     private void pauseRecitationDownload(){
         if(app!=null&&app.recitationDownloads!=null&&app.recitationDownloads.busy){app.recitationDownloads.cancelDownload();refreshOperationUi();}
@@ -961,7 +980,24 @@ public final class MainActivity extends Activity {
     }
     private void playAyah(Ayah a){
         if(a==null)return;
+        playAyah(a,++wordAudioPlayGeneration);
+    }
+    private void playAyah(Ayah a,int generation){
+        if(a==null||generation!=wordAudioPlayGeneration)return;
         if(translationSpeech!=null)translationSpeech.stop();
+        QuranAudioStore wordStore=app==null?null:app.wordAudio;
+        if(wordStore!=null&&wordStore.installedState(a.surah)<0){
+            try{
+                app.audioStatusWorker.execute(()->{
+                    wordStore.installedSurah(a.surah);
+                    ui.post(()->{
+                        if(!isDestroyed()&&!isFinishing()&&generation==wordAudioPlayGeneration&&app.wordAudio==wordStore)playAyah(a,generation);
+                    });
+                });
+                toast("Checking offline audio…");
+                return;
+            }catch(RejectedExecutionException ignored){}
+        }
         android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);
         String reciter=RecitationDownloads.valid(preferences.getString("reciter",RecitationDownloads.IDS[0]));
         boolean reciterOffline=app.recitationDownloads!=null&&app.recitationDownloads.ayahReady(reciter,a,content.surah(a.surah).count);
@@ -1224,8 +1260,25 @@ public final class MainActivity extends Activity {
     private void audioSurahPrompt(int surah){
         if(app.wordAudio==null||app.audioDownloads==null){toast(app.wordAudioLoadError==null?"Audio storage is not ready yet":app.wordAudioLoadError);return;}
         if(app.audioDownloads.busy()){toast(app.audioDownloads.progress());return;}
+        int state=app.wordAudio.installedState(surah);
+        if(state>=0){showAudioSurahPrompt(surah,state>0);return;}
+        final QuranAudioStore store=app.wordAudio;
+        final int generation=++wordAudioPromptGeneration;
+        toast("Checking saved word audio…");
+        try{
+            app.audioStatusWorker.execute(()->{
+                boolean installed=store.installedSurah(surah);
+                ui.post(()->{
+                    if(isDestroyed()||isFinishing()||generation!=wordAudioPromptGeneration||app.wordAudio!=store||app.audioDownloads==null)return;
+                    if(app.audioDownloads.busy()){toast(app.audioDownloads.progress());return;}
+                    showAudioSurahPrompt(surah,installed);
+                });
+            });
+        }catch(RejectedExecutionException rejected){toast("Saved audio could not be checked. Try again.");}
+    }
+    private void showAudioSurahPrompt(int surah,boolean installed){
         ContentStore.Surah s=content.surah(surah);
-        if(app.wordAudio.installedSurah(surah)){
+        if(installed){
             new AlertDialog.Builder(this)
                 .setTitle(s.name+" audio")
                 .setMessage("Word-by-word pronunciation for this Surah is installed and ready offline.")
@@ -1288,6 +1341,7 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout sheet(String title){
+        wordAudioPromptGeneration++;
         hidePeek();
         Dialog previous=activeDialog;activeDialog=null;if(previous!=null)previous.dismiss();
         Dialog dialog=new Dialog(this);activeDialog=dialog;dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -1839,8 +1893,22 @@ public final class MainActivity extends Activity {
         String alignmentStatus=content.unmappedAyahCount==0?"All ayahs have source-aligned word records.":"Word-level meanings are withheld for "+content.unmappedAyahCount+" ayahs where alignment could not be verified.";
         caption(page,"Quran: 114 surahs / 6,236 ayahs. Original text checksum verified. Meanings: imported source word glosses; independent scholarly review is still pending. "+alignmentStatus);gap(page,12);
         if(content.audioDeferredTextAlignedWords>0){caption(page,content.audioDeferredTextAlignedWords+" source-aligned words are intentionally excluded from the pinned word-audio v1 identity until replacement audio is published.");gap(page,12);}
-        if(app.wordAudio!=null)caption(page,"Word pronunciation: "+app.wordAudio.installedCount()+"/114 Surahs locally installed · "+app.wordAudio.attribution()+". Audio is fetched only after your Download action; installed Surahs replay without network access.");
-        else caption(page,"Word pronunciation storage is not available yet.");
+        if(app.wordAudio!=null){
+            final QuranAudioStore audioStore=app.wordAudio;
+            TextView audioStatus=text(this,"Checking local word-audio status…",12,MUTED);page.addView(audioStatus);
+            try{
+                app.audioStatusWorker.execute(()->{
+                    QuranAudioStore.InstallationSummary summary=null;RuntimeException failure=null;
+                    try{summary=audioStore.installationSummary();}catch(RuntimeException e){failure=e;}
+                    final QuranAudioStore.InstallationSummary result=summary;final RuntimeException error=failure;
+                    ui.post(()->{
+                        if(isDestroyed()||isFinishing()||!audioStatus.isAttachedToWindow())return;
+                        if(error!=null){audioStatus.setText("Word pronunciation status could not be checked.");return;}
+                        audioStatus.setText("Word pronunciation: "+result.installed+"/114 Surahs locally installed · "+audioStore.attribution()+". Audio is fetched only after your Download action; installed Surahs replay without network access.");
+                    });
+                });
+            }catch(RejectedExecutionException rejected){audioStatus.setText("Word pronunciation status could not be checked.");}
+        }else caption(page,"Word pronunciation storage is not available yet.");
         gap(page,12);
         caption(page,"This is a non-commercial preview. Imported gloss data is not cleared for a paid app, subscription, or advertising.");gap(page,14);
         for(String[] item:new String[][]{{"Tanzil notice","licenses/TANZIL.txt"},{"Word meanings license","licenses/DATA-QURAN.txt"},{"Amiri Quran font license","licenses/AMIRI-OFL.txt"},{"Amiri Naskh font license","licenses/AMIRI-TEXT-OFL.txt"},{"Extra Arabic fonts license","licenses/EXTRA-ARABIC-FONTS-OFL.txt"},{"Extra Arabic fonts sources","licenses/EXTRA-ARABIC-FONTS-SOURCES.txt"}}){page.addView(button(item[0],()->{LinearLayout p=sheet(item[0]);try{TextView v=text(this,ContentStore.asset(this,item[1]),12,MUTED);v.setTextIsSelectable(true);p.addView(v);}catch(IOException e){caption(p,"License file unavailable");}}));gap(page,8);}

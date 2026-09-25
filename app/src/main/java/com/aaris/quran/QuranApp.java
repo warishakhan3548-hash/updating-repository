@@ -31,6 +31,7 @@ public final class QuranApp extends Application {
     volatile String recitationLabel="";
     Runnable recitationChanged,hadithChanged,operationChanged;
     final ExecutorService audioWorker=worker("audio");
+    final ExecutorService audioStatusWorker=worker("audio-status");
     final ExecutorService recitationDownloadWorker=worker("recitation-download");
     final Handler main=new Handler(Looper.getMainLooper());
     final AtomicBoolean researchPdfBusy=new AtomicBoolean(false);
