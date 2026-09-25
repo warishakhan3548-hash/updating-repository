@@ -127,6 +127,7 @@ def main():
         hmanifest = json.loads(hadith_manifest_path.read_text())
         assert hmanifest['schema_version'] == 2
         assert hashlib.sha256(hadith_pack.read_bytes()).hexdigest() == hmanifest['sqlite_sha256']
+        assert hadith_pack.stat().st_size == int(hmanifest['sqlite_bytes']) and int(hmanifest['sqlite_bytes']) > 0
         hdb = sqlite3.connect(f'file:{hadith_pack}?mode=ro', uri=True)
         assert hdb.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
         assert hdb.execute('PRAGMA user_version').fetchone()[0] == 2
