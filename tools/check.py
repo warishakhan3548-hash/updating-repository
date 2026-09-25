@@ -283,8 +283,13 @@ def main():
     assert 'records.subList(0,visibleCount)' in hadith_records_render, 'Hadith pager must not render the lookahead row'
     assert 'records.size()==size' not in hadith_records_render, 'A full final Hadith page must not expose a false Next action'
     hadith_search_page = java_method('loadHadithSearch')
+    hadith_search_batch = java_method('appendHadithBatch')
     assert 'setSearchBusy(true);status.setText("Loading next Hadith matches…");' in hadith_search_page, 'Hadith search pagination must show immediate progress instead of silently removing the load-more control'
     assert 'pendingSearchJobs++;' in hadith_search_page and 'finishSearch(signal)' in hadith_search_page, 'Hadith search pagination progress must remain tied to the real background search lifecycle'
+    assert 'more.setEnabled(false);more.setText("Loading next 50 Hadith matches…");' in hadith_search_page, 'Hadith pagination must keep the existing load-more control visible while loading'
+    assert 'more.getParent() instanceof ViewGroup' in hadith_search_page and 'removeView(more)' in hadith_search_page, 'Hadith pagination should remove the old load-more control only after the next page succeeds'
+    assert 'more.setEnabled(true);more.setText("Load next 50 Hadith matches");' in hadith_search_page and 'Retry below.' in hadith_search_page, 'Hadith pagination failures must restore the same retry control'
+    assert 'list.removeView(more)' not in hadith_search_batch and 'loadHadithSearch(q,response.nextOffset,generation,list,status,more)' in hadith_search_batch, 'Hadith load-more taps must not destroy their only retry affordance before success'
     recitation_status = java_method('fillRecitationSurahDownloads')
     recitation_rows = java_method('appendRecitationSurahDownloads')
     recitation_controls = java_method('audioControls')
@@ -299,6 +304,8 @@ def main():
     assert 'pageId.equals(renderedPage)' in reader_recitation_verify and 'play.isAttachedToWindow()' in reader_recitation_verify, 'Async reader recitation status must reject stale or detached UI'
     assert 'markedComplete(' not in recitation_controls, 'Opening or tapping recitation controls must not parse completion markers on the Android UI thread'
     assert 'markedCompleteState(' in recitation_controls and 'verifyCurrentRecitationState(' in recitation_controls, 'Recitation controls must use cached state with asynchronous verification for unknown status'
+    assert 'String savedReciter=preferences.getString("reciter",RecitationDownloads.IDS[0]);' in recitation_controls and 'String selected=RecitationDownloads.valid(savedReciter);' in recitation_controls, 'Recitation controls must normalize stale saved reciter ids before rendering or verification'
+    assert 'if(!selected.equals(savedReciter))preferences.edit().putString("reciter",selected).apply();' in recitation_controls, 'Recovered reciter selection must be persisted so async status checks use the same canonical id'
     assert 'recitationStatusWorker.execute' in current_recitation_verify and 'downloads.markedComplete(' in current_recitation_verify, 'Current-Surah recitation status verification must run off the Android UI thread'
     assert 'dialog.isShowing()' in current_recitation_verify and 'status.isAttachedToWindow()' in current_recitation_verify, 'Recitation sheet status results must be lifecycle-safe'
     assert 'private volatile int recitationListGeneration;' in main_activity_text, 'Recitation status generation must be visible across UI and background threads'
