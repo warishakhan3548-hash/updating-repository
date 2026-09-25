@@ -287,6 +287,7 @@ def main():
     assert 'app.recitationDownloads.ayahReady(' not in play_flow, 'Play-button flow must not hash paused reciter audio synchronously'
     assert 'generation==wordAudioPlayGeneration' in play_flow and 'app.recitationDownloads==downloads' in play_flow, 'Async reciter verification must reject stale playback results'
     assert 'reciter.equals(verifiedReciter)' in play_flow, 'Changing reciter while verification is running must invalidate the old result'
+    assert 'wordFallbackReady&&(verifiedReciter==null||!reciter.equals(verifiedReciter))' in play_flow, 'Reciter verification should run only when it can affect word-audio fallback selection'
     reader_method = java_method('reader')
     assert 'boolean hasPrevious=readerStart>1||readerSurah>1,hasNext=readerStart+8<=s.count||readerSurah<114;' in reader_method, 'Reader pager must model Quran boundaries explicitly'
     assert 'previous.setEnabled(hasPrevious)' in reader_method and 'next.setEnabled(hasNext)' in reader_method, 'Reader boundary controls must not remain tappable no-ops'
