@@ -74,7 +74,9 @@ def main():
     tdb = sqlite3.connect(f'file:{translation_pack}?mode=ro', uri=True)
     assert tdb.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
     coordinates = {row[0] for row in db.execute('SELECT id FROM ayah')}
-    for edition, in tdb.execute('SELECT id FROM edition'):
+    edition_ids = [row[0] for row in tdb.execute('SELECT id FROM edition ORDER BY rowid')]
+    assert edition_ids == translation_manifest['editions'], 'Translation manifest/database edition drift'
+    for edition in edition_ids:
         assert {row[0] for row in tdb.execute('SELECT ayah_id FROM translation WHERE edition_id=?', (edition,))} == coordinates
         archived = json.loads((ROOT / 'source-vault/translations' / (edition + '.json')).read_text())
         for chapter in archived.values():
@@ -85,7 +87,7 @@ def main():
     translations = {}
     for aid, text in tdb.execute('SELECT ayah_id,text FROM translation'):
         translations[aid] = translations.get(aid, '') + ' ' + text
-    print('Translation source identity: all 18,708 texts and footnotes match their archived coordinates')
+    print(f"Translation source identity: all {6236 * len(edition_ids):,} texts and footnotes match their archived coordinates")
     tdb.close()
 
     # Quran pronunciation binaries are not build inputs. Only a tiny immutable catalog may ship.
