@@ -364,7 +364,7 @@ final class HadithStore implements AutoCloseable {
     }
 
     String searchHint(){
-        return "Arabic text, Bukhari 556, Muslim 556 or 556";
+        return "Arabic, Hindi, Urdu or English text · Bukhari 556 · Muslim 556";
     }
 
     DisplayTranslation translation(Record record,String preferredLanguage){
@@ -383,8 +383,10 @@ final class HadithStore implements AutoCloseable {
                 "ORDER BY CASE status WHEN 'released' THEN 0 ELSE 1 END,rowid DESC LIMIT 1",
                 new String[]{record.id,language})){
                 if(cursor.moveToFirst()){
-                    String provenance="Aaris "+cursor.getString(2)+" · revision "+cursor.getString(1);
-                    String source=cursor.getString(3);if(source!=null&&!source.trim().isEmpty())provenance+=" · "+source;
+                    String revision=cursor.getString(1),status=cursor.getString(2),source=cursor.getString(3);
+                    String provenance=(source==null||source.trim().isEmpty())
+                        ?"Reviewed source translation · "+revision+" · "+status
+                        :source+" · "+status;
                     return new DisplayTranslation(language,cursor.getString(0),provenance);
                 }
             }
