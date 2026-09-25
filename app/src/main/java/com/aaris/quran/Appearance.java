@@ -19,7 +19,7 @@ final class Appearance {
     int font=0,arabicSize=36,translationSize=18,spacing=11,opacity=86,corners=30;
     int arabicOpacity=100,translationOpacity=100,glassStrength=90,borderStrength=68,glow=2,gradientEnd=0xff073c34;
     int textDepth=1,shadowSoftness=6,shadowStrength=14,textSheen=34,buttonColor=0xff103a32;
-    int textFinish=TEXT_GLASS,shadowAngle=45,shadowDistance=2,shadowColor=0xff000000,gradientAngle=45;
+    int textFinish=TEXT_GLASS,shadowAngle=45,shadowDistance=0,shadowColor=0xff000000,gradientAngle=45;
     int scene=2,sceneStrength=100;
     boolean customButtons=true,autoShadowColor=true,autoBalance=true;
     boolean glass=true,textGlass=true,gradient=true,reducedEffects=false;
@@ -62,7 +62,7 @@ final class Appearance {
         font=0;arabicSize=36;translationSize=18;spacing=11;opacity=92;corners=28;
         arabicOpacity=100;translationOpacity=100;glassStrength=86;borderStrength=72;glow=0;
         textDepth=1;shadowSoftness=6;shadowStrength=10;textSheen=30;customButtons=true;
-        textFinish=TEXT_GLASS;shadowAngle=45;shadowDistance=2;shadowColor=0xff000000;autoShadowColor=true;gradientAngle=45;autoBalance=true;
+        textFinish=TEXT_GLASS;shadowAngle=45;shadowDistance=0;shadowColor=0xff000000;autoShadowColor=true;gradientAngle=45;autoBalance=true;
         reducedEffects=false;sceneStrength=100;
         switch(i){
             case 0: // Moonlit Emerald: deep green night, ivory Quran ink and warm lantern gold.
@@ -128,6 +128,7 @@ final class Appearance {
         int cap=textFinish==TEXT_PLAIN?28:textFinish==TEXT_SOFT?36:52;
         return Math.min(shadowStrength,cap);
     }
+    int effectiveShadowSoftness(){return autoBalance?Math.min(shadowSoftness,12):shadowSoftness;}
     int resolvedShadowColor(){
         if(!autoShadowColor)return shadowColor;
         int base=effectiveSurface();
@@ -138,9 +139,9 @@ final class Appearance {
     void autoBalanceEffects(){
         if(glass)borderStrength=Math.max(borderStrength,bound(28+(100-opacity)/2,28,68));
         shadowStrength=bound(shadowStrength,0,textFinish==TEXT_PLAIN?28:52);shadowSoftness=bound(shadowSoftness,0,12);
+        if(shadowStrength>0&&shadowDistance==0)shadowDistance=1;
         if(textFinish==TEXT_FOIL)textSheen=Math.max(textSheen,48);
         if(textFinish==TEXT_SOFT)textSheen=bound(textSheen,12,55);
-        if(reducedEffects){shadowStrength=Math.min(shadowStrength,10);glow=0;}
     }
     int buttonInk(){
         int base=buttonSurface(),primary=mix(base,accent,.15f),highlight=mix(primary,accent,.06f*glassStrength/100f);
@@ -164,10 +165,11 @@ final class Appearance {
     }
     boolean adjustedText(){return arabicInk()!=mix(effectiveSurface(),arabic,arabicOpacity/100f)||translationInk()!=mix(effectiveSurface(),translation,translationOpacity/100f)||appInk()!=appText;}
     String readabilitySummary(){
-        double arabicScore=minContrast(arabicInk()),translationScore=minContrast(translationInk()),uiScore=minContrast(appInk());
+        double arabicScore=minContrast(arabicInk()),translationScore=minContrast(translationInk()),uiScore=uiMinContrast(appInk());
         return "Arabic "+grade(arabicScore)+" · Translation "+grade(translationScore)+" · UI "+grade(uiScore)+(adjustedText()?" · Auto-adjusted":"");
     }
     private double minContrast(int ink){return Math.min(contrast(ink,effectiveSurface()),Math.min(contrast(ink,surfaceHighlight()),contrast(ink,effectiveSurfaceAtGradientEnd())));}
+    private double uiMinContrast(int ink){return Math.min(minContrast(ink),Math.min(contrast(ink,background),contrast(ink,gradient?gradientEnd:background)));}
     private static String grade(double ratio){return ratio>=7.0?"AAA":ratio>=4.5?"AA":"Protected";}
     private int autoAppText(){
         int on=effectiveSurface();
