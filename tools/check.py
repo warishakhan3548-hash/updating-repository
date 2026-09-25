@@ -223,6 +223,14 @@ def main():
     java_sources = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / 'app/src/main/java').rglob('*.java'))
     assert 'https://sunnah.com/' not in java_sources, 'Runtime Hadith website dependency returned'
 
+    # Translation speech must recover automatically when Android removes or renames a saved offline voice.
+    translation_speech_text = (ROOT / 'app/src/main/java/com/aaris/quran/TranslationSpeech.java').read_text(encoding='utf-8')
+    assert 'private Voice preferredVoice(String language,List<Voice> available)' in translation_speech_text, 'Translation speech must resolve a usable offline voice centrally'
+    assert 'preferences.edit().putString(language,voiceKey(fallback)).apply();' in translation_speech_text, 'A stale or missing voice preference must be repaired to the best installed offline voice'
+    assert 'Voice selected=preferredVoice(entry.edition.language,available);' in translation_speech_text, 'Translation playback must use the resilient voice resolver'
+    assert 'Voice current=preferredVoice(sample.edition.language,available);' in translation_speech_text, 'Voice chooser must display the same effective voice used for playback'
+    assert 'Your saved device voice is unavailable' not in translation_speech_text, 'A stale saved voice must not block another installed offline voice'
+
     # Appearance Studio must preserve Arabic shaping while keeping transparent surfaces readable.
     appearance_text = (ROOT / 'app/src/main/java/com/aaris/quran/Appearance.java').read_text(encoding='utf-8')
     appearance_studio_text = (ROOT / 'app/src/main/java/com/aaris/quran/AppearanceStudio.java').read_text(encoding='utf-8')
