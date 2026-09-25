@@ -37,28 +37,30 @@ final class QuranAudioDownloadManager {
         if(surah<1||surah>114){postError(listener,surah,"Invalid Surah");return;}
         if(!busy.compareAndSet(false,true)){postError(listener,surah,"Audio download is already running");return;}
         cancel=false;io.execute(()->{
+            String failure=null;
             try{
                 if(!store.installedSurah(surah))downloadOne(surah);
                 if(cancel)throw new IOException("Download cancelled");
-                postProgress(listener,surah,1,1);postComplete(listener);
-            }catch(Exception e){postError(listener,surah,safeMessage(e));}
+                postProgress(listener,surah,1,1);
+            }catch(Exception e){failure=safeMessage(e);}
             finally{busy.set(false);}
+            if(failure==null)postComplete(listener);else postError(listener,surah,failure);
         });
     }
 
     void downloadAll(Listener listener){
         if(!busy.compareAndSet(false,true)){postError(listener,0,"Audio download is already running");return;}
         cancel=false;io.execute(()->{
-            int completed=0,current=1;
+            int completed=0,current=1;String failure=null;
             try{
                 for(current=1;current<=114;current++){
                     if(cancel)throw new IOException("Download cancelled");
                     if(!store.installedSurah(current))downloadOne(current);
                     completed++;postProgress(listener,current,completed,114);
                 }
-                postComplete(listener);
-            }catch(Exception e){postError(listener,current,safeMessage(e));}
+            }catch(Exception e){failure=safeMessage(e);}
             finally{busy.set(false);}
+            if(failure==null)postComplete(listener);else postError(listener,current,failure);
         });
     }
 
