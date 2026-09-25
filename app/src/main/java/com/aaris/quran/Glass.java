@@ -251,7 +251,7 @@ final class Glass {
             super.onBoundsChange(b);outer.set(b.left+stroke,b.top+stroke,b.right-stroke,b.bottom-stroke);
             inner.set(outer);inner.inset(inset,inset);if(outer.isEmpty())return;
             boolean button=kind==Kind.BUTTON||kind==Kind.PRIMARY;
-            int base=button?appearance.buttonSurface():appearance.surface;
+            int base=button?appearance.buttonSurface():(solid?appearance.effectiveSurface():appearance.surface);
             if(kind==Kind.PRIMARY)base=Appearance.mix(base,appearance.accent,.15f);
             int highlight=appearance.glass&&!appearance.reducedEffects&&!solid?Appearance.mix(base,appearance.accent,.06f*appearance.glassStrength/100f):base;
             int cardAlpha=!solid&&!button?Math.round(255*appearance.effectiveCardOpacity()/100f):255;
