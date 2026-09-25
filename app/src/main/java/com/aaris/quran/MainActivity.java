@@ -79,6 +79,24 @@ public final class MainActivity extends Activity {
             this.translation=translation;this.grades=grades==null?Collections.emptyList():grades;
         }
     }
+    private static final class ResearchPdfUi {
+        private final WeakReference<MainActivity> owner;
+        ResearchPdfUi(MainActivity activity){owner=new WeakReference<>(activity);}
+        private MainActivity activity(){
+            MainActivity activity=owner.get();
+            return activity==null||activity.isDestroyed()||activity.isFinishing()?null:activity;
+        }
+        void ready(Context appContext,Uri uri,String prompt){
+            MainActivity activity=activity();
+            if(activity==null){ResearchFiles.discard(appContext,uri);return;}
+            Intent intent=new Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM,uri).putExtra(Intent.EXTRA_TEXT,prompt);
+            intent.setClipData(ClipData.newRawUri("Aaris research PDF",uri));
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            try{activity.startActivity(Intent.createChooser(intent,"Share research PDF"));}
+            catch(ActivityNotFoundException e){activity.toast("No PDF receiving app is installed");}
+        }
+        void failed(){MainActivity activity=activity();if(activity!=null)activity.toast("PDF could not be created. Try fewer records.");}
+    }
     private static final class WordAudioDownloadUi implements QuranAudioDownloadManager.Listener {
         private final WeakReference<MainActivity> owner;
         private final int requestedSurah;
