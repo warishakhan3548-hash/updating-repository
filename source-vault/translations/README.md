@@ -5,10 +5,10 @@ from the pinned `risan/quran-json` mirror revision recorded in `manifest.json`:
 
 - Hindi: Azizul Haq Al-Omari, 1.1.5.
 - Urdu: Muhammad Junagarhi, 1.1.3.
-- English: Rowwad Translation Center, 1.0.19.
+- English: Rowwad Translation Center, 1.0.19.\n- English: Noor International Center (QuranEnc `english_saheeh`), 1.1.2.\n- English: Hilali and Khan, 1.1.2.
 
 `catalogue.json` retains the publisher's title, description, edition key and version.
-All 6,236 coordinates, text and footnotes per selected edition are retained. The
+All 6,236 coordinates, text and footnotes per selected edition are retained. The five selected\neditions provide one Hindi, one Urdu and three independently attributed English renderings.\nThe additional English editions are choices, not an Aaris accuracy ranking; Arabic remains the\ncanonical scripture layer. The
 Arabic corpus is independent and is not replaced by the Arabic from a translation
 provider. Neither word-gloss concatenation nor machine translation is used as a
 scholar's complete ayah translation.

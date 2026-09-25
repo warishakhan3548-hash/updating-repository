@@ -49,7 +49,7 @@ def main():
     manifest = {'schema':1,'sqlite_sha256':hashlib.sha256(target.read_bytes()).hexdigest(),
                 'editions':lock['editions'],'source_revision':lock['mirror_revision'],'notice':lock['notice']}
     (assets / 'translations-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
-    print('PASS: 3 complete attributed Quran translations, 18,708 coordinates; no runtime network')
+    count = len(lock['editions'])\n    print(f'PASS: {count} complete attributed Quran translations, {6236 * count:,} coordinates; no runtime network')
 
 if __name__ == '__main__':
     main()
