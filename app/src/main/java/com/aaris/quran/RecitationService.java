@@ -15,7 +15,7 @@ public final class RecitationService extends Service {
     static final String PLAY="recitation.play",PAUSE="recitation.pause",NEXT="recitation.next",PREVIOUS="recitation.previous",STOP="recitation.stop";
     private QuranApp app;private MediaPlayer player;private MediaSession session;private AudioManager audio;private AudioFocusRequest focus;
     private final Handler main=new Handler(Looper.getMainLooper());private Future<?> pending;private int generation;private boolean destroyed,resumeAfterTransientFocusLoss;
-    private int surah=1,ayah=1,repeatRemaining=1;private boolean continuous=true,paused,buffering;private String reciter;
+    private int surah=1,ayah=1,repeatCompleted;private boolean paused,buffering;private String reciter;
     static void command(Context context,String action,int surah,int ayah){Intent intent=new Intent(context,RecitationService.class).setAction(action).putExtra("surah",surah).putExtra("ayah",ayah);context.startForegroundService(intent);}
     @Override public void onCreate(){super.onCreate();app=(QuranApp)getApplication();audio=getSystemService(AudioManager.class);
         NotificationManager notifications=getSystemService(NotificationManager.class);notifications.createNotificationChannel(new NotificationChannel("recitation","Quran recitation",NotificationManager.IMPORTANCE_LOW));
@@ -36,8 +36,8 @@ public final class RecitationService extends Service {
         if(STOP.equals(action)){stopSelf();return START_NOT_STICKY;}
         app.ready(()->{if(destroyed)return;if(app.content==null){fail("Quran content is unavailable");return;}if(PLAY.equals(action)){
             surah=Math.max(1,Math.min(114,intent.getIntExtra("surah",1)));ayah=Math.max(1,Math.min(app.content.surah(surah).count,intent.getIntExtra("ayah",1)));
-            reciter=RecitationDownloads.valid(getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]));continuous=getSharedPreferences("recitation",0).getBoolean("continuous",true);
-            repeatRemaining=getSharedPreferences("recitation",0).getInt("repeat",1);play();
+            reciter=RecitationDownloads.valid(getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]));
+            resetRepeat();play();
         }else if(PAUSE.equals(action)){if(paused)resume();else pause();}else if(NEXT.equals(action))move(1);else if(PREVIOUS.equals(action))move(-1);});return START_NOT_STICKY;
     }
     private void play(){
@@ -51,15 +51,15 @@ public final class RecitationService extends Service {
                 MediaPlayer next=new MediaPlayer();player=next;next.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());next.setDataSource(local.getAbsolutePath());
                 next.setOnPreparedListener(p->{if(token!=generation||player!=p)return;buffering=false;p.start();paused=false;update(label());});
                 next.setOnErrorListener((p,what,extra)->{if(token==generation)fail("Audio could not play");return true;});
-                next.setOnCompletionListener(p->{if(token!=generation)return;if(--repeatRemaining>0)play();else if(continuous&&ayah<app.content.surah(surah).count){ayah++;repeatRemaining=getSharedPreferences("recitation",0).getInt("repeat",1);play();}else stopSelf();});next.prepareAsync();
+                next.setOnCompletionListener(p->{if(token!=generation)return;if(++repeatCompleted<repeatPreference())play();else if(continuousPreference()&&ayah<app.content.surah(surah).count){ayah++;resetRepeat();play();}else stopSelf();});next.prepareAsync();
             }catch(Exception e){fail("Audio could not play");}});}catch(Exception e){main.post(()->{if(token==generation)fail("Audio unavailable · downloaded reading remains available");});}});
         }catch(RejectedExecutionException rejected){
             buffering=false;
             fail("Audio could not start");
         }
     }
-    private String label(){return RecitationDownloads.NAMES[RecitationDownloads.index(reciter)]+" · "+surah+":"+ayah;}
-    private void move(int delta){if(app.content==null)return;int next=ayah+delta;if(next<1||next>app.content.surah(surah).count)return;ayah=next;repeatRemaining=getSharedPreferences("recitation",0).getInt("repeat",1);play();}
+    private int repeatPreference(){return Math.max(1,Math.min(5,getSharedPreferences("recitation",0).getInt("repeat",1)));}\n    private boolean continuousPreference(){return getSharedPreferences("recitation",0).getBoolean("continuous",true);}\n    private void resetRepeat(){repeatCompleted=0;}\n    private String label(){return RecitationDownloads.NAMES[RecitationDownloads.index(reciter)]+" · "+surah+":"+ayah;}
+    private void move(int delta){if(app.content==null)return;int next=ayah+delta;if(next<1||next>app.content.surah(surah).count)return;ayah=next;resetRepeat();play();}
     private void pause(){resumeAfterTransientFocusLoss=false;pausePlayback(true);}
     private void pausePlayback(boolean releaseFocus){
         if(player!=null)try{if(player.isPlaying()){player.pause();buffering=false;paused=true;update("Paused · "+label());if(releaseFocus)abandonFocus();return;}}catch(IllegalStateException ignored){}
