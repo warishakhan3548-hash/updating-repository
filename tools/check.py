@@ -267,9 +267,12 @@ def main():
     activity_result_start = main_activity_text.index('    @Override protected void onActivityResult')
     activity_result_end = main_activity_text.index('\n    @Override public void onBackPressed', activity_result_start)
     activity_result = main_activity_text[activity_result_start:activity_result_end]
-    assert 'preparingExport=true;refreshOperationUi();app.io.execute' in activity_result, 'Export must stay visibly busy while the staged file is copied to the chosen destination'
-    assert 'finally{discardExport(token);}' in activity_result and 'preparingExport=false;refreshOperationUi();' in activity_result, 'Export busy state must clear only after the staged token has been consumed or discarded'
-    assert 'ui.post(()->toast("File saved"))' not in activity_result, 'Do not report export completion before the lifecycle busy state is cleared'
+    assert 'final AtomicBoolean exportWriteBusy=new AtomicBoolean(false);' in quran_app_text, 'Destination writes need application-scoped busy state so Activity recreation cannot unlock a concurrent export'
+    assert 'app.exportWriteBusy.set(true);app.notifyOperationChanged();app.io.execute' in activity_result, 'Export must stay visibly busy while the staged file is copied to the chosen destination'
+    assert 'finally{discardExport(token);app.exportWriteBusy.set(false);app.notifyOperationChanged();}' in activity_result, 'Destination-write busy state must clear only after the staged token has been consumed or discarded'
+    assert 'ui.post(()->toast("File saved"))' not in activity_result, 'Do not report export completion from the old pre-lifecycle completion path'
+    assert 'pendingExport!=null||app.exportWriteBusy.get()' in main_activity_text, 'A destination write must block a second export even after Activity recreation'
+    assert 'exportBusy=preparingExport||app.exportWriteBusy.get()' in main_activity_text, 'Existing operation UI must reflect both export preparation and destination writing'
     assert main_activity_text.count('Preparing or saving export on your phone…') >= 2, 'Operation status must describe both export preparation and destination writes'
     assert 'private void updateHighContrast(boolean enabled)' in main_activity_text and 'contrast.setOnCheckedChangeListener((b,v)->updateHighContrast(v));' in main_activity_text, 'High-contrast setting must use the live surface refresh path'
     assert 'highContrast=enabled;learning.set("contrast",""+enabled);\n        show();settings();' in main_activity_text, 'High-contrast changes must rebuild both the underlying screen and the open settings sheet immediately'
