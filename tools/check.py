@@ -295,6 +295,10 @@ def main():
     assert main_activity_text.count('Preparing or saving export on your phone…') >= 2, 'Operation status must describe both export preparation and destination writes'
     assert 'private void updateHighContrast(boolean enabled)' in main_activity_text and 'contrast.setOnCheckedChangeListener((b,v)->updateHighContrast(v));' in main_activity_text, 'High-contrast setting must use the live surface refresh path'
     assert 'highContrast=enabled;learning.set("contrast",""+enabled);\n        show();settings();' in main_activity_text, 'High-contrast changes must rebuild both the underlying screen and the open settings sheet immediately'
+    assert 'state.putStringArrayList("hadith_evidence",new ArrayList<>(selectedHadith))' in main_activity_text, 'Selected Hadith evidence must survive Activity recreation'
+    assert 'ArrayList<String> hadithIds=state.getStringArrayList("hadith_evidence")' in main_activity_text, 'Recreated search must restore selected Hadith evidence before results render'
+    assert 'boolean sameHadithQuery=nextQuery.equals(hadithQuery);' in main_activity_text and 'if(!sameHadithQuery)selectedHadith.clear();' in main_activity_text, 'Same-query Hadith refreshes must preserve user selection while genuinely new queries clear stale IDs'
+    assert 'selectedHadith.size()>=ResearchExport.MAX_RECORDS' in main_activity_text and 'Select up to "+ResearchExport.MAX_RECORDS+" Hadith records per PDF' in main_activity_text, 'Hadith selection UI must enforce the same export cap before the user reaches PDF generation'
     assert 'hadithBrowseWorker=worker("hadith-browse")' in quran_app_text, 'Missing dedicated Hadith browse worker'
     assert 'recitationStatusWorker=worker("recitation-status")' in quran_app_text, 'Recitation download status scans need a dedicated background worker'
     def java_method(name, return_type='void'):

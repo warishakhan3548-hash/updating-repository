@@ -203,6 +203,7 @@ public final class MainActivity extends Activity {
             if(a!=null){readerSurah=a.surah;readerStart=a.number;}
             if(state!=null){tab=state.getInt("tab",1);reading=state.getBoolean("reading",true);quietReader=state.getBoolean("quiet_reader",false);readerSurah=state.getInt("surah",readerSurah);readerStart=state.getInt("start",readerStart);
                 searchQuery=state.getString("query","");searchScope=state.getInt("search_scope",UnifiedQuery.ALL);ArrayList<String> ids=state.getStringArrayList("evidence");if(ids!=null)for(String id:ids)if(selectedEvidence.size()<50&&content.ayah(id)!=null)selectedEvidence.add(id);
+                ArrayList<String> hadithIds=state.getStringArrayList("hadith_evidence");if(hadithIds!=null)for(String id:hadithIds)if(id!=null&&!id.isEmpty()&&selectedHadith.size()<ResearchExport.MAX_RECORDS)selectedHadith.add(id);
                 try{JSONObject traces=new JSONObject(state.getString("selection_trace","{}"));for(String id:selectedEvidence)selectionTrace.put(id,traces.has(id)?traces.getJSONObject(id):selectionOrigin("RESTORED_SELECTION_WITHOUT_TRACE"));}catch(JSONException ignored){}
             }
             readingPosition=content.readingPosition(state==null?learning.get("reader_anchor",""):state.getString("reader_anchor",""));
@@ -226,7 +227,7 @@ public final class MainActivity extends Activity {
     }
     private static float clamp(float x,float min,float max){return Math.max(min,Math.min(max,x));}
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
-    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putBoolean("ambient_open_other_apps",openOtherAppsAfterAmbientStart);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putBoolean("search_open",searching);state.putInt("search_scope",searchScope);state.putString("hadith_query",hadithQuery);state.putInt("voice_scope",pendingVoiceScope);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
+    @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putBoolean("ambient_open_other_apps",openOtherAppsAfterAmbientStart);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putBoolean("search_open",searching);state.putInt("search_scope",searchScope);state.putString("hadith_query",hadithQuery);state.putInt("voice_scope",pendingVoiceScope);state.putStringArrayList("hadith_evidence",new ArrayList<>(selectedHadith));state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
     @Override protected void onPostResume(){super.onPostResume();resumed=true;deliverResearchPdfResult();deliverPreparedExportResult();deliverRestoreImportResult();if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
@@ -501,7 +502,12 @@ public final class MainActivity extends Activity {
             hadithResultCard(wrapper,hit.record,metadata.get(hit.record.id));
             wrapper.addView(button("Remember this match",()->rememberSearch(true,q,hit.record.id)));
             CheckBox select=new CheckBox(this);select.setText("Select for PDF");select.setTextColor(INK);select.setMinHeight(dp(this,48));select.setChecked(selectedHadith.contains(hit.record.id));wrapper.addView(select);
-            select.setOnCheckedChangeListener((v,checked)->{if(checked)selectedHadith.add(hit.record.id);else selectedHadith.remove(hit.record.id);});gap(wrapper,16);
+            select.setOnCheckedChangeListener((v,checked)->{
+                if(!checked){selectedHadith.remove(hit.record.id);return;}
+                if(selectedHadith.contains(hit.record.id))return;
+                if(selectedHadith.size()>=ResearchExport.MAX_RECORDS){v.setChecked(false);toast("Select up to "+ResearchExport.MAX_RECORDS+" Hadith records per PDF");return;}
+                selectedHadith.add(hit.record.id);
+            });gap(wrapper,16);
         }
         if(end<response.hits.size()){
             status.setText("Showing "+(response.offset+end)+" of "+response.total+"…");
@@ -1809,7 +1815,8 @@ public final class MainActivity extends Activity {
         results.addView(searchState);gap(results,12);
         LinearLayout list=column(this);results.addView(list);
         Runnable run=()->{
-            searchQuery=query.getText().toString();hadithQuery=searchQuery;quranHits.clear();hadithHits.clear();hadithTotal=0;selectedHadith.clear();
+            String nextQuery=query.getText().toString();boolean sameHadithQuery=nextQuery.equals(hadithQuery);
+            searchQuery=nextQuery;if(!sameHadithQuery)selectedHadith.clear();hadithQuery=searchQuery;quranHits.clear();hadithHits.clear();hadithTotal=0;
             evidenceControls.clear();list.removeAllViews();
             int generation=searchGeneration.incrementAndGet();cancelSearchWork();if(debounce!=null)ui.removeCallbacks(debounce);
             String q=searchQuery.trim();if(q.isEmpty()){setSearchBusy(false);status.setText("Search offline, with or without Arabic vowel marks.");return;}
