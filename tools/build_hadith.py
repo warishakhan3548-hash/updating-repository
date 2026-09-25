@@ -87,12 +87,14 @@ def build_search_index(db):
 
     # Keep the phrase lane multilingual too. FTS is built from immutable source/display strings;
     # it never rewrites a translation or calls a runtime service.
-    for rowid,hadith_id,ar,en,ur,bn in db.execute(
-            'SELECT rowid,id,arabic,english,urdu,bangla FROM hadith'):
+    for rowid,hadith_id,collection_id,record_number,ar,en,ur,bn in db.execute(
+            'SELECT rowid,id,collection_id,record_number,arabic,english,urdu,bangla FROM hadith'):
         translated = ' '.join(str(v or '') for v in (en,ur,bn))
         extra = ' '.join(editorial.get(hadith_id, ()))
-        db.execute('UPDATE hadith_fts SET latin=? WHERE hadith_id=?',
-                   (search_text((translated+' '+extra).strip()), hadith_id))
+        db.execute(
+            'INSERT INTO hadith_fts(hadith_id,collection_id,record_number,arabic,latin) VALUES(?,?,?,?,?)',
+            (hadith_id, collection_id, record_number, search_text(ar), search_text((translated+' '+extra).strip()))
+        )
         terms=search_tokens(' '.join(str(v or '') for v in (ar,en,ur,bn))+' '+extra)
         db.executemany('INSERT OR IGNORE INTO search_token VALUES(?,?)', ((t,rowid) for t in sorted(terms)))
     db.execute('INSERT INTO search_vocabulary SELECT token,count(*) FROM search_token GROUP BY token')
@@ -343,16 +345,6 @@ def insert_hadith(db, row, seen):
         normalize_arabic(arabic),
         normalize_latin(english),
     ))
-    db.execute(
-        "INSERT INTO hadith_fts(hadith_id,collection_id,record_number,arabic,latin) VALUES(?,?,?,?,?)",
-        (
-            hid,
-            require_string(row, "collection_id"),
-            require_string(row, "record_number"),
-            search_text(arabic),
-            search_text(english),
-        ),
-    )
     for ref in row.get("references", []):
         db.execute(
             "INSERT INTO hadith_reference(hadith_id,scheme,value) VALUES(?,?,?)",
