@@ -32,6 +32,14 @@ public final class SearchIntentChecks {
             HadithSearchPlan plan=HadithSearchPlan.candidates(intent,anchors,repairs,weights);
             System.out.println(encode(plan.where));for(String value:plan.args)System.out.println(encode(value));return;
         }
+        if(args.length>0&&args[0].equals("longplan")){
+            String value=Files.readString(Paths.get(args[1]),StandardCharsets.UTF_8);
+            LongQuery.Plan plan=LongQuery.plan(value);
+            System.out.println(plan.segmented?"1":"0");
+            System.out.println(plan.sourceWindows);
+            for(String window:plan.windows)System.out.println(encode(window));
+            return;
+        }
         if(args.length>0&&args[0].equals("tokens")){
             for(String line:Files.readAllLines(Paths.get(args[1]),StandardCharsets.UTF_8))
                 System.out.println(encode(String.join(" ",TextMatch.tokens(decode(line)))));
@@ -107,6 +115,13 @@ public final class SearchIntentChecks {
         check(!hadithOnly.quran&&hadithOnly.hadith,"Explicit Hadith filter must not be overridden by Quran-looking input");
         UnifiedQuery both=UnifiedQuery.parse("إِنَّمَا الْأَعْمَالُ",UnifiedQuery.ALL);
         check(both.quran&&both.hadith,"Arabic text searches both corpora");
+        String longFreeText=("remembered context ".repeat(180))+" prayer wudu "+("more notes ".repeat(180));
+        UnifiedQuery longAll=UnifiedQuery.parse(longFreeText,UnifiedQuery.ALL);
+        check(longAll.quran&&longAll.hadith,"Long free text routes to both corpora without reference parsing");
+        check(UnifiedQuery.parse(longFreeText,UnifiedQuery.QURAN).quran&&!UnifiedQuery.parse(longFreeText,UnifiedQuery.QURAN).hadith,
+            "Long free text respects Quran-only scope");
+        check(!UnifiedQuery.parse(longFreeText,UnifiedQuery.HADITH).quran&&UnifiedQuery.parse(longFreeText,UnifiedQuery.HADITH).hadith,
+            "Long free text respects Hadith-only scope");
         check(!UnifiedQuery.parse("الاعمال",UnifiedQuery.HADITH).quran,"Explicit Hadith filter");
         check(TextMatch.normalize("إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ").equals("انما الاعمال بالنيات"),"Harakat normalization");
         check(TextMatch.normalize("ﻻ\u200f تَقْبَلُ").equals("لا تقبل"),"Copied shaping and bidi controls");

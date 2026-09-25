@@ -32,7 +32,12 @@ final class RankingChecks {
         String paragraph="distinctive ".repeat(90)+"anchor";
         SearchEngine longSearch=new SearchEngine(Arrays.asList(new SearchEngine.Document(new Ayah(1,1,"اختبار","x",1),paragraph)));
         require(!longSearch.search(paragraph,10).results.isEmpty(),"Paragraph over the old 512-character limit is searched whole");
-        require(longSearch.search("x".repeat(16385),10).intent.equals("QUERY_LIMIT"),"Oversized input is explicitly refused");
+        String oversized=("unrelated filler ".repeat(1400))+paragraph+(" trailing notes".repeat(1400));
+        SearchEngine.Response oversizedResult=longSearch.search(oversized,10);
+        require(!"QUERY_LIMIT".equals(oversizedResult.intent)&&"LONG_TEXT".equals(oversizedResult.intent),
+            "Oversized input is segmented instead of refused");
+        require(!oversizedResult.results.isEmpty()&&oversizedResult.results.get(0).ayah.number==1,
+            "Long-query windows recover relevant evidence from a large pasted input");
         TextMatch one=TextMatch.compare(TextMatch.tokens("word word"),TextMatch.tokens("word"),Collections.emptyMap(),Collections.emptyMap());
         require(!one.accepted,"One source occurrence cannot satisfy repeated query words");
         SearchEngine paragraphs=new SearchEngine(Arrays.asList(
@@ -67,7 +72,7 @@ final class RankingChecks {
                 if(xy<=0&&yz<=0)require(TextMatch.compareHadith(x,sx,z,sz)<=0,"Near-equal source order remains transitive");
             }
         require(nearA.explanation().contains("spelling repairs"),"Match explanations expose transformations");
-        return 24;
+        return 25;
     }
     private static void require(boolean value,String message){if(!value)throw new AssertionError(message);}
 }

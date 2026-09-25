@@ -244,6 +244,27 @@ def main():
             assert "H:hadeethenc:official:3293" in candidate_ids(remembered_hinglish)
             print("Hindi/Hinglish remembered-question candidate retrieval: PASS")
 
+            # A large pasted paragraph must not be rejected or reduced to its beginning.
+            # Put the useful remembered sentence deep in the middle and recover it from the
+            # bounded planner before running the same indexed candidate lane as Android.
+            long_text = (
+                ("general unrelated remembered words " * 600)
+                + "\n" + remembered_hinglish + "\n"
+                + ("more unrelated context from a pasted note " * 600)
+            )
+            long_file = scratch / "long-query.txt"
+            long_file.write_text(long_text)
+            planned = subprocess.check_output(java + ["longplan", str(long_file)], text=True).splitlines()
+            assert planned[0] == "1" and int(planned[1]) > 8
+            windows = [dec(value) for value in planned[2:]]
+            assert 1 <= len(windows) <= 8
+            assert any("rakat" in w and "namaz" in w and "dua" in w for w in windows)
+            recovered = set()
+            for window in windows:
+                recovered.update(candidate_ids(window))
+            assert "H:hadeethenc:official:3293" in recovered
+            print("Very long pasted Hadith query retrieval: PASS")
+
             # User-story regression: identify a real HadeethEnc record whose indexed trusted
             # evidence mentions both the Prophet and ablution, then reach it from Hindi/Hinglish
             # remembered wording without requiring the display language to match the query.
