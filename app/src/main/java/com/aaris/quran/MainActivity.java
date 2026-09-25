@@ -1336,7 +1336,9 @@ public final class MainActivity extends Activity {
     private void showSearchShortcut(LinearLayout list,boolean hadith,String query){
         String id=learning.confirmedSearch(hadith?"hadith":"quran",hadith?app.hadith.packHash:content.packHash,query);
         if(id.isEmpty())return;
-        if(hadith&&app.hadith.record(id)==null||!hadith&&content.ayah(id)==null)return;
+        // Hadith shortcuts are namespaced by the immutable pack hash, so an extra SQLite existence
+        // query here only adds UI-thread I/O. Quran coordinates are in-memory and remain cheap to validate.
+        if(hadith){if(app.hadith==null)return;}else if(content.ayah(id)==null)return;
         LinearLayout saved=card(list,Surface.Kind.PANEL);saved.addView(label("YOUR CONFIRMED SHORTCUT"));
         caption(saved,"Previously chosen by you · separate from text-match ranking");
         saved.addView(button("Open "+id,()->{if(hadith)hadithRecord(id);else{Ayah a=content.ayah(id);open(a.surah,a.number);}}));
@@ -1911,14 +1913,41 @@ public final class MainActivity extends Activity {
         LinearLayout comparison=column(this);comparison.setVisibility(View.GONE);
         page.addView(button("Preview & compare selected records",()->{
             if(count<2||count>10){toast("Select 2–10 search results to compare here. PDF export can include more.");return;}
+            if(comparison.getChildCount()==0&&hadith){
+                int generation=beginHadithBrowse();comparison.addView(premiumLoading("Preparing comparison","Loading local translations and grades…"));comparison.setVisibility(View.VISIBLE);
+                final String preferredLanguage=readingLanguage();
+                try{
+                    hadithBrowseTask=app.hadithBrowseWorker.submit(()->{
+                        try{
+                            LinkedHashMap<String,HadithCardMeta> metadata=new LinkedHashMap<>();
+                            for(HadithStore.Hit hit:hits){
+                                if(Thread.currentThread().isInterrupted())throw new CancellationException();
+                                metadata.put(hit.record.id,new HadithCardMeta(app.hadith.translation(hit.record,preferredLanguage),app.hadith.grades(hit.record.id)));
+                            }
+                            ui.post(()->{
+                                if(!liveHadithBrowse(generation,comparison)||dialog==null||!dialog.isShowing())return;
+                                comparison.removeAllViews();
+                                caption(comparison,"Search matches for comparison. Similar wording alone does not establish a shared narration or religious relationship.");
+                                for(HadithStore.Hit hit:hits){
+                                    HadithStore.Record r=hit.record;HadithStore.CollectionInfo info=app.hadith.collection(r.collectionId);HadithCardMeta meta=metadata.get(r.id);
+                                    LinearLayout card=card(comparison,Surface.Kind.PANEL);card.addView(label((info==null?r.collectionId:info.nameEn)+" · "+r.number+" ["+r.id+"]"));
+                                    caption(card,hit.reference?"REFERENCE MATCH":hit.match.band+" TEXT MATCH · "+hit.match.explanation());card.addView(hadithArabic(r.arabic,25));
+                                    HadithStore.DisplayTranslation t=meta==null?null:meta.translation;
+                                    if(t!=null){TextView translated=text(this,t.text,appearance.translationSize,appearance.translationInk());translated.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);card.addView(translated);caption(card,languageName(t.language)+" · "+t.provenance);}
+                                    List<String> grades=meta==null?Collections.emptyList():meta.grades;caption(card,grades.isEmpty()?"No individual grading is recorded in this pack.":String.join("\n",grades));
+                                }
+                            });
+                        }catch(Exception error){
+                            android.util.Log.w("AarisHadith","Hadith comparison could not load",error);
+                            ui.post(()->{if(liveHadithBrowse(generation,comparison)){comparison.removeAllViews();caption(comparison,"Comparison could not be prepared. Please try again.");}});
+                        }
+                    });
+                }catch(RejectedExecutionException rejected){comparison.removeAllViews();caption(comparison,"Comparison could not start. Please try again.");}
+                return;
+            }
             if(comparison.getChildCount()==0){
                 caption(comparison,"Search matches for comparison. Similar wording alone does not establish a shared narration or religious relationship.");
-                if(hadith)for(HadithStore.Hit hit:hits){HadithStore.Record r=hit.record;HadithStore.CollectionInfo info=app.hadith.collection(r.collectionId);
-                    LinearLayout c=card(comparison,Surface.Kind.PANEL);c.addView(label((info==null?r.collectionId:info.nameEn)+" · "+r.number+" ["+r.id+"]"));
-                    caption(c,hit.reference?"REFERENCE MATCH":hit.match.band+" TEXT MATCH · "+hit.match.explanation());c.addView(hadithArabic(r.arabic,25));
-                    HadithStore.DisplayTranslation t=app.hadith.translation(r,readingLanguage());if(t!=null){TextView translated=text(this,t.text,appearance.translationSize,appearance.translationInk());translated.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);c.addView(translated);caption(c,languageName(t.language)+" · "+t.provenance);}
-                    List<String> grades=app.hadith.grades(r.id);caption(c,grades.isEmpty()?"No individual grading is recorded in this pack.":String.join("\n",grades));
-                }else for(Ayah a:ayahs){LinearLayout c=card(comparison,Surface.Kind.PANEL);c.addView(label(a.id+" · "+content.surah(a.surah).name));c.addView(arabic(a.arabic,28));addTranslation(c,a);}
+                for(Ayah a:ayahs){LinearLayout card=card(comparison,Surface.Kind.PANEL);card.addView(label(a.id+" · "+content.surah(a.surah).name));card.addView(arabic(a.arabic,28));addTranslation(card,a);}
             }
             comparison.setVisibility(comparison.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE);
         }));page.addView(comparison);gap(page,12);
