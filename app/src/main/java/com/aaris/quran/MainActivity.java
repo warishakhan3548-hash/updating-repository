@@ -350,6 +350,7 @@ public final class MainActivity extends Activity {
         Ayah resume=content.ayah("Q:"+readerSurah+":"+resumeAyah);
         if(resume==null){resumeAyah=readerStart;resume=content.ayah("Q:"+readerSurah+":"+resumeAyah);}
         if(resume==null){readerSurah=1;resumeAyah=1;s=content.surah(1);resume=content.ayah("Q:1:1");}
+        final Ayah resumeTarget=resume;
 
         LinearLayout hero=card(page,Surface.Kind.HERO);
         hero.addView(label("WHERE YOU LEFT OFF"));gap(hero,18);
@@ -375,7 +376,7 @@ public final class MainActivity extends Activity {
         LinearLayout personal=card(page,Surface.Kind.PANEL);personal.addView(label("PERSONALIZE AARIS"));gap(personal,10);
         personal.addView(button("Appearance · Colors & fonts",this::appearanceStudio));gap(personal,8);
         personal.addView(button("Translation & reading",this::settings));gap(personal,8);
-        personal.addView(button("Reciter & downloads",()->audioControls(content.ayah("Q:"+readerSurah+":"+readerStart))));gap(personal,8);
+        personal.addView(button("Reciter & downloads",()->audioControls(resumeTarget)));gap(personal,8);
         personal.addView(button("Study · Pins & collections",this::studyLibrary));
     }
     private void appearanceStudio(){
