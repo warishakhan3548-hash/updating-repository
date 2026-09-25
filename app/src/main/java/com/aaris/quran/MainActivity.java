@@ -65,7 +65,7 @@ public final class MainActivity extends Activity {
     private int searchScope=UnifiedQuery.ALL;
     private boolean sharingPdf;
     private TextView recitationBanner,recitationDownloadStatus;
-    private Runnable recitationListener;
+    private Runnable recitationListener,hadithListener;
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
     private final Map<String,JSONObject> selectionTrace=new LinkedHashMap<>();
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
@@ -108,6 +108,7 @@ public final class MainActivity extends Activity {
             if(isFinishing()||isDestroyed())return;
             if(app.loadError!=null){loading.setText(app.loadError+"\nOpen the app again. Your learning data remains stored separately.");return;}
             content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;
+            hadithListener=()->{if(!isDestroyed()&&!isFinishing()&&tab==2&&!searching)show();};app.hadithChanged=hadithListener;
             language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");translationSpeech=new TranslationSpeech(this);
             highContrast=Boolean.parseBoolean(learning.get("contrast","false"));
             arabicSize=appearance.arabicSize;
@@ -132,7 +133,7 @@ public final class MainActivity extends Activity {
     @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
-    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
+    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
@@ -265,10 +266,16 @@ public final class MainActivity extends Activity {
         HadithStore store=app.hadith;
         if(store==null){
             LinearLayout unavailable=card(page,Surface.Kind.HERO);
-            unavailable.addView(label("LOCAL CONTENT ONLY"));gap(unavailable,12);
-            unavailable.addView(text(this,"Offline Hadith pack\nnot installed yet.",26,INK));gap(unavailable,12);
-            caption(unavailable,app.hadithLoadError==null?"This screen no longer opens a website. A verified Hadith pack must be bundled in the APK before collections are shown.":app.hadithLoadError);
-            gap(unavailable,14);caption(unavailable,"Quran remains fully offline and unchanged.");
+            if(app.hadithLoading){
+                unavailable.addView(label("OPENING LOCAL CONTENT"));gap(unavailable,12);
+                unavailable.addView(text(this,"Opening offline\nHadith library…",26,INK));gap(unavailable,12);
+                caption(unavailable,"The Quran reader is ready now. Hadith is being verified in the background and this screen will refresh automatically.");
+            }else{
+                unavailable.addView(label("LOCAL CONTENT ONLY"));gap(unavailable,12);
+                unavailable.addView(text(this,"Offline Hadith pack\nnot installed yet.",26,INK));gap(unavailable,12);
+                caption(unavailable,app.hadithLoadError==null?"This screen no longer opens a website. A verified Hadith pack must be bundled in the APK before collections are shown.":app.hadithLoadError);
+                gap(unavailable,14);caption(unavailable,"Quran remains fully offline and unchanged.");
+            }
             return;
         }
 
