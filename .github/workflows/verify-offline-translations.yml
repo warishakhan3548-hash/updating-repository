@@ -1,4 +1,4 @@
-name: Verify offline trusted translations
+name: Verify offline trusted translations # v2
 
 on:
   push:
