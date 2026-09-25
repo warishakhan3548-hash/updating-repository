@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'upgrade/**'
+      - 'audit/**'
     paths:
       - '.github/workflows/verify-offline-translations.yml'
       - 'tools/**'
