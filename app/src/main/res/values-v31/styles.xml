@@ -1,0 +1,8 @@
+<resources>
+    <style name="AppLaunchTheme" parent="@style/AppTheme">
+        <item name="android:windowSplashScreenBackground">#030705</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_quran_splash</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#0B343B</item>
+        <item name="android:windowSplashScreenAnimationDuration">220</item>
+    </style>
+</resources>
