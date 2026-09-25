@@ -5,6 +5,8 @@ import java.util.*;
 /** Collection intent and edition-aware reference lookup, independent of UI and SQLite. */
 public final class HadithQuery {
     private static final Map<String,String> ALIASES=new LinkedHashMap<>();
+    private static final Set<String> AMBIGUOUS_PREFIX_COLLECTIONS=
+        new HashSet<>(Arrays.asList("muslim","malik","ahmad"));
     static {
         aliases("bukhari","sahih al bukhari","sahih bukhari","sahi bukhari","bukhari",
             "صحيح البخاري","صحيح بخاري","صحیح بخاری","البخاري","بخاري",
@@ -47,7 +49,11 @@ public final class HadithQuery {
         String best=null,id=null;
         for(Map.Entry<String,String> entry:aliases.entrySet()){
             String alias=entry.getKey();if(alias.isEmpty())continue;
-            if(query.equals(alias)||query.startsWith(alias+" ")||
+            boolean prefix=query.startsWith(alias+" ");
+            String remainder=prefix?query.substring(alias.length()).trim():"";
+            boolean ambiguousProsePrefix=prefix&&AMBIGUOUS_PREFIX_COLLECTIONS.contains(entry.getValue())&&
+                alias.indexOf(' ')<0&&reference(remainder)==null;
+            if(query.equals(alias)||prefix&&!ambiguousProsePrefix||
                 query.endsWith(" "+alias)&&reference(query.substring(0,query.length()-alias.length()).trim())!=null){
                 if(best==null||alias.length()>best.length()){best=alias;id=entry.getValue();}
             }
