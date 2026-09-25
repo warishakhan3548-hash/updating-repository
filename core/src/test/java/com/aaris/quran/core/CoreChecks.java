@@ -46,6 +46,8 @@ public final class CoreChecks {
         List<String> scaffold=MeaningSearch.focusTokens(TextMatch.tokens("ये कहाँ पर लिखा है कि दो रकात नमाज फर्ज के बाद ये करना है"));
         check(scaffold.containsAll(Arrays.asList("दो","रकात","नमाज","फर्ज","बाद","करना"))&&!scaffold.contains("कहाँ")&&!scaffold.contains("लिखा")&&!scaffold.contains("ये"),"Remembered-question scaffolding cannot dominate concept retrieval");
         check(MeaningSearch.focusTokens(TextMatch.tokens("एक बार एक सहाबी ने नबी को देखा")).stream().filter("एक"::equals).count()==1,"Meaning lane deduplicates conversational repetition");
+        check(MeaningSearch.focusTokens(TextMatch.tokens("नबी ने कहा नमाज")).contains("कहा")&&
+            MeaningSearch.focusTokens(TextMatch.tokens("nabi ne kaha namaz")).contains("kaha"),"Said/kaha is content, not confused with where/kahan");
         check(TextMatch.negative("nahi")&&TextMatch.negative("nahin")&&TextMatch.negative("नही"),"Common Hinglish/Hindi negation variants are protected");
         Map<String,List<String>> polarityRepairs=new HashMap<>();
         polarityRepairs.put("nahi",MeaningSearch.alternatives("nahi"));
