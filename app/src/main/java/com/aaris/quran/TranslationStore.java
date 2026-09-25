@@ -46,7 +46,7 @@ final class TranslationStore implements AutoCloseable {
             try(Cursor cur=opened.rawQuery("SELECT count(*) FROM translation t LEFT JOIN edition e ON e.id=t.edition_id WHERE e.id IS NULL",null)){
                 if(!cur.moveToFirst()||cur.getInt(0)!=0)throw new IOException("Translation pack contains orphan rows");
             }
-            try(Cursor cur=opened.rawQuery("SELECT * FROM edition ORDER BY CASE language WHEN 'hi' THEN 0 WHEN 'ur' THEN 1 ELSE 2 END",null)){while(cur.moveToNext())editions.add(new Edition(cur));}
+            try(Cursor cur=opened.rawQuery("SELECT * FROM edition ORDER BY CASE language WHEN 'hi' THEN 0 WHEN 'ur' THEN 1 ELSE 2 END,rowid",null)){while(cur.moveToNext())editions.add(new Edition(cur));}
             LinkedHashSet<String> expected=new LinkedHashSet<>();for(int i=0;i<expectedEditions.length();i++)expected.add(expectedEditions.getString(i));
             if(expected.size()!=expectedEditions.length())throw new IOException("Duplicate translation edition in manifest");
             LinkedHashSet<String> actual=new LinkedHashSet<>();for(Edition edition:editions){
