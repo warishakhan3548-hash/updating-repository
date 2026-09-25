@@ -1002,12 +1002,14 @@ public final class MainActivity extends Activity {
 
     private void startSurahAudioDownload(int surah){
         if(app.audioDownloads==null)return;
+        if(app.audioDownloads.busy()){toast("A word-audio download is already running");return;}
         toast(content.surah(surah).name+" audio download started…");
         app.audioDownloads.downloadSurah(surah,new WordAudioDownloadUi(this,surah,false,0));
     }
 
     private void downloadAllAudio(){
         if(app.wordAudio==null||app.audioDownloads==null){toast("Audio downloads are not available yet");return;}
+        if(app.audioDownloads.busy()){toast("A word-audio download is already running");return;}
         int installed=app.wordAudio.installedCount();
         if(installed>=114){toast("All Quran audio is already installed offline ✓");return;}
         double remainingMb=app.wordAudio.remainingBytes()/(1024d*1024d);
