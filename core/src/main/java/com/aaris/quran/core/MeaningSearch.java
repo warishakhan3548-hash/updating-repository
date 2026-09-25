@@ -18,7 +18,9 @@ public final class MeaningSearch {
         "the","a","an","of","to","and","in","is","was","were","that","who","he","she","they","it","his","her","their",
         "ये","यह","कहाँ","लिखा","लिखी","लिखे","बताओ","बताइए","बताये","बताएं","कौन","मुझे",
         "ye","yeh","kahan","likha","likhi","likhe","batao","bataiye","bataye","kaun","mujhe",
-        "where","written","mentioned","show","find","please","tell","me","which"
+        "where","written","mentioned","show","find","please","tell","me","which",
+        "देखा","देखे","देखी","करते","करता","करती","करना","बना","बनाते","बनाता","बनाती",
+        "dekha","dekhe","dekhi","karte","karta","karti","karna","bana","banate","banata","banati"
     ));
     static {
         Map<String,LinkedHashSet<String>> map=new HashMap<>();
@@ -113,8 +115,13 @@ public final class MeaningSearch {
     public static List<String> focusTokens(List<String> normalizedTokens){
         if(normalizedTokens==null||normalizedTokens.isEmpty())return Collections.emptyList();
         LinkedHashSet<String> focused=new LinkedHashSet<>();
-        for(String token:normalizedTokens){
+        for(int i=0;i<normalizedTokens.size();i++){
+            String token=normalizedTokens.get(i);
             if(token==null||token.isEmpty())continue;
+            String next=i+1<normalizedTokens.size()?normalizedTokens.get(i+1):"";
+            boolean once=("एक".equals(token)&&"बार".equals(next))||
+                ("ek".equals(token)&&("bar".equals(next)||"baar".equals(next)));
+            if(once){i++;continue;}
             if(TextMatch.negative(token)||!FILLER.contains(token))focused.add(token);
         }
         // The meaning lane is concept-oriented: conversational repetition must not demand
