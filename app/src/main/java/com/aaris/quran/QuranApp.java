@@ -9,6 +9,7 @@ import com.aaris.quran.core.SearchEngine;
 import com.aaris.quran.core.ExportStaging;
 import java.io.File;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class QuranApp extends Application {
     private static ExecutorService worker(String name){
@@ -30,6 +31,7 @@ public final class QuranApp extends Application {
     final ExecutorService audioWorker=worker("audio");
     final ExecutorService recitationDownloadWorker=worker("recitation-download");
     final Handler main=new Handler(Looper.getMainLooper());
+    final AtomicBoolean researchPdfBusy=new AtomicBoolean(false);
     volatile ContentStore content;
     volatile LearningStore learning;
     volatile HadithStore hadith;
