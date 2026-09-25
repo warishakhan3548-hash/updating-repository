@@ -19,14 +19,15 @@ public final class UnifiedQuery {
         String q=Arabic.asciiDigits(text).replace('：',':')
             .replaceFirst("(?iu)^(?:quran|qur'an|कुरान|क़ुरआन|قرآن|القرآن)\\s*[:\\-]?\\s*","");
         Matcher coordinate=QURAN_COORDINATE.matcher(q);
+        boolean quranCoordinate=coordinate.matches();
         String quranText=q;
-        if(coordinate.matches())
+        if(quranCoordinate)
             quranText=Integer.parseInt(coordinate.group(1))+":"+Integer.parseInt(coordinate.group(2));
 
         HadithQuery h=HadithQuery.parse(text);
         if(scope==QURAN)return new UnifiedQuery(true,false,quranText,h);
         if(scope==HADITH)return new UnifiedQuery(false,true,quranText,h);
-        if(coordinate.matches())return new UnifiedQuery(true,false,quranText,h);
+        if(quranCoordinate)return new UnifiedQuery(true,false,quranText,h);
         if(h.isHadithIntent())return new UnifiedQuery(false,true,quranText,h);
         return new UnifiedQuery(true,true,quranText,h);
     }
