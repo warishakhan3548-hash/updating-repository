@@ -134,14 +134,26 @@ public final class SearchEngine {
         List<Ayah> sources=new ArrayList<>();for(Document document:docs)sources.add(document.ayah);fragments=new FragmentSearch(sources);
     }
     public Response search(String input,int limit) {
-        return search(input,Collections.emptyList(),limit);
+        String raw=input==null?"":input;
+        LongQuery.Plan userPlan=LongQuery.plan(raw);
+        List<Query> all=new ArrayList<>();
+        for(String window:userPlan.windows)all.add(new Query(window,Origin.USER));
+        return searchQueries(raw,all,limit,userPlan.segmented,userPlan.sourceWindows);
     }
     /** AI variants are explicitly tagged; more matching variants never verify an answer. */
     public Response search(String original,List<Query> queries,int limit) {
         String raw=original==null?"":original;
         LongQuery.Plan userPlan=LongQuery.plan(raw);
         List<Query> all=new ArrayList<>();
-        for(String window:userPlan.windows)all.add(new Query(window,Origin.USER));
+        if(userPlan.segmented){
+            for(String window:userPlan.windows)all.add(new Query(window,Origin.USER));
+        }else{
+            // Preserve the historical explicit multi-formulation API: callers using this
+            // overload may intentionally place independent user formulations on separate lines.
+            for(String line:raw.split("\\R"))if(!line.trim().isEmpty())
+                all.add(new Query(line.trim(),Origin.USER));
+            if(all.isEmpty())for(String window:userPlan.windows)all.add(new Query(window,Origin.USER));
+        }
 
         // External variants are also bounded through the same planner. Never reject a useful
         // pasted query merely because one formulation is long.
