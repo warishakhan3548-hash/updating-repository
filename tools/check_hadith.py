@@ -135,6 +135,8 @@ def main():
         assert prepared_manifest["required_collection_ids"] == CORE_IDS + ["hadeethenc"]
         assert prepared_manifest["require_vowel_marks_collection_ids"] == CORE_IDS
         assert prepared_manifest["hadeethenc_translation_record_counts"] == he_translation_counts
+        context_counts = prepared_manifest["hadeethenc_search_context_counts"]
+        assert set(context_counts) == {"ar","en","ur","hi"} and all(int(v)>0 for v in context_counts.values())
         assert prepared_manifest["hadeethenc_withheld_translation_ids"] == he_withheld
 
         subprocess.run([
@@ -154,6 +156,7 @@ def main():
         assert generated["arabic_records_with_vowel_marks"] >= core_total
         assert generated["vocalization"]["origin"] == "published-upstream"
         assert generated["editorial_translations"] == sum(he_translation_counts.values())
+        assert generated["search_contexts"] == sum(int(v) for v in context_counts.values())
         assert generated["hadeethenc_translation_record_counts"] == he_translation_counts
         assert generated["hadeethenc_withheld_translation_ids"] == he_withheld
         assert hashlib.sha256(sqlite_path.read_bytes()).hexdigest() == generated["sqlite_sha256"]
@@ -169,6 +172,8 @@ def main():
             assert db.execute("SELECT count(*) FROM editorial_translation").fetchone()[0] == sum(
                 he_translation_counts.values()
             )
+            assert db.execute("SELECT count(*) FROM search_context").fetchone()[0] == sum(int(v) for v in context_counts.values())
+            assert db.execute("SELECT count(*) FROM search_context WHERE language='hi' AND trim(roman)<>''").fetchone()[0] > 0
 
             actual = dict(db.execute(
                 "SELECT collection_id,COUNT(*) FROM hadith GROUP BY collection_id ORDER BY collection_id"
