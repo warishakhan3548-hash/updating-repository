@@ -28,11 +28,18 @@ final class QuranAudioDownloadManager {
     private final ExecutorService io;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicBoolean busy=new AtomicBoolean(false);
+    private final Object connectionLock=new Object();
     private volatile boolean cancel;
+    private HttpURLConnection activeConnection;
 
     QuranAudioDownloadManager(QuranAudioStore store,ExecutorService io){this.store=store;this.io=io;}
     boolean busy(){return busy.get();}
-    void cancel(){cancel=true;}
+    void cancel(){
+        cancel=true;
+        HttpURLConnection connection;
+        synchronized(connectionLock){connection=activeConnection;}
+        if(connection!=null)connection.disconnect();
+    }
 
     void downloadSurah(int surah,Listener listener){
         if(surah<1||surah>114){postError(listener,surah,"Invalid Surah");return;}
@@ -94,7 +101,9 @@ final class QuranAudioDownloadManager {
             if(cancel)throw new IOException("Download cancelled");
             try{downloadAttempt(address,target,expectedBytes);return;}
             catch(IOException failure){
-                last=failure;if(cancel||attempt==MAX_ATTEMPTS)throw failure;
+                last=failure;
+                if(cancel)throw new IOException("Download cancelled",failure);
+                if(attempt==MAX_ATTEMPTS)throw failure;
                 try{Thread.sleep(RETRY_BASE_MS*attempt);}
                 catch(InterruptedException x){Thread.currentThread().interrupt();throw new IOException("Audio download interrupted",x);}
             }
@@ -117,6 +126,10 @@ final class QuranAudioDownloadManager {
             c.setInstanceFollowRedirects(true);c.setConnectTimeout(CONNECT_TIMEOUT_MS);c.setReadTimeout(READ_TIMEOUT_MS);
             c.setRequestProperty("Accept-Encoding","identity");c.setRequestProperty("User-Agent","Aaris-Quran/0.4 isolated-word-audio");
             if(existing>0)c.setRequestProperty("Range","bytes="+existing+"-");
+            synchronized(connectionLock){
+                if(cancel){c.disconnect();throw new IOException("Download cancelled");}
+                activeConnection=c;
+            }
             try{
                 int code=c.getResponseCode();
                 if(!"https".equalsIgnoreCase(c.getURL().getProtocol()))throw new IOException("Audio download redirected away from HTTPS");
@@ -155,7 +168,10 @@ final class QuranAudioDownloadManager {
                 if(declared>=0&&received!=declared)throw new IOException("Audio download was interrupted; retry will resume it");
                 if(target.length()!=expectedBytes)throw new IOException("Audio download is incomplete; retry will resume it");
                 return;
-            }finally{c.disconnect();}
+            }finally{
+                synchronized(connectionLock){if(activeConnection==c)activeConnection=null;}
+                c.disconnect();
+            }
         }
     }
 
