@@ -1,8 +1,13 @@
 package com.aaris.quran.core;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /** One search box; explicit references select their corpus before any text retrieval. */
 public final class UnifiedQuery {
     public static final int ALL=0,QURAN=1,HADITH=2;
+    private static final Pattern QURAN_COORDINATE=Pattern.compile(
+        "^(?:Q\\s*:?\\s*)?([0-9]{1,3})\\s*(?::|/|\\.|\\s+)\\s*([0-9]{1,3})$",Pattern.CASE_INSENSITIVE);
     public final boolean quran,hadith;
     public final String quranText;
     public final HadithQuery hadithQuery;
@@ -11,12 +16,18 @@ public final class UnifiedQuery {
     }
     public static UnifiedQuery parse(String raw,int scope){
         String text=raw==null?"":raw.trim();
-        HadithQuery h=HadithQuery.parse(text);
         String q=Arabic.asciiDigits(text).replace('：',':')
-            .replaceFirst("(?iu)^(?:quran|qur'an|कुरान|क़ुरआन|قرآن|القرآن)\\s+","");
-        boolean coordinate=q.matches("(?i)(?:Q:)?[0-9]{1,3}\\s*:\\s*[0-9]{1,3}");
-        if(h.isHadithIntent())return new UnifiedQuery(false,true,q,h);
-        if(coordinate)return new UnifiedQuery(true,false,q,h);
-        return new UnifiedQuery(scope!=HADITH,scope!=QURAN,q,h);
+            .replaceFirst("(?iu)^(?:quran|qur'an|कुरान|क़ुरआन|قرآن|القرآن)\\s*[:\\-]?\\s*","");
+        Matcher coordinate=QURAN_COORDINATE.matcher(q);
+        String quranText=q;
+        if(coordinate.matches())
+            quranText=Integer.parseInt(coordinate.group(1))+":"+Integer.parseInt(coordinate.group(2));
+
+        HadithQuery h=HadithQuery.parse(text);
+        if(scope==QURAN)return new UnifiedQuery(true,false,quranText,h);
+        if(scope==HADITH)return new UnifiedQuery(false,true,quranText,h);
+        if(coordinate.matches())return new UnifiedQuery(true,false,quranText,h);
+        if(h.isHadithIntent())return new UnifiedQuery(false,true,quranText,h);
+        return new UnifiedQuery(true,true,quranText,h);
     }
 }
