@@ -1,0 +1,76 @@
+name: Final verified release APK
+
+on:
+  push:
+    branches:
+      - build/final-release-20260925
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: final-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Rebuild offline evidence
+        run: |
+          set -euo pipefail
+          python3 tools/build_content.py
+          python3 tools/prepare_open_hadith_data.py
+          python3 tools/build_hadith.py --source build/generated/hadith-source
+
+      - name: Run full search and integrity verification
+        run: |
+          set -euo pipefail
+          ANDROID_JAR="${ANDROID_HOME:-}/platforms/android-35/android.jar"
+          AAPT2="${ANDROID_HOME:-}/build-tools/35.0.0/aapt2"
+          if [[ -f "$ANDROID_JAR" && -x "$AAPT2" ]]; then
+            python3 tools/check.py --android-jar "$ANDROID_JAR" --aapt2 "$AAPT2"
+          else
+            python3 tools/check.py
+          fi
+          python3 tools/check_hadith.py
+
+      - name: Build release variant
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Sign and verify installable release APK
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -f "$APK"
+          BUILD_TOOLS="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          test -x "$BUILD_TOOLS/zipalign"
+          test -x "$BUILD_TOOLS/apksigner"
+          PASS="$(openssl rand -hex 20)"
+          keytool -genkeypair -noprompt             -keystore "$RUNNER_TEMP/aaris-final-release.keystore"             -storepass "$PASS" -keypass "$PASS"             -alias aaris-final-release -keyalg RSA -keysize 2048 -validity 3650             -dname "CN=Aaris Quran Final Release,O=Aaris,C=IN"
+          mkdir -p release-output
+          "$BUILD_TOOLS/zipalign" -p -f 4 "$APK" release-output/AarisQuran-final-release-aligned.apk
+          "$BUILD_TOOLS/apksigner" sign             --ks "$RUNNER_TEMP/aaris-final-release.keystore"             --ks-key-alias aaris-final-release             --ks-pass "pass:$PASS" --key-pass "pass:$PASS"             --out release-output/AarisQuran-final-release.apk             release-output/AarisQuran-final-release-aligned.apk
+          rm release-output/AarisQuran-final-release-aligned.apk
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs release-output/AarisQuran-final-release.apk             | tee release-output/signing-verification.txt
+          sha256sum release-output/AarisQuran-final-release.apk | tee release-output/SHA256.txt
+          printf 'source_commit=e4feb771f0da01867bfc13a63118013dc76c5491\nvariant=release\nsearch=long-text+multilingual+meaning-context\nsigning=ephemeral-ci-test-key\n'             > release-output/build-info.txt
+
+      - name: Upload final release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AarisQuran-final-release
+          path: release-output/
+          if-no-files-found: error
+          retention-days: 7
