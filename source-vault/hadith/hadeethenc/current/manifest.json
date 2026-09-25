@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "provider": "HadeethEnc.com",
+  "captured_on": "2026-09-25",
+  "terms_url": "https://hadeethenc.com/en",
+  "policy_url": "https://github.com/IslamHouse-API/multilingual-quran-hadith-islamic-content-database-api-hub",
+  "runtime_network_required": false,
+  "content_policy": "Original source text is stored unchanged; source/version must stay visible and newer official versions must replace the active snapshot.",
+  "languages": [
+    {
+      "language": "ar",
+      "name": "Arabic",
+      "version": "1.7.0",
+      "source_url": "https://hadeethenc.com/browse/download/ar",
+      "download_url": "https://hadeethenc.com//downloads/excel/HadeethEnc.com_ar-v1.7.0.xlsx",
+      "sha256": "d5d397cb9fc8ddd54c4c6ee88357c2217721db0bd0759c6ec26d8b3fc36f1ec1",
+      "bytes": 2767594
+    },
+    {
+      "language": "en",
+      "name": "English",
+      "version": "1.25.0",
+      "source_url": "https://hadeethenc.com/browse/download/en",
+      "download_url": "https://hadeethenc.com//downloads/excel/HadeethEnc.com_en-v1.25.0.xlsx",
+      "sha256": "339d148eb7425b7f2d48dd7521a969e4aa4a35b5d35a7c4a1c1b67043b5ee218",
+      "bytes": 3232481
+    },
+    {
+      "language": "ur",
+      "name": "Urdu",
+      "version": "1.36.0",
+      "source_url": "https://hadeethenc.com/browse/download/ur",
+      "download_url": "https://hadeethenc.com//downloads/excel/HadeethEnc.com_ur-v1.36.0.xlsx",
+      "sha256": "0f5afc97215b14563134c9ef67f3d146a5395d5d90bfb5bec95e9220fa072041",
+      "bytes": 3194454
+    },
+    {
+      "language": "hi",
+      "name": "Hindi",
+      "version": "1.59.0",
+      "source_url": "https://hadeethenc.com/browse/download/hi",
+      "download_url": "https://hadeethenc.com//downloads/excel/HadeethEnc.com_hi-v1.59.0.xlsx",
+      "sha256": "2058c3866f607e3d6ac1ea432a3abddb9de294cc414a2aa47ce8f54eacfaefc5",
+      "bytes": 3162518
+    }
+  ]
+}
