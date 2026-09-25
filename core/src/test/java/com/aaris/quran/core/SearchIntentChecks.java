@@ -115,6 +115,13 @@ public final class SearchIntentChecks {
         check(!hadithOnly.quran&&hadithOnly.hadith,"Explicit Hadith filter must not be overridden by Quran-looking input");
         UnifiedQuery both=UnifiedQuery.parse("إِنَّمَا الْأَعْمَالُ",UnifiedQuery.ALL);
         check(both.quran&&both.hadith,"Arabic text searches both corpora");
+        String longFreeText=("remembered context ".repeat(180))+" prayer wudu "+("more notes ".repeat(180));
+        UnifiedQuery longAll=UnifiedQuery.parse(longFreeText,UnifiedQuery.ALL);
+        check(longAll.quran&&longAll.hadith,"Long free text routes to both corpora without reference parsing");
+        check(UnifiedQuery.parse(longFreeText,UnifiedQuery.QURAN).quran&&!UnifiedQuery.parse(longFreeText,UnifiedQuery.QURAN).hadith,
+            "Long free text respects Quran-only scope");
+        check(!UnifiedQuery.parse(longFreeText,UnifiedQuery.HADITH).quran&&UnifiedQuery.parse(longFreeText,UnifiedQuery.HADITH).hadith,
+            "Long free text respects Hadith-only scope");
         check(!UnifiedQuery.parse("الاعمال",UnifiedQuery.HADITH).quran,"Explicit Hadith filter");
         check(TextMatch.normalize("إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ").equals("انما الاعمال بالنيات"),"Harakat normalization");
         check(TextMatch.normalize("ﻻ\u200f تَقْبَلُ").equals("لا تقبل"),"Copied shaping and bidi controls");
