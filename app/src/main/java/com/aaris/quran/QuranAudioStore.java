@@ -55,22 +55,29 @@ final class QuranAudioStore {
         JSONObject manifest=new JSONObject(ContentStore.asset(context,"quran-audio-word-catalog.json"));
         if(manifest.optInt("schema")!=1||!DELIVERY.equals(manifest.optString("delivery")))
             throw new IOException("Unsupported Quran pronunciation catalog");
-        if(!SOURCE_REVISION.equals(manifest.optString("source_revision"))||
+        String releaseBase=manifest.optString("release_base_url","");
+        if(!SOURCE_REPO.equals(manifest.optString("repo_id"))||
+           !"AARISQW1".equals(manifest.optString("container_magic"))||
+           !SOURCE_REVISION.equals(manifest.optString("source_revision"))||
            !CANONICAL_ALIGNMENT_HASH.equals(manifest.optString("canonical_quran_alignment_sha256"))||
            manifest.optInt("canonical_quran_audio_words")!=77326||
-           manifest.optInt("surahs")!=114)
+           manifest.optInt("surahs")!=114||
+           !releaseBase.startsWith("https://github.com/"))
             throw new IOException("Quran pronunciation catalog/source binding mismatch");
         JSONObject packs=manifest.getJSONObject("packs");
+        if(packs.length()!=114)throw new IOException("Quran pronunciation catalog pack count mismatch");
         long declaredTotal=manifest.getLong("total_bytes"),computedTotal=0;
+        int computedWords=0;
         for(int surah=1;surah<=114;surah++){
             String key=String.format(Locale.ROOT,"%03d",surah);
             JSONObject p=packs.getJSONObject(key);
             int words=p.getInt("words");long bytes=p.getLong("bytes");
             String sha=p.getString("sha256"),url=p.getString("url");
-            if(words<1||bytes<64||sha.length()!=64||!url.startsWith("https://github.com/"))
+            if(words<1||bytes<64||!sha.matches("[a-f0-9]{64}")||!url.equals(releaseBase+"/"+key+".aqp"))
                 throw new IOException("Invalid Quran pronunciation pack metadata for Surah "+surah);
-            catalog.put(surah,new PackMeta(surah,words,bytes,sha,url));computedTotal+=bytes;
+            catalog.put(surah,new PackMeta(surah,words,bytes,sha,url));computedTotal+=bytes;computedWords+=words;
         }
+        if(computedWords!=77326)throw new IOException("Quran pronunciation catalog word count mismatch");
         if(declaredTotal<=0||declaredTotal!=computedTotal)throw new IOException("Quran pronunciation catalog total size mismatch");
         catalogBytes=declaredTotal;
         root=new File(context.getFilesDir(),"quran-audio/"+PROFILE_ID);
