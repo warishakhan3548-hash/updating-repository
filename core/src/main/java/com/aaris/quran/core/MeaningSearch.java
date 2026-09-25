@@ -118,10 +118,14 @@ public final class MeaningSearch {
         for(int i=0;i<normalizedTokens.size();i++){
             String token=normalizedTokens.get(i);
             if(token==null||token.isEmpty())continue;
+            String previous=i>0?normalizedTokens.get(i-1):"";
             String next=i+1<normalizedTokens.size()?normalizedTokens.get(i+1):"";
             boolean once=("एक".equals(token)&&"बार".equals(next))||
                 ("ek".equals(token)&&("bar".equals(next)||"baar".equals(next)));
             if(once){i++;continue;}
+            boolean romanWhereTypo="kaha".equals(token)&&("ye".equals(previous)||"yeh".equals(previous))&&
+                ("likha".equals(next)||"likhi".equals(next)||"likhe".equals(next));
+            if(romanWhereTypo)continue;
             if(TextMatch.negative(token)||!FILLER.contains(token))focused.add(token);
         }
         // The meaning lane is concept-oriented: conversational repetition must not demand
