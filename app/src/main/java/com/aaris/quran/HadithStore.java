@@ -330,9 +330,13 @@ final class HadithStore implements AutoCloseable {
     private MatchChoice bestMatch(Record record,List<String> terms,Map<String,List<String>> repairs,Map<String,Double> weights,CancellationSignal signal){
         List<String> focusedTerms=MeaningSearch.focusTokens(terms);
         TextMatch direct=TextMatch.compare(terms,TextMatch.tokens(record.arabic),repairs,weights);
+        boolean directMeaning=false;
         for(String text:new String[]{record.english,record.urdu,record.bangla})if(text!=null){
-            cancelSearch(signal);TextMatch m=TextMatch.compare(terms,TextMatch.tokens(text),repairs,weights);
-            if(m.accepted&&(!direct.accepted||TextMatch.compareRank(m,direct)<0))direct=m;
+            cancelSearch(signal);List<String> tokens=TextMatch.tokens(text);
+            TextMatch m=TextMatch.compare(terms,tokens,repairs,weights);
+            if(m.accepted&&(!direct.accepted||TextMatch.compareRank(m,direct)<0)){
+                direct=m;directMeaning=MeaningSearch.usesConceptBridge(terms,tokens);
+            }
         }
 
         TextMatch context=null;
@@ -352,7 +356,12 @@ final class HadithStore implements AutoCloseable {
                             if(romanTranslation.accepted&&(!m.accepted||TextMatch.compareRank(romanTranslation,m)<0))m=romanTranslation;
                         }
                     }
-                    if(m.accepted&&(!direct.accepted||TextMatch.compareRank(m,direct)<0))direct=m;
+                    if(m.accepted&&(!direct.accepted||TextMatch.compareRank(m,direct)<0)){
+                        direct=m;
+                        directMeaning=MeaningSearch.usesConceptBridge(terms,docTokens)||
+                            (!"hi".equals(docs.getString(3))?false:
+                                MeaningSearch.usesConceptBridge(terms,TextMatch.tokens(MeaningSearch.romanizeHindi(docs.getString(1)))));
+                    }
                     continue;
                 }
                 if(!focusedTerms.equals(terms)){
@@ -376,7 +385,7 @@ final class HadithStore implements AutoCloseable {
         // when it reaches a strictly stronger confidence band.
         if(context!=null&&(!direct.accepted||context.band.ordinal()<direct.band.ordinal()))
             return new MatchChoice(context,true);
-        return new MatchChoice(direct,false);
+        return new MatchChoice(direct,directMeaning);
     }
     private SearchPage referencePage(HadithQuery query,int cap,int offset,CancellationSignal signal){
         cancelSearch(signal);HadithQuery.Lookup lookup=query.lookup();
