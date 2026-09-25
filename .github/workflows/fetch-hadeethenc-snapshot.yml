@@ -32,6 +32,7 @@ jobs:
           OUT = Path("source-vault/hadith/hadeethenc-official")
           OUT.mkdir(parents=True, exist_ok=True)
           URLS = {
+              "ar": "https://hadeethenc.com/en/browse/download/ar",
               "en": "https://hadeethenc.com/en/browse/download/en",
               "hi": "https://hadeethenc.com/en/browse/download/hi",
               "ur": "https://hadeethenc.com/en/browse/download/ur",
