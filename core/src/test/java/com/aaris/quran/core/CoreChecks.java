@@ -60,8 +60,12 @@ public final class CoreChecks {
         SearchEngine recalled=new SearchEngine(Arrays.asList(
             doc(1,"مصدر اول",remembered+" "+MeaningSearch.romanizeHindi(remembered)),
             doc(2,"مصدر ثان","unrelated text")));
-        check(recalled.search("prayer wudu",10).results.get(0).ayah.number==1,"Cross-language concept aliases retrieve the intended evidence");
-        check(recalled.search("namaz vuzu",10).results.get(0).ayah.number==1,"Hinglish shadow retrieves Hindi evidence");
+        SearchEngine.Result bridged=recalled.search("prayer wudu",10).results.get(0);
+        check(bridged.ayah.number==1&&bridged.meaning,"Cross-language concept aliases retrieve and label meaning evidence");
+        SearchEngine.Result romanDirect=recalled.search("namaz vuzu",10).results.get(0);
+        check(romanDirect.ayah.number==1&&!romanDirect.meaning,"Literal Hinglish shadow remains a text match");
+        check(MeaningSearch.usesConceptBridge(TextMatch.tokens("prayer wudu"),TextMatch.tokens("नमाज वुज़ू")),"Concept bridge detection is explicit");
+        check(!MeaningSearch.usesConceptBridge(TextMatch.tokens("namaz vuzu"),TextMatch.tokens("namaz vuzu")),"Literal normalized words are not mislabeled as meaning");
         SearchEngine rememberedQuestion=new SearchEngine(Arrays.asList(
             doc(1,"مصدر ثالث","दो रकात नमाज फर्ज बाद करना"),
             doc(2,"مصدر رابع","कहाँ लिखा ये unrelated")));
