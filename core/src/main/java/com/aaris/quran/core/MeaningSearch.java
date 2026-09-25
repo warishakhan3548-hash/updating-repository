@@ -11,6 +11,7 @@ public final class MeaningSearch {
     private MeaningSearch() {}
 
     private static final Map<String,List<String>> ALIASES;
+    private static final Map<String,Set<String>> SURFACE_EQUIVALENTS;
     private static final Set<String> FILLER=new HashSet<>(Arrays.asList(
         "के","की","का","को","ने","से","में","पर","कि","था","थे","थी","है","हैं","हो","रहे","रही","रहा",
         "aur","ke","ki","ka","ko","ne","se","me","mein","par","tha","the","thi","hai","hain","ho","rahe","rahi","raha",
@@ -21,7 +22,34 @@ public final class MeaningSearch {
     ));
     static {
         Map<String,LinkedHashSet<String>> map=new HashMap<>();
-        group(map,"नबी","nabi","prophet","رسول","نبي","रसूल","rasul","messenger");
+        Map<String,LinkedHashSet<String>> surface=new HashMap<>();
+
+        // A surface group is the same lexical item across scripts/spellings. It may retrieve as
+        // TEXT MATCH. Semantic neighbours/synonyms are added only to the broader alias group.
+        surfaceGroup(surface,"नबी","nabi","نبي");
+        surfaceGroup(surface,"रसूल","rasul","رسول");
+        surfaceGroup(surface,"सहाबी","sahabi","صحابي");
+        surfaceGroup(surface,"वुज़ू","वुजू","वजू","wudu","wuzu","wudhu","vuzu","wazoo","vazoo","وضوء");
+        surfaceGroup(surface,"नमाज़","नमाज","namaz");
+        surfaceGroup(surface,"salah","salat","صلاة","الصلاة");
+        surfaceGroup(surface,"फ़र्ज़","फर्ज","farz","fard","فرض");
+        surfaceGroup(surface,"रकात","रकअत","rakat","rakah","rakaa","ركعة","ركعتين");
+        surfaceGroup(surface,"सुन्नत","sunnat","sunnah","سنة");
+        surfaceGroup(surface,"दुआ","dua","دعاء");
+        surfaceGroup(surface,"रोज़ा","रोजा","roza");
+        surfaceGroup(surface,"ज़कात","जकात","zakat","زكاة");
+        surfaceGroup(surface,"हज","hajj","حج");
+        surfaceGroup(surface,"ईमान","iman","إيمان","ايمان");
+        surfaceGroup(surface,"जन्नत","jannat","جنة");
+        surfaceGroup(surface,"जहन्नम","jahannam","جهنم");
+        surfaceGroup(surface,"मस्जिद","masjid","مسجد");
+        surfaceGroup(surface,"अज़ान","अजान","azan","adhan","أذان","اذان");
+        surfaceGroup(surface,"क़िबला","किबला","qibla","قبلة");
+        surfaceGroup(surface,"काबा","kaaba","kaba","كعبة");
+        surfaceGroup(surface,"नहीं","नही","nahin","nahi","نہیں","نهيں");
+
+        group(map,"नबी","nabi","prophet","نبي");
+        group(map,"रसूल","rasul","messenger","رسول");
         group(map,"सहाबी","sahabi","companion","صحابي");
         group(map,"वुज़ू","वुजू","वजू","wudu","wuzu","wudhu","vuzu","wazoo","vazoo","ablution","وضوء");
         group(map,"नमाज़","नमाज","namaz","salah","salat","prayer","صلاة","الصلاة");
@@ -29,7 +57,7 @@ public final class MeaningSearch {
         group(map,"रकात","रकअत","rakat","rakah","rakaa","ركعة","ركعتين");
         group(map,"सुन्नत","sunnat","sunnah","سنة");
         group(map,"दुआ","dua","supplication","دعاء");
-        group(map,"रोज़ा","रोजा","roza","fasting","fast","صوم","صيام");
+        group(map,"रोज़ा","रोजा","roza","fasting","صوم","صيام");
         group(map,"ज़कात","जकात","zakat","almsgiving","زكاة");
         group(map,"हज","hajj","pilgrimage","حج");
         group(map,"ईमान","iman","faith","belief","إيمان","ايمان");
@@ -40,10 +68,15 @@ public final class MeaningSearch {
         group(map,"क़िबला","किबला","qibla","قبلة");
         group(map,"काबा","kaaba","kaba","كعبة");
         group(map,"नहीं","नही","nahin","nahi","نہیں","نهيں","not","no");
+
         Map<String,List<String>> frozen=new HashMap<>();
         for(Map.Entry<String,LinkedHashSet<String>> e:map.entrySet())
             frozen.put(e.getKey(),Collections.unmodifiableList(new ArrayList<>(e.getValue())));
         ALIASES=Collections.unmodifiableMap(frozen);
+        Map<String,Set<String>> frozenSurface=new HashMap<>();
+        for(Map.Entry<String,LinkedHashSet<String>> e:surface.entrySet())
+            frozenSurface.put(e.getKey(),Collections.unmodifiableSet(new LinkedHashSet<>(e.getValue())));
+        SURFACE_EQUIVALENTS=Collections.unmodifiableMap(frozenSurface);
     }
 
     private static String normalizeAlias(String value){
@@ -58,6 +91,18 @@ public final class MeaningSearch {
         for(String value:normalized){
             LinkedHashSet<String> alternatives=map.computeIfAbsent(value,k->new LinkedHashSet<>());
             for(String other:normalized)if(!other.equals(value))alternatives.add(other);
+        }
+    }
+
+    private static void surfaceGroup(Map<String,LinkedHashSet<String>> map,String... raw){
+        LinkedHashSet<String> normalized=new LinkedHashSet<>();
+        for(String value:raw){
+            String n=normalizeAlias(value);
+            if(!n.isEmpty())normalized.add(n);
+        }
+        for(String value:normalized){
+            LinkedHashSet<String> equivalents=map.computeIfAbsent(value,k->new LinkedHashSet<>());
+            equivalents.addAll(normalized);
         }
     }
 
@@ -85,13 +130,15 @@ public final class MeaningSearch {
         return found==null?Collections.emptyList():found;
     }
 
-    /** True only when a documented concept alias bridges a query term absent verbatim. */
+    /** True only for a semantic alias; script/transliteration variants stay text evidence. */
     public static boolean usesConceptBridge(List<String> query,List<String> document){
         if(query==null||document==null||query.isEmpty()||document.isEmpty())return false;
         Set<String> words=new HashSet<>(document);
         for(String term:query){
             if(term==null||term.isEmpty()||words.contains(term))continue;
-            for(String alternative:alternatives(term))if(words.contains(alternative))return true;
+            Set<String> surface=SURFACE_EQUIVALENTS.getOrDefault(term,Collections.emptySet());
+            for(String alternative:alternatives(term))
+                if(words.contains(alternative)&&!surface.contains(alternative))return true;
         }
         return false;
     }
