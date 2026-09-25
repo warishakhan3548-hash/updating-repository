@@ -135,6 +135,63 @@ def main():
         assert not hdb.execute('PRAGMA foreign_key_check').fetchall()
         for arabic, expected in hdb.execute('SELECT arabic,source_sha256 FROM hadith'):
             assert hashlib.sha256(arabic.encode()).hexdigest() == expected
+
+        # The translated HadeethEnc lane is source-separated from the core-nine Arabic corpus.
+        # Never claim it is installed unless all archived official workbooks and local indexes agree.
+        he_source = ROOT / 'source-vault/hadith/hadeethenc/current'
+        he_manifest_path = he_source / 'manifest.json'
+        if he_manifest_path.exists():
+            he_source_manifest = json.loads(he_manifest_path.read_text())
+            assert he_source_manifest['provider'] == 'HadeethEnc.com'
+            assert he_source_manifest['runtime_network_required'] is False
+            he_languages = {item['language']: item for item in he_source_manifest['languages']}
+            assert set(he_languages) == {'ar', 'en', 'ur', 'hi'}
+            for code, meta in he_languages.items():
+                raw = he_source / f'{code}.xlsx'
+                assert raw.is_file(), f'Missing archived HadeethEnc {code} workbook'
+                assert raw.stat().st_size == int(meta['bytes'])
+                assert hashlib.sha256(raw.read_bytes()).hexdigest() == meta['sha256']
+
+            assert hdb.execute("SELECT count(*) FROM collection WHERE id='hadeethenc'").fetchone()[0] == 1
+            assert {'ar', 'en', 'ur', 'hi'} <= set(hmanifest.get('language_coverage', []))
+            he_records = hdb.execute("SELECT count(*) FROM hadith WHERE collection_id='hadeethenc'").fetchone()[0]
+            assert he_records > 0
+            for code in ('en', 'ur', 'hi'):
+                translated = hdb.execute(
+                    "SELECT count(DISTINCT t.hadith_id) FROM editorial_translation t "
+                    "JOIN hadith h ON h.id=t.hadith_id "
+                    "WHERE h.collection_id='hadeethenc' AND t.language=? "
+                    "AND t.status IN ('reviewed','released')", (code,)
+                ).fetchone()[0]
+                assert translated > 0, f'No installed HadeethEnc {code} translations'
+                assert translated == int(hmanifest['imported_translation_record_counts'][code])
+                bad_source = hdb.execute(
+                    "SELECT count(*) FROM editorial_translation t JOIN hadith h ON h.id=t.hadith_id "
+                    "WHERE h.collection_id='hadeethenc' AND t.language=? "
+                    "AND t.source_ref NOT LIKE 'HadeethEnc.com%'", (code,)
+                ).fetchone()[0]
+                assert bad_source == 0, f'HadeethEnc {code} attribution drift'
+
+                # Prove a real translated token participates in the local inverted index.
+                sample = hdb.execute(
+                    "SELECT h.rowid,t.text FROM editorial_translation t JOIN hadith h ON h.id=t.hadith_id "
+                    "WHERE h.collection_id='hadeethenc' AND t.language=? "
+                    "AND t.status IN ('reviewed','released') ORDER BY h.rowid LIMIT 1", (code,)
+                ).fetchone()
+                assert sample is not None
+                tokens = [token for token in re.sub(r'[^\\w\\u0600-\\u06ff\\u0900-\\u097f]+', ' ', sample[1].lower()).split()
+                          if len(token) >= 3]
+                assert tokens, f'No searchable HadeethEnc {code} token'
+                assert any(hdb.execute(
+                    "SELECT 1 FROM search_token WHERE hadith_rowid=? AND token=? LIMIT 1",
+                    (sample[0], token)
+                ).fetchone() for token in tokens[:12]), f'HadeethEnc {code} translation missing from search index'
+
+            # No guessed cross-edition attachment: core-nine records keep their own source identity.
+            assert hdb.execute(
+                "SELECT count(*) FROM hadith WHERE collection_id<>'hadeethenc' "
+                "AND source_ref LIKE 'HadeethEnc.com%'"
+            ).fetchone()[0] == 0
         hdb.close()
     android = '{http://schemas.android.com/apk/res/android}'
     android_manifest = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml').getroot()
