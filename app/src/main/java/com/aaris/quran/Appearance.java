@@ -112,9 +112,15 @@ final class Appearance {
         background=bg;surface=card;buttonColor=card;accent=highlight;arabic=arabicInk;translation=translationInk;gradientEnd=end;
     }
     int buttonSurface(){return customButtons?mix(background,buttonColor,opacity/100f):effectiveSurface();}
+    int effectiveCardOpacity(){
+        if(!autoBalance||!gradient)return opacity;
+        double spread=contrast(background,gradientEnd);
+        int floor=spread>=4.0?62:spread>=2.5?48:25;
+        return Math.max(opacity,floor);
+    }
     int effectiveBorderStrength(){
         if(!autoBalance||!glass)return borderStrength;
-        int transparency=100-opacity;
+        int transparency=100-effectiveCardOpacity();
         return Math.max(borderStrength,bound(28+(transparency/2),28,68));
     }
     int effectiveShadowStrength(){
@@ -144,7 +150,7 @@ final class Appearance {
     int foilInk(float amount){return readableAcross(mix(arabicInk(),accent,amount),effectiveSurface(),surfaceHighlight(),effectiveSurfaceAtGradientEnd());}
     int effectiveSurface(){return effectiveSurfaceOn(background);}
     int effectiveSurfaceAtGradientEnd(){return gradient?effectiveSurfaceOn(gradientEnd):effectiveSurface();}
-    private int effectiveSurfaceOn(int backdrop){return mix(backdrop,surface,opacity/100f);}
+    private int effectiveSurfaceOn(int backdrop){return mix(backdrop,surface,effectiveCardOpacity()/100f);}
     int surfaceHighlight(){return glass&&!reducedEffects?mix(effectiveSurface(),accent,.06f*glassStrength/100f):effectiveSurface();}
     int arabicInk(){return textInk(arabic,arabicOpacity);}
     int translationInk(){return textInk(translation,translationOpacity);}
