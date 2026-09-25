@@ -262,6 +262,7 @@ def main():
     assert 'private void updateHighContrast(boolean enabled)' in main_activity_text and 'contrast.setOnCheckedChangeListener((b,v)->updateHighContrast(v));' in main_activity_text, 'High-contrast setting must use the live surface refresh path'
     assert 'highContrast=enabled;learning.set("contrast",""+enabled);\n        show();settings();' in main_activity_text, 'High-contrast changes must rebuild both the underlying screen and the open settings sheet immediately'
     assert 'hadithBrowseWorker=worker("hadith-browse")' in quran_app_text, 'Missing dedicated Hadith browse worker'
+    assert 'recitationStatusWorker=worker("recitation-status")' in quran_app_text, 'Recitation download status scans need a dedicated background worker'
     def java_method(name):
         marker = f'    private void {name}('
         start = main_activity_text.index(marker)
@@ -269,6 +270,16 @@ def main():
         return main_activity_text[start:] if end < 0 else main_activity_text[start:end]
     for method in ('hadithCollection', 'hadithBook', 'hadithRecordsPage', 'hadithRecord'):
         assert 'hadithBrowseWorker.submit' in java_method(method), f'{method} must load Hadith data off the UI thread'
+    recitation_status = java_method('fillRecitationSurahDownloads')
+    recitation_rows = java_method('appendRecitationSurahDownloads')
+    assert 'recitationStatusWorker.execute' in recitation_status, 'Recitation Surah status discovery must run off the Android UI thread'
+    assert 'markedComplete(' in recitation_status, 'Background recitation status discovery must use the existing verified completion marker'
+    assert 'markedComplete(' not in recitation_rows, 'Rendering the 114-Surah download list must not perform filesystem status reads on the UI thread'
+    assert '!list.isAttachedToWindow()' in recitation_rows, 'Detached recitation sheets must stop incremental row rendering'
+    reader_method = java_method('reader')
+    assert 'boolean hasPrevious=readerStart>1||readerSurah>1,hasNext=readerStart+8<=s.count||readerSurah<114;' in reader_method, 'Reader pager must model Quran boundaries explicitly'
+    assert 'previous.setEnabled(hasPrevious)' in reader_method and 'next.setEnabled(hasNext)' in reader_method, 'Reader boundary controls must not remain tappable no-ops'
+    assert '"Start of Quran"' in reader_method and '"End of Quran"' in reader_method, 'Reader boundary controls need explicit user feedback'
     assert 'metadata==null?store.translation' not in main_activity_text, 'Search cards must not query Hadith translation on the UI thread'
     assert 'metadata==null?store.grades' not in main_activity_text, 'Search cards must not query Hadith grades on the UI thread'
     assert 'hadith&&app.hadith.record(id)==null' not in main_activity_text, 'Saved Hadith shortcut validation must not query SQLite on the UI thread'
