@@ -223,6 +223,26 @@ def main():
     java_sources = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / 'app/src/main/java').rglob('*.java'))
     assert 'https://sunnah.com/' not in java_sources, 'Runtime Hadith website dependency returned'
 
+    # Appearance Studio must preserve Arabic shaping while keeping transparent surfaces readable.
+    appearance_text = (ROOT / 'app/src/main/java/com/aaris/quran/Appearance.java').read_text(encoding='utf-8')
+    appearance_studio_text = (ROOT / 'app/src/main/java/com/aaris/quran/AppearanceStudio.java').read_text(encoding='utf-8')
+    arabic_text = (ROOT / 'app/src/main/java/com/aaris/quran/ArabicText.java').read_text(encoding='utf-8')
+    glass_text = (ROOT / 'app/src/main/java/com/aaris/quran/Glass.java').read_text(encoding='utf-8')
+    quran_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranText.java').read_text(encoding='utf-8')
+    assert '.put("version",9)' in appearance_text, 'Appearance persistence schema was not upgraded safely'
+    assert 'effectiveCardOpacity()' in appearance_text and 'effectiveSurfaceAtGradientEnd()' in appearance_text and 'surfaceHighlightAtGradientEnd()' in appearance_text
+    assert 'TEXT_PLAIN=0,TEXT_SOFT=1,TEXT_GLASS=2,TEXT_FOIL=3' in appearance_text
+    assert 'shadowAngle' in appearance_text and 'shadowDistance' in appearance_text and 'gradientAngle' in appearance_text
+    assert 'style.readabilitySummary()' in appearance_studio_text and 'Smart balance' in appearance_studio_text
+    assert 'Shadow angle' in appearance_studio_text and 'Gradient angle' in appearance_studio_text
+    assert 'style.textFinish!=Appearance.TEXT_PLAIN' in arabic_text and 'Appearance.TEXT_FOIL' in arabic_text
+    assert 'cachedGradientSurface!=style.effectiveSurfaceAtGradientEnd()' in arabic_text
+    assert 'shadowDistance=0' in appearance_text, 'Legacy saved themes must keep the previous zero-distance shadow default'
+    assert 'wordHighlighted||getSelectionStart()!=getSelectionEnd()' in arabic_text, 'Selected Quran text must bypass decorative shaders'
+    assert 'appearance.effectiveCardOpacity()' in glass_text and 'appearance.effectiveBorderStrength()' in glass_text
+    assert 'cachedGradientAngle!=appearance.gradientAngle' in glass_text
+    assert 'setLetterSpacing(' not in quran_text and 'setLetterSpacing(' not in arabic_text, 'Do not alter Quran Arabic tracking/shaping'
+
     # Large Hadith-pack browsing must never regress to synchronous SQLite reads on the Android UI thread.
     main_activity_text = (ROOT / 'app/src/main/java/com/aaris/quran/MainActivity.java').read_text(encoding='utf-8')
     quran_app_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranApp.java').read_text(encoding='utf-8')

@@ -24,18 +24,22 @@ final class Glass {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         boolean highContrast;
         private final boolean preview;
-        private Shader ambient,backgroundGradient;private int cachedAccent,cachedBackground,cachedEnd,cachedScene,cachedStrength;
+        private Shader ambient,backgroundGradient;private int cachedAccent,cachedBackground,cachedEnd,cachedScene,cachedStrength,cachedGradientAngle;
         Backdrop(Context c){this(c,false);}
         Backdrop(Context c,boolean preview){super(c);this.preview=preview;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
         @Override protected void onSizeChanged(int w,int h,int oldW,int oldH){
             super.onSizeChanged(w,h,oldW,oldH);
-            cachedAccent=appearance.accent;cachedBackground=appearance.background;cachedEnd=appearance.gradientEnd;cachedScene=appearance.scene;cachedStrength=appearance.sceneStrength;
-            if(w>0&&h>0)backgroundGradient=new LinearGradient(0,0,w,h,new int[]{cachedBackground,cachedEnd},null,Shader.TileMode.CLAMP);
+            cachedAccent=appearance.accent;cachedBackground=appearance.background;cachedEnd=appearance.gradientEnd;cachedScene=appearance.scene;cachedStrength=appearance.sceneStrength;cachedGradientAngle=appearance.gradientAngle;
+            if(w>0&&h>0){
+                double radians=Math.toRadians(cachedGradientAngle);float dx=(float)Math.cos(radians),dy=(float)Math.sin(radians);
+                float cx=w/2f,cy=h/2f,half=(Math.abs(dx)*w+Math.abs(dy)*h)/2f;
+                backgroundGradient=new LinearGradient(cx-dx*half,cy-dy*half,cx+dx*half,cy+dy*half,new int[]{cachedBackground,cachedEnd},null,Shader.TileMode.CLAMP);
+            }
             if(w>0&&h>0)ambient=new RadialGradient(w*.55f,h*.26f,Math.max(w,h)*.65f,
                 new int[]{(appearance.accent&0xffffff)|0x14000000,appearance.accent&0xffffff},null,Shader.TileMode.CLAMP);
         }
         @Override protected void onDraw(Canvas canvas){
-            if(cachedAccent!=appearance.accent||cachedBackground!=appearance.background||cachedEnd!=appearance.gradientEnd||cachedScene!=appearance.scene||cachedStrength!=appearance.sceneStrength)onSizeChanged(getWidth(),getHeight(),getWidth(),getHeight());
+            if(cachedAccent!=appearance.accent||cachedBackground!=appearance.background||cachedEnd!=appearance.gradientEnd||cachedScene!=appearance.scene||cachedStrength!=appearance.sceneStrength||cachedGradientAngle!=appearance.gradientAngle)onSizeChanged(getWidth(),getHeight(),getWidth(),getHeight());
             canvas.drawColor(BACKGROUND);
             if(!highContrast&&!appearance.reducedEffects&&appearance.gradient&&backgroundGradient!=null){paint.setShader(backgroundGradient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
             if(!highContrast&&!appearance.reducedEffects&&ambient!=null){paint.setShader(ambient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
@@ -246,12 +250,16 @@ final class Glass {
         @Override protected void onBoundsChange(Rect b){
             super.onBoundsChange(b);outer.set(b.left+stroke,b.top+stroke,b.right-stroke,b.bottom-stroke);
             inner.set(outer);inner.inset(inset,inset);if(outer.isEmpty())return;
-            int base=(kind==Kind.BUTTON||kind==Kind.PRIMARY)?appearance.buttonSurface():appearance.effectiveSurface();
+            boolean button=kind==Kind.BUTTON||kind==Kind.PRIMARY;
+            int base=button?appearance.buttonSurface():(solid?appearance.effectiveSurface():appearance.surface);
             if(kind==Kind.PRIMARY)base=Appearance.mix(base,appearance.accent,.15f);
-            int[] colors=appearance.glass&&!appearance.reducedEffects&&!solid?new int[]{Appearance.mix(base,appearance.accent,.06f*appearance.glassStrength/100f),base}:new int[]{base,base};
+            int highlight=appearance.glass&&!appearance.reducedEffects&&!solid?Appearance.mix(base,appearance.accent,.06f*appearance.glassStrength/100f):base;
+            int cardAlpha=!solid&&!button?Math.round(255*appearance.effectiveCardOpacity()/100f):255;
+            int[] colors=new int[]{(highlight&0xffffff)|(cardAlpha<<24),(base&0xffffff)|(cardAlpha<<24)};
             fill=new LinearGradient(outer.left,outer.top,outer.right,outer.bottom,colors,null,Shader.TileMode.CLAMP);
+            int border=appearance.effectiveBorderStrength();
             rim=new LinearGradient(outer.left,outer.top,outer.right,outer.bottom,
-                new int[]{(appearance.accent&0xffffff)|((112*appearance.borderStrength/100)<<24),(appearance.accent&0xffffff)|((23*appearance.borderStrength/100)<<24)},null,Shader.TileMode.CLAMP);
+                new int[]{(appearance.accent&0xffffff)|((112*border/100)<<24),(appearance.accent&0xffffff)|((23*border/100)<<24)},null,Shader.TileMode.CLAMP);
         }
         @Override public void draw(Canvas canvas){
             if(fill==null||outer.isEmpty())return;
@@ -265,8 +273,9 @@ final class Glass {
             canvas.drawRoundRect(outer,radius,radius,p);
             p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(stroke);p.setShader(rim);p.setAlpha(opacity);
             canvas.drawRoundRect(outer,radius,radius,p);p.setShader(null);
-            if(!solid&&!appearance.reducedEffects&&appearance.borderStrength>0&&(kind==Kind.MUSHAF||kind==Kind.HERO)){
-                p.setColor(0xFF8EA18F);p.setAlpha(18*opacity*appearance.borderStrength/255/100);p.setStrokeWidth(stroke*.6f);
+            int border=appearance.effectiveBorderStrength();
+            if(!solid&&!appearance.reducedEffects&&border>0&&(kind==Kind.MUSHAF||kind==Kind.HERO)){
+                p.setColor(0xFF8EA18F);p.setAlpha(18*opacity*border/255/100);p.setStrokeWidth(stroke*.6f);
                 canvas.drawRoundRect(inner,Math.max(0,radius-inset),Math.max(0,radius-inset),p);
             }
         }

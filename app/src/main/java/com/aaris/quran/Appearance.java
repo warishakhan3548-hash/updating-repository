@@ -10,6 +10,8 @@ import java.util.Map;
 
 /** One persisted visual model for the reader, sheets, navigation and recall surfaces. */
 final class Appearance {
+    static final int TEXT_PLAIN=0,TEXT_SOFT=1,TEXT_GLASS=2,TEXT_FOIL=3;
+    static final String[] TEXT_FINISHES={"Plain","Soft","Glass","Foil"};
     static final String[] PRESETS={"Moonlit Emerald","Light Parchment","Rose Dusk","Ivory Mint","Moonlit Sapphire"};
     static final String[] FONTS={"Amiri Quran","Amiri Naskh","Amiri Naskh Bold","Scheherazade New","Lateef","Harmattan","Noto Naskh Arabic","Noto Kufi Arabic"};
     private static final String[] FONT_FILES={"AmiriQuran.ttf","Amiri-Regular.ttf","Amiri-Bold.ttf","ScheherazadeNew-Regular.ttf","Lateef-Regular.ttf","Harmattan-Regular.ttf","NotoNaskhArabic.ttf","NotoKufiArabic.ttf"};
@@ -17,8 +19,9 @@ final class Appearance {
     int font=0,arabicSize=36,translationSize=18,spacing=11,opacity=86,corners=30;
     int arabicOpacity=100,translationOpacity=100,glassStrength=90,borderStrength=68,glow=2,gradientEnd=0xff073c34;
     int textDepth=1,shadowSoftness=6,shadowStrength=14,textSheen=34,buttonColor=0xff103a32;
+    int textFinish=TEXT_GLASS,shadowAngle=45,shadowDistance=0,shadowColor=0xff000000,gradientAngle=45;
     int scene=2,sceneStrength=100;
-    boolean customButtons=true;
+    boolean customButtons=true,autoShadowColor=true,autoBalance=true;
     boolean glass=true,textGlass=true,gradient=true,reducedEffects=false;
     String name=PRESETS[0];
     private static final Map<Integer,Typeface> fonts=new HashMap<>();
@@ -34,17 +37,23 @@ final class Appearance {
             a.textDepth=bound(j.optInt("textDepth",a.textDepth),0,12);a.shadowSoftness=bound(j.optInt("shadowSoftness",a.shadowSoftness),0,16);
             a.scene=bound(j.optInt("scene",a.scene),0,5);a.sceneStrength=bound(j.optInt("sceneStrength",a.sceneStrength),0,100);
             a.shadowStrength=bound(j.optInt("shadowStrength",a.shadowStrength),0,70);a.textSheen=bound(j.optInt("textSheen",a.textSheen),0,100);
+            a.textFinish=j.has("textFinish")?bound(j.optInt("textFinish",a.textFinish),TEXT_PLAIN,TEXT_FOIL):(j.optBoolean("textGlass",a.textGlass)?TEXT_GLASS:TEXT_PLAIN);
+            a.shadowAngle=bound(j.optInt("shadowAngle",a.shadowAngle),0,359);a.shadowDistance=bound(j.optInt("shadowDistance",a.shadowDistance),0,20);
+            a.shadowColor=j.optInt("shadowColor",a.shadowColor)|0xff000000;a.autoShadowColor=j.optBoolean("autoShadowColor",a.autoShadowColor);
+            a.gradientAngle=bound(j.optInt("gradientAngle",a.gradientAngle),0,359);a.autoBalance=j.optBoolean("autoBalance",a.autoBalance);
             a.buttonColor=j.optInt("buttonColor",a.buttonColor)|0xff000000;a.customButtons=j.optBoolean("customButtons",a.customButtons);
             a.gradientEnd=j.optInt("gradientEnd",a.gradientEnd)|0xff000000;a.gradient=j.optBoolean("gradient",a.gradient);a.reducedEffects=j.optBoolean("reducedEffects",a.reducedEffects);
-            a.glass=j.optBoolean("glass",a.glass);a.textGlass=j.optBoolean("textGlass",a.textGlass);a.name=j.optString("name",a.name);
+            a.glass=j.optBoolean("glass",a.glass);a.textGlass=a.textFinish==TEXT_GLASS;a.name=j.optString("name",a.name);
             a.appText=j.has("appText")?(j.optInt("appText",a.appText)|0xff000000):a.autoAppText();
         }catch(Exception ignored){}return a;
     }
-    String encode(){try{return new JSONObject().put("version",8).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation).put("appText",appText)
+    String encode(){try{return new JSONObject().put("version",9).put("background",background).put("surface",surface).put("accent",accent).put("arabic",arabic).put("translation",translation).put("appText",appText)
         .put("font",font).put("size",arabicSize).put("translationSize",translationSize).put("spacing",spacing).put("opacity",opacity).put("corners",corners)
         .put("arabicOpacity",arabicOpacity).put("translationOpacity",translationOpacity).put("glassStrength",glassStrength).put("borderStrength",borderStrength).put("glow",glow)
-        .put("textDepth",textDepth).put("shadowSoftness",shadowSoftness).put("shadowStrength",shadowStrength).put("textSheen",textSheen).put("buttonColor",buttonColor).put("customButtons",customButtons)
-        .put("gradient",gradient).put("gradientEnd",gradientEnd).put("reducedEffects",reducedEffects).put("glass",glass).put("textGlass",textGlass)
+        .put("textDepth",textDepth).put("shadowSoftness",shadowSoftness).put("shadowStrength",shadowStrength).put("textSheen",textSheen).put("textFinish",textFinish)
+        .put("shadowAngle",shadowAngle).put("shadowDistance",shadowDistance).put("shadowColor",shadowColor).put("autoShadowColor",autoShadowColor)
+        .put("gradientAngle",gradientAngle).put("autoBalance",autoBalance).put("buttonColor",buttonColor).put("customButtons",customButtons)
+        .put("gradient",gradient).put("gradientEnd",gradientEnd).put("reducedEffects",reducedEffects).put("glass",glass).put("textGlass",textFinish==TEXT_GLASS)
         .put("scene",scene).put("sceneStrength",sceneStrength).put("name",name).toString();}catch(Exception e){throw new IllegalStateException(e);}}
     void save(Context c){c.getSharedPreferences("appearance",0).edit().putString("current",encode()).apply();}
     Appearance copy(){return decode(encode());}
@@ -53,6 +62,7 @@ final class Appearance {
         font=0;arabicSize=36;translationSize=18;spacing=11;opacity=92;corners=28;
         arabicOpacity=100;translationOpacity=100;glassStrength=86;borderStrength=72;glow=0;
         textDepth=1;shadowSoftness=6;shadowStrength=10;textSheen=30;customButtons=true;
+        textFinish=TEXT_GLASS;shadowAngle=45;shadowDistance=0;shadowColor=0xff000000;autoShadowColor=true;gradientAngle=45;autoBalance=true;
         reducedEffects=false;sceneStrength=100;
         switch(i){
             case 0: // Moonlit Emerald: deep green night, ivory Quran ink and warm lantern gold.
@@ -95,35 +105,85 @@ final class Appearance {
                 textDepth=1;shadowStrength=16;shadowSoftness=7;corners=30;
                 break;
         }
+        textFinish=textGlass?TEXT_GLASS:TEXT_PLAIN;
         name=PRESETS[i];
     }
     private void palette(int bg,int card,int highlight,int arabicInk,int translationInk,int end){
         background=bg;surface=card;buttonColor=card;accent=highlight;arabic=arabicInk;translation=translationInk;gradientEnd=end;
     }
     int buttonSurface(){return customButtons?mix(background,buttonColor,opacity/100f):effectiveSurface();}
+    int effectiveCardOpacity(){
+        if(!autoBalance||!gradient)return opacity;
+        double spread=contrast(background,gradientEnd);
+        int floor=spread>=4.0?62:spread>=2.5?48:25;
+        return Math.max(opacity,floor);
+    }
+    int effectiveBorderStrength(){
+        if(!autoBalance||!glass)return borderStrength;
+        int transparency=100-effectiveCardOpacity();
+        return Math.max(borderStrength,bound(28+(transparency/2),28,68));
+    }
+    int effectiveShadowStrength(){
+        if(!autoBalance)return shadowStrength;
+        int cap=textFinish==TEXT_PLAIN?28:textFinish==TEXT_SOFT?36:52;
+        return Math.min(shadowStrength,cap);
+    }
+    int effectiveShadowSoftness(){return autoBalance?Math.min(shadowSoftness,12):shadowSoftness;}
+    int resolvedShadowColor(){
+        if(!autoShadowColor)return shadowColor;
+        int base=effectiveSurface();
+        return luminance(base)>.46?0xff000000:mix(0xff000000,accent,.12f);
+    }
+    float shadowDx(float density){return (float)(Math.cos(Math.toRadians(shadowAngle))*shadowDistance*density);}
+    float shadowDy(float density){return (float)(Math.sin(Math.toRadians(shadowAngle))*shadowDistance*density);}
+    void autoBalanceEffects(){
+        if(glass)borderStrength=Math.max(borderStrength,bound(28+(100-opacity)/2,28,68));
+        shadowStrength=bound(shadowStrength,0,textFinish==TEXT_PLAIN?28:52);shadowSoftness=bound(shadowSoftness,0,12);
+        if(shadowStrength>0&&shadowDistance==0)shadowDistance=1;
+        if(textFinish==TEXT_FOIL)textSheen=Math.max(textSheen,48);
+        if(textFinish==TEXT_SOFT)textSheen=bound(textSheen,12,55);
+    }
     int buttonInk(){
         int base=buttonSurface(),primary=mix(base,accent,.15f),highlight=mix(primary,accent,.06f*glassStrength/100f);
         return readableAcross(appText,base,highlight);
     }
     int glassInk(float amount){return textInk(mix(arabicInk(),Color.WHITE,amount),100);}
-    int effectiveSurface(){return mix(background,surface,opacity/100f);}
-    int surfaceHighlight(){return glass&&!reducedEffects?mix(effectiveSurface(),accent,.06f*glassStrength/100f):effectiveSurface();}
+    int foilInk(float amount){return readableAcross(mix(arabicInk(),accent,amount),effectiveSurface(),surfaceHighlight(),effectiveSurfaceAtGradientEnd(),surfaceHighlightAtGradientEnd());}
+    int effectiveSurface(){return effectiveSurfaceOn(background);}
+    int effectiveSurfaceAtGradientEnd(){return gradient?effectiveSurfaceOn(gradientEnd):effectiveSurface();}
+    private int effectiveSurfaceOn(int backdrop){return mix(backdrop,surface,effectiveCardOpacity()/100f);}
+    int surfaceHighlight(){return surfaceHighlightOn(background);}
+    int surfaceHighlightAtGradientEnd(){return gradient?surfaceHighlightOn(gradientEnd):surfaceHighlight();}
+    private int surfaceHighlightOn(int backdrop){
+        if(!glass||reducedEffects)return effectiveSurfaceOn(backdrop);
+        int tinted=Appearance.mix(surface,accent,.06f*glassStrength/100f);
+        return mix(backdrop,tinted,effectiveCardOpacity()/100f);
+    }
     int arabicInk(){return textInk(arabic,arabicOpacity);}
     int translationInk(){return textInk(translation,translationOpacity);}
     private int textInk(int color,int alpha){
-        int on=effectiveSurface(),end=surfaceHighlight(),requested=mix(on,color,alpha/100f);
-        if(contrast(requested,on)>=4.5&&contrast(requested,end)>=4.5)return requested;
-        int target=Math.min(contrast(Color.WHITE,on),contrast(Color.WHITE,end))>Math.min(contrast(Color.BLACK,on),contrast(Color.BLACK,end))?Color.WHITE:Color.BLACK;
-        for(int n=1;n<=40;n++){int fixed=mix(requested,target,n/40f);if(contrast(fixed,on)>=4.5&&contrast(fixed,end)>=4.5)return fixed;}return target;
+        int on=effectiveSurface(),end=surfaceHighlight(),gradientSurface=effectiveSurfaceAtGradientEnd(),gradientHighlight=surfaceHighlightAtGradientEnd(),requested=mix(on,color,alpha/100f);
+        if(contrast(requested,on)>=4.5&&contrast(requested,end)>=4.5&&contrast(requested,gradientSurface)>=4.5&&contrast(requested,gradientHighlight)>=4.5)return requested;
+        double white=Math.min(Math.min(contrast(Color.WHITE,on),contrast(Color.WHITE,end)),Math.min(contrast(Color.WHITE,gradientSurface),contrast(Color.WHITE,gradientHighlight)));
+        double black=Math.min(Math.min(contrast(Color.BLACK,on),contrast(Color.BLACK,end)),Math.min(contrast(Color.BLACK,gradientSurface),contrast(Color.BLACK,gradientHighlight)));
+        int target=white>black?Color.WHITE:Color.BLACK;
+        for(int n=1;n<=40;n++){int fixed=mix(requested,target,n/40f);if(contrast(fixed,on)>=4.5&&contrast(fixed,end)>=4.5&&contrast(fixed,gradientSurface)>=4.5&&contrast(fixed,gradientHighlight)>=4.5)return fixed;}return target;
     }
     boolean adjustedText(){return arabicInk()!=mix(effectiveSurface(),arabic,arabicOpacity/100f)||translationInk()!=mix(effectiveSurface(),translation,translationOpacity/100f)||appInk()!=appText;}
+    String readabilitySummary(){
+        double arabicScore=minContrast(arabicInk()),translationScore=minContrast(translationInk()),uiScore=uiMinContrast(appInk());
+        return "Arabic "+grade(arabicScore)+" · Translation "+grade(translationScore)+" · UI "+grade(uiScore)+(adjustedText()?" · Auto-adjusted":"");
+    }
+    private double minContrast(int ink){return Math.min(Math.min(contrast(ink,effectiveSurface()),contrast(ink,surfaceHighlight())),Math.min(contrast(ink,effectiveSurfaceAtGradientEnd()),contrast(ink,surfaceHighlightAtGradientEnd())));}
+    private double uiMinContrast(int ink){return Math.min(minContrast(ink),Math.min(contrast(ink,background),contrast(ink,gradient?gradientEnd:background)));}
+    private static String grade(double ratio){return ratio>=7.0?"AAA":ratio>=4.5?"AA":"Protected";}
     private int autoAppText(){
         int on=effectiveSurface();
         return luminance(on)>.38?0xff16202a:0xffedf1ed;
     }
-    int appInk(){return readableAcross(appText,background,effectiveSurface(),surfaceHighlight());}
+    int appInk(){return readableAcross(appText,background,gradient?gradientEnd:background,effectiveSurface(),effectiveSurfaceAtGradientEnd(),surfaceHighlight(),surfaceHighlightAtGradientEnd());}
     int ink(){return appInk();}
-    int muted(){return readableAcross(mix(appInk(),effectiveSurface(),.30f),background,effectiveSurface(),surfaceHighlight());}
+    int muted(){return readableAcross(mix(appInk(),effectiveSurface(),.30f),background,gradient?gradientEnd:background,effectiveSurface(),effectiveSurfaceAtGradientEnd(),surfaceHighlight(),surfaceHighlightAtGradientEnd());}
     static int bound(int x,int lo,int hi){return Math.max(lo,Math.min(hi,x));}
     static int mix(int a,int b,float t){return Color.rgb(Math.round(Color.red(a)*(1-t)+Color.red(b)*t),Math.round(Color.green(a)*(1-t)+Color.green(b)*t),Math.round(Color.blue(a)*(1-t)+Color.blue(b)*t));}
     static double luminance(int c){double v=0;double[] weights={.2126,.7152,.0722};int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};for(int i=0;i<3;i++){double x=rgb[i]/255.;v+=weights[i]*(x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4));}return v;}
