@@ -1,0 +1,45 @@
+name: Verify offline trusted translations
+
+on:
+  push:
+    branches:
+      - upgrade/offline-trusted-translations-20260925
+    paths:
+      - '.github/workflows/verify-offline-translations.yml'
+      - 'tools/**'
+      - 'source-vault/translations/**'
+      - 'source-vault/hadith/hadeethenc/**'
+      - 'source-vault/hadith/open-hadith-data/**'
+      - 'app/build.gradle'
+      - 'app/src/main/java/com/aaris/quran/HadithStore.java'
+      - 'app/src/main/java/com/aaris/quran/TranslationStore.java'
+  workflow_dispatch:
+
+concurrency:
+  group: offline-translations-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Rebuild all local evidence from checked-in sources
+        run: |
+          set -euo pipefail
+          python3 tools/build_content.py
+          python3 tools/prepare_open_hadith_data.py
+          python3 tools/build_hadith.py --source build/generated/hadith-source
+      - name: Run offline integrity and search regressions
+        run: |
+          set -euo pipefail
+          python3 tools/check.py
+          python3 tools/check_hadith.py

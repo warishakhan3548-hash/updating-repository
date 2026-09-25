@@ -6,6 +6,7 @@ from the pinned `risan/quran-json` mirror revision recorded in `manifest.json`:
 - Hindi: Azizul Haq Al-Omari, 1.1.5.
 - Urdu: Muhammad Junagarhi, 1.1.3.
 - English: Rowwad Translation Center, 1.0.19.
+- English: Noor International Center / Saheeh, 1.1.2.
 
 `catalogue.json` retains the publisher's title, description, edition key and version.
 All 6,236 coordinates, text and footnotes per selected edition are retained. The
@@ -13,7 +14,7 @@ Arabic corpus is independent and is not replaced by the Arabic from a translatio
 provider. Neither word-gloss concatenation nor machine translation is used as a
 scholar's complete ayah translation.
 
-The publisher's [terms](https://quranenc.com/en/home/api), checked 2026-09-23,
+The publisher's [terms](https://quranenc.com/en/home/api), checked 2026-09-25,
 permit republication subject to unchanged content, publisher/source credit,
 version identification, preservation of transcript information, reporting notes
 to the source, keeping editions updated and excluding inappropriate advertising.

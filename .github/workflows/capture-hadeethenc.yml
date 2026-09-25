@@ -1,0 +1,37 @@
+name: Capture HadeethEnc source snapshots
+
+on:
+  push:
+    branches:
+      - upgrade/offline-trusted-translations-20260925
+    paths:
+      - .github/workflows/capture-hadeethenc.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - name: Capture official current HadeethEnc workbooks
+        run: python3 tools/acquire_hadeethenc.py
+      - name: Commit immutable source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add source-vault/hadith/hadeethenc/current
+          if git diff --cached --quiet; then
+            echo "No HadeethEnc source changes."
+            exit 0
+          fi
+          git commit -m "Archive current official HadeethEnc translations"
+          git push origin "HEAD:${{ github.ref_name }}"

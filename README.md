@@ -39,20 +39,26 @@ reading anchors, source word meanings, opt-in word/phrase/ayah and consecutive-a
 recall, Quran lexical/fragment search and evidence export. Mixed remembered quotations show
 separate cited excerpts, ambiguous alternatives and unmatched words; they never become a new
 source quote. The Yaad tab provides an opt-in timed overlay over other apps; Android
-permission is required. The Hadith tab is now local-only: it never opens Sunnah.com. A verified
+permission is required. The Hadith tab is local-only: it never opens Sunnah.com. A verified
 explicit Hadith pack under `source-vault/hadith/active` has priority; otherwise the build derives
-the checked-in, hash-locked Open-Hadith-Data core-nine **vocalized Arabic** source into a local
-`hadith.sqlite`. All 62,169 records include published source vowel marks. Every narration's number
-and wording are checked against the corresponding plain edition before import; identities stay
-stable. Lossless source archives live in Git, so Hadith rebuilds need no download or API key.
-That local pack supports Collection → Book → Chapter → Hadith navigation and local Arabic/
-English/reference search where those language layers exist. This is real offline core-nine coverage,
-not a claim that every collection in the wider Sunnah.com catalog is vendored.
+one immutable local evidence pack from checked-in sources. The Open-Hadith-Data core-nine contributes
+62,169 **vocalized Arabic** records whose numbering and wording are checked against its pinned plain
+edition. A separate HadeethEnc collection contributes 3,582 official Arabic records. Its hash-locked
+official workbooks contain 2,328 English, 2,220 Urdu and 2,314 Hindi translation rows; after
+cross-checking each translated row's embedded Arabic against the current official Arabic workbook,
+the installed pack safely includes 2,327 English, 2,098 Urdu and 2,252 Hindi translations.
+Rows with source-identity drift remain archived but are quarantined rather than guessed onto an
+Arabic record. HadeethEnc stays separate instead of guessing one-to-one mappings onto
+Bukhari/Muslim/etc. Normal builds use only
+these archived files: no Hadith website or API is contacted. Local phrase/token search indexes
+Arabic, Hindi, Urdu and English layers where present. This is not a claim that every collection in
+the wider Sunnah.com catalog is vendored.
 
 Today now opens the shared Appearance Studio: preset looks, independent card/button/highlight colors,
 live preview, Quran/Naskh/Bold fonts, size/spacing, text depth/shadows/glass sheen, saved styles and undo/redo.
-Complete archived Hindi, Urdu and English translations appear below ayahs, with edition
-attribution; Arabic word taps stay available. Search accepts paragraphs and ranks textual
+Complete archived Quran translations appear below ayahs with edition attribution: Hindi
+Azizul Haq Al-Omari, Urdu Muhammad Ibrahim Junagarhi, English Rowwad Translation Center and
+English Noor International/Saheeh. Arabic word taps stay available. Search accepts paragraphs and ranks textual
 overlap, typo and supported pronunciation matches. One shared search box covers Quran and all installed Hadith books, accepts multilingual
 collection + number references and vocalized/plain Arabic, and preserves separate narration IDs.
 The search runtime also recognizes bounded book-name typos in English/Hindi/Arabic/Urdu. Exact
@@ -63,8 +69,9 @@ Mishary/Al-Husary/Minshawi catalog, continuous playback and selected-reciter dow
 It is separate from the isolated-word pronunciation system below. Core builds never fetch it.
 Native resource/Java compilation and offline regressions pass; physical-device QA remains pending.
 No APK was produced. See [the fix report](docs/SEARCH_READING_FIXES_2026_09.md) and the
-[vocalized source report](docs/HADITH_VOCALIZATION_2026_09.md). Hadith translations and the wider
-Sunnah catalog remain separate unfinished content work; the installed Arabic source is Open-Hadith-Data.
+[vocalized source report](docs/HADITH_VOCALIZATION_2026_09.md). The wider Sunnah catalog remains
+separate unfinished content work; translated HadeethEnc evidence is a distinct source collection
+and never silently replaces or annotates the Open-Hadith-Data core-nine records.
 
 Quran word pronunciation uses on-demand **isolated word recordings** so the base APK stays small
 without cutting words out of one continuous recitation. The reviewed source lock pins
@@ -113,12 +120,16 @@ Word glosses: Data Quran / Hablullah team, collected from Quran.com, pinned mirr
 Those glosses are CC BY-NC-ND 4.0 and keep their original values. This bundled preview is
 non-commercial: no paid sales, subscriptions or ads. They are imported source glosses,
 not newly authored tafsir or independently reviewed Aaris meanings. Consult original sources.
+Quran translations: QuranEnc snapshots archived unchanged with source/version metadata. Installed
+editions are Hindi Omari, Urdu Junagarhi, English Rowwad and English Noor International/Saheeh.
 Font: Amiri Project, SIL OFL 1.1. All notices are available offline inside the app.
 Hadith: Open-Hadith-Data at `1515f6cba21efed20d8916bf55acef1dffa0d2d5`,
 https://github.com/mhashim6/Open-Hadith-Data — ODbL 1.0 / Database Contents License.
 Original vocalized CSVs and commentary are archived losslessly. The reader imports only the
 narration column, removing redundant whitespace and U+200F layout markers while retaining every
-Arabic letter and vowel mark. No machine-generated diacritics or translations are included.
+Arabic letter and vowel mark. HadeethEnc official snapshots are separately archived at Arabic
+v1.7.0, English v1.25.0, Urdu v1.36.0 and Hindi v1.59.0; their text is kept source-attributed and
+indexed locally. No machine-generated Hadith translation or guessed cross-edition mapping is used.
 
 ## Recovery
 

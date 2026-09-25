@@ -78,10 +78,13 @@ def vendoredHadithSource = rootProject.file('source-vault/hadith/open-hadith-dat
 def generatedHadithSource = file("$buildDir/generated/hadith-source")
 
 def prepareVendoredHadithSource = tasks.register('prepareVendoredHadithSource') {
-    inputs.file rootProject.file('tools/prepare_open_hadith_data.py')
-    inputs.file rootProject.file('tools/hadith-catalog.json')
+    inputs.files rootProject.file('tools/prepare_open_hadith_data.py'),
+        rootProject.file('tools/hadeethenc_source.py'),
+        rootProject.file('tools/hadeethenc_xlsx.py'),
+        rootProject.file('tools/hadith-catalog.json')
     inputs.files rootProject.fileTree(activeHadithSource)
     inputs.dir vendoredHadithSource
+    inputs.dir rootProject.file('source-vault/hadith/hadeethenc')
     outputs.dir generatedHadithSource
     doLast {
         if (new File(activeHadithSource, 'manifest.json').exists()) {

@@ -28,6 +28,9 @@ ALLOWED_BUILD_SCRIPTS={
     "tools/prepare_open_hadith_data.py",
     "tools/build_hadith.py",
     "tools/build_translations.py",
+    # Network-free HadeethEnc source readers used only against checked-in, hash-locked XLSX files.
+    "tools/hadeethenc_source.py",
+    "tools/hadeethenc_xlsx.py",
 }
 
 

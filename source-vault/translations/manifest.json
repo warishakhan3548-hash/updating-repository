@@ -3,16 +3,32 @@
   "mirror": "https://github.com/risan/quran-json",
   "mirror_revision": "b197d1ba6711767490c627065c01868f8eb488c7",
   "source": "https://quranenc.com",
-  "rights_checked": "2026-09-23",
+  "rights_checked": "2026-09-25",
   "editions": [
     "hindi_omari",
     "urdu_junagarhi",
-    "english_rwwad"
+    "english_rwwad",
+    "english_saheeh"
   ],
   "notice": "QuranEnc.com translations are reproduced with publisher, version, transcript information and footnotes. No content is modified. Report translation observations to QuranEnc.com; maintainers must review source updates before releases. No inappropriate advertisements. Terms: https://quranenc.com/en/home/api. Script conversion is withheld: no unreviewed derivative translation is attributed to the scholar.",
+  "source_records": {
+    "english_saheeh": {
+      "provider": "QuranEnc",
+      "title": "English Translation - Noor International Center",
+      "version": "1.1.2",
+      "browse_url": "https://quranenc.com/en/browse/english_saheeh/",
+      "upstream_url": "https://quranenc.com/downloads/sqlite/english_saheeh.zip",
+      "mirror_path": "data/quranenc/english_saheeh.json",
+      "mirror_blob_sha": "c80e9148b8069fd9ebd29049f175cca5f21bb277",
+      "sha256": "c12b5bed64837cb744e075fdd3b79f885aee1522d92468f36c38ff565bfdc439",
+      "license_status": "granted",
+      "terms_url": "https://quranenc.com/en/home/api"
+    }
+  },
   "files": {
     "catalogue.json": "74fc274893dbf2eec954eddf733c47248d4636c1a06b463b725606921d4123e4",
     "english_rwwad.json": "d5b599f24bc48b9759e9737afb1cb84aebc68070aa618e3afdf553857b1c7763",
+    "english_saheeh.json": "c12b5bed64837cb744e075fdd3b79f885aee1522d92468f36c38ff565bfdc439",
     "hindi_omari.json": "ce5463c940e83f6a8e3cefa4d49fac2e30f8aecc1e9805ab7d8daebfe25a0a1a",
     "urdu_junagarhi.json": "2741c0001abbe8a588bb70698383a7d7599af105f4e85a6013265978a2ee307d"
   }

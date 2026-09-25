@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "tools" / "hadith-catalog.json"
-BUILDER_VERSION = "6"
+BUILDER_VERSION = "7"
 
 
 def digest(path: Path) -> str:
@@ -80,15 +80,27 @@ def search_tokens(value):
 
 
 def build_search_index(db):
-    for hid,ar,en,ur,bn in db.execute('SELECT rowid,arabic,english,urdu,bangla FROM hadith'):
-        terms=search_tokens(' '.join(str(v or '') for v in (ar,en,ur,bn)))
-        db.executemany('INSERT OR IGNORE INTO search_token VALUES(?,?)', ((t,hid) for t in sorted(terms)))
-    for hid,text in db.execute("SELECT h.rowid,t.text FROM editorial_translation t JOIN hadith h ON h.id=t.hadith_id WHERE status IN ('reviewed','released')"):
-        db.executemany('INSERT OR IGNORE INTO search_token VALUES(?,?)', ((t,hid) for t in sorted(search_tokens(text))))
+    editorial = {}
+    for hadith_id,text in db.execute(
+            "SELECT hadith_id,text FROM editorial_translation WHERE status IN ('reviewed','released') ORDER BY hadith_id,rowid"):
+        editorial.setdefault(hadith_id, []).append(text)
+
+    # Keep the phrase lane multilingual too. FTS is built from immutable source/display strings;
+    # it never rewrites a translation or calls a runtime service.
+    for rowid,hadith_id,collection_id,record_number,ar,en,ur,bn in db.execute(
+            'SELECT rowid,id,collection_id,record_number,arabic,english,urdu,bangla FROM hadith'):
+        translated = ' '.join(str(v or '') for v in (en,ur,bn))
+        extra = ' '.join(editorial.get(hadith_id, ()))
+        db.execute(
+            'INSERT INTO hadith_fts(hadith_id,collection_id,record_number,arabic,latin) VALUES(?,?,?,?,?)',
+            (hadith_id, collection_id, record_number, search_text(ar), search_text((translated+' '+extra).strip()))
+        )
+        terms=search_tokens(' '.join(str(v or '') for v in (ar,en,ur,bn))+' '+extra)
+        db.executemany('INSERT OR IGNORE INTO search_token VALUES(?,?)', ((t,rowid) for t in sorted(terms)))
     db.execute('INSERT INTO search_vocabulary SELECT token,count(*) FROM search_token GROUP BY token')
     for (token,) in db.execute('SELECT token FROM search_vocabulary ORDER BY token'):
-        value='^'+token+'$'
-        grams=sorted({value[i:i+3] for i in range(max(0,len(value)-2))})
+        value = "^" + token + chr(36)
+        grams = sorted({value[i:i+3] for i in range(max(0, len(value)-2))})
         db.executemany('INSERT OR IGNORE INTO search_gram VALUES(?,?)', ((g,token) for g in grams))
 
 
@@ -333,16 +345,6 @@ def insert_hadith(db, row, seen):
         normalize_arabic(arabic),
         normalize_latin(english),
     ))
-    db.execute(
-        "INSERT INTO hadith_fts(hadith_id,collection_id,record_number,arabic,latin) VALUES(?,?,?,?,?)",
-        (
-            hid,
-            require_string(row, "collection_id"),
-            require_string(row, "record_number"),
-            search_text(arabic),
-            search_text(english),
-        ),
-    )
     for ref in row.get("references", []):
         db.execute(
             "INSERT INTO hadith_reference(hadith_id,scheme,value) VALUES(?,?,?)",
@@ -475,18 +477,48 @@ def build(source_dir: Path, output: Path):
     try:
         counters = import_jsonl(db, source_dir, manifest)
         build_search_index(db)
-        # Report actual layer coverage instead of treating a manifest language as complete.
+        # Report actual per-record language coverage, combining imported source columns and
+        # reviewed/released editorial source layers without double-counting the same Hadith id.
         coverage = {"ar": counters["hadith"]}
-        for language, column in (("en", "english"), ("ur", "urdu"), ("bn", "bangla")):
-            coverage[language] = db.execute(
-                f"SELECT count(*) FROM hadith WHERE {column} IS NOT NULL AND trim({column})<>''"
-            ).fetchone()[0]
+        source_columns = {"en": "english", "ur": "urdu", "bn": "bangla"}
+        editorial_languages = {
+            row[0] for row in db.execute(
+                "SELECT DISTINCT language FROM editorial_translation WHERE status IN ('reviewed','released')")
+        }
+        for language in sorted(set(source_columns) | editorial_languages):
+            column = source_columns.get(language)
+            if column:
+                coverage[language] = db.execute(
+                    f"""SELECT count(*) FROM (
+                        SELECT id AS hadith_id FROM hadith
+                        WHERE {column} IS NOT NULL AND trim({column})<>''
+                        UNION
+                        SELECT hadith_id FROM editorial_translation
+                        WHERE language=? AND status IN ('reviewed','released')
+                    )""", (language,)
+                ).fetchone()[0]
+            else:
+                coverage[language] = db.execute(
+                    "SELECT count(DISTINCT hadith_id) FROM editorial_translation "
+                    "WHERE language=? AND status IN ('reviewed','released')", (language,)
+                ).fetchone()[0]
+
         marked = sum(bool(re.search(r"[\u064b-\u0652\u0670]", text)) for (text,) in db.execute("SELECT arabic FROM hadith"))
         if manifest.get("require_vowel_marks") and marked != counters["hadith"]:
             raise ValueError("Vocalized pack contains records without source vowel marks")
+        required_mark_collections = manifest.get("require_vowel_marks_collection_ids", [])
+        if required_mark_collections:
+            if not isinstance(required_mark_collections, list):
+                raise ValueError("require_vowel_marks_collection_ids must be a list")
+            for collection_id in required_mark_collections:
+                total = db.execute("SELECT count(*) FROM hadith WHERE collection_id=?", (collection_id,)).fetchone()[0]
+                vocalized = sum(
+                    bool(re.search(r"[\u064b-\u0652\u0670]", text))
+                    for (text,) in db.execute("SELECT arabic FROM hadith WHERE collection_id=?", (collection_id,))
+                )
+                if total < 1 or vocalized != total:
+                    raise ValueError(f"{collection_id}: required source vowel marks are incomplete")
         languages = {code for code, count in coverage.items() if count}
-        languages.update(row[0] for row in db.execute(
-            "SELECT DISTINCT language FROM editorial_translation WHERE status IN ('reviewed','released')"))
         provenance = {
             "pack_id": manifest["pack_id"],
             "content_version": manifest["content_version"],
@@ -532,6 +564,9 @@ def build(source_dir: Path, output: Path):
             "arabic_records_with_vowel_marks": marked,
             "vocalization_note": "Presence of some marks does not establish complete or reviewed vocalization.",
             "vocalization": manifest.get("vocalization"),
+            "vocalized_required_collection_ids": manifest.get("require_vowel_marks_collection_ids", []),
+            "hadeethenc_translation_record_counts": manifest.get("hadeethenc_translation_record_counts", {}),
+            "hadeethenc_withheld_translation_ids": manifest.get("hadeethenc_withheld_translation_ids", {}),
             "source_files": {rel: digest(safe_source_path(source_dir, rel)) for rel in manifest["files"]},
             "license_files": list(manifest["license_files"]),
             "runtime_network_required": False,

@@ -43,7 +43,7 @@ Madani/QCF/IndoPak source representations. No Quran characters or word offsets c
 
 ## Retrieval contract
 
-Search engine version: ranked-7.
+Search engine version: ranked-9-word-form.
 
 Both Quran and Hadith order text-match bands HIGH, then MEDIUM, then LOW. Quran
 orders within a band by meaningful-token coverage, rare-token weighted coverage,
@@ -71,10 +71,12 @@ query-to-record shortcut in local user data, bound to the corpus pack hash. At m
 not as stronger textual evidence; there is no general learned token substitution,
 semantic model or automatic click-based learning. Settings can clear them.
 
-Hadith remains disk-backed with its current token/vocabulary/trigram indexes and
-62,169 Arabic core-nine records. This patch does not add Roman/Hindi Hadith phonetic
-indexes, multilingual source packs, grades, semantic search or narration families.
-Similar records retain separate IDs and citations.
+Hadith remains disk-backed. The Open-Hadith-Data core-nine stays 62,169 Arabic records,
+while HadeethEnc is a separate 3,582-record translated evidence collection from official
+hash-locked snapshots. Its available English, Urdu and Hindi text feeds the same local
+phrase/token/vocabulary/trigram retrieval without changing the Arabic source records.
+This is multilingual lexical/typo-tolerant retrieval, not an embedding-based semantic
+model or an inferred narration-family graph. Similar records retain separate IDs and citations.
 
 ## Research and user data
 

@@ -9,6 +9,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sqlite3
@@ -17,6 +18,7 @@ import tempfile
 import sys
 import xml.etree.ElementTree as ET
 from acquire_sunnah_api import body_text
+from build_hadith import search_text as hadith_search_text
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,7 +76,9 @@ def main():
     tdb = sqlite3.connect(f'file:{translation_pack}?mode=ro', uri=True)
     assert tdb.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
     coordinates = {row[0] for row in db.execute('SELECT id FROM ayah')}
-    for edition, in tdb.execute('SELECT id FROM edition'):
+    edition_ids = [row[0] for row in tdb.execute('SELECT id FROM edition ORDER BY rowid')]
+    assert edition_ids == translation_manifest['editions'], 'Translation manifest/database edition drift'
+    for edition in edition_ids:
         assert {row[0] for row in tdb.execute('SELECT ayah_id FROM translation WHERE edition_id=?', (edition,))} == coordinates
         archived = json.loads((ROOT / 'source-vault/translations' / (edition + '.json')).read_text())
         for chapter in archived.values():
@@ -85,7 +89,7 @@ def main():
     translations = {}
     for aid, text in tdb.execute('SELECT ayah_id,text FROM translation'):
         translations[aid] = translations.get(aid, '') + ' ' + text
-    print('Translation source identity: all 18,708 texts and footnotes match their archived coordinates')
+    print(f"Translation source identity: all {6236 * len(edition_ids):,} texts and footnotes match their archived coordinates")
     tdb.close()
 
     # Quran pronunciation binaries are not build inputs. Only a tiny immutable catalog may ship.
@@ -133,6 +137,62 @@ def main():
         assert not hdb.execute('PRAGMA foreign_key_check').fetchall()
         for arabic, expected in hdb.execute('SELECT arabic,source_sha256 FROM hadith'):
             assert hashlib.sha256(arabic.encode()).hexdigest() == expected
+
+        # The translated HadeethEnc lane is source-separated from the core-nine Arabic corpus.
+        # Never claim it is installed unless all archived official workbooks and local indexes agree.
+        he_source = ROOT / 'source-vault/hadith/hadeethenc/current'
+        he_manifest_path = he_source / 'manifest.json'
+        if he_manifest_path.exists():
+            he_source_manifest = json.loads(he_manifest_path.read_text())
+            assert he_source_manifest['provider'] == 'HadeethEnc.com'
+            assert he_source_manifest['runtime_network_required'] is False
+            he_languages = {item['language']: item for item in he_source_manifest['languages']}
+            assert set(he_languages) == {'ar', 'en', 'ur', 'hi'}
+            for code, meta in he_languages.items():
+                raw = he_source / f'{code}.xlsx'
+                assert raw.is_file(), f'Missing archived HadeethEnc {code} workbook'
+                assert raw.stat().st_size == int(meta['bytes'])
+                assert hashlib.sha256(raw.read_bytes()).hexdigest() == meta['sha256']
+
+            assert hdb.execute("SELECT count(*) FROM collection WHERE id='hadeethenc'").fetchone()[0] == 1
+            assert {'ar', 'en', 'ur', 'hi'} <= set(hmanifest.get('language_coverage', []))
+            he_records = hdb.execute("SELECT count(*) FROM hadith WHERE collection_id='hadeethenc'").fetchone()[0]
+            assert he_records > 0
+            for code in ('en', 'ur', 'hi'):
+                translated = hdb.execute(
+                    "SELECT count(DISTINCT t.hadith_id) FROM editorial_translation t "
+                    "JOIN hadith h ON h.id=t.hadith_id "
+                    "WHERE h.collection_id='hadeethenc' AND t.language=? "
+                    "AND t.status IN ('reviewed','released')", (code,)
+                ).fetchone()[0]
+                assert translated > 0, f'No installed HadeethEnc {code} translations'
+                assert translated == int(hmanifest['imported_translation_record_counts'][code])
+                bad_source = hdb.execute(
+                    "SELECT count(*) FROM editorial_translation t JOIN hadith h ON h.id=t.hadith_id "
+                    "WHERE h.collection_id='hadeethenc' AND t.language=? "
+                    "AND t.source_ref NOT LIKE 'HadeethEnc.com%'", (code,)
+                ).fetchone()[0]
+                assert bad_source == 0, f'HadeethEnc {code} attribution drift'
+
+                # Prove a real translated token participates in the local inverted index.
+                sample = hdb.execute(
+                    "SELECT h.rowid,t.text FROM editorial_translation t JOIN hadith h ON h.id=t.hadith_id "
+                    "WHERE h.collection_id='hadeethenc' AND t.language=? "
+                    "AND t.status IN ('reviewed','released') ORDER BY h.rowid LIMIT 1", (code,)
+                ).fetchone()
+                assert sample is not None
+                tokens = [token for token in hadith_search_text(sample[1]).split() if len(token) >= 3]
+                assert tokens, f'No searchable HadeethEnc {code} token'
+                assert any(hdb.execute(
+                    "SELECT 1 FROM search_token WHERE hadith_rowid=? AND token=? LIMIT 1",
+                    (sample[0], token)
+                ).fetchone() for token in tokens[:12]), f'HadeethEnc {code} translation missing from search index'
+
+            # No guessed cross-edition attachment: core-nine records keep their own source identity.
+            assert hdb.execute(
+                "SELECT count(*) FROM hadith WHERE collection_id<>'hadeethenc' "
+                "AND source_ref LIKE 'HadeethEnc.com%'"
+            ).fetchone()[0] == 0
         hdb.close()
     android = '{http://schemas.android.com/apk/res/android}'
     android_manifest = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml').getroot()
