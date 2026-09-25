@@ -6,7 +6,9 @@ matches every narration by number and wording, imports the published vocalizatio
 SHA-256 locked manifest consumable by build_hadith.py. The plain CSVs are identity checks only;
 they must never silently become the displayed text again.
 
-It does not invent books, chapters, translations, grades or commentary that are absent upstream.
+It never invents books, chapters, translations, grades or commentary. When the separately
+hash-locked official HadeethEnc snapshot is present, it appends that translated encyclopedia as
+its own evidence collection rather than guessing one-to-one mappings onto the core-nine corpus.
 """
 import argparse
 import csv
@@ -16,6 +18,7 @@ import json
 import re
 import shutil
 from pathlib import Path
+from hadeethenc_source import prepare as prepare_hadeethenc
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / "source-vault" / "hadith" / "open-hadith-data"
@@ -308,31 +311,60 @@ def main():
         "META/SOURCE.json": sha256(meta_dir / "SOURCE.json"),
         "META/UPSTREAM_README.md": sha256(meta_dir / "UPSTREAM_README.md"),
     }
+
+    # HadeethEnc stays a distinct source collection. Its official ids align its language
+    # workbooks safely; no fuzzy/textual join is allowed to mutate the core-nine records.
+    hadeethenc = prepare_hadeethenc(output)
+    files.update(hadeethenc["files"])
+    counts[hadeethenc["collection_id"]] = hadeethenc["records"]
+    mark_counts[hadeethenc["collection_id"]] = hadeethenc["vowel_marked_records"]
+    versions = hadeethenc["versions"]
+    source_versions = (
+        upstream_commit + "; HadeethEnc " +
+        ", ".join(f"{code}=v{versions[code]}" for code in ("ar", "en", "ur", "hi"))
+    )
+    content_version = (
+        upstream_commit[:12] + "-he-" +
+        "-".join(f"{code}{versions[code]}" for code in ("ar", "en", "ur", "hi"))
+    )
+    source_inventory = dict(verified)
+    source_inventory["hadeethenc"] = {
+        "provider": "HadeethEnc.com",
+        "versions": versions,
+        "translation_record_counts": hadeethenc["translation_counts"],
+        "snapshot": hadeethenc["source_manifest"],
+    }
+
     manifest = {
-        "pack_id": "aaris-open-hadith-data-arabic-nine",
-        "content_version": upstream_commit[:12] + "-vocalized-v1",
-        "source_name": "Open-Hadith-Data",
-        "source_version": upstream_commit,
-        "redistribution_basis": "ODbL 1.0 database; individual contents under Database Contents License, as declared by upstream LICENSE.",
-        "license_files": ["LICENSES/ODBL.txt"],
+        "pack_id": "aaris-offline-hadith-evidence",
+        "content_version": content_version,
+        "source_name": "Open-Hadith-Data + HadeethEnc.com",
+        "source_version": source_versions,
+        "redistribution_basis": (
+            "Open-Hadith-Data: ODbL 1.0 / Database Contents License. "
+            "HadeethEnc: official download/republication policy with unchanged source text, "
+            "source/version attribution and current-version maintenance."
+        ),
+        "license_files": ["LICENSES/ODBL.txt", hadeethenc["license_file"]],
         "files": files,
-        "required_collection_ids": expected_ids,
+        "required_collection_ids": expected_ids + [hadeethenc["collection_id"]],
         "exact_collection_set": True,
         "record_number_unique_within_collection": True,
         "require_catalog_complete": False,
         "runtime_network_required": False,
-        "language_coverage": ["ar"],
-        "require_vowel_marks": True,
+        "language_coverage": ["ar", "en", "ur", "hi"],
+        "require_vowel_marks_collection_ids": expected_ids,
         "vocalization": {
             "origin": "published-upstream",
             "generated": False,
             "display_cleanup": inventory["display_cleanup"],
-            "records_with_vowel_marks": sum(counts.values()),
+            "records_with_vowel_marks": sum(counts[key] for key in expected_ids),
             "collection_vowel_mark_counts": mark_counts,
-            "identity_check": "All record numbers and words match the pinned plain edition after removing vowel marks and layout-only whitespace/RTL markers.",
+            "identity_check": "Open-Hadith-Data core-nine record numbers and words match the pinned plain edition after removing vowel marks and layout-only whitespace/RTL markers.",
         },
         "collection_record_counts": counts,
-        "source_inventory": verified,
+        "hadeethenc_translation_record_counts": hadeethenc["translation_counts"],
+        "source_inventory": source_inventory,
     }
     (output / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -343,6 +375,7 @@ def main():
         "collections": len(counts),
         "records": sum(counts.values()),
         "counts": counts,
+        "hadeethenc_translations": hadeethenc["translation_counts"],
         "output": str(output),
     }, ensure_ascii=False, indent=2))
 
