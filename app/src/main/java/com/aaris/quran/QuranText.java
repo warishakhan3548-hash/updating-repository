@@ -14,7 +14,7 @@ import java.util.*;
 /** Android's text layout owns shaping and wrapping; spans retain exact source word ranges. */
 final class QuranText extends ArabicText {
     interface Listener { void onWord(ContentStore.Word word,QuranText owner); }
-    private BackgroundColorSpan selected;
+    private BackgroundColorSpan selected,pressedHighlight;
     private final String source;
     private final int touchSlop;
     private ClickableSpan pressedSpan;
@@ -23,7 +23,7 @@ final class QuranText extends ArabicText {
     private final Runnable longPress=()->{
         if(pressedSpan==null||!isPressed())return;
         longPressTriggered=performLongClick();
-        if(longPressTriggered)setPressed(false);
+        if(longPressTriggered)clearPress();
     };
     QuranText(Context c,Typeface font,Ayah ayah,List<ContentStore.Word> words,float size,Listener listener) {
         super(c);source=ayah.arabic;touchSlop=ViewConfiguration.get(c).getScaledTouchSlop();setTypeface(font);setTextSize(size);
@@ -70,14 +70,26 @@ final class QuranText extends ArabicText {
         ClickableSpan[] spans=((Spanned)text).getSpans(offset,offset+1,ClickableSpan.class);
         return spans.length==0?null:spans[0];
     }
-    private void clearPress(){removeCallbacks(longPress);pressedSpan=null;setPressed(false);}
+    private void clearPress(){
+        removeCallbacks(longPress);
+        CharSequence value=getText();if(pressedHighlight!=null&&value instanceof Spannable)((Spannable)value).removeSpan(pressedHighlight);
+        pressedHighlight=null;pressedSpan=null;setPressed(false);invalidate();
+    }
+    private void showPress(ClickableSpan span){
+        CharSequence value=getText();if(span==null||!(value instanceof Spannable))return;
+        Spannable text=(Spannable)value;int start=text.getSpanStart(span),end=text.getSpanEnd(span);
+        if(start<0||end<=start)return;
+        if(pressedHighlight!=null)text.removeSpan(pressedHighlight);
+        pressedHighlight=new BackgroundColorSpan(Glass.WORD_HIGHLIGHT);
+        text.setSpan(pressedHighlight,start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);invalidate();
+    }
     @Override public boolean onTouchEvent(MotionEvent event){
         switch(event.getActionMasked()){
             case MotionEvent.ACTION_DOWN:
                 removeCallbacks(longPress);longPressTriggered=false;
                 pressedSpan=spanAt(event);downX=event.getX();downY=event.getY();
                 if(pressedSpan==null)return false;
-                setPressed(true);postDelayed(longPress,ViewConfiguration.getLongPressTimeout());return true;
+                setPressed(true);showPress(pressedSpan);postDelayed(longPress,ViewConfiguration.getLongPressTimeout());return true;
             case MotionEvent.ACTION_MOVE:
                 if(pressedSpan==null)return longPressTriggered;
                 if(Math.abs(event.getX()-downX)>touchSlop||Math.abs(event.getY()-downY)>touchSlop){

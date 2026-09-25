@@ -33,6 +33,10 @@ final class ContentStore implements AutoCloseable {
     private final SQLiteDatabase db;
     final List<Surah> surahs=new ArrayList<>();
     private final int[] surahStarts=new int[115];
+    private static final int PAGE_CACHE_LIMIT=24,AYAH_CACHE_LIMIT=128,WORD_CACHE_LIMIT=192;
+    private final Map<String,List<Ayah>> pageCache=lru(PAGE_CACHE_LIMIT);
+    private final Map<String,Ayah> ayahCache=lru(AYAH_CACHE_LIMIT);
+    private final Map<String,List<Word>> wordCache=lru(WORD_CACHE_LIMIT);
     final String packHash,audioAlignmentHash;
     final int unmappedAyahCount,audioDeferredTextAlignedWords;
     ContentStore(Context context) throws Exception {
@@ -85,34 +89,57 @@ final class ContentStore implements AutoCloseable {
         StringBuilder out=new StringBuilder();for(byte b:sha.digest())out.append(String.format(Locale.ROOT,"%02x",b&255));return out.toString();
     }
     Surah surah(int id){return surahs.get(Math.max(1,Math.min(114,id))-1);}
+    private static <K,V> Map<K,V> lru(final int limit){
+        return Collections.synchronizedMap(new LinkedHashMap<K,V>(limit,.75f,true){
+            @Override protected boolean removeEldestEntry(Map.Entry<K,V> eldest){return size()>limit;}
+        });
+    }
     private Ayah ayah(Cursor c){return new Ayah(c.getInt(1),c.getInt(2),c.getString(3),c.getString(4),c.getInt(5));}
-    Ayah ayah(String id){try(Cursor c=db.rawQuery("SELECT * FROM ayah WHERE id=?",new String[]{id})){return c.moveToFirst()?ayah(c):null;}}
+    private void cacheAyah(Ayah value){if(value!=null)ayahCache.put(value.id,value);}
+    Ayah ayah(String id){
+        if(id==null)return null;Ayah cached=ayahCache.get(id);if(cached!=null)return cached;
+        try(Cursor c=db.rawQuery("SELECT * FROM ayah WHERE id=?",new String[]{id})){
+            if(!c.moveToFirst())return null;Ayah value=ayah(c);cacheAyah(value);return value;
+        }
+    }
     ReadingPosition readingPosition(String encoded) {
         ReadingPosition p=ReadingPosition.parse(encoded);if(p==null||ayah(p.pageId)==null)return null;
         Ayah anchor=ayah(p.anchorId);
         return anchor!=null&&p.codePoint<=anchor.arabic.codePointCount(0,anchor.arabic.length())?p:null;
     }
     List<Ayah> page(int surah,int start,int limit) {
+        int count=Math.max(1,Math.min(limit,30));String key=surah+":"+start+":"+count;
+        List<Ayah> cached=pageCache.get(key);if(cached!=null)return cached;
         List<Ayah> list=new ArrayList<>();
-        try(Cursor c=db.rawQuery("SELECT * FROM ayah WHERE surah=? AND number>=? ORDER BY number LIMIT ?",new String[]{""+surah,""+start,""+Math.min(limit,30)})){while(c.moveToNext())list.add(ayah(c));}
-        return list;
+        try(Cursor c=db.rawQuery("SELECT * FROM ayah WHERE surah=? AND number>=? ORDER BY number LIMIT ?",new String[]{""+surah,""+start,""+count})){
+            while(c.moveToNext()){Ayah value=ayah(c);list.add(value);cacheAyah(value);}
+        }
+        List<Ayah> result=Collections.unmodifiableList(list);pageCache.put(key,result);return result;
     }
     List<Word> words(String ayahId) {
+        if(ayahId==null)return Collections.emptyList();List<Word> cached=wordCache.get(ayahId);if(cached!=null)return cached;
         List<Word> list=new ArrayList<>();
         try(Cursor c=db.rawQuery("SELECT * FROM word WHERE ayah_id=? ORDER BY start_cp",new String[]{ayahId})){while(c.moveToNext())list.add(new Word(c));}
-        return list;
+        List<Word> result=Collections.unmodifiableList(list);wordCache.put(ayahId,result);return result;
     }
     Map<String,List<Word>> words(List<Ayah> ayahs) {
         LinkedHashMap<String,List<Word>> out=new LinkedHashMap<>();
         if(ayahs==null||ayahs.isEmpty())return out;
-        List<String> ids=new ArrayList<>();
-        for(Ayah ayah:ayahs)if(ayah!=null&&!out.containsKey(ayah.id)){out.put(ayah.id,new ArrayList<>());ids.add(ayah.id);}
-        if(ids.isEmpty())return out;
-        String marks=String.join(",",Collections.nCopies(ids.size(),"?"));
-        try(Cursor c=db.rawQuery("SELECT * FROM word WHERE ayah_id IN ("+marks+") ORDER BY ayah_id,start_cp",ids.toArray(new String[0]))){
+        List<String> missing=new ArrayList<>();
+        for(Ayah ayah:ayahs)if(ayah!=null&&!out.containsKey(ayah.id)){
+            List<Word> cached=wordCache.get(ayah.id);
+            if(cached!=null)out.put(ayah.id,cached);
+            else{out.put(ayah.id,new ArrayList<>());missing.add(ayah.id);}
+        }
+        if(missing.isEmpty())return out;
+        String marks=String.join(",",Collections.nCopies(missing.size(),"?"));
+        try(Cursor c=db.rawQuery("SELECT * FROM word WHERE ayah_id IN ("+marks+") ORDER BY ayah_id,start_cp",missing.toArray(new String[0]))){
             while(c.moveToNext()){
                 Word word=new Word(c);List<Word> list=out.get(word.ayahId);if(list!=null)list.add(word);
             }
+        }
+        for(String id:missing){
+            List<Word> result=Collections.unmodifiableList(new ArrayList<>(out.get(id)));wordCache.put(id,result);out.put(id,result);
         }
         return out;
     }

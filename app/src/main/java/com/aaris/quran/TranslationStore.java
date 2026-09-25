@@ -20,6 +20,10 @@ final class TranslationStore implements AutoCloseable {
         Entry(Edition edition,String text,String footnotes){this.edition=edition;this.text=text;this.footnotes=footnotes;}
     }
     final List<Edition> editions=new ArrayList<>();final String packHash,notice;
+    private static final int ENTRY_CACHE_LIMIT=512;
+    private final Map<String,Entry> entryCache=Collections.synchronizedMap(new LinkedHashMap<String,Entry>(ENTRY_CACHE_LIMIT,.75f,true){
+        @Override protected boolean removeEldestEntry(Map.Entry<String,Entry> eldest){return size()>ENTRY_CACHE_LIMIT;}
+    });
     private final SQLiteDatabase db;
     TranslationStore(Context c)throws Exception{
         JSONObject manifest=new JSONObject(ContentStore.asset(c,"translations-manifest.json"));packHash=manifest.getString("sqlite_sha256");notice=manifest.getString("notice");
@@ -61,16 +65,28 @@ final class TranslationStore implements AutoCloseable {
     }
     Edition edition(String id){for(Edition e:editions)if(e.id.equals(id))return e;return null;}
     private static LinkedHashSet<String> columns(SQLiteDatabase db,String table){LinkedHashSet<String> result=new LinkedHashSet<>();try(Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null)){while(c.moveToNext())result.add(c.getString(1));}return result;}
-    Entry get(String editionId,String ayahId){Edition edition=edition(editionId);if(edition==null)return null;try(Cursor c=db.rawQuery("SELECT text,footnotes FROM translation WHERE edition_id=? AND ayah_id=?",new String[]{edition.id,ayahId})){return c.moveToFirst()?new Entry(edition,c.getString(0),c.getString(1)):null;}}
+    private static String cacheKey(String editionId,String ayahId){return editionId+"\n"+ayahId;}
+    Entry get(String editionId,String ayahId){
+        Edition edition=edition(editionId);if(edition==null||ayahId==null)return null;
+        String key=cacheKey(edition.id,ayahId);Entry cached=entryCache.get(key);if(cached!=null)return cached;
+        try(Cursor c=db.rawQuery("SELECT text,footnotes FROM translation WHERE edition_id=? AND ayah_id=?",new String[]{edition.id,ayahId})){
+            if(!c.moveToFirst())return null;Entry value=new Entry(edition,c.getString(0),c.getString(1));entryCache.put(key,value);return value;
+        }
+    }
     Map<String,Entry> get(String editionId,Collection<String> ayahIds){
         LinkedHashMap<String,Entry> out=new LinkedHashMap<>();Edition edition=edition(editionId);
         if(edition==null||ayahIds==null||ayahIds.isEmpty())return out;
         LinkedHashSet<String> unique=new LinkedHashSet<>();for(String id:ayahIds)if(id!=null&&!id.isEmpty())unique.add(id);
         if(unique.isEmpty())return out;
-        List<String> args=new ArrayList<>();args.add(edition.id);args.addAll(unique);
-        String marks=String.join(",",Collections.nCopies(unique.size(),"?"));
+        List<String> missing=new ArrayList<>();
+        for(String id:unique){Entry cached=entryCache.get(cacheKey(edition.id,id));if(cached!=null)out.put(id,cached);else missing.add(id);}
+        if(missing.isEmpty())return out;
+        List<String> args=new ArrayList<>();args.add(edition.id);args.addAll(missing);
+        String marks=String.join(",",Collections.nCopies(missing.size(),"?"));
         try(Cursor c=db.rawQuery("SELECT ayah_id,text,footnotes FROM translation WHERE edition_id=? AND ayah_id IN ("+marks+")",args.toArray(new String[0]))){
-            while(c.moveToNext())out.put(c.getString(0),new Entry(edition,c.getString(1),c.getString(2)));
+            while(c.moveToNext()){
+                String id=c.getString(0);Entry value=new Entry(edition,c.getString(1),c.getString(2));entryCache.put(cacheKey(edition.id,id),value);out.put(id,value);
+            }
         }
         return out;
     }
