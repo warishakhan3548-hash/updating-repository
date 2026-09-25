@@ -35,6 +35,7 @@ public final class QuranApp extends Application {
     final ExecutorService recitationDownloadWorker=worker("recitation-download");
     final Handler main=new Handler(Looper.getMainLooper());
     final AtomicBoolean researchPdfBusy=new AtomicBoolean(false);
+    final AtomicBoolean exportWriteBusy=new AtomicBoolean(false);
     volatile ContentStore content;
     volatile LearningStore learning;
     volatile HadithStore hadith;
