@@ -2,6 +2,7 @@ package com.aaris.quran;
 
 import android.app.Application;
 import android.app.Activity;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -29,7 +30,7 @@ public final class QuranApp extends Application {
     volatile boolean recitationActive;
     volatile int recitationSurah=1,recitationAyah=1;
     volatile String recitationLabel="";
-    Runnable recitationChanged,hadithChanged,operationChanged;
+    Runnable recitationChanged,hadithChanged,operationChanged,researchPdfChanged;
     final ExecutorService audioWorker=worker("audio");
     final ExecutorService audioStatusWorker=worker("audio-status");
     final ExecutorService recitationDownloadWorker=worker("recitation-download");
@@ -52,7 +53,29 @@ public final class QuranApp extends Application {
     Runnable visibilityChanged;
     private int startedActivities;
     private boolean searchWarmPending;
+    private ResearchPdfResult pendingResearchPdf;
     private final CountDownLatch ready=new CountDownLatch(1);
+
+    static final class ResearchPdfResult {
+        final Uri uri;final String prompt,error;
+        ResearchPdfResult(Uri uri,String prompt,String error){this.uri=uri;this.prompt=prompt;this.error=error;}
+    }
+    synchronized void publishResearchPdf(Uri uri,String prompt){
+        ResearchPdfResult old=pendingResearchPdf;pendingResearchPdf=new ResearchPdfResult(uri,prompt,null);
+        if(old!=null&&old.uri!=null)ResearchFiles.discard(this,old.uri);
+        notifyResearchPdfChanged();
+    }
+    synchronized void publishResearchPdfFailure(String error){
+        ResearchPdfResult old=pendingResearchPdf;pendingResearchPdf=new ResearchPdfResult(null,null,error);
+        if(old!=null&&old.uri!=null)ResearchFiles.discard(this,old.uri);
+        notifyResearchPdfChanged();
+    }
+    synchronized ResearchPdfResult takeResearchPdfResult(){
+        ResearchPdfResult result=pendingResearchPdf;pendingResearchPdf=null;return result;
+    }
+    private void notifyResearchPdfChanged(){
+        main.post(()->{Runnable current=researchPdfChanged;if(current!=null)current.run();});
+    }
     @Override public void onCreate(){
         super.onCreate();
         Glass.apply(Appearance.load(this));recitationDownloads=new RecitationDownloads(this);
