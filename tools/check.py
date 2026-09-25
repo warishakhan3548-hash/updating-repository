@@ -272,6 +272,16 @@ def main():
         return main_activity_text[start:] if end < 0 else main_activity_text[start:end]
     for method in ('hadithCollection', 'hadithBook', 'hadithRecordsPage', 'hadithRecord'):
         assert 'hadithBrowseWorker.submit' in java_method(method), f'{method} must load Hadith data off the UI thread'
+    hadith_collection = java_method('hadithCollection')
+    hadith_book = java_method('hadithBook')
+    hadith_records_page = java_method('hadithRecordsPage')
+    hadith_records_render = java_method('renderHadithRecordsPage')
+    assert 'store.records(collectionId,null,null,51,0)' in hadith_collection, 'Collection fallback must fetch one lookahead Hadith record'
+    assert 'store.records(collectionId,book.id,null,51,0)' in hadith_book, 'Book fallback must fetch one lookahead Hadith record'
+    assert 'store.records(collectionId,bookId,chapterId,51,offset)' in hadith_records_page, 'Hadith record pages must fetch one lookahead row'
+    assert 'boolean hasNext=records.size()>size;' in hadith_records_render, 'Hadith pager must derive Next from a real lookahead row'
+    assert 'records.subList(0,visibleCount)' in hadith_records_render, 'Hadith pager must not render the lookahead row'
+    assert 'records.size()==size' not in hadith_records_render, 'A full final Hadith page must not expose a false Next action'
     recitation_status = java_method('fillRecitationSurahDownloads')
     recitation_rows = java_method('appendRecitationSurahDownloads')
     recitation_controls = java_method('audioControls')
