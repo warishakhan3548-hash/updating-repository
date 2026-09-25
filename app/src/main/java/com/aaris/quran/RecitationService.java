@@ -8,6 +8,7 @@ import android.os.*;
 import com.aaris.quran.core.Ayah;
 import java.io.File;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 
 /** Whole-ayah playback with one owner, audio focus and Android background controls. */
 public final class RecitationService extends Service {
@@ -43,13 +44,19 @@ public final class RecitationService extends Service {
         resumeAfterTransientFocusLoss=false;int token=++generation;if(pending!=null)pending.cancel(true);releasePlayer();paused=false;buffering=true;app.recitationActive=true;
         if(app.audio!=null)app.audio.stop();Ayah record=app.content.ayah("Q:"+surah+":"+ayah);if(record==null){stopSelf();return;}
         update("Loading · "+label());String voice=reciter;
-        pending=app.recitationWorker.submit(()->{try{File local=app.recitationDownloads.obtain(voice,record);main.post(()->{if(token!=generation)return;try{
-            if(audio.requestAudioFocus(focus)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED){fail("Audio focus unavailable");return;}
-            MediaPlayer next=new MediaPlayer();player=next;next.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());next.setDataSource(local.getAbsolutePath());
-            next.setOnPreparedListener(p->{if(token!=generation||player!=p)return;buffering=false;p.start();paused=false;update(label());});
-            next.setOnErrorListener((p,what,extra)->{if(token==generation)fail("Audio could not play");return true;});
-            next.setOnCompletionListener(p->{if(token!=generation)return;if(--repeatRemaining>0)play();else if(continuous&&ayah<app.content.surah(surah).count){ayah++;repeatRemaining=getSharedPreferences("recitation",0).getInt("repeat",1);play();}else stopSelf();});next.prepareAsync();
-        }catch(Exception e){fail("Audio could not play");}});}catch(Exception e){main.post(()->{if(token==generation)fail("Audio unavailable · downloaded reading remains available");});}});
+        pending=null;
+        try{
+            pending=app.recitationWorker.submit(()->{try{File local=app.recitationDownloads.obtain(voice,record);main.post(()->{if(token!=generation)return;try{
+                if(audio.requestAudioFocus(focus)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED){fail("Audio focus unavailable");return;}
+                MediaPlayer next=new MediaPlayer();player=next;next.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());next.setDataSource(local.getAbsolutePath());
+                next.setOnPreparedListener(p->{if(token!=generation||player!=p)return;buffering=false;p.start();paused=false;update(label());});
+                next.setOnErrorListener((p,what,extra)->{if(token==generation)fail("Audio could not play");return true;});
+                next.setOnCompletionListener(p->{if(token!=generation)return;if(--repeatRemaining>0)play();else if(continuous&&ayah<app.content.surah(surah).count){ayah++;repeatRemaining=getSharedPreferences("recitation",0).getInt("repeat",1);play();}else stopSelf();});next.prepareAsync();
+            }catch(Exception e){fail("Audio could not play");}});}catch(Exception e){main.post(()->{if(token==generation)fail("Audio unavailable · downloaded reading remains available");});}});
+        }catch(RejectedExecutionException rejected){
+            buffering=false;
+            fail("Audio could not start");
+        }
     }
     private String label(){return RecitationDownloads.NAMES[RecitationDownloads.index(reciter)]+" · "+surah+":"+ayah;}
     private void move(int delta){if(app.content==null)return;int next=ayah+delta;if(next<1||next>app.content.surah(surah).count)return;ayah=next;repeatRemaining=getSharedPreferences("recitation",0).getInt("repeat",1);play();}
