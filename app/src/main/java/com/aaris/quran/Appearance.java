@@ -148,36 +148,42 @@ final class Appearance {
         return readableAcross(appText,base,highlight);
     }
     int glassInk(float amount){return textInk(mix(arabicInk(),Color.WHITE,amount),100);}
-    int foilInk(float amount){return readableAcross(mix(arabicInk(),accent,amount),effectiveSurface(),surfaceHighlight(),effectiveSurfaceAtGradientEnd());}
+    int foilInk(float amount){return readableAcross(mix(arabicInk(),accent,amount),effectiveSurface(),surfaceHighlight(),effectiveSurfaceAtGradientEnd(),surfaceHighlightAtGradientEnd());}
     int effectiveSurface(){return effectiveSurfaceOn(background);}
     int effectiveSurfaceAtGradientEnd(){return gradient?effectiveSurfaceOn(gradientEnd):effectiveSurface();}
     private int effectiveSurfaceOn(int backdrop){return mix(backdrop,surface,effectiveCardOpacity()/100f);}
-    int surfaceHighlight(){return glass&&!reducedEffects?mix(effectiveSurface(),accent,.06f*glassStrength/100f):effectiveSurface();}
+    int surfaceHighlight(){return surfaceHighlightOn(background);}
+    int surfaceHighlightAtGradientEnd(){return gradient?surfaceHighlightOn(gradientEnd):surfaceHighlight();}
+    private int surfaceHighlightOn(int backdrop){
+        if(!glass||reducedEffects)return effectiveSurfaceOn(backdrop);
+        int tinted=Appearance.mix(surface,accent,.06f*glassStrength/100f);
+        return mix(backdrop,tinted,effectiveCardOpacity()/100f);
+    }
     int arabicInk(){return textInk(arabic,arabicOpacity);}
     int translationInk(){return textInk(translation,translationOpacity);}
     private int textInk(int color,int alpha){
-        int on=effectiveSurface(),end=surfaceHighlight(),gradientSurface=effectiveSurfaceAtGradientEnd(),requested=mix(on,color,alpha/100f);
-        if(contrast(requested,on)>=4.5&&contrast(requested,end)>=4.5&&contrast(requested,gradientSurface)>=4.5)return requested;
-        double white=Math.min(contrast(Color.WHITE,on),Math.min(contrast(Color.WHITE,end),contrast(Color.WHITE,gradientSurface)));
-        double black=Math.min(contrast(Color.BLACK,on),Math.min(contrast(Color.BLACK,end),contrast(Color.BLACK,gradientSurface)));
+        int on=effectiveSurface(),end=surfaceHighlight(),gradientSurface=effectiveSurfaceAtGradientEnd(),gradientHighlight=surfaceHighlightAtGradientEnd(),requested=mix(on,color,alpha/100f);
+        if(contrast(requested,on)>=4.5&&contrast(requested,end)>=4.5&&contrast(requested,gradientSurface)>=4.5&&contrast(requested,gradientHighlight)>=4.5)return requested;
+        double white=Math.min(Math.min(contrast(Color.WHITE,on),contrast(Color.WHITE,end)),Math.min(contrast(Color.WHITE,gradientSurface),contrast(Color.WHITE,gradientHighlight)));
+        double black=Math.min(Math.min(contrast(Color.BLACK,on),contrast(Color.BLACK,end)),Math.min(contrast(Color.BLACK,gradientSurface),contrast(Color.BLACK,gradientHighlight)));
         int target=white>black?Color.WHITE:Color.BLACK;
-        for(int n=1;n<=40;n++){int fixed=mix(requested,target,n/40f);if(contrast(fixed,on)>=4.5&&contrast(fixed,end)>=4.5&&contrast(fixed,gradientSurface)>=4.5)return fixed;}return target;
+        for(int n=1;n<=40;n++){int fixed=mix(requested,target,n/40f);if(contrast(fixed,on)>=4.5&&contrast(fixed,end)>=4.5&&contrast(fixed,gradientSurface)>=4.5&&contrast(fixed,gradientHighlight)>=4.5)return fixed;}return target;
     }
     boolean adjustedText(){return arabicInk()!=mix(effectiveSurface(),arabic,arabicOpacity/100f)||translationInk()!=mix(effectiveSurface(),translation,translationOpacity/100f)||appInk()!=appText;}
     String readabilitySummary(){
         double arabicScore=minContrast(arabicInk()),translationScore=minContrast(translationInk()),uiScore=uiMinContrast(appInk());
         return "Arabic "+grade(arabicScore)+" · Translation "+grade(translationScore)+" · UI "+grade(uiScore)+(adjustedText()?" · Auto-adjusted":"");
     }
-    private double minContrast(int ink){return Math.min(contrast(ink,effectiveSurface()),Math.min(contrast(ink,surfaceHighlight()),contrast(ink,effectiveSurfaceAtGradientEnd())));}
+    private double minContrast(int ink){return Math.min(Math.min(contrast(ink,effectiveSurface()),contrast(ink,surfaceHighlight())),Math.min(contrast(ink,effectiveSurfaceAtGradientEnd()),contrast(ink,surfaceHighlightAtGradientEnd())));}
     private double uiMinContrast(int ink){return Math.min(minContrast(ink),Math.min(contrast(ink,background),contrast(ink,gradient?gradientEnd:background)));}
     private static String grade(double ratio){return ratio>=7.0?"AAA":ratio>=4.5?"AA":"Protected";}
     private int autoAppText(){
         int on=effectiveSurface();
         return luminance(on)>.38?0xff16202a:0xffedf1ed;
     }
-    int appInk(){return readableAcross(appText,background,gradient?gradientEnd:background,effectiveSurface(),effectiveSurfaceAtGradientEnd(),surfaceHighlight());}
+    int appInk(){return readableAcross(appText,background,gradient?gradientEnd:background,effectiveSurface(),effectiveSurfaceAtGradientEnd(),surfaceHighlight(),surfaceHighlightAtGradientEnd());}
     int ink(){return appInk();}
-    int muted(){return readableAcross(mix(appInk(),effectiveSurface(),.30f),background,gradient?gradientEnd:background,effectiveSurface(),effectiveSurfaceAtGradientEnd(),surfaceHighlight());}
+    int muted(){return readableAcross(mix(appInk(),effectiveSurface(),.30f),background,gradient?gradientEnd:background,effectiveSurface(),effectiveSurfaceAtGradientEnd(),surfaceHighlight(),surfaceHighlightAtGradientEnd());}
     static int bound(int x,int lo,int hi){return Math.max(lo,Math.min(hi,x));}
     static int mix(int a,int b,float t){return Color.rgb(Math.round(Color.red(a)*(1-t)+Color.red(b)*t),Math.round(Color.green(a)*(1-t)+Color.green(b)*t),Math.round(Color.blue(a)*(1-t)+Color.blue(b)*t));}
     static double luminance(int c){double v=0;double[] weights={.2126,.7152,.0722};int[] rgb={Color.red(c),Color.green(c),Color.blue(c)};for(int i=0;i<3;i++){double x=rgb[i]/255.;v+=weights[i]*(x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4));}return v;}
