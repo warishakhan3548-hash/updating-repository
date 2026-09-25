@@ -56,7 +56,7 @@ public final class MainActivity extends Activity {
     private Runnable debounce;
     private String pendingExport;
     private boolean preparingExport,wordAudioSummaryPending;
-    private int recitationDownloadGeneration,wordAudioPromptGeneration;
+    private int recitationDownloadGeneration,wordAudioPromptGeneration,wordAudioPlayGeneration;
     private Runnable recitationDownloadCompletion;
     private volatile int recitationListGeneration;
     private int libraryListGeneration;
@@ -238,7 +238,7 @@ public final class MainActivity extends Activity {
     @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
-    @Override protected void onDestroy(){wordAudioPromptGeneration++;ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
+    @Override protected void onDestroy(){wordAudioPromptGeneration++;wordAudioPlayGeneration++;ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
@@ -980,18 +980,24 @@ public final class MainActivity extends Activity {
     }
     private void playAyah(Ayah a){
         if(a==null)return;
+        playAyah(a,++wordAudioPlayGeneration);
+    }
+    private void playAyah(Ayah a,int generation){
+        if(a==null||generation!=wordAudioPlayGeneration)return;
+        if(translationSpeech!=null)translationSpeech.stop();
         QuranAudioStore wordStore=app==null?null:app.wordAudio;
         if(wordStore!=null&&wordStore.installedState(a.surah)<0){
             try{
                 app.audioStatusWorker.execute(()->{
                     wordStore.installedSurah(a.surah);
-                    ui.post(()->{if(!isDestroyed()&&!isFinishing()&&app.wordAudio==wordStore)playAyah(a);});
+                    ui.post(()->{
+                        if(!isDestroyed()&&!isFinishing()&&generation==wordAudioPlayGeneration&&app.wordAudio==wordStore)playAyah(a,generation);
+                    });
                 });
                 toast("Checking offline audio…");
                 return;
             }catch(RejectedExecutionException ignored){}
         }
-        if(translationSpeech!=null)translationSpeech.stop();
         android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);
         String reciter=RecitationDownloads.valid(preferences.getString("reciter",RecitationDownloads.IDS[0]));
         boolean reciterOffline=app.recitationDownloads!=null&&app.recitationDownloads.ayahReady(reciter,a,content.surah(a.surah).count);
