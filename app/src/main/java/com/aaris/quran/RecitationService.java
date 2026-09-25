@@ -58,7 +58,10 @@ public final class RecitationService extends Service {
             fail("Audio could not start");
         }
     }
-    private int repeatPreference(){return Math.max(1,Math.min(5,getSharedPreferences("recitation",0).getInt("repeat",1)));}\n    private boolean continuousPreference(){return getSharedPreferences("recitation",0).getBoolean("continuous",true);}\n    private void resetRepeat(){repeatCompleted=0;}\n    private String label(){return RecitationDownloads.NAMES[RecitationDownloads.index(reciter)]+" · "+surah+":"+ayah;}
+    private int repeatPreference(){return Math.max(1,Math.min(5,getSharedPreferences("recitation",0).getInt("repeat",1)));}
+    private boolean continuousPreference(){return getSharedPreferences("recitation",0).getBoolean("continuous",true);}
+    private void resetRepeat(){repeatCompleted=0;}
+    private String label(){return RecitationDownloads.NAMES[RecitationDownloads.index(reciter)]+" · "+surah+":"+ayah;}
     private void move(int delta){if(app.content==null)return;int next=ayah+delta;if(next<1||next>app.content.surah(surah).count)return;ayah=next;resetRepeat();play();}
     private void pause(){resumeAfterTransientFocusLoss=false;pausePlayback(true);}
     private void pausePlayback(boolean releaseFocus){
