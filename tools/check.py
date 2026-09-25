@@ -242,6 +242,8 @@ def main():
     assert 'boolean rendersGradient(){return gradient&&!reducedEffects;}' in appearance_text, 'Reduced-effects mode must remove hidden gradient endpoints from contrast calculations'
     assert 'if(style.rendersGradient())' in appearance_studio_text, 'Appearance preview must use the same gradient visibility rule as runtime'
     assert 'private void normalizeEditingLayer()' in appearance_studio_text and 'if(layer==5&&!style.gradient){layer=0;invalidateEditorColor();}' in appearance_studio_text, 'Appearance undo/redo must not leave a hidden gradient layer selected'
+    assert 'boolean canUndo=historyIndex>0,canRedo=historyIndex+1<history.size();' in appearance_studio_text, 'Appearance history controls must derive enabled state from the real history cursor'
+    assert 'undo.setEnabled(canUndo);undo.setFocusable(canUndo);undo.setAlpha(canUndo?1f:.45f);' in appearance_studio_text and 'redo.setEnabled(canRedo);redo.setFocusable(canRedo);redo.setAlpha(canRedo?1f:.45f);' in appearance_studio_text, 'Unavailable Undo/Redo controls must be visibly and semantically disabled instead of silently no-oping'
     assert 'private void renderControls(){\n        normalizeEditingLayer();' in appearance_studio_text, 'Appearance editor must normalize its editing target before rebuilding controls'
     assert '!highContrast&&appearance.rendersGradient()&&backgroundGradient!=null' in glass_text, 'Runtime backdrop must share the appearance gradient visibility rule'
     assert 'TEXT_PLAIN=0,TEXT_SOFT=1,TEXT_GLASS=2,TEXT_FOIL=3' in appearance_text
@@ -340,6 +342,9 @@ def main():
     assert 'if(++repeatCompleted<repeatPreference())play();' in recitation_service_text, 'Repeat changes must take effect at the next ayah completion without restarting playback'
     assert 'continuousPreference()&&ayah<app.content.surah(surah).count' in recitation_service_text, 'Continue-mode changes must take effect before advancing to the next ayah'
     assert 'private void move(int delta)' in recitation_service_text and 'ayah=next;resetRepeat();play();' in recitation_service_text, 'Manual recitation navigation must start a fresh repeat cycle'
+    assert 'Intent home=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);' in recitation_service_text, 'Recitation notification must reuse the existing reader task instead of stacking another MainActivity'
+    assert 'PendingIntent.getActivity(this,10,home,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE)' in recitation_service_text, 'Recitation notification must launch the lifecycle-safe reader intent'
+    assert 'PendingIntent.getActivity(this,10,new Intent(this,MainActivity.class)' not in recitation_service_text, 'Do not regress to a duplicate-Activity recitation content intent'
     assert 'private void updateBookmarkButton(FrameLayout button,Glass.Icon icon,boolean saved)' in main_activity_text, 'Reader bookmark state needs one original-control update path'
     assert 'button.setContentDescription(action);button.setTooltipText(action);button.setSelected(saved);' in main_activity_text, 'Bookmark toggles must update accessibility state immediately'
     assert 'icon.color=saved?Appearance.readable(appearance.accent,appearance.buttonSurface()):appearance.buttonInk();icon.invalidate();' in main_activity_text, 'Saved bookmark feedback must remain readable in the active appearance'
