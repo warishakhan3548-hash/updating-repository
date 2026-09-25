@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 
-from build_hadith import search_tokens, search_text
+from build_hadith import search_tokens, search_text, romanize_hindi
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -153,6 +153,15 @@ def main():
                 "Hindi HadeethEnc phrase is not reachable through production FTS", sample_hi[0]
             )
             print("Hindi HadeethEnc exact-phrase retrieval: PASS")
+
+            hindi_roman = romanize_hindi(sample_hi[1])
+            hindi_roman_tokens = search_text(hindi_roman).split()[:7]
+            assert len(hindi_roman_tokens) >= 4
+            total, rows = phrase(" ".join(hindi_roman_tokens))
+            assert total > 0 and any(hid == sample_hi[0] for hid, _ in rows), (
+                "Official Hindi Hadith translation is not reachable through its Hinglish shadow", sample_hi[0]
+            )
+            print("Hinglish shadow of official Hindi Hadith translation: PASS")
 
             # A remembered Hinglish phrase must also reach trusted Hindi explanation/benefit
             # context without turning that context into displayed Hadith text.
