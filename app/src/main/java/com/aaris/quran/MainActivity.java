@@ -451,20 +451,24 @@ public final class MainActivity extends Activity {
         }
         return out;
     }
-    private void loadHadithSearch(String q,int offset,int generation,LinearLayout list,TextView status){
+    private void loadHadithSearch(String q,int offset,int generation,LinearLayout list,TextView status,TextView more){
         if(searchGeneration.get()!=generation||isDestroyed()||!searching)return;
         setSearchBusy(true);status.setText("Loading next Hadith matches…");
+        if(more!=null&&more.isAttachedToWindow()){more.setEnabled(false);more.setText("Loading next 50 Hadith matches…");}
         final CancellationSignal signal=searchCancellation!=null?searchCancellation:beginSearch(generation,status);
         final String preferredLanguage=readingLanguage();pendingSearchJobs++;
         searchTask=app.searchWorker.submit(()->{try{
             HadithStore.SearchPage response=app.hadith.searchPage(q,50,offset,signal);
             Map<String,HadithCardMeta> metadata=prepareHadithCards(response,preferredLanguage,signal);
             ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
+                if(more!=null&&more.getParent() instanceof ViewGroup)((ViewGroup)more.getParent()).removeView(more);
                 appendHadithResults(q,response,metadata,generation,list,status);if(--pendingSearchJobs==0)finishSearch(signal);
             });
         }catch(CancellationException|OperationCanceledException ignored){}catch(Exception error){ui.post(()->{
             if(!isDestroyed()&&searching&&!signal.isCanceled()&&searchGeneration.get()==generation){
-                if(--pendingSearchJobs==0)finishSearch(signal);status.setText("Hadith search could not finish. Please try again.");
+                if(--pendingSearchJobs==0)finishSearch(signal);
+                if(more!=null&&more.isAttachedToWindow()){more.setEnabled(true);more.setText("Load next 50 Hadith matches");}
+                status.setText("Hadith search could not finish. Retry below.");
             }
         });}});
     }
@@ -494,7 +498,7 @@ public final class MainActivity extends Activity {
             list.postOnAnimation(()->appendHadithBatch(q,response,metadata,generation,list,status,end));return;
         }
         status.setText(response.total==0?(HadithQuery.parse(q).isReference()?"This reference is not in the installed edition. Check its numbering or search an Arabic phrase.":"No Hadith text match in the installed edition."):hadithHits.size()+" of "+response.total+(response.limited?" closest Hadith matches · Narrow the phrase for more precision":" Hadith matches"));
-        if(response.nextOffset<response.total){TextView more=button("Load next 50 Hadith matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadHadithSearch(q,response.nextOffset,generation,list,status);});}
+        if(response.nextOffset<response.total){TextView more=button("Load next 50 Hadith matches",()->{});list.addView(more);more.setOnClickListener(v->loadHadithSearch(q,response.nextOffset,generation,list,status,more));}
     }
 
     private void hadithResultCard(LinearLayout parent,HadithStore.Record record,HadithCardMeta metadata){
@@ -1070,7 +1074,10 @@ public final class MainActivity extends Activity {
     private void audioControls(Ayah a){
         if(a==null)return;LinearLayout page=sheet("Recitation & audio");Dialog dialog=activeDialog;
         dialog.setOnDismissListener(d->{recitationListGeneration++;if(activeDialog==dialog)activeDialog=null;});
-        android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);String selected=preferences.getString("reciter",RecitationDownloads.IDS[0]);
+        android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);
+        String savedReciter=preferences.getString("reciter",RecitationDownloads.IDS[0]);
+        String selected=RecitationDownloads.valid(savedReciter);
+        if(!selected.equals(savedReciter))preferences.edit().putString("reciter",selected).apply();
         caption(page,"Choose a reciter. Play continues from this ayah; your choice is remembered.");gap(page,12);
         for(int i=0;i<RecitationDownloads.IDS.length;i++){String id=RecitationDownloads.IDS[i];page.addView(button((id.equals(selected)?"✓ ":"")+RecitationDownloads.NAMES[i],()->{preferences.edit().putString("reciter",id).putBoolean("chosen",true).apply();audioControls(a);}));gap(page,8);}
         Switch mode=new Switch(this);mode.setText("Continue to the end of this Surah");mode.setTextColor(INK);mode.setMinHeight(dp(this,48));mode.setChecked(preferences.getBoolean("continuous",true));mode.setOnCheckedChangeListener((b,v)->preferences.edit().putBoolean("continuous",v).apply());page.addView(mode);
