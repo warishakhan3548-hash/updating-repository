@@ -59,6 +59,7 @@ final class HadithStore implements AutoCloseable {
         @Override protected boolean removeEldestEntry(Map.Entry<String,List<String>> eldest){return size()>SPELLING_CACHE_LIMIT;}
     });
     private final List<CollectionInfo> collectionCache;
+    private final Set<String> layeredHadithIds;
     final String packHash,packId,contentVersion,sourceName,sourceVersion,redistributionBasis;
     final int recordCount,collectionCount;
     final Set<String> languageCoverage;
@@ -130,6 +131,13 @@ final class HadithStore implements AutoCloseable {
             db=opened;
             collectionCache=Collections.unmodifiableList(loadCollections());
             for(CollectionInfo info:collectionCache){collectionAliases.put(info.id,info.id);collectionAliases.put(info.nameEn,info.id);collectionAliases.put(info.nameAr,info.id);}
+            LinkedHashSet<String> layered=new LinkedHashSet<>();
+            try(Cursor c=opened.rawQuery(
+                "SELECT hadith_id FROM editorial_translation WHERE status IN ('released','reviewed') "+
+                "UNION SELECT hadith_id FROM search_context",null)){
+                while(c.moveToNext())layered.add(c.getString(0));
+            }
+            layeredHadithIds=Collections.unmodifiableSet(layered);
             try(Cursor c=opened.rawQuery("SELECT 1 FROM editorial_translation WHERE status IN ('released','reviewed') LIMIT 1",null)){hasEditorialTranslations=c.moveToFirst();}
         }catch(Exception invalid){
             db=null;opened.close();throw invalid;
@@ -248,16 +256,18 @@ final class HadithStore implements AutoCloseable {
             }
             return new SearchPage(raw,hits,exact,start);
         }
+        List<String> anchorTerms=MeaningSearch.focusTokens(terms);
         Map<String,List<String>> repairs=new HashMap<>();Map<String,Double> weights=new HashMap<>();
         for(String term:new LinkedHashSet<>(terms)){
             cancelSearch(signal);int df=0;
             try(Cursor c=db.rawQuery("SELECT df FROM search_vocabulary WHERE token=?",new String[]{term},signal)){if(c.moveToFirst())df=c.getInt(0);}
             weights.put(term,Math.max(.25,Math.log(1.+recordCount/(1.+df))));
         }
-        List<String> ranked=new ArrayList<>(weights.keySet());ranked.sort(Comparator.comparingDouble((String t)->weights.get(t)).reversed().thenComparing(t->t));
+        List<String> ranked=new ArrayList<>(new LinkedHashSet<>(anchorTerms));
+        ranked.sort(Comparator.comparingDouble((String t)->weights.getOrDefault(t,1.)).reversed().thenComparing(t->t));
         for(String term:ranked.subList(0,Math.min(HadithSearchPlan.MAX_ANCHORS,ranked.size())))
-            repairs.put(term,mergeAlternatives(MeaningSearch.alternatives(term),spellingCandidates(term,terms.size()>1,signal)));
-        HadithSearchPlan plan=HadithSearchPlan.candidates(intent,repairs,weights);
+            repairs.put(term,mergeAlternatives(MeaningSearch.alternatives(term),spellingCandidates(term,anchorTerms.size()>1,signal)));
+        HadithSearchPlan plan=HadithSearchPlan.candidates(intent,anchorTerms,repairs,weights);
         List<Hit> matches=new ArrayList<>();int scanned=0;
         try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+plan.where,plan.args.toArray(new String[0]),signal)){
             while(c.moveToNext()){
@@ -283,7 +293,7 @@ final class HadithStore implements AutoCloseable {
         }
 
         TextMatch context=null;
-        try(Cursor docs=db.rawQuery(
+        if(layeredHadithIds.contains(record.id))try(Cursor docs=db.rawQuery(
             "SELECT 0,text,'' FROM editorial_translation WHERE hadith_id=? AND status IN ('released','reviewed') "+
             "UNION ALL SELECT 1,text,roman FROM search_context WHERE hadith_id=?",
             new String[]{record.id,record.id},signal)){
