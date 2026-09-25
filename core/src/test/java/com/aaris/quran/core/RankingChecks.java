@@ -32,7 +32,8 @@ final class RankingChecks {
         String paragraph="distinctive ".repeat(90)+"anchor";
         SearchEngine longSearch=new SearchEngine(Arrays.asList(new SearchEngine.Document(new Ayah(1,1,"اختبار","x",1),paragraph)));
         require(!longSearch.search(paragraph,10).results.isEmpty(),"Paragraph over the old 512-character limit is searched whole");
-        require(longSearch.search("x".repeat(16385),10).intent.equals("QUERY_LIMIT"),"Oversized input is explicitly refused");
+        SearchEngine.Response oversized=longSearch.search("x".repeat(16385),10);
+        require(oversized.intent.equals("LONG_TEXT"),"Oversized input is planned as long text instead of refused");
         TextMatch one=TextMatch.compare(TextMatch.tokens("word word"),TextMatch.tokens("word"),Collections.emptyMap(),Collections.emptyMap());
         require(!one.accepted,"One source occurrence cannot satisfy repeated query words");
         SearchEngine paragraphs=new SearchEngine(Arrays.asList(
