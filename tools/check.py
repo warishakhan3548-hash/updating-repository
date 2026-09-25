@@ -271,6 +271,9 @@ def main():
         start = main_activity_text.index(marker)
         end = main_activity_text.find('\n    private ', start + len(marker))
         return main_activity_text[start:] if end < 0 else main_activity_text[start:end]
+    today_method = java_method('today')
+    assert 'final Ayah resumeTarget=resume;' in today_method and 'audioControls(resumeTarget)' in today_method, 'Today recitation controls must target the exact ayah shown in Where You Left Off'
+    assert 'audioControls(content.ayah("Q:"+readerSurah+":"+readerStart))' not in today_method, 'Today recitation controls must not regress to the canonical 8-ayah page start'
     for method in ('hadithCollection', 'hadithBook', 'hadithRecordsPage', 'hadithRecord'):
         assert 'hadithBrowseWorker.submit' in java_method(method), f'{method} must load Hadith data off the UI thread'
     hadith_collection = java_method('hadithCollection')
