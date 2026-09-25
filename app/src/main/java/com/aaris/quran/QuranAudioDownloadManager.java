@@ -57,7 +57,7 @@ final class QuranAudioDownloadManager {
             io.execute(()->{
                 String failure=null;
                 try{
-                    if(!store.installedSurah(surah))downloadOne(surah,listener,0,1);
+                    if(!store.installedSurah(surah))downloadOne(surah,0,1);
                     if(cancel)throw new IOException("Download cancelled");
                     percent=100;progress="Word audio · Surah "+surah+" · downloaded ✓";
                 }catch(Exception e){failure=safeMessage(e);}
@@ -83,7 +83,7 @@ final class QuranAudioDownloadManager {
                         if(cancel)throw new IOException("Download cancelled");
                         if(store.installedSurah(current))continue;
                         activeSurah=current;percent=0;progress="Word audio · "+completed+"/114 saved · Surah "+current+" · starting…";
-                        downloadOne(current,listener,completed,114);completed++;percent=100;
+                        downloadOne(current,completed,114);completed++;percent=100;
                         progress="Word audio · "+completed+"/114 saved";notifyChanged();
                     }
                 }catch(Exception e){failure=safeMessage(e);}
@@ -99,7 +99,7 @@ final class QuranAudioDownloadManager {
 
     private interface TransferProgress {void changed(long downloaded,long total);}
 
-    private void downloadOne(int surah,Listener listener,int completed,int total) throws Exception {
+    private void downloadOne(int surah,int completed,int total) throws Exception {
         QuranAudioStore.PackMeta meta=store.meta(surah);
         if(meta==null)throw new IOException("Surah pronunciation catalog missing");
         File partial=store.partialFile(surah);
