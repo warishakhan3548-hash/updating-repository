@@ -5,7 +5,7 @@ import java.util.regex.*;
 
 /** Rebuildable deterministic indexes. Matching text is not a religious conclusion. */
 public final class SearchEngine {
-    public static final String VERSION = "ranked-10-offline-meaning";
+    public static final String VERSION = "ranked-11-long-text";
     public enum Strength { STRONG_TEXT, RELATED }
     public enum Origin { USER, AI }
     public static final class Query {
