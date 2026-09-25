@@ -78,12 +78,17 @@ public final class SearchIntentChecks {
         check(HadithQuery.parse("sahih 556").sahihCollections,"Ambiguous Sahih reference searches both collections");
         check(!HadithQuery.parse("حدثنا قتيبة بن سعيد حدثنا").isHadithIntent(),"Narration text is not a fuzzy collection title");
         check(!HadithQuery.parse("قال مسلم حدثنا").isHadithIntent(),"Names within prose do not change the scope");
-        for(String value:new String[]{"2:255","٢:٢٥٥","Quran 2:255","कुरान २:२५५"}){
-            UnifiedQuery u=UnifiedQuery.parse(value,UnifiedQuery.ALL);check(u.quran&&!u.hadith,"Quran routing: "+value);
+        for(String value:new String[]{"2:255","٢:٢٥٥","Quran 2:255","कुरान २:२५५","2 255","Q 2/255","Quran: 2.255"}){
+            UnifiedQuery u=UnifiedQuery.parse(value,UnifiedQuery.ALL);
+            check(u.quran&&!u.hadith&&u.quranText.equals("2:255"),"Quran routing: "+value);
         }
         for(String value:new String[]{"556","Sahih Muslim 5556","صحيح البخاري 1","h:bukhari:1:1"}){
             UnifiedQuery u=UnifiedQuery.parse(value,UnifiedQuery.ALL);check(!u.quran&&u.hadith,"Hadith routing: "+value);
         }
+        UnifiedQuery quranOnly=UnifiedQuery.parse("556",UnifiedQuery.QURAN);
+        check(quranOnly.quran&&!quranOnly.hadith,"Explicit Quran filter must not be overridden by Hadith-looking input");
+        UnifiedQuery hadithOnly=UnifiedQuery.parse("2:255",UnifiedQuery.HADITH);
+        check(!hadithOnly.quran&&hadithOnly.hadith,"Explicit Hadith filter must not be overridden by Quran-looking input");
         UnifiedQuery both=UnifiedQuery.parse("إِنَّمَا الْأَعْمَالُ",UnifiedQuery.ALL);
         check(both.quran&&both.hadith,"Arabic text searches both corpora");
         check(!UnifiedQuery.parse("الاعمال",UnifiedQuery.HADITH).quran,"Explicit Hadith filter");
