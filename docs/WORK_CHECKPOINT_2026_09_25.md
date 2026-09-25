@@ -1,10 +1,12 @@
 # Active bug-sweep checkpoint — 25 September 2026
 
 Base main: `0330ddd1470567a5fe396e617532c988ca19d529`.
-Working branch: `audit/bug-sweep-20260925`.
+Original working branch: `audit/bug-sweep-20260925`.
+Merged PR: `#309`.
+Verified squash merge: `3c4b7b11b79f5247de98dcc7d8cdff1558d3572b`.
 
 The user requested a broad repository bug/UI/UX audit with durable recovery if the chat is interrupted.
-Resume from this branch and this file, not from an old local clone.
+This sweep is merged. Resume future audit work from current `main` at or after the verified merge above; do not resume from an old local clone.
 
 ## Confirmed bugs fixed
 
@@ -78,10 +80,17 @@ Included in `84df30e21198ee475c172a1dcfd06a362e909bf5`.
 - Real-device visual, OEM overlay, media playback, storage-corruption, and low-memory QA remain device tests;
   CI/host compilation cannot honestly certify them.
 
+## Final publication state
+
+- PR #309 was reviewed as cleanly mergeable and squash-merged to `main`.
+- Final code-bearing branch run `36148041247` completed successfully before merge.
+- Merge commit: `3c4b7b11b79f5247de98dcc7d8cdff1558d3572b`.
+- The merged diff touched only workflow/runtime/checkpoint/regression-check files; no Quran/Hadith source evidence was modified.
+
 ## Resume order
 
-1. Inspect the latest Actions run for this branch; fix any failure before publication.
-2. Create/update the PR from `audit/bug-sweep-20260925` to `main`.
-3. Require the PR-to-main verification run to pass.
-4. Review the final diff, then merge without changing Quran/Hadith source text or evidence data.
-5. Continue the audit only from new concrete findings; do not layer speculative wrappers over working code.
+1. Start from current `main`; confirm it contains merge `3c4b7b11b79f5247de98dcc7d8cdff1558d3572b`.
+2. Read this checkpoint before starting another sweep.
+3. Create a fresh audit branch for new concrete findings.
+4. Keep source/evidence planes immutable unless the user explicitly starts a source-data task.
+5. Continue only from demonstrated defects or measurable UX problems; do not layer speculative wrappers over working code.
