@@ -11,6 +11,11 @@ public final class MeaningSearch {
     private MeaningSearch() {}
 
     private static final Map<String,List<String>> ALIASES;
+    private static final Set<String> FILLER=new HashSet<>(Arrays.asList(
+        "के","की","का","को","ने","से","में","पर","कि","था","थे","थी","है","हैं","हो","रहे","रही","रहा",
+        "aur","ke","ki","ka","ko","ne","se","me","mein","par","tha","the","thi","hai","hain","ho","rahe","rahi","raha",
+        "the","a","an","of","to","and","in","is","was","were","that","who","he","she","they","it","his","her","their"
+    ));
     static {
         Map<String,LinkedHashSet<String>> map=new HashMap<>();
         group(map,"नबी","nabi","prophet","رسول","نبي","रसूल","rasul","messenger");
@@ -49,6 +54,21 @@ public final class MeaningSearch {
             LinkedHashSet<String> alternatives=map.computeIfAbsent(value,k->new LinkedHashSet<>());
             for(String other:normalized)if(!other.equals(value))alternatives.add(other);
         }
+    }
+
+    /**
+     * Remove only low-information grammar tokens for a secondary meaning lane.
+     * Negation, numbers, time/order words and religious/content words are deliberately retained.
+     */
+    public static List<String> focusTokens(List<String> normalizedTokens){
+        if(normalizedTokens==null||normalizedTokens.isEmpty())return Collections.emptyList();
+        List<String> focused=new ArrayList<>();
+        for(String token:normalizedTokens){
+            if(token==null||token.isEmpty())continue;
+            if(TextMatch.negative(token)||!FILLER.contains(token))focused.add(token);
+        }
+        // Never turn a sentence into a one-word semantic guess.
+        return focused.size()>=2?focused:new ArrayList<>(normalizedTokens);
     }
 
     /** High-confidence, domain-specific aliases only; never generic free-form synonym expansion. */
