@@ -330,11 +330,18 @@ def main():
     move_start = main_activity_text.index('    private boolean moveReaderPage(')
     move_end = main_activity_text.find('\n    private ', move_start + 1)
     move_reader = main_activity_text[move_start:] if move_end < 0 else main_activity_text[move_start:move_end]
+    reader_open = java_method('open')
     reader_prefetch = java_method('prefetchReaderNeighbors')
-    assert 'private static int lastReaderPageStart(int ayahCount){return ((Math.max(1,ayahCount)-1)/8)*8+1;}' in main_activity_text, 'Reader needs one canonical last-page boundary calculation'
-    assert 'lastReaderPageStart(content.surah(previous).count)' in move_reader, 'Previous across a Surah boundary must land on the canonical non-overlapping last page'
-    assert 'lastReaderPageStart(content.surah(prior).count)' in reader_prefetch, 'Reader prefetch must target the same previous-Surah page that navigation opens'
-    assert 'count-7' not in move_reader and 'count-7' not in reader_prefetch, 'Do not reintroduce overlapping previous-Surah reader pages'
+    assert 'private static int readerPageStart(int ayah){return ((Math.max(1,ayah)-1)/8)*8+1;}' in main_activity_text, 'Reader needs one canonical 8-ayah page-grid calculation'
+    assert 'int target=Math.max(1,Math.min(content.surah(readerSurah).count,ayah));readerStart=readerPageStart(target);' in reader_open, 'Opening a searched or saved ayah must land on the canonical reader page containing it'
+    assert 'String pageId="Q:"+readerSurah+":"+readerStart,anchorId="Q:"+readerSurah+":"+target;' in reader_open, 'Reader target opening must keep page identity separate from the requested ayah anchor'
+    assert 'new ReadingPosition(pageId,anchorId,0,0,target==readerStart)' in reader_open, 'Reader target opening must preserve the requested ayah while keeping canonical pagination'
+    assert 'readerPageStart(content.surah(previous).count)' in move_reader, 'Previous across a Surah boundary must land on the canonical non-overlapping last page'
+    assert 'readerPageStart(content.surah(prior).count)' in reader_prefetch, 'Reader prefetch must target the same previous-Surah page that navigation opens'
+    assert 'Ayah anchor=content.ayah(readingPosition.anchorId);' in main_activity_text and 'readerStart=readerPageStart(anchor.number);' in main_activity_text, 'Legacy shifted saved reader pages must migrate from their real visible anchor onto the canonical page grid'
+    assert 'new ReadingPosition(canonicalPage,readingPosition.anchorId,readingPosition.codePoint,readingPosition.lineOffsetDp,false)' in main_activity_text, 'Reader-page migration must preserve the saved Unicode anchor and viewport offset'
+    assert 'readerSurah=Math.max(1,Math.min(114,readerSurah));' in main_activity_text and 'readerStart=readerPageStart(Math.max(1,Math.min(content.surah(readerSurah).count,readerStart)));' in main_activity_text, 'Reader fallback state without a viewport anchor must still be clamped onto the canonical page grid'
+    assert 'lastReaderPageStart' not in main_activity_text and 'count-7' not in move_reader and 'count-7' not in reader_prefetch, 'Do not reintroduce alternate or overlapping reader page-boundary formulas'
     assert 'synchronized Map<String,Recall.State> states(Collection<String> targets)' in learning_store_text, 'Recall single-target flows need the existing targeted state projection'
     assert 'WHERE target IN (' in learning_store_text, 'Targeted Recall state projection must stay bounded to requested targets when the global cache is cold'
     for method in ('enroll', 'review', 'reviewTransition'):
