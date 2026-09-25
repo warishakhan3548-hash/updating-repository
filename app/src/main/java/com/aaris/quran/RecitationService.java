@@ -41,7 +41,7 @@ public final class RecitationService extends Service {
         }else if(PAUSE.equals(action)){if(paused)resume();else pause();}else if(NEXT.equals(action))move(1);else if(PREVIOUS.equals(action))move(-1);});return START_NOT_STICKY;
     }
     private void play(){
-        resumeAfterTransientFocusLoss=false;int token=++generation;if(pending!=null)pending.cancel(true);releasePlayer();paused=false;buffering=true;app.recitationActive=true;
+        resumeAfterTransientFocusLoss=false;int token=++generation;app.recitationDownloads.cancelPlaybackFetch();if(pending!=null)pending.cancel(true);releasePlayer();paused=false;buffering=true;app.recitationActive=true;
         if(app.audio!=null)app.audio.stop();Ayah record=app.content.ayah("Q:"+surah+":"+ayah);if(record==null){stopSelf();return;}
         update("Loading · "+label());String voice=reciter;
         pending=null;
@@ -63,7 +63,7 @@ public final class RecitationService extends Service {
     private void pause(){resumeAfterTransientFocusLoss=false;pausePlayback(true);}
     private void pausePlayback(boolean releaseFocus){
         if(player!=null)try{if(player.isPlaying()){player.pause();buffering=false;paused=true;update("Paused · "+label());if(releaseFocus)abandonFocus();return;}}catch(IllegalStateException ignored){}
-        generation++;if(pending!=null)pending.cancel(true);releasePlayer();buffering=false;paused=true;update("Paused · "+label());if(releaseFocus)abandonFocus();
+        generation++;app.recitationDownloads.cancelPlaybackFetch();if(pending!=null)pending.cancel(true);releasePlayer();buffering=false;paused=true;update("Paused · "+label());if(releaseFocus)abandonFocus();
     }
     private void resume(){
         resumeAfterTransientFocusLoss=false;
@@ -88,6 +88,6 @@ public final class RecitationService extends Service {
     private void fail(String message){android.widget.Toast.makeText(this,message,android.widget.Toast.LENGTH_LONG).show();stopSelf();}
     private void abandonFocus(){if(audio!=null&&focus!=null)try{audio.abandonAudioFocusRequest(focus);}catch(RuntimeException ignored){}}
     private void releasePlayer(){MediaPlayer old=player;player=null;if(old!=null)try{old.release();}catch(RuntimeException ignored){}}
-    @Override public void onDestroy(){destroyed=true;generation++;buffering=false;if(pending!=null)pending.cancel(true);main.removeCallbacksAndMessages(null);releasePlayer();abandonFocus();if(session!=null){session.setActive(false);session.release();}app.recitationActive=false;app.recitationLabel="";app.main.post(()->{if(app.recitationChanged!=null)app.recitationChanged.run();});super.onDestroy();}
+    @Override public void onDestroy(){destroyed=true;generation++;buffering=false;app.recitationDownloads.cancelPlaybackFetch();if(pending!=null)pending.cancel(true);main.removeCallbacksAndMessages(null);releasePlayer();abandonFocus();if(session!=null){session.setActive(false);session.release();}app.recitationActive=false;app.recitationLabel="";app.main.post(()->{if(app.recitationChanged!=null)app.recitationChanged.run();});super.onDestroy();}
     @Override public IBinder onBind(Intent intent){return null;}
 }
