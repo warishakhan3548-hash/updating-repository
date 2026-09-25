@@ -14,7 +14,7 @@ class ArabicText extends TextView {
     private boolean wordHighlighted;
     private Shader face;
     private float cachedSize=-1;
-    private int cachedBaseline=-1,cachedAdvance=-1,cachedColor,cachedSheen=-1,cachedSurface,cachedHighlight,cachedFinish=-1,cachedAccent;
+    private int cachedBaseline=-1,cachedAdvance=-1,cachedColor,cachedSheen=-1,cachedSurface,cachedHighlight,cachedGradientSurface,cachedGradientHighlight,cachedFinish=-1,cachedAccent;
     private final float density;
 
     ArabicText(Context context){
@@ -37,7 +37,7 @@ class ArabicText extends TextView {
             int advance=Math.max(1,layout.getLineCount()>1?layout.getLineBaseline(1)-baseline:layout.getLineBottom(0)-layout.getLineTop(0));
             float size=getTextSize();
             if(face==null||cachedSize!=size||cachedBaseline!=baseline||cachedAdvance!=advance||cachedColor!=getCurrentTextColor()||
-                cachedSheen!=style.textSheen||cachedSurface!=style.effectiveSurface()||cachedHighlight!=style.surfaceHighlight()||cachedFinish!=style.textFinish||cachedAccent!=style.accent){
+                cachedSheen!=style.textSheen||cachedSurface!=style.effectiveSurface()||cachedHighlight!=style.surfaceHighlight()||cachedGradientSurface!=style.effectiveSurfaceAtGradientEnd()||cachedGradientHighlight!=style.surfaceHighlightAtGradientEnd()||cachedFinish!=style.textFinish||cachedAccent!=style.accent){
                 // Repeat per line, not over the entire ayah: long ayahs retain the same contrast.
                 float top=baseline-size;int base=getCurrentTextColor();
                 if(style.textFinish==Appearance.TEXT_FOIL){
@@ -52,7 +52,7 @@ class ArabicText extends TextView {
                         new float[]{0,.27f,.50f,.72f,1},Shader.TileMode.REPEAT);
                 }
                 cachedSize=size;cachedBaseline=baseline;cachedAdvance=advance;cachedColor=getCurrentTextColor();
-                cachedSheen=style.textSheen;cachedSurface=style.effectiveSurface();cachedHighlight=style.surfaceHighlight();cachedFinish=style.textFinish;cachedAccent=style.accent;
+                cachedSheen=style.textSheen;cachedSurface=style.effectiveSurface();cachedHighlight=style.surfaceHighlight();cachedGradientSurface=style.effectiveSurfaceAtGradientEnd();cachedGradientHighlight=style.surfaceHighlightAtGradientEnd();cachedFinish=style.textFinish;cachedAccent=style.accent;
             }
             paint.setShader(face);
             paint.clearShadowLayer();
