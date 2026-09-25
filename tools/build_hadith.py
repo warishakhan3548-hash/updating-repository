@@ -123,6 +123,13 @@ def romanize_hindi(value):
     return ' '.join(''.join(out).split())
 
 
+SEARCH_FIELD_BOUNDARY = "aarisfieldboundaryx"
+
+def join_search_fields(values):
+    cleaned=[str(value).strip() for value in values if value is not None and str(value).strip()]
+    return (" "+SEARCH_FIELD_BOUNDARY+" ").join(cleaned)
+
+
 def search_tokens(value):
     return set(search_text(value).split())
 
@@ -145,13 +152,14 @@ def build_search_index(db):
     # it never rewrites a translation or calls a runtime service.
     for rowid,hadith_id,collection_id,record_number,ar,en,ur,bn in db.execute(
             'SELECT rowid,id,collection_id,record_number,arabic,english,urdu,bangla FROM hadith'):
-        translated = ' '.join(str(v or '') for v in (en,ur,bn))
-        extra = ' '.join(editorial.get(hadith_id, []) + contexts.get(hadith_id, []))
+        latin_fields=[en,ur,bn]+editorial.get(hadith_id, [])+contexts.get(hadith_id, [])
+        latin=search_text(join_search_fields(latin_fields))
         db.execute(
             'INSERT INTO hadith_fts(hadith_id,collection_id,record_number,arabic,latin) VALUES(?,?,?,?,?)',
-            (hadith_id, collection_id, record_number, search_text(ar), search_text((translated+' '+extra).strip()))
+            (hadith_id, collection_id, record_number, search_text(ar), latin)
         )
-        terms=search_tokens(' '.join(str(v or '') for v in (ar,en,ur,bn))+' '+extra)
+        terms=search_tokens(ar+' '+latin)
+        terms.discard(SEARCH_FIELD_BOUNDARY)
         db.executemany('INSERT OR IGNORE INTO search_token VALUES(?,?)', ((t,rowid) for t in sorted(terms)))
     db.execute('INSERT INTO search_vocabulary SELECT token,count(*) FROM search_token GROUP BY token')
     for (token,) in db.execute('SELECT token FROM search_vocabulary ORDER BY token'):
