@@ -245,6 +245,11 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);
         backdrop.highContrast=highContrast;backdrop.invalidate();
     }
+    private void updateHighContrast(boolean enabled){
+        if(highContrast==enabled)return;
+        highContrast=enabled;learning.set("contrast",""+enabled);
+        show();settings();
+    }
     private void show(){
         if(content==null||isDestroyed()||isFinishing())return;
         applyWindowAppearance();
@@ -1777,7 +1782,7 @@ public final class MainActivity extends Activity {
         page.addView(langs);gap(page,14);
 
         Switch contrast=new Switch(this);contrast.setText("High contrast");contrast.setTextColor(INK);contrast.setChecked(highContrast);contrast.setMinHeight(dp(this,48));page.addView(contrast);
-        contrast.setOnCheckedChangeListener((b,v)->{highContrast=v;learning.set("contrast",""+v);sample.setReliefEnabled(!v);backdrop.highContrast=v;backdrop.invalidate();});
+        contrast.setOnCheckedChangeListener((b,v)->updateHighContrast(v));
         gap(page,12);
 
         page.addView(settingsRow("moon","Focus mode",()->{quietReader=true;tab=1;reading=true;settingsDialog.dismiss();}));gap(page,9);
