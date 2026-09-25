@@ -1610,8 +1610,11 @@ public final class MainActivity extends Activity {
         if(request==OVERLAY_PERMISSION){if(pendingAmbient&&Settings.canDrawOverlays(this))beginAmbient();else {pendingAmbient=false;openOtherAppsAfterAmbientStart=false;toast("Overlay permission is needed for cards over other apps");}return;}
         if(result!=RESULT_OK||data==null||data.getData()==null){if(request==EXPORT){String token=pendingExport;pendingExport=null;app.io.execute(()->discardExport(token));}return;}Uri uri=data.getData();
         if(request==EXPORT){String token=pendingExport;pendingExport=null;if(token==null){toast("Start the export again");return;}app.io.execute(()->{
-            try{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();app.exports.copyTo(token,out);}discardExport(token);ui.post(()->toast("File saved"));}
-            catch(Exception e){ui.post(()->toast("File was not saved; start the export again"));}
+            try{
+                try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();app.exports.copyTo(token,out);}
+                ui.post(()->toast("File saved"));
+            }catch(Exception e){ui.post(()->toast("File was not saved; start the export again"));}
+            finally{discardExport(token);}
         });}
         if(request==IMPORT)app.io.execute(()->{try{
             ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>ExportStaging.MAX_BYTES)throw new IOException("Backup is larger than 64 MiB");out.write(b,0,n);}}
@@ -1658,6 +1661,7 @@ public final class MainActivity extends Activity {
         if(hadith){for(HadithStore.Hit h:hadithHits)if(selectedHadith.isEmpty()||selectedHadith.contains(h.record.id))hits.add(h);}
         else{for(SearchEngine.Result r:quranHits){matches.put(r.ayah.id,quranMatchDescription(r));if(selectedEvidence.isEmpty())ayahs.add(r.ayah);}if(!selectedEvidence.isEmpty())for(String id:selectedEvidence){Ayah a=content.ayah(id);if(a!=null)ayahs.add(a);}}
         int count=hadith?hits.size():ayahs.size();if(count==0){toast("Search or select records first");return;}
+        if(count>ResearchExport.MAX_RECORDS){toast("Select up to "+ResearchExport.MAX_RECORDS+" records for one PDF");return;}
         LinearLayout page=sheet("Share research PDF");Dialog dialog=activeDialog;
         caption(page,count+" complete source records will be exported. "+(hadith&&count<hadithTotal?"There are "+hadithTotal+" matches in total; this PDF includes selected or loaded results.":"Selected records, or the currently displayed results, are included."));gap(page,14);
         caption(page,"Research question");Spinner template=new Spinner(this);

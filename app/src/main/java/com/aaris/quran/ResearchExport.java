@@ -7,6 +7,7 @@ import java.util.*;
 
 /** Complete source records with attributed translations; no generated religious interpretation. */
 final class ResearchExport {
+    static final int MAX_RECORDS=50;
     static final String PROMPT="Analyze only the attached evidence. Cite the collection and record or ayah number for every conclusion. Keep each narration and its grading separate. Do not combine excerpts into a new quotation. Distinguish text-match levels from authenticity. State uncertainty and differences; do not invent missing translations or references.";
     static final String[] TEMPLATES={"Explain evidence","Compare narrations","Compare translations","Practice described","Agreements & differences","Custom question"};
     private static final String[] TASKS={
@@ -22,6 +23,7 @@ final class ResearchExport {
         return PROMPT+"\n\nUser research question (not source evidence):\n"+task;
     }
     static byte[] quran(Context c,ContentStore store,TranslationStore translations,String edition,List<Ayah> ayahs,Map<String,String> matches,String query,String prompt)throws Exception{
+        requireRecordCount(ayahs.size());
         Typeface arabic=Typeface.createFromAsset(c.getAssets(),"fonts/AmiriQuran.ttf");
         try(EvidenceExporter.Pages pages=new EvidenceExporter.Pages("Aaris · Quran research")){
             header(pages,query,ayahs.size(),prompt);
@@ -42,6 +44,7 @@ final class ResearchExport {
         }
     }
     static byte[] hadith(Context c,HadithStore store,List<HadithStore.Hit> hits,String language,String query,String prompt)throws Exception{
+        requireRecordCount(hits.size());
         Typeface arabic=Typeface.createFromAsset(c.getAssets(),"fonts/Amiri-Regular.ttf");
         try(EvidenceExporter.Pages pages=new EvidenceExporter.Pages("Aaris · Hadith research")){
             header(pages,query,hits.size(),prompt);
@@ -59,6 +62,9 @@ final class ResearchExport {
             }
             return pages.bytes();
         }
+    }
+    private static void requireRecordCount(int count){
+        if(count<1||count>MAX_RECORDS)throw new IllegalArgumentException("Research PDF supports 1–"+MAX_RECORDS+" records");
     }
     private static void header(EvidenceExporter.Pages pages,String query,int count,String prompt){
         pages.block("AARIS\nResearch evidence",Typeface.DEFAULT_BOLD,22,false);
