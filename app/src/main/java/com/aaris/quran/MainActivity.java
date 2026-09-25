@@ -65,7 +65,7 @@ public final class MainActivity extends Activity {
     private int searchScope=UnifiedQuery.ALL;
     private boolean sharingPdf;
     private TextView recitationBanner,recitationDownloadStatus;
-    private Runnable recitationListener,hadithListener;
+    private Runnable recitationListener,hadithListener,activeSearchRefresh;
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
     private final Map<String,JSONObject> selectionTrace=new LinkedHashMap<>();
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
@@ -108,7 +108,7 @@ public final class MainActivity extends Activity {
             if(isFinishing()||isDestroyed())return;
             if(app.loadError!=null){loading.setText(app.loadError+"\nOpen the app again. Your learning data remains stored separately.");return;}
             content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;
-            hadithListener=()->{if(!isDestroyed()&&!isFinishing()&&tab==2&&!searching)show();};app.hadithChanged=hadithListener;
+            hadithListener=()->{if(isDestroyed()||isFinishing())return;if(searching){String q=searchQuery.trim();if(!q.isEmpty()&&searchCancellation==null&&UnifiedQuery.parse(q,searchScope).hadith){Runnable refresh=activeSearchRefresh;if(refresh!=null)refresh.run();}}else if(tab==2)show();};app.hadithChanged=hadithListener;
             language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");translationSpeech=new TranslationSpeech(this);
             highContrast=Boolean.parseBoolean(learning.get("contrast","false"));
             arabicSize=appearance.arabicSize;
@@ -144,7 +144,7 @@ public final class MainActivity extends Activity {
     private void show(){
         if(content==null||isDestroyed()||isFinishing())return;
         applyWindowAppearance();
-        captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;
+        captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;activeSearchRefresh=null;
         header=row(this);pad(header,20,10);layout.addView(header,new LinearLayout.LayoutParams(-1,-2));
         body=column(this);layout.addView(body,new LinearLayout.LayoutParams(-1,0,1));
         recitationBanner=button("",()->audioControls(content.ayah("Q:"+app.recitationSurah+":"+app.recitationAyah)));layout.addView(recitationBanner);refreshRecitation();
@@ -1396,7 +1396,7 @@ public final class MainActivity extends Activity {
                 });
             };ui.postDelayed(debounce,220);
         };
-        rerunSearch[0]=run;
+        rerunSearch[0]=run;activeSearchRefresh=run;
         query.addTextChangedListener(watcher(run));query.setText(searchQuery);query.setSelection(query.length());
     }
     private Map<String,TranslationStore.Entry> prepareQuranTranslations(SearchEngine.Response response,int offset,int end,String edition){
