@@ -18,9 +18,13 @@ public final class CoreChecks {
         SearchEngine search=new SearchEngine(Arrays.asList(
             doc(1,"لا يعمل الرجل","work नहीं"),doc(2,"يعمل الرجل","work"),
             doc(3,"الكلمة الصحيحة","correct सही درست")));
-        check(search.search("١:٢",10).results.get(0).ayah.number==2,"Unicode coordinate");
+        SearchEngine.Response coordinate=search.search("١:٢",10);
+        check(coordinate.results.get(0).ayah.number==2,"Unicode coordinate");
+        check(coordinate.results.get(0).reference,"Coordinate lookup must retain reference identity");
         check(search.search("1:9",10).results.isEmpty(),"Unknown coordinate must abstain");
-        check(search.search("الكلمة الصحيحة",10).results.get(0).strength==SearchEngine.Strength.STRONG_TEXT,"Exact text lane");
+        SearchEngine.Result exactText=search.search("الكلمة الصحيحة",10).results.get(0);
+        check(exactText.strength==SearchEngine.Strength.STRONG_TEXT,"Exact text lane");
+        check(!exactText.reference,"Exact source text is retrieval, not a coordinate reference");
         check(search.search("لا يعمل",10).results.stream().noneMatch(r->r.ayah.number==2),"Arabic negation preserved");
         check(search.search("work नहीं",10).results.stream().noneMatch(r->r.ayah.number==2),"Hindi negation preserved");
         check(!search.search("درست",10).results.isEmpty(),"Urdu must reach gloss lane");

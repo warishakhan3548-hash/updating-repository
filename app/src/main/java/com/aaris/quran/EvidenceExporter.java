@@ -53,6 +53,7 @@ final class EvidenceExporter {
         if(trace==null)return "Selection: retrieval provenance unavailable.";
         String origin=trace.optString("selection_origin","");
         if(origin.equals("SEARCH_FRAGMENT"))return "Selection: exact source fragment only. The whole query was not found as one quotation. See evidence.json for original query, exact spans and unmatched words.";
+        if(origin.equals("SEARCH")&&trace.optBoolean("reference_lookup",false))return "Selection: direct source reference lookup. No text-similarity claim.";
         if(origin.equals("SEARCH"))return "Selection: "+trace.optString("strength","related")+" retrieval. This does not verify a claim or interpretation.";
         return "Selection: "+origin+". No search-match claim.";
     }

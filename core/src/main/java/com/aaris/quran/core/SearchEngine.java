@@ -40,11 +40,15 @@ public final class SearchEngine {
         public final List<Integer> matchedVariants;
         public final double transformationCost;
         public final TextMatch match;
+        public final boolean reference;
         Result(Ayah ayah,Strength strength,List<String> reasons,double score,List<Integer> variants,double cost) {
-            this(ayah,strength,reasons,score,variants,cost,TextMatch.exactReference());
+            this(ayah,strength,reasons,score,variants,cost,TextMatch.exactReference(),true);
         }
         Result(Ayah ayah,Strength strength,List<String> reasons,double score,List<Integer> variants,double cost,TextMatch match) {
-            this.match=match;
+            this(ayah,strength,reasons,score,variants,cost,match,false);
+        }
+        private Result(Ayah ayah,Strength strength,List<String> reasons,double score,List<Integer> variants,double cost,TextMatch match,boolean reference) {
+            this.match=match;this.reference=reference;
             this.ayah=ayah;this.strength=strength;this.reasons=Collections.unmodifiableList(new ArrayList<>(reasons));
             this.score=score;this.matchedVariants=Collections.unmodifiableList(new ArrayList<>(variants));transformationCost=cost;
         }
@@ -176,7 +180,7 @@ public final class SearchEngine {
             boolean userMatch=false;for(int v:votes.get(e.getKey()))if(variants.get(v).origin==Origin.USER)userMatch=true;
             if(!userMatch)reasons.add("Matched an AI search formulation, not the original wording");
             if(variants.size()>1)reasons.add(votes.get(e.getKey()).size()+"/"+variants.size()+" distinct formulations matched; not independent evidence");
-            results.add(new Result(r.ayah,r.strength,reasons,r.score+fused.get(e.getKey())*.0001,votes.get(e.getKey()),r.transformationCost,r.match));
+            results.add(new Result(r.ayah,r.strength,reasons,r.score+fused.get(e.getKey())*.0001,votes.get(e.getKey()),r.transformationCost,r.match,r.reference));
         }
         results.sort(RESULT_ORDER);
         trace.put("variants",variants.size());trace.put("candidates",candidates.size());trace.put("accepted",results.size());
