@@ -66,7 +66,6 @@ public final class MainActivity extends Activity {
     private final List<SearchEngine.Result> quranHits=new ArrayList<>();
     private int hadithTotal;
     private int searchScope=UnifiedQuery.ALL;
-    private boolean sharingPdf;
     private TextView recitationBanner,recitationDownloadStatus;
     private Runnable recitationListener,hadithListener,activeSearchRefresh;
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
@@ -1656,7 +1655,7 @@ public final class MainActivity extends Activity {
     }
 
     private void shareResearch(boolean hadith){
-        if(sharingPdf){toast("PDF is being prepared…");return;}
+        if(app.researchPdfBusy.get()){toast("PDF is being prepared…");return;}
         List<HadithStore.Hit> hits=new ArrayList<>();List<Ayah> ayahs=new ArrayList<>();Map<String,String> matches=new LinkedHashMap<>();
         if(hadith){for(HadithStore.Hit h:hadithHits)if(selectedHadith.isEmpty()||selectedHadith.contains(h.record.id))hits.add(h);}
         else{for(SearchEngine.Result r:quranHits){matches.put(r.ayah.id,quranMatchDescription(r));if(selectedEvidence.isEmpty())ayahs.add(r.ayah);}if(!selectedEvidence.isEmpty())for(String id:selectedEvidence){Ayah a=content.ayah(id);if(a!=null)ayahs.add(a);}}
