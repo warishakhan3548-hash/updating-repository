@@ -275,6 +275,7 @@ final class HadithStore implements AutoCloseable {
         return new SearchPage(page.query,new ArrayList<>(page.hits.subList(from,to)),page.total,offset,page.limited);
     }
     private MatchChoice bestMatch(Record record,List<String> terms,Map<String,List<String>> repairs,Map<String,Double> weights,CancellationSignal signal){
+        List<String> focusedTerms=MeaningSearch.focusTokens(terms);
         TextMatch direct=TextMatch.compare(terms,TextMatch.tokens(record.arabic),repairs,weights);
         for(String text:new String[]{record.english,record.urdu,record.bangla})if(text!=null){
             cancelSearch(signal);TextMatch m=TextMatch.compare(terms,TextMatch.tokens(text),repairs,weights);
@@ -288,14 +289,24 @@ final class HadithStore implements AutoCloseable {
             new String[]{record.id,record.id},signal)){
             while(docs.moveToNext()){
                 cancelSearch(signal);boolean meaning=docs.getInt(0)==1;
-                TextMatch m=TextMatch.compare(terms,TextMatch.tokens(docs.getString(1)),repairs,weights);
+                List<String> docTokens=TextMatch.tokens(docs.getString(1));
+                TextMatch m=TextMatch.compare(terms,docTokens,repairs,weights);
                 if(!meaning){
                     if(m.accepted&&(!direct.accepted||TextMatch.compareRank(m,direct)<0))direct=m;
                     continue;
                 }
+                if(!focusedTerms.equals(terms)){
+                    TextMatch f=TextMatch.compare(focusedTerms,docTokens,repairs,weights);
+                    if(f.accepted&&(!m.accepted||f.band.ordinal()<m.band.ordinal()))m=f;
+                }
                 String roman=docs.getString(2);
                 if(roman!=null&&!roman.isEmpty()){
-                    TextMatch r=TextMatch.compare(terms,TextMatch.tokens(roman),repairs,weights);
+                    List<String> romanTokens=TextMatch.tokens(roman);
+                    TextMatch r=TextMatch.compare(terms,romanTokens,repairs,weights);
+                    if(!focusedTerms.equals(terms)){
+                        TextMatch rf=TextMatch.compare(focusedTerms,romanTokens,repairs,weights);
+                        if(rf.accepted&&(!r.accepted||rf.band.ordinal()<r.band.ordinal()))r=rf;
+                    }
                     if(r.accepted&&(!m.accepted||TextMatch.compareRank(r,m)<0))m=r;
                 }
                 if(m.accepted&&(context==null||TextMatch.compareRank(m,context)<0))context=m;
