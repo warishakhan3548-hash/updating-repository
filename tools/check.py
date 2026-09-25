@@ -306,7 +306,9 @@ def main():
     assert 'boolean hasPrevious=readerStart>1||readerSurah>1,hasNext=readerStart+8<=s.count||readerSurah<114;' in reader_method, 'Reader pager must model Quran boundaries explicitly'
     assert 'previous.setEnabled(hasPrevious)' in reader_method and 'next.setEnabled(hasNext)' in reader_method, 'Reader boundary controls must not remain tappable no-ops'
     assert '"Start of Quran"' in reader_method and '"End of Quran"' in reader_method, 'Reader boundary controls need explicit user feedback'
-    move_reader = java_method('moveReaderPage')
+    move_start = main_activity_text.index('    private boolean moveReaderPage(')
+    move_end = main_activity_text.find('\n    private ', move_start + 1)
+    move_reader = main_activity_text[move_start:] if move_end < 0 else main_activity_text[move_start:move_end]
     reader_prefetch = java_method('prefetchReaderNeighbors')
     assert 'private static int lastReaderPageStart(int ayahCount){return ((Math.max(1,ayahCount)-1)/8)*8+1;}' in main_activity_text, 'Reader needs one canonical last-page boundary calculation'
     assert 'lastReaderPageStart(content.surah(previous).count)' in move_reader, 'Previous across a Surah boundary must land on the canonical non-overlapping last page'
