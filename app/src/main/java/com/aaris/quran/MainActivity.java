@@ -808,7 +808,7 @@ public final class MainActivity extends Activity {
         if(recitationDownloadQueued||app.recitationDownloads.busy){toast("A download is already running");return;}
         recitationDownloadQueued=true;
         toast("Download started. Keep Aaris open for this download.");
-        app.audioWorker.execute(()->{
+        app.recitationDownloadWorker.execute(()->{
             try{
                 app.recitationDownloads.download(content,reciter,first,last,()->ui.post(()->{
                     if(recitationDownloadStatus!=null&&!isDestroyed())recitationDownloadStatus.setText(app.recitationDownloads.progress);
