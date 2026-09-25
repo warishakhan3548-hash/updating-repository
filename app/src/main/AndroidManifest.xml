@@ -15,6 +15,7 @@
         <provider android:name=".ResearchFiles" android:authorities="com.aaris.quran.research"
             android:exported="false" android:grantUriPermissions="true" />
         <activity android:name=".MainActivity" android:exported="true"
+            android:theme="@style/AppLaunchTheme"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
