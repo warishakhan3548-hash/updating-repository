@@ -55,7 +55,7 @@ public final class MainActivity extends Activity {
     private int pendingCorpora,pendingSearchJobs;
     private Runnable debounce;
     private String pendingExport;
-    private boolean preparingExport,wordAudioSummaryPending;
+    private boolean wordAudioSummaryPending;
     private int recitationDownloadGeneration,wordAudioPromptGeneration,wordAudioPlayGeneration;
     private Runnable recitationDownloadCompletion;
     private volatile int recitationListGeneration;
@@ -70,7 +70,7 @@ public final class MainActivity extends Activity {
     private int searchScope=UnifiedQuery.ALL;
     private TextView recitationBanner,operationBanner,recitationDownloadStatus,recitationPauseButton,wordAudioDownloadStatus,wordAudioPauseButton,wordAudioReaderButton;
     private ProgressBar searchProgress;
-    private Runnable recitationListener,hadithListener,operationListener,researchPdfListener,activeSearchRefresh;
+    private Runnable recitationListener,hadithListener,operationListener,researchPdfListener,preparedExportListener,activeSearchRefresh;
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
     private final Map<String,JSONObject> selectionTrace=new LinkedHashMap<>();
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
@@ -186,7 +186,7 @@ public final class MainActivity extends Activity {
                 TextView error=text(this,app.loadError+"\nOpen the app again. Your learning data remains stored separately.",15,INK);
                 error.setGravity(Gravity.CENTER);pad(error,24,24);layout.addView(error,new LinearLayout.LayoutParams(-1,-1));return;
             }
-            content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;operationListener=this::refreshOperationUi;app.operationChanged=operationListener;researchPdfListener=this::deliverResearchPdfResult;app.researchPdfChanged=researchPdfListener;if(resumed)deliverResearchPdfResult();
+            content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;operationListener=this::refreshOperationUi;app.operationChanged=operationListener;researchPdfListener=this::deliverResearchPdfResult;app.researchPdfChanged=researchPdfListener;preparedExportListener=this::deliverPreparedExportResult;app.preparedExportChanged=preparedExportListener;if(resumed){deliverResearchPdfResult();deliverPreparedExportResult();}
             hadithListener=()->{if(isDestroyed()||isFinishing())return;if(searching){String q=searchQuery.trim();if(!q.isEmpty()&&UnifiedQuery.parse(q,searchScope).hadith){Runnable refresh=activeSearchRefresh;if(refresh!=null)refresh.run();}}else if(tab==2)show();};app.hadithChanged=hadithListener;
             language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");
             if(app.translations!=null){
@@ -226,10 +226,10 @@ public final class MainActivity extends Activity {
     private static float clamp(float x,float min,float max){return Math.max(min,Math.min(max,x));}
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
     @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putBoolean("ambient_open_other_apps",openOtherAppsAfterAmbientStart);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putBoolean("search_open",searching);state.putInt("search_scope",searchScope);state.putString("hadith_query",hadithQuery);state.putInt("voice_scope",pendingVoiceScope);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
-    @Override protected void onPostResume(){super.onPostResume();resumed=true;deliverResearchPdfResult();if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
+    @Override protected void onPostResume(){super.onPostResume();resumed=true;deliverResearchPdfResult();deliverPreparedExportResult();if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
-    @Override protected void onDestroy(){wordAudioPromptGeneration++;wordAudioPlayGeneration++;ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(app!=null&&app.researchPdfChanged==researchPdfListener)app.researchPdfChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
+    @Override protected void onDestroy(){wordAudioPromptGeneration++;wordAudioPlayGeneration++;ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(app!=null&&app.researchPdfChanged==researchPdfListener)app.researchPdfChanged=null;if(app!=null&&app.preparedExportChanged==preparedExportListener)app.preparedExportChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
@@ -984,7 +984,7 @@ public final class MainActivity extends Activity {
             if(current!=null)audioControls(current);return;
         }
         if(app!=null&&app.researchPdfBusy.get()){toast("Preparing research PDF on your phone…");return;}
-        if(preparingExport||app.exportWriteBusy.get()){toast("Preparing or saving export on your phone…");return;}
+        if(app!=null&&(app.exportPrepareBusy.get()||app.exportWriteBusy.get())){toast("Preparing or saving export on your phone…");return;}
         if(wordAudioSummaryPending)toast("Checking downloaded word audio…");
     }
     private void refreshOperationUi(){
@@ -992,7 +992,7 @@ public final class MainActivity extends Activity {
         QuranAudioDownloadManager words=app.audioDownloads;
         boolean reciterBusy=app.recitationDownloads!=null&&app.recitationDownloads.busy;
         boolean wordBusy=words!=null&&words.busy();
-        boolean pdfBusy=app.researchPdfBusy.get(),exportBusy=preparingExport||app.exportWriteBusy.get();
+        boolean pdfBusy=app.researchPdfBusy.get(),exportBusy=app.exportPrepareBusy.get()||app.exportWriteBusy.get();
         int active=(reciterBusy?1:0)+(wordBusy?1:0)+(pdfBusy?1:0)+(exportBusy?1:0)+(wordAudioSummaryPending?1:0);
         String status="";
         if(active>1)status=active+" background tasks active · Tap for details";
@@ -2027,21 +2027,38 @@ public final class MainActivity extends Activity {
     }
     private void hideKeyboard(){View view=getCurrentFocus();if(view!=null)((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(view.getWindowToken(),0);}
     private void shareText(String text){Intent share=new Intent(Intent.ACTION_SEND);share.setType("text/plain");share.putExtra(Intent.EXTRA_TEXT,text);startActivity(Intent.createChooser(share,"Share"));}
-    private void saveFile(String name,String type,byte[] bytes){
-        app.io.execute(()->{
-            try{String token=app.exports.stage(bytes);ui.post(()->{
-                preparingExport=false;refreshOperationUi();
-                if(isDestroyed()||isFinishing()){app.io.execute(()->discardExport(token));return;}
-                pendingExport=token;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType(type);intent.putExtra(Intent.EXTRA_TITLE,name);
-                try{startActivityForResult(intent,EXPORT);}catch(ActivityNotFoundException e){pendingExport=null;app.io.execute(()->discardExport(token));toast("No document picker is available to save this file");}
-            });}catch(Exception e){ui.post(()->{preparingExport=false;refreshOperationUi();toast("Export could not be prepared: "+e.getMessage());});}
-        });
+    private static String exportFailure(String prefix,Exception error){
+        String detail=error==null?null:error.getMessage();
+        return detail==null||detail.trim().isEmpty()?prefix:prefix+": "+detail;
+    }
+    private void stagePreparedExport(String name,String type,byte[] bytes,String failurePrefix){
+        try{String token=app.exports.stage(bytes);app.publishPreparedExport(token,name,type);}
+        catch(Exception error){app.publishPreparedExportFailure(exportFailure(failurePrefix,error));}
+    }
+    private void deliverPreparedExportResult(){
+        if(!resumed||app==null||isDestroyed()||isFinishing())return;
+        QuranApp.PreparedExportResult result=app.takePreparedExportResult();if(result==null)return;
+        if(result.error!=null){toast(result.error);return;}
+        if(!ExportStaging.validToken(result.token)||result.name==null||result.type==null){
+            if(ExportStaging.validToken(result.token))app.io.execute(()->discardExport(result.token));
+            toast("Export could not be prepared. Try again.");return;
+        }
+        pendingExport=result.token;
+        Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType(result.type);intent.putExtra(Intent.EXTRA_TITLE,result.name);
+        try{startActivityForResult(intent,EXPORT);}
+        catch(ActivityNotFoundException e){String token=pendingExport;pendingExport=null;app.io.execute(()->discardExport(token));toast("No document picker is available to save this file");}
     }
     private void discardExport(String token){if(token!=null)try{app.exports.discard(token);}catch(IOException ignored){}}
-    private boolean beginExport(){if(preparingExport||pendingExport!=null||app.exportWriteBusy.get()){toast("Finish the current export first");return false;}preparingExport=true;refreshOperationUi();return true;}
+    private boolean beginExport(){
+        if(pendingExport!=null||app.exportWriteBusy.get()||!app.exportPrepareBusy.compareAndSet(false,true)){toast("Finish the current export first");return false;}
+        app.notifyOperationChanged();return true;
+    }
     private void backup(){
         if(!beginExport())return;
-        app.io.execute(()->{try{byte[] data=learning.backup().toString(2).getBytes(StandardCharsets.UTF_8);ui.post(()->{if(!isDestroyed())saveFile("Aaris-Quran-learning.json","application/json",data);});}catch(Exception e){ui.post(()->{preparingExport=false;refreshOperationUi();toast("Backup could not be created");});}});
+        try{app.io.execute(()->{
+            try{byte[] data=learning.backup().toString(2).getBytes(StandardCharsets.UTF_8);stagePreparedExport("Aaris-Quran-learning.json","application/json",data,"Backup could not be prepared");}
+            catch(Exception error){app.publishPreparedExportFailure(exportFailure("Backup could not be created",error));}
+        });}catch(RejectedExecutionException rejected){app.publishPreparedExportFailure("Backup could not start. Try again.");}
     }
     private void restorePicker(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/json");try{startActivityForResult(intent,IMPORT);}catch(ActivityNotFoundException e){toast("No document picker is available to open the backup");}}
     @Override protected void onActivityResult(int request,int result,Intent data){
@@ -2200,10 +2217,12 @@ public final class MainActivity extends Activity {
             if(selectedEvidence.isEmpty()){toast("Select ayahs from search results first");return;}
             if(!beginExport())return;
             List<String> selection=new ArrayList<>(selectedEvidence);Map<String,JSONObject> traces=new LinkedHashMap<>(selectionTrace);String query=searchQuery;
-            toast("Preparing evidence bundle…");app.io.execute(()->{try{
-                EvidenceExporter.Bundle b=EvidenceExporter.build(this,content,selection,query,traces);learning.saveBundle(b.id,b.json);
-                ui.post(()->{if(!isDestroyed())saveFile("Aaris-Quran-evidence.zip","application/zip",b.zip);});
-            }catch(Exception e){ui.post(()->{preparingExport=false;refreshOperationUi();toast("Export failed: "+e.getMessage());});}});
+            toast("Preparing evidence bundle…");final Context appContext=getApplicationContext();
+            try{app.io.execute(()->{try{
+                EvidenceExporter.Bundle b=EvidenceExporter.build(appContext,content,selection,query,traces);learning.saveBundle(b.id,b.json);
+                stagePreparedExport("Aaris-Quran-evidence.zip","application/zip",b.zip,"Export could not be prepared");
+            }catch(Exception error){app.publishPreparedExportFailure(exportFailure("Export failed",error));}});}
+            catch(RejectedExecutionException rejected){app.publishPreparedExportFailure("Export could not start. Try again.");}
         });page.addView(export);gap(page,10);
         page.addView(button("Clear selection",()->{selectedEvidence.clear();selectionTrace.clear();refreshEvidenceControls();research();}));gap(page,20);
         page.addView(label("WITH ANOTHER AI"));gap(page,8);caption(page,"After you tap Share, you choose the destination. The app does not send your query or learning history by itself.");gap(page,12);
