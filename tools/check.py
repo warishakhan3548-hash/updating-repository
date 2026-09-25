@@ -18,6 +18,7 @@ import tempfile
 import sys
 import xml.etree.ElementTree as ET
 from acquire_sunnah_api import body_text
+from build_hadith import search_text as hadith_search_text
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -180,8 +181,7 @@ def main():
                     "AND t.status IN ('reviewed','released') ORDER BY h.rowid LIMIT 1", (code,)
                 ).fetchone()
                 assert sample is not None
-                tokens = [token for token in re.sub(r'[^\\w\\u0600-\\u06ff\\u0900-\\u097f]+', ' ', sample[1].lower()).split()
-                          if len(token) >= 3]
+                tokens = [token for token in hadith_search_text(sample[1]).split() if len(token) >= 3]
                 assert tokens, f'No searchable HadeethEnc {code} token'
                 assert any(hdb.execute(
                     "SELECT 1 FROM search_token WHERE hadith_rowid=? AND token=? LIMIT 1",
