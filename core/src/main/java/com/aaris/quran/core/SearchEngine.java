@@ -5,7 +5,7 @@ import java.util.regex.*;
 
 /** Rebuildable deterministic indexes. Matching text is not a religious conclusion. */
 public final class SearchEngine {
-    public static final String VERSION = "ranked-8-short-typo";
+    public static final String VERSION = "ranked-9-word-form";
     public enum Strength { STRONG_TEXT, RELATED }
     public enum Origin { USER, AI }
     public static final class Query {
@@ -198,8 +198,14 @@ public final class SearchEngine {
         Map<Integer,Double> lexical=arabic.rank(terms),meanings=gloss.rank(hints),phonetic=sound.rank(sounds);
         Map<String,List<String>> arRepairs=new HashMap<>(),glossRepairs=new HashMap<>(),soundRepairs=new HashMap<>();
         Set<Integer> pool=new TreeSet<>(lexical.keySet());pool.addAll(meanings.keySet());pool.addAll(phonetic.keySet());
-        for(String term:new LinkedHashSet<>(terms))if(Arabic.hasArabic(term)){List<String> alternatives=repairs(term,terms.size()>=3);arRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:arabic.terms.get(w))pool.add(p.doc);}
-        for(String term:new LinkedHashSet<>(hints)){List<String> alternatives=glossRepairs(term);glossRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:gloss.terms.get(w))pool.add(p.doc);}
+        for(String term:new LinkedHashSet<>(terms))if(Arabic.hasArabic(term)){
+            List<String> alternatives=mergeAlternatives(wordFormAlternatives(term,trigramVocabulary),repairs(term,terms.size()>=3));
+            arRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:arabic.terms.get(w))pool.add(p.doc);
+        }
+        for(String term:new LinkedHashSet<>(hints)){
+            List<String> alternatives=mergeAlternatives(wordFormAlternatives(term,glossVocabulary),glossRepairs(term));
+            glossRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:gloss.terms.get(w))pool.add(p.doc);
+        }
         if(sounds.size()>=3)for(String term:new LinkedHashSet<>(sounds)){List<String> alternatives=spellingAlternatives(term,soundVocabulary,soundByLength,3,soundRepairCache);soundRepairs.put(term,alternatives);for(String word:alternatives)for(Posting p:sound.terms.get(word))pool.add(p.doc);}
         allCandidates.addAll(pool);trace.merge("arabic_bm25",lexical.size(),Integer::sum);trace.merge("gloss_bm25",meanings.size(),Integer::sum);trace.merge("phonetic",phonetic.size(),Integer::sum);
         Map<String,Double> weights=weights(terms,arabic),hintWeights=weights(hints,gloss);List<Result> out=new ArrayList<>();
@@ -218,6 +224,30 @@ public final class SearchEngine {
         out.sort(RESULT_ORDER);return out;
     }
     private Map<String,Double> weights(List<String> query,Index index){Map<String,Double> weights=new HashMap<>();for(String term:query){List<Posting> posting=index.terms.get(term);weights.put(term,Math.max(.25,Math.log(1.+docs.size()/(1.+(posting==null?0:posting.size())))));}return weights;}
+    /**
+     * Exact contiguous word-form lane for attached prefixes/suffixes (for example قال -> فقال
+     * or رحمن -> والرحمن). It is deliberately not arbitrary substring search: short queries,
+     * negation, large affix gaps and unbounded vocabulary scans are rejected.
+     */
+    private static List<String> wordFormAlternatives(String term,Map<String,List<String>> vocabulary){
+        if(term==null||term.length()>128||TextMatch.negative(term))return Collections.emptyList();
+        boolean arabicTerm=Arabic.hasArabic(term);int minimum=arabicTerm?3:4,maxExtra=arabicTerm?3:4;
+        if(term.length()<minimum)return Collections.emptyList();
+        Map<String,Integer> overlap=new HashMap<>();
+        for(String gram:Arabic.trigrams(term))for(String word:vocabulary.getOrDefault(gram,Collections.emptyList())){
+            cancelled();if(word.equals(term)||word.length()<term.length()||word.length()-term.length()>maxExtra||!word.contains(term))continue;
+            overlap.merge(word,1,Integer::sum);
+        }
+        List<String> out=new ArrayList<>(overlap.keySet());
+        out.sort(Comparator.comparingInt((String word)->word.length()-term.length())
+            .thenComparing(Comparator.comparingInt((String word)->overlap.get(word)).reversed()).thenComparing(word->word));
+        return Collections.unmodifiableList(new ArrayList<>(out.subList(0,Math.min(16,out.size()))));
+    }
+    private static List<String> mergeAlternatives(List<String> preferred,List<String> fallback){
+        if(preferred.isEmpty())return fallback;if(fallback.isEmpty())return preferred;
+        LinkedHashSet<String> merged=new LinkedHashSet<>(preferred);merged.addAll(fallback);
+        return Collections.unmodifiableList(new ArrayList<>(merged));
+    }
     private List<String> glossRepairs(String term){return spellingAlternatives(term,glossVocabulary,glossByLength,4,glossRepairCache);}
     private static Map<String,List<String>> repairCache(){
         return Collections.synchronizedMap(new LinkedHashMap<String,List<String>>(64,.75f,true){
