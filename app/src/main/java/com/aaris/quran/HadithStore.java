@@ -61,6 +61,7 @@ final class HadithStore implements AutoCloseable {
     private final List<CollectionInfo> collectionCache;
     private final Set<String> layeredHadithIds;
     final String packHash,packId,contentVersion,sourceName,sourceVersion,redistributionBasis;
+    final long packBytes;
     final int recordCount,collectionCount;
     final Set<String> languageCoverage;
 
@@ -76,10 +77,42 @@ final class HadithStore implements AutoCloseable {
         return new HadithStore(context);
     }
 
+    private static String verificationValue(String hash,long bytes,long modified){
+        return hash+"\n"+bytes+"\n"+modified+"\n";
+    }
+    private static boolean verificationMarkerMatches(File marker,File target,String hash,long bytes){
+        if(!marker.isFile()||!target.isFile()||target.length()!=bytes)return false;
+        try(InputStream in=new FileInputStream(marker);ByteArrayOutputStream out=new ByteArrayOutputStream()){
+            byte[] buffer=new byte[256];int n,total=0;
+            while((n=in.read(buffer))!=-1){
+                total+=n;if(total>512)return false;out.write(buffer,0,n);
+            }
+            return verificationValue(hash,bytes,target.lastModified()).equals(out.toString("UTF-8"));
+        }catch(IOException ignored){return false;}
+    }
+    private static void writeVerificationMarker(File marker,File target,String hash,long bytes)throws IOException{
+        File temp=new File(marker.getParentFile(),marker.getName()+".tmp");
+        if(temp.exists()&&!temp.delete())throw new IOException("Cannot clear Hadith verification staging file");
+        byte[] value=verificationValue(hash,bytes,target.lastModified()).getBytes("UTF-8");
+        try(FileOutputStream out=new FileOutputStream(temp)){out.write(value);out.getFD().sync();}
+        if(marker.exists()&&!marker.delete()){temp.delete();throw new IOException("Cannot replace Hadith verification marker");}
+        if(!temp.renameTo(marker)){temp.delete();throw new IOException("Cannot install Hadith verification marker");}
+    }
+    private static void cleanupOldPacks(File folder,File keepDatabase,File keepMarker){
+        File[] files=folder.listFiles();if(files==null)return;
+        for(File file:files){
+            String name=file.getName();
+            if(file.equals(keepDatabase)||file.equals(keepMarker))continue;
+            if((name.startsWith("hadith-")&&(name.endsWith(".sqlite")||name.endsWith(".sqlite.verified")))||
+               name.equals("hadith-install.tmp"))file.delete(); // Best-effort cleanup after current pack verified.
+        }
+    }
+
     private HadithStore(Context context) throws Exception {
         JSONObject manifest=new JSONObject(ContentStore.asset(context,"hadith-manifest.json"));
         if(manifest.getInt("schema_version")!=2)throw new IOException("Unsupported Hadith pack schema");
         packHash=manifest.getString("sqlite_sha256");
+        packBytes=manifest.getLong("sqlite_bytes");
         packId=manifest.getString("pack_id");
         contentVersion=manifest.getString("content_version");
         sourceName=manifest.getString("source_name");
@@ -96,27 +129,35 @@ final class HadithStore implements AutoCloseable {
         recordCount=manifest.getInt("records");
         collectionCount=manifest.getInt("collections");
         if(!packHash.matches("[a-f0-9]{64}")||packId.trim().isEmpty()||contentVersion.trim().isEmpty()||
-            sourceName.trim().isEmpty()||sourceVersion.trim().isEmpty()||recordCount<1||collectionCount<1)
+            sourceName.trim().isEmpty()||sourceVersion.trim().isEmpty()||packBytes<1||recordCount<1||collectionCount<1)
             throw new IOException("Invalid Hadith manifest");
 
         File folder=new File(context.getFilesDir(),"evidence");
         if(!folder.exists()&&!folder.mkdirs())throw new IOException("Cannot create evidence storage");
         File target=new File(folder,"hadith-"+packHash.substring(0,16)+".sqlite");
-        if(!target.exists()||!packHash.equals(ContentStore.hash(target))){
-            File staging=new File(folder,"hadith-install.tmp");
-            if(staging.exists()&&!staging.delete())throw new IOException("Cannot clear Hadith staging file");
-            try(InputStream in=context.getAssets().open("hadith.sqlite");FileOutputStream out=new FileOutputStream(staging)){
-                byte[] bytes=new byte[65536];int n;
-                while((n=in.read(bytes))!=-1)out.write(bytes,0,n);
-                out.getFD().sync();
+        File marker=new File(folder,target.getName()+".verified");
+        boolean trustedInstalledFile=verificationMarkerMatches(marker,target,packHash,packBytes);
+        boolean fullVerification=!trustedInstalledFile;
+        if(fullVerification){
+            boolean existingValid=target.isFile()&&target.length()==packBytes&&packHash.equals(ContentStore.hash(target));
+            if(!existingValid){
+                File staging=new File(folder,"hadith-install.tmp");
+                if(staging.exists()&&!staging.delete())throw new IOException("Cannot clear Hadith staging file");
+                try(InputStream in=context.getAssets().open("hadith.sqlite");FileOutputStream out=new FileOutputStream(staging)){
+                    byte[] bytes=new byte[65536];int n;
+                    while((n=in.read(bytes))!=-1)out.write(bytes,0,n);
+                    out.getFD().sync();
+                }
+                if(staging.length()!=packBytes||!packHash.equals(ContentStore.hash(staging))){
+                    staging.delete();throw new IOException("Hadith checksum mismatch");
+                }
+                if(target.exists()&&!target.delete()){staging.delete();throw new IOException("Cannot replace corrupt Hadith pack");}
+                if(!staging.renameTo(target))throw new IOException("Hadith pack install failed");
             }
-            if(!packHash.equals(ContentStore.hash(staging))){staging.delete();throw new IOException("Hadith checksum mismatch");}
-            if(target.exists()&&!target.delete())throw new IOException("Cannot replace corrupt Hadith pack");
-            if(!staging.renameTo(target))throw new IOException("Hadith pack install failed");
         }
         SQLiteDatabase opened=SQLiteDatabase.openDatabase(target.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY);
         try{
-            try(Cursor c=opened.rawQuery("PRAGMA quick_check",null)){
+            if(fullVerification)try(Cursor c=opened.rawQuery("PRAGMA quick_check",null)){
                 if(!c.moveToFirst()||!"ok".equals(c.getString(0)))throw new IOException("Hadith integrity check failed");
             }
             try(Cursor c=opened.rawQuery("PRAGMA user_version",null)){
@@ -128,6 +169,7 @@ final class HadithStore implements AutoCloseable {
             try(Cursor c=opened.rawQuery("SELECT count(*) FROM collection",null)){
                 if(!c.moveToFirst()||c.getInt(0)!=collectionCount)throw new IOException("Hadith collection count mismatch");
             }
+            if(fullVerification)writeVerificationMarker(marker,target,packHash,packBytes);
             db=opened;
             collectionCache=Collections.unmodifiableList(loadCollections());
             for(CollectionInfo info:collectionCache){collectionAliases.put(info.id,info.id);collectionAliases.put(info.nameEn,info.id);collectionAliases.put(info.nameAr,info.id);}
@@ -139,6 +181,7 @@ final class HadithStore implements AutoCloseable {
             }
             layeredHadithIds=Collections.unmodifiableSet(layered);
             try(Cursor c=opened.rawQuery("SELECT 1 FROM editorial_translation WHERE status IN ('released','reviewed') LIMIT 1",null)){hasEditorialTranslations=c.moveToFirst();}
+            cleanupOldPacks(folder,target,marker);
         }catch(Exception invalid){
             db=null;opened.close();throw invalid;
         }
