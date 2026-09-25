@@ -863,7 +863,6 @@ public final class MainActivity extends Activity {
         toast("Download started. Keep Aaris open for this download.");
         try{
             app.recitationDownloadWorker.execute(()->{
-                boolean failed=false;
                 try{
                     downloads.runReservedDownload(source,reciter,first,last,()->{
                         MainActivity activity=owner.get();
@@ -874,15 +873,14 @@ public final class MainActivity extends Activity {
                                 current.recitationDownloadStatus.setText(downloads.progress);
                         });
                     });
-                }catch(Exception e){failed=true;}
+                }catch(Exception ignored){}
                 MainActivity activity=owner.get();
                 if(activity==null||activity.isDestroyed()||activity.isFinishing())return;
-                final boolean didFail=failed;
                 activity.ui.post(()->{
                     MainActivity current=owner.get();
                     if(current==null||current.isDestroyed()||current.isFinishing()||current.recitationDownloadGeneration!=token)return;
                     Runnable completion=current.recitationDownloadCompletion;current.recitationDownloadCompletion=null;
-                    current.toast(didFail?"Download paused. Completed ayahs are safe; tap Download to continue.":downloads.progress);
+                    current.toast(downloads.progress);
                     if(completion!=null)completion.run();
                 });
             });
