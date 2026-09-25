@@ -150,7 +150,7 @@ public final class MainActivity extends Activity {
             if(isFinishing()||isDestroyed())return;
             if(app.loadError!=null){loading.setText(app.loadError+"\nOpen the app again. Your learning data remains stored separately.");return;}
             content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;operationListener=this::refreshOperationUi;app.operationChanged=operationListener;
-            hadithListener=()->{if(isDestroyed()||isFinishing())return;if(searching){String q=searchQuery.trim();if(!q.isEmpty()&&searchCancellation==null&&UnifiedQuery.parse(q,searchScope).hadith){Runnable refresh=activeSearchRefresh;if(refresh!=null)refresh.run();}}else if(tab==2)show();};app.hadithChanged=hadithListener;
+            hadithListener=()->{if(isDestroyed()||isFinishing())return;if(searching){String q=searchQuery.trim();if(!q.isEmpty()&&UnifiedQuery.parse(q,searchScope).hadith){Runnable refresh=activeSearchRefresh;if(refresh!=null)refresh.run();}}else if(tab==2)show();};app.hadithChanged=hadithListener;
             language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");translationSpeech=new TranslationSpeech(this);
             highContrast=Boolean.parseBoolean(learning.get("contrast","false"));
             arabicSize=appearance.arabicSize;
@@ -1498,7 +1498,11 @@ public final class MainActivity extends Activity {
                         Map<String,HadithCardMeta> metadata=result==null?Collections.emptyMap():prepareHadithCards(result,preferredHadithLanguage,signal);
                         ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
                             hadithList.addView(label("HADITH"));
-                            if(result==null)caption(hadithList,"A local Hadith pack is not installed.");
+                            if(result==null){
+                                if(app.hadithLoading)caption(hadithList,"Opening the local Hadith pack…");
+                                else if(app.hadithLoadError!=null)caption(hadithList,"The local Hadith pack could not be opened. Restart the app and try again.");
+                                else caption(hadithList,"A local Hadith pack is not installed.");
+                            }
                             else {TextView hs=text(this,"",13,MUTED);hadithList.addView(hs);gap(hadithList,8);
                                 LinearLayout matches=column(this);hadithList.addView(matches);appendHadithResults(q,result,metadata,generation,matches,hs);}
                             finished.run();
