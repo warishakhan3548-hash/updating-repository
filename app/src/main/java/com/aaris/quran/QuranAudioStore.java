@@ -100,16 +100,11 @@ final class QuranAudioStore {
         try{
             String marked=marker.isFile()?readSmall(marker,256).trim():"";
             if(!markerMatches(marked,file,meta)){
-                if(meta.sha256.equals(marked)){
-                    // Legacy markers already represent a previously verified container. Upgrade
-                    // them cheaply on the render path; future same-size replacements will no longer
-                    // inherit that trust because the bound file metadata will differ.
-                    writeMarker(marker,markerValue(file,meta));
-                }else{
-                    // Missing/changed markers use the expensive verification path before trust.
-                    validateContainer(file,meta,true);
-                    writeMarker(marker,markerValue(file,meta));
-                }
+                // A legacy hash-only marker proves what was verified when it was written, not that
+                // today's private file still has those bytes. Re-verify once before binding trust
+                // to file metadata; missing or changed markers follow the same fail-closed path.
+                validateContainer(file,meta,true);
+                writeMarker(marker,markerValue(file,meta));
             }
             cache.put(surah,parseIndex(file,meta,false));
             return true;
@@ -118,10 +113,19 @@ final class QuranAudioStore {
         }
     }
 
-    synchronized int installedCount(){int n=0;for(int s=1;s<=114;s++)if(installedSurah(s))n++;return n;}
-    synchronized long installedBytes(){long total=0;for(int s=1;s<=114;s++){PackMeta meta=meta(s);if(meta!=null&&installedSurah(s))total+=meta.bytes;}return total;}
+    static final class InstallationSummary {
+        final int installed;final long installedBytes;
+        InstallationSummary(int installed,long installedBytes){this.installed=installed;this.installedBytes=installedBytes;}
+    }
+    synchronized InstallationSummary installationSummary(){
+        int installed=0;long bytes=0;
+        for(int s=1;s<=114;s++){PackMeta meta=meta(s);if(meta!=null&&installedSurah(s)){installed++;bytes+=meta.bytes;}}
+        return new InstallationSummary(installed,bytes);
+    }
+    synchronized int installedCount(){return installationSummary().installed;}
+    synchronized long installedBytes(){return installationSummary().installedBytes;}
     long totalBytes(){return catalogBytes;}
-    synchronized long remainingBytes(){return Math.max(0,catalogBytes-installedBytes());}
+    synchronized long remainingBytes(){return Math.max(0,catalogBytes-installationSummary().installedBytes);}
     synchronized void refreshSurah(int surah){cache.remove(surah);}
 
     synchronized Clip clip(ContentStore.Word word){
