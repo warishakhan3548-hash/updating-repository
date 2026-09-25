@@ -1002,7 +1002,7 @@ public final class MainActivity extends Activity {
             if(current!=null)audioControls(current);return;
         }
         if(app!=null&&app.researchPdfBusy.get()){toast("Preparing research PDF on your phone…");return;}
-        if(preparingExport){toast("Preparing export on your phone…");return;}
+        if(preparingExport){toast("Preparing or saving export on your phone…");return;}
         if(wordAudioSummaryPending)toast("Checking downloaded word audio…");
     }
     private void refreshOperationUi(){
@@ -1017,7 +1017,7 @@ public final class MainActivity extends Activity {
         else if(reciterBusy)status=app.recitationDownloads.progress==null||app.recitationDownloads.progress.isEmpty()?"Preparing reciter audio…":app.recitationDownloads.progress;
         else if(wordBusy)status=words.progress()==null||words.progress().isEmpty()?"Preparing word audio…":words.progress();
         else if(pdfBusy)status="Preparing research PDF on your phone…";
-        else if(preparingExport)status="Preparing export on your phone…";
+        else if(preparingExport)status="Preparing or saving export on your phone…";
         else if(wordAudioSummaryPending)status="Checking downloaded word audio…";
         if(operationBanner!=null&&operationBanner.isAttachedToWindow()){
             operationBanner.setText(status);operationBanner.setContentDescription(status);
@@ -2077,12 +2077,14 @@ public final class MainActivity extends Activity {
         }
         if(request==OVERLAY_PERMISSION){if(pendingAmbient&&Settings.canDrawOverlays(this))beginAmbient();else {pendingAmbient=false;openOtherAppsAfterAmbientStart=false;toast("Overlay permission is needed for cards over other apps");}return;}
         if(result!=RESULT_OK||data==null||data.getData()==null){if(request==EXPORT){String token=pendingExport;pendingExport=null;app.io.execute(()->discardExport(token));}return;}Uri uri=data.getData();
-        if(request==EXPORT){String token=pendingExport;pendingExport=null;if(token==null){toast("Start the export again");return;}app.io.execute(()->{
+        if(request==EXPORT){String token=pendingExport;pendingExport=null;if(token==null){toast("Start the export again");return;}preparingExport=true;refreshOperationUi();app.io.execute(()->{
+            String message="File was not saved; start the export again";
             try{
                 try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();app.exports.copyTo(token,out);}
-                ui.post(()->toast("File saved"));
-            }catch(Exception e){ui.post(()->toast("File was not saved; start the export again"));}
+                message="File saved";
+            }catch(Exception ignored){}
             finally{discardExport(token);}
+            String resultMessage=message;ui.post(()->{preparingExport=false;refreshOperationUi();if(!isDestroyed()&&!isFinishing())toast(resultMessage);});
         });}
         if(request==IMPORT)app.io.execute(()->{try{
             ByteArrayOutputStream out=new ByteArrayOutputStream();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>ExportStaging.MAX_BYTES)throw new IOException("Backup is larger than 64 MiB");out.write(b,0,n);}}
