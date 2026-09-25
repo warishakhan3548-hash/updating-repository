@@ -6,6 +6,7 @@ import com.aaris.quran.core.TextMatch;
 import com.aaris.quran.core.HadithQuery;
 import com.aaris.quran.core.HadithSearchPlan;
 import com.aaris.quran.core.MeaningSearch;
+import com.aaris.quran.core.LongQuery;
 import android.os.CancellationSignal;
 import java.util.concurrent.CancellationException;
 import android.database.Cursor;
@@ -279,15 +280,16 @@ final class HadithStore implements AutoCloseable {
     SearchPage searchPage(String query,int limit,int offset,CancellationSignal signal){
         cancelSearch(signal);
         String raw=query==null?"":query.trim();int start=Math.max(0,offset),cap=Math.max(1,Math.min(200,limit));
-        if(raw.isEmpty()||raw.length()>16384||db==null)return new SearchPage(raw,Collections.emptyList(),0,start);
+        if(raw.isEmpty()||db==null)return new SearchPage(raw,Collections.emptyList(),0,start);
+        SearchPage cached=cachedText;
+        if(cached!=null&&cached.query.equals(raw))return slice(cached,cap,start);
+        LongQuery.Plan longPlan=LongQuery.plan(raw);
+        if(longPlan.segmented)return longSearchPage(raw,longPlan,cap,start,signal);
         HadithQuery intent=HadithQuery.parse(raw,collectionAliases);
         if(intent.isReference()||raw.startsWith("H:")||intent.isCollectionBrowse())
             return referencePage(intent,cap,start,signal);
         List<String> terms=TextMatch.tokens(intent.text);
         if(terms.isEmpty())return new SearchPage(raw,Collections.emptyList(),0,start);
-        SearchPage cached=cachedText;
-        if(cached!=null&&cached.query.equals(raw))return slice(cached,cap,start);
-
         // A phrase lookup can return the first page immediately, even for very common words.
         // Count and pagination remain in SQLite; Java never materializes the entire match set.
         HadithSearchPlan phrase=HadithSearchPlan.phrase(intent);int exact;
@@ -334,6 +336,33 @@ final class HadithStore implements AutoCloseable {
     private static SearchPage slice(SearchPage page,int cap,int offset){
         int from=Math.min(offset,page.hits.size()),to=Math.min(from+cap,page.hits.size());
         return new SearchPage(page.query,new ArrayList<>(page.hits.subList(from,to)),page.total,offset,page.limited,to);
+    }
+    private SearchPage longSearchPage(String raw,LongQuery.Plan plan,int cap,int offset,CancellationSignal signal){
+        LinkedHashMap<String,Hit> best=new LinkedHashMap<>();Map<String,Integer> support=new HashMap<>();
+        boolean limited=plan.sourceWindows>plan.windows.size();
+        for(String window:plan.windows){
+            cancelSearch(signal);
+            SearchPage page=searchPage(window,200,0,signal);
+            limited|=page.limited||page.total>page.hits.size();
+            HashSet<String> counted=new HashSet<>();
+            for(Hit hit:page.hits){
+                cancelSearch(signal);
+                if(counted.add(hit.record.id))support.merge(hit.record.id,1,Integer::sum);
+                Hit previous=best.get(hit.record.id);
+                if(previous==null||ORDER.compare(hit,previous)<0)best.put(hit.record.id,hit);
+            }
+        }
+        List<Hit> merged=new ArrayList<>(best.values());
+        merged.sort((a,b)->{
+            int c=Boolean.compare(b.reference,a.reference);if(c!=0)return c;
+            c=TextMatch.compareHadith(a.match,a.record.collectionId,b.match,b.record.collectionId);if(c!=0)return c;
+            c=Integer.compare(support.getOrDefault(b.record.id,0),support.getOrDefault(a.record.id,0));if(c!=0)return c;
+            c=Boolean.compare(a.meaning,b.meaning);if(c!=0)return c;
+            c=a.record.collectionId.compareTo(b.record.collectionId);if(c!=0)return c;
+            return a.record.id.compareTo(b.record.id);
+        });
+        SearchPage complete=new SearchPage(raw,Collections.unmodifiableList(merged),merged.size(),0,limited);
+        cachedText=complete;return slice(complete,cap,offset);
     }
     private MatchChoice bestMatch(Record record,List<String> terms,Map<String,List<String>> repairs,Map<String,Double> weights,CancellationSignal signal){
         List<String> focusedTerms=MeaningSearch.focusTokens(terms);
