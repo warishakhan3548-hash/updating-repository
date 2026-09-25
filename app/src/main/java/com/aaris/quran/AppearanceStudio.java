@@ -397,7 +397,7 @@ final class AppearanceStudio {
         title("Arabic text finish");
         LinearLayout textFinishes=row(activity);
         for(int i=0;i<Appearance.TEXT_FINISHES.length;i++){
-            final int finishIndex=i;View option=compactChoice(Appearance.TEXT_FINISHES[i],style.textFinish==i,()->{style.textFinish=finishIndex;style.textGlass=finishIndex==Appearance.TEXT_GLASS;style.autoBalanceEffects();commit();renderControls();});
+            final int finishIndex=i;View option=compactChoice(Appearance.TEXT_FINISHES[i],style.textFinish==i,()->{style.textFinish=finishIndex;style.textGlass=finishIndex==Appearance.TEXT_GLASS;commit();renderControls();});
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,42),1);if(i<Appearance.TEXT_FINISHES.length-1)p.rightMargin=dp(activity,5);textFinishes.addView(option,p);
         }
         controls.addView(textFinishes);
@@ -408,9 +408,9 @@ final class AppearanceStudio {
         View plain=compactChoice("Plain cards",!style.glass,()->{style.glass=false;commit();renderControls();});
         LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(0,dp(activity,42),1);fp.rightMargin=dp(activity,6);finish.addView(glass,fp);finish.addView(plain,new LinearLayout.LayoutParams(0,dp(activity,42),1));controls.addView(finish);
         LinearLayout effects=row(activity);
-        effects.addView(compactChoice("Smart balance",style.autoBalance,()->{style.autoBalance=!style.autoBalance;if(style.autoBalance)style.autoBalanceEffects();commit();renderControls();}),new LinearLayout.LayoutParams(0,dp(activity,42),1));
+        effects.addView(compactChoice("Smart balance",style.autoBalance,()->{style.autoBalance=!style.autoBalance;commit();renderControls();}),new LinearLayout.LayoutParams(0,dp(activity,42),1));
         LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(0,dp(activity,42),1);ep.leftMargin=dp(activity,6);
-        effects.addView(compactChoice("Reduced effects",style.reducedEffects,()->{style.reducedEffects=!style.reducedEffects;if(style.autoBalance)style.autoBalanceEffects();commit();renderControls();}),ep);controls.addView(effects);
+        effects.addView(compactChoice("Reduced effects",style.reducedEffects,()->{style.reducedEffects=!style.reducedEffects;commit();renderControls();}),ep);controls.addView(effects);
 
         TextView advancedButton=action((advanced?"Hide":"Advanced"),()->{advanced=!advanced;if(!advanced&&(layer==4||layer==5||layer==6||layer==8)){layer=0;invalidateEditorColor();}renderControls();});
         controls.addView(advancedButton);
@@ -426,8 +426,8 @@ final class AppearanceStudio {
             detailLayers.addView(compactChoice(style.autoShadowColor?"Shadow · Auto":"Shadow color",layer==8,()->{layer=8;invalidateEditorColor();renderControls();}),sp);controls.addView(detailLayers);
             controls.addView(compactChoice("Auto shadow color",style.autoShadowColor,()->{style.autoShadowColor=!style.autoShadowColor;invalidateEditorColor();commit();renderControls();}));
             compactSlider("Text depth",0,12,style.textDepth,v->style.textDepth=v);
-            compactSlider("Shadow strength",0,70,style.shadowStrength,v->{style.shadowStrength=v;if(style.autoBalance)style.autoBalanceEffects();});
-            compactSlider("Shadow softness",0,16,style.shadowSoftness,v->{style.shadowSoftness=v;if(style.autoBalance)style.autoBalanceEffects();});
+            compactSlider("Shadow strength",0,70,style.shadowStrength,v->style.shadowStrength=v);
+            compactSlider("Shadow softness",0,16,style.shadowSoftness,v->style.shadowSoftness=v);
             compactSlider("Shadow angle",0,359,style.shadowAngle,v->style.shadowAngle=v);
             compactSlider("Shadow distance",0,20,style.shadowDistance,v->style.shadowDistance=v);
             compactSlider("Text sheen",0,100,style.textSheen,v->style.textSheen=v);
