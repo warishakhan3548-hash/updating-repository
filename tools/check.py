@@ -210,6 +210,15 @@ def main():
     android_manifest = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml').getroot()
     application = android_manifest.find('application')
     assert application.get(android + 'name') == '.QuranApp', 'Missing startup wiring'
+    main_activity = next(a for a in application.findall('activity') if a.get(android + 'name') == '.MainActivity')
+    assert main_activity.get(android + 'theme') == '@style/AppLaunchTheme', 'Main activity must use the launch theme'
+    styles_text = (ROOT / 'app/src/main/res/values/styles.xml').read_text(encoding='utf-8')
+    splash_styles = (ROOT / 'app/src/main/res/values-v31/styles.xml').read_text(encoding='utf-8')
+    splash_icon = (ROOT / 'app/src/main/res/drawable/ic_quran_splash.xml').read_text(encoding='utf-8')
+    assert 'name="AppLaunchTheme"' in styles_text
+    assert 'android:windowSplashScreenAnimatedIcon' in splash_styles
+    assert '@drawable/ic_quran_splash' in splash_styles
+    assert '<vector' in splash_icon and '#D8C28A' in splash_icon
     permissions = {p.get(android + 'name') for p in android_manifest.findall('uses-permission')}
     java_sources = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / 'app/src/main/java').rglob('*.java'))
     assert 'https://sunnah.com/' not in java_sources, 'Runtime Hadith website dependency returned'

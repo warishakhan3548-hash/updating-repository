@@ -10,4 +10,8 @@
         <item name="android:statusBarColor">#030705</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
+
+    <style name="AppLaunchTheme" parent="@style/AppTheme">
+        <item name="android:windowBackground">#030705</item>
+    </style>
 </resources>
