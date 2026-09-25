@@ -856,9 +856,11 @@ public final class MainActivity extends Activity {
         TextView latin=text(this,s.name,24,INK);latin.setGravity(Gravity.CENTER);latin.setTypeface(Typeface.create("serif",Typeface.NORMAL));page.addView(latin);
         TextView sub=text(this,s.meaning+"  ·  "+s.count+" ayahs",12,MUTED);sub.setGravity(Gravity.CENTER);page.addView(sub);gap(page,10);
         TextView interaction=text(this,"Tap a word for meaning · Long-press an ayah for actions",12,MUTED);interaction.setGravity(Gravity.CENTER);page.addView(interaction);gap(page,22);
-        String reciter=getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]);
-        boolean recitationOffline=app.recitationDownloads.markedComplete(reciter,readerSurah,s.count);
+        String reciter=RecitationDownloads.valid(getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]));
+        int recitationOfflineState=app.recitationDownloads.markedCompleteState(reciter,readerSurah,s.count);
+        boolean recitationOffline=recitationOfflineState>0;
         List<Ayah> ayahs=content.page(readerSurah,readerStart,8);
+        List<View> recitationPlayButtons=new ArrayList<>();
         Map<String,List<ContentStore.Word>> pageWords=content.words(ayahs);
         List<String> pageIds=new ArrayList<>();for(Ayah a:ayahs)pageIds.add(a.id);
         Map<String,TranslationStore.Entry> pageTranslations=app.translations==null?Collections.emptyMap():app.translations.get(translationId,pageIds);
@@ -872,7 +874,8 @@ public final class MainActivity extends Activity {
             panel.setLongClickable(true);panel.setOnLongClickListener(ayahLongPress);
             LinearLayout bar=row(this);TextView reference=text(this,String.format(Locale.ROOT,"%d : %d",a.surah,a.number),12,MUTED);bar.addView(reference,new LinearLayout.LayoutParams(0,-2,1));
             View play=iconButton("play","Play ayah "+a.number+(recitationOffline?" · Surah downloaded":""),()->playAyah(a));
-            if(recitationOffline){Glass.Icon tick=new Glass.Icon(this,"check");tick.color=MINT;FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(dp(this,14),dp(this,14),Gravity.BOTTOM|Gravity.RIGHT);((FrameLayout)play).addView(tick,badge);}bar.addView(play);
+            if(recitationOffline){Glass.Icon tick=new Glass.Icon(this,"check");tick.color=MINT;FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(dp(this,14),dp(this,14),Gravity.BOTTOM|Gravity.RIGHT);((FrameLayout)play).addView(tick,badge);}
+            recitationPlayButtons.add(play);bar.addView(play);
             bar.addView(iconButton("bookmark",pageBookmarks.contains(a.id)?"Remove bookmark":"Save ayah",()->toast(learning.toggleBookmark(a.id)?"Ayah saved":"Bookmark removed")));
             bar.addView(iconButton("book","Study ayah · translations, compare & notes",()->studyAyah(a)));
             View menu=iconButton("more","Ayah "+a.number+": bookmark, meaning, recall and share",()->ayahActions(a));bar.addView(menu,new LinearLayout.LayoutParams(dp(this,48),dp(this,48)));panel.addView(bar);gap(panel,8);
@@ -884,6 +887,7 @@ public final class MainActivity extends Activity {
                 gap(panel,12);TextView recall=button("Selected word · Review meaning",()->review(w.id));panel.addView(recall);break;
             }}
         }
+        if(recitationOfflineState<0)verifyReaderRecitationState(reciter,readerSurah,s.count,renderedPage,ayahs,recitationPlayButtons);
         LinearLayout pager=row(this);
         boolean hasPrevious=readerStart>1||readerSurah>1,hasNext=readerStart+8<=s.count||readerSurah<114;
         TextView previous=button(hasPrevious?"← Previous":"Start of Quran",()->moveReaderPage(-1));
@@ -900,6 +904,29 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshRecitation(){if(recitationBanner==null||isDestroyed())return;recitationBanner.setText(app.recitationLabel+" · Controls");recitationBanner.setVisibility(app.recitationActive?View.VISIBLE:View.GONE);}
+
+    private void verifyReaderRecitationState(String reciter,int surah,int ayahCount,String pageId,List<Ayah> ayahs,List<View> playButtons){
+        final RecitationDownloads downloads=app==null?null:app.recitationDownloads;
+        if(downloads==null||ayahs==null||playButtons==null||ayahs.size()!=playButtons.size())return;
+        try{
+            app.recitationStatusWorker.execute(()->{
+                boolean offline=downloads.markedComplete(reciter,surah,ayahCount);
+                ui.post(()->{
+                    if(!offline||isDestroyed()||isFinishing()||app.recitationDownloads!=downloads||readerSurah!=surah||!pageId.equals(renderedPage))return;
+                    String current=RecitationDownloads.valid(getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]));
+                    if(!reciter.equals(current))return;
+                    for(int i=0;i<playButtons.size();i++){
+                        View play=playButtons.get(i);Ayah ayah=ayahs.get(i);
+                        if(play==null||!play.isAttachedToWindow()||!(play instanceof FrameLayout))continue;
+                        play.setContentDescription("Play ayah "+ayah.number+" · Surah downloaded");
+                        Glass.Icon tick=new Glass.Icon(this,"check");tick.color=MINT;
+                        FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(dp(this,14),dp(this,14),Gravity.BOTTOM|Gravity.RIGHT);
+                        ((FrameLayout)play).addView(tick,badge);
+                    }
+                });
+            });
+        }catch(RejectedExecutionException ignored){}
+    }
 
     private String wordAudioReaderLabel(int surah){
         QuranAudioDownloadManager downloads=app==null?null:app.audioDownloads;
@@ -1049,24 +1076,32 @@ public final class MainActivity extends Activity {
         if(app.recitationActive){LinearLayout transport=row(this);transport.addView(iconButton("back","Previous ayah",()->RecitationService.command(this,RecitationService.PREVIOUS,a.surah,a.number)));transport.addView(button("Play / Pause",()->RecitationService.command(this,RecitationService.PAUSE,a.surah,a.number)));transport.addView(iconButton("next","Next ayah",()->RecitationService.command(this,RecitationService.NEXT,a.surah,a.number)));page.addView(transport);page.addView(button("Stop playback",()->stopService(new Intent(this,RecitationService.class))));}
         gap(page,12);recitationDownloadStatus=text(this,app.recitationDownloads.progress,13,MUTED);page.addView(recitationDownloadStatus);
         recitationPauseButton=button("Pause reciter download",this::pauseRecitationDownload);page.addView(recitationPauseButton);
-        boolean offline=app.recitationDownloads.markedComplete(selected,a.surah,content.surah(a.surah).count);
-        caption(page,offline?"✓ This Surah is downloaded for the selected reciter":"Play needs internet for ayahs not yet downloaded. Saved ayahs play offline.");
+        int currentAyahCount=content.surah(a.surah).count;
+        int offlineState=app.recitationDownloads.markedCompleteState(selected,a.surah,currentAyahCount);
+        boolean offline=offlineState>0;
+        TextView currentRecitationStatus=text(this,offlineState<0?"Checking saved recitation…":offline?"✓ This Surah is downloaded for the selected reciter":"Play needs internet for ayahs not yet downloaded. Saved ayahs play offline.",12,MUTED);
+        page.addView(currentRecitationStatus);
 
         LinearLayout surahDownloads=column(this);
         final TextView[] currentDownload={null};
-        currentDownload[0]=button(offline?"Downloaded ✓":"Download this Surah",()->{
-            if(app.recitationDownloads.markedComplete(selected,a.surah,content.surah(a.surah).count)){toast(content.surah(a.surah).name+" is already downloaded");return;}
+        currentDownload[0]=button(offlineState<0?"Checking download status…":offline?"Downloaded ✓":"Download this Surah",()->{
+            int state=app.recitationDownloads.markedCompleteState(selected,a.surah,currentAyahCount);
+            if(state>0){toast(content.surah(a.surah).name+" is already downloaded");return;}
+            if(state<0){toast("Checking saved recitation…");return;}
             downloadRecitation(selected,a.surah,a.surah,()->{
-                boolean completed=app.recitationDownloads.markedComplete(selected,a.surah,content.surah(a.surah).count);
-                if(currentDownload[0]!=null)currentDownload[0].setText(completed?"Downloaded ✓":"Download this Surah");
+                boolean completed=app.recitationDownloads.markedCompleteState(selected,a.surah,currentAyahCount)>0;
+                updateCurrentRecitationStatus(currentRecitationStatus,currentDownload[0],completed);
                 if(surahDownloads.isAttachedToWindow())fillRecitationSurahDownloads(surahDownloads,selected);
             });
         });
+        if(offlineState<0){currentDownload[0].setEnabled(false);currentDownload[0].setAlpha(.62f);}
         page.addView(currentDownload[0]);gap(page,8);
+        if(offlineState<0)verifyCurrentRecitationState(selected,a.surah,currentAyahCount,dialog,currentRecitationStatus,currentDownload[0]);
 
         page.addView(button("Download all Surahs · "+RecitationDownloads.NAMES[RecitationDownloads.index(selected)],()->{
             new AlertDialog.Builder(this).setTitle("Download this reciter?").setMessage("All 114 Surahs will use significant data and storage. Completed ayahs are kept if you pause or reconnect.").setNegativeButton("Cancel",null).setPositiveButton("Download",(d,w)->downloadRecitation(selected,1,114,()->{
-                if(currentDownload[0]!=null&&app.recitationDownloads.markedComplete(selected,a.surah,content.surah(a.surah).count))currentDownload[0].setText("Downloaded ✓");
+                boolean completed=app.recitationDownloads.markedCompleteState(selected,a.surah,currentAyahCount)>0;
+                updateCurrentRecitationStatus(currentRecitationStatus,currentDownload[0],completed);
                 if(surahDownloads.isAttachedToWindow())fillRecitationSurahDownloads(surahDownloads,selected);
             })).show();}));gap(page,12);
 
@@ -1080,6 +1115,27 @@ public final class MainActivity extends Activity {
         gap(page,8);wordAudioDownloadStatus=text(this,"",13,MUTED);page.addView(wordAudioDownloadStatus);
         wordAudioPauseButton=button("Pause word-audio download",this::pauseWordAudioDownload);page.addView(wordAudioPauseButton);
         refreshOperationUi();
+    }
+    private void updateCurrentRecitationStatus(TextView status,TextView download,boolean offline){
+        if(status!=null&&status.isAttachedToWindow())status.setText(offline?"✓ This Surah is downloaded for the selected reciter":"Play needs internet for ayahs not yet downloaded. Saved ayahs play offline.");
+        if(download!=null&&download.isAttachedToWindow()){download.setText(offline?"Downloaded ✓":"Download this Surah");download.setEnabled(true);download.setAlpha(1f);}
+    }
+    private void verifyCurrentRecitationState(String reciter,int surah,int ayahCount,Dialog dialog,TextView status,TextView download){
+        final RecitationDownloads downloads=app==null?null:app.recitationDownloads;
+        if(downloads==null)return;
+        try{
+            app.recitationStatusWorker.execute(()->{
+                boolean offline=downloads.markedComplete(reciter,surah,ayahCount);
+                ui.post(()->{
+                    if(isDestroyed()||isFinishing()||dialog==null||!dialog.isShowing()||app.recitationDownloads!=downloads)return;
+                    String current=RecitationDownloads.valid(getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]));
+                    if(!reciter.equals(current)||status==null||download==null||!status.isAttachedToWindow()||!download.isAttachedToWindow())return;
+                    updateCurrentRecitationStatus(status,download,offline);
+                });
+            });
+        }catch(RejectedExecutionException rejected){
+            if(status!=null&&status.isAttachedToWindow())status.setText("Saved recitation status could not be checked. Reopen this panel to try again.");
+        }
     }
     private void fillRecitationSurahDownloads(LinearLayout list,String reciter){
         int generation=++recitationListGeneration;list.removeAllViews();
