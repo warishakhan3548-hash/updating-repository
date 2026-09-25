@@ -212,6 +212,8 @@ def main():
     assert application.get(android + 'name') == '.QuranApp', 'Missing startup wiring'
     permissions = {p.get(android + 'name') for p in android_manifest.findall('uses-permission')}
     java_sources = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / 'app/src/main/java').rglob('*.java'))
+    main_activity = (ROOT / 'app/src/main/java/com/aaris/quran/MainActivity.java').read_text(encoding='utf-8')
+    assert 'LengthFilter(16384)' not in main_activity, 'Search box must not truncate long remembered text'
     assert 'https://sunnah.com/' not in java_sources, 'Runtime Hadith website dependency returned'
     assert permissions == {'android.permission.INTERNET', 'android.permission.SYSTEM_ALERT_WINDOW',
                            'android.permission.FOREGROUND_SERVICE',
