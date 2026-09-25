@@ -49,7 +49,7 @@ final class ContentStore implements AutoCloseable {
         audioAlignmentHash=manifest.getString("audio_alignment_sha256");
         unmappedAyahCount=manifest.optInt("unmapped_ayah_count",-1);
         audioDeferredTextAlignedWords=manifest.optInt("audio_deferred_text_aligned_words",0);
-        if(!packHash.matches("[a-f0-9]{64}")||audioAlignmentHash.length()!=64||manifest.optInt("audio_alignment_words",-1)!=77326||
+        if(!packHash.matches("[a-f0-9]{64}")||!audioAlignmentHash.matches("[a-f0-9]{64}")||manifest.optInt("audio_alignment_words",-1)!=77326||
             unmappedAyahCount<0||audioDeferredTextAlignedWords<0)
             throw new IOException("Invalid Quran content identity");
         File folder=new File(context.getFilesDir(),"evidence");if(!folder.exists()&&!folder.mkdirs())throw new IOException("Cannot create evidence storage");
@@ -70,11 +70,14 @@ final class ContentStore implements AutoCloseable {
             try(Cursor c=opened.rawQuery("SELECT count(*) FROM ayah",null)){if(!c.moveToFirst()||c.getInt(0)!=6236)throw new IOException("Incomplete Quran ayah content");}
             int expectedWords=manifest.optInt("words",-1);
             try(Cursor c=opened.rawQuery("SELECT count(*) FROM word",null)){if(!c.moveToFirst()||expectedWords<1||c.getInt(0)!=expectedWords)throw new IOException("Incomplete Quran word content");}
-            int ayahSum=0;
+            int ayahSum=0,expectedSurahId=1;
             try(Cursor c=opened.rawQuery("SELECT * FROM surah ORDER BY id",null)){while(c.moveToNext()){
-                Surah s=new Surah(c);surahStarts[s.id]=ayahSum;surahs.add(s);ayahSum+=s.count;
+                Surah s=new Surah(c);
+                if(s.id!=expectedSurahId||s.id<1||s.id>114||s.count<1)
+                    throw new IOException("Invalid Quran surah coordinates");
+                surahStarts[s.id]=ayahSum;surahs.add(s);ayahSum+=s.count;expectedSurahId++;
             }}
-            if(surahs.size()!=114||ayahSum!=6236)throw new IOException("Incomplete Quran surah metadata");
+            if(surahs.size()!=114||expectedSurahId!=115||ayahSum!=6236)throw new IOException("Incomplete Quran surah metadata");
         }catch(Exception invalid){opened.close();throw invalid;}
         db=opened;
     }
