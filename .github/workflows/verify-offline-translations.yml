@@ -13,6 +13,8 @@ on:
       - 'app/build.gradle'
       - 'core/**'
       - 'app/src/main/java/com/aaris/quran/**'
+      - 'app/src/main/AndroidManifest.xml'
+      - 'app/src/main/res/**'
   workflow_dispatch:
 
 concurrency:
