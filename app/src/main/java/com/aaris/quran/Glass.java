@@ -254,7 +254,7 @@ final class Glass {
             int base=button?appearance.buttonSurface():appearance.surface;
             if(kind==Kind.PRIMARY)base=Appearance.mix(base,appearance.accent,.15f);
             int highlight=appearance.glass&&!appearance.reducedEffects&&!solid?Appearance.mix(base,appearance.accent,.06f*appearance.glassStrength/100f):base;
-            int cardAlpha=!solid&&!button?Math.round(255*appearance.opacity/100f):255;
+            int cardAlpha=!solid&&!button?Math.round(255*appearance.effectiveCardOpacity()/100f):255;
             int[] colors=new int[]{(highlight&0xffffff)|(cardAlpha<<24),(base&0xffffff)|(cardAlpha<<24)};
             fill=new LinearGradient(outer.left,outer.top,outer.right,outer.bottom,colors,null,Shader.TileMode.CLAMP);
             int border=appearance.effectiveBorderStrength();
