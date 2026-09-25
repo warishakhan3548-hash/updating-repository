@@ -44,4 +44,4 @@ Working branch: `upgrade/smart-appearance-editor-20260925`.
 - Old saved appearance JSON remains backward-compatible through optional v9 defaults.
 - Quran Arabic letter-spacing/tracking was intentionally not added.
 
-Status: implementation complete on branch; automated verification/PR pending.
+Status: implementation complete on branch; PR #310 open and automated verification requested.
