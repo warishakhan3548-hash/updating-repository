@@ -5,6 +5,7 @@ import com.aaris.quran.core.Arabic;
 import com.aaris.quran.core.TextMatch;
 import com.aaris.quran.core.HadithQuery;
 import com.aaris.quran.core.HadithSearchPlan;
+import com.aaris.quran.core.MeaningSearch;
 import android.os.CancellationSignal;
 import java.util.concurrent.CancellationException;
 import android.database.Cursor;
@@ -193,8 +194,14 @@ final class HadithStore implements AutoCloseable {
     }
 
     static final class Hit {
-        final Record record;final TextMatch match;final boolean reference;
-        Hit(Record record,TextMatch match,boolean reference){this.record=record;this.match=match;this.reference=reference;}
+        final Record record;final TextMatch match;final boolean reference,meaning;
+        Hit(Record record,TextMatch match,boolean reference,boolean meaning){
+            this.record=record;this.match=match;this.reference=reference;this.meaning=meaning;
+        }
+    }
+    private static final class MatchChoice {
+        final TextMatch match;final boolean meaning;
+        MatchChoice(TextMatch match,boolean meaning){this.match=match;this.meaning=meaning;}
     }
     static final class SearchPage {
         final List<Hit> hits;final int total,offset;final String query;final boolean limited;
@@ -204,6 +211,7 @@ final class HadithStore implements AutoCloseable {
     private static final Comparator<Hit> ORDER=(a,b)->{
         int c=Boolean.compare(b.reference,a.reference);if(c!=0)return c;
         c=TextMatch.compareHadith(a.match,a.record.collectionId,b.match,b.record.collectionId);if(c!=0)return c;
+        c=Boolean.compare(a.meaning,b.meaning);if(c!=0)return c; // direct text wins an otherwise equal tie
         c=a.record.collectionId.compareTo(b.record.collectionId);if(c!=0)return c;
         return a.record.id.compareTo(b.record.id);
     };
@@ -234,8 +242,8 @@ final class HadithStore implements AutoCloseable {
             try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+phrase.where+HadithSearchPlan.ORDER+" LIMIT ? OFFSET ?",args.toArray(new String[0]),signal)){
                 while(c.moveToNext()){
                     cancelSearch(signal);Record record=new Record(c);
-                    TextMatch match=bestMatch(record,terms,Collections.emptyMap(),Collections.emptyMap(),signal);
-                    if(match.accepted)hits.add(new Hit(record,match,false));
+                    MatchChoice choice=bestMatch(record,terms,Collections.emptyMap(),Collections.emptyMap(),signal);
+                    if(choice.match.accepted)hits.add(new Hit(record,choice.match,false,choice.meaning));
                 }
             }
             return new SearchPage(raw,hits,exact,start);
@@ -247,14 +255,15 @@ final class HadithStore implements AutoCloseable {
             weights.put(term,Math.max(.25,Math.log(1.+recordCount/(1.+df))));
         }
         List<String> ranked=new ArrayList<>(weights.keySet());ranked.sort(Comparator.comparingDouble((String t)->weights.get(t)).reversed().thenComparing(t->t));
-        for(String term:ranked.subList(0,Math.min(HadithSearchPlan.MAX_ANCHORS,ranked.size())))repairs.put(term,spellingCandidates(term,terms.size()>1,signal));
+        for(String term:ranked.subList(0,Math.min(HadithSearchPlan.MAX_ANCHORS,ranked.size())))
+            repairs.put(term,mergeAlternatives(MeaningSearch.alternatives(term),spellingCandidates(term,terms.size()>1,signal)));
         HadithSearchPlan plan=HadithSearchPlan.candidates(intent,repairs,weights);
         List<Hit> matches=new ArrayList<>();int scanned=0;
         try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+plan.where,plan.args.toArray(new String[0]),signal)){
             while(c.moveToNext()){
                 cancelSearch(signal);scanned++;Record record=new Record(c);
-                TextMatch match=bestMatch(record,terms,repairs,weights,signal);
-                if(match.accepted)matches.add(new Hit(record,match,false));
+                MatchChoice choice=bestMatch(record,terms,repairs,weights,signal);
+                if(choice.match.accepted)matches.add(new Hit(record,choice.match,false,choice.meaning));
             }
         }
         cancelSearch(signal);matches.sort(ORDER);
@@ -265,19 +274,38 @@ final class HadithStore implements AutoCloseable {
         int from=Math.min(offset,page.hits.size()),to=Math.min(from+cap,page.hits.size());
         return new SearchPage(page.query,new ArrayList<>(page.hits.subList(from,to)),page.total,offset,page.limited);
     }
-    private TextMatch bestMatch(Record record,List<String> terms,Map<String,List<String>> repairs,Map<String,Double> weights,CancellationSignal signal){
-        TextMatch match=TextMatch.compare(terms,TextMatch.tokens(record.arabic),repairs,weights);
+    private MatchChoice bestMatch(Record record,List<String> terms,Map<String,List<String>> repairs,Map<String,Double> weights,CancellationSignal signal){
+        TextMatch direct=TextMatch.compare(terms,TextMatch.tokens(record.arabic),repairs,weights);
         for(String text:new String[]{record.english,record.urdu,record.bangla})if(text!=null){
             cancelSearch(signal);TextMatch m=TextMatch.compare(terms,TextMatch.tokens(text),repairs,weights);
-            if(m.accepted&&(!match.accepted||TextMatch.compareRank(m,match)<0))match=m;
+            if(m.accepted&&(!direct.accepted||TextMatch.compareRank(m,direct)<0))direct=m;
         }
-        if(hasEditorialTranslations)try(Cursor translations=db.rawQuery("SELECT text FROM editorial_translation WHERE hadith_id=? AND status IN ('released','reviewed')",new String[]{record.id},signal)){
-            while(translations.moveToNext()){
-                cancelSearch(signal);TextMatch m=TextMatch.compare(terms,TextMatch.tokens(translations.getString(0)),repairs,weights);
-                if(m.accepted&&(!match.accepted||TextMatch.compareRank(m,match)<0))match=m;
+
+        TextMatch context=null;
+        try(Cursor docs=db.rawQuery(
+            "SELECT 0,text,'' FROM editorial_translation WHERE hadith_id=? AND status IN ('released','reviewed') "+
+            "UNION ALL SELECT 1,text,roman FROM search_context WHERE hadith_id=?",
+            new String[]{record.id,record.id},signal)){
+            while(docs.moveToNext()){
+                cancelSearch(signal);boolean meaning=docs.getInt(0)==1;
+                TextMatch m=TextMatch.compare(terms,TextMatch.tokens(docs.getString(1)),repairs,weights);
+                if(!meaning){
+                    if(m.accepted&&(!direct.accepted||TextMatch.compareRank(m,direct)<0))direct=m;
+                    continue;
+                }
+                String roman=docs.getString(2);
+                if(roman!=null&&!roman.isEmpty()){
+                    TextMatch r=TextMatch.compare(terms,TextMatch.tokens(roman),repairs,weights);
+                    if(r.accepted&&(!m.accepted||TextMatch.compareRank(r,m)<0))m=r;
+                }
+                if(m.accepted&&(context==null||TextMatch.compareRank(m,context)<0))context=m;
             }
         }
-        return match;
+        // Search context is supporting evidence, not a quote. It may replace a direct result only
+        // when it reaches a strictly stronger confidence band.
+        if(context!=null&&(!direct.accepted||context.band.ordinal()<direct.band.ordinal()))
+            return new MatchChoice(context,true);
+        return new MatchChoice(direct,false);
     }
     private SearchPage referencePage(HadithQuery query,int cap,int offset,CancellationSignal signal){
         cancelSearch(signal);HadithQuery.Lookup lookup=query.lookup();
@@ -285,7 +313,7 @@ final class HadithStore implements AutoCloseable {
         int total;try(Cursor c=db.rawQuery("SELECT count(*) FROM hadith h WHERE "+predicate,args.toArray(new String[0]),signal)){c.moveToFirst();total=c.getInt(0);}
         args.add(""+cap);args.add(""+offset);List<Hit> hits=new ArrayList<>();
         try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE "+predicate+HadithSearchPlan.ORDER+" LIMIT ? OFFSET ?",args.toArray(new String[0]),signal)){
-            while(c.moveToNext()){cancelSearch(signal);hits.add(new Hit(new Record(c),TextMatch.exactReference(),query.isReference()||query.raw.startsWith("H:")));}
+            while(c.moveToNext()){cancelSearch(signal);hits.add(new Hit(new Record(c),TextMatch.exactReference(),query.isReference()||query.raw.startsWith("H:"),false));}
         }
         return new SearchPage(query.raw,hits,total,offset);
     }
@@ -325,6 +353,12 @@ final class HadithStore implements AutoCloseable {
             .thenComparing(Comparator.comparingInt((String w)->overlap.getOrDefault(w,0)).reversed()).thenComparing(w->w));
         List<String> result=Collections.unmodifiableList(new ArrayList<>(out.subList(0,Math.min(8,out.size()))));spellingCache.put(term,result);return result;
     }
+    private static List<String> mergeAlternatives(List<String> first,List<String> second){
+        LinkedHashSet<String> merged=new LinkedHashSet<>();
+        if(first!=null)merged.addAll(first);if(second!=null)merged.addAll(second);
+        return new ArrayList<>(merged);
+    }
+
     static List<String> spellingSeeds(String term){
         int[] codePoints=term.codePoints().toArray();
         if(codePoints.length<2||codePoints.length>12)return Collections.emptyList();
@@ -364,7 +398,7 @@ final class HadithStore implements AutoCloseable {
     }
 
     String searchHint(){
-        return "Arabic, Hindi, Urdu or English text · Bukhari 556 · Muslim 556";
+        return "Arabic, Hindi, Hinglish, Urdu or English · remembered meaning also works";
     }
 
     DisplayTranslation translation(Record record,String preferredLanguage){
