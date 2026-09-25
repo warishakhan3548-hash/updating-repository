@@ -129,9 +129,13 @@ def search_tokens(value):
 
 def build_search_index(db):
     editorial = {}
-    for hadith_id,text in db.execute(
-            "SELECT hadith_id,text FROM editorial_translation WHERE status IN ('reviewed','released') ORDER BY hadith_id,rowid"):
-        editorial.setdefault(hadith_id, []).append(text)
+    for hadith_id,language,text in db.execute(
+            "SELECT hadith_id,language,text FROM editorial_translation WHERE status IN ('reviewed','released') ORDER BY hadith_id,rowid"):
+        values=[text]
+        if language == "hi":
+            roman=romanize_hindi(text)
+            if roman: values.append(roman)
+        editorial.setdefault(hadith_id, []).extend(values)
     contexts = {}
     for hadith_id,text,roman in db.execute(
             "SELECT hadith_id,text,roman FROM search_context ORDER BY hadith_id,id"):
