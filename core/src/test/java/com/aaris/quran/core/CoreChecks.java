@@ -47,7 +47,9 @@ public final class CoreChecks {
         check(MeaningSearch.focusTokens(TextMatch.tokens("एक रकात नमाज")).contains("एक"),"Numeric one is preserved outside the once/ek-baar phrase");
         check(MeaningSearch.focusTokens(TextMatch.tokens("नमाज के बाद नहीं")).containsAll(Arrays.asList("नमाज","बाद","नहीं")),"Meaning focus preserves order/negation terms");
         List<String> scaffold=MeaningSearch.focusTokens(TextMatch.tokens("ये कहाँ पर लिखा है कि दो रकात नमाज फर्ज के बाद ये करना है"));
-        check(scaffold.containsAll(Arrays.asList("दो","रकात","नमाज","फर्ज","बाद","करना"))&&!scaffold.contains("कहाँ")&&!scaffold.contains("लिखा")&&!scaffold.contains("ये"),"Remembered-question scaffolding cannot dominate concept retrieval");
+        check(scaffold.containsAll(Arrays.asList("दो","रकात","नमाज","फर्ज","बाद"))&&
+            !scaffold.contains("कहाँ")&&!scaffold.contains("लिखा")&&!scaffold.contains("ये")&&!scaffold.contains("करना"),
+            "Remembered-question scaffolding cannot dominate concept retrieval");
         check(MeaningSearch.focusTokens(TextMatch.tokens("एक बार एक सहाबी ने नबी को देखा")).stream().filter("एक"::equals).count()==1,"Meaning lane deduplicates conversational repetition");
         check(MeaningSearch.focusTokens(TextMatch.tokens("नबी ने कहा नमाज")).contains("कहा")&&
             MeaningSearch.focusTokens(TextMatch.tokens("nabi ne kaha namaz")).contains("kaha"),"Said/kaha is content, not confused with where/kahan");
