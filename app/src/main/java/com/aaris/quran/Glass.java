@@ -41,7 +41,7 @@ final class Glass {
         @Override protected void onDraw(Canvas canvas){
             if(cachedAccent!=appearance.accent||cachedBackground!=appearance.background||cachedEnd!=appearance.gradientEnd||cachedScene!=appearance.scene||cachedStrength!=appearance.sceneStrength||cachedGradientAngle!=appearance.gradientAngle)onSizeChanged(getWidth(),getHeight(),getWidth(),getHeight());
             canvas.drawColor(BACKGROUND);
-            if(!highContrast&&!appearance.reducedEffects&&appearance.gradient&&backgroundGradient!=null){paint.setShader(backgroundGradient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
+            if(!highContrast&&appearance.rendersGradient()&&backgroundGradient!=null){paint.setShader(backgroundGradient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
             if(!highContrast&&!appearance.reducedEffects&&ambient!=null){paint.setShader(ambient);canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
             if(!highContrast&&!appearance.reducedEffects&&appearance.scene>0)drawScene(canvas);
         }
