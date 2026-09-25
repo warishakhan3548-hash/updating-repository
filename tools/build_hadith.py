@@ -97,7 +97,10 @@ def build_search_index(db):
         db.executemany('INSERT OR IGNORE INTO search_token VALUES(?,?)', ((t,rowid) for t in sorted(terms)))
     db.execute('INSERT INTO search_vocabulary SELECT token,count(*) FROM search_token GROUP BY token')
     for (token,) in db.execute('SELECT token FROM search_vocabulary ORDER BY token'):
-        value='^'+token+'
+        value = "^" + token + chr(36)
+        grams = sorted({value[i:i+3] for i in range(max(0, len(value)-2))})
+        db.executemany('INSERT OR IGNORE INTO search_gram VALUES(?,?)', ((g,token) for g in grams))
+
 
 def title_key(value):
     value = unicodedata.normalize("NFKD", str(value or "")).casefold()
