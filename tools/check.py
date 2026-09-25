@@ -231,6 +231,9 @@ def main():
     quran_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranText.java').read_text(encoding='utf-8')
     assert '.put("version",9)' in appearance_text, 'Appearance persistence schema was not upgraded safely'
     assert 'effectiveCardOpacity()' in appearance_text and 'effectiveSurfaceAtGradientEnd()' in appearance_text and 'surfaceHighlightAtGradientEnd()' in appearance_text
+    assert 'boolean rendersGradient(){return gradient&&!reducedEffects;}' in appearance_text, 'Reduced-effects mode must remove hidden gradient endpoints from contrast calculations'
+    assert 'if(style.rendersGradient())' in appearance_studio_text, 'Appearance preview must use the same gradient visibility rule as runtime'
+    assert '!highContrast&&appearance.rendersGradient()&&backgroundGradient!=null' in glass_text, 'Runtime backdrop must share the appearance gradient visibility rule'
     assert 'TEXT_PLAIN=0,TEXT_SOFT=1,TEXT_GLASS=2,TEXT_FOIL=3' in appearance_text
     assert 'shadowAngle' in appearance_text and 'shadowDistance' in appearance_text and 'gradientAngle' in appearance_text
     assert 'style.readabilitySummary()' in appearance_studio_text and 'Smart balance' in appearance_studio_text
