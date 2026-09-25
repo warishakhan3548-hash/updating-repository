@@ -794,10 +794,11 @@ public final class MainActivity extends Activity {
         if(end<114)list.postOnAnimation(()->appendLibrarySurahs(list,query,end+1,generation));
     }
     private void open(int surah,int ayah){readerScroll=null;readerVerses.clear();readerSurah=Math.max(1,Math.min(114,surah));readerStart=Math.max(1,Math.min(content.surah(readerSurah).count,ayah));reading=true;tab=1;String id="Q:"+readerSurah+":"+readerStart;readingPosition=new ReadingPosition(id,id,0,0,true);hideKeyboard();show();}
+    private static int lastReaderPageStart(int ayahCount){return ((Math.max(1,ayahCount)-1)/8)*8+1;}
     private boolean moveReaderPage(int direction){
         if(direction<0){
             if(readerStart>1){readerRevealDirection=-1;open(readerSurah,Math.max(1,readerStart-8));return true;}
-            if(readerSurah>1){int previous=readerSurah-1;readerRevealDirection=-1;open(previous,Math.max(1,content.surah(previous).count-7));return true;}
+            if(readerSurah>1){int previous=readerSurah-1;readerRevealDirection=-1;open(previous,lastReaderPageStart(content.surah(previous).count));return true;}
             return false;
         }
         ContentStore.Surah current=content.surah(readerSurah);
@@ -831,7 +832,7 @@ public final class MainActivity extends Activity {
             if(start+8<=current.count)targets.add(surah+":"+(start+8));
             else if(surah<114)targets.add((surah+1)+":1");
             if(start>1)targets.add(surah+":"+Math.max(1,start-8));
-            else if(surah>1){int prior=surah-1;targets.add(prior+":"+Math.max(1,content.surah(prior).count-7));}
+            else if(surah>1){int prior=surah-1;targets.add(prior+":"+lastReaderPageStart(content.surah(prior).count));}
             for(String target:targets){
                 if(Thread.currentThread().isInterrupted()||readerPrefetchGeneration.get()!=generation)return;
                 String[] p=target.split(":");int s=Integer.parseInt(p[0]),a=Integer.parseInt(p[1]);
