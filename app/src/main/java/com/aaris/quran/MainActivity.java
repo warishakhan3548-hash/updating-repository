@@ -230,6 +230,9 @@ public final class MainActivity extends Activity {
                     readerSurah=anchor.surah;readerStart=readerPageStart(anchor.number);String canonicalPage="Q:"+readerSurah+":"+readerStart;
                     if(!canonicalPage.equals(readingPosition.pageId))readingPosition=new ReadingPosition(canonicalPage,readingPosition.anchorId,readingPosition.codePoint,readingPosition.lineOffsetDp,false);
                 }
+            }else{
+                readerSurah=Math.max(1,Math.min(114,readerSurah));
+                readerStart=readerPageStart(Math.max(1,Math.min(content.surah(readerSurah).count,readerStart)));
             }
             if(getIntent().getBooleanExtra("open_ambient",false)){tab=3;ambientSheetRequested=true;getIntent().removeExtra("open_ambient");}
             tab=Math.max(0,Math.min(3,tab));
