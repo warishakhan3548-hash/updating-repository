@@ -361,6 +361,7 @@ def open_db(path: Path):
     CREATE INDEX hadith_by_chapter ON hadith(chapter_id, record_number);
     CREATE INDEX hadith_reference_lookup ON hadith_reference(scheme, value);
     CREATE INDEX hadith_reference_value ON hadith_reference(value, hadith_id);
+    CREATE INDEX grade_assertion_lookup ON grade_assertion(hadith_id, id);
     -- Legacy whole-text B-tree shadows were never used by runtime retrieval. FTS/search_token
     -- are the bounded search paths; omitting these duplicate indexes saves substantial storage.
     CREATE INDEX editorial_translation_lookup
