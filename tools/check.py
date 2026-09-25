@@ -385,7 +385,7 @@ def main():
     assert 'continuousPreference()&&ayah<app.content.surah(surah).count' in recitation_service_text, 'Continue-mode changes must take effect before advancing to the next ayah'
     assert 'private void move(int delta)' in recitation_service_text and 'ayah=next;resetRepeat();play();' in recitation_service_text, 'Manual recitation navigation must start a fresh repeat cycle'
     assert 'Intent home=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)' in recitation_service_text, 'Recitation notification must reuse the existing reader task instead of stacking another MainActivity'
-    assert '.putExtra(OPEN_READER,true).putExtra(OPEN_SURAH,surah).putExtra(OPEN_AYAH,ayah)' in recitation_service_text, 'Recitation notification must carry the currently playing ayah into the reused reader task'
+    assert 'if(app!=null&&app.recitationActive)home.putExtra(OPEN_READER,true).putExtra(OPEN_SURAH,surah).putExtra(OPEN_AYAH,ayah);' in recitation_service_text, 'Active recitation notifications must carry the currently playing ayah without misrouting the initial preparing notification'
     assert 'PendingIntent.getActivity(this,10,home,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE)' in recitation_service_text, 'Recitation notification must launch the lifecycle-safe reader intent'
     assert 'PendingIntent.getActivity(this,10,new Intent(this,MainActivity.class)' not in recitation_service_text, 'Do not regress to a duplicate-Activity recitation content intent'
     recitation_intent = java_method('openRecitationIntent')
