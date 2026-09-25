@@ -89,7 +89,7 @@ final class AppearanceStudio {
     }
     private void applyPreviewBackground(){
         android.graphics.drawable.GradientDrawable bg;
-        if(style.gradient&&!style.reducedEffects)bg=new android.graphics.drawable.GradientDrawable(gradientOrientation(style.gradientAngle),new int[]{style.background,style.gradientEnd});
+        if(style.rendersGradient())bg=new android.graphics.drawable.GradientDrawable(gradientOrientation(style.gradientAngle),new int[]{style.background,style.gradientEnd});
         else {bg=new android.graphics.drawable.GradientDrawable();bg.setColor(style.background);}
         bg.setCornerRadius(dp(activity,26));previewHost.setBackground(bg);
     }
