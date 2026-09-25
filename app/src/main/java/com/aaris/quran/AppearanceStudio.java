@@ -453,6 +453,9 @@ final class AppearanceStudio {
         LinearLayout edits=row(activity);
         View undo=compactChoice("Undo",false,()->{if(historyIndex>0){style=Appearance.decode(history.get(--historyIndex));invalidateEditorColor();style.save(activity);refresh();renderControls();}});
         View redo=compactChoice("Redo",false,()->{if(historyIndex+1<history.size()){style=Appearance.decode(history.get(++historyIndex));invalidateEditorColor();style.save(activity);refresh();renderControls();}});
+        boolean canUndo=historyIndex>0,canRedo=historyIndex+1<history.size();
+        undo.setEnabled(canUndo);undo.setFocusable(canUndo);undo.setAlpha(canUndo?1f:.45f);
+        redo.setEnabled(canRedo);redo.setFocusable(canRedo);redo.setAlpha(canRedo?1f:.45f);
         View reset=compactChoice("Reset",false,()->{style=new Appearance();invalidateEditorColor();commit();renderControls();});
         Runnable saveRun=()->{EditText name=new EditText(activity);name.setHint("My style");new AlertDialog.Builder(activity).setTitle("Save style").setView(name).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{String n=name.getText().toString().trim();if(n.isEmpty())n="My style";style.name=n;activity.getSharedPreferences("saved_styles",0).edit().putString(n,style.encode()).apply();commit();renderControls();}).show();};
         View save=compactChoice("Save",true,saveRun);
