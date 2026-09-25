@@ -282,6 +282,9 @@ def main():
     assert 'boolean hasNext=records.size()>size;' in hadith_records_render, 'Hadith pager must derive Next from a real lookahead row'
     assert 'records.subList(0,visibleCount)' in hadith_records_render, 'Hadith pager must not render the lookahead row'
     assert 'records.size()==size' not in hadith_records_render, 'A full final Hadith page must not expose a false Next action'
+    hadith_search_page = java_method('loadHadithSearch')
+    assert 'setSearchBusy(true);status.setText("Loading next Hadith matches…");' in hadith_search_page, 'Hadith search pagination must show immediate progress instead of silently removing the load-more control'
+    assert 'pendingSearchJobs++;' in hadith_search_page and 'finishSearch(signal)' in hadith_search_page, 'Hadith search pagination progress must remain tied to the real background search lifecycle'
     recitation_status = java_method('fillRecitationSurahDownloads')
     recitation_rows = java_method('appendRecitationSurahDownloads')
     recitation_controls = java_method('audioControls')
