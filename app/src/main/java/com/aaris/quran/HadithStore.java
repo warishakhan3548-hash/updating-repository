@@ -291,14 +291,23 @@ final class HadithStore implements AutoCloseable {
     }
     private List<String> spellingCandidates(String term,CancellationSignal signal){
         cancelSearch(signal);
-        if(term.length()<4||term.length()>128||TextMatch.negative(term))return Collections.emptyList();
+        boolean arabicTerm=Arabic.hasArabic(term);
+        if(term.length()<(arabicTerm?3:4)||term.length()>128||TextMatch.negative(term))return Collections.emptyList();
         List<String> cached=spellingCache.get(term);if(cached!=null)return cached;
-        int max=term.length()>=8?2:1;
-        Map<String,Integer> distances=new HashMap<>(),overlap=new HashMap<>();List<String> grams=new ArrayList<>(Arabic.trigrams(term));
+        int max=term.length()>=8?2:1,maxFormExtra=arabicTerm?3:4;
+        Map<String,Integer> distances=new HashMap<>(),overlap=new HashMap<>();Set<String> forms=new HashSet<>();
+        List<String> grams=new ArrayList<>(Arabic.trigrams(term));
         if(!grams.isEmpty()){
             String marks=String.join(",",Collections.nCopies(grams.size(),"?"));
             try(Cursor c=db.rawQuery("SELECT token,count(*) AS hits FROM search_gram WHERE gram IN ("+marks+") GROUP BY token ORDER BY hits DESC,token LIMIT 120",grams.toArray(new String[0]),signal)){
-                while(c.moveToNext()){cancelSearch(signal);String word=c.getString(0);if(word.equals(term))continue;int distance=TextMatch.distance(term,word,max);if(distance<=max){distances.put(word,distance);overlap.put(word,c.getInt(1));}}
+                while(c.moveToNext()){
+                    cancelSearch(signal);String word=c.getString(0);if(word.equals(term))continue;
+                    boolean form=word.length()>=term.length()&&word.length()-term.length()<=maxFormExtra&&word.contains(term);
+                    int distance=form?1:TextMatch.distance(term,word,max);
+                    if(form||distance<=max){
+                        distances.put(word,distance);overlap.put(word,c.getInt(1));if(form)forms.add(word);
+                    }
+                }
             }
         }
         if(distances.size()<5){
@@ -310,8 +319,11 @@ final class HadithStore implements AutoCloseable {
                 }
             }
         }
-        List<String> out=new ArrayList<>(distances.keySet());out.sort(Comparator.comparingInt((String w)->overlap.getOrDefault(w,0)).reversed().thenComparingInt(w->distances.get(w)).thenComparing(w->w));
-        List<String> result=Collections.unmodifiableList(new ArrayList<>(out.subList(0,Math.min(5,out.size()))));spellingCache.put(term,result);return result;
+        List<String> out=new ArrayList<>(distances.keySet());
+        out.sort(Comparator.comparingInt((String w)->forms.contains(w)?0:1)
+            .thenComparingInt(w->distances.get(w))
+            .thenComparing(Comparator.comparingInt((String w)->overlap.getOrDefault(w,0)).reversed()).thenComparing(w->w));
+        List<String> result=Collections.unmodifiableList(new ArrayList<>(out.subList(0,Math.min(8,out.size()))));spellingCache.put(term,result);return result;
     }
     static List<String> spellingSeeds(String term){
         int[] codePoints=term.codePoints().toArray();
