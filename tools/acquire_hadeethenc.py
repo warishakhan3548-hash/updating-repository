@@ -123,6 +123,11 @@ def main() -> None:
     languages = [value.lower() for value in args.languages]
     if len(languages) != len(set(languages)) or any(code not in LANGUAGES for code in languages):
         raise SystemExit("Languages must be unique members of: " + ", ".join(LANGUAGES))
+    if set(languages) != set(LANGUAGES) or len(languages) != len(LANGUAGES):
+        raise SystemExit(
+            "A published HadeethEnc snapshot must capture ar, en, ur and hi together; "
+            "partial source manifests are refused."
+        )
 
     DEST.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="hadeethenc-", dir=DEST.parent) as scratch:
