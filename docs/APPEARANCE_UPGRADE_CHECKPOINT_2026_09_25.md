@@ -31,4 +31,17 @@ Working branch: `upgrade/smart-appearance-editor-20260925`.
 - Auto-balance for decorative effects without replacing the user's chosen palette.
 - Regression assertions for persistence, renderer safety, and transparent-surface logic.
 
-Status: implementation in progress.
+## Implemented
+
+- Card surfaces now use real alpha transparency so the backdrop/scene can show through.
+- Smart opacity raises only the effective opacity when a high-contrast gradient would otherwise make text unsafe; exact manual behavior remains available by disabling Smart balance.
+- Borders strengthen automatically as cards become more transparent.
+- Arabic text finishes: Plain, Soft, Glass, Foil. They share one renderer and preserve selection/highlight bypass.
+- Arabic shadow supports auto/custom color, angle, distance, softness and strength.
+- Background gradients support 0–359° direction.
+- Preview shows Arabic/Translation/UI readability grades and whether colors were auto-adjusted.
+- Existing Advanced section owns detailed controls; no second advanced UI was added.
+- Old saved appearance JSON remains backward-compatible through optional v9 defaults.
+- Quran Arabic letter-spacing/tracking was intentionally not added.
+
+Status: implementation complete on branch; automated verification/PR pending.
