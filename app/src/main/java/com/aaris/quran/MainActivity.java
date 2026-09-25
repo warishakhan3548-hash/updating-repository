@@ -423,7 +423,7 @@ public final class MainActivity extends Activity {
             list.postOnAnimation(()->appendHadithBatch(q,response,metadata,generation,list,status,end));return;
         }
         status.setText(response.total==0?(HadithQuery.parse(q).isReference()?"This reference is not in the installed edition. Check its numbering or search an Arabic phrase.":"No Hadith text match in the installed edition."):hadithHits.size()+" of "+response.total+(response.limited?" closest Hadith matches · Narrow the phrase for more precision":" Hadith matches"));
-        if(hadithHits.size()<response.total){TextView more=button("Load next 50 Hadith matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadHadithSearch(q,hadithHits.size(),generation,list,status);});}
+        if(response.nextOffset<response.total){TextView more=button("Load next 50 Hadith matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadHadithSearch(q,response.nextOffset,generation,list,status);});}
     }
 
     private void hadithResultCard(LinearLayout parent,HadithStore.Record record){hadithResultCard(parent,record,null);}
