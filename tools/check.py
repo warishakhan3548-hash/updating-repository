@@ -326,6 +326,7 @@ def main():
     assert 'reciter.equals(verifiedReciter)' in play_flow, 'Changing reciter while verification is running must invalidate the old result'
     assert 'wordFallbackReady&&(verifiedReciter==null||!reciter.equals(verifiedReciter))' in play_flow, 'Reciter verification should run only when it can affect word-audio fallback selection'
     assert 'repeatRemaining' not in recitation_service_text and 'boolean continuous=true' not in recitation_service_text, 'Active recitation must not cache repeat/continue settings for the whole playback session'
+    assert 'resetRepeat();play();' in recitation_service_text, 'A fresh Play command must start a fresh repeat cycle'
     assert 'if(++repeatCompleted<repeatPreference())play();' in recitation_service_text, 'Repeat changes must take effect at the next ayah completion without restarting playback'
     assert 'continuousPreference()&&ayah<app.content.surah(surah).count' in recitation_service_text, 'Continue-mode changes must take effect before advancing to the next ayah'
     assert 'private void move(int delta)' in recitation_service_text and 'ayah=next;resetRepeat();play();' in recitation_service_text, 'Manual recitation navigation must start a fresh repeat cycle'
