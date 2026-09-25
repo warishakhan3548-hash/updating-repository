@@ -20,10 +20,12 @@ final class RecitationDownloads {
     private final File root;
     private final Object[] locks=new Object[LOCK_STRIPES];
     private final Object batchConnectionLock=new Object();
+    private final Object playbackConnectionLock=new Object();
     private final Map<String,long[]> completionCache=new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<String> missingCompletions=java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile boolean cancelled;
     private HttpURLConnection activeBatchConnection;
+    private HttpURLConnection activePlaybackConnection;
     volatile boolean busy;
     volatile String progress="";
     // v1 cached ordinal-1 audio under the requested coordinate. Its hashes only verify bytes,
@@ -42,6 +44,11 @@ final class RecitationDownloads {
         cancelled=true;progress="Pausing download…";
         HttpURLConnection connection;
         synchronized(batchConnectionLock){connection=activeBatchConnection;}
+        if(connection!=null)connection.disconnect();
+    }
+    void cancelPlaybackFetch(){
+        HttpURLConnection connection;
+        synchronized(playbackConnectionLock){connection=activePlaybackConnection;}
         if(connection!=null)connection.disconnect();
     }
     synchronized void releaseDownloadReservation(){busy=false;cancelled=true;progress="Download paused";}
@@ -96,6 +103,7 @@ final class RecitationDownloads {
         int globalNumber=RecitationAddress.globalNumber(a);
         reciter=valid(reciter);Object lock=lockFor(reciter+":"+a.id);
         synchronized(lock){
+            if(Thread.currentThread().isInterrupted())throw new InterruptedIOException(batchDownload?"Download paused":"Playback cancelled");
             if(batchDownload&&cancelled)throw new InterruptedIOException("Download paused");
             File target=file(reciter,a),hash=hashFile(reciter,a),directory=target.getParentFile();
             if(target.isFile()&&hash.isFile()){
@@ -115,6 +123,11 @@ final class RecitationDownloads {
                     if(cancelled){connection.disconnect();throw new InterruptedIOException("Download paused");}
                     activeBatchConnection=connection;
                 }
+            }else{
+                synchronized(playbackConnectionLock){
+                    if(Thread.currentThread().isInterrupted()){connection.disconnect();throw new InterruptedIOException("Playback cancelled");}
+                    activePlaybackConnection=connection;
+                }
             }
             try{
                 int response=connection.getResponseCode();
@@ -128,6 +141,7 @@ final class RecitationDownloads {
                 try(FileOutputStream out=new FileOutputStream(hash)){out.write(sha.getBytes(StandardCharsets.UTF_8));out.getFD().sync();}return target;
             }finally{
                 if(batchDownload)synchronized(batchConnectionLock){if(activeBatchConnection==connection)activeBatchConnection=null;}
+                else synchronized(playbackConnectionLock){if(activePlaybackConnection==connection)activePlaybackConnection=null;}
                 connection.disconnect();temporary.delete();
             }
         }
