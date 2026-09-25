@@ -13,14 +13,22 @@ import java.util.concurrent.Future;
 public final class RecitationService extends Service {
     static final String PLAY="recitation.play",PAUSE="recitation.pause",NEXT="recitation.next",PREVIOUS="recitation.previous",STOP="recitation.stop";
     private QuranApp app;private MediaPlayer player;private MediaSession session;private AudioManager audio;private AudioFocusRequest focus;
-    private final Handler main=new Handler(Looper.getMainLooper());private Future<?> pending;private int generation;private boolean destroyed;
+    private final Handler main=new Handler(Looper.getMainLooper());private Future<?> pending;private int generation;private boolean destroyed,resumeAfterTransientFocusLoss;
     private int surah=1,ayah=1,repeatRemaining=1;private boolean continuous=true,paused,buffering;private String reciter;
     static void command(Context context,String action,int surah,int ayah){Intent intent=new Intent(context,RecitationService.class).setAction(action).putExtra("surah",surah).putExtra("ayah",ayah);context.startForegroundService(intent);}
     @Override public void onCreate(){super.onCreate();app=(QuranApp)getApplication();audio=getSystemService(AudioManager.class);
         NotificationManager notifications=getSystemService(NotificationManager.class);notifications.createNotificationChannel(new NotificationChannel("recitation","Quran recitation",NotificationManager.IMPORTANCE_LOW));
         session=new MediaSession(this,"AarisRecitation");session.setCallback(new MediaSession.Callback(){public void onPlay(){resume();}public void onPause(){pause();}public void onStop(){stopSelf();}public void onSkipToNext(){move(1);}public void onSkipToPrevious(){move(-1);}});session.setActive(true);
         AudioAttributes attrs=new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
-        focus=new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).setAudioAttributes(attrs).setOnAudioFocusChangeListener(change->{if(change<=0)pause();},main).build();
+        focus=new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).setAudioAttributes(attrs).setOnAudioFocusChangeListener(change->{
+            if(change==AudioManager.AUDIOFOCUS_GAIN){
+                if(resumeAfterTransientFocusLoss&&paused){resumeAfterTransientFocusLoss=false;resume();}
+                return;
+            }
+            if(paused){resumeAfterTransientFocusLoss=false;return;}
+            boolean transientLoss=change==AudioManager.AUDIOFOCUS_LOSS_TRANSIENT||change==AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK;
+            resumeAfterTransientFocusLoss=transientLoss;pausePlayback(!transientLoss);
+        },main).build();
         reciter=getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]);startForeground(42,notification("Preparing recitation"));
     }
     @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null){stopSelf();return START_NOT_STICKY;}String action=intent.getAction();
@@ -32,7 +40,7 @@ public final class RecitationService extends Service {
         }else if(PAUSE.equals(action)){if(paused)resume();else pause();}else if(NEXT.equals(action))move(1);else if(PREVIOUS.equals(action))move(-1);});return START_NOT_STICKY;
     }
     private void play(){
-        int token=++generation;if(pending!=null)pending.cancel(true);releasePlayer();paused=false;buffering=true;app.recitationActive=true;
+        resumeAfterTransientFocusLoss=false;int token=++generation;if(pending!=null)pending.cancel(true);releasePlayer();paused=false;buffering=true;app.recitationActive=true;
         if(app.audio!=null)app.audio.stop();Ayah record=app.content.ayah("Q:"+surah+":"+ayah);if(record==null){stopSelf();return;}
         update("Loading · "+label());String voice=reciter;
         pending=app.recitationWorker.submit(()->{try{File local=app.recitationDownloads.obtain(voice,record);main.post(()->{if(token!=generation)return;try{
@@ -45,11 +53,19 @@ public final class RecitationService extends Service {
     }
     private String label(){return RecitationDownloads.NAMES[RecitationDownloads.index(reciter)]+" · "+surah+":"+ayah;}
     private void move(int delta){if(app.content==null)return;int next=ayah+delta;if(next<1||next>app.content.surah(surah).count)return;ayah=next;repeatRemaining=getSharedPreferences("recitation",0).getInt("repeat",1);play();}
-    private void pause(){
-        if(player!=null)try{if(player.isPlaying()){player.pause();buffering=false;paused=true;update("Paused · "+label());return;}}catch(IllegalStateException ignored){}
-        generation++;if(pending!=null)pending.cancel(true);releasePlayer();buffering=false;paused=true;update("Paused · "+label());
+    private void pause(){resumeAfterTransientFocusLoss=false;pausePlayback(true);}
+    private void pausePlayback(boolean releaseFocus){
+        if(player!=null)try{if(player.isPlaying()){player.pause();buffering=false;paused=true;update("Paused · "+label());if(releaseFocus)abandonFocus();return;}}catch(IllegalStateException ignored){}
+        generation++;if(pending!=null)pending.cancel(true);releasePlayer();buffering=false;paused=true;update("Paused · "+label());if(releaseFocus)abandonFocus();
     }
-    private void resume(){if(player!=null)try{if(audio.requestAudioFocus(focus)==AudioManager.AUDIOFOCUS_REQUEST_GRANTED){buffering=false;player.start();paused=false;update(label());return;}}catch(IllegalStateException ignored){}play();}
+    private void resume(){
+        resumeAfterTransientFocusLoss=false;
+        if(player!=null)try{
+            if(audio.requestAudioFocus(focus)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED){buffering=false;paused=true;update("Paused · "+label());return;}
+            buffering=false;player.start();paused=false;update(label());return;
+        }catch(IllegalStateException ignored){}
+        play();
+    }
     private void update(String message){app.recitationSurah=surah;app.recitationAyah=ayah;app.recitationLabel=message;app.main.post(()->{if(app.recitationChanged!=null)app.recitationChanged.run();});session.setMetadata(new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,message).build());
         int state=buffering?PlaybackState.STATE_BUFFERING:paused?PlaybackState.STATE_PAUSED:PlaybackState.STATE_PLAYING;
         session.setPlaybackState(new PlaybackState.Builder().setActions(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_STOP|PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS).setState(state,PlaybackState.PLAYBACK_POSITION_UNKNOWN,state==PlaybackState.STATE_PLAYING?1:0).build());getSystemService(NotificationManager.class).notify(42,notification(message));}
@@ -63,7 +79,8 @@ public final class RecitationService extends Service {
             .setStyle(new Notification.MediaStyle().setMediaSession(session.getSessionToken()).setShowActionsInCompactView(0,1,2)).build();
     }
     private void fail(String message){android.widget.Toast.makeText(this,message,android.widget.Toast.LENGTH_LONG).show();stopSelf();}
+    private void abandonFocus(){if(audio!=null&&focus!=null)try{audio.abandonAudioFocusRequest(focus);}catch(RuntimeException ignored){}}
     private void releasePlayer(){MediaPlayer old=player;player=null;if(old!=null)try{old.release();}catch(RuntimeException ignored){}}
-    @Override public void onDestroy(){destroyed=true;generation++;buffering=false;if(pending!=null)pending.cancel(true);main.removeCallbacksAndMessages(null);releasePlayer();if(audio!=null)audio.abandonAudioFocusRequest(focus);if(session!=null){session.setActive(false);session.release();}app.recitationActive=false;app.recitationLabel="";app.main.post(()->{if(app.recitationChanged!=null)app.recitationChanged.run();});super.onDestroy();}
+    @Override public void onDestroy(){destroyed=true;generation++;buffering=false;if(pending!=null)pending.cancel(true);main.removeCallbacksAndMessages(null);releasePlayer();abandonFocus();if(session!=null){session.setActive(false);session.release();}app.recitationActive=false;app.recitationLabel="";app.main.post(()->{if(app.recitationChanged!=null)app.recitationChanged.run();});super.onDestroy();}
     @Override public IBinder onBind(Intent intent){return null;}
 }
