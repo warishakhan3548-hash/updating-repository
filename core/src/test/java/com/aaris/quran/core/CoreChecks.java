@@ -43,12 +43,28 @@ public final class CoreChecks {
         check(MeaningSearch.alternatives("prayer").contains("नमाज"),"Trusted concept aliases bridge English to Hindi");
         check(MeaningSearch.focusTokens(TextMatch.tokens("एक सहाबी ने नबी को वुज़ू करते देखा")).containsAll(Arrays.asList("एक","सहाबी","नबी","वुज़ू","करते","देखा")),"Meaning focus removes grammar without deleting content");
         check(MeaningSearch.focusTokens(TextMatch.tokens("नमाज के बाद नहीं")).containsAll(Arrays.asList("नमाज","बाद","नहीं")),"Meaning focus preserves order/negation terms");
+        List<String> scaffold=MeaningSearch.focusTokens(TextMatch.tokens("ये कहाँ पर लिखा है कि दो रकात नमाज फर्ज के बाद ये करना है"));
+        check(scaffold.containsAll(Arrays.asList("दो","रकात","नमाज","फर्ज","बाद","करना"))&&!scaffold.contains("कहाँ")&&!scaffold.contains("लिखा")&&!scaffold.contains("ये"),"Remembered-question scaffolding cannot dominate concept retrieval");
+        check(MeaningSearch.focusTokens(TextMatch.tokens("एक बार एक सहाबी ने नबी को देखा")).stream().filter("एक"::equals).count()==1,"Meaning lane deduplicates conversational repetition");
+        check(TextMatch.negative("nahi")&&TextMatch.negative("nahin")&&TextMatch.negative("नही"),"Common Hinglish/Hindi negation variants are protected");
+        Map<String,List<String>> polarityRepairs=new HashMap<>();
+        polarityRepairs.put("nahi",MeaningSearch.alternatives("nahi"));
+        TextMatch negativeMatch=TextMatch.compare(
+            Arrays.asList("namaz","nahi"),Arrays.asList("namaz","nahin"),polarityRepairs,Collections.emptyMap());
+        TextMatch positiveMismatch=TextMatch.compare(
+            Arrays.asList("namaz","nahi"),Arrays.asList("namaz"),polarityRepairs,Collections.emptyMap());
+        check(negativeMatch.accepted&&!positiveMismatch.accepted,"Cross-language/roman negation may match only explicit negative evidence");
         String remembered="नमाज के लिए वुज़ू";
         SearchEngine recalled=new SearchEngine(Arrays.asList(
             doc(1,"مصدر اول",remembered+" "+MeaningSearch.romanizeHindi(remembered)),
             doc(2,"مصدر ثان","unrelated text")));
         check(recalled.search("prayer wudu",10).results.get(0).ayah.number==1,"Cross-language concept aliases retrieve the intended evidence");
         check(recalled.search("namaz vuzu",10).results.get(0).ayah.number==1,"Hinglish shadow retrieves Hindi evidence");
+        SearchEngine rememberedQuestion=new SearchEngine(Arrays.asList(
+            doc(1,"مصدر ثالث","दो रकात नमाज फर्ज बाद करना"),
+            doc(2,"مصدر رابع","कहाँ लिखा ये unrelated")));
+        SearchEngine.Result conceptResult=rememberedQuestion.search("ये कहाँ पर लिखा है कि दो रकात नमाज फर्ज के बाद ये करना है",10).results.get(0);
+        check(conceptResult.ayah.number==1&&conceptResult.meaning,"Quran remembered-question lane is ranked and labeled as meaning evidence");
         check(Arabic.safe("أَ").equals("أ"),"Safe lane preserves hamza");
         check(!Arabic.tolerant("نية").equals(Arabic.tolerant("نيه")),"Ta marbuta is not ha");
         Recall.ConservativeScheduler scheduler=new Recall.ConservativeScheduler();
