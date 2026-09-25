@@ -59,7 +59,7 @@ public final class AmbientRecallService extends Service {
             if(Build.VERSION.SDK_INT>=34)startForeground(NOTIFICATION,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
             else startForeground(NOTIFICATION,notification());
         }catch(RuntimeException e){finish("Session could not start. Open Aaris and try again.");return START_NOT_STICKY;}
-        removeCard();long interval=AmbientSettings.minutes(this)*Recall.MINUTE;
+        candidateGeneration++;candidateLoading=false;removeCard();long interval=AmbientSettings.minutes(this)*Recall.MINUTE;
         session.start(SystemClock.elapsedRealtime(),interval,preview?10_000:interval);
         app.ambientRunning=true;AmbientSettings.status(this,true,preview?"Test ready · Open another app":"Session is running");
         update();return START_NOT_STICKY;
