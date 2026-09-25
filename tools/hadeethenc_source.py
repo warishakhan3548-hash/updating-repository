@@ -107,6 +107,7 @@ def prepare(output: Path) -> dict:
 
     versions = {language: str(declared[language]["version"]) for language in LANGS}
     translation_counts = {language: 0 for language in ("en", "ur", "hi")}
+    context_counts = {language: 0 for language in ("ar", "en", "ur", "hi")}
     vowel_marked = 0
     with record_path.open("w", encoding="utf-8", newline="\n") as out:
         out.write(compact({
@@ -126,23 +127,56 @@ def prepare(output: Path) -> dict:
                 vowel_marked += 1
 
             editorial = []
+            search_contexts = []
+
+            # Arabic context is useful for remembered wording but is never displayed as the matn.
+            arabic_link = source.get("link") or f"https://hadeethenc.com/ar/browse/hadith/{hid}"
+            for kind, value in (
+                ("title", source.get("title")),
+                ("explanation", source.get("explanation")),
+                ("benefits", source.get("benefits")),
+                ("word_meanings", source.get("word_meanings")),
+            ):
+                text = str(value or "").strip()
+                if text:
+                    context_counts["ar"] += 1
+                    search_contexts.append({
+                        "language": "ar",
+                        "kind": kind,
+                        "text": text,
+                        "source_ref": f"HadeethEnc.com · ar v{versions['ar']} · {arabic_link}",
+                    })
+
             for language in ("en", "ur", "hi"):
                 translated = parsed[language].get(hid)
                 if not translated or hid in withheld[language]:
                     continue
                 text = str(translated.get("translation") or "").strip()
-                if not text:
-                    continue
-                translation_counts[language] += 1
                 link = translated.get("link") or f"https://hadeethenc.com/{language}/browse/hadith/{hid}"
-                editorial.append({
-                    "id": f"H:hadeethenc:official:{hid}:T:{language}:v{versions[language]}",
-                    "language": language,
-                    "text": text,
-                    "revision": "v" + versions[language],
-                    "status": "released",
-                    "source_ref": f"HadeethEnc.com · v{versions[language]} · {link}",
-                })
+                if text:
+                    translation_counts[language] += 1
+                    editorial.append({
+                        "id": f"H:hadeethenc:official:{hid}:T:{language}:v{versions[language]}",
+                        "language": language,
+                        "text": text,
+                        "revision": "v" + versions[language],
+                        "status": "released",
+                        "source_ref": f"HadeethEnc.com · v{versions[language]} · {link}",
+                    })
+                for kind, value in (
+                    ("title", translated.get("title")),
+                    ("explanation", translated.get("explanation")),
+                    ("benefits", translated.get("benefits")),
+                ):
+                    context = str(value or "").strip()
+                    if context:
+                        context_counts[language] += 1
+                        search_contexts.append({
+                            "language": language,
+                            "kind": kind,
+                            "text": context,
+                            "source_ref": f"HadeethEnc.com · v{versions[language]} · {link}",
+                        })
 
             grade = str(source.get("grade") or "").strip()
             grades = []
@@ -171,12 +205,14 @@ def prepare(output: Path) -> dict:
                 "references": [{"scheme": "hadeethenc", "value": hid}],
                 "grades": grades,
                 "editorial_translations": editorial,
+                "search_contexts": search_contexts,
             }) + "\n")
 
     return {
         "collection_id": "hadeethenc",
         "records": len(canonical),
         "translation_counts": translation_counts,
+        "search_context_counts": context_counts,
         "withheld_translation_ids": withheld,
         "versions": versions,
         "vowel_marked_records": vowel_marked,
