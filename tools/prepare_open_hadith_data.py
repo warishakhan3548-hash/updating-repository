@@ -332,6 +332,7 @@ def main():
         "provider": "HadeethEnc.com",
         "versions": versions,
         "translation_record_counts": hadeethenc["translation_counts"],
+        "withheld_translation_ids": hadeethenc["withheld_translation_ids"],
         "snapshot": hadeethenc["source_manifest"],
     }
 
@@ -364,6 +365,7 @@ def main():
         },
         "collection_record_counts": counts,
         "hadeethenc_translation_record_counts": hadeethenc["translation_counts"],
+        "hadeethenc_withheld_translation_ids": hadeethenc["withheld_translation_ids"],
         "source_inventory": source_inventory,
     }
     (output / "manifest.json").write_text(
@@ -376,6 +378,7 @@ def main():
         "records": sum(counts.values()),
         "counts": counts,
         "hadeethenc_translations": hadeethenc["translation_counts"],
+        "hadeethenc_withheld": hadeethenc["withheld_translation_ids"],
         "output": str(output),
     }, ensure_ascii=False, indent=2))
 
