@@ -48,6 +48,7 @@ final class QuranAudioStore {
     private final long catalogBytes;
     private final Map<Integer,PackMeta> catalog=new HashMap<>();
     private final Map<Integer,SurahIndex> cache=new HashMap<>();
+    private final Set<Integer> checkedSurahs=new HashSet<>();
 
     QuranAudioStore(Context context,String alignmentHash) throws Exception {
         if(alignmentHash==null||!CANONICAL_ALIGNMENT_HASH.equals(alignmentHash))
@@ -90,13 +91,21 @@ final class QuranAudioStore {
     private File markerFile(int surah){return new File(root,String.format(Locale.ROOT,"%03d.ok",surah));}
     File partialFile(int surah){return new File(root,".partial-"+SOURCE_REVISION.substring(0,12)+"-"+String.format(Locale.ROOT,"%03d",surah)+".aqp");}
 
+    synchronized int installedState(int surah){
+        if(cache.containsKey(surah))return 1;
+        return checkedSurahs.contains(surah)?0:-1;
+    }
+
     synchronized boolean installedSurah(int surah){
-        PackMeta meta=meta(surah);if(meta==null)return false;
+        PackMeta meta=meta(surah);
+        if(meta==null){checkedSurahs.add(surah);return false;}
         File file=surahFile(surah),marker=markerFile(surah);
-        if(!file.isFile()||file.length()!=meta.bytes){cache.remove(surah);return false;}
-        // parseIndex() is the process-lifetime verification boundary. Once cached, repeated word
-        // availability checks must not reopen the marker file for every word on the UI thread.
-        if(cache.containsKey(surah))return true;
+        if(!file.isFile()||file.length()!=meta.bytes){
+            cache.remove(surah);checkedSurahs.add(surah);return false;
+        }
+        // This may parse or hash a local Surah pack. Callers that can run on the Android UI thread
+        // must use installedState()/canAddress() and schedule this verification on a worker.
+        if(cache.containsKey(surah)){checkedSurahs.add(surah);return true;}
         try{
             String marked=marker.isFile()?readSmall(marker,256).trim():"";
             if(!markerMatches(marked,file,meta)){
@@ -107,9 +116,10 @@ final class QuranAudioStore {
                 writeMarker(marker,markerValue(file,meta));
             }
             cache.put(surah,parseIndex(file,meta,false));
+            checkedSurahs.add(surah);
             return true;
         }catch(Exception invalid){
-            cache.remove(surah);return false;
+            cache.remove(surah);checkedSurahs.add(surah);return false;
         }
     }
 
@@ -126,13 +136,14 @@ final class QuranAudioStore {
     synchronized long installedBytes(){return installationSummary().installedBytes;}
     long totalBytes(){return catalogBytes;}
     synchronized long remainingBytes(){return Math.max(0,catalogBytes-installationSummary().installedBytes);}
-    synchronized void refreshSurah(int surah){cache.remove(surah);}
+    synchronized void refreshSurah(int surah){cache.remove(surah);checkedSurahs.remove(surah);}
 
     synchronized Clip clip(ContentStore.Word word){
         if(word==null||word.position<1||word.ayahId==null)return null;
         int[] coordinate=coordinate(word.ayahId);if(coordinate==null)return null;
         int surah=coordinate[0],ayah=coordinate[1];
-        if(!installedSurah(surah))return null;
+        // Render/playback hot paths only consume a verified in-memory index. installedSurah()
+        // performs filesystem verification on the dedicated audio-status/download workers.
         SurahIndex index=cache.get(surah);if(index==null)return null;
         Entry e=index.entries.get(ayah+":"+word.position);if(e==null)return null;
         return new Clip(surahFile(surah),index.payloadBase+e.offset,e.length);
@@ -153,9 +164,9 @@ final class QuranAudioStore {
         }
         try{
             writeMarker(marker,markerValue(target,meta));
-            cache.put(surah,parseIndex(target,meta,false));
+            cache.put(surah,parseIndex(target,meta,false));checkedSurahs.add(surah);
         }catch(Exception fail){
-            delete(marker);delete(target);if(old.exists())old.renameTo(target);throw fail;
+            cache.remove(surah);checkedSurahs.remove(surah);delete(marker);delete(target);if(old.exists())old.renameTo(target);throw fail;
         }
         delete(old);
     }
