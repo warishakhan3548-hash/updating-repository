@@ -174,6 +174,8 @@ def main():
                 he_translation_counts.values()
             )
             assert db.execute("SELECT count(*) FROM search_context").fetchone()[0] == sum(int(v) for v in context_counts.values())
+            assert db.execute("SELECT count(*) FROM search_token WHERE token='aarisfieldboundaryx'").fetchone()[0] == 0
+            assert db.execute("SELECT count(*) FROM search_vocabulary WHERE token='aarisfieldboundaryx'").fetchone()[0] == 0
             assert db.execute("SELECT count(*) FROM search_context WHERE language='hi' AND trim(roman)<>''").fetchone()[0] > 0
 
             actual = dict(db.execute(
