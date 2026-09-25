@@ -286,9 +286,6 @@ def main():
     assert 'app.exportWriteBusy.set(true);app.notifyOperationChanged();app.io.execute' in activity_result, 'Export must stay visibly busy while the staged file is copied to the chosen destination'
     assert 'finally{discardExport(token);app.exportWriteBusy.set(false);app.notifyOperationChanged();}' in activity_result, 'Destination-write busy state must clear only after the staged token has been consumed or discarded'
     assert 'ui.post(()->toast("File saved"))' not in activity_result, 'Do not report export completion from the old pre-lifecycle completion path'
-    restore_import_delivery = java_method('deliverRestoreImportResult')
-    assert 'QuranApp.RestoreImportResult result=app.peekRestoreImportResult();' in restore_import_delivery, 'Restore confirmation must read the retained validated backup instead of Activity-local state'
-    assert 'restorePrompt=prompt' in restore_import_delivery and 'app.clearRestoreImportResult(result)' in restore_import_delivery, 'Restore confirmation must survive recreation and clear only on a real user decision'
     assert 'app.publishRestoreImport(backup,count)' in activity_result and 'app.publishRestoreImportFailure(' in activity_result, 'Backup validation success and failure must publish through lifecycle-safe application state'
     assert 'app.getContentResolver().openInputStream(uri)' in activity_result and 'app.learning.validateBackup(backup,app.content)' in activity_result, 'Backup parsing must not retain the Activity while validation runs'
     assert 'pendingRestore' not in main_activity_text, 'Do not keep validated backup payloads in Activity-local state where rotation can discard them'
@@ -305,6 +302,9 @@ def main():
         start = main_activity_text.index(marker)
         end = main_activity_text.find('\n    private ', start + len(marker))
         return main_activity_text[start:] if end < 0 else main_activity_text[start:end]
+    restore_import_delivery = java_method('deliverRestoreImportResult')
+    assert 'QuranApp.RestoreImportResult result=app.peekRestoreImportResult();' in restore_import_delivery, 'Restore confirmation must read the retained validated backup instead of Activity-local state'
+    assert 'restorePrompt=prompt' in restore_import_delivery and 'app.clearRestoreImportResult(result)' in restore_import_delivery, 'Restore confirmation must survive recreation and clear only on a real user decision'
     research_pdf_delivery = java_method('deliverResearchPdfResult')
     research_pdf_share = java_method('shareResearch')
     assert 'static final class ResearchPdfResult' in quran_app_text and 'synchronized ResearchPdfResult takeResearchPdfResult()' in quran_app_text, 'Research PDF completion must survive Activity recreation in application-scoped state'
