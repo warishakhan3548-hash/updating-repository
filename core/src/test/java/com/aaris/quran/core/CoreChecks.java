@@ -39,6 +39,14 @@ public final class CoreChecks {
         check(expanded.variants.stream().anyMatch(v->v.origin==SearchEngine.Origin.AI),"AI query provenance is retained");
         check(Arabic.glossSearch("raḥmān").equals("rahman"),"Latin accents searchable");
         check(!Arabic.glossSearch("की").equals(Arabic.glossSearch("क")),"Hindi signs must not be stripped");
+        check(MeaningSearch.romanizeHindi("एक सहाबी ने नबी को वुज़ू करते देखा").contains("ek sahabi"),"Hindi gets a deterministic Hinglish search shadow");
+        check(MeaningSearch.alternatives("prayer").contains("नमाज"),"Trusted concept aliases bridge English to Hindi");
+        String remembered="नमाज के लिए वुज़ू";
+        SearchEngine recalled=new SearchEngine(Arrays.asList(
+            doc(1,"مصدر اول",remembered+" "+MeaningSearch.romanizeHindi(remembered)),
+            doc(2,"مصدر ثان","unrelated text")));
+        check(recalled.search("prayer wudu",10).results.get(0).ayah.number==1,"Cross-language concept aliases retrieve the intended evidence");
+        check(recalled.search("namaz vuzu",10).results.get(0).ayah.number==1,"Hinglish shadow retrieves Hindi evidence");
         check(Arabic.safe("أَ").equals("أ"),"Safe lane preserves hamza");
         check(!Arabic.tolerant("نية").equals(Arabic.tolerant("نيه")),"Ta marbuta is not ha");
         Recall.ConservativeScheduler scheduler=new Recall.ConservativeScheduler();
