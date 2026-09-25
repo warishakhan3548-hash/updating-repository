@@ -10,7 +10,7 @@ public final class TextMatch {
     public final double coverage,meaningfulCoverage,weightedCoverage,continuity,proximity,score;
     public final Band band;
     public final boolean accepted,phrase;
-    private static final Set<String> NEGATION=new HashSet<>(Arrays.asList("لا","لم","لن","ليس","ليست","غير","دون","نہیں","نهيں","نہ","مت","नहीं","मत","बिना","no","not","never","without"));
+    private static final Set<String> NEGATION=new HashSet<>(Arrays.asList("لا","لم","لن","ليس","ليست","غير","دون","نہیں","نهيں","نہ","مت","नहीं","नही","मत","बिना","nahi","nahin","no","not","never","without"));
     private static final Set<String> COMMON=new HashSet<>(Arrays.asList("wa","fi","min","the","a","of","to","and","in","is","من","في","على","قال","و","عن","ان","هو","كي","में","के","है","का","और","से"));
     private TextMatch(int matched,int total,int exact,int meaningfulMatched,int meaningfulTotal,
                       double weighted,double continuity,double proximity,boolean allowed,boolean phrase){
@@ -66,8 +66,14 @@ public final class TextMatch {
             ArrayDeque<Integer> queue=positions.get(term);
             if(queue!=null&&!queue.isEmpty()){match[q]=queue.removeFirst();original[q]=true;exact++;}
         }
-        for(int q=0;q<query.size();q++)if(match[q]<0&&!negative(query.get(q)))for(String candidate:alternatives.getOrDefault(query.get(q),Collections.emptyList())){
-            ArrayDeque<Integer> queue=positions.get(candidate);if(queue!=null&&!queue.isEmpty()){match[q]=queue.removeFirst();break;}
+        for(int q=0;q<query.size();q++)if(match[q]<0){
+            String term=query.get(q);boolean negative=negative(term);
+            for(String candidate:alternatives.getOrDefault(term,Collections.emptyList())){
+                // Negation may bridge only to another explicit negation token. This enables
+                // Hindi/Urdu/English/Hinglish polarity matching without typo-repairing negation.
+                if(negative&&!negative(candidate))continue;
+                ArrayDeque<Integer> queue=positions.get(candidate);if(queue!=null&&!queue.isEmpty()){match[q]=queue.removeFirst();break;}
+            }
         }
         int ordered=0,previous=-1,first=Integer.MAX_VALUE,last=-1;
         for(int q=0;q<query.size();q++){
