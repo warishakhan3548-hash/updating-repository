@@ -297,8 +297,8 @@ def main():
     assert 'highContrast=enabled;learning.set("contrast",""+enabled);\n        show();settings();' in main_activity_text, 'High-contrast changes must rebuild both the underlying screen and the open settings sheet immediately'
     assert 'hadithBrowseWorker=worker("hadith-browse")' in quran_app_text, 'Missing dedicated Hadith browse worker'
     assert 'recitationStatusWorker=worker("recitation-status")' in quran_app_text, 'Recitation download status scans need a dedicated background worker'
-    def java_method(name):
-        marker = f'    private void {name}('
+    def java_method(name, return_type='void'):
+        marker = f'    private {return_type} {name}('
         start = main_activity_text.index(marker)
         end = main_activity_text.find('\n    private ', start + len(marker))
         return main_activity_text[start:] if end < 0 else main_activity_text[start:end]
@@ -384,9 +384,15 @@ def main():
     assert 'if(++repeatCompleted<repeatPreference())play();' in recitation_service_text, 'Repeat changes must take effect at the next ayah completion without restarting playback'
     assert 'continuousPreference()&&ayah<app.content.surah(surah).count' in recitation_service_text, 'Continue-mode changes must take effect before advancing to the next ayah'
     assert 'private void move(int delta)' in recitation_service_text and 'ayah=next;resetRepeat();play();' in recitation_service_text, 'Manual recitation navigation must start a fresh repeat cycle'
-    assert 'Intent home=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);' in recitation_service_text, 'Recitation notification must reuse the existing reader task instead of stacking another MainActivity'
+    assert 'Intent home=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)' in recitation_service_text, 'Recitation notification must reuse the existing reader task instead of stacking another MainActivity'
+    assert 'if(app!=null&&app.recitationActive)home.putExtra(OPEN_READER,true).putExtra(OPEN_SURAH,surah).putExtra(OPEN_AYAH,ayah);' in recitation_service_text, 'Active recitation notifications must carry the currently playing ayah without misrouting the initial preparing notification'
     assert 'PendingIntent.getActivity(this,10,home,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE)' in recitation_service_text, 'Recitation notification must launch the lifecycle-safe reader intent'
     assert 'PendingIntent.getActivity(this,10,new Intent(this,MainActivity.class)' not in recitation_service_text, 'Do not regress to a duplicate-Activity recitation content intent'
+    recitation_intent = java_method('openRecitationIntent', 'boolean')
+    assert 'RecitationService.OPEN_READER' in recitation_intent and 'RecitationService.OPEN_SURAH' in recitation_intent and 'RecitationService.OPEN_AYAH' in recitation_intent, 'MainActivity must consume the exact recitation notification target'
+    assert 'Dialog previous=activeDialog;activeDialog=null;if(previous!=null)previous.dismiss();' in recitation_intent and 'open(surah,ayah);return true;' in recitation_intent, 'Opening recitation from the notification must close stale sheets and reuse canonical reader navigation'
+    assert 'if(openRecitationIntent(getIntent()))return;' in main_activity_text, 'Cold-start notification delivery must open the playing ayah after content initialization'
+    assert 'if(openRecitationIntent(intent))return;' in main_activity_text, 'Warm notification delivery must immediately open the playing ayah'
     assert 'private void updateBookmarkButton(FrameLayout button,Glass.Icon icon,boolean saved)' in main_activity_text, 'Reader bookmark state needs one original-control update path'
     assert 'button.setContentDescription(action);button.setTooltipText(action);button.setSelected(saved);' in main_activity_text, 'Bookmark toggles must update accessibility state immediately'
     assert 'icon.color=saved?Appearance.readable(appearance.accent,appearance.buttonSurface()):appearance.buttonInk();icon.invalidate();' in main_activity_text, 'Saved bookmark feedback must remain readable in the active appearance'
