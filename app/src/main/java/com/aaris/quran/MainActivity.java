@@ -46,7 +46,8 @@ public final class MainActivity extends Activity {
     private Dialog activeDialog;
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final AtomicInteger searchGeneration=new AtomicInteger();
-    private Future<?> searchTask,quranSearchTask;
+    private final AtomicInteger readerPrefetchGeneration=new AtomicInteger();
+    private Future<?> searchTask,quranSearchTask,readerPrefetchTask;
     private CancellationSignal searchCancellation;
     private Runnable searchTimeout;
     private int pendingCorpora,pendingSearchJobs;
@@ -70,6 +71,12 @@ public final class MainActivity extends Activity {
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
     private static final int EXPORT=700,IMPORT=701,OVERLAY_PERMISSION=702,NOTIFICATIONS=703,VOICE_SEARCH=704;
     private static final int SEARCH_RENDER_BATCH=8;
+    private static final class HadithCardMeta {
+        final HadithStore.DisplayTranslation translation;final List<String> grades;
+        HadithCardMeta(HadithStore.DisplayTranslation translation,List<String> grades){
+            this.translation=translation;this.grades=grades==null?Collections.emptyList():grades;
+        }
+    }
 
     /** Observes gestures before child dispatch without stealing taps or vertical scrolling. */
     private static final class GestureScrollView extends ScrollView {
@@ -124,13 +131,13 @@ public final class MainActivity extends Activity {
     @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
-    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
+    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void show(){
         if(content==null||isDestroyed()||isFinishing())return;
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
         getWindow().getDecorView().setSystemUiVisibility(Appearance.luminance(appearance.background)>.38?bars|light:bars&~light);
-        getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();cancelSearchWork();if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;backdrop.highContrast=highContrast;backdrop.invalidate();
+        getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);captureReaderPosition();hideKeyboard();readerScroll=null;restoringReader=null;readerVerses.clear();evidenceControls.clear();searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();if(debounce!=null)ui.removeCallbacks(debounce);hidePeek();layout.removeAllViews();searching=false;backdrop.highContrast=highContrast;backdrop.invalidate();
         header=row(this);pad(header,20,10);layout.addView(header,new LinearLayout.LayoutParams(-1,-2));
         body=column(this);layout.addView(body,new LinearLayout.LayoutParams(-1,0,1));
         recitationBanner=button("",()->audioControls(content.ayah("Q:"+app.recitationSurah+":"+app.recitationAyah)));layout.addView(recitationBanner);refreshRecitation();
@@ -309,13 +316,24 @@ public final class MainActivity extends Activity {
         if(searchCancellation!=signal)return;
         if(searchTimeout!=null)ui.removeCallbacks(searchTimeout);searchTimeout=null;searchCancellation=null;
     }
+    private Map<String,HadithCardMeta> prepareHadithCards(HadithStore.SearchPage response,String preferredLanguage,CancellationSignal signal){
+        LinkedHashMap<String,HadithCardMeta> out=new LinkedHashMap<>();HadithStore store=app.hadith;
+        if(store==null||response==null)return out;
+        for(HadithStore.Hit hit:response.hits){
+            if(Thread.currentThread().isInterrupted())throw new CancellationException();
+            signal.throwIfCanceled();
+            out.put(hit.record.id,new HadithCardMeta(store.translation(hit.record,preferredLanguage),store.grades(hit.record.id)));
+        }
+        return out;
+    }
     private void loadHadithSearch(String q,int offset,int generation,LinearLayout list,TextView status){
         final CancellationSignal signal=searchCancellation!=null?searchCancellation:beginSearch(generation,status);
-        pendingSearchJobs++;
+        final String preferredLanguage=readingLanguage();pendingSearchJobs++;
         searchTask=app.searchWorker.submit(()->{try{
             HadithStore.SearchPage response=app.hadith.searchPage(q,50,offset,signal);
+            Map<String,HadithCardMeta> metadata=prepareHadithCards(response,preferredLanguage,signal);
             ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
-                appendHadithResults(q,response,generation,list,status);if(--pendingSearchJobs==0)finishSearch(signal);
+                appendHadithResults(q,response,metadata,generation,list,status);if(--pendingSearchJobs==0)finishSearch(signal);
             });
         }catch(CancellationException|OperationCanceledException ignored){}catch(Exception error){ui.post(()->{
             if(!isDestroyed()&&searching&&!signal.isCanceled()&&searchGeneration.get()==generation){
@@ -323,12 +341,12 @@ public final class MainActivity extends Activity {
             }
         });}});
     }
-    private void appendHadithResults(String q,HadithStore.SearchPage response,int generation,LinearLayout list,TextView status){
+    private void appendHadithResults(String q,HadithStore.SearchPage response,Map<String,HadithCardMeta> metadata,int generation,LinearLayout list,TextView status){
         hadithTotal=response.total;hadithHits.addAll(response.hits);
         if(response.offset==0)showSearchShortcut(list,true,q);
-        appendHadithBatch(q,response,generation,list,status,0);
+        appendHadithBatch(q,response,metadata,generation,list,status,0);
     }
-    private void appendHadithBatch(String q,HadithStore.SearchPage response,int generation,LinearLayout list,TextView status,int cursor){
+    private void appendHadithBatch(String q,HadithStore.SearchPage response,Map<String,HadithCardMeta> metadata,int generation,LinearLayout list,TextView status,int cursor){
         if(isDestroyed()||!searching||searchGeneration.get()!=generation)return;
         boolean browse=HadithQuery.parse(q).isCollectionBrowse();
         int end=Math.min(cursor+SEARCH_RENDER_BATCH,response.hits.size());
@@ -336,26 +354,27 @@ public final class MainActivity extends Activity {
             LinearLayout wrapper=column(this);list.addView(wrapper);
             wrapper.addView(label(browse?"COLLECTION RECORD":hit.reference?"REFERENCE MATCH":hit.match.band+" TEXT MATCH"));
             if(!hit.reference&&!browse)caption(wrapper,hit.match.explanation());
-            hadithResultCard(wrapper,hit.record);
+            hadithResultCard(wrapper,hit.record,metadata.get(hit.record.id));
             wrapper.addView(button("Remember this match",()->rememberSearch(true,q,hit.record.id)));
             CheckBox select=new CheckBox(this);select.setText("Select for PDF");select.setTextColor(INK);select.setMinHeight(dp(this,48));select.setChecked(selectedHadith.contains(hit.record.id));wrapper.addView(select);
             select.setOnCheckedChangeListener((v,checked)->{if(checked)selectedHadith.add(hit.record.id);else selectedHadith.remove(hit.record.id);});gap(wrapper,16);
         }
         if(end<response.hits.size()){
             status.setText("Showing "+(response.offset+end)+" of "+response.total+"…");
-            list.postOnAnimation(()->appendHadithBatch(q,response,generation,list,status,end));return;
+            list.postOnAnimation(()->appendHadithBatch(q,response,metadata,generation,list,status,end));return;
         }
         status.setText(response.total==0?(HadithQuery.parse(q).isReference()?"This reference is not in the installed edition. Check its numbering or search an Arabic phrase.":"No Hadith text match in the installed edition."):hadithHits.size()+" of "+response.total+(response.limited?" closest Hadith matches · Narrow the phrase for more precision":" Hadith matches"));
         if(hadithHits.size()<response.total){TextView more=button("Load next 50 Hadith matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadHadithSearch(q,hadithHits.size(),generation,list,status);});}
     }
 
-    private void hadithResultCard(LinearLayout parent,HadithStore.Record record){
+    private void hadithResultCard(LinearLayout parent,HadithStore.Record record){hadithResultCard(parent,record,null);}
+    private void hadithResultCard(LinearLayout parent,HadithStore.Record record,HadithCardMeta metadata){
         HadithStore store=app.hadith;if(store==null)return;
         HadithStore.CollectionInfo info=store.collection(record.collectionId);
         LinearLayout c=card(parent,Surface.Kind.PANEL);
         c.addView(label((info==null?record.collectionId:info.nameEn)+" · "+record.number));gap(c,10);
         TextView ar=hadithArabic(record.matnAr==null?record.arabic:record.matnAr,Math.min(appearance.arabicSize,28));ar.setMaxLines(5);ar.setEllipsize(TextUtils.TruncateAt.END);c.addView(ar);gap(c,8);
-        HadithStore.DisplayTranslation translation=store.translation(record,readingLanguage());
+        HadithStore.DisplayTranslation translation=metadata==null?store.translation(record,readingLanguage()):metadata.translation;
         if(translation!=null){
             TextView translated=text(this,translation.text,appearance.translationSize,appearance.translationInk());
             translated.setMaxLines(4);translated.setEllipsize(TextUtils.TruncateAt.END);
@@ -365,7 +384,7 @@ public final class MainActivity extends Activity {
             c.addView(translated);gap(c,6);caption(c,translation.provenance);
             if(!readingLanguage().equals(translation.language))caption(c,"Showing "+languageName(translation.language)+"; "+languageName(readingLanguage())+" is not installed for this record.");
         }
-        List<String> grades=store.grades(record.id);if(!grades.isEmpty())caption(c,String.join(" · ",grades));
+        List<String> grades=metadata==null?store.grades(record.id):metadata.grades;if(!grades.isEmpty())caption(c,String.join(" · ",grades));
         c.setFocusable(true);c.setContentDescription((info==null?"Hadith":info.nameEn)+" "+record.number);
         c.setOnClickListener(v->hadithRecord(record.id));Glass.motion(c);
     }
@@ -585,6 +604,31 @@ public final class MainActivity extends Activity {
         });
         ((GestureScrollView)readerScroll).observe(detector);
     }
+    private void cancelReaderPrefetch(){
+        readerPrefetchGeneration.incrementAndGet();
+        Future<?> task=readerPrefetchTask;readerPrefetchTask=null;if(task!=null)task.cancel(true);
+    }
+    private void prefetchReaderNeighbors(){
+        final int generation=readerPrefetchGeneration.incrementAndGet();
+        Future<?> previous=readerPrefetchTask;if(previous!=null)previous.cancel(true);
+        final int surah=readerSurah,start=readerStart;final String edition=translationId;
+        readerPrefetchTask=app.readerWorker.submit(()->{
+            LinkedHashSet<String> targets=new LinkedHashSet<>();ContentStore.Surah current=content.surah(surah);
+            if(start+8<=current.count)targets.add(surah+":"+(start+8));
+            else if(surah<114)targets.add((surah+1)+":1");
+            if(start>1)targets.add(surah+":"+Math.max(1,start-8));
+            else if(surah>1){int prior=surah-1;targets.add(prior+":"+Math.max(1,content.surah(prior).count-7));}
+            for(String target:targets){
+                if(Thread.currentThread().isInterrupted()||readerPrefetchGeneration.get()!=generation)return;
+                String[] p=target.split(":");int s=Integer.parseInt(p[0]),a=Integer.parseInt(p[1]);
+                List<Ayah> page=content.page(s,a,8);content.words(page);
+                if(app.translations!=null){
+                    List<String> ids=new ArrayList<>();for(Ayah ayah:page)ids.add(ayah.id);
+                    app.translations.get(edition,ids);
+                }
+            }
+        });
+    }
     private void reader(){
         ContentStore.Surah s=content.surah(readerSurah);
         header.addView(iconButton("back","Surah list",()->{reading=false;show();}));
@@ -634,7 +678,7 @@ public final class MainActivity extends Activity {
         page.addView(button("Recall Companion · Timer",this::ambientSettings));gap(page,12);
         TextView source=text(this,"Tanzil Project · Uthmani 1.1",11,MUTED);source.setGravity(Gravity.CENTER);source.setOnClickListener(v->sources());page.addView(source);gap(page,12);
         if(quietReader){header.setVisibility(View.GONE);bottom.setVisibility(View.GONE);page.addView(button("Show controls",()->{quietReader=false;show();}));}
-        restoreReaderPosition();
+        restoreReaderPosition();prefetchReaderNeighbors();
     }
 
     private void refreshRecitation(){if(recitationBanner==null||isDestroyed())return;recitationBanner.setText(app.recitationLabel+" · Controls");recitationBanner.setVisibility(app.recitationActive?View.VISIBLE:View.GONE);}
@@ -1276,6 +1320,7 @@ public final class MainActivity extends Activity {
                 status.setText("Searching offline"+scope+"…");
                 LinearLayout quranList=column(this),hadithList=column(this);list.addView(quranList);list.addView(hadithList);
                 final CancellationSignal signal=beginSearch(generation,status);
+                final String preferredHadithLanguage=readingLanguage(),resultTranslationId=translationId;
                 pendingCorpora=(intent.quran?1:0)+(intent.hadith?1:0);pendingSearchJobs=pendingCorpora;
                 Runnable finished=()->{
                     if(searchGeneration.get()!=generation||signal.isCanceled())return;
@@ -1286,11 +1331,12 @@ public final class MainActivity extends Activity {
                 if(intent.hadith)searchTask=app.searchWorker.submit(()->{
                     try {
                         HadithStore.SearchPage result=app.hadith==null?null:app.hadith.searchPage(q,50,0,signal);
+                        Map<String,HadithCardMeta> metadata=result==null?Collections.emptyMap():prepareHadithCards(result,preferredHadithLanguage,signal);
                         ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
                             hadithList.addView(label("HADITH"));
                             if(result==null)caption(hadithList,"A local Hadith pack is not installed.");
                             else {TextView hs=text(this,"",13,MUTED);hadithList.addView(hs);gap(hadithList,8);
-                                LinearLayout matches=column(this);hadithList.addView(matches);appendHadithResults(q,result,generation,matches,hs);}
+                                LinearLayout matches=column(this);hadithList.addView(matches);appendHadithResults(q,result,metadata,generation,matches,hs);}
                             finished.run();
                         });
                     }catch(CancellationException|OperationCanceledException ignored){}catch(Exception error){
@@ -1301,11 +1347,13 @@ public final class MainActivity extends Activity {
                 if(intent.quran)quranSearchTask=app.quranSearchWorker.submit(()->{
                     try {
                         final SearchEngine.Response result=app.searchIndex().search(intent.quranText,6236);
+                        int firstEnd=Math.min(50,result.results.size());
+                        Map<String,TranslationStore.Entry> displayTranslations=prepareQuranTranslations(result,0,firstEnd,resultTranslationId);
                         ui.post(()->{if(isDestroyed()||!searching||signal.isCanceled()||searchGeneration.get()!=generation)return;
                             quranList.addView(label("QURAN"));TextView qs=text(this,result.results.isEmpty()?"No Quran text match. Try a shorter phrase.":"",13,MUTED);quranList.addView(qs);gap(quranList,8);
                             showSearchShortcut(quranList,false,q);
                             if(result.fragments!=null)showFragments(quranList,result,query);
-                            appendQuranResults(quranList,result,0,qs);finished.run();
+                            appendQuranResults(quranList,result,0,qs,displayTranslations,generation);finished.run();
                         });
                     }catch(CancellationException ignored){}catch(Exception error){
                         android.util.Log.w("AarisSearch","Quran search failed",error);
@@ -1316,26 +1364,44 @@ public final class MainActivity extends Activity {
         };
         query.addTextChangedListener(watcher(run));query.setText(searchQuery);query.setSelection(query.length());
     }
-    private void appendQuranResults(LinearLayout list,SearchEngine.Response response,int offset,TextView status){
-        int generation=searchGeneration.get(),end=Math.min(offset+50,response.results.size());
-        if(offset<end)quranHits.addAll(response.results.subList(offset,end));
-        appendQuranBatch(list,response,offset,end,status,generation);
+    private Map<String,TranslationStore.Entry> prepareQuranTranslations(SearchEngine.Response response,int offset,int end,String edition){
+        if(app.translations==null||offset>=end)return Collections.emptyMap();
+        List<String> ids=new ArrayList<>();for(SearchEngine.Result result:response.results.subList(offset,end))ids.add(result.ayah.id);
+        return app.translations.get(edition,ids);
     }
-    private void appendQuranBatch(LinearLayout list,SearchEngine.Response response,int cursor,int end,TextView status,int generation){
+    private void loadQuranResults(LinearLayout list,SearchEngine.Response response,int offset,TextView status,int generation){
+        if(searchGeneration.get()!=generation||offset>=response.results.size())return;
+        final int end=Math.min(offset+50,response.results.size());final String edition=translationId;
+        status.setText("Loading next Quran matches…");
+        quranSearchTask=app.quranSearchWorker.submit(()->{
+            try{
+                Map<String,TranslationStore.Entry> translations=prepareQuranTranslations(response,offset,end,edition);
+                ui.post(()->{if(isDestroyed()||!searching||searchGeneration.get()!=generation)return;
+                    appendQuranResults(list,response,offset,status,translations,generation);
+                });
+            }catch(CancellationException ignored){}catch(Exception error){
+                android.util.Log.w("AarisSearch","Quran result page could not load",error);
+                ui.post(()->{if(!isDestroyed()&&searching&&searchGeneration.get()==generation)status.setText("Could not load more Quran matches. Try again.");});
+            }
+        });
+    }
+    private void appendQuranResults(LinearLayout list,SearchEngine.Response response,int offset,TextView status,Map<String,TranslationStore.Entry> translations,int generation){
+        int end=Math.min(offset+50,response.results.size());
+        if(offset<end)quranHits.addAll(response.results.subList(offset,end));
+        appendQuranBatch(list,response,offset,end,status,translations,generation);
+    }
+    private void appendQuranBatch(LinearLayout list,SearchEngine.Response response,int cursor,int end,TextView status,Map<String,TranslationStore.Entry> translations,int generation){
         if(isDestroyed()||!searching||searchGeneration.get()!=generation)return;
         int batchEnd=Math.min(cursor+SEARCH_RENDER_BATCH,end);
-        List<SearchEngine.Result> batch=response.results.subList(cursor,batchEnd);
-        List<String> ids=new ArrayList<>();for(SearchEngine.Result result:batch)ids.add(result.ayah.id);
-        Map<String,TranslationStore.Entry> translations=app.translations==null?Collections.emptyMap():app.translations.get(translationId,ids);
-        for(SearchEngine.Result result:batch){
+        for(SearchEngine.Result result:response.results.subList(cursor,batchEnd)){
             LinearLayout c=card(list,Surface.Kind.PANEL);c.addView(label(result.match.band+" TEXT MATCH · "+result.match.matched+" / "+result.match.total+" words"));gap(c,8);
             Ayah a=result.ayah;c.addView(text(this,content.surah(a.surah).name+" · "+a.surah+":"+a.number,18,INK));gap(c,10);c.addView(arabic(a.arabic,25));gap(c,12);
             renderTranslation(c,translations.get(a.id));caption(c,String.join(" · ",result.reasons));gap(c,14);c.addView(evidenceActions(a,retrievalTrace(response,result)));
             c.addView(button("Remember this match",()->rememberSearch(false,response.query,a.id)));
         }
-        if(batchEnd<end){status.setText("Showing "+batchEnd+" of "+response.results.size()+"…");list.postOnAnimation(()->appendQuranBatch(list,response,batchEnd,end,status,generation));return;}
+        if(batchEnd<end){status.setText("Showing "+batchEnd+" of "+response.results.size()+"…");list.postOnAnimation(()->appendQuranBatch(list,response,batchEnd,end,status,translations,generation));return;}
         if(!response.results.isEmpty())status.setText(end+" of "+response.results.size()+" matches · High → Medium → Low");
-        if(end<response.results.size()){TextView more=button("Load next 50 matches",()->{});list.addView(more);more.setOnClickListener(v->{list.removeView(more);appendQuranResults(list,response,end,status);});}
+        if(end<response.results.size()){TextView more=button("Load next 50 matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadQuranResults(list,response,end,status,generation);});}
     }
     private LinearLayout evidenceActions(Ayah ayah,JSONObject trace){
         LinearLayout actions=row(this);actions.addView(button("Open Ayah",()->open(ayah.surah,ayah.number)),new LinearLayout.LayoutParams(0,-2,1));

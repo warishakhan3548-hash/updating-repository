@@ -21,6 +21,7 @@ public final class QuranApp extends Application {
     final ExecutorService searchWorker=worker("hadith-search");
     final ExecutorService quranSearchWorker=worker("quran-search");
     final ExecutorService recitationWorker=worker("recitation");
+    final ExecutorService readerWorker=worker("reader-prefetch");
     volatile RecitationDownloads recitationDownloads;
     volatile boolean recitationActive;
     volatile int recitationSurah=1,recitationAyah=1;
@@ -42,6 +43,7 @@ public final class QuranApp extends Application {
     boolean activityVisible,ambientRunning;
     Runnable visibilityChanged;
     private int startedActivities;
+    private boolean searchWarmPending;
     private final CountDownLatch ready=new CountDownLatch(1);
     @Override public void onCreate(){
         super.onCreate();
@@ -50,7 +52,7 @@ public final class QuranApp extends Application {
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks(){
             public void onActivityStarted(Activity a){startedActivities++;visibility();}
             public void onActivityStopped(Activity a){startedActivities=Math.max(0,startedActivities-1);visibility();}
-            private void visibility(){activityVisible=startedActivities>0;if(visibilityChanged!=null)visibilityChanged.run();}
+            private void visibility(){activityVisible=startedActivities>0;if(activityVisible)scheduleSearchWarmup();if(visibilityChanged!=null)visibilityChanged.run();}
             public void onActivityCreated(Activity a,Bundle b){}
             public void onActivityResumed(Activity a){}
             public void onActivityPaused(Activity a){}
@@ -73,13 +75,19 @@ public final class QuranApp extends Application {
             }catch(Exception e){loadError="Offline content could not be opened: "+e.getMessage();}
             finally{
                 ready.countDown();
-                if(loadError==null&&!lowRamDevice())main.postDelayed(()->{
-                    if(activityVisible)quranSearchWorker.execute(this::warmSearchIndex);
-                },1200L);
+                main.post(this::scheduleSearchWarmup);
             }
         });
     }
     private boolean lowRamDevice(){android.app.ActivityManager manager=(android.app.ActivityManager)getSystemService(ACTIVITY_SERVICE);return manager!=null&&manager.isLowRamDevice();}
+    private void scheduleSearchWarmup(){
+        if(ready.getCount()!=0||loadError!=null||search!=null||searchWarmPending||lowRamDevice()||!activityVisible)return;
+        searchWarmPending=true;
+        main.postDelayed(()->{
+            searchWarmPending=false;
+            if(ready.getCount()==0&&loadError==null&&search==null&&activityVisible)quranSearchWorker.execute(this::warmSearchIndex);
+        },1200L);
+    }
     synchronized SearchEngine searchIndex(){
         SearchEngine current=search;if(current!=null)return current;
         current=content.buildSearch(translations);search=current;return current;
