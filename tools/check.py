@@ -340,6 +340,7 @@ def main():
     assert 'readerPageStart(content.surah(prior).count)' in reader_prefetch, 'Reader prefetch must target the same previous-Surah page that navigation opens'
     assert 'Ayah anchor=content.ayah(readingPosition.anchorId);' in main_activity_text and 'readerStart=readerPageStart(anchor.number);' in main_activity_text, 'Legacy shifted saved reader pages must migrate from their real visible anchor onto the canonical page grid'
     assert 'new ReadingPosition(canonicalPage,readingPosition.anchorId,readingPosition.codePoint,readingPosition.lineOffsetDp,false)' in main_activity_text, 'Reader-page migration must preserve the saved Unicode anchor and viewport offset'
+    assert 'readerSurah=Math.max(1,Math.min(114,readerSurah));' in main_activity_text and 'readerStart=readerPageStart(Math.max(1,Math.min(content.surah(readerSurah).count,readerStart)));' in main_activity_text, 'Reader fallback state without a viewport anchor must still be clamped onto the canonical page grid'
     assert 'lastReaderPageStart' not in main_activity_text and 'count-7' not in move_reader and 'count-7' not in reader_prefetch, 'Do not reintroduce alternate or overlapping reader page-boundary formulas'
     assert 'synchronized Map<String,Recall.State> states(Collection<String> targets)' in learning_store_text, 'Recall single-target flows need the existing targeted state projection'
     assert 'WHERE target IN (' in learning_store_text, 'Targeted Recall state projection must stay bounded to requested targets when the global cache is cold'
