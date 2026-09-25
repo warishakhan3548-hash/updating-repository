@@ -54,7 +54,7 @@ public final class MainActivity extends Activity {
     private Runnable debounce;
     private String pendingExport;
     private boolean preparingExport,recitationDownloadQueued;
-    private int recitationListGeneration;
+    private int recitationListGeneration,libraryListGeneration;
     private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending,openOtherAppsAfterAmbientStart;
     private JSONObject pendingRestore;
     private String searchQuery="",hadithQuery="";
@@ -565,15 +565,7 @@ public final class MainActivity extends Activity {
         heading("114 SURAHS · OFFLINE", "Quran al-Kareem");LinearLayout page=scrollBody();
         EditText filter=new EditText(this);filter.setSingleLine(true);filter.setTextColor(INK);filter.setHintTextColor(MUTED);filter.setHint("Surah name or number");filter.setTextSize(15);pad(filter,14,8);filter.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));page.addView(filter,new LinearLayout.LayoutParams(-1,dp(this,52)));gap(page,16);
         LinearLayout list=column(this);page.addView(list);
-        Runnable fill=()->{list.removeAllViews();String q=Arabic.tolerant(filter.getText().toString());for(ContentStore.Surah s:content.surahs){
-            String searchable=Arabic.tolerant(s.name+" "+s.arabic+" "+s.meaning+" "+s.id);
-            if(!q.isEmpty()&&!searchable.contains(q))continue;
-            LinearLayout row=Glass.row(this);pad(row,16,14);row.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));
-            TextView number=text(this,String.format(Locale.ROOT,"%02d",s.id),13,GOLD);row.addView(number,new LinearLayout.LayoutParams(dp(this,38),-2));
-            LinearLayout names=column(this);names.addView(text(this,s.name,17,INK));names.addView(text(this,s.count+" ayahs · "+s.meaning,11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-            TextView ar=arabic(s.arabic,24);row.addView(ar,new LinearLayout.LayoutParams(-2,-2));row.setContentDescription(s.name+", "+s.count+" ayahs");row.setFocusable(true);row.setOnClickListener(v->open(s.id,1));Glass.motion(row);
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,10);list.addView(row,lp);
-        }};
+        Runnable fill=()->fillLibrarySurahs(list,Arabic.tolerant(filter.getText().toString()));
         final Runnable[] pendingFilter={null};
         filter.addTextChangedListener(watcher(()->{
             if(pendingFilter[0]!=null)ui.removeCallbacks(pendingFilter[0]);
@@ -584,6 +576,25 @@ public final class MainActivity extends Activity {
             ui.postDelayed(pendingFilter[0],100);
         }));
         fill.run();
+    }
+    private void fillLibrarySurahs(LinearLayout list,String query){
+        int generation=++libraryListGeneration;list.removeAllViews();
+        appendLibrarySurahs(list,query,1,generation);
+    }
+    private void appendLibrarySurahs(LinearLayout list,String query,int start,int generation){
+        if(isDestroyed()||generation!=libraryListGeneration||start>1&&!list.isAttachedToWindow())return;
+        int end=Math.min(114,start+17);
+        for(int id=start;id<=end;id++){
+            ContentStore.Surah s=content.surah(id);
+            String searchable=Arabic.tolerant(s.name+" "+s.arabic+" "+s.meaning+" "+s.id);
+            if(!query.isEmpty()&&!searchable.contains(query))continue;
+            LinearLayout row=Glass.row(this);pad(row,16,14);row.setBackground(Glass.touch(this,Surface.Kind.PANEL,highContrast));
+            TextView number=text(this,String.format(Locale.ROOT,"%02d",s.id),13,GOLD);row.addView(number,new LinearLayout.LayoutParams(dp(this,38),-2));
+            LinearLayout names=column(this);names.addView(text(this,s.name,17,INK));names.addView(text(this,s.count+" ayahs · "+s.meaning,11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+            TextView ar=arabic(s.arabic,24);row.addView(ar,new LinearLayout.LayoutParams(-2,-2));row.setContentDescription(s.name+", "+s.count+" ayahs");row.setFocusable(true);row.setOnClickListener(v->open(s.id,1));Glass.motion(row);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,10);list.addView(row,lp);
+        }
+        if(end<114)list.postOnAnimation(()->appendLibrarySurahs(list,query,end+1,generation));
     }
     private void open(int surah,int ayah){readerScroll=null;readerVerses.clear();readerSurah=Math.max(1,Math.min(114,surah));readerStart=Math.max(1,Math.min(content.surah(readerSurah).count,ayah));reading=true;tab=1;String id="Q:"+readerSurah+":"+readerStart;readingPosition=new ReadingPosition(id,id,0,0,true);hideKeyboard();show();}
     private boolean moveReaderPage(int direction){
