@@ -1205,10 +1205,10 @@ public final class MainActivity extends Activity {
         saved.addView(button("Open "+id,()->{if(hadith)hadithRecord(id);else{Ayah a=content.ayah(id);open(a.surah,a.number);}}));
     }
     private static String quranMatchLabel(SearchEngine.Result result){
-        return result.reference?"REFERENCE MATCH":result.match.band+" TEXT MATCH · "+result.match.matched+" / "+result.match.total+" words";
+        return result.reference?"REFERENCE MATCH":result.match.band+(result.meaning?" MEANING MATCH":" TEXT MATCH")+" · "+result.match.matched+" / "+result.match.total+" words";
     }
     private static String quranMatchDescription(SearchEngine.Result result){
-        return result.reference?"AYAH REFERENCE":result.match.band+" TEXT MATCH · "+result.match.explanation();
+        return result.reference?"AYAH REFERENCE":result.match.band+(result.meaning?" MEANING MATCH":" TEXT MATCH")+" · "+result.match.explanation();
     }
     private static String languageName(String language){return "hi".equals(language)?"Hindi":"ur".equals(language)?"Urdu":"en".equals(language)?"English":language;}
     private String readingLanguage(){
