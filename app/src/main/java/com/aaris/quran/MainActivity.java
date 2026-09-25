@@ -1114,7 +1114,10 @@ public final class MainActivity extends Activity {
         saved.addView(button("Open "+id,()->{if(hadith)hadithRecord(id);else{Ayah a=content.ayah(id);open(a.surah,a.number);}}));
     }
     private static String quranMatchLabel(SearchEngine.Result result){
-        return result.reference?"REFERENCE MATCH":result.match.band+" TEXT MATCH · "+result.match.matched+" / "+result.match.total+" words · "+result.match.explanation();
+        return result.reference?"REFERENCE MATCH":result.match.band+" TEXT MATCH · "+result.match.matched+" / "+result.match.total+" words";
+    }
+    private static String quranMatchDescription(SearchEngine.Result result){
+        return result.reference?"AYAH REFERENCE":result.match.band+" TEXT MATCH · "+result.match.explanation();
     }
     private static String languageName(String language){return "hi".equals(language)?"Hindi":"ur".equals(language)?"Urdu":"en".equals(language)?"English":language;}
     private String readingLanguage(){
@@ -1653,7 +1656,7 @@ public final class MainActivity extends Activity {
         if(sharingPdf){toast("PDF is being prepared…");return;}
         List<HadithStore.Hit> hits=new ArrayList<>();List<Ayah> ayahs=new ArrayList<>();Map<String,String> matches=new LinkedHashMap<>();
         if(hadith){for(HadithStore.Hit h:hadithHits)if(selectedHadith.isEmpty()||selectedHadith.contains(h.record.id))hits.add(h);}
-        else{for(SearchEngine.Result r:quranHits){matches.put(r.ayah.id,quranMatchLabel(r));if(selectedEvidence.isEmpty())ayahs.add(r.ayah);}if(!selectedEvidence.isEmpty())for(String id:selectedEvidence){Ayah a=content.ayah(id);if(a!=null)ayahs.add(a);}}
+        else{for(SearchEngine.Result r:quranHits){matches.put(r.ayah.id,quranMatchDescription(r));if(selectedEvidence.isEmpty())ayahs.add(r.ayah);}if(!selectedEvidence.isEmpty())for(String id:selectedEvidence){Ayah a=content.ayah(id);if(a!=null)ayahs.add(a);}}
         int count=hadith?hits.size():ayahs.size();if(count==0){toast("Search or select records first");return;}
         LinearLayout page=sheet("Share research PDF");Dialog dialog=activeDialog;
         caption(page,count+" complete source records will be exported. "+(hadith&&count<hadithTotal?"There are "+hadithTotal+" matches in total; this PDF includes selected or loaded results.":"Selected records, or the currently displayed results, are included."));gap(page,14);
