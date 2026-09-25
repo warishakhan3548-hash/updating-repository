@@ -134,33 +134,54 @@ public final class SearchEngine {
         List<Ayah> sources=new ArrayList<>();for(Document document:docs)sources.add(document.ayah);fragments=new FragmentSearch(sources);
     }
     public Response search(String input,int limit) {
-        String original=input==null?"":input;
-        // Pasted line breaks are paragraph whitespace, not independent high-confidence queries.
-        return searchQueries(original,Collections.singletonList(new Query(original.replaceAll("\\s+"," "),Origin.USER)),limit);
+        return search(input,Collections.emptyList(),limit);
     }
     /** AI variants are explicitly tagged; more matching variants never verify an answer. */
     public Response search(String original,List<Query> queries,int limit) {
+        String raw=original==null?"":original;
+        LongQuery.Plan userPlan=LongQuery.plan(raw);
         List<Query> all=new ArrayList<>();
-        for(String line:(original==null?"":original).split("\\R"))if(!line.trim().isEmpty())all.add(new Query(line,Origin.USER));
-        all.addAll(queries);
-        return searchQueries(original,all,limit);
+        for(String window:userPlan.windows)all.add(new Query(window,Origin.USER));
+
+        // External variants are also bounded through the same planner. Never reject a useful
+        // pasted query merely because one formulation is long.
+        if(queries!=null)for(Query query:queries){
+            if(query==null||query.text==null||query.text.trim().isEmpty())continue;
+            LongQuery.Plan planned=LongQuery.plan(query.text);
+            for(String window:planned.windows){
+                all.add(new Query(window,query.origin));
+                if(all.size()>=24)break;
+            }
+            if(all.size()>=24)break;
+        }
+        return searchQueries(raw,all,limit,userPlan.segmented,userPlan.sourceWindows);
     }
-    private Response searchQueries(String original,List<Query> queries,int limit) {
+    private Response searchQueries(String original,List<Query> queries,int limit,boolean longUser,int sourceWindows) {
         long started=System.nanoTime();List<Variant> variants=new ArrayList<>();Map<String,Integer> trace=new LinkedHashMap<>();
         String raw=original==null?"":original;
-        if(raw.length()>16384||queries.size()>64)return new Response(raw,"QUERY_LIMIT",Collections.emptyList(),variants,trace,started);
         Map<String,Variant> distinct=new LinkedHashMap<>();
         for(Query q:queries) {
             cancelled();Variant v=new Variant(q);if(v.safe.isEmpty())continue;
-            if(v.original.length()>16384||Arabic.tokens(v.tolerant).size()>2048)return new Response(raw,"QUERY_LIMIT",Collections.emptyList(),variants,trace,started);
-            // Equivalent spelling variants get one vote, with user provenance preferred.
+            // LongQuery already keeps each retrieval window bounded. This is a defensive fallback
+            // for callers constructing Query objects directly.
+            if(v.original.length()>LongQuery.SHORT_CHARS||Arabic.tokens(v.tolerant).size()>LongQuery.SHORT_TOKENS){
+                LongQuery.Plan nested=LongQuery.plan(v.original);
+                for(String window:nested.windows){
+                    Variant piece=new Variant(new Query(window,v.origin));
+                    Variant previous=distinct.get(piece.tolerant);
+                    if(previous==null||(previous.origin==Origin.AI&&piece.origin==Origin.USER))distinct.put(piece.tolerant,piece);
+                    if(distinct.size()>=24)break;
+                }
+                if(distinct.size()>=24)break;
+                continue;
+            }
             Variant previous=distinct.get(v.tolerant);
             if(previous==null||(previous.origin==Origin.AI&&v.origin==Origin.USER))distinct.put(v.tolerant,v);
+            if(distinct.size()>=24)break;
         }
         variants.addAll(distinct.values());
-        if(variants.size()>8){variants.clear();variants.add(new Variant(new Query(raw.replaceAll("\\s+"," "),Origin.USER)));}
         Map<Integer,Result> best=new HashMap<>();Map<Integer,Double> fused=new HashMap<>();Map<Integer,List<Integer>> votes=new HashMap<>();
-        Set<Integer> candidates=new HashSet<>();String intent=variants.isEmpty()?"EMPTY":variants.size()>1?"MULTI_QUERY":"TEXT";
+        Set<Integer> candidates=new HashSet<>();String intent=variants.isEmpty()?"EMPTY":longUser?"LONG_TEXT":variants.size()>1?"MULTI_QUERY":"TEXT";
         for(int v=0;v<variants.size();v++) {
             Variant variant=variants.get(v);
             Matcher coordinate=COORDINATE.matcher(Arabic.asciiDigits(variant.original));
@@ -182,14 +203,16 @@ public final class SearchEngine {
             Result r=e.getValue();List<String> reasons=new ArrayList<>(r.reasons);
             boolean userMatch=false;for(int v:votes.get(e.getKey()))if(variants.get(v).origin==Origin.USER)userMatch=true;
             if(!userMatch)reasons.add("Matched an AI search formulation, not the original wording");
-            if(variants.size()>1)reasons.add(votes.get(e.getKey()).size()+"/"+variants.size()+" distinct formulations matched; not independent evidence");
+            if(longUser)reasons.add(votes.get(e.getKey()).size()+"/"+variants.size()+" remembered-text windows matched");
+            else if(variants.size()>1)reasons.add(votes.get(e.getKey()).size()+"/"+variants.size()+" distinct formulations matched; not independent evidence");
             results.add(new Result(r.ayah,r.strength,reasons,r.score+fused.get(e.getKey())*.0001,votes.get(e.getKey()),r.transformationCost,r.match,r.reference,r.meaning));
         }
         results.sort(RESULT_ORDER);
         trace.put("variants",variants.size());trace.put("candidates",candidates.size());trace.put("accepted",results.size());
         trace.put("rejected",Math.max(0,candidates.size()-results.size()));
+        if(longUser){trace.put("long_query",1);trace.put("source_windows",sourceWindows);}
         FragmentSearch.Report partial=null;
-        if(variants.size()==1&&variants.get(0).origin==Origin.USER&&intent.equals("TEXT")&&
+        if(!longUser&&variants.size()==1&&variants.get(0).origin==Origin.USER&&intent.equals("TEXT")&&
             (results.isEmpty()||results.get(0).strength!=Strength.STRONG_TEXT))partial=fragments.search(variants.get(0).original);
         if(partial!=null){trace.put("fragments",partial.fragments.size());trace.put("fragment_matched_words",partial.matchedTokens);trace.put("fragment_query_words",partial.totalTokens);}
         int count=Math.min(Math.max(1,Math.min(6236,limit)),results.size());
