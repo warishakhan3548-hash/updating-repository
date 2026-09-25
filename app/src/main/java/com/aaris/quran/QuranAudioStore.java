@@ -119,7 +119,7 @@ final class QuranAudioStore {
     }
 
     synchronized int installedCount(){int n=0;for(int s=1;s<=114;s++)if(installedSurah(s))n++;return n;}
-    synchronized long installedBytes(){long total=0;for(int s=1;s<=114;s++){File f=surahFile(s);if(f.isFile())total+=f.length();}return total;}
+    synchronized long installedBytes(){long total=0;for(int s=1;s<=114;s++){PackMeta meta=meta(s);if(meta!=null&&installedSurah(s))total+=meta.bytes;}return total;}
     long totalBytes(){return catalogBytes;}
     synchronized long remainingBytes(){return Math.max(0,catalogBytes-installedBytes());}
     synchronized void refreshSurah(int surah){cache.remove(surah);}
