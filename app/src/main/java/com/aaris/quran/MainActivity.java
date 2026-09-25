@@ -58,7 +58,8 @@ public final class MainActivity extends Activity {
     private boolean preparingExport,wordAudioSummaryPending;
     private int recitationDownloadGeneration;
     private Runnable recitationDownloadCompletion;
-    private int recitationListGeneration,libraryListGeneration;
+    private volatile int recitationListGeneration;
+    private int libraryListGeneration;
     private boolean pendingAmbient,previewAmbient,ambientSheetRequested,resumed,ambientResumePending,openOtherAppsAfterAmbientStart;
     private JSONObject pendingRestore;
     private String searchQuery="",hadithQuery="";
@@ -979,6 +980,7 @@ public final class MainActivity extends Activity {
     }
     private void audioControls(Ayah a){
         if(a==null)return;LinearLayout page=sheet("Recitation & audio");Dialog dialog=activeDialog;
+        dialog.setOnDismissListener(d->{recitationListGeneration++;if(activeDialog==dialog)activeDialog=null;});
         android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);String selected=preferences.getString("reciter",RecitationDownloads.IDS[0]);
         caption(page,"Choose a reciter. Play continues from this ayah; your choice is remembered.");gap(page,12);
         for(int i=0;i<RecitationDownloads.IDS.length;i++){String id=RecitationDownloads.IDS[i];page.addView(button((id.equals(selected)?"✓ ":"")+RecitationDownloads.NAMES[i],()->{preferences.edit().putString("reciter",id).putBoolean("chosen",true).apply();audioControls(a);}));gap(page,8);}
