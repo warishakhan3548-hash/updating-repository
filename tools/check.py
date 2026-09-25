@@ -283,6 +283,16 @@ def main():
         start = main_activity_text.index(marker)
         end = main_activity_text.find('\n    private ', start + len(marker))
         return main_activity_text[start:] if end < 0 else main_activity_text[start:end]
+    research_pdf_delivery = java_method('deliverResearchPdfResult')
+    research_pdf_share = java_method('shareResearch')
+    assert 'static final class ResearchPdfResult' in quran_app_text and 'synchronized ResearchPdfResult takeResearchPdfResult()' in quran_app_text, 'Research PDF completion must survive Activity recreation in application-scoped state'
+    assert 'researchPdfListener=this::deliverResearchPdfResult;app.researchPdfChanged=researchPdfListener' in main_activity_text, 'The current Activity must attach to pending research PDF results'
+    assert 'resumed=true;deliverResearchPdfResult();' in main_activity_text, 'Pending research PDFs must be delivered after recreation when the Activity is resumed'
+    assert 'app.researchPdfChanged==researchPdfListener' in main_activity_text, 'Destroyed Activities must detach the research PDF listener without clearing pending results'
+    assert 'application.publishResearchPdf(uri,researchPrompt);' in research_pdf_share and 'application.publishResearchPdfFailure(' in research_pdf_share, 'Research PDF success and failure must publish through lifecycle-safe application state'
+    assert 'ResearchPdfUi' not in main_activity_text, 'Do not regress to an Activity-bound research PDF callback that drops results on recreation'
+    assert 'QuranApp.ResearchPdfResult result=app.takeResearchPdfResult();' in research_pdf_delivery and 'Intent.ACTION_SEND' in research_pdf_delivery, 'The resumed Activity must atomically claim and share one pending PDF result'
+    assert 'ResearchFiles.discard(getApplicationContext(),result.uri)' in research_pdf_delivery, 'If no receiving app exists, the claimed PDF cache file must be discarded'
     today_method = java_method('today')
     assert 'final Ayah resumeTarget=resume;' in today_method and 'audioControls(resumeTarget)' in today_method, 'Today recitation controls must target the exact ayah shown in Where You Left Off'
     assert 'audioControls(content.ayah("Q:"+readerSurah+":"+readerStart))' not in today_method, 'Today recitation controls must not regress to the canonical 8-ayah page start'

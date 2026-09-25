@@ -70,7 +70,7 @@ public final class MainActivity extends Activity {
     private int searchScope=UnifiedQuery.ALL;
     private TextView recitationBanner,operationBanner,recitationDownloadStatus,recitationPauseButton,wordAudioDownloadStatus,wordAudioPauseButton,wordAudioReaderButton;
     private ProgressBar searchProgress;
-    private Runnable recitationListener,hadithListener,operationListener,activeSearchRefresh;
+    private Runnable recitationListener,hadithListener,operationListener,researchPdfListener,activeSearchRefresh;
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
     private final Map<String,JSONObject> selectionTrace=new LinkedHashMap<>();
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
@@ -90,24 +90,6 @@ public final class MainActivity extends Activity {
             this.grades=grades==null?Collections.emptyList():grades;
             this.references=references==null?Collections.emptyList():references;
         }
-    }
-    private static final class ResearchPdfUi {
-        private final WeakReference<MainActivity> owner;
-        ResearchPdfUi(MainActivity activity){owner=new WeakReference<>(activity);}
-        private MainActivity activity(){
-            MainActivity activity=owner.get();
-            return activity==null||activity.isDestroyed()||activity.isFinishing()?null:activity;
-        }
-        void ready(Context appContext,Uri uri,String prompt){
-            MainActivity activity=activity();
-            if(activity==null){ResearchFiles.discard(appContext,uri);return;}
-            Intent intent=new Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM,uri).putExtra(Intent.EXTRA_TEXT,prompt);
-            intent.setClipData(ClipData.newRawUri("Aaris research PDF",uri));
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            try{activity.startActivity(Intent.createChooser(intent,"Share research PDF"));}
-            catch(ActivityNotFoundException e){ResearchFiles.discard(appContext,uri);activity.toast("No PDF receiving app is installed");}
-        }
-        void failed(){MainActivity activity=activity();if(activity!=null)activity.toast("PDF could not be created. Try fewer records.");}
     }
     private static final class WordAudioDownloadUi implements QuranAudioDownloadManager.Listener {
         private final WeakReference<MainActivity> owner;
@@ -204,7 +186,7 @@ public final class MainActivity extends Activity {
                 TextView error=text(this,app.loadError+"\nOpen the app again. Your learning data remains stored separately.",15,INK);
                 error.setGravity(Gravity.CENTER);pad(error,24,24);layout.addView(error,new LinearLayout.LayoutParams(-1,-1));return;
             }
-            content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;operationListener=this::refreshOperationUi;app.operationChanged=operationListener;
+            content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;operationListener=this::refreshOperationUi;app.operationChanged=operationListener;researchPdfListener=this::deliverResearchPdfResult;app.researchPdfChanged=researchPdfListener;if(resumed)deliverResearchPdfResult();
             hadithListener=()->{if(isDestroyed()||isFinishing())return;if(searching){String q=searchQuery.trim();if(!q.isEmpty()&&UnifiedQuery.parse(q,searchScope).hadith){Runnable refresh=activeSearchRefresh;if(refresh!=null)refresh.run();}}else if(tab==2)show();};app.hadithChanged=hadithListener;
             language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");
             if(app.translations!=null){
@@ -244,10 +226,10 @@ public final class MainActivity extends Activity {
     private static float clamp(float x,float min,float max){return Math.max(min,Math.min(max,x));}
     private static float parseFloat(String value,float fallback){try{return Float.parseFloat(value);}catch(Exception e){return fallback;}}
     @Override protected void onSaveInstanceState(Bundle state){captureReaderPosition();super.onSaveInstanceState(state);state.putBoolean("pending_ambient",pendingAmbient);state.putBoolean("ambient_resume_pending",ambientResumePending);state.putBoolean("preview_ambient",previewAmbient);state.putBoolean("ambient_open_other_apps",openOtherAppsAfterAmbientStart);state.putString("pending_export",pendingExport);state.putInt("tab",tab);state.putBoolean("reading",reading);state.putBoolean("quiet_reader",quietReader);state.putInt("surah",readerSurah);state.putInt("start",readerStart);if(readingPosition!=null)state.putString("reader_anchor",readingPosition.encode());state.putString("query",searchQuery);state.putBoolean("search_open",searching);state.putInt("search_scope",searchScope);state.putString("hadith_query",hadithQuery);state.putInt("voice_scope",pendingVoiceScope);state.putStringArrayList("evidence",new ArrayList<>(selectedEvidence));String trace=new JSONObject(selectionTrace).toString();if(trace.length()<=64000)state.putString("selection_trace",trace);}
-    @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
+    @Override protected void onPostResume(){super.onPostResume();resumed=true;deliverResearchPdfResult();if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
-    @Override protected void onDestroy(){wordAudioPromptGeneration++;wordAudioPlayGeneration++;ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
+    @Override protected void onDestroy(){wordAudioPromptGeneration++;wordAudioPlayGeneration++;ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(app!=null&&app.researchPdfChanged==researchPdfListener)app.researchPdfChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
@@ -2125,6 +2107,16 @@ public final class MainActivity extends Activity {
         }catch(JSONException e){throw new IllegalStateException(e);}
     }
 
+    private void deliverResearchPdfResult(){
+        if(!resumed||app==null||isDestroyed()||isFinishing())return;
+        QuranApp.ResearchPdfResult result=app.takeResearchPdfResult();if(result==null)return;
+        if(result.error!=null){toast(result.error);return;}
+        if(result.uri==null){toast("PDF could not be prepared. Try again.");return;}
+        Intent intent=new Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM,result.uri).putExtra(Intent.EXTRA_TEXT,result.prompt);
+        intent.setClipData(ClipData.newRawUri("Aaris research PDF",result.uri));intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try{startActivity(Intent.createChooser(intent,"Share research PDF"));}
+        catch(ActivityNotFoundException e){ResearchFiles.discard(getApplicationContext(),result.uri);toast("No PDF receiving app is installed");}
+    }
     private void shareResearch(boolean hadith){
         if(app.researchPdfBusy.get()){toast("PDF is being prepared…");return;}
         List<HadithStore.Hit> hits=new ArrayList<>();List<Ayah> ayahs=new ArrayList<>();Map<String,String> matches=new LinkedHashMap<>();
@@ -2188,13 +2180,13 @@ public final class MainActivity extends Activity {
             final String researchPrompt=ResearchExport.prompt(template.getSelectedItemPosition(),custom.getText().toString());
             final String query=hadith?hadithQuery:searchQuery,edition=translationId,lang=readingLanguage();
             final Context appContext=getApplicationContext();final QuranApp application=app;final ContentStore source=content;
-            final TranslationStore translationStore=app.translations;final HadithStore hadithStore=app.hadith;final ResearchPdfUi callback=new ResearchPdfUi(this);
+            final TranslationStore translationStore=app.translations;final HadithStore hadithStore=app.hadith;
             dialog.dismiss();toast("Preparing PDF on your phone…");
             try{application.io.execute(()->{
                 try{
                     byte[] bytes=hadith?ResearchExport.hadith(appContext,hadithStore,hits,lang,query,researchPrompt):ResearchExport.quran(appContext,source,translationStore,edition,ayahs,matches,query,researchPrompt);
-                    Uri uri=ResearchFiles.write(appContext,bytes);application.main.post(()->callback.ready(appContext,uri,researchPrompt));
-                }catch(Exception e){application.main.post(callback::failed);}
+                    Uri uri=ResearchFiles.write(appContext,bytes);application.publishResearchPdf(uri,researchPrompt);
+                }catch(Exception e){application.publishResearchPdfFailure("PDF could not be created. Try fewer records.");}
                 finally{application.researchPdfBusy.set(false);application.notifyOperationChanged();}
             });}catch(RejectedExecutionException rejected){application.researchPdfBusy.set(false);application.notifyOperationChanged();toast("PDF could not start. Try again.");}
         }));gap(page,10);
