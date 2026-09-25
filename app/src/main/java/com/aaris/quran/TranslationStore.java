@@ -14,7 +14,10 @@ final class TranslationStore implements AutoCloseable {
     static final class Edition {
         final String id,language,title,description,version,source;
         Edition(Cursor c){id=c.getString(0);language=c.getString(1);title=c.getString(2);description=c.getString(3);version=c.getString(4);source=c.getString(5);}
-        String attribution(){return title+" · v"+version+" · QuranEnc.com";}
+        String attribution(){
+            String publisher=source!=null&&source.toLowerCase(Locale.ROOT).contains("quranenc")?"QuranEnc.com":source;
+            return title+" · v"+version+(publisher==null||publisher.trim().isEmpty()?"":" · "+publisher);
+        }
     }
     static final class Entry {
         final Edition edition;final String text,footnotes;
@@ -63,8 +66,16 @@ final class TranslationStore implements AutoCloseable {
             try(Cursor cur=opened.rawQuery("SELECT count(*) FROM translation",null)){if(!cur.moveToFirst()||cur.getInt(0)!=6236*expected.size())throw new IOException("Unexpected translation row count");}
         }catch(Exception invalid){opened.close();throw invalid;}
         db=opened;
+        File[] old=c.getFilesDir().listFiles();
+        if(old!=null)for(File file:old)if(file.isFile()&&file.getName().startsWith("translations-")&&
+            file.getName().endsWith(".sqlite")&&!file.equals(target))file.delete();
     }
     Edition edition(String id){for(Edition e:editions)if(e.id.equals(id))return e;return null;}
+    Edition preferredEdition(String id,String language){
+        Edition exact=edition(id);if(exact!=null)return exact;
+        if(language!=null)for(Edition e:editions)if(language.equals(e.language))return e;
+        return editions.isEmpty()?null:editions.get(0);
+    }
     private static LinkedHashSet<String> columns(SQLiteDatabase db,String table){LinkedHashSet<String> result=new LinkedHashSet<>();try(Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null)){while(c.moveToNext())result.add(c.getString(1));}return result;}
     private static String cacheKey(String editionId,String ayahId){return editionId+"\n"+ayahId;}
     Entry get(String editionId,String ayahId){

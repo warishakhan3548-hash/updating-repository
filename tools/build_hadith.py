@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "tools" / "hadith-catalog.json"
-BUILDER_VERSION = "8"
+BUILDER_VERSION = "9"
 
 
 def digest(path: Path) -> str:
@@ -123,15 +123,26 @@ def romanize_hindi(value):
     return ' '.join(''.join(out).split())
 
 
+SEARCH_FIELD_BOUNDARY = "aarisfieldboundaryx"
+
+def join_search_fields(values):
+    cleaned=[str(value).strip() for value in values if value is not None and str(value).strip()]
+    return (" "+SEARCH_FIELD_BOUNDARY+" ").join(cleaned)
+
+
 def search_tokens(value):
     return set(search_text(value).split())
 
 
 def build_search_index(db):
     editorial = {}
-    for hadith_id,text in db.execute(
-            "SELECT hadith_id,text FROM editorial_translation WHERE status IN ('reviewed','released') ORDER BY hadith_id,rowid"):
-        editorial.setdefault(hadith_id, []).append(text)
+    for hadith_id,language,text in db.execute(
+            "SELECT hadith_id,language,text FROM editorial_translation WHERE status IN ('reviewed','released') ORDER BY hadith_id,rowid"):
+        values=[text]
+        if language == "hi":
+            roman=romanize_hindi(text)
+            if roman: values.append(roman)
+        editorial.setdefault(hadith_id, []).extend(values)
     contexts = {}
     for hadith_id,text,roman in db.execute(
             "SELECT hadith_id,text,roman FROM search_context ORDER BY hadith_id,id"):
@@ -141,13 +152,14 @@ def build_search_index(db):
     # it never rewrites a translation or calls a runtime service.
     for rowid,hadith_id,collection_id,record_number,ar,en,ur,bn in db.execute(
             'SELECT rowid,id,collection_id,record_number,arabic,english,urdu,bangla FROM hadith'):
-        translated = ' '.join(str(v or '') for v in (en,ur,bn))
-        extra = ' '.join(editorial.get(hadith_id, []) + contexts.get(hadith_id, []))
+        latin_fields=[en,ur,bn]+editorial.get(hadith_id, [])+contexts.get(hadith_id, [])
+        latin=search_text(join_search_fields(latin_fields))
         db.execute(
             'INSERT INTO hadith_fts(hadith_id,collection_id,record_number,arabic,latin) VALUES(?,?,?,?,?)',
-            (hadith_id, collection_id, record_number, search_text(ar), search_text((translated+' '+extra).strip()))
+            (hadith_id, collection_id, record_number, search_text(ar), latin)
         )
-        terms=search_tokens(' '.join(str(v or '') for v in (ar,en,ur,bn))+' '+extra)
+        terms=search_tokens(ar+' '+latin)
+        terms.discard(SEARCH_FIELD_BOUNDARY)
         db.executemany('INSERT OR IGNORE INTO search_token VALUES(?,?)', ((t,rowid) for t in sorted(terms)))
     db.execute('INSERT INTO search_vocabulary SELECT token,count(*) FROM search_token GROUP BY token')
     for (token,) in db.execute('SELECT token FROM search_vocabulary ORDER BY token'):
@@ -349,8 +361,9 @@ def open_db(path: Path):
     CREATE INDEX hadith_by_chapter ON hadith(chapter_id, record_number);
     CREATE INDEX hadith_reference_lookup ON hadith_reference(scheme, value);
     CREATE INDEX hadith_reference_value ON hadith_reference(value, hadith_id);
-    CREATE INDEX hadith_arabic_shadow ON hadith(search_ar);
-    CREATE INDEX hadith_english_shadow ON hadith(search_latin);
+    CREATE INDEX grade_assertion_lookup ON grade_assertion(hadith_id, id);
+    -- Legacy whole-text B-tree shadows were never used by runtime retrieval. FTS/search_token
+    -- are the bounded search paths; omitting these duplicate indexes saves substantial storage.
     CREATE INDEX editorial_translation_lookup
       ON editorial_translation(hadith_id,language,status,revision);
     CREATE INDEX search_context_lookup ON search_context(hadith_id,language,kind);
@@ -633,6 +646,7 @@ def build(source_dir: Path, output: Path):
             "redistribution_basis": manifest["redistribution_basis"],
             "builder_version": BUILDER_VERSION,
             "sqlite_sha256": output_hash,
+            "sqlite_bytes": output.stat().st_size,
             "collections": counters["collection"],
             "books": counters["book"],
             "chapters": counters["chapter"],

@@ -160,6 +160,7 @@ def main():
         assert generated["hadeethenc_translation_record_counts"] == he_translation_counts
         assert generated["hadeethenc_withheld_translation_ids"] == he_withheld
         assert hashlib.sha256(sqlite_path.read_bytes()).hexdigest() == generated["sqlite_sha256"]
+        assert sqlite_path.stat().st_size == int(generated["sqlite_bytes"]) and int(generated["sqlite_bytes"]) > 0
 
         db = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
         try:
@@ -173,6 +174,8 @@ def main():
                 he_translation_counts.values()
             )
             assert db.execute("SELECT count(*) FROM search_context").fetchone()[0] == sum(int(v) for v in context_counts.values())
+            assert db.execute("SELECT count(*) FROM search_token WHERE token='aarisfieldboundaryx'").fetchone()[0] == 0
+            assert db.execute("SELECT count(*) FROM search_vocabulary WHERE token='aarisfieldboundaryx'").fetchone()[0] == 0
             assert db.execute("SELECT count(*) FROM search_context WHERE language='hi' AND trim(roman)<>''").fetchone()[0] > 0
 
             actual = dict(db.execute(

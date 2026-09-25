@@ -40,15 +40,15 @@ public final class SearchEngine {
         public final List<Integer> matchedVariants;
         public final double transformationCost;
         public final TextMatch match;
-        public final boolean reference;
+        public final boolean reference,meaning;
         Result(Ayah ayah,Strength strength,List<String> reasons,double score,List<Integer> variants,double cost) {
-            this(ayah,strength,reasons,score,variants,cost,TextMatch.exactReference(),true);
+            this(ayah,strength,reasons,score,variants,cost,TextMatch.exactReference(),true,false);
         }
         Result(Ayah ayah,Strength strength,List<String> reasons,double score,List<Integer> variants,double cost,TextMatch match) {
-            this(ayah,strength,reasons,score,variants,cost,match,false);
+            this(ayah,strength,reasons,score,variants,cost,match,false,false);
         }
-        private Result(Ayah ayah,Strength strength,List<String> reasons,double score,List<Integer> variants,double cost,TextMatch match,boolean reference) {
-            this.match=match;this.reference=reference;
+        private Result(Ayah ayah,Strength strength,List<String> reasons,double score,List<Integer> variants,double cost,TextMatch match,boolean reference,boolean meaning) {
+            this.match=match;this.reference=reference;this.meaning=meaning;
             this.ayah=ayah;this.strength=strength;this.reasons=Collections.unmodifiableList(new ArrayList<>(reasons));
             this.score=score;this.matchedVariants=Collections.unmodifiableList(new ArrayList<>(variants));transformationCost=cost;
         }
@@ -80,10 +80,9 @@ public final class SearchEngine {
     private static final class Index {
         final Map<String,List<Posting>> terms=new HashMap<>();
         final List<List<String>> tokens=new ArrayList<>();
-        final List<String> text=new ArrayList<>();
         double averageLength;
         void add(String value,int doc) {
-            text.add(value);List<String> words=Arabic.tokens(value);tokens.add(words);averageLength+=words.size();
+            List<String> words=Arabic.tokens(value);tokens.add(words);averageLength+=words.size();
             Map<String,Integer> counts=new HashMap<>();for(String w:words)counts.merge(w,1,Integer::sum);
             for(Map.Entry<String,Integer> e:counts.entrySet())terms.computeIfAbsent(e.getKey(),k->new ArrayList<>()).add(new Posting(doc,e.getValue()));
         }
@@ -110,18 +109,22 @@ public final class SearchEngine {
     private final FragmentSearch fragments;
     private static final Pattern COORDINATE=Pattern.compile("^(?:Q:)?([0-9]{1,3})\\s*[:：]\\s*([0-9]{1,3})$",Pattern.CASE_INSENSITIVE);
     private static final Set<String> NEGATION=new HashSet<>(Arrays.asList(
-        "لا","لم","لن","ليس","ليست","غير","دون","نہیں","نهيں","نہ","مت","नहीं","मत","बिना","no","not","never","without"));
+        "لا","لم","لن","ليس","ليست","غير","دون","نہیں","نهيں","نہ","مت","नहीं","नही","मत","बिना","nahi","nahin","no","not","never","without"));
 
     public SearchEngine(List<Document> documents) {
         List<Document> sorted=new ArrayList<>(documents);
         sorted.sort(Comparator.comparingInt((Document d)->d.ayah.surah).thenComparingInt(d->d.ayah.number));
-        docs=Collections.unmodifiableList(sorted);
-        for(int d=0;d<docs.size();d++) {
-            cancelled();Document doc=docs.get(d);
+        List<Document> compact=new ArrayList<>(sorted.size());
+        for(int d=0;d<sorted.size();d++) {
+            cancelled();Document doc=sorted.get(d);
             if(coordinates.put(doc.ayah.surah+":"+doc.ayah.number,d)!=null)throw new IllegalArgumentException("Duplicate source coordinate");
             safe.add(Arabic.safe(doc.ayah.arabic));arabic.add(Arabic.tolerant(doc.ayah.arabic),d);gloss.add(TextMatch.normalize(doc.hints),d);
             List<String> sounds=TextMatch.phoneticTokens(doc.transliteration);sound.add(String.join(" ",sounds),d);
+            // Hints/transliteration are fully indexed above; retaining the large combined strings
+            // would duplicate translation memory on low-RAM devices. Result identity only needs Ayah.
+            compact.add(new Document(doc.ayah,"",""));
         }
+        docs=Collections.unmodifiableList(compact);
         arabic.finish();gloss.finish();sound.finish();
         indexByLength(arabic.terms.keySet(),arabicByLength);indexByLength(gloss.terms.keySet(),glossByLength);indexByLength(sound.terms.keySet(),soundByLength);
         for(String word:sound.terms.keySet())for(String gram:Arabic.trigrams(word))soundVocabulary.computeIfAbsent(gram,k->new ArrayList<>()).add(word);
@@ -180,7 +183,7 @@ public final class SearchEngine {
             boolean userMatch=false;for(int v:votes.get(e.getKey()))if(variants.get(v).origin==Origin.USER)userMatch=true;
             if(!userMatch)reasons.add("Matched an AI search formulation, not the original wording");
             if(variants.size()>1)reasons.add(votes.get(e.getKey()).size()+"/"+variants.size()+" distinct formulations matched; not independent evidence");
-            results.add(new Result(r.ayah,r.strength,reasons,r.score+fused.get(e.getKey())*.0001,votes.get(e.getKey()),r.transformationCost,r.match,r.reference));
+            results.add(new Result(r.ayah,r.strength,reasons,r.score+fused.get(e.getKey())*.0001,votes.get(e.getKey()),r.transformationCost,r.match,r.reference,r.meaning));
         }
         results.sort(RESULT_ORDER);
         trace.put("variants",variants.size());trace.put("candidates",candidates.size());trace.put("accepted",results.size());
@@ -217,15 +220,20 @@ public final class SearchEngine {
             TextMatch focused=focusedHints.equals(hints)?hint:TextMatch.compare(focusedHints,gloss.tokens.get(d),glossRepairs,hintWeights);
             TextMatch phone=TextMatch.compare(sounds,sound.tokens.get(d),soundRepairs,Collections.emptyMap());
             boolean exact=Arabic.hasArabic(variant.original)&&phrase(safe.get(d),variant.safe);
-            TextMatch chosen=ar;String reason="Arabic text overlap";double penalty=0;
-            if(!ar.accepted||hint.accepted&&TextMatch.compareRank(hint,ar)<0){chosen=hint;reason="Translation / source word meaning";penalty=.005;}
-            if(focused!=hint&&focused.accepted&&(!chosen.accepted||focused.band.ordinal()<chosen.band.ordinal())){
-                chosen=focused;reason="Remembered meaning / translation concepts";penalty=.02;
+            TextMatch chosen=ar;String reason="Arabic text overlap";double penalty=0;boolean meaning=false;
+            if(!ar.accepted||hint.accepted&&TextMatch.compareRank(hint,ar)<0){
+                chosen=hint;reason="Translation / source word meaning";penalty=.005;
+                meaning=MeaningSearch.usesConceptBridge(hints,gloss.tokens.get(d));
             }
-            if(!hints.stream().anyMatch(TextMatch::negative)&&!sounds.isEmpty()&&sounds.size()>=Math.min(2,hints.size())&&sounds.size()>=hints.size()*.6&&phone.accepted&&phone.coverage>=.8&&phone.exact>=Math.min(2,sounds.size())&&(!chosen.accepted||TextMatch.compareRank(phone,chosen)<0&&phone.score-.08>chosen.score)){chosen=phone;reason="Similar pronunciation; check the original text";penalty=.08;}
+            if(focused!=hint&&focused.accepted&&(!chosen.accepted||focused.band.ordinal()<chosen.band.ordinal())){
+                chosen=focused;reason="Remembered meaning / translation concepts";penalty=.02;meaning=true;
+            }
+            if(!hints.stream().anyMatch(TextMatch::negative)&&!sounds.isEmpty()&&sounds.size()>=Math.min(2,hints.size())&&sounds.size()>=hints.size()*.6&&phone.accepted&&phone.coverage>=.8&&phone.exact>=Math.min(2,sounds.size())&&(!chosen.accepted||TextMatch.compareRank(phone,chosen)<0&&phone.score-.08>chosen.score)){
+                chosen=phone;reason="Similar pronunciation; check the original text";penalty=.08;meaning=false;
+            }
             if(!chosen.accepted)continue;
             List<String> reasons=Arrays.asList(reason,chosen.explanation(), "Match level is text similarity, not authenticity");
-            out.add(new Result(docs.get(d).ayah,exact?Strength.STRONG_TEXT:Strength.RELATED,reasons,chosen.score-penalty,Collections.emptyList(),penalty,chosen));
+            out.add(new Result(docs.get(d).ayah,exact?Strength.STRONG_TEXT:Strength.RELATED,reasons,chosen.score-penalty,Collections.emptyList(),penalty,chosen,false,meaning));
         }
         out.sort(RESULT_ORDER);return out;
     }

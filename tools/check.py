@@ -127,6 +127,7 @@ def main():
         hmanifest = json.loads(hadith_manifest_path.read_text())
         assert hmanifest['schema_version'] == 2
         assert hashlib.sha256(hadith_pack.read_bytes()).hexdigest() == hmanifest['sqlite_sha256']
+        assert hadith_pack.stat().st_size == int(hmanifest['sqlite_bytes']) and int(hmanifest['sqlite_bytes']) > 0
         hdb = sqlite3.connect(f'file:{hadith_pack}?mode=ro', uri=True)
         assert hdb.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
         assert hdb.execute('PRAGMA user_version').fetchone()[0] == 2
@@ -134,6 +135,12 @@ def main():
         assert hdb.execute('SELECT count(*) FROM hadith').fetchone()[0] == hmanifest['records']
         assert hdb.execute('SELECT count(*) FROM hadith_fts').fetchone()[0] == hmanifest['records']
         assert hdb.execute('SELECT count(*) FROM search_context').fetchone()[0] == hmanifest.get('search_contexts', 0)
+        indexes={row[0] for row in hdb.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        assert 'grade_assertion_lookup' in indexes, 'Hadith grade lookup index missing'
+        legacy_shadow_indexes = {row[0] for row in hdb.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('hadith_arabic_shadow','hadith_english_shadow')"
+        )}
+        assert not legacy_shadow_indexes, f'Unused duplicate Hadith shadow indexes returned: {legacy_shadow_indexes}'
         assert hdb.execute('SELECT count(DISTINCT hadith_rowid) FROM search_token').fetchone()[0] == hmanifest['records']
         assert not hdb.execute('PRAGMA foreign_key_check').fetchall()
         for arabic, expected in hdb.execute('SELECT arabic,source_sha256 FROM hadith'):

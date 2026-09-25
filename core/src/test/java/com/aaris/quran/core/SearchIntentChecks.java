@@ -24,14 +24,22 @@ public final class SearchIntentChecks {
             HadithQuery intent=HadithQuery.parse(decode(lines.get(0)));Map<String,Double> weights=new LinkedHashMap<>();Map<String,List<String>> repairs=new LinkedHashMap<>();
             for(String line:lines.subList(1,lines.size())){
                 String[] row=line.split("\\t");String term=decode(row[0]);weights.put(term,Double.parseDouble(row[1]));
-                repairs.put(term,row.length>2?Arrays.asList(decode(row[2]).split(" ")):Collections.emptyList());
+                LinkedHashSet<String> alternatives=new LinkedHashSet<>(MeaningSearch.alternatives(term));
+                if(row.length>2)alternatives.addAll(Arrays.asList(decode(row[2]).split(" ")));
+                repairs.put(term,new ArrayList<>(alternatives));
             }
-            HadithSearchPlan plan=HadithSearchPlan.candidates(intent,repairs,weights);
+            List<String> anchors=MeaningSearch.focusTokens(TextMatch.tokens(intent.text));
+            HadithSearchPlan plan=HadithSearchPlan.candidates(intent,anchors,repairs,weights);
             System.out.println(encode(plan.where));for(String value:plan.args)System.out.println(encode(value));return;
         }
         if(args.length>0&&args[0].equals("tokens")){
             for(String line:Files.readAllLines(Paths.get(args[1]),StandardCharsets.UTF_8))
                 System.out.println(encode(String.join(" ",TextMatch.tokens(decode(line)))));
+            return;
+        }
+        if(args.length>0&&args[0].equals("romanize")){
+            for(String line:Files.readAllLines(Paths.get(args[1]),StandardCharsets.UTF_8))
+                System.out.println(encode(MeaningSearch.romanizeHindi(decode(line))));
             return;
         }
         if(args.length>0&&args[0].equals("rank")){
@@ -78,6 +86,14 @@ public final class SearchIntentChecks {
         check(HadithQuery.parse("sahih 556").sahihCollections,"Ambiguous Sahih reference searches both collections");
         check(!HadithQuery.parse("حدثنا قتيبة بن سعيد حدثنا").isHadithIntent(),"Narration text is not a fuzzy collection title");
         check(!HadithQuery.parse("قال مسلم حدثنا").isHadithIntent(),"Names within prose do not change the scope");
+        for(String value:new String[]{"Muslim prayer after fard","मुस्लिम नमाज के बाद","مسلم قال الصلاة","Ahmad narrated this","Malik said this"}){
+            check(!HadithQuery.parse(value).isHadithIntent(),"Ambiguous collection-name prefix remains natural prose: "+value);
+            UnifiedQuery u=UnifiedQuery.parse(value,UnifiedQuery.ALL);
+            check(u.quran&&u.hadith,"Natural prose beginning with an ambiguous title searches both corpora: "+value);
+        }
+        check(HadithQuery.parse("Sahih Muslim prayer").collectionId.equals("muslim"),"Explicit Sahih Muslim text scope remains available");
+        check(HadithQuery.parse("Muslim 556").collectionId.equals("muslim"),"Ambiguous title next to a reference still scopes correctly");
+        check(HadithQuery.parse("Musnad Ahmad prayer").collectionId.equals("ahmad"),"Explicit Musnad Ahmad scope remains available");
         for(String value:new String[]{"2:255","٢:٢٥٥","Quran 2:255","कुरान २:२५५","2 255","Q 2/255","Quran: 2.255"}){
             UnifiedQuery u=UnifiedQuery.parse(value,UnifiedQuery.ALL);
             check(u.quran&&!u.hadith&&u.quranText.equals("2:255"),"Quran routing: "+value);

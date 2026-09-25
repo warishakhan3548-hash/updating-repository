@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 
-from build_hadith import search_tokens, search_text
+from build_hadith import search_tokens, search_text, romanize_hindi, SEARCH_FIELD_BOUNDARY
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -86,6 +86,26 @@ def main():
             assert search_tokens(sample) == set(dec(java_tokens).split()), ("Normalization drift", sample)
         assert len(actual) == len(samples)
 
+        hindi_samples = [
+            row[0] for row in db.execute(
+                "SELECT text FROM editorial_translation WHERE language='hi' AND status='released' "
+                "ORDER BY hadith_id LIMIT 120"
+            )
+        ]
+        hindi_samples += [
+            row[0] for row in db.execute(
+                "SELECT text FROM search_context WHERE language='hi' ORDER BY id LIMIT 120"
+            )
+        ]
+        if hindi_samples:
+            roman_source = scratch / "hindi-romanization.tsv"
+            roman_source.write_text("\n".join(enc(value) for value in hindi_samples) + "\n")
+            java_roman = subprocess.check_output(java + ["romanize", str(roman_source)], text=True).splitlines()
+            assert len(java_roman) == len(hindi_samples)
+            for source_text, encoded_roman in zip(hindi_samples, java_roman):
+                assert romanize_hindi(source_text) == dec(encoded_roman), ("Hindi romanization drift", source_text)
+            print(f"Hindi build/runtime romanization parity: {len(hindi_samples)} real source rows PASS")
+
         def phrase(query):
             plan = subprocess.check_output(java + ["phrase", query], text=True).splitlines()
             where, args = dec(plan[0]), [dec(v) for v in plan[1:]]
@@ -154,6 +174,34 @@ def main():
             )
             print("Hindi HadeethEnc exact-phrase retrieval: PASS")
 
+            layered_id = db.execute(
+                "SELECT hadith_id FROM editorial_translation GROUP BY hadith_id HAVING count(*)>=2 ORDER BY hadith_id LIMIT 1"
+            ).fetchone()[0]
+            layered_texts = [
+                search_text(row[0]) for row in db.execute(
+                    "SELECT text FROM editorial_translation WHERE hadith_id=? AND status='released' ORDER BY rowid",
+                    (layered_id,)
+                ) if search_text(row[0])
+            ]
+            assert len(layered_texts) >= 2
+            fts_latin = db.execute("SELECT latin FROM hadith_fts WHERE hadith_id=?", (layered_id,)).fetchone()[0]
+            assert (layered_texts[0] + " " + SEARCH_FIELD_BOUNDARY + " " + layered_texts[1]) in fts_latin, (
+                "Evidence fields lost their phrase boundary", layered_id
+            )
+            assert db.execute(
+                "SELECT count(*) FROM search_token WHERE token=?", (SEARCH_FIELD_BOUNDARY,)
+            ).fetchone()[0] == 0
+            print("Cross-field exact-phrase boundary: PASS")
+
+            hindi_roman = romanize_hindi(sample_hi[1])
+            hindi_roman_tokens = search_text(hindi_roman).split()[:7]
+            assert len(hindi_roman_tokens) >= 4
+            total, rows = phrase(" ".join(hindi_roman_tokens))
+            assert total > 0 and any(hid == sample_hi[0] for hid, _ in rows), (
+                "Official Hindi Hadith translation is not reachable through its Hinglish shadow", sample_hi[0]
+            )
+            print("Hinglish shadow of official Hindi Hadith translation: PASS")
+
             # A remembered Hinglish phrase must also reach trusted Hindi explanation/benefit
             # context without turning that context into displayed Hadith text.
             sample_context = db.execute(
@@ -169,6 +217,48 @@ def main():
                 "Hinglish meaning context is not reachable through production FTS", sample_context[0]
             )
             print("Hinglish HadeethEnc meaning-context retrieval: PASS")
+
+            def candidate_ids(query):
+                terms = sorted(search_tokens(query))
+                data = scratch / "remembered-candidate-plan.tsv"
+                lines = [enc(query)]
+                for term in terms:
+                    found = db.execute("SELECT df FROM search_vocabulary WHERE token=?", (term,)).fetchone()
+                    weight = max(.25, math.log(1 + manifest["records"] / (1 + (found[0] if found else 0))))
+                    lines.append(enc(term) + "\t" + str(weight))
+                data.write_text("\n".join(lines) + "\n")
+                plan = subprocess.check_output(java + ["candidates", str(data)], text=True).splitlines()
+                return {
+                    row[0] for row in db.execute(
+                        "SELECT h.id FROM hadith h WHERE " + dec(plan[0]),
+                        [dec(v) for v in plan[1:]]
+                    )
+                }
+
+            # User-style question scaffolding must not crowd the evidence out of the bounded
+            # candidate set. HadeethEnc 3293 explicitly explains two rak'ahs distinct from the
+            # obligatory prayer followed by the istikhara supplication.
+            remembered_hi = "ये कहाँ पर लिखा है कि दो रकात नमाज फर्ज के बाद दुआ करनी है"
+            remembered_hinglish = "ye kaha likha hai ki do rakat namaz farz ke bad dua karni hai"
+            assert "H:hadeethenc:official:3293" in candidate_ids(remembered_hi)
+            assert "H:hadeethenc:official:3293" in candidate_ids(remembered_hinglish)
+            print("Hindi/Hinglish remembered-question candidate retrieval: PASS")
+
+            # User-story regression: identify a real HadeethEnc record whose indexed trusted
+            # evidence mentions both the Prophet and ablution, then reach it from Hindi/Hinglish
+            # remembered wording without requiring the display language to match the query.
+            wudu_target = db.execute(
+                "SELECT h.id FROM hadith h "
+                "JOIN search_token p ON p.hadith_rowid=h.rowid AND p.token='prophet' "
+                "JOIN search_token a ON a.hadith_rowid=h.rowid AND a.token='ablution' "
+                "WHERE h.collection_id='hadeethenc' ORDER BY h.rowid LIMIT 1"
+            ).fetchone()
+            assert wudu_target, "Pinned trusted corpus unexpectedly has no Prophet+ablution evidence"
+            story_hi = "एक बार एक सहाबी ने नबी को वुज़ू करते देखा"
+            story_hinglish = "ek baar ek sahabi ne nabi ko wuzu karte dekha"
+            assert wudu_target[0] in candidate_ids(story_hi), ("Hindi remembered wudu story lost", wudu_target[0])
+            assert wudu_target[0] in candidate_ids(story_hinglish), ("Hinglish remembered wudu story lost", wudu_target[0])
+            print("Real Hindi/Hinglish remembered wudu-story retrieval: PASS")
     db.close()
     print("Real Hadith pack: scoped references, suffixes, Unicode digits and vocalized/plain Arabic: PASS")
 

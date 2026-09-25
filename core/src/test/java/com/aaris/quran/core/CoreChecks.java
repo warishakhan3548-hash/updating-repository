@@ -41,14 +41,46 @@ public final class CoreChecks {
         check(!Arabic.glossSearch("की").equals(Arabic.glossSearch("क")),"Hindi signs must not be stripped");
         check(MeaningSearch.romanizeHindi("एक सहाबी ने नबी को वुज़ू करते देखा").contains("ek sahabi"),"Hindi gets a deterministic Hinglish search shadow");
         check(MeaningSearch.alternatives("prayer").contains("नमाज"),"Trusted concept aliases bridge English to Hindi");
-        check(MeaningSearch.focusTokens(TextMatch.tokens("एक सहाबी ने नबी को वुज़ू करते देखा")).containsAll(Arrays.asList("एक","सहाबी","नबी","वुज़ू","करते","देखा")),"Meaning focus removes grammar without deleting content");
+        check(!MeaningSearch.alternatives("qibla").contains("kaaba")&&!MeaningSearch.alternatives("zakat").contains("charity"),"Related Islamic concepts are not collapsed into false synonyms");
+        List<String> rememberedFocus=MeaningSearch.focusTokens(TextMatch.tokens("एक बार एक सहाबी ने नबी को वुज़ू करते देखा"));
+        check(rememberedFocus.containsAll(Arrays.asList("एक","सहाबी","नबी","वुज़ू"))&&!rememberedFocus.contains("बार")&&!rememberedFocus.contains("करते")&&!rememberedFocus.contains("देखा"),"Meaning focus removes narrative scaffolding while preserving numeric/content evidence");
+        check(MeaningSearch.focusTokens(TextMatch.tokens("एक रकात नमाज")).contains("एक"),"Numeric one is preserved outside the once/ek-baar phrase");
         check(MeaningSearch.focusTokens(TextMatch.tokens("नमाज के बाद नहीं")).containsAll(Arrays.asList("नमाज","बाद","नहीं")),"Meaning focus preserves order/negation terms");
+        List<String> scaffold=MeaningSearch.focusTokens(TextMatch.tokens("ये कहाँ पर लिखा है कि दो रकात नमाज फर्ज के बाद ये करना है"));
+        check(scaffold.containsAll(Arrays.asList("दो","रकात","नमाज","फर्ज","बाद"))&&
+            !scaffold.contains("कहाँ")&&!scaffold.contains("लिखा")&&!scaffold.contains("ये")&&!scaffold.contains("करना"),
+            "Remembered-question scaffolding cannot dominate concept retrieval");
+        check(MeaningSearch.focusTokens(TextMatch.tokens("एक बार एक सहाबी ने नबी को देखा")).stream().filter("एक"::equals).count()==1,"Meaning lane deduplicates conversational repetition");
+        check(MeaningSearch.focusTokens(TextMatch.tokens("नबी ने कहा नमाज")).contains("कहा")&&
+            MeaningSearch.focusTokens(TextMatch.tokens("nabi ne kaha namaz")).contains("kaha"),"Said/kaha is content, not confused with where/kahan");
+        check(!MeaningSearch.focusTokens(TextMatch.tokens("ye kaha likha hai ki do rakat namaz")).contains("kaha"),"Question-pattern kaha is treated as a kahan typo without weakening said/kaha");
+        check(TextMatch.negative("nahi")&&TextMatch.negative("nahin")&&TextMatch.negative("नही"),"Common Hinglish/Hindi negation variants are protected");
+        Map<String,List<String>> polarityRepairs=new HashMap<>();
+        polarityRepairs.put("nahi",MeaningSearch.alternatives("nahi"));
+        TextMatch negativeMatch=TextMatch.compare(
+            Arrays.asList("namaz","nahi"),Arrays.asList("namaz","nahin"),polarityRepairs,Collections.emptyMap());
+        TextMatch positiveMismatch=TextMatch.compare(
+            Arrays.asList("namaz","nahi"),Arrays.asList("namaz"),polarityRepairs,Collections.emptyMap());
+        check(negativeMatch.accepted&&!positiveMismatch.accepted,"Cross-language/roman negation may match only explicit negative evidence");
         String remembered="नमाज के लिए वुज़ू";
         SearchEngine recalled=new SearchEngine(Arrays.asList(
             doc(1,"مصدر اول",remembered+" "+MeaningSearch.romanizeHindi(remembered)),
             doc(2,"مصدر ثان","unrelated text")));
-        check(recalled.search("prayer wudu",10).results.get(0).ayah.number==1,"Cross-language concept aliases retrieve the intended evidence");
-        check(recalled.search("namaz vuzu",10).results.get(0).ayah.number==1,"Hinglish shadow retrieves Hindi evidence");
+        SearchEngine.Result bridged=recalled.search("prayer wudu",10).results.get(0);
+        check(bridged.ayah.number==1&&bridged.meaning,"Cross-language concept aliases retrieve and label meaning evidence");
+        SearchEngine.Result romanDirect=recalled.search("namaz vuzu",10).results.get(0);
+        check(romanDirect.ayah.number==1&&!romanDirect.meaning,"Literal Hinglish shadow remains a text match");
+        check(MeaningSearch.usesConceptBridge(TextMatch.tokens("prayer wudu"),TextMatch.tokens("नमाज वुज़ू")),"Concept bridge detection is explicit");
+        check(!MeaningSearch.usesConceptBridge(TextMatch.tokens("namaz vuzu"),TextMatch.tokens("namaz vuzu")),"Literal normalized words are not mislabeled as meaning");
+        check(!MeaningSearch.usesConceptBridge(TextMatch.tokens("namaz vuzu"),TextMatch.tokens("नमाज वुज़ू")),"Cross-script transliteration stays text evidence");
+        check(MeaningSearch.usesConceptBridge(TextMatch.tokens("prayer"),TextMatch.tokens("नमाज")),"True synonym translation is meaning evidence");
+        check(!MeaningSearch.alternatives("nabi").contains("rasul")&&!MeaningSearch.alternatives("rasul").contains("nabi"),"Nabi and Rasul remain distinct concepts");
+        check(!MeaningSearch.alternatives("roza").contains("fast"),"Ambiguous bare English fast is not a religious synonym");
+        SearchEngine rememberedQuestion=new SearchEngine(Arrays.asList(
+            doc(1,"مصدر ثالث","दो रकात नमाज फर्ज बाद करना"),
+            doc(2,"مصدر رابع","कहाँ लिखा ये unrelated")));
+        SearchEngine.Result conceptResult=rememberedQuestion.search("ये कहाँ पर लिखा है कि दो रकात नमाज फर्ज के बाद ये करना है",10).results.get(0);
+        check(conceptResult.ayah.number==1&&conceptResult.meaning,"Quran remembered-question lane is ranked and labeled as meaning evidence");
         check(Arabic.safe("أَ").equals("أ"),"Safe lane preserves hamza");
         check(!Arabic.tolerant("نية").equals(Arabic.tolerant("نيه")),"Ta marbuta is not ha");
         Recall.ConservativeScheduler scheduler=new Recall.ConservativeScheduler();
