@@ -93,10 +93,16 @@ final class QuranAudioStore {
         try{
             String marked=marker.isFile()?readSmall(marker,256).trim():"";
             if(!markerMatches(marked,file,meta)){
-                // Crash-safe recovery and old-marker migration: bind the verified digest to the
-                // exact installed file metadata, so a replaced same-size container is rechecked.
-                validateContainer(file,meta,true);
-                writeMarker(marker,markerValue(file,meta));
+                if(meta.sha256.equals(marked)){
+                    // Legacy markers already represent a previously verified container. Upgrade
+                    // them cheaply on the render path; future same-size replacements will no longer
+                    // inherit that trust because the bound file metadata will differ.
+                    writeMarker(marker,markerValue(file,meta));
+                }else{
+                    // Missing/changed markers use the expensive verification path before trust.
+                    validateContainer(file,meta,true);
+                    writeMarker(marker,markerValue(file,meta));
+                }
             }
             cache.put(surah,parseIndex(file,meta,false));
             return true;
