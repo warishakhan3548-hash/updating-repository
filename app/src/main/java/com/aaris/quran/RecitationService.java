@@ -13,6 +13,7 @@ import java.util.concurrent.RejectedExecutionException;
 /** Whole-ayah playback with one owner, audio focus and Android background controls. */
 public final class RecitationService extends Service {
     static final String PLAY="recitation.play",PAUSE="recitation.pause",NEXT="recitation.next",PREVIOUS="recitation.previous",STOP="recitation.stop";
+    static final String OPEN_READER="recitation.open_reader",OPEN_SURAH="recitation.open_surah",OPEN_AYAH="recitation.open_ayah";
     private QuranApp app;private MediaPlayer player;private MediaSession session;private AudioManager audio;private AudioFocusRequest focus;
     private final Handler main=new Handler(Looper.getMainLooper());private Future<?> pending;private int generation;private boolean destroyed,resumeAfterTransientFocusLoss;
     private int surah=1,ayah=1,repeatCompleted;private boolean paused,buffering;private String reciter;
@@ -81,7 +82,7 @@ public final class RecitationService extends Service {
         session.setPlaybackState(new PlaybackState.Builder().setActions(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_STOP|PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS).setState(state,PlaybackState.PLAYBACK_POSITION_UNKNOWN,state==PlaybackState.STATE_PLAYING?1:0).build());getSystemService(NotificationManager.class).notify(42,notification(message));}
     private PendingIntent action(String action,int request){return PendingIntent.getService(this,request,new Intent(this,RecitationService.class).setAction(action),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);}
     private Notification notification(String message){
-        Intent home=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        Intent home=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)\n            .putExtra(OPEN_READER,true).putExtra(OPEN_SURAH,surah).putExtra(OPEN_AYAH,ayah);
         PendingIntent open=PendingIntent.getActivity(this,10,home,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this,"recitation").setSmallIcon(com.aaris.quran.R.drawable.ic_recall_notification).setContentTitle("Aaris · Recitation").setContentText(message).setContentIntent(open).setOngoing(!paused)
             .addAction(new Notification.Action.Builder(android.R.drawable.ic_media_previous,"Previous",action(PREVIOUS,1)).build())
