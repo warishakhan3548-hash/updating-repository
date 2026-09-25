@@ -69,7 +69,7 @@ public final class AmbientRecallService extends Service {
         PendingIntent stop=PendingIntent.getService(this,32,new Intent(this,AmbientRecallService.class).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_recall_notification)
             .setContentTitle("Keep Quran in mind")
-            .setContentText("Every "+AmbientSettings.minutes(this)+" minutes · Tap to stop")
+            .setContentText("Every "+AmbientSettings.minutes(this)+" minutes · Tap to manage")
             .setSubText("Timer pauses on the lock screen and while Aaris is open")
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE)
             .addAction(new Notification.Action.Builder(null,"Stop session",stop).build()).build();
