@@ -535,7 +535,7 @@ public final class MainActivity extends Activity {
             hadithBrowseTask=app.hadithBrowseWorker.submit(()->{
                 try{
                     final List<HadithStore.BookInfo> books=store.books(collectionId);
-                    final List<HadithStore.Record> direct=books.isEmpty()?store.records(collectionId,null,null,50,0):Collections.emptyList();
+                    final List<HadithStore.Record> direct=books.isEmpty()?store.records(collectionId,null,null,51,0):Collections.emptyList();
                     ui.post(()->{
                         if(!liveHadithBrowse(generation,page))return;
                         page.removeAllViews();
@@ -569,7 +569,7 @@ public final class MainActivity extends Activity {
             hadithBrowseTask=app.hadithBrowseWorker.submit(()->{
                 try{
                     final List<HadithStore.ChapterInfo> chapters=store.chapters(collectionId,book.id);
-                    final List<HadithStore.Record> direct=chapters.isEmpty()?store.records(collectionId,book.id,null,50,0):Collections.emptyList();
+                    final List<HadithStore.Record> direct=chapters.isEmpty()?store.records(collectionId,book.id,null,51,0):Collections.emptyList();
                     ui.post(()->{
                         if(!liveHadithBrowse(generation,page))return;
                         page.removeAllViews();
@@ -593,17 +593,17 @@ public final class MainActivity extends Activity {
     }
 
     private void renderHadithRecordsPage(LinearLayout page,String title,String collectionId,String bookId,String chapterId,int offset,List<HadithStore.Record> records){
-        final int size=50;
-        caption(page,"Records "+(records.isEmpty()?0:offset+1)+"–"+(offset+records.size())+" · Offline");gap(page,12);
-        for(HadithStore.Record record:records){
+        final int size=50,visibleCount=Math.min(size,records.size());boolean hasNext=records.size()>size;
+        caption(page,"Records "+(visibleCount==0?0:offset+1)+"–"+(offset+visibleCount)+" · Offline");gap(page,12);
+        for(HadithStore.Record record:records.subList(0,visibleCount)){
             TextView b=button("Hadith "+record.number,()->hadithRecord(record.id));
             b.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);page.addView(b);gap(page,8);
         }
-        if(records.isEmpty())caption(page,"No records in this section.");
-        if(offset>0||records.size()==size){
+        if(visibleCount==0)caption(page,"No records in this section.");
+        if(offset>0||hasNext){
             gap(page,10);LinearLayout nav=row(this);
             if(offset>0){TextView prev=button("← Previous",()->hadithRecordsPage(title,collectionId,bookId,chapterId,Math.max(0,offset-size)));nav.addView(prev,new LinearLayout.LayoutParams(0,-2,1));}
-            if(records.size()==size){TextView next=button("Next →",()->hadithRecordsPage(title,collectionId,bookId,chapterId,offset+size));LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(0,-2,1);np.leftMargin=dp(this,offset>0?8:0);nav.addView(next,np);}
+            if(hasNext){TextView next=button("Next →",()->hadithRecordsPage(title,collectionId,bookId,chapterId,offset+size));LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(0,-2,1);np.leftMargin=dp(this,offset>0?8:0);nav.addView(next,np);}
             page.addView(nav);
         }
     }
@@ -615,7 +615,7 @@ public final class MainActivity extends Activity {
         try{
             hadithBrowseTask=app.hadithBrowseWorker.submit(()->{
                 try{
-                    final List<HadithStore.Record> records=store.records(collectionId,bookId,chapterId,50,offset);
+                    final List<HadithStore.Record> records=store.records(collectionId,bookId,chapterId,51,offset);
                     ui.post(()->{if(liveHadithBrowse(generation,page)){page.removeAllViews();renderHadithRecordsPage(page,title,collectionId,bookId,chapterId,offset,records);}});
                 }catch(Exception error){
                     android.util.Log.w("AarisHadith","Hadith records could not load",error);
