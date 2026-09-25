@@ -218,11 +218,16 @@ public final class SearchEngine {
             TextMatch phone=TextMatch.compare(sounds,sound.tokens.get(d),soundRepairs,Collections.emptyMap());
             boolean exact=Arabic.hasArabic(variant.original)&&phrase(safe.get(d),variant.safe);
             TextMatch chosen=ar;String reason="Arabic text overlap";double penalty=0;boolean meaning=false;
-            if(!ar.accepted||hint.accepted&&TextMatch.compareRank(hint,ar)<0){chosen=hint;reason="Translation / source word meaning";penalty=.005;}
+            if(!ar.accepted||hint.accepted&&TextMatch.compareRank(hint,ar)<0){
+                chosen=hint;reason="Translation / source word meaning";penalty=.005;
+                meaning=MeaningSearch.usesConceptBridge(hints,gloss.tokens.get(d));
+            }
             if(focused!=hint&&focused.accepted&&(!chosen.accepted||focused.band.ordinal()<chosen.band.ordinal())){
                 chosen=focused;reason="Remembered meaning / translation concepts";penalty=.02;meaning=true;
             }
-            if(!hints.stream().anyMatch(TextMatch::negative)&&!sounds.isEmpty()&&sounds.size()>=Math.min(2,hints.size())&&sounds.size()>=hints.size()*.6&&phone.accepted&&phone.coverage>=.8&&phone.exact>=Math.min(2,sounds.size())&&(!chosen.accepted||TextMatch.compareRank(phone,chosen)<0&&phone.score-.08>chosen.score)){chosen=phone;reason="Similar pronunciation; check the original text";penalty=.08;}
+            if(!hints.stream().anyMatch(TextMatch::negative)&&!sounds.isEmpty()&&sounds.size()>=Math.min(2,hints.size())&&sounds.size()>=hints.size()*.6&&phone.accepted&&phone.coverage>=.8&&phone.exact>=Math.min(2,sounds.size())&&(!chosen.accepted||TextMatch.compareRank(phone,chosen)<0&&phone.score-.08>chosen.score)){
+                chosen=phone;reason="Similar pronunciation; check the original text";penalty=.08;meaning=false;
+            }
             if(!chosen.accepted)continue;
             List<String> reasons=Arrays.asList(reason,chosen.explanation(), "Match level is text similarity, not authenticity");
             out.add(new Result(docs.get(d).ayah,exact?Strength.STRONG_TEXT:Strength.RELATED,reasons,chosen.score-penalty,Collections.emptyList(),penalty,chosen,false,meaning));
