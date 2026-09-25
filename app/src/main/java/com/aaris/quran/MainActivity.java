@@ -1607,7 +1607,7 @@ public final class MainActivity extends Activity {
                 });
             }catch(CancellationException ignored){}catch(Exception error){
                 android.util.Log.w("AarisSearch","Quran result page could not load",error);
-                ui.post(()->{if(!isDestroyed()&&searching&&searchGeneration.get()==generation)status.setText("Could not load more Quran matches. Try again.");});
+                ui.post(()->{if(!isDestroyed()&&searching&&searchGeneration.get()==generation){setSearchBusy(false);status.setText("Could not load more Quran matches. Try again.");}});
             }
         });
     }
@@ -1626,7 +1626,7 @@ public final class MainActivity extends Activity {
             c.addView(button("Remember this match",()->rememberSearch(false,response.query,a.id)));
         }
         if(batchEnd<end){status.setText("Showing "+batchEnd+" of "+response.results.size()+"…");list.postOnAnimation(()->appendQuranBatch(list,response,batchEnd,end,status,translations,generation));return;}
-        setSearchBusy(false);
+        if(pendingSearchJobs==0)setSearchBusy(false);
         if(!response.results.isEmpty())status.setText("COORDINATE".equals(response.intent)?end+" reference result":end+" of "+response.results.size()+" matches · High → Medium → Low");
         if(end<response.results.size()){TextView more=button("Load next 50 matches",()->{});list.addView(more);more.setOnClickListener(v->{more.setEnabled(false);list.removeView(more);loadQuranResults(list,response,end,status,generation);});}
     }
