@@ -80,10 +80,9 @@ public final class SearchEngine {
     private static final class Index {
         final Map<String,List<Posting>> terms=new HashMap<>();
         final List<List<String>> tokens=new ArrayList<>();
-        final List<String> text=new ArrayList<>();
         double averageLength;
         void add(String value,int doc) {
-            text.add(value);List<String> words=Arabic.tokens(value);tokens.add(words);averageLength+=words.size();
+            List<String> words=Arabic.tokens(value);tokens.add(words);averageLength+=words.size();
             Map<String,Integer> counts=new HashMap<>();for(String w:words)counts.merge(w,1,Integer::sum);
             for(Map.Entry<String,Integer> e:counts.entrySet())terms.computeIfAbsent(e.getKey(),k->new ArrayList<>()).add(new Posting(doc,e.getValue()));
         }
@@ -115,13 +114,17 @@ public final class SearchEngine {
     public SearchEngine(List<Document> documents) {
         List<Document> sorted=new ArrayList<>(documents);
         sorted.sort(Comparator.comparingInt((Document d)->d.ayah.surah).thenComparingInt(d->d.ayah.number));
-        docs=Collections.unmodifiableList(sorted);
-        for(int d=0;d<docs.size();d++) {
-            cancelled();Document doc=docs.get(d);
+        List<Document> compact=new ArrayList<>(sorted.size());
+        for(int d=0;d<sorted.size();d++) {
+            cancelled();Document doc=sorted.get(d);
             if(coordinates.put(doc.ayah.surah+":"+doc.ayah.number,d)!=null)throw new IllegalArgumentException("Duplicate source coordinate");
             safe.add(Arabic.safe(doc.ayah.arabic));arabic.add(Arabic.tolerant(doc.ayah.arabic),d);gloss.add(TextMatch.normalize(doc.hints),d);
             List<String> sounds=TextMatch.phoneticTokens(doc.transliteration);sound.add(String.join(" ",sounds),d);
+            // Hints/transliteration are fully indexed above; retaining the large combined strings
+            // would duplicate translation memory on low-RAM devices. Result identity only needs Ayah.
+            compact.add(new Document(doc.ayah,"",""));
         }
+        docs=Collections.unmodifiableList(compact);
         arabic.finish();gloss.finish();sound.finish();
         indexByLength(arabic.terms.keySet(),arabicByLength);indexByLength(gloss.terms.keySet(),glossByLength);indexByLength(sound.terms.keySet(),soundByLength);
         for(String word:sound.terms.keySet())for(String gram:Arabic.trigrams(word))soundVocabulary.computeIfAbsent(gram,k->new ArrayList<>()).add(word);
