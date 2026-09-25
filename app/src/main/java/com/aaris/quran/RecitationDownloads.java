@@ -19,9 +19,11 @@ final class RecitationDownloads {
     private static final int LOCK_STRIPES=64;
     private final File root;
     private final Object[] locks=new Object[LOCK_STRIPES];
+    private final Object batchConnectionLock=new Object();
     private final Map<String,long[]> completionCache=new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<String> missingCompletions=java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile boolean cancelled;
+    private HttpURLConnection activeBatchConnection;
     volatile boolean busy;
     volatile String progress="";
     // v1 cached ordinal-1 audio under the requested coordinate. Its hashes only verify bytes,
@@ -36,7 +38,12 @@ final class RecitationDownloads {
         if(busy)return false;
         busy=true;cancelled=false;progress="Preparing download…";return true;
     }
-    void cancelDownload(){cancelled=true;}
+    void cancelDownload(){
+        cancelled=true;progress="Pausing download…";
+        HttpURLConnection connection;
+        synchronized(batchConnectionLock){connection=activeBatchConnection;}
+        if(connection!=null)connection.disconnect();
+    }
     synchronized void releaseDownloadReservation(){busy=false;cancelled=true;progress="Download paused";}
     private Object lockFor(String key){return locks[(key.hashCode()&0x7fffffff)%locks.length];}
     private File folder(String reciter,int surah){return new File(new File(root,valid(reciter)),""+surah);}
@@ -103,6 +110,12 @@ final class RecitationDownloads {
             URL url=new URL("https://cdn.islamic.network/quran/audio/128/"+reciter+"/"+globalNumber+".mp3");
             HttpURLConnection connection=(HttpURLConnection)url.openConnection();connection.setConnectTimeout(15000);connection.setReadTimeout(30000);connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Accept-Encoding","identity");connection.setRequestProperty("User-Agent","Aaris-Quran/0.4 recitation");
+            if(batchDownload){
+                synchronized(batchConnectionLock){
+                    if(cancelled){connection.disconnect();throw new InterruptedIOException("Download paused");}
+                    activeBatchConnection=connection;
+                }
+            }
             try{
                 int response=connection.getResponseCode();
                 if(response!=200)throw new IOException("Reciter source unavailable ("+response+")");
@@ -113,22 +126,32 @@ final class RecitationDownloads {
                 String sha=ContentStore.hash(temporary);if(target.exists()&&!target.delete())throw new IOException("Could not replace audio");if(!temporary.renameTo(target))throw new IOException("Could not install audio");
                 // Local digest detects corruption after acquisition, not an upstream authenticity signature.
                 try(FileOutputStream out=new FileOutputStream(hash)){out.write(sha.getBytes(StandardCharsets.UTF_8));out.getFD().sync();}return target;
-            }finally{connection.disconnect();temporary.delete();}
+            }finally{
+                if(batchDownload)synchronized(batchConnectionLock){if(activeBatchConnection==connection)activeBatchConnection=null;}
+                connection.disconnect();temporary.delete();
+            }
         }
     }
     void runReservedDownload(ContentStore content,String reciter,int startSurah,int endSurah,Runnable changed)throws Exception{
         synchronized(this){if(!busy)throw new IllegalStateException("Recitation download was not reserved");}
         long lastProgressNanos=0L;
-        try{for(int s=startSurah;s<=endSurah&&!cancelled;s++){
-            JSONObject completed=new JSONObject();int count=content.surah(s).count;
-            for(int a=1;a<=count&&!cancelled;a++){
-                Ayah ayah=content.ayah("Q:"+s+":"+a);File file=obtain(reciter,ayah,true);completed.put(""+a,file.length());
-                progress=NAMES[index(reciter)]+" · Surah "+s+" · "+a+"/"+count;
-                long now=System.nanoTime();
-                if(a==count||lastProgressNanos==0L||now-lastProgressNanos>=250_000_000L){lastProgressNanos=now;changed.run();}
+        try{
+            for(int s=startSurah;s<=endSurah&&!cancelled;s++){
+                JSONObject completed=new JSONObject();int count=content.surah(s).count;
+                for(int a=1;a<=count&&!cancelled;a++){
+                    Ayah ayah=content.ayah("Q:"+s+":"+a);File file=obtain(reciter,ayah,true);completed.put(""+a,file.length());
+                    progress=NAMES[index(reciter)]+" · Surah "+s+" · "+a+"/"+count;
+                    long now=System.nanoTime();
+                    if(a==count||lastProgressNanos==0L||now-lastProgressNanos>=250_000_000L){lastProgressNanos=now;changed.run();}
+                }
+                if(!cancelled){File temp=new File(folder(reciter,s),"complete.tmp"),target=new File(folder(reciter,s),"complete.json");try(FileOutputStream out=new FileOutputStream(temp)){out.write(completed.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}invalidateCompletion(reciter,s);if(target.exists()&&!target.delete())throw new IOException("Could not replace Surah completion state");if(!temp.renameTo(target))throw new IOException("Could not finish Surah download");if(!ready(reciter,s,count)){target.delete();invalidateCompletion(reciter,s);throw new IOException("Downloaded Surah verification failed");}}
             }
-            if(!cancelled){File temp=new File(folder(reciter,s),"complete.tmp"),target=new File(folder(reciter,s),"complete.json");try(FileOutputStream out=new FileOutputStream(temp)){out.write(completed.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}invalidateCompletion(reciter,s);if(target.exists()&&!target.delete())throw new IOException("Could not replace Surah completion state");if(!temp.renameTo(target))throw new IOException("Could not finish Surah download");if(!ready(reciter,s,count)){target.delete();invalidateCompletion(reciter,s);throw new IOException("Downloaded Surah verification failed");}}
-        }progress=cancelled?"Download paused · completed ayahs are kept":"Download complete";
+            progress=cancelled?"Download paused · completed ayahs are kept":"Download complete";
+        }catch(Exception failure){
+            progress=cancelled||failure instanceof InterruptedIOException?
+                "Download paused · completed ayahs are kept":
+                "Download stopped · completed ayahs are kept; tap Download to retry";
+            throw failure;
         }finally{busy=false;changed.run();}
     }
 }
