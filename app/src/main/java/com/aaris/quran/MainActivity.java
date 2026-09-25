@@ -67,7 +67,7 @@ public final class MainActivity extends Activity {
     private int hadithTotal;
     private int searchScope=UnifiedQuery.ALL;
     private TextView recitationBanner,operationBanner,recitationDownloadStatus,recitationPauseButton,wordAudioDownloadStatus,wordAudioPauseButton,wordAudioReaderButton;
-    private Runnable recitationListener,hadithListener,activeSearchRefresh;
+    private Runnable recitationListener,hadithListener,operationListener,activeSearchRefresh;
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
     private final Map<String,JSONObject> selectionTrace=new LinkedHashMap<>();
     private final Map<String,List<TextView>> evidenceControls=new HashMap<>();
@@ -96,7 +96,6 @@ public final class MainActivity extends Activity {
             catch(ActivityNotFoundException e){ResearchFiles.discard(appContext,uri);activity.toast("No PDF receiving app is installed");}
         }
         void failed(){MainActivity activity=activity();if(activity!=null)activity.toast("PDF could not be created. Try fewer records.");}
-        void finished(){MainActivity activity=activity();if(activity!=null)activity.refreshOperationUi();}
     }
     private static final class WordAudioDownloadUi implements QuranAudioDownloadManager.Listener {
         private final WeakReference<MainActivity> owner;
@@ -109,21 +108,13 @@ public final class MainActivity extends Activity {
             MainActivity activity=owner.get();
             return activity==null||activity.isDestroyed()||activity.isFinishing()?null:activity;
         }
-        public void onTransfer(int surah,long downloadedBytes,long totalBytes){
-            MainActivity activity=activity();if(activity!=null)activity.refreshOperationUi();
-        }
-        public void onProgress(int surah,int completed,int total){
-            MainActivity activity=activity();if(activity!=null)activity.refreshOperationUi();
-        }
         public void onComplete(){
             MainActivity activity=activity();if(activity==null)return;
-            activity.refreshOperationUi();
             if(all)activity.toast("All Quran audio installed offline ✓");
             else activity.toast(activity.content.surah(requestedSurah).name+" audio saved offline ✓");
         }
         public void onError(int surah,String message){
             MainActivity activity=activity();if(activity==null)return;
-            activity.refreshOperationUi();
             if("Download cancelled".equals(message)){activity.toast("Download paused · partial audio is kept");return;}
             activity.toast(all?"Download stopped · Surah "+surah+": "+message:"Audio download failed: "+message);
         }
@@ -158,7 +149,7 @@ public final class MainActivity extends Activity {
         app.ready(()->{
             if(isFinishing()||isDestroyed())return;
             if(app.loadError!=null){loading.setText(app.loadError+"\nOpen the app again. Your learning data remains stored separately.");return;}
-            content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;
+            content=app.content;learning=app.learning;recitationListener=this::refreshRecitation;app.recitationChanged=recitationListener;operationListener=this::refreshOperationUi;app.operationChanged=operationListener;
             hadithListener=()->{if(isDestroyed()||isFinishing())return;if(searching){String q=searchQuery.trim();if(!q.isEmpty()&&searchCancellation==null&&UnifiedQuery.parse(q,searchScope).hadith){Runnable refresh=activeSearchRefresh;if(refresh!=null)refresh.run();}}else if(tab==2)show();};app.hadithChanged=hadithListener;
             language=learning.get("language","hi");translationId=learning.get("translation_edition","hindi_omari");translationSpeech=new TranslationSpeech(this);
             highContrast=Boolean.parseBoolean(learning.get("contrast","false"));
@@ -184,7 +175,7 @@ public final class MainActivity extends Activity {
     @Override protected void onPostResume(){super.onPostResume();resumed=true;if(ambientResumePending){ambientResumePending=false;beginAmbient();}}
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
-    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
+    @Override protected void onDestroy(){ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
@@ -924,22 +915,14 @@ public final class MainActivity extends Activity {
         final RecitationDownloads downloads=app.recitationDownloads;
         if(!downloads.reserveDownload()){toast("A download is already running");return;}
         final int token=++recitationDownloadGeneration;
-        recitationDownloadCompletion=finished;refreshOperationUi();
+        recitationDownloadCompletion=finished;app.notifyOperationChanged();
         final WeakReference<MainActivity> owner=new WeakReference<>(this);
         final ContentStore source=content;
         toast("Download started. Keep Aaris open for this download.");
         try{
             app.recitationDownloadWorker.execute(()->{
                 try{
-                    downloads.runReservedDownload(source,reciter,first,last,()->{
-                        MainActivity activity=owner.get();
-                        if(activity==null||activity.isDestroyed())return;
-                        activity.ui.post(()->{
-                            MainActivity current=owner.get();
-                            if(current!=null&&!current.isDestroyed()&&current.recitationDownloadGeneration==token)
-                                current.refreshOperationUi();
-                        });
-                    });
+                    downloads.runReservedDownload(source,reciter,first,last,app::notifyOperationChanged);
                 }catch(Exception ignored){}
                 MainActivity activity=owner.get();
                 if(activity==null||activity.isDestroyed()||activity.isFinishing())return;
@@ -947,14 +930,14 @@ public final class MainActivity extends Activity {
                     MainActivity current=owner.get();
                     if(current==null||current.isDestroyed()||current.isFinishing()||current.recitationDownloadGeneration!=token)return;
                     Runnable completion=current.recitationDownloadCompletion;current.recitationDownloadCompletion=null;
-                    current.refreshOperationUi();current.toast(downloads.progress);
+                    app.notifyOperationChanged();current.toast(downloads.progress);
                     if(completion!=null)completion.run();
                 });
             });
         }catch(RejectedExecutionException rejected){
             downloads.releaseDownloadReservation();
             if(recitationDownloadGeneration==token)recitationDownloadCompletion=null;
-            refreshOperationUi();toast("Download could not start. Try again.");
+            app.notifyOperationChanged();toast("Download could not start. Try again.");
         }
     }
     private void addTranslation(LinearLayout panel,Ayah ayah){
@@ -1792,7 +1775,7 @@ public final class MainActivity extends Activity {
         page.addView(primary("Share PDF · "+count+" records",()->{
             if(template.getSelectedItemPosition()==ResearchExport.TEMPLATES.length-1&&custom.getText().toString().trim().isEmpty()){toast("Write a research question first");return;}
             if(!app.researchPdfBusy.compareAndSet(false,true)){toast("PDF is being prepared…");return;}
-            refreshOperationUi();
+            app.notifyOperationChanged();
             final String researchPrompt=ResearchExport.prompt(template.getSelectedItemPosition(),custom.getText().toString());
             final String query=hadith?hadithQuery:searchQuery,edition=translationId,lang=readingLanguage();
             final Context appContext=getApplicationContext();final QuranApp application=app;final ContentStore source=content;
@@ -1803,8 +1786,8 @@ public final class MainActivity extends Activity {
                     byte[] bytes=hadith?ResearchExport.hadith(appContext,hadithStore,hits,lang,query,researchPrompt):ResearchExport.quran(appContext,source,translationStore,edition,ayahs,matches,query,researchPrompt);
                     Uri uri=ResearchFiles.write(appContext,bytes);application.main.post(()->callback.ready(appContext,uri,researchPrompt));
                 }catch(Exception e){application.main.post(callback::failed);}
-                finally{application.researchPdfBusy.set(false);application.main.post(callback::finished);}
-            });}catch(RejectedExecutionException rejected){application.researchPdfBusy.set(false);refreshOperationUi();toast("PDF could not start. Try again.");}
+                finally{application.researchPdfBusy.set(false);application.notifyOperationChanged();}
+            });}catch(RejectedExecutionException rejected){application.researchPdfBusy.set(false);application.notifyOperationChanged();toast("PDF could not start. Try again.");}
         }));gap(page,10);
         page.addView(button("Copy AI research prompt",()->{((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Research prompt",ResearchExport.prompt(template.getSelectedItemPosition(),custom.getText().toString())));toast("Prompt copied");}));
         if(!hadith){gap(page,10);page.addView(button("Evidence tools · ZIP & reference check",this::research));}
