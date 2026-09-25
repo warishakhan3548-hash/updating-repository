@@ -259,6 +259,7 @@ def main():
     # Large Hadith-pack browsing must never regress to synchronous SQLite reads on the Android UI thread.
     main_activity_text = (ROOT / 'app/src/main/java/com/aaris/quran/MainActivity.java').read_text(encoding='utf-8')
     quran_app_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranApp.java').read_text(encoding='utf-8')
+    learning_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/LearningStore.java').read_text(encoding='utf-8')
     recitation_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationDownloads.java').read_text(encoding='utf-8')
     assert 'private void updateHighContrast(boolean enabled)' in main_activity_text and 'contrast.setOnCheckedChangeListener((b,v)->updateHighContrast(v));' in main_activity_text, 'High-contrast setting must use the live surface refresh path'
     assert 'highContrast=enabled;learning.set("contrast",""+enabled);\n        show();settings();' in main_activity_text, 'High-contrast changes must rebuild both the underlying screen and the open settings sheet immediately'
@@ -305,6 +306,12 @@ def main():
     assert 'boolean hasPrevious=readerStart>1||readerSurah>1,hasNext=readerStart+8<=s.count||readerSurah<114;' in reader_method, 'Reader pager must model Quran boundaries explicitly'
     assert 'previous.setEnabled(hasPrevious)' in reader_method and 'next.setEnabled(hasNext)' in reader_method, 'Reader boundary controls must not remain tappable no-ops'
     assert '"Start of Quran"' in reader_method and '"End of Quran"' in reader_method, 'Reader boundary controls need explicit user feedback'
+    assert 'synchronized Map<String,Recall.State> states(Collection<String> targets)' in learning_store_text, 'Recall single-target flows need the existing targeted state projection'
+    assert 'WHERE target IN (' in learning_store_text, 'Targeted Recall state projection must stay bounded to requested targets when the global cache is cold'
+    for method in ('enroll', 'review', 'reviewTransition'):
+        recall_flow = java_method(method)
+        assert 'learning.states()' not in recall_flow, f'{method} must not replay the complete learning history for one Recall target'
+        assert 'learning.states(Collections.singleton(' in recall_flow, f'{method} must use the targeted Recall state lookup'
     assert 'metadata==null?store.translation' not in main_activity_text, 'Search cards must not query Hadith translation on the UI thread'
     assert 'metadata==null?store.grades' not in main_activity_text, 'Search cards must not query Hadith grades on the UI thread'
     assert 'hadith&&app.hadith.record(id)==null' not in main_activity_text, 'Saved Hadith shortcut validation must not query SQLite on the UI thread'

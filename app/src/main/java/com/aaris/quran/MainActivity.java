@@ -1453,7 +1453,7 @@ public final class MainActivity extends Activity {
         gap(page,16);page.addView(button("My note",()->editNote(word.id)));gap(page,12);
     }
     private void enroll(String target,String context){
-        Recall.State existing=learning.states().get(target);
+        Recall.State existing=learning.states(Collections.singleton(target)).get(target);
         if(existing==null||!existing.active)learning.event(target,Recall.Kind.ENROLL,context);
         toast("Saved to Recall");
     }
@@ -1688,7 +1688,7 @@ public final class MainActivity extends Activity {
         if(identity.kind==RecallTarget.Kind.TRANSITION){reviewTransition(content.transition(target));return;}
         ContentStore.Word word=content.word(target);Ayah a=content.contextFor(target);String source=content.recallText(target);
         if(a==null||source==null)return;if(word!=null&&!word.hasGloss(language)){toast("No source meaning is available yet");return;}
-        Recall.State state=learning.states().get(target);if(state==null||!state.active){enroll(target,a.id);state=learning.states().get(target);}
+        Recall.State state=learning.states(Collections.singleton(target)).get(target);if(state==null||!state.active){enroll(target,a.id);state=learning.states(Collections.singleton(target)).get(target);}
         boolean phrase=identity.kind==RecallTarget.Kind.PHRASE;
         LinearLayout page=sheet(phrase?"Practice passage":"Recall");caption(page,content.surah(a.surah).name+" · Ayah "+a.number+(phrase?" · Selected passage":""));gap(page,12);
         boolean encoding=word==null&&state.reviews==0;
@@ -1707,8 +1707,8 @@ public final class MainActivity extends Activity {
     }
     private void reviewTransition(AyahTransition edge){
         if(edge==null){toast("This ayah transition is unavailable");return;}
-        Recall.State state=learning.states().get(edge.id);
-        if(state==null||!state.active){enroll(edge.id,edge.from.id);state=learning.states().get(edge.id);}
+        Recall.State state=learning.states(Collections.singleton(edge.id)).get(edge.id);
+        if(state==null||!state.active){enroll(edge.id,edge.from.id);state=learning.states(Collections.singleton(edge.id)).get(edge.id);}
         boolean first=state.reviews==0;
         LinearLayout page=sheet("Ayah transition");
         caption(page,"Recall how the next ayah begins after this ending.");gap(page,16);
