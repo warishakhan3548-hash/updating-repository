@@ -66,7 +66,6 @@ public final class MainActivity extends Activity {
     private final List<SearchEngine.Result> quranHits=new ArrayList<>();
     private int hadithTotal;
     private int searchScope=UnifiedQuery.ALL;
-    private boolean sharingPdf;
     private TextView recitationBanner,recitationDownloadStatus;
     private Runnable recitationListener,hadithListener,activeSearchRefresh;
     private final LinkedHashSet<String> selectedEvidence=new LinkedHashSet<>();
@@ -79,6 +78,24 @@ public final class MainActivity extends Activity {
         HadithCardMeta(HadithStore.DisplayTranslation translation,List<String> grades){
             this.translation=translation;this.grades=grades==null?Collections.emptyList():grades;
         }
+    }
+    private static final class ResearchPdfUi {
+        private final WeakReference<MainActivity> owner;
+        ResearchPdfUi(MainActivity activity){owner=new WeakReference<>(activity);}
+        private MainActivity activity(){
+            MainActivity activity=owner.get();
+            return activity==null||activity.isDestroyed()||activity.isFinishing()?null:activity;
+        }
+        void ready(Context appContext,Uri uri,String prompt){
+            MainActivity activity=activity();
+            if(activity==null){ResearchFiles.discard(appContext,uri);return;}
+            Intent intent=new Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM,uri).putExtra(Intent.EXTRA_TEXT,prompt);
+            intent.setClipData(ClipData.newRawUri("Aaris research PDF",uri));
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            try{activity.startActivity(Intent.createChooser(intent,"Share research PDF"));}
+            catch(ActivityNotFoundException e){ResearchFiles.discard(appContext,uri);activity.toast("No PDF receiving app is installed");}
+        }
+        void failed(){MainActivity activity=activity();if(activity!=null)activity.toast("PDF could not be created. Try fewer records.");}
     }
     private static final class WordAudioDownloadUi implements QuranAudioDownloadManager.Listener {
         private final WeakReference<MainActivity> owner;
@@ -1656,7 +1673,7 @@ public final class MainActivity extends Activity {
     }
 
     private void shareResearch(boolean hadith){
-        if(sharingPdf){toast("PDF is being prepared…");return;}
+        if(app.researchPdfBusy.get()){toast("PDF is being prepared…");return;}
         List<HadithStore.Hit> hits=new ArrayList<>();List<Ayah> ayahs=new ArrayList<>();Map<String,String> matches=new LinkedHashMap<>();
         if(hadith){for(HadithStore.Hit h:hadithHits)if(selectedHadith.isEmpty()||selectedHadith.contains(h.record.id))hits.add(h);}
         else{for(SearchEngine.Result r:quranHits){matches.put(r.ayah.id,quranMatchDescription(r));if(selectedEvidence.isEmpty())ayahs.add(r.ayah);}if(!selectedEvidence.isEmpty())for(String id:selectedEvidence){Ayah a=content.ayah(id);if(a!=null)ayahs.add(a);}}
@@ -1686,17 +1703,19 @@ public final class MainActivity extends Activity {
         }));page.addView(comparison);gap(page,12);
         page.addView(primary("Share PDF · "+count+" records",()->{
             if(template.getSelectedItemPosition()==ResearchExport.TEMPLATES.length-1&&custom.getText().toString().trim().isEmpty()){toast("Write a research question first");return;}
+            if(!app.researchPdfBusy.compareAndSet(false,true)){toast("PDF is being prepared…");return;}
             final String researchPrompt=ResearchExport.prompt(template.getSelectedItemPosition(),custom.getText().toString());
-            sharingPdf=true;dialog.dismiss();toast("Preparing PDF on your phone…");String query=hadith?hadithQuery:searchQuery,edition=translationId,lang=readingLanguage();
-            app.io.execute(()->{try{
-                byte[] bytes=hadith?ResearchExport.hadith(this,app.hadith,hits,lang,query,researchPrompt):ResearchExport.quran(this,content,app.translations,edition,ayahs,matches,query,researchPrompt);
-                Uri uri=ResearchFiles.write(this,bytes);ui.post(()->{sharingPdf=false;if(isDestroyed()||isFinishing())return;
-                    Intent intent=new Intent(Intent.ACTION_SEND).setType("application/pdf").putExtra(Intent.EXTRA_STREAM,uri).putExtra(Intent.EXTRA_TEXT,researchPrompt);
-                    intent.setClipData(ClipData.newRawUri("Aaris research PDF",uri));
-                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    try{startActivity(Intent.createChooser(intent,"Share research PDF"));}catch(ActivityNotFoundException e){toast("No PDF receiving app is installed");}
-                });
-            }catch(Exception e){ui.post(()->{sharingPdf=false;toast("PDF could not be created. Try fewer records.");});}});
+            final String query=hadith?hadithQuery:searchQuery,edition=translationId,lang=readingLanguage();
+            final Context appContext=getApplicationContext();final QuranApp application=app;final ContentStore source=content;
+            final TranslationStore translationStore=app.translations;final HadithStore hadithStore=app.hadith;final ResearchPdfUi callback=new ResearchPdfUi(this);
+            dialog.dismiss();toast("Preparing PDF on your phone…");
+            try{application.io.execute(()->{
+                try{
+                    byte[] bytes=hadith?ResearchExport.hadith(appContext,hadithStore,hits,lang,query,researchPrompt):ResearchExport.quran(appContext,source,translationStore,edition,ayahs,matches,query,researchPrompt);
+                    Uri uri=ResearchFiles.write(appContext,bytes);application.main.post(()->callback.ready(appContext,uri,researchPrompt));
+                }catch(Exception e){application.main.post(callback::failed);}
+                finally{application.researchPdfBusy.set(false);}
+            });}catch(RejectedExecutionException rejected){application.researchPdfBusy.set(false);toast("PDF could not start. Try again.");}
         }));gap(page,10);
         page.addView(button("Copy AI research prompt",()->{((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Research prompt",ResearchExport.prompt(template.getSelectedItemPosition(),custom.getText().toString())));toast("Prompt copied");}));
         if(!hadith){gap(page,10);page.addView(button("Evidence tools · ZIP & reference check",this::research));}

@@ -21,11 +21,15 @@ public final class ResearchFiles extends ContentProvider {
         }finally{if(temp.exists())temp.delete();}
         return new Uri.Builder().scheme("content").authority(context.getPackageName()+".research").appendPath(name).build();
     }
-    private File file(Uri uri)throws FileNotFoundException{
-        if(!"content".equals(uri.getScheme())||!(getContext().getPackageName()+".research").equals(uri.getAuthority())||uri.getPathSegments().size()!=1)throw new FileNotFoundException();
-        String name=uri.getLastPathSegment();if(name==null||!name.matches("[a-f0-9-]{36}\\.pdf"))throw new FileNotFoundException();
-        File file=new File(new File(getContext().getCacheDir(),"research-pdf"),name);if(!file.isFile())throw new FileNotFoundException();return file;
+    static void discard(Context context,Uri uri){
+        try{File file=file(context,uri);file.delete();}catch(FileNotFoundException ignored){}
     }
+    private static File file(Context context,Uri uri)throws FileNotFoundException{
+        if(context==null||uri==null||!"content".equals(uri.getScheme())||!(context.getPackageName()+".research").equals(uri.getAuthority())||uri.getPathSegments().size()!=1)throw new FileNotFoundException();
+        String name=uri.getLastPathSegment();if(name==null||!name.matches("[a-f0-9-]{36}\\.pdf"))throw new FileNotFoundException();
+        File file=new File(new File(context.getCacheDir(),"research-pdf"),name);if(!file.isFile())throw new FileNotFoundException();return file;
+    }
+    private File file(Uri uri)throws FileNotFoundException{return file(getContext(),uri);}
     @Override public boolean onCreate(){return true;}
     @Override public String getType(Uri uri){return "application/pdf";}
     @Override public Cursor query(Uri uri,String[] projection,String selection,String[] args,String sort){
