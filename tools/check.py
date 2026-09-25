@@ -261,6 +261,7 @@ def main():
     quran_app_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranApp.java').read_text(encoding='utf-8')
     learning_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/LearningStore.java').read_text(encoding='utf-8')
     recitation_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationDownloads.java').read_text(encoding='utf-8')
+    recitation_service_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationService.java').read_text(encoding='utf-8')
     assert 'private void updateHighContrast(boolean enabled)' in main_activity_text and 'contrast.setOnCheckedChangeListener((b,v)->updateHighContrast(v));' in main_activity_text, 'High-contrast setting must use the live surface refresh path'
     assert 'highContrast=enabled;learning.set("contrast",""+enabled);\n        show();settings();' in main_activity_text, 'High-contrast changes must rebuild both the underlying screen and the open settings sheet immediately'
     assert 'hadithBrowseWorker=worker("hadith-browse")' in quran_app_text, 'Missing dedicated Hadith browse worker'
@@ -324,6 +325,10 @@ def main():
     assert 'generation==wordAudioPlayGeneration' in play_flow and 'app.recitationDownloads==downloads' in play_flow, 'Async reciter verification must reject stale playback results'
     assert 'reciter.equals(verifiedReciter)' in play_flow, 'Changing reciter while verification is running must invalidate the old result'
     assert 'wordFallbackReady&&(verifiedReciter==null||!reciter.equals(verifiedReciter))' in play_flow, 'Reciter verification should run only when it can affect word-audio fallback selection'
+    assert 'repeatRemaining' not in recitation_service_text and 'boolean continuous=true' not in recitation_service_text, 'Active recitation must not cache repeat/continue settings for the whole playback session'
+    assert 'if(++repeatCompleted<repeatPreference())play();' in recitation_service_text, 'Repeat changes must take effect at the next ayah completion without restarting playback'
+    assert 'continuousPreference()&&ayah<app.content.surah(surah).count' in recitation_service_text, 'Continue-mode changes must take effect before advancing to the next ayah'
+    assert 'private void move(int delta)' in recitation_service_text and 'ayah=next;resetRepeat();play();' in recitation_service_text, 'Manual recitation navigation must start a fresh repeat cycle'
     assert 'private void updateBookmarkButton(FrameLayout button,Glass.Icon icon,boolean saved)' in main_activity_text, 'Reader bookmark state needs one original-control update path'
     assert 'button.setContentDescription(action);button.setTooltipText(action);button.setSelected(saved);' in main_activity_text, 'Bookmark toggles must update accessibility state immediately'
     assert 'icon.color=saved?Appearance.readable(appearance.accent,appearance.buttonSurface()):appearance.buttonInk();icon.invalidate();' in main_activity_text, 'Saved bookmark feedback must remain readable in the active appearance'
