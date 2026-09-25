@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 
-from build_hadith import search_tokens
+from build_hadith import search_tokens, search_text
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -58,8 +58,12 @@ def main():
         return
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     manifest = json.loads(path.with_name("hadith-manifest.json").read_text())
-    if manifest["pack_id"] == "aaris-open-hadith-data-arabic-nine":
-        assert len(lookup(db, "556")) == 9
+    collections = {row[0] for row in db.execute("SELECT id FROM collection")}
+    core_nine = {"bukhari","muslim","nasai","abudawud","tirmidhi","ibnmajah","malik","ahmad","darimi"}
+    has_core_nine = core_nine <= collections
+    if has_core_nine:
+        generic_556 = set(lookup(db, "556"))
+        assert {(cid, "556") for cid in core_nine} <= generic_556
         for query in ["Bukhari 556", "sahih bhukhari 556", "bukahri556", "सही बुखारी ५५६",
                       "सही भुखारी ५५६", "सहीह बुखारि ५५६", "صحیح بخاری ۵۵۶",
                       "صحيح البخري ٥٥٦", "5 5 6 Sahih Bukhari"]:
@@ -91,14 +95,14 @@ def main():
             assert len(rows) == min(50, total)
             return total, rows
 
-        if manifest["pack_id"] == "aaris-open-hadith-data-arabic-nine":
+        if has_core_nine:
             # Exact screenshot query: old OR retrieval fetched 61,313 full records.
             # The actual production plan must now count in the index and load one page only.
             marked_query = "حَدَّثَنَا قُتَيْبَةُ بْنُ سَعِيدٍ حَدَّثَنَا"
             plain_query = "حدثنا قتيبة بن سعيد حدثنا"
             a, b = phrase(marked_query), phrase(plain_query)
-            assert a == b and a[0] == 643, "Screenshot phrase retrieval/normalization regressed"
-            assert phrase("حدثنا")[0] == 57358, "Common words must support indexed pagination"
+            assert a == b and a[0] >= 643, "Screenshot phrase retrieval/normalization regressed"
+            assert phrase("حدثنا")[0] >= 57358, "Common words must support indexed pagination"
             assert phrase("Tirmidhi " + plain_query)[0] > 0, "Scoped phrase lost"
 
             # Execute the same bounded candidate plan used on Android, including bind order.
@@ -119,7 +123,7 @@ def main():
 
         # Source display is untouched. Both vocalized and plain user text reach the same record.
         row = db.execute("SELECT id FROM hadith WHERE collection_id='bukhari' AND record_number='1'").fetchone()
-        if row and manifest["pack_id"] == "aaris-open-hadith-data-arabic-nine":
+        if row and has_core_nine:
             for query in ["إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ", "انما الاعمال بالنيات"]:
                 terms = sorted(search_tokens(query))
                 marks = ",".join("?" for _ in terms)
@@ -132,6 +136,23 @@ def main():
                                   "".join(hid + "\t" + enc(text) + "\n" for hid, text in candidates))
                 subprocess.run(java + ["rank", str(source)], check=True)
                 print(f"Indexed candidate + JVM check: {time.monotonic()-started:.3f}s (host, not phone benchmark)")
+
+        # Exercise the production exact-phrase lane against checked-in Hindi HadeethEnc text.
+        if "hadeethenc" in collections and "hi" in set(manifest.get("language_coverage", [])):
+            sample_hi = db.execute(
+                "SELECT t.hadith_id,t.text FROM editorial_translation t "
+                "JOIN hadith h ON h.id=t.hadith_id "
+                "WHERE h.collection_id='hadeethenc' AND t.language='hi' AND t.status='released' "
+                "AND length(t.text)>40 LIMIT 1"
+            ).fetchone()
+            assert sample_hi
+            phrase_tokens = search_text(sample_hi[1]).split()[:6]
+            assert len(phrase_tokens) >= 3
+            total, rows = phrase(" ".join(phrase_tokens))
+            assert total > 0 and any(hid == sample_hi[0] for hid, _ in rows), (
+                "Hindi HadeethEnc phrase is not reachable through production FTS", sample_hi[0]
+            )
+            print("Hindi HadeethEnc exact-phrase retrieval: PASS")
     db.close()
     print("Real Hadith pack: scoped references, suffixes, Unicode digits and vocalized/plain Arabic: PASS")
 
