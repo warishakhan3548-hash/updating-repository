@@ -1,6 +1,7 @@
 package com.aaris.quran;
 
 import android.content.Context;
+import com.aaris.quran.core.MeaningSearch;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONObject;
@@ -90,6 +91,24 @@ final class TranslationStore implements AutoCloseable {
         }
         return out;
     }
-    Map<String,String> searchText(){Map<String,StringBuilder> builders=new HashMap<>();try(Cursor c=db.rawQuery("SELECT ayah_id,text FROM translation ORDER BY edition_id,ayah_id",null)){while(c.moveToNext())builders.computeIfAbsent(c.getString(0),k->new StringBuilder()).append(c.getString(1)).append(' ');}Map<String,String> result=new HashMap<>();for(Map.Entry<String,StringBuilder> e:builders.entrySet())result.put(e.getKey(),e.getValue().toString());return result;}
+    Map<String,String> searchText(){
+        Map<String,StringBuilder> builders=new HashMap<>();
+        try(Cursor c=db.rawQuery(
+            "SELECT t.ayah_id,t.text,e.language FROM translation t JOIN edition e ON e.id=t.edition_id ORDER BY t.edition_id,t.ayah_id",null)){
+            while(c.moveToNext()){
+                String ayahId=c.getString(0),text=c.getString(1),language=c.getString(2);
+                StringBuilder out=builders.computeIfAbsent(ayahId,k->new StringBuilder());
+                out.append(text).append(' ');
+                // Search-only Hinglish shadow. The displayed translation remains the exact archived source.
+                if("hi".equals(language)){
+                    String roman=MeaningSearch.romanizeHindi(text);
+                    if(!roman.isEmpty())out.append(roman).append(' ');
+                }
+            }
+        }
+        Map<String,String> result=new HashMap<>();
+        for(Map.Entry<String,StringBuilder> e:builders.entrySet())result.put(e.getKey(),e.getValue().toString());
+        return result;
+    }
     public void close(){db.close();}
 }
