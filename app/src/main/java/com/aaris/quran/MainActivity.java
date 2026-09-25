@@ -980,9 +980,12 @@ public final class MainActivity extends Activity {
     }
     private void playAyah(Ayah a){
         if(a==null)return;
-        playAyah(a,++wordAudioPlayGeneration);
+        playAyah(a,++wordAudioPlayGeneration,null,null);
     }
     private void playAyah(Ayah a,int generation){
+        playAyah(a,generation,null,null);
+    }
+    private void playAyah(Ayah a,int generation,String verifiedReciter,Boolean verifiedReciterOffline){
         if(a==null||generation!=wordAudioPlayGeneration)return;
         if(translationSpeech!=null)translationSpeech.stop();
         QuranAudioStore wordStore=app==null?null:app.wordAudio;
@@ -1000,12 +1003,32 @@ public final class MainActivity extends Activity {
         }
         android.content.SharedPreferences preferences=getSharedPreferences("recitation",0);
         String reciter=RecitationDownloads.valid(preferences.getString("reciter",RecitationDownloads.IDS[0]));
-        boolean reciterOffline=app.recitationDownloads!=null&&app.recitationDownloads.ayahReady(reciter,a,content.surah(a.surah).count);
         List<ContentStore.Word> words=content.words(a.id);
+        boolean wordFallbackReady=app.audio!=null&&app.audio.canPlay(words);
+
+        // Paused reciter downloads are verified with SHA-256 before reuse. That can read an MP3,
+        // so never perform the verification from the play-button/UI thread. The generation and
+        // reciter checks also prevent a stale result from winning after a newer tap or reciter change.
+        if(wordFallbackReady&&(verifiedReciter==null||!reciter.equals(verifiedReciter))&&app.recitationDownloads!=null){
+            RecitationDownloads downloads=app.recitationDownloads;
+            int ayahCount=content.surah(a.surah).count;
+            try{
+                app.recitationStatusWorker.execute(()->{
+                    boolean reciterOffline=downloads.ayahReady(reciter,a,ayahCount);
+                    ui.post(()->{
+                        if(!isDestroyed()&&!isFinishing()&&generation==wordAudioPlayGeneration&&app.recitationDownloads==downloads)
+                            playAyah(a,generation,reciter,reciterOffline);
+                    });
+                });
+                toast("Checking saved recitation…");
+                return;
+            }catch(RejectedExecutionException ignored){}
+        }
+        boolean reciterOffline=reciter.equals(verifiedReciter)&&Boolean.TRUE.equals(verifiedReciterOffline);
 
         // The large "Quran audio" download is the verified isolated-word pack. If it is present,
         // the ayah play button must actually work offline instead of failing on a remote reciter.
-        if(!reciterOffline&&app.audio!=null&&app.audio.canPlay(words)){
+        if(!reciterOffline&&wordFallbackReady){
             stopService(new Intent(this,RecitationService.class));
             if(app.audio.playSequence(words)){toast("Playing downloaded word audio");return;}
         }
