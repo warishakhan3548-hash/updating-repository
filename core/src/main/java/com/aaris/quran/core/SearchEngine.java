@@ -199,11 +199,11 @@ public final class SearchEngine {
         Map<String,List<String>> arRepairs=new HashMap<>(),glossRepairs=new HashMap<>(),soundRepairs=new HashMap<>();
         Set<Integer> pool=new TreeSet<>(lexical.keySet());pool.addAll(meanings.keySet());pool.addAll(phonetic.keySet());
         for(String term:new LinkedHashSet<>(terms))if(Arabic.hasArabic(term)){
-            List<String> alternatives=mergeAlternatives(wordFormAlternatives(term,trigramVocabulary),repairs(term,terms.size()>=3));
+            List<String> alternatives=mergeAlternatives(wordFormAlternatives(term,trigramVocabulary,terms.size()>1),repairs(term,terms.size()>=3));
             arRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:arabic.terms.get(w))pool.add(p.doc);
         }
         for(String term:new LinkedHashSet<>(hints)){
-            List<String> alternatives=mergeAlternatives(wordFormAlternatives(term,glossVocabulary),glossRepairs(term));
+            List<String> alternatives=mergeAlternatives(wordFormAlternatives(term,glossVocabulary,hints.size()>1),glossRepairs(term));
             glossRepairs.put(term,alternatives);for(String w:alternatives)for(Posting p:gloss.terms.get(w))pool.add(p.doc);
         }
         if(sounds.size()>=3)for(String term:new LinkedHashSet<>(sounds)){List<String> alternatives=spellingAlternatives(term,soundVocabulary,soundByLength,3,soundRepairCache);soundRepairs.put(term,alternatives);for(String word:alternatives)for(Posting p:sound.terms.get(word))pool.add(p.doc);}
@@ -229,9 +229,9 @@ public final class SearchEngine {
      * or رحمن -> والرحمن). It is deliberately not arbitrary substring search: short queries,
      * negation, large affix gaps and unbounded vocabulary scans are rejected.
      */
-    private static List<String> wordFormAlternatives(String term,Map<String,List<String>> vocabulary){
+    private static List<String> wordFormAlternatives(String term,Map<String,List<String>> vocabulary,boolean hasContext){
         if(term==null||term.length()>128||TextMatch.negative(term))return Collections.emptyList();
-        boolean arabicTerm=Arabic.hasArabic(term);int minimum=arabicTerm?3:4,maxExtra=arabicTerm?3:4;
+        boolean arabicTerm=Arabic.hasArabic(term);int minimum=arabicTerm&&hasContext?3:4,maxExtra=arabicTerm?3:4;
         if(term.length()<minimum)return Collections.emptyList();
         Map<String,Integer> overlap=new HashMap<>();
         for(String gram:Arabic.trigrams(term))for(String word:vocabulary.getOrDefault(gram,Collections.emptyList())){
