@@ -1049,6 +1049,7 @@ public final class MainActivity extends Activity {
 
     private void audioSurahPrompt(int surah){
         if(app.wordAudio==null||app.audioDownloads==null){toast(app.wordAudioLoadError==null?"Audio storage is not ready yet":app.wordAudioLoadError);return;}
+        if(app.audioDownloads.busy()){toast(app.audioDownloads.progress());return;}
         ContentStore.Surah s=content.surah(surah);
         if(app.wordAudio.installedSurah(surah)){
             new AlertDialog.Builder(this)
