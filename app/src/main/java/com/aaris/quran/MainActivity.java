@@ -216,7 +216,7 @@ public final class MainActivity extends Activity {
                 readerSurah=Math.max(1,Math.min(114,readerSurah));
                 readerStart=readerPageStart(Math.max(1,Math.min(content.surah(readerSurah).count,readerStart)));
             }
-            if(getIntent().getBooleanExtra("open_ambient",false)){tab=3;ambientSheetRequested=true;getIntent().removeExtra("open_ambient");}
+            if(openRecitationIntent(getIntent()))return;\n            if(getIntent().getBooleanExtra("open_ambient",false)){tab=3;ambientSheetRequested=true;getIntent().removeExtra("open_ambient");}
             tab=Math.max(0,Math.min(3,tab));
             boolean reopenSearch=state!=null&&state.getBoolean("search_open",false)&&!ambientSheetRequested;
             if(reopenSearch){applyWindowAppearance();searchScreen();}else show();
@@ -230,7 +230,15 @@ public final class MainActivity extends Activity {
     @Override protected void onPause(){resumed=false;captureReaderPosition();super.onPause();}
     @Override protected void onStop(){if(learning!=null&&readingPosition!=null)learning.setReadingPosition(readingPosition.anchorId,readingPosition.encode());super.onStop();}
     @Override protected void onDestroy(){wordAudioPromptGeneration++;wordAudioPlayGeneration++;ui.removeCallbacksAndMessages(null);searchGeneration.incrementAndGet();cancelSearchWork();cancelReaderPrefetch();hadithBrowseGeneration.incrementAndGet();if(hadithBrowseTask!=null)hadithBrowseTask.cancel(true);hadithBrowseTask=null;Dialog dialog=activeDialog;activeDialog=null;if(dialog!=null)dialog.dismiss();Dialog restore=restorePrompt;restorePrompt=null;if(restore!=null)restore.dismiss();if(app!=null&&app.recitationChanged==recitationListener)app.recitationChanged=null;if(app!=null&&app.hadithChanged==hadithListener)app.hadithChanged=null;if(app!=null&&app.operationChanged==operationListener)app.operationChanged=null;if(app!=null&&app.researchPdfChanged==researchPdfListener)app.researchPdfChanged=null;if(app!=null&&app.preparedExportChanged==preparedExportListener)app.preparedExportChanged=null;if(app!=null&&app.restoreImportChanged==restoreImportListener)app.restoreImportChanged=null;if(translationSpeech!=null)translationSpeech.close();super.onDestroy();}
-    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
+    private boolean openRecitationIntent(Intent intent){
+        if(intent==null||content==null||!intent.getBooleanExtra(RecitationService.OPEN_READER,false))return false;
+        int surah=intent.getIntExtra(RecitationService.OPEN_SURAH,app==null?1:app.recitationSurah);
+        int ayah=intent.getIntExtra(RecitationService.OPEN_AYAH,app==null?1:app.recitationAyah);
+        intent.removeExtra(RecitationService.OPEN_READER);intent.removeExtra(RecitationService.OPEN_SURAH);intent.removeExtra(RecitationService.OPEN_AYAH);
+        Dialog previous=activeDialog;activeDialog=null;if(previous!=null)previous.dismiss();
+        open(surah,ayah);return true;
+    }
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(openRecitationIntent(intent))return;if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
         int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
         getWindow().getDecorView().setSystemUiVisibility(Appearance.luminance(appearance.background)>.38?bars|light:bars&~light);
