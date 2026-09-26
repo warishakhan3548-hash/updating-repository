@@ -14,16 +14,15 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - Hadith/audio marker resilience, TTS context ownership, variant-safe sharing, display lookup guarding, release CI, CI deduplication, and build-integrity guards are implemented on this PR branch.
 
 ## Pending
-1. Make Hadith verification marker best-effort after cryptographic/database verification.
-2. Harden TTS context ownership and overlay display fallback.
-3. Make provider authority applicationId-safe.
-4. Add release-variant CI verification and regression guards.
-5. Run/inspect PR CI and resolve every failure.
+1. Finish the current-head CI run.
+2. Resolve any failing step at its root cause.
+3. Re-check the final PR diff and mergeability.
+4. Mark PR #339 ready for review.
 
 ## Tests / CI
 - Base main: latest commit 5f3eb0d merged PR #338.
 - Main Actions visible: GitHub Pages succeeded; app verification workflow is PR/audit-branch scoped and will run on this branch.
-- Branch CI: pending first code checkpoint.
+- Branch CI: final-head verification pending after the latest checkpoint.
 
 ## Next exact step
-Patch HadithStore marker handling and add a regression assertion in tools/check.py, then push as the first functional checkpoint.
+Inspect the current-head CI result; resolve any failure, then verify mergeability and mark PR #339 ready.
