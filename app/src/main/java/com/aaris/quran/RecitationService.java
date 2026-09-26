@@ -41,9 +41,9 @@ public final class RecitationService extends Service {
         noisyReceiverRegistered=true;
         reciter=getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]);startForeground(42,notification("Preparing recitation"));
     }
-    @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null){stopSelf();return START_NOT_STICKY;}String action=intent.getAction();mediaCommandGeneration++;
+    @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null){stopSelf();return START_NOT_STICKY;}String action=intent.getAction();final int commandToken=++mediaCommandGeneration;
         if(STOP.equals(action)){stopSelf();return START_NOT_STICKY;}
-        app.ready(()->{if(destroyed)return;if(app.content==null){fail("Quran content is unavailable");return;}if(PLAY.equals(action)){
+        app.ready(()->{if(destroyed||commandToken!=mediaCommandGeneration)return;if(app.content==null){fail("Quran content is unavailable");return;}if(PLAY.equals(action)){
             surah=Math.max(1,Math.min(114,intent.getIntExtra("surah",1)));ayah=Math.max(1,Math.min(app.content.surah(surah).count,intent.getIntExtra("ayah",1)));
             reciter=RecitationDownloads.valid(getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]));
             resetRepeat();play();
