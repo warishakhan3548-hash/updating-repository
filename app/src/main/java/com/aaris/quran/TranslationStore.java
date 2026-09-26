@@ -15,7 +15,8 @@ final class TranslationStore implements AutoCloseable {
         final String id,language,title,description,version,source;
         Edition(Cursor c){id=c.getString(0);language=c.getString(1);title=c.getString(2);description=c.getString(3);version=c.getString(4);source=c.getString(5);}
         String attribution(){
-            String lower=source==null?"":source.toLowerCase(Locale.ROOT);\n            String publisher=lower.contains("quranenc")?"QuranEnc.com":lower.contains("tanzil")?"Tanzil Project":source;
+            String lower=source==null?"":source.toLowerCase(Locale.ROOT);
+            String publisher=lower.contains("quranenc")?"QuranEnc.com":lower.contains("tanzil")?"Tanzil Project":source;
             return title+" · v"+version+(publisher==null||publisher.trim().isEmpty()?"":" · "+publisher);
         }
     }
@@ -77,7 +78,8 @@ final class TranslationStore implements AutoCloseable {
         return editions.isEmpty()?null:editions.get(0);
     }
     private static LinkedHashSet<String> columns(SQLiteDatabase db,String table){LinkedHashSet<String> result=new LinkedHashSet<>();try(Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null)){while(c.moveToNext())result.add(c.getString(1));}return result;}
-    private static String cacheKey(String editionId,String ayahId){return editionId+"\n"+ayahId;}
+    private static String cacheKey(String editionId,String ayahId){return editionId+"
+"+ayahId;}
     Entry get(String editionId,String ayahId){
         Edition edition=edition(editionId);if(edition==null||ayahId==null)return null;
         String key=cacheKey(edition.id,ayahId);Entry cached=entryCache.get(key);if(cached!=null)return cached;
