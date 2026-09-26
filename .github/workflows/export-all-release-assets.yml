@@ -1,0 +1,47 @@
+name: Export all release assets
+
+on:
+  push:
+    branches:
+      - 'audit/full-data-export-20260926'
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Download every GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > release-assets/releases.json
+          gh release list --limit 100 --json tagName --jq '.[].tagName' |
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            safe="$(printf '%s' "$tag" | tr '/ ' '__')"
+            mkdir -p "release-assets/$safe"
+            gh release download "$tag" -D "release-assets/$safe"
+          done
+          (
+            cd release-assets
+            find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          )
+          du -sh release-assets
+          find release-assets -type f -printf '%P\t%s bytes\n' | sort > release-assets/FILE_SIZES.txt
+
+      - name: Upload complete release archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aaris-quran-all-release-assets
+          path: release-assets
+          retention-days: 7
+          compression-level: 0
