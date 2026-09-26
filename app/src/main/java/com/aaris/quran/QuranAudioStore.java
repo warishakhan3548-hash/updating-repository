@@ -83,6 +83,27 @@ final class QuranAudioStore {
         catalogBytes=declaredTotal;
         root=new File(context.getFilesDir(),"quran-audio/"+PROFILE_ID);
         if(!root.exists()&&!root.mkdirs())throw new IOException("Cannot create local Quran pronunciation storage");
+        recoverInterruptedInstalls();
+        cleanupObsoletePartials();
+    }
+
+    private void recoverInterruptedInstalls(){
+        for(int surah=1;surah<=114;surah++){
+            File old=new File(root,String.format(Locale.ROOT,".%03d.old",surah));
+            if(!old.isFile())continue;
+            File target=surahFile(surah);
+            if(target.isFile()){delete(old);continue;}
+            if(old.renameTo(target))delete(markerFile(surah));
+        }
+    }
+    private void cleanupObsoletePartials(){
+        String current=".partial-"+SOURCE_REVISION.substring(0,12)+"-";
+        File[] files=root.listFiles();if(files==null)return;
+        for(File file:files){
+            String name=file.getName();
+            if(file.isFile()&&name.startsWith(".partial-")&&name.endsWith(".aqp")&&!name.startsWith(current))
+                delete(file);
+        }
     }
 
     File root(){return root;}
@@ -108,14 +129,20 @@ final class QuranAudioStore {
         if(cache.containsKey(surah)){checkedSurahs.add(surah);return true;}
         try{
             String marked=marker.isFile()?readSmall(marker,256).trim():"";
-            if(!markerMatches(marked,file,meta)){
+            boolean markerVerified=markerMatches(marked,file,meta);
+            if(!markerVerified){
                 // A legacy hash-only marker proves what was verified when it was written, not that
                 // today's private file still has those bytes. Re-verify once before binding trust
                 // to file metadata; missing or changed markers follow the same fail-closed path.
                 validateContainer(file,meta,true);
-                writeMarker(marker,markerValue(file,meta));
             }
-            cache.put(surah,parseIndex(file,meta,false));
+            SurahIndex index=parseIndex(file,meta,false);
+            if(!markerVerified){
+                // The marker is only a future-startup optimization. A fully verified audio pack
+                // remains usable if a low-storage/transient filesystem condition blocks the marker.
+                try{writeMarker(marker,markerValue(file,meta));}catch(IOException ignored){}
+            }
+            cache.put(surah,index);
             checkedSurahs.add(surah);
             return true;
         }catch(Exception invalid){
