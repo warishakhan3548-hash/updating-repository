@@ -1,0 +1,87 @@
+name: Build latest release APK
+
+on:
+  push:
+    branches:
+      - 'build/latest-release-apk-20260926'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact latest main source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: c8b05e1829eaf7a7309b11bbe5fdda958068e2f2
+          fetch-depth: 1
+
+      - name: Set up Java 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Build release APK and lint
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleRelease :app:lintRelease
+
+      - name: Sign and verify release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$(ls -1 "${ANDROID_HOME}/build-tools" | sort -V | tail -n1)"
+          BT="${ANDROID_HOME}/build-tools/${BUILD_TOOLS}"
+          UNSIGNED="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n1)"
+          test -n "${UNSIGNED}" && test -f "${UNSIGNED}"
+
+          mkdir -p release-output
+          ALIGNED="release-output/Aaris-Quran-0.4.0-latest-aligned.apk"
+          FINAL="release-output/Aaris-Quran-0.4.0-latest-release.apk"
+          VERIFY="release-output/Aaris-Quran-0.4.0-latest-release.verify.txt"
+
+          "${BT}/zipalign" -f -v 4 "${UNSIGNED}" "${ALIGNED}"
+
+          KS_PASS="$(openssl rand -hex 24)"
+          keytool -genkeypair -v             -keystore "${RUNNER_TEMP}/aaris-release.jks"             -storepass "${KS_PASS}"             -keypass "${KS_PASS}"             -alias aaris_release             -keyalg RSA -keysize 3072 -validity 10000             -dname "CN=Aaris Quran Release Build, O=Aaris, C=IN"
+
+          "${BT}/apksigner" sign             --ks "${RUNNER_TEMP}/aaris-release.jks"             --ks-key-alias aaris_release             --ks-pass "pass:${KS_PASS}"             --key-pass "pass:${KS_PASS}"             --v1-signing-enabled true             --v2-signing-enabled true             --v3-signing-enabled true             --v4-signing-enabled false             --out "${FINAL}"             "${ALIGNED}"
+
+          {
+            echo "Source commit: c8b05e1829eaf7a7309b11bbe5fdda958068e2f2"
+            echo "Version: 0.4.0 (4)"
+            echo "Variant: release"
+            echo "AAB built: false"
+            echo
+            echo "SHA-256:"
+            sha256sum "${FINAL}"
+            echo
+            echo "Signature:"
+            "${BT}/apksigner" verify --verbose --print-certs "${FINAL}"
+            echo
+            echo "Zipalign:"
+            "${BT}/zipalign" -c -v 4 "${FINAL}"
+            echo
+            echo "Badging:"
+            "${BT}/aapt" dump badging "${FINAL}"
+          } | tee "${VERIFY}"
+
+          rm -f "${ALIGNED}"
+          test -s "${FINAL}"
+
+      - name: Upload signed release APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Aaris-Quran-0.4.0-latest-release
+          path: |
+            release-output/Aaris-Quran-0.4.0-latest-release.apk
+            release-output/Aaris-Quran-0.4.0-latest-release.verify.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
