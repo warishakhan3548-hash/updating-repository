@@ -48,6 +48,8 @@ def main():
     assert 'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.11.1-bin.zip' in wrapper_properties
     assert 'distributionSha256Sum=f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6' in wrapper_properties, 'Gradle distribution must remain pinned to the reviewed official SHA-256'
     workflow_text = (ROOT / '.github/workflows/verify-offline-translations.yml').read_text(encoding='utf-8')
+    assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in workflow_text, 'Checkout action must stay pinned to the reviewed immutable v4 revision'
+    assert 'actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961' in workflow_text, 'Java setup action must stay pinned to the reviewed immutable v5 revision'
     for build_control in ("- 'build.gradle'", "- 'settings.gradle'", "- 'gradle.properties'", "- 'gradlew'", "- 'gradlew.bat'", "- 'gradle/wrapper/**'"):
         assert workflow_text.count(build_control) == 2, f'CI path filters must cover {build_control} on push and pull_request'
     assets = ROOT / 'app/src/main/assets'
