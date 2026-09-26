@@ -140,6 +140,7 @@ public final class QuranApp extends Application {
     @Override public void onCreate(){
         super.onCreate();
         Glass.apply(Appearance.load(this));recitationDownloads=new RecitationDownloads(this);
+        recitationDownloadWorker.execute(recitationDownloads::cleanupLegacyCache);
         AmbientSettings.processStarted(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks(){
             public void onActivityStarted(Activity a){startedActivities++;visibility();}
