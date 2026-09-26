@@ -78,6 +78,8 @@ def main():
     coordinates = {row[0] for row in db.execute('SELECT id FROM ayah')}
     edition_ids = [row[0] for row in tdb.execute('SELECT id FROM edition ORDER BY rowid')]
     assert edition_ids == translation_manifest['editions'], 'Translation manifest/database edition drift'
+    assert 'urdu_jalandhari' in edition_ids, 'Fateh Muhammad Jalandhry translation must remain in the offline pack'
+    assert tdb.execute("SELECT language,title,version,source FROM edition WHERE id='urdu_jalandhari'").fetchone() == ('ur','Urdu Translation - Fateh Muhammad Jalandhry','snapshot-47ca096b','https://tanzil.net/trans/'), 'Jalandhari provenance metadata drift'
     for edition in edition_ids:
         assert {row[0] for row in tdb.execute('SELECT ayah_id FROM translation WHERE edition_id=?', (edition,))} == coordinates
         archived = json.loads((ROOT / 'source-vault/translations' / (edition + '.json')).read_text())

@@ -15,7 +15,8 @@ final class TranslationStore implements AutoCloseable {
         final String id,language,title,description,version,source;
         Edition(Cursor c){id=c.getString(0);language=c.getString(1);title=c.getString(2);description=c.getString(3);version=c.getString(4);source=c.getString(5);}
         String attribution(){
-            String publisher=source!=null&&source.toLowerCase(Locale.ROOT).contains("quranenc")?"QuranEnc.com":source;
+            String lower=source==null?"":source.toLowerCase(Locale.ROOT);
+            String publisher=lower.contains("quranenc")?"QuranEnc.com":lower.contains("tanzil")?"Tanzil Project":source;
             return title+" · v"+version+(publisher==null||publisher.trim().isEmpty()?"":" · "+publisher);
         }
     }

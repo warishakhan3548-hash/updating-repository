@@ -433,6 +433,17 @@
       "database_url": "https://quranenc.com/downloads/sqlite/urdu_junagarhi.zip"
     },
     {
+      "key": "urdu_jalandhari",
+      "lang": "ur",
+      "direction": "rtl",
+      "version": "snapshot-47ca096b",
+      "title": "Urdu Translation - Fateh Muhammad Jalandhry",
+      "description": "Translated by Fateh Muhammad Jalandhry. Archived verbatim from Tanzil translation id ur.jalandhry through a pinned mirror revision for reproducible offline use.",
+      "source": "https://tanzil.net/trans/",
+      "source_id": "ur.jalandhry",
+      "database_url": "https://tanzil.net/trans/"
+    },
+    {
       "key": "hindi_omari",
       "lang": "hi",
       "direction": "ltr",

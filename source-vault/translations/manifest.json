@@ -7,10 +7,11 @@
   "editions": [
     "hindi_omari",
     "urdu_junagarhi",
+    "urdu_jalandhari",
     "english_rwwad",
     "english_saheeh"
   ],
-  "notice": "QuranEnc.com translations are reproduced with publisher, version, transcript information and footnotes. No content is modified. Report translation observations to QuranEnc.com; maintainers must review source updates before releases. No inappropriate advertisements. Terms: https://quranenc.com/en/home/api. Script conversion is withheld: no unreviewed derivative translation is attributed to the scholar.",
+  "notice": "QuranEnc.com editions are reproduced unchanged with publisher/version credit under the publisher terms recorded in this vault. Fateh Muhammad Jalandhry Urdu is archived verbatim from Tanzil translation id ur.jalandhry via the pinned fawazahmed0/quran-api mirror revision; Tanzil translations are for non-commercial use unless separate permission is obtained. Every edition is hash-pinned, coordinate-complete and built offline; ordinary builds never call a provider. No script conversion or machine rewrite is attributed to a translator.",
   "source_records": {
     "english_saheeh": {
       "provider": "QuranEnc",
@@ -23,13 +24,42 @@
       "sha256": "c12b5bed64837cb744e075fdd3b79f885aee1522d92468f36c38ff565bfdc439",
       "license_status": "granted",
       "terms_url": "https://quranenc.com/en/home/api"
+    },
+    "urdu_jalandhari": {
+      "provider": "Tanzil Project",
+      "title": "Urdu Translation - Fateh Muhammad Jalandhry",
+      "version": "snapshot-47ca096b",
+      "browse_url": "https://tanzil.net/#trans/ur.jalandhry/1:1",
+      "upstream_url": "https://github.com/fawazahmed0/quran-api/blob/47ca096b0976443ba2eab2e45cdf0fb4096a2610/editions/urd-fatehmuhammadja.json",
+      "mirror_path": "editions/urd-fatehmuhammadja.json",
+      "mirror_blob_sha": "9354c7435e59ea5de99b43a25a181ff4a004dfee",
+      "sha256": "48ba38d004f990c27cb15743b87ebdaa775ebd2f1bf5d70ada89d825b4b739e9",
+      "license_status": "non-commercial",
+      "terms_url": "https://tanzil.net/trans/"
     }
   },
   "files": {
-    "catalogue.json": "74fc274893dbf2eec954eddf733c47248d4636c1a06b463b725606921d4123e4",
+    "catalogue.json": "37a001d4be7612999f2cba5d6c5bab43fa0fdb1e0591acab26f10309e901e342",
     "english_rwwad.json": "d5b599f24bc48b9759e9737afb1cb84aebc68070aa618e3afdf553857b1c7763",
     "english_saheeh.json": "c12b5bed64837cb744e075fdd3b79f885aee1522d92468f36c38ff565bfdc439",
     "hindi_omari.json": "ce5463c940e83f6a8e3cefa4d49fac2e30f8aecc1e9805ab7d8daebfe25a0a1a",
-    "urdu_junagarhi.json": "2741c0001abbe8a588bb70698383a7d7599af105f4e85a6013265978a2ee307d"
+    "urdu_junagarhi.json": "2741c0001abbe8a588bb70698383a7d7599af105f4e85a6013265978a2ee307d",
+    "urdu_jalandhari.json": "48ba38d004f990c27cb15743b87ebdaa775ebd2f1bf5d70ada89d825b4b739e9"
+  },
+  "additional_sources": {
+    "urdu_jalandhari": {
+      "provider": "Tanzil Project",
+      "translation_id": "ur.jalandhry",
+      "translator": "Fateh Muhammad Jalandhry",
+      "source_url": "https://tanzil.net/trans/",
+      "terms_url": "https://tanzil.net/trans/",
+      "rights_checked": "2026-09-26",
+      "use_scope": "NON_COMMERCIAL",
+      "mirror_repo": "fawazahmed0/quran-api",
+      "mirror_revision": "47ca096b0976443ba2eab2e45cdf0fb4096a2610",
+      "mirror_path": "editions/urd-fatehmuhammadja.json",
+      "mirror_blob_sha": "9354c7435e59ea5de99b43a25a181ff4a004dfee",
+      "sha256": "48ba38d004f990c27cb15743b87ebdaa775ebd2f1bf5d70ada89d825b4b739e9"
+    }
   }
 }
