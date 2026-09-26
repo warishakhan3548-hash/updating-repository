@@ -12,7 +12,7 @@
     <application android:name=".QuranApp" android:allowBackup="false" android:label="Aaris Quran"
         android:icon="@drawable/ic_launcher" android:theme="@style/AppTheme"
         android:supportsRtl="true" android:usesCleartextTraffic="false">
-        <provider android:name=".ResearchFiles" android:authorities="com.aaris.quran.research"
+        <provider android:name=".ResearchFiles" android:authorities="${applicationId}.research"
             android:exported="false" android:grantUriPermissions="true" />
         <activity android:name=".MainActivity" android:exported="true"
             android:theme="@style/AppLaunchTheme"

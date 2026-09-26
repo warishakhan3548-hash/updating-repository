@@ -480,6 +480,7 @@ def main():
     assert media.get(android + 'exported') == 'false' and media.get(android + 'foregroundServiceType') == 'mediaPlayback'
     provider = next(p for p in application.findall('provider') if p.get(android + 'name') == '.ResearchFiles')
     assert provider.get(android + 'exported') == 'false' and provider.get(android + 'grantUriPermissions') == 'true'
+    assert provider.get(android + 'authorities') == '${applicationId}.research', 'Research PDF authority must follow the final applicationId for every build variant'
     sources = sorted((ROOT / 'core/src/main/java').rglob('*.java'))
     tests = sorted((ROOT / 'core/src/test/java').rglob('*.java'))
     with tempfile.TemporaryDirectory(prefix='aaris-check-') as scratch:
@@ -561,6 +562,12 @@ def main():
             resources = Path(scratch) / 'resources.zip'
             manifest_tree = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml')
             manifest_tree.getroot().set('package', 'com.aaris.quran')
+            # check.py links the raw source manifest without Gradle's manifest merger, so mirror
+            # applicationId placeholder expansion before asking aapt2 to validate the manifest.
+            for node in manifest_tree.getroot().iter():
+                authority = node.get(android + 'authorities')
+                if authority:
+                    node.set(android + 'authorities', authority.replace('${applicationId}', 'com.aaris.quran'))
             manifest_path = Path(scratch) / 'AndroidManifest.xml'
             ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
             manifest_tree.write(manifest_path, encoding='utf-8', xml_declaration=True)
