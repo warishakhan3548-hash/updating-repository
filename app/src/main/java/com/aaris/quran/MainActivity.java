@@ -585,11 +585,12 @@ public final class MainActivity extends Activity {
                         caption(page,info.count+" records · "+info.edition+" · Offline");gap(page,14);
                         for(HadithStore.BookInfo book:books){
                             LinearLayout row=Glass.row(this);pad(row,14,12);row.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));
+                            String bookLabel=book.nameEn==null?"Book "+book.number:book.nameEn;
                             TextView n=text(this,book.number,12,GOLD);row.addView(n,new LinearLayout.LayoutParams(dp(this,42),-2));
-                            LinearLayout names=column(this);names.addView(text(this,book.nameEn==null?"Book "+book.number:book.nameEn,16,INK));
+                            LinearLayout names=column(this);names.addView(text(this,bookLabel,16,INK));
                             if(book.nameAr!=null){TextView nameAr=hadithArabic(book.nameAr,22);names.addView(nameAr);}
                             names.addView(text(this,book.count+" records",11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-                            row.setFocusable(true);row.setOnClickListener(v->hadithBook(collectionId,book));Glass.motion(row);
+                            row.setContentDescription(bookLabel+". "+book.count+" records");row.setFocusable(true);row.setOnClickListener(v->hadithBook(collectionId,book));Glass.motion(row);
                             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,8);page.addView(row,lp);
                         }
                     });
@@ -763,8 +764,10 @@ public final class MainActivity extends Activity {
         Map<String,Recall.State> savedStates=learning.states();
         int count=0;for(ContentStore.Word word:content.words(a.id))if(word.hasGloss(language)){
             if(count++==8)break;LinearLayout row=Glass.row(this);pad(row,8,10);TextView ar=arabic(word.arabic,30);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));
-            Recall.State memory=savedStates.get(word.id);TextView meaning=text(this,word.gloss(language)+(memory!=null&&memory.active?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));
-            row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(word.gloss(language)+" ✓");});Glass.motion(row);
+            Recall.State memory=savedStates.get(word.id);String gloss=word.gloss(language);boolean remembered=memory!=null&&memory.active;
+            TextView meaning=text(this,gloss+(remembered?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));
+            row.setContentDescription(word.arabic+". "+gloss+(remembered?". Remembered":". Add to memory"));
+            row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(gloss+" ✓");row.setContentDescription(word.arabic+". "+gloss+". Remembered");});Glass.motion(row);
             page.addView(row);gap(page,8);
         }
         gap(page,10);page.addView(primary("Back to timer",this::ambientSettings));gap(page,8);
@@ -1656,7 +1659,7 @@ public final class MainActivity extends Activity {
         LinearLayout page=sheet("Word by word · "+a.surah+":"+a.number);
         caption(page,"Source word meanings only; this is not a full translation or tafsir.");gap(page,12);
         for(ContentStore.Word word:content.words(a.id)) {
-            LinearLayout row=Glass.row(this);pad(row,4,10);TextView ar=arabic(word.arabic,28);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));TextView gloss=text(this,word.gloss(language),16,INK);row.addView(gloss,new LinearLayout.LayoutParams(0,-2,1));row.setFocusable(true);row.setOnClickListener(v->wordDetails(word));Glass.motion(row);page.addView(row);
+            LinearLayout row=Glass.row(this);pad(row,4,10);TextView ar=arabic(word.arabic,28);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));String meaning=word.gloss(language);TextView gloss=text(this,meaning,16,INK);row.addView(gloss,new LinearLayout.LayoutParams(0,-2,1));row.setContentDescription(word.arabic+". "+meaning+". Open word details");row.setFocusable(true);row.setOnClickListener(v->wordDetails(word));Glass.motion(row);page.addView(row);
         }
     }
     private void editNote(String target){
