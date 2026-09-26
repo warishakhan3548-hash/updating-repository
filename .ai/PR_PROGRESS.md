@@ -51,8 +51,11 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 ## Pending
 - No identified high-confidence product-code or release-path regression remains in this PR after the resumable-download fix.
 - Physical-device/OEM visual, audio-route, overlay-delivery, true network interruption/resume, and long-history profiling remain real-device QA rather than something CI can fully prove.
-- Review and merge PR #339 when desired.
-- Physical-device/OEM visual, audio-route, overlay-delivery, and long-history profiling remain real-device QA rather than something CI can prove.
+- Android 15 system-bar appearance now uses WindowInsetsController on API 30+ while retaining the legacy fallback below API 30; Android 15 no longer relies on disabled bar-color setters.
+- Reader recall chips and recitation download rows now meet the 48dp Android touch-target floor.
+- Appearance Studio compact controls, sliders, saved-style chips, and color swatches now use accessible 48dp targets; color dots remain visually compact inside a horizontally scrollable palette.
+- Hadith book rows, Ambient memory actions, and word-detail rows now expose explicit TalkBack labels, including state refresh after a word is added to memory.
+- Physical-device/OEM visual, audio-route, overlay-delivery, true network interruption/resume, and long-history profiling remain real-device QA rather than something CI can fully prove.
 - Review and merge PR #339 when desired.
 
 ## Tests / CI
@@ -67,9 +70,13 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - Every commit after the verified code checkpoint modifies only `.ai/PR_PROGRESS.md` with `[skip ci]`; product/build code is identical to the verified checkpoint.
 - New resumable whole-ayah recitation checkpoints: fc6dcc7 (Range/If-Range implementation), 7c73cf9 (regression guards), e1f7b7e (offline contract), 4b026c5 (accurate saved-progress UI copy).
 - Final resumable-recitation full verification run 36219462866 passed on code checkpoint 4b026c545bbb523863eac15292143bc032ceaaf9.
-- PASS: deterministic local evidence rebuild.
-- PASS: offline integrity, search, recall, backup, audio, and regression checks.
-- PASS: Android debug + release assemble and lint.
+- Accessibility / Android 15 follow-up code checkpoint: a7e7ee7a5be18da855db2e6946a2bc2f349a0375.
+- Final full verification run 36220949706 passed on that exact code checkpoint.
+- PASS: deterministic local Quran/translation/Hadith evidence rebuild.
+- PASS: offline integrity, source-contract, search, recall, backup, audio, and regression checks.
+- PASS: Android debug assemble + lint.
+- PASS: Android release assemble + lint.
+- Any commit after a7e7ee7 is documentation-only and must use [skip ci] so the verified product/build tree remains unchanged.
 - Local container clone could not run because this execution environment has no GitHub DNS/network access; authoritative verification is therefore GitHub Actions.
 
 ## Next exact step
