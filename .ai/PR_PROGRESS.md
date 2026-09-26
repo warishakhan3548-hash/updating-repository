@@ -49,8 +49,9 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - `tools/check.py` and `tools/check_offline_contract.py` now guard the resumable HTTPS boundary so later refactors cannot silently restore restart-from-zero behavior.
 
 ## Pending
-- Full CI for resumable recitation checkpoint 4b026c545bbb523863eac15292143bc032ceaaf9 is currently queued/pending.
-- No additional identified high-confidence product-code or release-path regression remains in this PR after the resumable-download fix.
+- No identified high-confidence product-code or release-path regression remains in this PR after the resumable-download fix.
+- Physical-device/OEM visual, audio-route, overlay-delivery, true network interruption/resume, and long-history profiling remain real-device QA rather than something CI can fully prove.
+- Review and merge PR #339 when desired.
 - Physical-device/OEM visual, audio-route, overlay-delivery, and long-history profiling remain real-device QA rather than something CI can prove.
 - Review and merge PR #339 when desired.
 
@@ -64,8 +65,12 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - PASS: Android debug assemble + lint.
 - PASS: Android release assemble + lint.
 - Every commit after the verified code checkpoint modifies only `.ai/PR_PROGRESS.md` with `[skip ci]`; product/build code is identical to the verified checkpoint.
-- New resumable whole-ayah recitation checkpoints: fc6dcc7 (Range/If-Range implementation), 7c73cf9 (regression guards), e1f7b7e (offline contract), 4b026c5 (accurate saved-progress UI copy). Latest workflow run 36219462866 is pending at this checkpoint.
+- New resumable whole-ayah recitation checkpoints: fc6dcc7 (Range/If-Range implementation), 7c73cf9 (regression guards), e1f7b7e (offline contract), 4b026c5 (accurate saved-progress UI copy).
+- Final resumable-recitation full verification run 36219462866 passed on code checkpoint 4b026c545bbb523863eac15292143bc032ceaaf9.
+- PASS: deterministic local evidence rebuild.
+- PASS: offline integrity, search, recall, backup, audio, and regression checks.
+- PASS: Android debug + release assemble and lint.
 - Local container clone could not run because this execution environment has no GitHub DNS/network access; authoritative verification is therefore GitHub Actions.
 
 ## Next exact step
-Verify workflow run 36219462866 for code checkpoint 4b026c545bbb523863eac15292143bc032ceaaf9. If it fails, inspect the first failing job and fix the root cause on this PR; if it passes, update this file with the final PASS and leave PR #339 ready for review/merge.
+Review and merge PR #339. If later work is requested before merge, first verify this progress file, the PR head, and CI, then continue only from a genuinely unfinished related step.
