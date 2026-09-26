@@ -532,7 +532,7 @@ def main():
     assert 'metadata==null?store.translation' not in main_activity_text, 'Search cards must not query Hadith translation on the UI thread'
     assert 'metadata==null?store.grades' not in main_activity_text, 'Search cards must not query Hadith grades on the UI thread'
     assert 'hadith&&app.hadith.record(id)==null' not in main_activity_text, 'Saved Hadith shortcut validation must not query SQLite on the UI thread'
-    assert 'Loading local translations and grades' in main_activity_text and 'hadithBrowseWorker.submit' in java_method('shareResearch'), 'Hadith comparison preview must load metadata off the UI thread'
+    assert 'Loading local translations and grades' in main_activity_text and 'hadithBrowseWorker.submit' in research_pdf_share, 'Hadith comparison preview must load metadata off the UI thread'
     assert permissions == {'android.permission.INTERNET', 'android.permission.SYSTEM_ALERT_WINDOW',
                            'android.permission.FOREGROUND_SERVICE',
                            'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
