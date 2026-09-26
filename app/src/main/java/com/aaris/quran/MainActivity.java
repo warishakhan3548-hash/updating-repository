@@ -938,7 +938,7 @@ public final class MainActivity extends Activity {
         next.setEnabled(hasNext);next.setAlpha(hasNext?1f:.48f);next.setContentDescription(hasNext?"Next Quran page":"End of Quran");
         pager.addView(next,new LinearLayout.LayoutParams(0,-2,1));page.addView(pager);gap(page,12);
         page.addView(button("Recall Companion · Timer",this::ambientSettings));gap(page,12);
-        TextView source=text(this,"Tanzil Project · Uthmani 1.1",11,MUTED);source.setGravity(Gravity.CENTER);source.setOnClickListener(v->sources());page.addView(source);gap(page,12);
+        TextView source=text(this,"Tanzil Project · Uthmani 1.1",11,MUTED);source.setGravity(Gravity.CENTER);source.setMinimumHeight(dp(this,48));source.setFocusable(true);source.setContentDescription("Quran source · Tanzil Project · Uthmani 1.1 · Open source details");source.setTooltipText("Open source details");source.setOnClickListener(v->sources());Glass.motion(source);page.addView(source);gap(page,12);
         if(quietReader){header.setVisibility(View.GONE);bottom.setVisibility(View.GONE);page.addView(button("Show controls",()->{quietReader=false;show();}));}
         restoreReaderPosition();prefetchReaderNeighbors();
     }
