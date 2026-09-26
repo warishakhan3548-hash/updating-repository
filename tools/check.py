@@ -308,7 +308,7 @@ def main():
     assert 'cachedGradientSurface!=style.effectiveSurfaceAtGradientEnd()' in arabic_text
     assert 'shadowDistance=0' in appearance_text, 'Legacy saved themes must keep the previous zero-distance shadow default'
     assert 'wordHighlighted||getSelectionStart()!=getSelectionEnd()' in arabic_text, 'Selected Quran text must bypass decorative shaders'
-    assert 'android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE' in quran_text, 'Quran TextView must use the SDK-declared break-strategy constant so Android lint can validate it'
+    assert 'Layout.BREAK_STRATEGY_SIMPLE' in quran_text and 'android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE' not in quran_text, 'Quran TextView must use the minSdk-compatible break-strategy constant'
     assert 'appearance.effectiveCardOpacity()' in glass_text and 'appearance.effectiveBorderStrength()' in glass_text
     assert 'cachedGradientAngle!=appearance.gradientAngle' in glass_text
     assert 'setLetterSpacing(' not in quran_text and 'setLetterSpacing(' not in arabic_text, 'Do not alter Quran Arabic tracking/shaping'
