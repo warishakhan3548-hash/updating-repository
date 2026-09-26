@@ -305,6 +305,10 @@ def main():
     audio_install = quran_audio_store_text[audio_install_start:audio_install_end]
     assert 'SurahIndex index=parseIndex(target,meta,false);' in audio_install and 'try{writeMarker(marker,markerValue(target,meta));}catch(IOException ignored){}' in audio_install, 'Installing a verified word-audio pack must not roll back solely because its optimization marker cannot be written'
     assert 'legacyRoot=new File(c.getFilesDir(),"recitations-v1")' in recitation_downloads_text and 'void cleanupLegacyCache()' in recitation_downloads_text, 'Wrong-coordinate legacy recitation bytes must have an explicit cleanup path'
+    assert 'connection.setInstanceFollowRedirects(true)' in recitation_downloads_text and 'connection.setInstanceFollowRedirects(false)' not in recitation_downloads_text, 'Whole-ayah recitation downloads must tolerate normal HTTPS CDN redirects'
+    assert 'connection.getURL().getProtocol()' in recitation_downloads_text and 'redirected away from HTTPS' in recitation_downloads_text, 'Recitation redirect handling must reject transport downgrade'
+    assert 'temporary.exists()&&!temporary.delete()' in recitation_downloads_text, 'A crashed whole-ayah transfer must not leave stale temporary bytes consuming download space'
+    assert 'directory.getUsableSpace()' in recitation_downloads_text and 'STORAGE_HEADROOM_BYTES' in recitation_downloads_text, 'Whole-ayah downloads must fail cleanly before exhausting known available storage'
     assert 'recitationDownloadWorker.execute(recitationDownloads::cleanupLegacyCache);' in quran_app_text, 'Legacy recitation cleanup must run away from the Android UI thread'
     assert 'Display display=displays==null?null:displays.getDisplay(Display.DEFAULT_DISPLAY);' in ambient_service_text and 'if(display!=null)windowContext=createDisplayContext(display).createWindowContext' in ambient_service_text, 'Ambient recall must survive a transiently unavailable default display'
     assert 'layout.setPadding(left,top,right,bottom);overlay.setPadding(left,top,right,bottom);' in main_activity_text, 'Interactive UI must consume system/IME insets without insetting the full-screen themed backdrop'
