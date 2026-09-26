@@ -292,6 +292,8 @@ def main():
     translation_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/TranslationStore.java').read_text(encoding='utf-8')
     hadith_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/HadithStore.java').read_text(encoding='utf-8')
     quran_audio_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranAudioStore.java').read_text(encoding='utf-8')
+    quran_audio_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranAudioDownloadManager.java').read_text(encoding='utf-8')
+    word_audio_player_text = (ROOT / 'app/src/main/java/com/aaris/quran/WordAudioPlayer.java').read_text(encoding='utf-8')
     recitation_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationDownloads.java').read_text(encoding='utf-8')
     recitation_service_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationService.java').read_text(encoding='utf-8')
     ambient_service_text = (ROOT / 'app/src/main/java/com/aaris/quran/AmbientRecallService.java').read_text(encoding='utf-8')
@@ -301,6 +303,9 @@ def main():
     assert 'recoverInterruptedInstalls();' in quran_audio_store_text and 'validateContainer(target,meta,true);' in quran_audio_store_text and 'if(!target.exists()&&old.renameTo(target))delete(markerFile(surah));' in quran_audio_store_text, 'Interrupted Quran audio replacement must verify a new target before discarding the rollback pack and restore the rollback when needed'
     assert 'cleanupObsoletePartials();' in quran_audio_store_text and 'name.startsWith(".partial-")' in quran_audio_store_text, 'Quran audio must discard resumable partials from obsolete immutable source revisions'
     assert 'try{writeMarker(marker,markerValue(file,meta));}catch(IOException ignored){}' in quran_audio_store_text, 'A failed optimization marker write must not invalidate a fully verified Quran audio pack'
+    assert 'int completed=0,current=0;String failure=null;' in quran_audio_downloads_text and 'completed=store.installedCount();' in quran_audio_downloads_text, 'Word-audio Download All must enter its recovery/finally path before installed-pack inspection can fail'
+    assert 'AudioManager.ACTION_AUDIO_BECOMING_NOISY' in word_audio_player_text and 'registerNoisyReceiverLocked();' in word_audio_player_text, 'Word pronunciation playback must stop if a private audio route disconnects'
+    assert 'Context.RECEIVER_NOT_EXPORTED' in word_audio_player_text and 'unregisterNoisyReceiverLocked();abandonFocus();' in word_audio_player_text, 'Word-audio noisy-route receiver must stay private and be released with playback state'
     audio_install_start = quran_audio_store_text.index('    synchronized void installDownloaded(')
     audio_install_end = quran_audio_store_text.index('\n    private static SurahIndex parseIndex', audio_install_start)
     audio_install = quran_audio_store_text[audio_install_start:audio_install_end]
