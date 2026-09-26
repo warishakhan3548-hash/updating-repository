@@ -11,7 +11,7 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - CI verifies debug packaging/lint but does not exercise the release variant.
 
 ## Fixed
-- Functional checkpoints are present on this PR branch; this progress file is being reconciled with the actual diff.
+- Hadith/audio marker resilience, TTS context ownership, variant-safe sharing, display lookup guarding, release CI, CI deduplication, and build-integrity guards are implemented on this PR branch.
 
 ## Pending
 1. Make Hadith verification marker best-effort after cryptographic/database verification.
