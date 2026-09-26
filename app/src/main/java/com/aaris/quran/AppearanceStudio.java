@@ -316,7 +316,7 @@ final class AppearanceStudio {
 
         card.setContentDescription(label+" Arabic writing style"+(selected?", selected":""));card.setTooltipText(label);
         card.setClickable(true);card.setFocusable(true);card.setSelected(selected);
-        card.setOnClickListener(v->{if(style.font!=index){style.font=index;commit();renderControls();}});Glass.motion(card);
+        card.setOnClickListener(v->{if(style.font!=index){style.font=index;style.name="My style";commit();renderControls();}});Glass.motion(card);
         return card;
     }
     private void compactSlider(String label,int min,int max,int initial,Change change){
@@ -404,20 +404,20 @@ final class AppearanceStudio {
         title("Arabic text finish");
         LinearLayout textFinishes=row(activity);
         for(int i=0;i<Appearance.TEXT_FINISHES.length;i++){
-            final int finishIndex=i;View option=compactChoice(Appearance.TEXT_FINISHES[i],style.textFinish==i,()->{style.textFinish=finishIndex;style.textGlass=finishIndex==Appearance.TEXT_GLASS;commit();renderControls();});
+            final int finishIndex=i;View option=compactChoice(Appearance.TEXT_FINISHES[i],style.textFinish==i,()->{style.textFinish=finishIndex;style.textGlass=finishIndex==Appearance.TEXT_GLASS;style.name="My style";commit();renderControls();});
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,42),1);if(i<Appearance.TEXT_FINISHES.length-1)p.rightMargin=dp(activity,5);textFinishes.addView(option,p);
         }
         controls.addView(textFinishes);
 
         title("Finish style");
         LinearLayout finish=row(activity);
-        View glass=compactChoice("Glass cards",style.glass,()->{style.glass=true;commit();renderControls();});
-        View plain=compactChoice("Plain cards",!style.glass,()->{style.glass=false;commit();renderControls();});
+        View glass=compactChoice("Glass cards",style.glass,()->{style.glass=true;style.name="My style";commit();renderControls();});
+        View plain=compactChoice("Plain cards",!style.glass,()->{style.glass=false;style.name="My style";commit();renderControls();});
         LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(0,dp(activity,42),1);fp.rightMargin=dp(activity,6);finish.addView(glass,fp);finish.addView(plain,new LinearLayout.LayoutParams(0,dp(activity,42),1));controls.addView(finish);
         LinearLayout effects=row(activity);
-        effects.addView(compactChoice("Smart balance",style.autoBalance,()->{style.autoBalance=!style.autoBalance;commit();renderControls();}),new LinearLayout.LayoutParams(0,dp(activity,42),1));
+        effects.addView(compactChoice("Smart balance",style.autoBalance,()->{style.autoBalance=!style.autoBalance;style.name="My style";commit();renderControls();}),new LinearLayout.LayoutParams(0,dp(activity,42),1));
         LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(0,dp(activity,42),1);ep.leftMargin=dp(activity,6);
-        effects.addView(compactChoice("Reduced effects",style.reducedEffects,()->{style.reducedEffects=!style.reducedEffects;commit();renderControls();}),ep);controls.addView(effects);
+        effects.addView(compactChoice("Reduced effects",style.reducedEffects,()->{style.reducedEffects=!style.reducedEffects;style.name="My style";commit();renderControls();}),ep);controls.addView(effects);
 
         TextView advancedButton=action((advanced?"Hide":"Advanced"),()->{advanced=!advanced;if(!advanced&&(layer==4||layer==5||layer==6||layer==8)){layer=0;invalidateEditorColor();}renderControls();});
         controls.addView(advancedButton);
@@ -426,12 +426,12 @@ final class AppearanceStudio {
             LinearLayout advLayers=row(activity);
             advLayers.addView(compactChoice("Buttons",layer==4,()->{layer=4;invalidateEditorColor();renderControls();}),new LinearLayout.LayoutParams(0,dp(activity,42),1));
             LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(0,dp(activity,42),1);ap.leftMargin=dp(activity,6);
-            advLayers.addView(compactChoice("Gradient",layer==5,()->{style.gradient=true;layer=5;invalidateEditorColor();commit();renderControls();}),ap);controls.addView(advLayers);
+            advLayers.addView(compactChoice("Gradient",layer==5,()->{style.gradient=true;style.name="My style";layer=5;invalidateEditorColor();commit();renderControls();}),ap);controls.addView(advLayers);
             LinearLayout detailLayers=row(activity);
             detailLayers.addView(compactChoice("Highlight",layer==6,()->{layer=6;invalidateEditorColor();renderControls();}),new LinearLayout.LayoutParams(0,dp(activity,42),1));
             LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(0,dp(activity,42),1);sp.leftMargin=dp(activity,6);
             detailLayers.addView(compactChoice(style.autoShadowColor?"Shadow · Auto":"Shadow color",layer==8,()->{layer=8;invalidateEditorColor();renderControls();}),sp);controls.addView(detailLayers);
-            controls.addView(compactChoice("Auto shadow color",style.autoShadowColor,()->{style.autoShadowColor=!style.autoShadowColor;invalidateEditorColor();commit();renderControls();}));
+            controls.addView(compactChoice("Auto shadow color",style.autoShadowColor,()->{style.autoShadowColor=!style.autoShadowColor;style.name="My style";invalidateEditorColor();commit();renderControls();}));
             compactSlider("Text depth",0,12,style.textDepth,v->style.textDepth=v);
             compactSlider("Shadow strength",0,70,style.shadowStrength,v->style.shadowStrength=v);
             compactSlider("Shadow softness",0,16,style.shadowSoftness,v->style.shadowSoftness=v);
@@ -445,8 +445,8 @@ final class AppearanceStudio {
             compactSlider("Border strength",0,100,style.borderStrength,v->style.borderStrength=v);
             compactSlider("Corners",0,36,style.corners,v->style.corners=v);
             if(style.gradient)compactSlider("Gradient angle",0,359,style.gradientAngle,v->style.gradientAngle=v);
-            controls.addView(compactChoice("Auto balance now",false,()->{style.autoBalance=true;style.autoBalanceEffects();commit();renderControls();}));
-            if(style.gradient)controls.addView(compactChoice("Two-color background",true,()->{style.gradient=false;if(layer==5)layer=0;invalidateEditorColor();commit();renderControls();}));
+            controls.addView(compactChoice("Auto balance now",false,()->{style.autoBalance=true;style.autoBalanceEffects();style.name="My style";commit();renderControls();}));
+            if(style.gradient)controls.addView(compactChoice("Two-color background",true,()->{style.gradient=false;style.name="My style";if(layer==5)layer=0;invalidateEditorColor();commit();renderControls();}));
         }
 
         title("My styles");
