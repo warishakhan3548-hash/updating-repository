@@ -56,6 +56,8 @@ def main():
         assert android_task in workflow_text, f'Standard CI must exercise {android_task}'
     assert workflow_text.count('./gradlew --no-daemon --no-parallel') >= 3 and '--max-workers=1' in workflow_text, 'Large offline assets must package in isolated bounded-memory Gradle phases'
     assert workflow_text.count("- '.github/workflows/release-build.yml'") == 2, 'Signed release workflow changes must trigger standard CI on push and pull_request'
+    push_header = workflow_text.split('pull_request:',1)[0]
+    assert '      - main\n' in push_header, 'Relevant merges to main must receive a post-merge verification run'
     release_workflow_text = (ROOT / '.github/workflows/release-build.yml').read_text(encoding='utf-8')
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in release_workflow_text, 'Signed release checkout must stay pinned'
     assert 'actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961' in release_workflow_text, 'Signed release Java setup must stay pinned'
