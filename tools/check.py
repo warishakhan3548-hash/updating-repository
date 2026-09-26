@@ -241,6 +241,9 @@ def main():
     assert 'effectiveCardOpacity()' in appearance_text and 'effectiveSurfaceAtGradientEnd()' in appearance_text and 'surfaceHighlightAtGradientEnd()' in appearance_text
     assert 'boolean rendersGradient(){return gradient&&!reducedEffects;}' in appearance_text, 'Reduced-effects mode must remove hidden gradient endpoints from contrast calculations'
     assert 'if(style.rendersGradient())' in appearance_studio_text, 'Appearance preview must use the same gradient visibility rule as runtime'
+    assert 'style.font=index;style.name="My style";commit();renderControls();' in appearance_studio_text, 'Changing the Quran writing style must clear a stale preset identity'
+    for mutation in ('style.textFinish=finishIndex;style.textGlass=finishIndex==Appearance.TEXT_GLASS;style.name="My style"', 'style.glass=true;style.name="My style"', 'style.glass=false;style.name="My style"', 'style.autoBalance=!style.autoBalance;style.name="My style"', 'style.reducedEffects=!style.reducedEffects;style.name="My style"', 'style.gradient=true;style.name="My style"', 'style.autoShadowColor=!style.autoShadowColor;style.name="My style"', 'style.autoBalance=true;style.autoBalanceEffects();style.name="My style"', 'style.gradient=false;style.name="My style"'):
+        assert mutation in appearance_studio_text, 'Appearance mutations must not leave a preset falsely selected'
     assert 'private void normalizeEditingLayer()' in appearance_studio_text and 'if(layer==5&&!style.gradient){layer=0;invalidateEditorColor();}' in appearance_studio_text, 'Appearance undo/redo must not leave a hidden gradient layer selected'
     assert 'boolean canUndo=historyIndex>0,canRedo=historyIndex+1<history.size();' in appearance_studio_text, 'Appearance history controls must derive enabled state from the real history cursor'
     assert 'undo.setEnabled(canUndo);undo.setFocusable(canUndo);undo.setAlpha(canUndo?1f:.45f);' in appearance_studio_text and 'redo.setEnabled(canRedo);redo.setFocusable(canRedo);redo.setAlpha(canRedo?1f:.45f);' in appearance_studio_text, 'Unavailable Undo/Redo controls must be visibly and semantically disabled instead of silently no-oping'
@@ -385,6 +388,7 @@ def main():
     assert 'wordFallbackReady&&(verifiedReciter==null||!reciter.equals(verifiedReciter))' in play_flow, 'Reciter verification should run only when it can affect word-audio fallback selection'
     assert 'repeatRemaining' not in recitation_service_text and 'boolean continuous=true' not in recitation_service_text, 'Active recitation must not cache repeat/continue settings for the whole playback session'
     assert 'resetRepeat();play();' in recitation_service_text, 'A fresh Play command must start a fresh repeat cycle'
+    assert 'public void onPlay(){app.ready(()->{if(destroyed)return;if(app.content==null){fail("Quran content is unavailable");return;}resume();});}' in recitation_service_text, 'Media-session Play must wait for app content readiness before resuming'
     assert 'if(++repeatCompleted<repeatPreference())play();' in recitation_service_text, 'Repeat changes must take effect at the next ayah completion without restarting playback'
     assert 'continuousPreference()&&ayah<app.content.surah(surah).count' in recitation_service_text, 'Continue-mode changes must take effect before advancing to the next ayah'
     audio_controls = java_method('audioControls')
