@@ -52,6 +52,19 @@ def main():
     workflow_text = (ROOT / '.github/workflows/verify-offline-translations.yml').read_text(encoding='utf-8')
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in workflow_text, 'Checkout action must stay pinned to the reviewed immutable v4 revision'
     assert 'actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961' in workflow_text, 'Java setup action must stay pinned to the reviewed immutable v5 revision'
+    for android_task in (':app:assembleDebug', ':app:lintDebug', ':app:assembleRelease', ':app:lintRelease', ':app:bundleRelease'):
+        assert android_task in workflow_text, f'Standard CI must exercise {android_task}'
+    assert workflow_text.count('./gradlew --no-daemon --no-parallel') >= 3 and '--max-workers=1' in workflow_text, 'Large offline assets must package in isolated bounded-memory Gradle phases'
+    assert workflow_text.count("- '.github/workflows/release-build.yml'") == 2, 'Signed release workflow changes must trigger standard CI on push and pull_request'
+    release_workflow_text = (ROOT / '.github/workflows/release-build.yml').read_text(encoding='utf-8')
+    assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in release_workflow_text, 'Signed release checkout must stay pinned'
+    assert 'actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961' in release_workflow_text, 'Signed release Java setup must stay pinned'
+    assert 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' in release_workflow_text, 'Signed release artifact upload must stay pinned'
+    assert release_workflow_text.count('-PrequireReleaseSigning=true') >= 2, 'Every publishable APK/AAB Gradle phase must require signing'
+    assert ':app:assembleRelease -PrequireReleaseSigning=true' in release_workflow_text and ':app:bundleRelease -PrequireReleaseSigning=true' in release_workflow_text, 'Publishable CI must build both signed APK and signed AAB'
+    assert release_workflow_text.count('./gradlew --no-daemon --no-parallel') >= 2 and '--max-workers=1' in release_workflow_text, 'Signed APK/AAB packaging must stay in isolated bounded-memory Gradle phases'
+    assert 'secrets.AARIS_KEYSTORE_BASE64' in release_workflow_text and 'secrets.AARIS_KEYSTORE_PASSWORD' in release_workflow_text, 'Signed release workflow must source private signing material only from repository secrets'
+    assert 'apksigner" verify --verbose --print-certs' in release_workflow_text and 'jarsigner -verify' in release_workflow_text, 'Signed release workflow must verify both APK and AAB signatures'
     capture_workflow_text = (ROOT / '.github/workflows/capture-hadeethenc.yml').read_text(encoding='utf-8')
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in capture_workflow_text, 'HadeethEnc capture workflow checkout must stay pinned to the reviewed immutable v4 revision'
     release_builder_text = (ROOT / 'tools/build_release.py').read_text(encoding='utf-8')
