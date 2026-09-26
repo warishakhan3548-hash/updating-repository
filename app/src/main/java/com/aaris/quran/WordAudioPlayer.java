@@ -1,7 +1,8 @@
 package com.aaris.quran;
 
-import android.content.Context;
+import android.content.*;
 import android.media.*;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import java.io.*;
@@ -15,6 +16,7 @@ import java.util.*;
  */
 final class WordAudioPlayer implements AutoCloseable {
     private final QuranAudioStore store;
+    private final Context context;
     private final AudioManager audio;
     private final AudioAttributes attributes;
     private final AudioFocusRequest focus;
@@ -25,10 +27,17 @@ final class WordAudioPlayer implements AutoCloseable {
     private int sequenceIndex;
     private Runnable sequenceComplete;
     private int generation;
+    private boolean noisyReceiverRegistered;
+    private final BroadcastReceiver noisy=new BroadcastReceiver(){
+        @Override public void onReceive(Context context,Intent intent){
+            if(AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction()))stop();
+        }
+    };
 
     WordAudioPlayer(Context context,QuranAudioStore store){
         this.store=store;
-        audio=context.getSystemService(AudioManager.class);
+        this.context=context.getApplicationContext();
+        audio=this.context.getSystemService(AudioManager.class);
         attributes=new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
         focus=new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
@@ -60,6 +69,8 @@ final class WordAudioPlayer implements AutoCloseable {
         releaseLocked();
         if(!canPlay(words))return false;
         if(audio==null||audio.requestAudioFocus(focus)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED)return false;
+        try{registerNoisyReceiverLocked();}
+        catch(RuntimeException unavailable){abandonFocus();return false;}
         sequence=new ArrayList<>(words);sequenceIndex=0;sequenceComplete=complete;
         if(openCurrentLocked(generation))return true;
         Runnable done=finishSequenceLocked();if(done!=null)main.post(done);return false;
@@ -117,7 +128,7 @@ final class WordAudioPlayer implements AutoCloseable {
         releaseCurrentLocked();
         sequence=Collections.emptyList();sequenceIndex=0;
         Runnable done=sequenceComplete;sequenceComplete=null;
-        abandonFocus();return done;
+        unregisterNoisyReceiverLocked();abandonFocus();return done;
     }
 
     private void releaseCurrentLocked(){
@@ -127,7 +138,20 @@ final class WordAudioPlayer implements AutoCloseable {
     }
 
     private void releaseLocked(){
-        releaseCurrentLocked();sequence=Collections.emptyList();sequenceIndex=0;sequenceComplete=null;abandonFocus();
+        releaseCurrentLocked();sequence=Collections.emptyList();sequenceIndex=0;sequenceComplete=null;unregisterNoisyReceiverLocked();abandonFocus();
+    }
+
+    private void registerNoisyReceiverLocked(){
+        if(noisyReceiverRegistered)return;
+        IntentFilter filter=new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
+        if(Build.VERSION.SDK_INT>=33)context.registerReceiver(noisy,filter,Context.RECEIVER_NOT_EXPORTED);
+        else context.registerReceiver(noisy,filter);
+        noisyReceiverRegistered=true;
+    }
+    private void unregisterNoisyReceiverLocked(){
+        if(!noisyReceiverRegistered)return;
+        try{context.unregisterReceiver(noisy);}catch(RuntimeException ignored){}
+        noisyReceiverRegistered=false;
     }
 
     private static void finishResources(MediaPlayer p,RandomAccessFile opened){safeRelease(p);safeClose(opened);}
