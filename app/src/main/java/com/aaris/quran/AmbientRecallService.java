@@ -28,7 +28,6 @@ public final class AmbientRecallService extends Service {
     private PowerManager power;
     private KeyguardManager keyguard;
     private View card;
-    private Typeface font;
     private boolean destroyed,ready,receiverRegistered,preview,candidateLoading;
     private int candidateGeneration;
     private long cardShownAt;
@@ -38,17 +37,10 @@ public final class AmbientRecallService extends Service {
     };
 
     @Override public void onCreate(){
-        super.onCreate();app=(QuranApp)getApplication();windowContext=this;
-        if(Build.VERSION.SDK_INT>=30){
-            DisplayManager displays=getSystemService(DisplayManager.class);
-            Display display=displays==null?null:displays.getDisplay(Display.DEFAULT_DISPLAY);
-            // Display lookup can transiently be unavailable during display/service transitions.
-            // Keep the Service context as the safe fallback instead of crashing recall startup.
-            if(display!=null)windowContext=createDisplayContext(display).createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,null);
-        }
-        windows=windowContext.getSystemService(WindowManager.class);
+        super.onCreate();app=(QuranApp)getApplication();
+        if(Build.VERSION.SDK_INT<30){windowContext=this;windows=getSystemService(WindowManager.class);}
+        else ensureWindowEnvironment();
         power=getSystemService(PowerManager.class);keyguard=getSystemService(KeyguardManager.class);
-        font=Appearance.load(this).typeface(this);
         IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_SCREEN_OFF);filter.addAction(Intent.ACTION_SCREEN_ON);filter.addAction(Intent.ACTION_USER_PRESENT);
         if(Build.VERSION.SDK_INT>=33)registerReceiver(screen,filter,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(screen,filter);
         receiverRegistered=true;app.visibilityChanged=tick;
@@ -81,7 +73,24 @@ public final class AmbientRecallService extends Service {
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE)
             .addAction(new Notification.Action.Builder(null,"Stop session",stop).build()).build();
     }
-    private boolean eligible(){return ready&&!app.activityVisible&&power.isInteractive()&&!keyguard.isKeyguardLocked();}
+    private boolean ensureWindowEnvironment(){
+        if(Build.VERSION.SDK_INT<30){
+            if(windowContext==null)windowContext=this;
+            if(windows==null)windows=windowContext.getSystemService(WindowManager.class);
+            return windows!=null;
+        }
+        DisplayManager displays=getSystemService(DisplayManager.class);
+        Display display=displays==null?null:displays.getDisplay(Display.DEFAULT_DISPLAY);
+        if(display==null)return false;
+        if(windowContext!=null&&windows!=null)return true;
+        try{
+            Context next=createDisplayContext(display).createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,null);
+            WindowManager manager=next.getSystemService(WindowManager.class);
+            if(manager==null)return false;
+            windowContext=next;windows=manager;return true;
+        }catch(RuntimeException unavailable){windowContext=null;windows=null;return false;}
+    }
+    private boolean eligible(){return ready&&!app.activityVisible&&power!=null&&keyguard!=null&&power.isInteractive()&&!keyguard.isKeyguardLocked();}
     private void update(){
         handler.removeCallbacks(tick);if(destroyed||!session.running())return;
         if(!Settings.canDrawOverlays(this)){finish("Overlay permission was removed. Session stopped.");return;}
@@ -95,6 +104,7 @@ public final class AmbientRecallService extends Service {
     }
     private void prepareCard(){
         if(candidateLoading||destroyed||!session.running()||!session.showing())return;
+        if(!ensureWindowEnvironment()){handler.removeCallbacks(tick);handler.postDelayed(this::prepareCard,1000L);return;}
         candidateLoading=true;final int token=++candidateGeneration;
         try{
             app.readerWorker.execute(()->{
