@@ -7,6 +7,7 @@ on:
       - 'audit/**'
     paths:
       - '.github/workflows/verify-offline-translations.yml'
+      - '.github/workflows/release-build.yml'
       - 'tools/**'
       - 'source-vault/translations/**'
       - 'source-vault/hadith/hadeethenc/**'
@@ -27,6 +28,7 @@ on:
       - main
     paths:
       - '.github/workflows/verify-offline-translations.yml'
+      - '.github/workflows/release-build.yml'
       - 'tools/**'
       - 'source-vault/translations/**'
       - 'source-vault/hadith/hadeethenc/**'
