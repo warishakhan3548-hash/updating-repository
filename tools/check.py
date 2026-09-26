@@ -488,8 +488,10 @@ def main():
     assert 'private int generation,mediaCommandGeneration;' in recitation_service_text, 'Media-session readiness handoff needs an independent command generation'
     assert 'public void onPlay(){runMediaWhenReady(RecitationService.this::resume);}' in recitation_service_text, 'Media-session Play must wait for app content readiness before resuming'
     assert 'public void onSkipToNext(){runMediaWhenReady(()->move(1));}' in recitation_service_text and 'public void onSkipToPrevious(){runMediaWhenReady(()->move(-1));}' in recitation_service_text, 'Media-session navigation must not be dropped during cold-start content loading'
-    assert 'final int token=++mediaCommandGeneration;' in recitation_service_text and 'destroyed||token!=mediaCommandGeneration' in recitation_service_text, 'A superseded media command must not replay after content initialization'
-    assert 'String action=intent.getAction();mediaCommandGeneration++;' in recitation_service_text, 'Service commands must supersede any pending MediaSession readiness handoff'
+    assert 'final int token=++mediaCommandGeneration;' in recitation_service_text and 'destroyed||token!=mediaCommandGeneration' in recitation_service_text, 'A superseded MediaSession command must not replay after content initialization'
+    recitation_start = recitation_service_text[recitation_service_text.index('    @Override public int onStartCommand('):recitation_service_text.index('\n    private void runMediaWhenReady(')]
+    assert 'final int commandToken=++mediaCommandGeneration;' in recitation_start, 'Every Service intent must supersede older readiness callbacks'
+    assert 'destroyed||commandToken!=mediaCommandGeneration' in recitation_start, 'A stale Service PLAY/PAUSE/NEXT/PREVIOUS callback must not execute after a newer cold-start command'
     assert 'AudioManager.ACTION_AUDIO_BECOMING_NOISY' in recitation_service_text, 'Recitation must pause when headphones or another private audio route disconnects'
     assert 'registerReceiver(noisy,noisyFilter,Context.RECEIVER_NOT_EXPORTED)' in recitation_service_text, 'Audio-route receiver must stay private on modern Android'
     assert 'if(noisyReceiverRegistered){unregisterReceiver(noisy);noisyReceiverRegistered=false;}' in recitation_service_text, 'Recitation must release its noisy-route receiver with the Service lifecycle'
