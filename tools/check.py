@@ -387,6 +387,10 @@ def main():
     assert 'resetRepeat();play();' in recitation_service_text, 'A fresh Play command must start a fresh repeat cycle'
     assert 'if(++repeatCompleted<repeatPreference())play();' in recitation_service_text, 'Repeat changes must take effect at the next ayah completion without restarting playback'
     assert 'continuousPreference()&&ayah<app.content.surah(surah).count' in recitation_service_text, 'Continue-mode changes must take effect before advancing to the next ayah'
+    audio_controls = java_method('audioControls')
+    assert 'if(id.equals(selected))return;' in audio_controls, 'Tapping the already-selected reciter must not restart active playback'
+    assert 'if(app.recitationActive)RecitationService.command(this,RecitationService.PLAY,app.recitationSurah,app.recitationAyah);' in audio_controls, 'Changing reciter during active playback must restart the actual playing ayah with the new saved reciter'
+    assert 'changing it restarts the current ayah' in audio_controls, 'Reciter UI must explain the live-switch behavior instead of silently showing stale playback'
     assert 'private void move(int delta)' in recitation_service_text and 'ayah=next;resetRepeat();play();' in recitation_service_text, 'Manual recitation navigation must start a fresh repeat cycle'
     assert 'Intent home=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)' in recitation_service_text, 'Recitation notification must reuse the existing reader task instead of stacking another MainActivity'
     assert 'if(app!=null&&app.recitationActive)home.putExtra(OPEN_READER,true).putExtra(OPEN_SURAH,surah).putExtra(OPEN_AYAH,ayah);' in recitation_service_text, 'Active recitation notifications must carry the currently playing ayah without misrouting the initial preparing notification'
