@@ -287,6 +287,7 @@ def main():
     main_activity_text = (ROOT / 'app/src/main/java/com/aaris/quran/MainActivity.java').read_text(encoding='utf-8')
     quran_app_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranApp.java').read_text(encoding='utf-8')
     learning_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/LearningStore.java').read_text(encoding='utf-8')
+    backup_validator_text = (ROOT / 'app/src/main/java/com/aaris/quran/BackupValidator.java').read_text(encoding='utf-8')
     content_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/ContentStore.java').read_text(encoding='utf-8')
     translation_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/TranslationStore.java').read_text(encoding='utf-8')
     hadith_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/HadithStore.java').read_text(encoding='utf-8')
@@ -337,6 +338,9 @@ def main():
     assert 'ui.post(()->toast("File saved"))' not in activity_result, 'Do not report export completion from the old pre-lifecycle completion path'
     assert 'app.publishRestoreImport(backup,count)' in activity_result and 'app.publishRestoreImportFailure(' in activity_result, 'Backup validation success and failure must publish through lifecycle-safe application state'
     assert 'app.getContentResolver().openInputStream(uri)' in activity_result and 'app.learning.validateBackup(backup,app.content)' in activity_result, 'Backup parsing must not retain the Activity while validation runs'
+    assert 'MAX_FUTURE_EVENT_SKEW=5*Recall.MINUTE' in learning_store_text and 'if(lastEventTime>now+MAX_FUTURE_EVENT_SKEW)lastEventTime=now;' in learning_store_text, 'Learning event creation must recover from an imported or legacy clock that is implausibly far in the future'
+    assert 'String order="event".equals(table)?" ORDER BY seq":"";' in learning_store_text and '"SELECT * FROM "+table+order' in learning_store_text, 'Learning backups must serialize event rows in stable ledger sequence order'
+    assert 'MAX_FUTURE_EVENT_SKEW=5*Recall.MINUTE' in backup_validator_text and 'timestamp(row,"at")>now+MAX_FUTURE_EVENT_SKEW' in backup_validator_text, 'Backup validation must reject learning events that would poison the local scheduler clock'
     assert 'pendingRestore' not in main_activity_text, 'Do not keep validated backup payloads in Activity-local state where rotation can discard them'
     assert 'ui.post(()->{if(isDestroyed())return;pendingRestore=backup' not in activity_result, 'Restore preparation must not depend on the Activity that launched validation'
     assert 'pendingExport!=null||app.exportWriteBusy.get()||!app.exportPrepareBusy.compareAndSet(false,true)' in main_activity_text, 'A new export must be blocked by local picker state, destination writes, or an in-flight prepared handoff'
