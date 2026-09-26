@@ -455,6 +455,16 @@ def main():
     assert 'recitationStatusWorker.execute' in play_flow, 'Paused reciter verification must run off the Android UI thread'
     assert 'downloads.ayahReady(reciter,a,ayahCount)' in play_flow, 'Background playback selection must keep strong saved-reciter verification'
     assert 'app.recitationDownloads.ayahReady(' not in play_flow, 'Play-button flow must not hash paused reciter audio synchronously'
+    assert 'private static boolean verifiedAudioFile(File audio,File digest,long expectedLength)' in recitation_downloads_text, 'Whole-ayah cache reuse needs one strong digest verifier for completed and paused recitations'
+    assert 'expected.matches("[a-f0-9]{64}")&&expected.equals(ContentStore.hash(audio))' in recitation_downloads_text, 'Saved recitation reuse must verify the actual MP3 bytes, not only file length'
+    ayah_ready_start = recitation_downloads_text.index('    boolean ayahReady(')
+    ayah_ready_end = recitation_downloads_text.index('\n    /** Strong whole-Surah verification.', ayah_ready_start)
+    ayah_ready = recitation_downloads_text[ayah_ready_start:ayah_ready_end]
+    assert 'verifiedAudioFile(audio,digest,expectedLength)' in ayah_ready, 'Completed Surah playback selection must reject same-length corrupted ayah audio'
+    strong_ready_start = recitation_downloads_text.index('    boolean ready(')
+    strong_ready_end = recitation_downloads_text.index('\n    private static final class ResumeState', strong_ready_start)
+    strong_ready = recitation_downloads_text[strong_ready_start:strong_ready_end]
+    assert 'verifiedAudioFile(audio,digest,lengths[i])' in strong_ready, 'Whole-Surah completion verification must bind every cached MP3 to its SHA-256 sidecar'
     assert 'generation==wordAudioPlayGeneration' in play_flow and 'app.recitationDownloads==downloads' in play_flow, 'Async reciter verification must reject stale playback results'
     assert 'reciter.equals(verifiedReciter)' in play_flow, 'Changing reciter while verification is running must invalidate the old result'
     assert 'wordFallbackReady&&(verifiedReciter==null||!reciter.equals(verifiedReciter))' in play_flow, 'Reciter verification should run only when it can affect word-audio fallback selection'
