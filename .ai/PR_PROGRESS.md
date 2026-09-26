@@ -1,7 +1,7 @@
 # PR Progress
 
 ## Scope
-Second-pass production audit after merged PR #338, focused on high-confidence resilience, lifecycle, sharing, release verification, and supply-chain integrity without broad rewrites.
+Second-pass production audit after merged PR #338, focused on high-confidence resilience, lifecycle, sharing, release verification, recitation/audio reliability, and supply-chain integrity without broad rewrites.
 
 ## Bugs / risks found
 - Hadith database could be fully verified and then rejected solely because the tiny verification-marker write failed; the marker is an optimization, not evidence.
@@ -14,24 +14,32 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - Push and pull-request events could duplicate the same expensive verification for one branch checkpoint.
 - The non-Gradle signed release builder bypasses Gradle manifest merging, so the new `${applicationId}` ResearchFiles authority was not expanded on that release path.
 - The HadeethEnc source-capture workflow still used movable `actions/checkout@v4`, leaving one workflow outside the immutable action-pinning policy.
+- Recitation service did not pause when a private audio route became noisy/disconnected.
+- Whole-ayah recitation downloads could leave stale temporary bytes, had weak low-storage preflight behavior, and needed redirect handling that remains HTTPS-only.
+- The existing offline-contract regression guard still required redirects to be disabled, contradicting the newly hardened HTTPS redirect behavior and causing CI run 36216281282 to fail.
+- Interrupted word-audio replacement could delete the rollback `.old` pack merely because a new target file existed, without first re-verifying that target after a crash.
 
 ## Fixed
 - Hadith/audio marker resilience, TTS application-context ownership, variant-safe sharing, display lookup guarding, release CI, CI deduplication, and Gradle/wrapper integrity guards are implemented on this PR branch.
 - The manual SDK release builder now expands `${applicationId}` itself and rejects any unsupported remaining manifest placeholder instead of packaging it literally.
 - The HadeethEnc capture workflow now pins checkout to the reviewed immutable v4 revision; `tools/check.py` guards both this pin and the manual release manifest invariant.
+- Recitation now pauses on `ACTION_AUDIO_BECOMING_NOISY` and unregisters its private receiver with the Service lifecycle.
+- Whole-ayah recitation download staging clears abandoned temp files, enforces size/storage headroom, follows normal HTTPS redirects, and rejects transport downgrade.
+- `tools/check_offline_contract.py` now enforces the current HTTPS redirect boundary instead of the obsolete no-redirect behavior.
+- Word-audio crash recovery now validates a newly installed target before deleting the previous rollback pack; if the target is invalid it restores the rollback copy instead of silently discarding it.
+- `tools/check.py` now guards that fail-safe recovery invariant.
 
 ## Pending
-- No identified high-confidence product-code or release-path fix remains in this PR.
-- Review and merge PR #339 when desired.
+- GitHub Actions verification for checkpoint bca70e495999b54f7d5a3917da847ef907df8bfe is pending.
+- If CI exposes another real regression, fix it at the root and re-run verification.
+- After a clean full run, record the verified SHA here and review/merge PR #339.
 
 ## Tests / CI
 - Base main at verification: 5f3eb0d5438351f8b6e048d1d57b4420bdd49aea (merged PR #338).
-- Final full verification run 36215140358 passed on head faafccacb1a65ede2f53f4209e29ddad5a2f064f.
-- PASS: deterministic local Quran/translation/Hadith evidence rebuild.
-- PASS: offline integrity, source-contract, and search regressions.
-- PASS: Android debug assemble + lint.
-- PASS: Android release assemble + lint.
-- This final checkpoint changes only this progress file and uses [skip ci]; product/build code is identical to the verified head above.
+- Earlier full verification run 36215140358 passed on head faafccacb1a65ede2f53f4209e29ddad5a2f064f.
+- CI run 36216281282 failed in `tools/check_offline_contract.py` because the static contract still required `setInstanceFollowRedirects(false)` after the implementation intentionally switched to HTTPS-only redirect following. This guard has been corrected.
+- Current verification run 36216911144 is pending for checkpoint bca70e495999b54f7d5a3917da847ef907df8bfe.
+- Local container clone could not run because this execution environment has no GitHub DNS/network access; authoritative verification is therefore GitHub Actions.
 
 ## Next exact step
-Review and merge PR #339. If later work is requested, first read this file, verify the PR/base state, and continue only if the new task is genuinely related.
+Wait for GitHub Actions run 36216911144 to complete. If it fails, inspect the failing job/log and fix the first genuine regression. If it passes, update this file with the verified SHA/run and leave PR #339 ready for review/merge.
