@@ -30,9 +30,23 @@ final class RecitationDownloads {
     volatile String progress="";
     // v1 cached ordinal-1 audio under the requested coordinate. Its hashes only verify bytes,
     // not verse identity, so those files must never be reused by the corrected mapping.
+    private final File legacyRoot;
     RecitationDownloads(Context c){
         root=new File(c.getFilesDir(),"recitations-v2-coordinate");
+        legacyRoot=new File(c.getFilesDir(),"recitations-v1");
         for(int i=0;i<locks.length;i++)locks[i]=new Object();
+    }
+    /** v1 used ordinal-1 audio under verse coordinates, so its bytes are never valid fallback data. */
+    void cleanupLegacyCache(){
+        deleteTree(legacyRoot);
+    }
+    private static void deleteTree(File root){
+        if(root==null||!root.exists())return;
+        File[] children=root.listFiles();
+        if(children!=null)for(File child:children){
+            if(child.isDirectory())deleteTree(child);else child.delete();
+        }
+        root.delete();
     }
     static int index(String id){for(int i=0;i<IDS.length;i++)if(IDS[i].equals(id))return i;return 0;}
     static String valid(String id){return IDS[index(id)];}
