@@ -36,7 +36,13 @@ final class LearningStore extends SQLiteOpenHelper {
                 return;
             }
         }
-        getWritableDatabase().insertOrThrow("event",null,v);cachedStates=null;
+        getWritableDatabase().insertOrThrow("event",null,v);
+        if(cachedStates!=null){
+            LinkedHashMap<String,Recall.State> next=new LinkedHashMap<>(cachedStates);
+            Recall.State refreshed=Recall.replay(events(Collections.singleton(target)),new Recall.ConservativeScheduler()).get(target);
+            if(refreshed==null)next.remove(target);else next.put(target,refreshed);
+            cachedStates=Collections.unmodifiableMap(next);
+        }
     }
     List<Recall.Event> events() {
         List<Recall.Event> list=new ArrayList<>();
