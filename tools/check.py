@@ -285,6 +285,10 @@ def main():
     assert 'recoverInterruptedInstalls();' in quran_audio_store_text and 'if(old.renameTo(target))delete(markerFile(surah));' in quran_audio_store_text, 'Interrupted Quran audio replacement must restore the last installed pack on restart'
     assert 'cleanupObsoletePartials();' in quran_audio_store_text and 'name.startsWith(".partial-")' in quran_audio_store_text, 'Quran audio must discard resumable partials from obsolete immutable source revisions'
     assert 'try{writeMarker(marker,markerValue(file,meta));}catch(IOException ignored){}' in quran_audio_store_text, 'A failed optimization marker write must not invalidate a fully verified Quran audio pack'
+    audio_install_start = quran_audio_store_text.index('    synchronized void installDownloaded(')
+    audio_install_end = quran_audio_store_text.index('\n    private static SurahIndex parseIndex', audio_install_start)
+    audio_install = quran_audio_store_text[audio_install_start:audio_install_end]
+    assert 'SurahIndex index=parseIndex(target,meta,false);' in audio_install and 'try{writeMarker(marker,markerValue(target,meta));}catch(IOException ignored){}' in audio_install, 'Installing a verified word-audio pack must not roll back solely because its optimization marker cannot be written'
     assert 'legacyRoot=new File(c.getFilesDir(),"recitations-v1")' in recitation_downloads_text and 'void cleanupLegacyCache()' in recitation_downloads_text, 'Wrong-coordinate legacy recitation bytes must have an explicit cleanup path'
     assert 'recitationDownloadWorker.execute(recitationDownloads::cleanupLegacyCache);' in quran_app_text, 'Legacy recitation cleanup must run away from the Android UI thread'
     assert 'Display display=displays==null?null:displays.getDisplay(Display.DEFAULT_DISPLAY);' in ambient_service_text and 'if(display!=null)windowContext=createDisplayContext(display).createWindowContext' in ambient_service_text, 'Ambient recall must survive a transiently unavailable default display'

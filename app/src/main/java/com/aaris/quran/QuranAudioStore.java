@@ -190,8 +190,12 @@ final class QuranAudioStore {
             throw new IOException("Verified Surah pronunciation could not be installed");
         }
         try{
-            writeMarker(marker,markerValue(target,meta));
-            cache.put(surah,parseIndex(target,meta,false));checkedSurahs.add(surah);
+            SurahIndex index=parseIndex(target,meta,false);
+            // The bytes were already validated against the immutable catalog before installation.
+            // Marker persistence is only a later-startup optimization and must not roll back a
+            // fully verified download when storage is temporarily too tight for this tiny file.
+            try{writeMarker(marker,markerValue(target,meta));}catch(IOException ignored){}
+            cache.put(surah,index);checkedSurahs.add(surah);
         }catch(Exception fail){
             cache.remove(surah);checkedSurahs.remove(surah);delete(marker);delete(target);if(old.exists())old.renameTo(target);throw fail;
         }
