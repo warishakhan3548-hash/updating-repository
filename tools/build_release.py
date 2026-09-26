@@ -136,6 +136,15 @@ def main():
         application = manifest.getroot().find('application')
         application.set(ANDROID + 'debuggable', 'false')
         application.set(ANDROID + 'testOnly', 'false')
+        # This builder bypasses Gradle's manifest merger. Expand the one supported placeholder
+        # ourselves and reject any unknown placeholder instead of shipping a literal authority.
+        for node in manifest.getroot().iter():
+            for key, value in list(node.attrib.items()):
+                expanded = value.replace('${applicationId}', app_id)
+                if '${' in expanded:
+                    raise SystemExit(f'Unsupported Android manifest placeholder in {key}: {expanded}')
+                if expanded != value:
+                    node.set(key, expanded)
         ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
         manifest_file = work / 'AndroidManifest.xml'
         manifest.write(manifest_file, encoding='utf-8', xml_declaration=True)

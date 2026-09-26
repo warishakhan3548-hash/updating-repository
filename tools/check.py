@@ -52,6 +52,9 @@ def main():
     workflow_text = (ROOT / '.github/workflows/verify-offline-translations.yml').read_text(encoding='utf-8')
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in workflow_text, 'Checkout action must stay pinned to the reviewed immutable v4 revision'
     assert 'actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961' in workflow_text, 'Java setup action must stay pinned to the reviewed immutable v5 revision'
+    release_builder_text = (ROOT / 'tools/build_release.py').read_text(encoding='utf-8')
+    assert "expanded = value.replace('${applicationId}', app_id)" in release_builder_text, 'Non-Gradle release builder must expand applicationId manifest placeholders'
+    assert "if '${' in expanded:" in release_builder_text, 'Non-Gradle release builder must reject unknown manifest placeholders instead of packaging them literally'
     for build_control in ("- 'build.gradle'", "- 'settings.gradle'", "- 'gradle.properties'", "- 'gradlew'", "- 'gradlew.bat'", "- 'gradle/wrapper/**'"):
         assert workflow_text.count(build_control) == 2, f'CI path filters must cover {build_control} on push and pull_request'
     assets = ROOT / 'app/src/main/assets'
