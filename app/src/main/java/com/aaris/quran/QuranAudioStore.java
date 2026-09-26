@@ -91,9 +91,20 @@ final class QuranAudioStore {
         for(int surah=1;surah<=114;surah++){
             File old=new File(root,String.format(Locale.ROOT,".%03d.old",surah));
             if(!old.isFile())continue;
-            File target=surahFile(surah);
-            if(target.isFile()){delete(old);continue;}
-            if(old.renameTo(target))delete(markerFile(surah));
+            File target=surahFile(surah);PackMeta meta=meta(surah);
+            if(target.isFile()){
+                try{
+                    validateContainer(target,meta,true);
+                    delete(old);
+                    continue;
+                }catch(Exception invalid){
+                    // A crash may leave both the newly installed target and the previous verified
+                    // pack. Never discard the rollback copy until the new target re-verifies.
+                    delete(markerFile(surah));
+                    if(!target.delete())continue;
+                }
+            }
+            if(!target.exists()&&old.renameTo(target))delete(markerFile(surah));
         }
     }
     private void cleanupObsoletePartials(){
@@ -190,8 +201,12 @@ final class QuranAudioStore {
             throw new IOException("Verified Surah pronunciation could not be installed");
         }
         try{
-            writeMarker(marker,markerValue(target,meta));
-            cache.put(surah,parseIndex(target,meta,false));checkedSurahs.add(surah);
+            SurahIndex index=parseIndex(target,meta,false);
+            // The bytes were already validated against the immutable catalog before installation.
+            // Marker persistence is only a later-startup optimization and must not roll back a
+            // fully verified download when storage is temporarily too tight for this tiny file.
+            try{writeMarker(marker,markerValue(target,meta));}catch(IOException ignored){}
+            cache.put(surah,index);checkedSurahs.add(surah);
         }catch(Exception fail){
             cache.remove(surah);checkedSurahs.remove(surah);delete(marker);delete(target);if(old.exists())old.renameTo(target);throw fail;
         }

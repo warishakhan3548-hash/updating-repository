@@ -15,7 +15,7 @@ import java.util.*;
 final class TranslationSpeech implements AutoCloseable {
     private final Context context;private TextToSpeech tts;private boolean ready,closed,starting;
     private final Handler main=new Handler(Looper.getMainLooper());private Runnable afterInit;
-    TranslationSpeech(Context context){this.context=context;}
+    TranslationSpeech(Context context){this.context=context.getApplicationContext();}
     private void ensure(Runnable action){
         if(closed)return;if(ready){action.run();return;}afterInit=action;
         if(starting){message("Device voice is starting…");return;}starting=true;

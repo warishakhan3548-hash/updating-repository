@@ -76,9 +76,10 @@ final class QuranAudioDownloadManager {
         cancel=false;activeSurah=0;percent=-1;progress="Checking installed word audio…";notifyChanged();
         try{
             io.execute(()->{
-                int completed=store.installedCount(),current=1;String failure=null;
+                int completed=0,current=0;String failure=null;
                 try{
-                    progress="Word audio · "+completed+"/114 saved";
+                    completed=store.installedCount();
+                    progress="Word audio · "+completed+"/114 saved";notifyChanged();
                     for(current=1;current<=114;current++){
                         if(cancel)throw new IOException("Download cancelled");
                         if(store.installedSurah(current))continue;

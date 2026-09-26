@@ -44,6 +44,21 @@ def main():
         java = str(Path(os.environ['JAVA_HOME']) / 'bin/java')
     if not java:
         raise SystemExit('A Java 17+ runtime containing jdk.compiler is required.')
+    wrapper_properties = (ROOT / 'gradle/wrapper/gradle-wrapper.properties').read_text(encoding='utf-8')
+    assert 'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.11.1-bin.zip' in wrapper_properties
+    assert 'distributionSha256Sum=f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6' in wrapper_properties, 'Gradle distribution must remain pinned to the reviewed official SHA-256'
+    wrapper_jar = ROOT / 'gradle/wrapper/gradle-wrapper.jar'
+    assert hashlib.sha256(wrapper_jar.read_bytes()).hexdigest() == '2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046', 'Checked-in Gradle wrapper JAR must match the official Gradle 8.11.1 checksum'
+    workflow_text = (ROOT / '.github/workflows/verify-offline-translations.yml').read_text(encoding='utf-8')
+    assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in workflow_text, 'Checkout action must stay pinned to the reviewed immutable v4 revision'
+    assert 'actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961' in workflow_text, 'Java setup action must stay pinned to the reviewed immutable v5 revision'
+    capture_workflow_text = (ROOT / '.github/workflows/capture-hadeethenc.yml').read_text(encoding='utf-8')
+    assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in capture_workflow_text, 'HadeethEnc capture workflow checkout must stay pinned to the reviewed immutable v4 revision'
+    release_builder_text = (ROOT / 'tools/build_release.py').read_text(encoding='utf-8')
+    assert "expanded = value.replace('${applicationId}', app_id)" in release_builder_text, 'Non-Gradle release builder must expand applicationId manifest placeholders'
+    assert "if '${' in expanded:" in release_builder_text, 'Non-Gradle release builder must reject unknown manifest placeholders instead of packaging them literally'
+    for build_control in ("- 'build.gradle'", "- 'settings.gradle'", "- 'gradle.properties'", "- 'gradlew'", "- 'gradlew.bat'", "- 'gradle/wrapper/**'"):
+        assert workflow_text.count(build_control) == 2, f'CI path filters must cover {build_control} on push and pull_request'
     assets = ROOT / 'app/src/main/assets'
     manifest = json.loads((assets / 'content-manifest.json').read_text())
     pack = assets / 'quran.sqlite'
@@ -230,6 +245,7 @@ def main():
 
     # Translation speech must recover automatically when Android removes or renames a saved offline voice.
     translation_speech_text = (ROOT / 'app/src/main/java/com/aaris/quran/TranslationSpeech.java').read_text(encoding='utf-8')
+    assert 'TranslationSpeech(Context context){this.context=context.getApplicationContext();}' in translation_speech_text, 'Translation speech must not retain an Activity context across slow TTS initialization'
     assert 'private Voice preferredVoice(String language,List<Voice> available)' in translation_speech_text, 'Translation speech must resolve a usable offline voice centrally'
     assert 'preferences.edit().putString(language,voiceKey(fallback)).apply();' in translation_speech_text, 'A stale or missing voice preference must be repaired to the best installed offline voice'
     assert 'Voice selected=preferredVoice(entry.edition.language,available);' in translation_speech_text, 'Translation playback must use the resilient voice resolver'
@@ -250,6 +266,13 @@ def main():
     for mutation in ('style.textFinish=finishIndex;style.textGlass=finishIndex==Appearance.TEXT_GLASS;style.name="My style"', 'style.glass=true;style.name="My style"', 'style.glass=false;style.name="My style"', 'style.autoBalance=!style.autoBalance;style.name="My style"', 'style.reducedEffects=!style.reducedEffects;style.name="My style"', 'style.gradient=true;style.name="My style"', 'style.autoShadowColor=!style.autoShadowColor;style.name="My style"', 'style.autoBalance=true;style.autoBalanceEffects();style.name="My style"', 'style.gradient=false;style.name="My style"'):
         assert mutation in appearance_studio_text, 'Appearance mutations must not leave a preset falsely selected'
     assert 'private void normalizeEditingLayer()' in appearance_studio_text and 'if(layer==5&&!style.gradient){layer=0;invalidateEditorColor();}' in appearance_studio_text, 'Appearance undo/redo must not leave a hidden gradient layer selected'
+    assert 'b.setMinHeight(dp(activity,48))' in appearance_studio_text, 'Appearance compact choices must keep the Android 48dp minimum touch target'
+    assert 'line.addView(seek,new LinearLayout.LayoutParams(0,dp(activity,48),1));' in appearance_studio_text, 'Appearance sliders must keep a 48dp touch target'
+    assert appearance_studio_text.count('new LinearLayout.LayoutParams(dp(activity,48),dp(activity,48))') >= 2, 'Appearance palette swatches must use 48dp tappable containers'
+    assert 'outer.addView(visual,new FrameLayout.LayoutParams(dp(activity,27),dp(activity,27),Gravity.CENTER));' in appearance_studio_text, 'Palette visual dots must stay compact inside the larger touch target'
+    assert 'visual.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);' in appearance_studio_text, 'Palette swatches must expose one semantic accessibility node instead of duplicate inner-dot nodes'
+    assert 'HorizontalScrollView palette=new HorizontalScrollView(activity)' in appearance_studio_text and 'palette.addView(dots,new HorizontalScrollView.LayoutParams(-2,-2));controls.addView(palette);' in appearance_studio_text, 'Expanded palette touch targets must remain usable on narrow screens'
+    assert 'new LinearLayout.LayoutParams(dp(activity,118),dp(activity,48))' in appearance_studio_text, 'Saved appearance chips must keep a 48dp touch target'
     assert 'boolean canUndo=historyIndex>0,canRedo=historyIndex+1<history.size();' in appearance_studio_text, 'Appearance history controls must derive enabled state from the real history cursor'
     assert 'undo.setEnabled(canUndo);undo.setFocusable(canUndo);undo.setAlpha(canUndo?1f:.45f);' in appearance_studio_text and 'redo.setEnabled(canRedo);redo.setFocusable(canRedo);redo.setAlpha(canRedo?1f:.45f);' in appearance_studio_text, 'Unavailable Undo/Redo controls must be visibly and semantically disabled instead of silently no-oping'
     assert 'private void renderControls(){\n        normalizeEditingLayer();' in appearance_studio_text, 'Appearance editor must normalize its editing target before rebuilding controls'
@@ -271,18 +294,41 @@ def main():
     main_activity_text = (ROOT / 'app/src/main/java/com/aaris/quran/MainActivity.java').read_text(encoding='utf-8')
     quran_app_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranApp.java').read_text(encoding='utf-8')
     learning_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/LearningStore.java').read_text(encoding='utf-8')
+    backup_validator_text = (ROOT / 'app/src/main/java/com/aaris/quran/BackupValidator.java').read_text(encoding='utf-8')
     content_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/ContentStore.java').read_text(encoding='utf-8')
     translation_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/TranslationStore.java').read_text(encoding='utf-8')
+    hadith_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/HadithStore.java').read_text(encoding='utf-8')
     quran_audio_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranAudioStore.java').read_text(encoding='utf-8')
+    quran_audio_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranAudioDownloadManager.java').read_text(encoding='utf-8')
+    word_audio_player_text = (ROOT / 'app/src/main/java/com/aaris/quran/WordAudioPlayer.java').read_text(encoding='utf-8')
     recitation_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationDownloads.java').read_text(encoding='utf-8')
     recitation_service_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationService.java').read_text(encoding='utf-8')
+    ambient_service_text = (ROOT / 'app/src/main/java/com/aaris/quran/AmbientRecallService.java').read_text(encoding='utf-8')
     assert 'cleanupOldPacks(folder,target);' in content_store_text and '"install.tmp".equals(name)' in content_store_text, 'Verified Quran pack updates must reclaim obsolete database/staging files'
     assert '"translations.installing".equals(file.getName())' in translation_store_text, 'Verified translation pack updates must reclaim an abandoned install staging file'
-    assert 'recoverInterruptedInstalls();' in quran_audio_store_text and 'if(old.renameTo(target))delete(markerFile(surah));' in quran_audio_store_text, 'Interrupted Quran audio replacement must restore the last installed pack on restart'
+    assert 'try{writeVerificationMarker(marker,target,packHash,packBytes);}' in hadith_store_text and 'catch(IOException ignored){}' in hadith_store_text, 'A failed Hadith verification-marker optimization must not hide a cryptographically verified evidence pack'
+    assert 'recoverInterruptedInstalls();' in quran_audio_store_text and 'validateContainer(target,meta,true);' in quran_audio_store_text and 'if(!target.exists()&&old.renameTo(target))delete(markerFile(surah));' in quran_audio_store_text, 'Interrupted Quran audio replacement must verify a new target before discarding the rollback pack and restore the rollback when needed'
     assert 'cleanupObsoletePartials();' in quran_audio_store_text and 'name.startsWith(".partial-")' in quran_audio_store_text, 'Quran audio must discard resumable partials from obsolete immutable source revisions'
     assert 'try{writeMarker(marker,markerValue(file,meta));}catch(IOException ignored){}' in quran_audio_store_text, 'A failed optimization marker write must not invalidate a fully verified Quran audio pack'
+    assert 'int completed=0,current=0;String failure=null;' in quran_audio_downloads_text and 'completed=store.installedCount();' in quran_audio_downloads_text, 'Word-audio Download All must enter its recovery/finally path before installed-pack inspection can fail'
+    assert 'AudioManager.ACTION_AUDIO_BECOMING_NOISY' in word_audio_player_text and 'registerNoisyReceiverLocked();' in word_audio_player_text, 'Word pronunciation playback must stop if a private audio route disconnects'
+    assert 'Context.RECEIVER_NOT_EXPORTED' in word_audio_player_text and 'unregisterNoisyReceiverLocked();abandonFocus();' in word_audio_player_text, 'Word-audio noisy-route receiver must stay private and be released with playback state'
+    audio_install_start = quran_audio_store_text.index('    synchronized void installDownloaded(')
+    audio_install_end = quran_audio_store_text.index('\n    private static SurahIndex parseIndex', audio_install_start)
+    audio_install = quran_audio_store_text[audio_install_start:audio_install_end]
+    assert 'SurahIndex index=parseIndex(target,meta,false);' in audio_install and 'try{writeMarker(marker,markerValue(target,meta));}catch(IOException ignored){}' in audio_install, 'Installing a verified word-audio pack must not roll back solely because its optimization marker cannot be written'
     assert 'legacyRoot=new File(c.getFilesDir(),"recitations-v1")' in recitation_downloads_text and 'void cleanupLegacyCache()' in recitation_downloads_text, 'Wrong-coordinate legacy recitation bytes must have an explicit cleanup path'
+    assert 'connection.setInstanceFollowRedirects(true)' in recitation_downloads_text and 'connection.setInstanceFollowRedirects(false)' not in recitation_downloads_text, 'Whole-ayah recitation downloads must tolerate normal HTTPS CDN redirects'
+    assert 'connection.getURL().getProtocol()' in recitation_downloads_text and 'redirected away from HTTPS' in recitation_downloads_text, 'Recitation redirect handling must reject transport downgrade'
+    assert 'connection.setRequestProperty("Range","bytes="+existing+"-")' in recitation_downloads_text and 'connection.setRequestProperty("If-Range",state.validator)' in recitation_downloads_text, 'Interrupted whole-ayah downloads must resume only against the validator-bound remote representation'
+    assert 'connection.getHeaderField("Content-Range")' in recitation_downloads_text and 'contentRangeTotal(' in recitation_downloads_text, 'Resumed whole-ayah bytes must validate the returned byte range before appending'
+    assert 'ResumeState readResumeState' in recitation_downloads_text and 'writeResumeState(resume,stableValidator,total)' in recitation_downloads_text, 'Whole-ayah resume metadata must survive cancellation so the current ayah can continue instead of restarting'
+    assert 'Incomplete audio; retry will resume' in recitation_downloads_text and 'finally{' in recitation_downloads_text, 'Interrupted whole-ayah transfers must preserve valid partial bytes for retry'
+    assert 'clearPartial(temporary,resume)' in recitation_downloads_text, 'Invalid or unbound whole-ayah partials must be discarded before reuse'
+    assert 'directory.getUsableSpace()' in recitation_downloads_text and 'STORAGE_HEADROOM_BYTES' in recitation_downloads_text, 'Whole-ayah downloads must fail cleanly before exhausting known available storage'
     assert 'recitationDownloadWorker.execute(recitationDownloads::cleanupLegacyCache);' in quran_app_text, 'Legacy recitation cleanup must run away from the Android UI thread'
+    assert 'private boolean ensureWindowEnvironment()' in ambient_service_text and 'if(display==null)return false;' in ambient_service_text and 'createDisplayContext(display).createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,null)' in ambient_service_text, 'Ambient recall must wait for a display-associated window context instead of using a non-visual Service context on API 30+'
+    assert 'if(!ensureWindowEnvironment()){handler.removeCallbacks(tick);handler.postDelayed(this::prepareCard,1000L);return;}' in ambient_service_text, 'A transiently unavailable display must retry the pending recall card without crashing or consuming the recall interval'
     assert 'layout.setPadding(left,top,right,bottom);overlay.setPadding(left,top,right,bottom);' in main_activity_text, 'Interactive UI must consume system/IME insets without insetting the full-screen themed backdrop'
     assert 'view.setPadding(edges.left,edges.top,edges.right,edges.bottom)' not in main_activity_text, 'Do not regress Android 15 edge-to-edge by padding the root/backdrop away from system bars'
     activity_result_start = main_activity_text.index('    @Override protected void onActivityResult')
@@ -309,11 +355,19 @@ def main():
     assert 'ui.post(()->toast("File saved"))' not in activity_result, 'Do not report export completion from the old pre-lifecycle completion path'
     assert 'app.publishRestoreImport(backup,count)' in activity_result and 'app.publishRestoreImportFailure(' in activity_result, 'Backup validation success and failure must publish through lifecycle-safe application state'
     assert 'app.getContentResolver().openInputStream(uri)' in activity_result and 'app.learning.validateBackup(backup,app.content)' in activity_result, 'Backup parsing must not retain the Activity while validation runs'
+    assert 'MAX_FUTURE_EVENT_SKEW=5*Recall.MINUTE' in learning_store_text and 'if(lastEventTime>now+MAX_FUTURE_EVENT_SKEW)lastEventTime=now;' in learning_store_text, 'Learning event creation must recover from an imported or legacy clock that is implausibly far in the future'
+    assert 'String order="event".equals(table)?" ORDER BY seq":"";' in learning_store_text and '"SELECT * FROM "+table+order' in learning_store_text, 'Learning backups must serialize event rows in stable ledger sequence order'
+    assert 'MAX_FUTURE_EVENT_SKEW=5*Recall.MINUTE' in backup_validator_text and 'timestamp(row,"at")>now+MAX_FUTURE_EVENT_SKEW' in backup_validator_text, 'Backup validation must reject learning events that would poison the local scheduler clock'
     assert 'pendingRestore' not in main_activity_text, 'Do not keep validated backup payloads in Activity-local state where rotation can discard them'
     assert 'ui.post(()->{if(isDestroyed())return;pendingRestore=backup' not in activity_result, 'Restore preparation must not depend on the Activity that launched validation'
     assert 'pendingExport!=null||app.exportWriteBusy.get()||!app.exportPrepareBusy.compareAndSet(false,true)' in main_activity_text, 'A new export must be blocked by local picker state, destination writes, or an in-flight prepared handoff'
     assert 'exportBusy=app.exportPrepareBusy.get()||app.exportWriteBusy.get()' in main_activity_text, 'Existing operation UI must reflect both export preparation and destination writing'
     assert main_activity_text.count('Preparing or saving export on your phone…') >= 2, 'Operation status must describe both export preparation and destination writes'
+    assert 'WindowInsetsController controller=getWindow().getInsetsController();' in main_activity_text and 'controller.setSystemBarsAppearance(lightBars?light:0,light);' in main_activity_text, 'API 30+ system-bar icon contrast must use WindowInsetsController instead of deprecated visibility flags'
+    assert 'if(Build.VERSION.SDK_INT<35){getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);}' in main_activity_text, 'Android 15 edge-to-edge must not depend on disabled system-bar color setters'
+    assert 'row.setContentDescription(bookLabel+". "+book.count+" records")' in main_activity_text, 'Focusable Hadith book rows must expose a TalkBack label'
+    assert 'row.setContentDescription(word.arabic+". "+gloss+(remembered?". Remembered":". Add to memory"))' in main_activity_text and 'row.setContentDescription(word.arabic+". "+gloss+". Remembered")' in main_activity_text, 'Ambient memory rows must expose and refresh their semantic action state'
+    assert 'row.setContentDescription(word.arabic+". "+meaning+". Open word details")' in main_activity_text, 'Word-by-word detail rows must expose a TalkBack action label'
     assert 'private void updateHighContrast(boolean enabled)' in main_activity_text and 'contrast.setOnCheckedChangeListener((b,v)->updateHighContrast(v));' in main_activity_text, 'High-contrast setting must use the live surface refresh path'
     assert 'highContrast=enabled;learning.set("contrast",""+enabled);\n        show();settings();' in main_activity_text, 'High-contrast changes must rebuild both the underlying screen and the open settings sheet immediately'
     assert 'state.putStringArrayList("hadith_evidence",new ArrayList<>(selectedHadith))' in main_activity_text, 'Selected Hadith evidence must survive Activity recreation'
@@ -411,6 +465,9 @@ def main():
     assert 'public void onSkipToNext(){runMediaWhenReady(()->move(1));}' in recitation_service_text and 'public void onSkipToPrevious(){runMediaWhenReady(()->move(-1));}' in recitation_service_text, 'Media-session navigation must not be dropped during cold-start content loading'
     assert 'final int token=++mediaCommandGeneration;' in recitation_service_text and 'destroyed||token!=mediaCommandGeneration' in recitation_service_text, 'A superseded media command must not replay after content initialization'
     assert 'String action=intent.getAction();mediaCommandGeneration++;' in recitation_service_text, 'Service commands must supersede any pending MediaSession readiness handoff'
+    assert 'AudioManager.ACTION_AUDIO_BECOMING_NOISY' in recitation_service_text, 'Recitation must pause when headphones or another private audio route disconnects'
+    assert 'registerReceiver(noisy,noisyFilter,Context.RECEIVER_NOT_EXPORTED)' in recitation_service_text, 'Audio-route receiver must stay private on modern Android'
+    assert 'if(noisyReceiverRegistered){unregisterReceiver(noisy);noisyReceiverRegistered=false;}' in recitation_service_text, 'Recitation must release its noisy-route receiver with the Service lifecycle'
     assert 'if(++repeatCompleted<repeatPreference())play();' in recitation_service_text, 'Repeat changes must take effect at the next ayah completion without restarting playback'
     assert 'continuousPreference()&&ayah<app.content.surah(surah).count' in recitation_service_text, 'Continue-mode changes must take effect before advancing to the next ayah'
     audio_controls = java_method('audioControls')
@@ -429,6 +486,9 @@ def main():
     assert 'if(openRecitationIntent(intent))return;' in main_activity_text, 'Warm notification delivery must immediately open the playing ayah'
     assert 'private void updateBookmarkButton(FrameLayout button,Glass.Icon icon,boolean saved)' in main_activity_text, 'Reader bookmark state needs one original-control update path'
     assert 'button.setContentDescription(action);button.setTooltipText(action);button.setSelected(saved);' in main_activity_text, 'Bookmark toggles must update accessibility state immediately'
+    assert 'source.setMinimumHeight(dp(this,48));source.setFocusable(true);source.setContentDescription("Quran source · Tanzil Project · Uthmani 1.1 · Open source details");source.setTooltipText("Open source details");' in main_activity_text, 'Reader source action must keep a full touch target and explicit accessibility affordance'
+    assert 'chip.setMinimumHeight(dp(this,48));' in main_activity_text and 'chip.setFocusable(true);chip.setClickable(true);' in main_activity_text, 'Compact recall actions must keep the Android 48dp minimum touch target and keyboard/TalkBack focusability'
+    assert 'item.setMinimumHeight(dp(this,48));' in main_activity_text and 'item.setFocusable(true);item.setClickable(true);' in main_activity_text, 'Recitation download rows must keep the Android 48dp minimum touch target and keyboard/TalkBack focusability'
     assert 'icon.color=saved?Appearance.readable(appearance.accent,appearance.buttonSurface()):appearance.buttonInk();icon.invalidate();' in main_activity_text, 'Saved bookmark feedback must remain readable in the active appearance'
     assert 'FrameLayout bookmark=(FrameLayout)iconButton("bookmark","Save ayah",()->{});' in reader_method and 'updateBookmarkButton(bookmark,bookmarkIcon,pageBookmarks.contains(a.id));' in reader_method, 'Reader bookmark controls must bind their initial saved state'
     assert 'bookmark.setOnClickListener(v->{boolean saved=learning.toggleBookmark(a.id);updateBookmarkButton(bookmark,bookmarkIcon,saved);toast(saved?"Ayah saved":"Bookmark removed");});' in reader_method, 'Reader bookmark toggles must repaint the same control without a full reader rebuild'
@@ -453,6 +513,8 @@ def main():
     assert 'lastReaderPageStart' not in main_activity_text and 'count-7' not in move_reader and 'count-7' not in reader_prefetch, 'Do not reintroduce alternate or overlapping reader page-boundary formulas'
     assert 'synchronized Map<String,Recall.State> states(Collection<String> targets)' in learning_store_text, 'Recall single-target flows need the existing targeted state projection'
     assert 'WHERE target IN (' in learning_store_text, 'Targeted Recall state projection must stay bounded to requested targets when the global cache is cold'
+    assert 'if(cachedStates!=null){' in learning_store_text and 'Recall.replay(events(Collections.singleton(target))' in learning_store_text and 'cachedStates=Collections.unmodifiableMap(next);' in learning_store_text, 'Appending one learning event must refresh only that target when the global Recall projection cache is warm'
+    assert 'surah>0?"Download stopped · Surah "+surah+": "+message:"Download stopped · "+message' in main_activity_text, 'Word-audio batch preflight failures must not display a fabricated Surah 0 coordinate'
     for method in ('enroll', 'review', 'reviewTransition'):
         recall_flow = java_method(method)
         assert 'learning.states()' not in recall_flow, f'{method} must not replay the complete learning history for one Recall target'
@@ -475,6 +537,7 @@ def main():
     assert media.get(android + 'exported') == 'false' and media.get(android + 'foregroundServiceType') == 'mediaPlayback'
     provider = next(p for p in application.findall('provider') if p.get(android + 'name') == '.ResearchFiles')
     assert provider.get(android + 'exported') == 'false' and provider.get(android + 'grantUriPermissions') == 'true'
+    assert provider.get(android + 'authorities') == '${applicationId}.research', 'Research PDF authority must follow the final applicationId for every build variant'
     sources = sorted((ROOT / 'core/src/main/java').rglob('*.java'))
     tests = sorted((ROOT / 'core/src/test/java').rglob('*.java'))
     with tempfile.TemporaryDirectory(prefix='aaris-check-') as scratch:
@@ -556,6 +619,12 @@ def main():
             resources = Path(scratch) / 'resources.zip'
             manifest_tree = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml')
             manifest_tree.getroot().set('package', 'com.aaris.quran')
+            # check.py links the raw source manifest without Gradle's manifest merger, so mirror
+            # applicationId placeholder expansion before asking aapt2 to validate the manifest.
+            for node in manifest_tree.getroot().iter():
+                authority = node.get(android + 'authorities')
+                if authority:
+                    node.set(android + 'authorities', authority.replace('${applicationId}', 'com.aaris.quran'))
             manifest_path = Path(scratch) / 'AndroidManifest.xml'
             ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
             manifest_tree.write(manifest_path, encoding='utf-8', xml_declaration=True)

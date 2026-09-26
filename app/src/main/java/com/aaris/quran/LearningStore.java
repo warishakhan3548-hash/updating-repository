@@ -10,6 +10,7 @@ import java.util.*;
 /** Precious user history lives in its own database. No destructive upgrade fallback. */
 final class LearningStore extends SQLiteOpenHelper {
     final String session=UUID.randomUUID().toString();
+    private static final long MAX_FUTURE_EVENT_SKEW=5*Recall.MINUTE;
     private Map<String,Recall.State> cachedStates;
     private long lastEventTime;
     LearningStore(Context context){super(context,"learning.sqlite",null,1);setWriteAheadLoggingEnabled(true);}
@@ -24,9 +25,10 @@ final class LearningStore extends SQLiteOpenHelper {
     @Override public void onUpgrade(SQLiteDatabase db,int old,int version){throw new IllegalStateException("A non-destructive learning migration is required");}
     void event(String target,Recall.Kind kind,String context){event(UUID.randomUUID().toString(),target,kind,context);}
     synchronized void event(String id,String target,Recall.Kind kind,String context) {
-        if(lastEventTime==0)try(Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(MAX(at),0) FROM event",null)){if(c.moveToFirst())lastEventTime=c.getLong(0);}
+        long now=System.currentTimeMillis();
+        if(lastEventTime==0)try(Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(MAX(at),0) FROM event",null)){if(c.moveToFirst()){lastEventTime=c.getLong(0);if(lastEventTime>now+MAX_FUTURE_EVENT_SKEW)lastEventTime=now;}}
         ContentValues v=new ContentValues();v.put("id",id);v.put("target",target);v.put("kind",kind.name());
-        v.put("at",lastEventTime=Math.max(System.currentTimeMillis(),lastEventTime+1));v.put("session",session);v.put("context",context==null?target:context);v.put("scheduler",Recall.VERSION);
+        v.put("at",lastEventTime=Math.max(now,lastEventTime+1));v.put("session",session);v.put("context",context==null?target:context);v.put("scheduler",Recall.VERSION);
         try(Cursor existing=getReadableDatabase().rawQuery("SELECT target,kind,context FROM event WHERE id=?",new String[]{id})) {
             if(existing.moveToFirst()) {
                 if(!target.equals(existing.getString(0))||!kind.name().equals(existing.getString(1))||!v.getAsString("context").equals(existing.getString(2)))
@@ -34,7 +36,13 @@ final class LearningStore extends SQLiteOpenHelper {
                 return;
             }
         }
-        getWritableDatabase().insertOrThrow("event",null,v);cachedStates=null;
+        getWritableDatabase().insertOrThrow("event",null,v);
+        if(cachedStates!=null){
+            LinkedHashMap<String,Recall.State> next=new LinkedHashMap<>(cachedStates);
+            Recall.State refreshed=Recall.replay(events(Collections.singleton(target)),new Recall.ConservativeScheduler()).get(target);
+            if(refreshed==null)next.remove(target);else next.put(target,refreshed);
+            cachedStates=Collections.unmodifiableMap(next);
+        }
     }
     List<Recall.Event> events() {
         List<Recall.Event> list=new ArrayList<>();
@@ -169,7 +177,8 @@ final class LearningStore extends SQLiteOpenHelper {
         JSONObject root=new JSONObject().put("schema",1).put("app","Aaris Quran").put("created_at",System.currentTimeMillis());
         SQLiteDatabase db=getReadableDatabase();db.beginTransactionNonExclusive();
         try { for(String table:new String[]{"event","bookmark","note","setting","bundle"}) {
-            JSONArray a=new JSONArray();try(Cursor c=getReadableDatabase().rawQuery("SELECT * FROM "+table,null)) {
+            JSONArray a=new JSONArray();String order="event".equals(table)?" ORDER BY seq":"";
+            try(Cursor c=getReadableDatabase().rawQuery("SELECT * FROM "+table+order,null)) {
                 while(c.moveToNext()){JSONObject row=new JSONObject();for(int i=0;i<c.getColumnCount();i++)if(!"seq".equals(c.getColumnName(i)))row.put(c.getColumnName(i),c.getType(i)==Cursor.FIELD_TYPE_INTEGER?c.getLong(i):c.getString(i));a.put(row);}
             }root.put(table,a);
         }db.setTransactionSuccessful();return root;

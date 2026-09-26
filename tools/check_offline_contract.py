@@ -55,9 +55,14 @@ def main():
 
     recitation=RECITATION_DOWNLOADER.read_text(encoding="utf-8")
     if ('https://cdn.islamic.network/quran/audio/128/' not in recitation or
-        'setInstanceFollowRedirects(false)' not in recitation or
+        'setInstanceFollowRedirects(true)' not in recitation or
+        'connection.getURL().getProtocol()' not in recitation or
+        'redirected away from HTTPS' not in recitation or
+        'connection.setRequestProperty("Range","bytes="+existing+"-")' not in recitation or
+        'connection.setRequestProperty("If-Range",state.validator)' not in recitation or
+        'connection.getHeaderField("Content-Range")' not in recitation or
         'ContentStore.hash(target)' not in recitation):
-        fail("optional whole-ayah audio lost its pinned host, redirect boundary or local corruption check")
+        fail("optional whole-ayah audio lost its pinned source, resumable HTTPS boundary or local corruption check")
 
     if not AUDIO_DOWNLOADER.is_file() or not AUDIO_STORE.is_file() or not AUDIO_PLAYER.is_file() or not AUDIO_LOCK.is_file():
         fail("isolated-word Quran pronunciation wiring is incomplete")

@@ -10,8 +10,10 @@ import java.util.*;
 final class BackupValidator {
     private BackupValidator() {}
     private static final int MAX_ROWS=100000;
+    private static final long MAX_FUTURE_EVENT_SKEW=5*Recall.MINUTE;
     static int validate(JSONObject backup,ContentStore content) throws JSONException {
         if(backup.getInt("schema")!=1||!"Aaris Quran".equals(backup.getString("app")))fail("Unsupported backup");
+        long now=System.currentTimeMillis();
         Set<String> targets=new HashSet<>();int count=0;
         for(String table:new String[]{"event","bookmark","note","setting","bundle"}) {
             JSONArray rows=backup.getJSONArray(table);
@@ -24,7 +26,8 @@ final class BackupValidator {
                         key=string(row,"id",80,false);
                         target(string(row,"target",80,false),content,targets);
                         try{Recall.Kind.valueOf(string(row,"kind",24,false));}catch(IllegalArgumentException e){fail("Unknown event kind");}
-                        timestamp(row,"at");string(row,"session",80,false);
+                        if(timestamp(row,"at")>now+MAX_FUTURE_EVENT_SKEW)fail("Learning event timestamp is too far in the future");
+                        string(row,"session",80,false);
                         String context=string(row,"context",80,false);
                         Ayah origin=content.contextFor(row.getString("target"));
                         if(origin==null||!origin.id.equals(context))fail("Unreviewed cross-context learning assertion");

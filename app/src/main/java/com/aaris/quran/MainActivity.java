@@ -110,7 +110,7 @@ public final class MainActivity extends Activity {
         public void onError(int surah,String message){
             MainActivity activity=activity();if(activity==null)return;
             if("Download cancelled".equals(message)){activity.toast("Download paused · partial audio is kept");return;}
-            activity.toast(all?"Download stopped · Surah "+surah+": "+message:"Audio download failed: "+message);
+            activity.toast(all?(surah>0?"Download stopped · Surah "+surah+": "+message:"Download stopped · "+message):"Audio download failed: "+message);
         }
     }
 
@@ -251,9 +251,19 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(openRecitationIntent(intent))return;if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
-        int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-        getWindow().getDecorView().setSystemUiVisibility(Appearance.luminance(appearance.background)>.38?bars|light:bars&~light);
-        getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);
+        boolean lightBars=Appearance.luminance(appearance.background)>.38;
+        if(Build.VERSION.SDK_INT>=30){
+            WindowInsetsController controller=getWindow().getInsetsController();
+            if(controller!=null){
+                int light=WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                controller.setSystemBarsAppearance(lightBars?light:0,light);
+            }
+        }else{
+            int bars=getWindow().getDecorView().getSystemUiVisibility();
+            int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            getWindow().getDecorView().setSystemUiVisibility(lightBars?bars|light:bars&~light);
+        }
+        if(Build.VERSION.SDK_INT<35){getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);}
         backdrop.highContrast=highContrast;backdrop.invalidate();
     }
     private void updateHighContrast(boolean enabled){
@@ -319,7 +329,7 @@ public final class MainActivity extends Activity {
         box.setContentDescription(title+(meta==null||meta.isEmpty()?"":", "+meta));box.setOnClickListener(v->click.run());Glass.motion(box);return box;
     }
     private View actionChip(String icon,String title,Runnable click){
-        LinearLayout chip=row(this);pad(chip,12,9);chip.setGravity(Gravity.CENTER);chip.setMinimumHeight(dp(this,46));
+        LinearLayout chip=row(this);pad(chip,12,9);chip.setGravity(Gravity.CENTER);chip.setMinimumHeight(dp(this,48));
         chip.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));chip.setFocusable(true);chip.setClickable(true);
         Glass.Icon glyph=new Glass.Icon(this,icon);glyph.color=appearance.buttonInk();chip.addView(glyph,new LinearLayout.LayoutParams(dp(this,20),dp(this,20)));
         TextView name=text(this,title,13,appearance.buttonInk());name.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));pad(name,8,0);chip.addView(name);
@@ -575,11 +585,12 @@ public final class MainActivity extends Activity {
                         caption(page,info.count+" records · "+info.edition+" · Offline");gap(page,14);
                         for(HadithStore.BookInfo book:books){
                             LinearLayout row=Glass.row(this);pad(row,14,12);row.setBackground(new Surface(this,Surface.Kind.PANEL,highContrast));
+                            String bookLabel=book.nameEn==null?"Book "+book.number:book.nameEn;
                             TextView n=text(this,book.number,12,GOLD);row.addView(n,new LinearLayout.LayoutParams(dp(this,42),-2));
-                            LinearLayout names=column(this);names.addView(text(this,book.nameEn==null?"Book "+book.number:book.nameEn,16,INK));
+                            LinearLayout names=column(this);names.addView(text(this,bookLabel,16,INK));
                             if(book.nameAr!=null){TextView nameAr=hadithArabic(book.nameAr,22);names.addView(nameAr);}
                             names.addView(text(this,book.count+" records",11,MUTED));row.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-                            row.setFocusable(true);row.setOnClickListener(v->hadithBook(collectionId,book));Glass.motion(row);
+                            row.setContentDescription(bookLabel+". "+book.count+" records");row.setFocusable(true);row.setOnClickListener(v->hadithBook(collectionId,book));Glass.motion(row);
                             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(this,8);page.addView(row,lp);
                         }
                     });
@@ -753,8 +764,10 @@ public final class MainActivity extends Activity {
         Map<String,Recall.State> savedStates=learning.states();
         int count=0;for(ContentStore.Word word:content.words(a.id))if(word.hasGloss(language)){
             if(count++==8)break;LinearLayout row=Glass.row(this);pad(row,8,10);TextView ar=arabic(word.arabic,30);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));
-            Recall.State memory=savedStates.get(word.id);TextView meaning=text(this,word.gloss(language)+(memory!=null&&memory.active?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));
-            row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(word.gloss(language)+" ✓");});Glass.motion(row);
+            Recall.State memory=savedStates.get(word.id);String gloss=word.gloss(language);boolean remembered=memory!=null&&memory.active;
+            TextView meaning=text(this,gloss+(remembered?" ✓":"  +"),15,INK);row.addView(meaning,new LinearLayout.LayoutParams(0,-2,1));
+            row.setContentDescription(word.arabic+". "+gloss+(remembered?". Remembered":". Add to memory"));
+            row.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));row.setFocusable(true);row.setOnClickListener(v->{enroll(word.id,word.ayahId);meaning.setText(gloss+" ✓");row.setContentDescription(word.arabic+". "+gloss+". Remembered");});Glass.motion(row);
             page.addView(row);gap(page,8);
         }
         gap(page,10);page.addView(primary("Back to timer",this::ambientSettings));gap(page,8);
@@ -938,7 +951,7 @@ public final class MainActivity extends Activity {
         next.setEnabled(hasNext);next.setAlpha(hasNext?1f:.48f);next.setContentDescription(hasNext?"Next Quran page":"End of Quran");
         pager.addView(next,new LinearLayout.LayoutParams(0,-2,1));page.addView(pager);gap(page,12);
         page.addView(button("Recall Companion · Timer",this::ambientSettings));gap(page,12);
-        TextView source=text(this,"Tanzil Project · Uthmani 1.1",11,MUTED);source.setGravity(Gravity.CENTER);source.setOnClickListener(v->sources());page.addView(source);gap(page,12);
+        TextView source=text(this,"Tanzil Project · Uthmani 1.1",11,MUTED);source.setGravity(Gravity.CENTER);source.setMinimumHeight(dp(this,48));source.setFocusable(true);source.setContentDescription("Quran source · Tanzil Project · Uthmani 1.1 · Open source details");source.setTooltipText("Open source details");source.setOnClickListener(v->sources());Glass.motion(source);page.addView(source);gap(page,12);
         if(quietReader){header.setVisibility(View.GONE);bottom.setVisibility(View.GONE);page.addView(button("Show controls",()->{quietReader=false;show();}));}
         restoreReaderPosition();prefetchReaderNeighbors();
     }
@@ -1214,7 +1227,7 @@ public final class MainActivity extends Activity {
             final int surah=s;ContentStore.Surah info=content.surah(surah);
             boolean downloaded=downloadedStatus[surah];
 
-            LinearLayout item=row(this);pad(item,12,8);item.setMinimumHeight(dp(this,46));
+            LinearLayout item=row(this);pad(item,12,8);item.setMinimumHeight(dp(this,48));
             item.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
 
             TextView number=text(this,String.format(Locale.ROOT,"%03d",surah),11,MUTED);
@@ -1646,7 +1659,7 @@ public final class MainActivity extends Activity {
         LinearLayout page=sheet("Word by word · "+a.surah+":"+a.number);
         caption(page,"Source word meanings only; this is not a full translation or tafsir.");gap(page,12);
         for(ContentStore.Word word:content.words(a.id)) {
-            LinearLayout row=Glass.row(this);pad(row,4,10);TextView ar=arabic(word.arabic,28);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));TextView gloss=text(this,word.gloss(language),16,INK);row.addView(gloss,new LinearLayout.LayoutParams(0,-2,1));row.setFocusable(true);row.setOnClickListener(v->wordDetails(word));Glass.motion(row);page.addView(row);
+            LinearLayout row=Glass.row(this);pad(row,4,10);TextView ar=arabic(word.arabic,28);row.addView(ar,new LinearLayout.LayoutParams(0,-2,1));String meaning=word.gloss(language);TextView gloss=text(this,meaning,16,INK);row.addView(gloss,new LinearLayout.LayoutParams(0,-2,1));row.setContentDescription(word.arabic+". "+meaning+". Open word details");row.setFocusable(true);row.setOnClickListener(v->wordDetails(word));Glass.motion(row);page.addView(row);
         }
     }
     private void editNote(String target){
