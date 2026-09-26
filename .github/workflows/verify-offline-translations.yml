@@ -86,6 +86,12 @@ jobs:
       - name: Verify Android debug and release packaging and lint
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon --stacktrace \
-            :app:assembleDebug :app:lintDebug \
-            :app:assembleRelease :app:bundleRelease :app:lintRelease
+          # The bundled Hadith DB is large. Packaging debug APK, release APK/AAB and lint in one
+          # parallel Gradle invocation can retain multiple ~430 MiB asset copies and exhaust the
+          # hosted runner heap. Isolate packaging phases so each no-daemon JVM releases memory.
+          ./gradlew --no-daemon --no-parallel --max-workers=2 --stacktrace \
+            :app:assembleDebug :app:lintDebug
+          ./gradlew --no-daemon --no-parallel --max-workers=2 --stacktrace \
+            :app:assembleRelease :app:lintRelease
+          ./gradlew --no-daemon --no-parallel --max-workers=1 --stacktrace \
+            :app:bundleRelease
