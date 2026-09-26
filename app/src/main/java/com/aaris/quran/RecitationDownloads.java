@@ -17,6 +17,8 @@ final class RecitationDownloads {
     static final String[] NAMES={"Mishary Rashid Alafasy","Mahmoud Khalil Al-Husary","Mohamed Siddiq al-Minshawi"};
     static final String ATTRIBUTION="Recitations: Islamic Network / AlQuran.cloud; copyright remains with each reciter. Free non-commercial educational use. https://alquran.cloud/terms-and-conditions";
     private static final int LOCK_STRIPES=64;
+    private static final long MAX_AUDIO_BYTES=20L*1024L*1024L;
+    private static final long STORAGE_HEADROOM_BYTES=8L*1024L*1024L;
     private final File root;
     private final Object[] locks=new Object[LOCK_STRIPES];
     private final Object batchConnectionLock=new Object();
@@ -139,8 +141,9 @@ final class RecitationDownloads {
             if(completion.exists()&&!completion.delete())throw new IOException("Could not invalidate stale Surah completion state");
             if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("Audio storage unavailable");
             File temporary=new File(directory,a.number+".download");
+            if(temporary.exists()&&!temporary.delete())throw new IOException("Could not clear stale recitation download");
             URL url=new URL("https://cdn.islamic.network/quran/audio/128/"+reciter+"/"+globalNumber+".mp3");
-            HttpURLConnection connection=(HttpURLConnection)url.openConnection();connection.setConnectTimeout(15000);connection.setReadTimeout(30000);connection.setInstanceFollowRedirects(false);
+            HttpURLConnection connection=(HttpURLConnection)url.openConnection();connection.setConnectTimeout(15000);connection.setReadTimeout(30000);connection.setInstanceFollowRedirects(true);
             connection.setRequestProperty("Accept-Encoding","identity");connection.setRequestProperty("User-Agent","Aaris-Quran/0.4 recitation");
             if(batchDownload){
                 synchronized(batchConnectionLock){
@@ -155,9 +158,13 @@ final class RecitationDownloads {
             }
             try{
                 int response=connection.getResponseCode();
+                if(!"https".equalsIgnoreCase(connection.getURL().getProtocol()))throw new IOException("Reciter source redirected away from HTTPS");
                 if(response!=200)throw new IOException("Reciter source unavailable ("+response+")");
-                long expected=connection.getContentLengthLong();if(expected>20*1024*1024)throw new IOException("Unexpected audio size");long count=0;
-                try(InputStream in=connection.getInputStream();FileOutputStream out=new FileOutputStream(temporary)){byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1){if(Thread.currentThread().isInterrupted()||(batchDownload&&cancelled))throw new InterruptedIOException("Download paused");count+=n;if(count>20*1024*1024)throw new IOException("Audio too large");out.write(b,0,n);}out.getFD().sync();}
+                long expected=connection.getContentLengthLong();if(expected>MAX_AUDIO_BYTES)throw new IOException("Unexpected audio size");
+                long usable=directory.getUsableSpace();
+                if(expected>=0&&usable>0&&usable<expected+STORAGE_HEADROOM_BYTES)throw new IOException("Not enough phone storage for recitation audio");
+                long count=0;
+                try(InputStream in=connection.getInputStream();FileOutputStream out=new FileOutputStream(temporary)){byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1){if(Thread.currentThread().isInterrupted()||(batchDownload&&cancelled))throw new InterruptedIOException("Download paused");count+=n;if(count>MAX_AUDIO_BYTES)throw new IOException("Audio too large");out.write(b,0,n);}out.getFD().sync();}
                 if(count<512||expected>=0&&count!=expected)throw new IOException("Incomplete audio");
                 MediaMetadataRetriever media=new MediaMetadataRetriever();try{media.setDataSource(temporary.getAbsolutePath());String duration=media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);if(duration==null||Long.parseLong(duration)<=0)throw new IOException("Invalid audio file");}finally{media.release();}
                 String sha=ContentStore.hash(temporary);if(target.exists()&&!target.delete())throw new IOException("Could not replace audio");if(!temporary.renameTo(target))throw new IOException("Could not install audio");
