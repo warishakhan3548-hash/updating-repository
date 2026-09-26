@@ -26,6 +26,7 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - Isolated word/word-sequence playback did not pause when headphones or another private audio route disconnected, so pronunciation could unexpectedly continue on the speaker.
 - A batch word-audio preflight failure before a concrete Surah was selected could surface a fabricated `Surah 0` error label.
 - The reader's tappable Tanzil source label used a small text hit target without the explicit focus/accessibility affordance used by the rest of the interactive UI.
+- Whole-ayah recitation downloads advertised pause/retry resilience but deleted the in-flight ayah `.download` file on every interruption, so retry restarted that ayah from byte zero instead of resuming it.
 
 ## Fixed
 - Hadith/audio marker resilience, TTS application-context ownership, variant-safe sharing, display lookup guarding, release CI, CI deduplication, and Gradle/wrapper integrity guards are implemented on this PR branch.
@@ -44,9 +45,12 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - Batch preflight errors now use a generic download failure message until a real Surah coordinate exists.
 - The existing reader source action now has a 48dp minimum touch target, focusability, tooltip, motion consistency, and a descriptive accessibility label without adding another control.
 - `tools/check.py` now guards these word-audio resilience and reader-accessibility invariants.
+- Whole-ayah recitation now keeps a validator-bound partial for the current ayah, resumes with HTTP `Range` + `If-Range`, validates `Content-Range`, falls back to a clean full response when the representation changes, rejects HTTPS downgrade, and keeps paused progress instead of deleting it.
+- `tools/check.py` and `tools/check_offline_contract.py` now guard the resumable HTTPS boundary so later refactors cannot silently restore restart-from-zero behavior.
 
 ## Pending
-- No identified high-confidence product-code or release-path regression remains in this PR.
+- Full CI for resumable recitation checkpoint 4b026c545bbb523863eac15292143bc032ceaaf9 is currently queued/pending.
+- No additional identified high-confidence product-code or release-path regression remains in this PR after the resumable-download fix.
 - Physical-device/OEM visual, audio-route, overlay-delivery, and long-history profiling remain real-device QA rather than something CI can prove.
 - Review and merge PR #339 when desired.
 
@@ -60,7 +64,8 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - PASS: Android debug assemble + lint.
 - PASS: Android release assemble + lint.
 - Every commit after the verified code checkpoint modifies only `.ai/PR_PROGRESS.md` with `[skip ci]`; product/build code is identical to the verified checkpoint.
+- New resumable whole-ayah recitation checkpoints: fc6dcc7 (Range/If-Range implementation), 7c73cf9 (regression guards), e1f7b7e (offline contract), 4b026c5 (accurate saved-progress UI copy). Latest workflow run 36219462866 is pending at this checkpoint.
 - Local container clone could not run because this execution environment has no GitHub DNS/network access; authoritative verification is therefore GitHub Actions.
 
 ## Next exact step
-Review and merge PR #339. If later work is requested, first read this file, verify the PR/base state and latest CI, and continue only from the first genuinely unfinished related step.
+Verify workflow run 36219462866 for code checkpoint 4b026c545bbb523863eac15292143bc032ceaaf9. If it fails, inspect the first failing job and fix the root cause on this PR; if it passes, update this file with the final PASS and leave PR #339 ready for review/merge.
