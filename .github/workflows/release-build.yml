@@ -1,0 +1,71 @@
+name: Build signed release APK and AAB
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: signed-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Restore private Aaris upload keystore
+        env:
+          AARIS_KEYSTORE_BASE64: ${{ secrets.AARIS_KEYSTORE_BASE64 }}
+          AARIS_KEYSTORE_PASSWORD: ${{ secrets.AARIS_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${AARIS_KEYSTORE_BASE64}" || -z "${AARIS_KEYSTORE_PASSWORD}" ]]; then
+            echo "Missing AARIS_KEYSTORE_BASE64 or AARIS_KEYSTORE_PASSWORD repository secret." >&2
+            exit 1
+          fi
+          umask 077
+          KEYSTORE_PATH="${RUNNER_TEMP}/Aarish-upload-keystore.jks"
+          printf '%s' "${AARIS_KEYSTORE_BASE64}" | base64 --decode > "${KEYSTORE_PATH}"
+          test -s "${KEYSTORE_PATH}"
+          echo "AARIS_KEYSTORE_PATH=${KEYSTORE_PATH}" >> "${GITHUB_ENV}"
+          echo "AARIS_KEY_ALIAS=upload" >> "${GITHUB_ENV}"
+
+      - name: Build signed release APK and AAB
+        env:
+          AARIS_KEYSTORE_PASSWORD: ${{ secrets.AARIS_KEYSTORE_PASSWORD }}
+          AARIS_KEY_PASSWORD: ${{ secrets.AARIS_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --stacktrace             :app:assembleRelease             :app:bundleRelease             -PrequireReleaseSigning=true
+
+      - name: Verify release packages
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          AAB="app/build/outputs/bundle/release/app-release.aab"
+          test -s "${APK}"
+          test -s "${AAB}"
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "${APK}"
+          jarsigner -verify "${AAB}"
+          sha256sum "${APK}" "${AAB}" > release-sha256.txt
+
+      - name: Upload signed release packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aaris-quran-signed-release-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/bundle/release/app-release.aab
+            release-sha256.txt
+          if-no-files-found: error
+          retention-days: 30
