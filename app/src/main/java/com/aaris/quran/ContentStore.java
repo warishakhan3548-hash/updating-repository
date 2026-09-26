@@ -80,6 +80,16 @@ final class ContentStore implements AutoCloseable {
             if(surahs.size()!=114||expectedSurahId!=115||ayahSum!=6236)throw new IOException("Incomplete Quran surah metadata");
         }catch(Exception invalid){opened.close();throw invalid;}
         db=opened;
+        cleanupOldPacks(folder,target);
+    }
+    private static void cleanupOldPacks(File folder,File keep){
+        File[] files=folder.listFiles();if(files==null)return;
+        for(File file:files){
+            if(file.equals(keep)||!file.isFile())continue;
+            String name=file.getName();
+            if((name.startsWith("quran-")&&name.endsWith(".sqlite"))||"install.tmp".equals(name))
+                file.delete(); // Best-effort cleanup only after the current immutable pack verified.
+        }
     }
     static String asset(Context c,String name) throws IOException {
         try(InputStream in=c.getAssets().open(name);ByteArrayOutputStream out=new ByteArrayOutputStream()) {
