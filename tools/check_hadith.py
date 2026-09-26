@@ -107,6 +107,7 @@ def main():
     assert "HadithStore.Hit.selected(record)" in resolver, "Restored selections need a neutral source-only evidence state"
     assert "if(!selectedHadith.isEmpty()&&hits.size()<selectedHadith.size())" in main_activity_text
     assert "ResearchExport.hadithRetrievalLabel(hit)" in main_activity_text
+    assert "Selected source records for comparison. Search-match details are shown only where still available" in main_activity_text, "Restored Hadith comparison must not describe source-only selections as fresh search matches"
     assert "if(hit.selectionOnly)return \"SELECTED SOURCE" in research_export_text, "Restored selection exports must not fabricate search-match confidence"
 
     source = args.source.resolve()
