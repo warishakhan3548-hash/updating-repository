@@ -254,11 +254,35 @@ final class HadithStore implements AutoCloseable {
         try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE h.id=?",
             new String[]{id})){return c.moveToFirst()?new Record(c):null;}
     }
+    /** Resolve a bounded saved selection without depending on which search page is currently loaded. */
+    List<Record> records(Collection<String> ids){
+        if(db==null||ids==null||ids.isEmpty())return Collections.emptyList();
+        LinkedHashSet<String> wanted=new LinkedHashSet<>();
+        for(String id:ids)if(id!=null&&!id.isEmpty())wanted.add(id);
+        if(wanted.isEmpty())return Collections.emptyList();
+        LinkedHashMap<String,Record> found=new LinkedHashMap<>();List<String> all=new ArrayList<>(wanted);
+        for(int start=0;start<all.size();start+=400){
+            if(Thread.currentThread().isInterrupted())throw new CancellationException();
+            List<String> part=all.subList(start,Math.min(all.size(),start+400));
+            String marks=String.join(",",Collections.nCopies(part.size(),"?"));
+            try(Cursor c=db.rawQuery("SELECT "+RECORD_COLUMNS+" FROM hadith h WHERE h.id IN ("+marks+")",
+                part.toArray(new String[0]))){
+                while(c.moveToNext()){Record record=new Record(c);found.put(record.id,record);}
+            }
+        }
+        List<Record> ordered=new ArrayList<>();for(String id:wanted){Record record=found.get(id);if(record!=null)ordered.add(record);}
+        return ordered;
+    }
 
     static final class Hit {
-        final Record record;final TextMatch match;final boolean reference,meaning;
-        Hit(Record record,TextMatch match,boolean reference,boolean meaning){
-            this.record=record;this.match=match;this.reference=reference;this.meaning=meaning;
+        final Record record;final TextMatch match;final boolean reference,meaning,selectionOnly;
+        Hit(Record record,TextMatch match,boolean reference,boolean meaning){this(record,match,reference,meaning,false);}
+        private Hit(Record record,TextMatch match,boolean reference,boolean meaning,boolean selectionOnly){
+            this.record=record;this.match=match;this.reference=reference;this.meaning=meaning;this.selectionOnly=selectionOnly;
+        }
+        static Hit selected(Record record){
+            if(record==null)throw new IllegalArgumentException("Missing selected Hadith record");
+            return new Hit(record,null,false,false,true);
         }
     }
     private static final class MatchChoice {
@@ -275,6 +299,10 @@ final class HadithStore implements AutoCloseable {
         }
     }
     private static final Comparator<Hit> ORDER=(a,b)->{
+        if(a.selectionOnly||b.selectionOnly){
+            int selected=Boolean.compare(a.selectionOnly,b.selectionOnly);if(selected!=0)return selected;
+            return a.record.id.compareTo(b.record.id);
+        }
         int c=Boolean.compare(b.reference,a.reference);if(c!=0)return c;
         c=TextMatch.compareHadith(a.match,a.record.collectionId,b.match,b.record.collectionId);if(c!=0)return c;
         c=Boolean.compare(a.meaning,b.meaning);if(c!=0)return c; // direct text wins an otherwise equal tie

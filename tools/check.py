@@ -389,8 +389,8 @@ def main():
     assert 'selectedHadith.size()>=ResearchExport.MAX_RECORDS' in main_activity_text and 'Select up to "+ResearchExport.MAX_RECORDS+" Hadith records per PDF' in main_activity_text, 'Hadith selection UI must enforce the same export cap before the user reaches PDF generation'
     assert 'hadithBrowseWorker=worker("hadith-browse")' in quran_app_text, 'Missing dedicated Hadith browse worker'
     assert 'recitationStatusWorker=worker("recitation-status")' in quran_app_text, 'Recitation download status scans need a dedicated background worker'
-    def java_method(name, return_type='void'):
-        marker = f'    private {return_type} {name}('
+    def java_method(name, return_type='void', marker=None):
+        marker = marker or f'    private {return_type} {name}('
         start = main_activity_text.index(marker)
         end = main_activity_text.find('\n    private ', start + len(marker))
         return main_activity_text[start:] if end < 0 else main_activity_text[start:end]
@@ -398,7 +398,7 @@ def main():
     assert 'QuranApp.RestoreImportResult result=app.peekRestoreImportResult();' in restore_import_delivery, 'Restore confirmation must read the retained validated backup instead of Activity-local state'
     assert 'restorePrompt=prompt' in restore_import_delivery and 'app.clearRestoreImportResult(result)' in restore_import_delivery, 'Restore confirmation must survive recreation and clear only on a real user decision'
     research_pdf_delivery = java_method('deliverResearchPdfResult')
-    research_pdf_share = java_method('shareResearch')
+    research_pdf_share = java_method('shareResearch', marker='    private void shareResearch(boolean hadith,List<HadithStore.Hit> resolvedHadithHits){')
     assert 'static final class ResearchPdfResult' in quran_app_text and 'synchronized ResearchPdfResult takeResearchPdfResult()' in quran_app_text, 'Research PDF completion must survive Activity recreation in application-scoped state'
     assert 'researchPdfListener=this::deliverResearchPdfResult;app.researchPdfChanged=researchPdfListener' in main_activity_text, 'The current Activity must attach to pending research PDF results'
     assert 'resumed=true;deliverResearchPdfResult();' in main_activity_text, 'Pending research PDFs must be delivered after recreation when the Activity is resumed'
@@ -545,7 +545,7 @@ def main():
     assert 'metadata==null?store.translation' not in main_activity_text, 'Search cards must not query Hadith translation on the UI thread'
     assert 'metadata==null?store.grades' not in main_activity_text, 'Search cards must not query Hadith grades on the UI thread'
     assert 'hadith&&app.hadith.record(id)==null' not in main_activity_text, 'Saved Hadith shortcut validation must not query SQLite on the UI thread'
-    assert 'Loading local translations and grades' in main_activity_text and 'hadithBrowseWorker.submit' in java_method('shareResearch'), 'Hadith comparison preview must load metadata off the UI thread'
+    assert 'Loading local translations and grades' in main_activity_text and 'hadithBrowseWorker.submit' in research_pdf_share, 'Hadith comparison preview must load metadata off the UI thread'
     assert permissions == {'android.permission.INTERNET', 'android.permission.SYSTEM_ALERT_WINDOW',
                            'android.permission.FOREGROUND_SERVICE',
                            'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',

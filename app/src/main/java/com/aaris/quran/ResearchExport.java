@@ -52,7 +52,7 @@ final class ResearchExport {
             for(HadithStore.Hit hit:hits){
                 HadithStore.Record record=hit.record;HadithStore.CollectionInfo collection=store.collection(record.collectionId);
                 pages.block((collection==null?record.collectionId:collection.nameEn)+" · Hadith "+record.number+"\n["+record.id+"]",Typeface.DEFAULT_BOLD,13,false);
-                pages.block(hit.reference?"REFERENCE MATCH":hit.match.band+" TEXT MATCH · "+hit.match.explanation(),Typeface.DEFAULT,10,false);
+                pages.block(hadithRetrievalLabel(hit),Typeface.DEFAULT,10,false);
                 pages.block(record.arabic,arabic,22,true);
                 HadithStore.DisplayTranslation translated=store.translation(record,language);
                 if(translated!=null){pages.block(translated.text,"ur".equals(translated.language)?arabic:Typeface.DEFAULT,14,"ur".equals(translated.language));pages.block("Translation language: "+translated.language+"\n"+translated.provenance,Typeface.DEFAULT,10,false);}
@@ -62,6 +62,13 @@ final class ResearchExport {
             }
             return pages.bytes();
         }
+    }
+    static String hadithRetrievalLabel(HadithStore.Hit hit){
+        if(hit==null)return "SELECTED SOURCE · retrieval details unavailable.";
+        if(hit.selectionOnly)return "SELECTED SOURCE · restored selection; search-match details are unavailable after screen recreation.";
+        if(hit.reference)return "REFERENCE MATCH";
+        if(hit.match==null)return "SELECTED SOURCE · retrieval details unavailable.";
+        return hit.match.band+" TEXT MATCH · "+hit.match.explanation();
     }
     private static void requireRecordCount(int count){
         if(count<1||count>MAX_RECORDS)throw new IllegalArgumentException("Research PDF supports 1–"+MAX_RECORDS+" records");
