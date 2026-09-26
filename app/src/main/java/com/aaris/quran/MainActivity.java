@@ -1102,8 +1102,8 @@ public final class MainActivity extends Activity {
         String savedReciter=preferences.getString("reciter",RecitationDownloads.IDS[0]);
         String selected=RecitationDownloads.valid(savedReciter);
         if(!selected.equals(savedReciter))preferences.edit().putString("reciter",selected).apply();
-        caption(page,"Choose a reciter. Play continues from this ayah; your choice is remembered.");gap(page,12);
-        for(int i=0;i<RecitationDownloads.IDS.length;i++){String id=RecitationDownloads.IDS[i];page.addView(button((id.equals(selected)?"✓ ":"")+RecitationDownloads.NAMES[i],()->{preferences.edit().putString("reciter",id).putBoolean("chosen",true).apply();audioControls(a);}));gap(page,8);}
+        caption(page,"Choose a reciter. During playback, changing it restarts the current ayah; your choice is remembered.");gap(page,12);
+        for(int i=0;i<RecitationDownloads.IDS.length;i++){String id=RecitationDownloads.IDS[i];page.addView(button((id.equals(selected)?"✓ ":"")+RecitationDownloads.NAMES[i],()->{if(id.equals(selected))return;preferences.edit().putString("reciter",id).putBoolean("chosen",true).apply();if(app.recitationActive)RecitationService.command(this,RecitationService.PLAY,app.recitationSurah,app.recitationAyah);audioControls(a);}));gap(page,8);}
         Switch mode=new Switch(this);mode.setText("Continue to the end of this Surah");mode.setTextColor(INK);mode.setMinHeight(dp(this,48));mode.setChecked(preferences.getBoolean("continuous",true));mode.setOnCheckedChangeListener((b,v)->preferences.edit().putBoolean("continuous",v).apply());page.addView(mode);
         LinearLayout repeats=row(this);for(int n:new int[]{1,3,5})repeats.addView(button("Repeat "+n+(preferences.getInt("repeat",1)==n?" ✓":""),()->{preferences.edit().putInt("repeat",n).apply();audioControls(a);}));page.addView(repeats);gap(page,12);
         page.addView(primary("Play from "+a.surah+":"+a.number,()->{preferences.edit().putBoolean("chosen",true).apply();dialog.dismiss();playAyah(a);}));gap(page,8);
