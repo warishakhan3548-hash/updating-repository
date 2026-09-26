@@ -110,7 +110,7 @@ public final class MainActivity extends Activity {
         public void onError(int surah,String message){
             MainActivity activity=activity();if(activity==null)return;
             if("Download cancelled".equals(message)){activity.toast("Download paused · partial audio is kept");return;}
-            activity.toast(all?"Download stopped · Surah "+surah+": "+message:"Audio download failed: "+message);
+            activity.toast(all?(surah>0?"Download stopped · Surah "+surah+": "+message:"Download stopped · "+message):"Audio download failed: "+message);
         }
     }
 
