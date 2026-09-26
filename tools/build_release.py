@@ -39,7 +39,10 @@ def main():
     p.add_argument('--build-tools', type=Path, required=True)
     p.add_argument('--keystore', type=Path, required=True)
     p.add_argument('--alias', required=True)
-    p.add_argument('--password-file', type=Path, required=True)
+    p.add_argument('--password-file', type=Path, required=True,
+                   help='File containing the keystore password')
+    p.add_argument('--key-password-file', type=Path,
+                   help='Optional file containing a different private-key password')
     p.add_argument('--output', type=Path, required=True)
     args = p.parse_args()
     java = Path(os.environ.get('JAVA_HOME', '/usr/lib/jvm/java-17-openjdk-amd64')) / 'bin/java'
@@ -47,7 +50,10 @@ def main():
     align = args.build_tools / 'zipalign'
     d8 = args.build_tools / 'lib/d8.jar'
     signer = args.build_tools / 'lib/apksigner.jar'
-    for file in [java, aapt, align, d8, signer, args.android_jar, args.keystore, args.password_file]:
+    required_files = [java, aapt, align, d8, signer, args.android_jar, args.keystore, args.password_file]
+    if args.key_password_file is not None:
+        required_files.append(args.key_password_file)
+    for file in required_files:
         if not file.is_file():
             raise SystemExit(f'Required build input missing: {file.name}')
     if args.output.suffix != '.apk':
@@ -177,10 +183,17 @@ def main():
                 z.write(file, file.name)
         run([align, '-P', '16', '-f', '4', unsigned, aligned])
         signed = work / 'signed-release.apk'
-        run([java, '-jar', signer, 'sign', '--ks', args.keystore, '--ks-key-alias', args.alias,
-             '--ks-pass', 'file:' + str(args.password_file),
-             '--v1-signing-enabled', 'true', '--v2-signing-enabled', 'true', '--v3-signing-enabled', 'true',
-             '--v4-signing-enabled', 'false', '--out', signed, aligned])
+        signer_args = [
+            java, '-jar', signer, 'sign', '--ks', args.keystore, '--ks-key-alias', args.alias,
+            '--ks-pass', 'file:' + str(args.password_file),
+        ]
+        if args.key_password_file is not None:
+            signer_args += ['--key-pass', 'file:' + str(args.key_password_file)]
+        signer_args += [
+            '--v1-signing-enabled', 'true', '--v2-signing-enabled', 'true', '--v3-signing-enabled', 'true',
+            '--v4-signing-enabled', 'false', '--out', signed, aligned,
+        ]
+        run(signer_args)
         verification = run([java, '-jar', signer, 'verify', '--verbose', '--print-certs', signed], capture=True)
         if 'Android Debug' in verification or 'Verified using v2 scheme (APK Signature Scheme v2): true' not in verification:
             raise SystemExit('Release signature verification failed')

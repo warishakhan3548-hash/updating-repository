@@ -89,28 +89,47 @@ tiny catalog metadata is allowed in the APK. The upstream dataset metadata decla
 this preview remains non-commercial pending independent recording-rights review. The remaining architecture still lacks the full wider
 Hadith catalog, reviewed morphology/sense graph, calibrated FSRS and a signed general content-pack updater.
 
-## Signed release APK without Gradle downloads
+## Signed release APK + AAB
 
-For this native Java app with no external runtime dependencies, the installed official SDK tools
-can produce the release APK directly. This is useful when the Android Gradle Plugin cannot be
-downloaded. The script refuses unhandled dependencies and verifies the signature, alignment,
-package flags and bundled scripture checksum. It does not claim a phone/emulator test.
+Release signing is wired through `app/build.gradle` without committing private key material. The
+permanent upload identity is the Drive backup `Aarish-upload-keystore.jks`, alias `upload`.
+Gradle verifies the expected signing-certificate SHA-256 before a configured release is packaged.
+
+For local builds, copy `keystore.properties.example` to the ignored `keystore.properties`, fill
+in the private path/password values, then run:
+
+```sh
+./gradlew --no-daemon --stacktrace \
+  :app:assembleRelease \
+  :app:bundleRelease \
+  -PrequireReleaseSigning=true
+```
+
+This produces the signed APK at `app/build/outputs/apk/release/app-release.apk` and the signed AAB
+at `app/build/outputs/bundle/release/app-release.aab`. The strict flag prevents an unsigned
+release from being mistaken for a publishable build.
+
+A manual GitHub Actions workflow, **Build signed release APK and AAB**, supports the same release
+path once the private repository secrets are installed. See
+[docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md) for the locked certificate fingerprint, secret
+names, local setup, verification behavior and future `versionCode` update rules.
+
+The dependency-free `tools/build_release.py` path remains available as an APK-only fallback when
+the Android Gradle Plugin cannot be downloaded. It accepts the JKS directly and also supports an
+optional separate private-key password file:
 
 ```sh
 python3 tools/build_release.py \
   --android-jar "$ANDROID_HOME/platforms/android-35/android.jar" \
   --build-tools "$ANDROID_HOME/build-tools/35.0.0" \
-  --keystore /private/path/aaris-quran-release.p12 \
-  --alias aaris-quran-release \
+  --keystore /private/path/Aarish-upload-keystore.jks \
+  --alias upload \
   --password-file /private/path/keystore-password.txt \
   --output /private/output/Aaris-Quran-0.4.0-release.apk
 ```
 
-Keep the signing key and password backup private and reuse the same key for future updates.
-The build emits an APK and a verification JSON beside it; it does not create an AAB or run CI.
-Do not commit private keys/passwords. The Quran pack is an offline non-commercial preview. Hadith is a separate immutable pack;
-no Hadith collection is claimed as installed unless `hadith-manifest.json` and `hadith.sqlite`
-are generated from the checked-in, hash-locked source vault.
+Keep the signing key and password backup private and reuse the same certificate for every future
+update.
 
 ## Source notices
 

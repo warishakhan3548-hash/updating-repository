@@ -1,5 +1,36 @@
 plugins { id 'com.android.application' }
 
+def releaseSigningProperties = new Properties()
+def releaseSigningPropertiesFile = rootProject.file('keystore.properties')
+if (releaseSigningPropertiesFile.isFile()) {
+    releaseSigningPropertiesFile.withInputStream { releaseSigningProperties.load(it) }
+}
+
+def releaseSigningValue = { String name ->
+    def fileValue = releaseSigningProperties.getProperty(name)
+    if (fileValue != null && !fileValue.isEmpty()) return fileValue
+    def environmentValue = System.getenv(name)
+    return (environmentValue != null && !environmentValue.isEmpty()) ? environmentValue : null
+}
+
+def releaseKeystorePath = releaseSigningValue('AARIS_KEYSTORE_PATH')
+def releaseStorePassword = releaseSigningValue('AARIS_KEYSTORE_PASSWORD')
+def explicitReleaseKeyAlias = releaseSigningValue('AARIS_KEY_ALIAS')
+def releaseKeyAlias = explicitReleaseKeyAlias ?: 'upload'
+def explicitReleaseKeyPassword = releaseSigningValue('AARIS_KEY_PASSWORD')
+def releaseKeyPassword = explicitReleaseKeyPassword ?: releaseStorePassword
+def releaseSigningConfigured = releaseKeystorePath && releaseStorePassword
+def releaseSigningTouched = releaseKeystorePath || releaseStorePassword || explicitReleaseKeyAlias ||
+    explicitReleaseKeyPassword
+def requireReleaseSigning = (findProperty('requireReleaseSigning')?.toString()?.toBoolean() ?: false)
+def expectedReleaseCertificateSha256 = '33:0D:16:11:84:9C:7C:9B:1F:9F:59:2C:45:89:32:F2:5A:E6:F3:AB:A1:BC:7E:8A:BF:BC:9E:68:68:EF:00:4F'
+
+if (releaseSigningTouched && !releaseSigningConfigured) {
+    throw new GradleException(
+        'Incomplete release signing configuration. Provide AARIS_KEYSTORE_PATH and AARIS_KEYSTORE_PASSWORD; ' +
+        'AARIS_KEY_ALIAS defaults to upload and AARIS_KEY_PASSWORD defaults to the store password.'
+    )
+}
 
 android {
     namespace 'com.aaris.quran'
@@ -12,8 +43,26 @@ android {
         versionName '0.4.0'
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            release {
+                storeFile rootProject.file(releaseKeystorePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
-    buildTypes { release { minifyEnabled false; debuggable false } }
+    buildTypes {
+        release {
+            minifyEnabled false
+            debuggable false
+            if (releaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
     lint {
         abortOnError true
         checkDependencies true
@@ -24,6 +73,52 @@ android {
     }
 }
 dependencies { implementation project(':core') }
+
+def verifyReleaseSigningIdentity = tasks.register('verifyReleaseSigningIdentity') {
+    group = 'verification'
+    description = 'Verifies that release signing uses the permanent Aaris upload certificate.'
+    onlyIf { releaseSigningConfigured }
+    doLast {
+        def keystoreFile = rootProject.file(releaseKeystorePath)
+        if (!keystoreFile.isFile()) {
+            throw new GradleException("Release keystore does not exist: ${keystoreFile}")
+        }
+
+        def keyStore = java.security.KeyStore.getInstance('JKS')
+        keystoreFile.withInputStream { input ->
+            keyStore.load(input, releaseStorePassword.toCharArray())
+        }
+        def certificate = keyStore.getCertificate(releaseKeyAlias)
+        if (certificate == null) {
+            throw new GradleException("Release signing alias '${releaseKeyAlias}' was not found in the keystore.")
+        }
+
+        def actualFingerprint = java.security.MessageDigest.getInstance('SHA-256')
+            .digest(certificate.encoded)
+            .collect { String.format('%02X', (((int) it) & 0xFF)) }
+            .join(':')
+        if (actualFingerprint != expectedReleaseCertificateSha256) {
+            throw new GradleException(
+                "Wrong release signing certificate. Expected ${expectedReleaseCertificateSha256}, got ${actualFingerprint}."
+            )
+        }
+        logger.lifecycle("Verified permanent release certificate SHA-256: ${actualFingerprint}")
+    }
+}
+
+tasks.matching { it.name == 'assembleRelease' || it.name == 'bundleRelease' }.configureEach {
+    if (releaseSigningConfigured) {
+        dependsOn verifyReleaseSigningIdentity
+    }
+    doFirst {
+        if (requireReleaseSigning && !releaseSigningConfigured) {
+            throw new GradleException(
+                'A signed release was required but release signing is not configured. ' +
+                'Use private keystore.properties or AARIS_KEYSTORE_* environment variables.'
+            )
+        }
+    }
+}
 
 // Guard the architectural invariant before any content work. Quran/Hadith/search stay local-only;
 // runtime network access is confined to explicit user-requested Quran audio downloads.
