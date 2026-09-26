@@ -282,7 +282,7 @@ final class AppearanceStudio {
     private View colorDot(String label,int value,boolean neutral){
         boolean selected=isColorDotSelected(value,neutral);
         FrameLayout outer=new FrameLayout(activity);outer.setTag("keepColor");outer.setFocusable(true);outer.setClickable(true);
-        FrameLayout visual=new FrameLayout(activity);visual.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        FrameLayout visual=new FrameLayout(activity);visual.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         android.graphics.drawable.GradientDrawable ring=new android.graphics.drawable.GradientDrawable();ring.setShape(android.graphics.drawable.GradientDrawable.OVAL);
         ring.setColor(0x00000000);ring.setStroke(dp(activity,selected?3:1),selected?style.accent:Appearance.mix(value,style.ink(),.22f));visual.setBackground(ring);
         outer.addView(visual,new FrameLayout.LayoutParams(dp(activity,27),dp(activity,27),Gravity.CENTER));
