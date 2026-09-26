@@ -44,6 +44,12 @@ def main():
         java = str(Path(os.environ['JAVA_HOME']) / 'bin/java')
     if not java:
         raise SystemExit('A Java 17+ runtime containing jdk.compiler is required.')
+    wrapper_properties = (ROOT / 'gradle/wrapper/gradle-wrapper.properties').read_text(encoding='utf-8')
+    assert 'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.11.1-bin.zip' in wrapper_properties
+    assert 'distributionSha256Sum=f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6' in wrapper_properties, 'Gradle distribution must remain pinned to the reviewed official SHA-256'
+    workflow_text = (ROOT / '.github/workflows/verify-offline-translations.yml').read_text(encoding='utf-8')
+    for build_control in ("- 'build.gradle'", "- 'settings.gradle'", "- 'gradle.properties'", "- 'gradlew'", "- 'gradlew.bat'", "- 'gradle/wrapper/**'"):
+        assert workflow_text.count(build_control) == 2, f'CI path filters must cover {build_control} on push and pull_request'
     assets = ROOT / 'app/src/main/assets'
     manifest = json.loads((assets / 'content-manifest.json').read_text())
     pack = assets / 'quran.sqlite'
