@@ -47,6 +47,8 @@ def main():
     wrapper_properties = (ROOT / 'gradle/wrapper/gradle-wrapper.properties').read_text(encoding='utf-8')
     assert 'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.11.1-bin.zip' in wrapper_properties
     assert 'distributionSha256Sum=f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6' in wrapper_properties, 'Gradle distribution must remain pinned to the reviewed official SHA-256'
+    wrapper_jar = ROOT / 'gradle/wrapper/gradle-wrapper.jar'
+    assert hashlib.sha256(wrapper_jar.read_bytes()).hexdigest() == '2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046', 'Checked-in Gradle wrapper JAR must match the official Gradle 8.11.1 checksum'
     workflow_text = (ROOT / '.github/workflows/verify-offline-translations.yml').read_text(encoding='utf-8')
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in workflow_text, 'Checkout action must stay pinned to the reviewed immutable v4 revision'
     assert 'actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961' in workflow_text, 'Java setup action must stay pinned to the reviewed immutable v5 revision'
