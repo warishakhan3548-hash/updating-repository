@@ -2198,10 +2198,54 @@ public final class MainActivity extends Activity {
         try{startActivity(Intent.createChooser(intent,"Share research PDF"));}
         catch(ActivityNotFoundException e){ResearchFiles.discard(getApplicationContext(),result.uri);toast("No PDF receiving app is installed");}
     }
-    private void shareResearch(boolean hadith){
+    private void resolveHadithResearchSelection(List<HadithStore.Hit> loaded){
+        HadithStore store=app.hadith;if(store==null){toast("Hadith Library is not available");return;}
+        LinkedHashSet<String> selected=new LinkedHashSet<>(selectedHadith);if(selected.isEmpty()){shareResearch(true,loaded);return;}
+        LinkedHashMap<String,HadithStore.Hit> loadedById=new LinkedHashMap<>();
+        for(HadithStore.Hit hit:loaded)if(selected.contains(hit.record.id))loadedById.put(hit.record.id,hit);
+        List<String> missing=new ArrayList<>();for(String id:selected)if(!loadedById.containsKey(id))missing.add(id);
+        if(missing.isEmpty()){List<HadithStore.Hit> ordered=new ArrayList<>();for(String id:selected)ordered.add(loadedById.get(id));shareResearch(true,ordered);return;}
+
+        int generation=beginHadithBrowse();LinearLayout loading=sheet("Share research PDF");
+        loading.addView(premiumLoading("Restoring selected Hadith","Loading selected source records from the verified local pack…"));
+        try{
+            hadithBrowseTask=app.hadithBrowseWorker.submit(()->{
+                try{
+                    List<HadithStore.Record> records=store.records(missing);
+                    LinkedHashMap<String,HadithStore.Record> restored=new LinkedHashMap<>();for(HadithStore.Record record:records)restored.put(record.id,record);
+                    List<HadithStore.Hit> resolved=new ArrayList<>();LinkedHashSet<String> available=new LinkedHashSet<>();
+                    for(String id:selected){
+                        HadithStore.Hit hit=loadedById.get(id);
+                        if(hit==null){HadithStore.Record record=restored.get(id);if(record!=null)hit=HadithStore.Hit.selected(record);}
+                        if(hit!=null){resolved.add(hit);available.add(id);}
+                    }
+                    ui.post(()->{
+                        if(!liveHadithBrowse(generation,loading))return;
+                        if(available.size()!=selected.size()){
+                            selectedHadith.retainAll(available);
+                            toast((selected.size()-available.size())+" selected Hadith record(s) are not in the installed edition");
+                        }
+                        if(resolved.isEmpty()){loading.removeAllViews();caption(loading,"The selected Hadith records are not available in the installed edition.");return;}
+                        shareResearch(true,resolved);
+                    });
+                }catch(CancellationException ignored){}catch(Exception error){
+                    android.util.Log.w("AarisHadith","Selected Hadith records could not be restored",error);
+                    ui.post(()->{if(liveHadithBrowse(generation,loading)){loading.removeAllViews();caption(loading,"Selected Hadith records could not be loaded. Please try again.");}});
+                }
+            });
+        }catch(RejectedExecutionException rejected){loading.removeAllViews();caption(loading,"Selected Hadith records could not start loading. Please try again.");}
+    }
+    private void shareResearch(boolean hadith){shareResearch(hadith,null);}
+    private void shareResearch(boolean hadith,List<HadithStore.Hit> resolvedHadithHits){
         if(app.researchPdfBusy.get()){toast("PDF is being prepared…");return;}
         List<HadithStore.Hit> hits=new ArrayList<>();List<Ayah> ayahs=new ArrayList<>();Map<String,String> matches=new LinkedHashMap<>();
-        if(hadith){for(HadithStore.Hit h:hadithHits)if(selectedHadith.isEmpty()||selectedHadith.contains(h.record.id))hits.add(h);}
+        if(hadith){
+            if(resolvedHadithHits!=null)hits.addAll(resolvedHadithHits);
+            else{
+                for(HadithStore.Hit h:hadithHits)if(selectedHadith.isEmpty()||selectedHadith.contains(h.record.id))hits.add(h);
+                if(!selectedHadith.isEmpty()&&hits.size()<selectedHadith.size()){resolveHadithResearchSelection(new ArrayList<>(hits));return;}
+            }
+        }
         else{for(SearchEngine.Result r:quranHits){matches.put(r.ayah.id,quranMatchDescription(r));if(selectedEvidence.isEmpty())ayahs.add(r.ayah);}if(!selectedEvidence.isEmpty())for(String id:selectedEvidence){Ayah a=content.ayah(id);if(a!=null)ayahs.add(a);}}
         int count=hadith?hits.size():ayahs.size();if(count==0){toast("Search or select records first");return;}
         if(count>ResearchExport.MAX_RECORDS){toast("Select up to "+ResearchExport.MAX_RECORDS+" records for one PDF");return;}
@@ -2234,7 +2278,7 @@ public final class MainActivity extends Activity {
                                 for(HadithStore.Hit hit:hits){
                                     HadithStore.Record r=hit.record;HadithStore.CollectionInfo info=app.hadith.collection(r.collectionId);HadithCardMeta meta=metadata.get(r.id);
                                     LinearLayout card=card(comparison,Surface.Kind.PANEL);card.addView(label((info==null?r.collectionId:info.nameEn)+" · "+r.number+" ["+r.id+"]"));
-                                    caption(card,hit.reference?"REFERENCE MATCH":hit.match.band+" TEXT MATCH · "+hit.match.explanation());card.addView(hadithArabic(r.arabic,25));
+                                    caption(card,ResearchExport.hadithRetrievalLabel(hit));card.addView(hadithArabic(r.arabic,25));
                                     HadithStore.DisplayTranslation t=meta==null?null:meta.translation;
                                     if(t!=null){TextView translated=text(this,t.text,appearance.translationSize,appearance.translationInk());translated.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);card.addView(translated);caption(card,languageName(t.language)+" · "+t.provenance);}
                                     List<String> grades=meta==null?Collections.emptyList():meta.grades;caption(card,grades.isEmpty()?"No individual grading is recorded in this pack.":String.join("\n",grades));
