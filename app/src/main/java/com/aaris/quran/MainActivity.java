@@ -2274,7 +2274,7 @@ public final class MainActivity extends Activity {
                             ui.post(()->{
                                 if(!liveHadithBrowse(generation,comparison)||dialog==null||!dialog.isShowing())return;
                                 comparison.removeAllViews();
-                                caption(comparison,"Search matches for comparison. Similar wording alone does not establish a shared narration or religious relationship.");
+                                caption(comparison,"Selected source records for comparison. Search-match details are shown only where still available; similar wording alone does not establish a shared narration or religious relationship.");
                                 for(HadithStore.Hit hit:hits){
                                     HadithStore.Record r=hit.record;HadithStore.CollectionInfo info=app.hadith.collection(r.collectionId);HadithCardMeta meta=metadata.get(r.id);
                                     LinearLayout card=card(comparison,Surface.Kind.PANEL);card.addView(label((info==null?r.collectionId:info.nameEn)+" · "+r.number+" ["+r.id+"]"));
