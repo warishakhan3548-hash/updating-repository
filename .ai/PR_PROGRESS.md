@@ -4,8 +4,8 @@
 Second-pass production audit after merged PR #338, focused on high-confidence resilience, lifecycle, sharing, release verification, and supply-chain integrity without broad rewrites.
 
 ## Bugs / risks found
-- Hadith database can be fully verified and then rejected solely because the tiny verification-marker write fails; the marker is an optimization, not evidence.
-- Translation TTS owns the Activity context instead of the application context, increasing lifecycle/leak risk around slow TTS initialization and rotation.
+- Hadith database could be fully verified and then rejected solely because the tiny verification-marker write failed; the marker is an optimization, not evidence.
+- Translation TTS owned the Activity context instead of the application context, increasing lifecycle/leak risk around slow TTS initialization and rotation.
 - Research PDF provider authority was hard-coded in the manifest while runtime derives it from the application package; future build variants/applicationId changes could break URI sharing.
 - Ambient overlay startup assumed the default display lookup is always non-null on API 30+, creating an avoidable service crash edge case.
 - CI verified debug packaging/lint but did not exercise the release variant.
@@ -21,15 +21,17 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - The HadeethEnc capture workflow now pins checkout to the reviewed immutable v4 revision; `tools/check.py` guards both this pin and the manual release manifest invariant.
 
 ## Pending
-- Current-head CI run 36214995672 is still running on code head 736dda3df5ada6cc150bafd0af1ddd18918440e5.
-- If it passes, re-check final mergeability/behind count and record the final verification checkpoint.
-- If it fails, resolve the failing step at root cause on this same PR branch.
+- No identified high-confidence product-code or release-path fix remains in this PR.
+- Review and merge PR #339 when desired.
 
 ## Tests / CI
-- Base main: 5f3eb0d5438351f8b6e048d1d57b4420bdd49aea (merged PR #338).
-- Earlier branch CI run 36214283428 passed deterministic evidence rebuild, offline integrity/search regressions, Android debug/release assemble, and debug/release lint.
-- Current verification run: 36214995672 — in progress.
-- Before this progress-only commit the branch was 0 commits behind main and PR #339 was mergeable.
+- Base main at verification: 5f3eb0d5438351f8b6e048d1d57b4420bdd49aea (merged PR #338).
+- Final full verification run 36215140358 passed on head faafccacb1a65ede2f53f4209e29ddad5a2f064f.
+- PASS: deterministic local Quran/translation/Hadith evidence rebuild.
+- PASS: offline integrity, source-contract, and search regressions.
+- PASS: Android debug assemble + lint.
+- PASS: Android release assemble + lint.
+- This final checkpoint changes only this progress file and uses [skip ci]; product/build code is identical to the verified head above.
 
 ## Next exact step
-Inspect workflow run 36214995672. If green, verify PR #339 is still 0 behind main and mergeable, update this file with the final PASS, and leave PR #339 ready for review/merge.
+Review and merge PR #339. If later work is requested, first read this file, verify the PR/base state, and continue only if the new task is genuinely related.
