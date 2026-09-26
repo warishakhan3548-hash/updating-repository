@@ -388,7 +388,11 @@ def main():
     assert 'wordFallbackReady&&(verifiedReciter==null||!reciter.equals(verifiedReciter))' in play_flow, 'Reciter verification should run only when it can affect word-audio fallback selection'
     assert 'repeatRemaining' not in recitation_service_text and 'boolean continuous=true' not in recitation_service_text, 'Active recitation must not cache repeat/continue settings for the whole playback session'
     assert 'resetRepeat();play();' in recitation_service_text, 'A fresh Play command must start a fresh repeat cycle'
-    assert 'public void onPlay(){app.ready(()->{if(destroyed)return;if(app.content==null){fail("Quran content is unavailable");return;}resume();});}' in recitation_service_text, 'Media-session Play must wait for app content readiness before resuming'
+    assert 'private int generation,mediaCommandGeneration;' in recitation_service_text, 'Media-session readiness handoff needs an independent command generation'
+    assert 'public void onPlay(){runMediaWhenReady(RecitationService.this::resume);}' in recitation_service_text, 'Media-session Play must wait for app content readiness before resuming'
+    assert 'public void onSkipToNext(){runMediaWhenReady(()->move(1));}' in recitation_service_text and 'public void onSkipToPrevious(){runMediaWhenReady(()->move(-1));}' in recitation_service_text, 'Media-session navigation must not be dropped during cold-start content loading'
+    assert 'final int token=++mediaCommandGeneration;' in recitation_service_text and 'destroyed||token!=mediaCommandGeneration' in recitation_service_text, 'A superseded media command must not replay after content initialization'
+    assert 'String action=intent.getAction();mediaCommandGeneration++;' in recitation_service_text, 'Service commands must supersede any pending MediaSession readiness handoff'
     assert 'if(++repeatCompleted<repeatPreference())play();' in recitation_service_text, 'Repeat changes must take effect at the next ayah completion without restarting playback'
     assert 'continuousPreference()&&ayah<app.content.surah(surah).count' in recitation_service_text, 'Continue-mode changes must take effect before advancing to the next ayah'
     audio_controls = java_method('audioControls')
