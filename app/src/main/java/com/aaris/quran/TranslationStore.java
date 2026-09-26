@@ -68,8 +68,10 @@ final class TranslationStore implements AutoCloseable {
         }catch(Exception invalid){opened.close();throw invalid;}
         db=opened;
         File[] old=c.getFilesDir().listFiles();
-        if(old!=null)for(File file:old)if(file.isFile()&&file.getName().startsWith("translations-")&&
-            file.getName().endsWith(".sqlite")&&!file.equals(target))file.delete();
+        if(old!=null)for(File file:old)if(file.isFile()&&!file.equals(target)&&
+            ((file.getName().startsWith("translations-")&&file.getName().endsWith(".sqlite"))||
+             "translations.installing".equals(file.getName())))
+            file.delete(); // Best-effort cleanup only after the current immutable pack verified.
     }
     Edition edition(String id){for(Edition e:editions)if(e.id.equals(id))return e;return null;}
     Edition preferredEdition(String id,String language){
