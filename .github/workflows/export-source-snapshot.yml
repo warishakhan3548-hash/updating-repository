@@ -1,0 +1,32 @@
+name: Export source snapshot
+
+on:
+  push:
+    branches:
+      - 'audit/source-snapshot-export-20260926'
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Write snapshot metadata
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > SNAPSHOT_COMMIT.txt
+          git log -1 --format='%H%n%cI%n%s' > SNAPSHOT_HEAD.txt
+          git ls-files -s > SNAPSHOT_GIT_INDEX.txt
+      - name: Upload full checked-in repository snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aaris-quran-source-snapshot
+          path: |
+            .
+            !.git/**
+          include-hidden-files: true
+          retention-days: 7
