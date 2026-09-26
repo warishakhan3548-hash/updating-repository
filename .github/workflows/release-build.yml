@@ -46,7 +46,12 @@ jobs:
           AARIS_KEY_PASSWORD: ${{ secrets.AARIS_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon --stacktrace :app:assembleRelease :app:bundleRelease -PrequireReleaseSigning=true
+          # Keep the large offline Hadith asset from being compressed for APK and AAB in one JVM.
+          # Each no-daemon process releases its heap before the next publishable package is built.
+          ./gradlew --no-daemon --no-parallel --max-workers=2 --stacktrace \
+            :app:assembleRelease -PrequireReleaseSigning=true
+          ./gradlew --no-daemon --no-parallel --max-workers=1 --stacktrace \
+            :app:bundleRelease -PrequireReleaseSigning=true
 
       - name: Verify release packages
         run: |
