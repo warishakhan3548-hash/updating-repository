@@ -46,16 +46,21 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - `tools/check.py` now guards these word-audio resilience and reader-accessibility invariants.
 
 ## Pending
-- GitHub Actions verification run 36217882392 is running for code checkpoint ef570e3d8b40f4de8e4b974528a4266d8fef981c.
-- If CI exposes another real regression, fix it at the root and re-run verification.
-- After a clean full run, record the verified SHA/run here and leave PR #339 ready for review/merge.
+- No identified high-confidence product-code or release-path regression remains in this PR.
+- Physical-device/OEM visual, audio-route, overlay-delivery, and long-history profiling remain real-device QA rather than something CI can prove.
+- Review and merge PR #339 when desired.
 
 ## Tests / CI
 - Base main at verification: 5f3eb0d5438351f8b6e048d1d57b4420bdd49aea (merged PR #338).
 - Earlier full verification run 36215140358 passed on head faafccacb1a65ede2f53f4209e29ddad5a2f064f.
 - CI run 36216281282 failed in `tools/check_offline_contract.py` because the static contract still required `setInstanceFollowRedirects(false)` after the implementation intentionally switched to HTTPS-only redirect following. This guard has been corrected.
-- Current verification run 36217882392 is in progress for code checkpoint ef570e3d8b40f4de8e4b974528a4266d8fef981c.
+- Final full verification run 36217882392 passed on code checkpoint ef570e3d8b40f4de8e4b974528a4266d8fef981c.
+- PASS: deterministic local Quran/translation/Hadith evidence rebuild.
+- PASS: offline integrity, source-contract, search, recall, backup, audio, and regression checks.
+- PASS: Android debug assemble + lint.
+- PASS: Android release assemble + lint.
+- Current branch head f709648ca632f25ff39b50a9f0a09066edd858d1 differs from the verified code checkpoint only by this progress checkpoint's prior [skip ci] documentation update; product/build code is identical.
 - Local container clone could not run because this execution environment has no GitHub DNS/network access; authoritative verification is therefore GitHub Actions.
 
 ## Next exact step
-Inspect GitHub Actions run 36217882392. If it fails, open the failing job/log and fix the first genuine regression. If it passes, update this file with the verified SHA/run and leave PR #339 ready for review/merge.
+Review and merge PR #339. If later work is requested, first read this file, verify the PR/base state and latest CI, and continue only from the first genuinely unfinished related step.
