@@ -52,7 +52,9 @@ def main():
     workflow_text = (ROOT / '.github/workflows/verify-offline-translations.yml').read_text(encoding='utf-8')
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in workflow_text, 'Checkout action must stay pinned to the reviewed immutable v4 revision'
     assert 'actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961' in workflow_text, 'Java setup action must stay pinned to the reviewed immutable v5 revision'
-    assert ':app:assembleRelease :app:bundleRelease :app:lintRelease' in workflow_text, 'Standard CI must exercise both release APK and AAB packaging'
+    for android_task in (':app:assembleDebug', ':app:lintDebug', ':app:assembleRelease', ':app:lintRelease', ':app:bundleRelease'):
+        assert android_task in workflow_text, f'Standard CI must exercise {android_task}'
+    assert workflow_text.count('./gradlew --no-daemon --no-parallel') >= 3 and '--max-workers=1' in workflow_text, 'Large offline assets must package in isolated bounded-memory Gradle phases'
     assert workflow_text.count("- '.github/workflows/release-build.yml'") == 2, 'Signed release workflow changes must trigger standard CI on push and pull_request'
     release_workflow_text = (ROOT / '.github/workflows/release-build.yml').read_text(encoding='utf-8')
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in release_workflow_text, 'Signed release checkout must stay pinned'
