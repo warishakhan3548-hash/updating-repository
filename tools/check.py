@@ -60,6 +60,8 @@ def main():
     assert "id 'com.android.lint' version '8.9.2' apply false" in root_build_text, 'Core lint must stay pinned to the reviewed Android plugin version'
     assert "id 'com.android.lint'" in core_build_text, 'Core search/evidence sources must not be excluded from lint'
     assert 'android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE' not in quran_text_source and 'Layout.BREAK_STRATEGY_SIMPLE' in quran_text_source, 'Quran text wrapping must remain compatible with minSdk 26'
+    glass_source = (ROOT / 'app/src/main/java/com/aaris/quran/Glass.java').read_text(encoding='utf-8')
+    assert 'final Path path=new Path()' in glass_source and 'Path a=path;a.reset();' in glass_source, 'Frequently redrawn icons must reuse their Path instead of allocating one per frame'
     assert workflow_text.count('./gradlew --no-daemon --no-parallel') >= 3 and '--max-workers=1' in workflow_text, 'Large offline assets must package in isolated bounded-memory Gradle phases'
     assert workflow_text.count("- '.github/workflows/release-build.yml'") == 2, 'Signed release workflow changes must trigger standard CI on push and pull_request'
     push_header = workflow_text.split('pull_request:',1)[0]
