@@ -67,7 +67,9 @@ jobs:
             python3 tools/check.py
           fi
           python3 tools/check_hadith.py
-      - name: Verify Android Gradle packaging and lint
+      - name: Verify Android debug and release packaging and lint
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:lintDebug
+          ./gradlew --no-daemon --stacktrace \
+            :app:assembleDebug :app:lintDebug \
+            :app:assembleRelease :app:lintRelease
