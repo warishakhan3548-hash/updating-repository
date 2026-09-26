@@ -284,12 +284,12 @@ final class Glass {
         @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
     }
     static final class Icon extends View {
-        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final String type;int color=INK;
+        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final Path path=new Path();final String type;int color=INK;
         Icon(Context c,String type){super(c);this.type=type;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
         @Override protected void onDraw(Canvas canvas){
             Canvas c=canvas;c.save();float scale=Math.min(getWidth(),getHeight())/24f;c.translate((getWidth()-24*scale)/2,(getHeight()-24*scale)/2);c.scale(scale,scale);
             p.setColor(color);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.55f);p.setStrokeCap(Paint.Cap.ROUND);p.setStrokeJoin(Paint.Join.ROUND);
-            Path a=new Path();
+            Path a=path;a.reset();
             switch(type){
                 case "play":a.moveTo(8,4);a.lineTo(20,12);a.lineTo(8,20);a.close();c.drawPath(a,p);break;
                 case "pause":c.drawLine(8,5,8,19,p);c.drawLine(16,5,16,19,p);break;
