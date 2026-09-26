@@ -30,7 +30,7 @@ def main():
     expected = {row[0] for row in quran.execute('SELECT id FROM ayah')}
     for key in lock['editions']:
         meta = next(item for item in catalogue if item['key'] == key)
-        db.execute('INSERT INTO edition VALUES(?,?,?,?,?,?)', (key,meta['lang'],meta['title'],meta['description'],meta['version'],'https://quranenc.com'))
+        db.execute('INSERT INTO edition VALUES(?,?,?,?,?,?)', (key,meta['lang'],meta['title'],meta['description'],meta['version'],meta.get('source','https://quranenc.com')))
         data = json.loads((source / (key + '.json')).read_text())
         found = set()
         for chapter in data.values():
