@@ -215,9 +215,12 @@ def main():
     main_activity = next(a for a in application.findall('activity') if a.get(android + 'name') == '.MainActivity')
     assert main_activity.get(android + 'theme') == '@style/AppLaunchTheme', 'Main activity must use the launch theme'
     styles_text = (ROOT / 'app/src/main/res/values/styles.xml').read_text(encoding='utf-8')
+    api27_styles = (ROOT / 'app/src/main/res/values-v27/styles.xml').read_text(encoding='utf-8')
     splash_styles = (ROOT / 'app/src/main/res/values-v31/styles.xml').read_text(encoding='utf-8')
     splash_icon = (ROOT / 'app/src/main/res/drawable/ic_quran_splash.xml').read_text(encoding='utf-8')
     assert 'name="AppLaunchTheme"' in styles_text
+    assert 'android:windowLightNavigationBar' not in styles_text and 'android:windowLayoutInDisplayCutoutMode' not in styles_text, 'API 26 base theme must not reference API 27-only window attributes'
+    assert 'android:windowLightNavigationBar' in api27_styles and 'android:windowLayoutInDisplayCutoutMode' in api27_styles, 'API 27 theme must restore navigation-bar and display-cutout behavior'
     assert 'android:windowSplashScreenAnimatedIcon' in splash_styles
     assert '@drawable/ic_quran_splash' in splash_styles
     assert '<vector' in splash_icon and '#D8C28A' in splash_icon
@@ -259,6 +262,7 @@ def main():
     assert 'cachedGradientSurface!=style.effectiveSurfaceAtGradientEnd()' in arabic_text
     assert 'shadowDistance=0' in appearance_text, 'Legacy saved themes must keep the previous zero-distance shadow default'
     assert 'wordHighlighted||getSelectionStart()!=getSelectionEnd()' in arabic_text, 'Selected Quran text must bypass decorative shaders'
+    assert 'android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE' in quran_text, 'Quran TextView must use the SDK-declared break-strategy constant so Android lint can validate it'
     assert 'appearance.effectiveCardOpacity()' in glass_text and 'appearance.effectiveBorderStrength()' in glass_text
     assert 'cachedGradientAngle!=appearance.gradientAngle' in glass_text
     assert 'setLetterSpacing(' not in quran_text and 'setLetterSpacing(' not in arabic_text, 'Do not alter Quran Arabic tracking/shaping'
@@ -267,8 +271,20 @@ def main():
     main_activity_text = (ROOT / 'app/src/main/java/com/aaris/quran/MainActivity.java').read_text(encoding='utf-8')
     quran_app_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranApp.java').read_text(encoding='utf-8')
     learning_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/LearningStore.java').read_text(encoding='utf-8')
+    content_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/ContentStore.java').read_text(encoding='utf-8')
+    translation_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/TranslationStore.java').read_text(encoding='utf-8')
+    quran_audio_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranAudioStore.java').read_text(encoding='utf-8')
     recitation_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationDownloads.java').read_text(encoding='utf-8')
     recitation_service_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationService.java').read_text(encoding='utf-8')
+    assert 'cleanupOldPacks(folder,target);' in content_store_text and '"install.tmp".equals(name)' in content_store_text, 'Verified Quran pack updates must reclaim obsolete database/staging files'
+    assert '"translations.installing".equals(file.getName())' in translation_store_text, 'Verified translation pack updates must reclaim an abandoned install staging file'
+    assert 'recoverInterruptedInstalls();' in quran_audio_store_text and 'if(old.renameTo(target))delete(markerFile(surah));' in quran_audio_store_text, 'Interrupted Quran audio replacement must restore the last installed pack on restart'
+    assert 'cleanupObsoletePartials();' in quran_audio_store_text and 'name.startsWith(".partial-")' in quran_audio_store_text, 'Quran audio must discard resumable partials from obsolete immutable source revisions'
+    assert 'try{writeMarker(marker,markerValue(file,meta));}catch(IOException ignored){}' in quran_audio_store_text, 'A failed optimization marker write must not invalidate a fully verified Quran audio pack'
+    assert 'legacyRoot=new File(c.getFilesDir(),"recitations-v1")' in recitation_downloads_text and 'void cleanupLegacyCache()' in recitation_downloads_text, 'Wrong-coordinate legacy recitation bytes must have an explicit cleanup path'
+    assert 'recitationDownloadWorker.execute(recitationDownloads::cleanupLegacyCache);' in quran_app_text, 'Legacy recitation cleanup must run away from the Android UI thread'
+    assert 'layout.setPadding(left,top,right,bottom);overlay.setPadding(left,top,right,bottom);' in main_activity_text, 'Interactive UI must consume system/IME insets without insetting the full-screen themed backdrop'
+    assert 'view.setPadding(edges.left,edges.top,edges.right,edges.bottom)' not in main_activity_text, 'Do not regress Android 15 edge-to-edge by padding the root/backdrop away from system bars'
     activity_result_start = main_activity_text.index('    @Override protected void onActivityResult')
     activity_result_end = main_activity_text.index('\n    @Override public void onBackPressed', activity_result_start)
     activity_result = main_activity_text[activity_result_start:activity_result_end]

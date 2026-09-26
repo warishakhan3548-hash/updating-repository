@@ -175,8 +175,17 @@ public final class MainActivity extends Activity {
         layout=column(this);root.addView(layout,new FrameLayout.LayoutParams(-1,-1));
         overlay=new FrameLayout(this);root.addView(overlay,new FrameLayout.LayoutParams(-1,-1));
         root.setOnApplyWindowInsetsListener((view,insets)->{
-            if(Build.VERSION.SDK_INT>=30){android.graphics.Insets edges=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());view.setPadding(edges.left,edges.top,edges.right,edges.bottom);}
-            else view.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;
+            int left,top,right,bottom;
+            if(Build.VERSION.SDK_INT>=30){
+                android.graphics.Insets edges=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());
+                left=edges.left;top=edges.top;right=edges.right;bottom=edges.bottom;
+            }else{
+                left=insets.getSystemWindowInsetLeft();top=insets.getSystemWindowInsetTop();
+                right=insets.getSystemWindowInsetRight();bottom=insets.getSystemWindowInsetBottom();
+            }
+            // Keep the themed backdrop truly edge-to-edge; only interactive content avoids bars/IME.
+            layout.setPadding(left,top,right,bottom);overlay.setPadding(left,top,right,bottom);
+            return insets;
         });setContentView(root);
         View opening=openingSplash();layout.addView(opening,new LinearLayout.LayoutParams(-1,-1));
         app.ready(()->{
