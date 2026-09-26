@@ -251,9 +251,19 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(openRecitationIntent(intent))return;if(intent.getBooleanExtra("open_ambient",false)){intent.removeExtra("open_ambient");if(content==null){ambientSheetRequested=true;return;}tab=3;show();ambientSettings();}}
     private void applyWindowAppearance(){
-        int bars=getWindow().getDecorView().getSystemUiVisibility();int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-        getWindow().getDecorView().setSystemUiVisibility(Appearance.luminance(appearance.background)>.38?bars|light:bars&~light);
-        getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);
+        boolean lightBars=Appearance.luminance(appearance.background)>.38;
+        if(Build.VERSION.SDK_INT>=30){
+            WindowInsetsController controller=getWindow().getInsetsController();
+            if(controller!=null){
+                int light=WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                controller.setSystemBarsAppearance(lightBars?light:0,light);
+            }
+        }else{
+            int bars=getWindow().getDecorView().getSystemUiVisibility();
+            int light=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            getWindow().getDecorView().setSystemUiVisibility(lightBars?bars|light:bars&~light);
+        }
+        if(Build.VERSION.SDK_INT<35){getWindow().setStatusBarColor(appearance.background);getWindow().setNavigationBarColor(appearance.background);}
         backdrop.highContrast=highContrast;backdrop.invalidate();
     }
     private void updateHighContrast(boolean enabled){
