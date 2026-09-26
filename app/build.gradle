@@ -7,20 +7,21 @@ if (releaseSigningPropertiesFile.isFile()) {
 }
 
 def releaseSigningValue = { String name ->
-    def fileValue = releaseSigningProperties.getProperty(name)?.trim()
-    if (fileValue) return fileValue
-    def environmentValue = System.getenv(name)?.trim()
-    return environmentValue ?: null
+    def fileValue = releaseSigningProperties.getProperty(name)
+    if (fileValue != null && !fileValue.isEmpty()) return fileValue
+    def environmentValue = System.getenv(name)
+    return (environmentValue != null && !environmentValue.isEmpty()) ? environmentValue : null
 }
 
 def releaseKeystorePath = releaseSigningValue('AARIS_KEYSTORE_PATH')
 def releaseStorePassword = releaseSigningValue('AARIS_KEYSTORE_PASSWORD')
-def releaseKeyAlias = releaseSigningValue('AARIS_KEY_ALIAS') ?: 'upload'
+def explicitReleaseKeyAlias = releaseSigningValue('AARIS_KEY_ALIAS')
+def releaseKeyAlias = explicitReleaseKeyAlias ?: 'upload'
 def explicitReleaseKeyPassword = releaseSigningValue('AARIS_KEY_PASSWORD')
 def releaseKeyPassword = explicitReleaseKeyPassword ?: releaseStorePassword
 def releaseSigningConfigured = releaseKeystorePath && releaseStorePassword
-def releaseSigningTouched = releaseKeystorePath || releaseStorePassword || explicitReleaseKeyPassword ||
-    releaseSigningProperties.getProperty('AARIS_KEY_ALIAS')
+def releaseSigningTouched = releaseKeystorePath || releaseStorePassword || explicitReleaseKeyAlias ||
+    explicitReleaseKeyPassword
 def requireReleaseSigning = (findProperty('requireReleaseSigning')?.toString()?.toBoolean() ?: false)
 def expectedReleaseCertificateSha256 = '33:0D:16:11:84:9C:7C:9B:1F:9F:59:2C:45:89:32:F2:5A:E6:F3:AB:A1:BC:7E:8A:BF:BC:9E:68:68:EF:00:4F'
 
