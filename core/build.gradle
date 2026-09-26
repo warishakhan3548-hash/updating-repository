@@ -1,4 +1,4 @@
-plugins { id 'java-library' }
+plugins { id 'java-library'; id 'com.android.lint' }
 java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 tasks.register('coreCheck', JavaExec) {
     dependsOn testClasses

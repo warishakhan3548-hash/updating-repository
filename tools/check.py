@@ -52,8 +52,16 @@ def main():
     workflow_text = (ROOT / '.github/workflows/verify-offline-translations.yml').read_text(encoding='utf-8')
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in workflow_text, 'Checkout action must stay pinned to the reviewed immutable v4 revision'
     assert 'actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961' in workflow_text, 'Java setup action must stay pinned to the reviewed immutable v5 revision'
-    for android_task in (':app:assembleDebug', ':app:lintDebug', ':app:assembleRelease', ':app:lintRelease', ':app:bundleRelease'):
+    for android_task in (':core:lint', ':app:assembleDebug', ':app:lintDebug', ':app:assembleRelease', ':app:lintRelease', ':app:bundleRelease'):
         assert android_task in workflow_text, f'Standard CI must exercise {android_task}'
+    root_build_text = (ROOT / 'build.gradle').read_text(encoding='utf-8')
+    core_build_text = (ROOT / 'core/build.gradle').read_text(encoding='utf-8')
+    quran_text_source = (ROOT / 'app/src/main/java/com/aaris/quran/QuranText.java').read_text(encoding='utf-8')
+    assert "id 'com.android.lint' version '8.9.2' apply false" in root_build_text, 'Core lint must stay pinned to the reviewed Android plugin version'
+    assert "id 'com.android.lint'" in core_build_text, 'Core search/evidence sources must not be excluded from lint'
+    assert 'android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE' not in quran_text_source and 'Layout.BREAK_STRATEGY_SIMPLE' in quran_text_source, 'Quran text wrapping must remain compatible with minSdk 26'
+    glass_source = (ROOT / 'app/src/main/java/com/aaris/quran/Glass.java').read_text(encoding='utf-8')
+    assert 'final Path path=new Path()' in glass_source and 'Path a=path;a.reset();' in glass_source, 'Frequently redrawn icons must reuse their Path instead of allocating one per frame'
     assert workflow_text.count('./gradlew --no-daemon --no-parallel') >= 3 and '--max-workers=1' in workflow_text, 'Large offline assets must package in isolated bounded-memory Gradle phases'
     assert workflow_text.count("- '.github/workflows/release-build.yml'") == 2, 'Signed release workflow changes must trigger standard CI on push and pull_request'
     push_header = workflow_text.split('pull_request:',1)[0]
@@ -300,7 +308,7 @@ def main():
     assert 'cachedGradientSurface!=style.effectiveSurfaceAtGradientEnd()' in arabic_text
     assert 'shadowDistance=0' in appearance_text, 'Legacy saved themes must keep the previous zero-distance shadow default'
     assert 'wordHighlighted||getSelectionStart()!=getSelectionEnd()' in arabic_text, 'Selected Quran text must bypass decorative shaders'
-    assert 'android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE' in quran_text, 'Quran TextView must use the SDK-declared break-strategy constant so Android lint can validate it'
+    assert 'Layout.BREAK_STRATEGY_SIMPLE' in quran_text and 'android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE' not in quran_text, 'Quran TextView must use the minSdk-compatible break-strategy constant'
     assert 'appearance.effectiveCardOpacity()' in glass_text and 'appearance.effectiveBorderStrength()' in glass_text
     assert 'cachedGradientAngle!=appearance.gradientAngle' in glass_text
     assert 'setLetterSpacing(' not in quran_text and 'setLetterSpacing(' not in arabic_text, 'Do not alter Quran Arabic tracking/shaping'
