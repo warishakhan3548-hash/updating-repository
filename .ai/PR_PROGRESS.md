@@ -59,7 +59,7 @@ Second-pass production audit after merged PR #338, focused on high-confidence re
 - PASS: offline integrity, source-contract, search, recall, backup, audio, and regression checks.
 - PASS: Android debug assemble + lint.
 - PASS: Android release assemble + lint.
-- Current branch head f709648ca632f25ff39b50a9f0a09066edd858d1 differs from the verified code checkpoint only by this progress checkpoint's prior [skip ci] documentation update; product/build code is identical.
+- Every commit after the verified code checkpoint modifies only `.ai/PR_PROGRESS.md` with `[skip ci]`; product/build code is identical to the verified checkpoint.
 - Local container clone could not run because this execution environment has no GitHub DNS/network access; authoritative verification is therefore GitHub Actions.
 
 ## Next exact step
