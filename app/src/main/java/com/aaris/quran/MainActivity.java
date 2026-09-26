@@ -1214,7 +1214,7 @@ public final class MainActivity extends Activity {
             final int surah=s;ContentStore.Surah info=content.surah(surah);
             boolean downloaded=downloadedStatus[surah];
 
-            LinearLayout item=row(this);pad(item,12,8);item.setMinimumHeight(dp(this,46));
+            LinearLayout item=row(this);pad(item,12,8);item.setMinimumHeight(dp(this,48));
             item.setBackground(Glass.touch(this,Surface.Kind.BUTTON,highContrast));
 
             TextView number=text(this,String.format(Locale.ROOT,"%03d",surah),11,MUTED);
