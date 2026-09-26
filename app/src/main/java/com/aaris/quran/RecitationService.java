@@ -15,12 +15,12 @@ public final class RecitationService extends Service {
     static final String PLAY="recitation.play",PAUSE="recitation.pause",NEXT="recitation.next",PREVIOUS="recitation.previous",STOP="recitation.stop";
     static final String OPEN_READER="recitation.open_reader",OPEN_SURAH="recitation.open_surah",OPEN_AYAH="recitation.open_ayah";
     private QuranApp app;private MediaPlayer player;private MediaSession session;private AudioManager audio;private AudioFocusRequest focus;
-    private final Handler main=new Handler(Looper.getMainLooper());private Future<?> pending;private int generation;private boolean destroyed,resumeAfterTransientFocusLoss;
+    private final Handler main=new Handler(Looper.getMainLooper());private Future<?> pending;private int generation,mediaCommandGeneration;private boolean destroyed,resumeAfterTransientFocusLoss;
     private int surah=1,ayah=1,repeatCompleted;private boolean paused,buffering;private String reciter;
     static void command(Context context,String action,int surah,int ayah){Intent intent=new Intent(context,RecitationService.class).setAction(action).putExtra("surah",surah).putExtra("ayah",ayah);context.startForegroundService(intent);}
     @Override public void onCreate(){super.onCreate();app=(QuranApp)getApplication();audio=getSystemService(AudioManager.class);
         NotificationManager notifications=getSystemService(NotificationManager.class);notifications.createNotificationChannel(new NotificationChannel("recitation","Quran recitation",NotificationManager.IMPORTANCE_LOW));
-        session=new MediaSession(this,"AarisRecitation");session.setCallback(new MediaSession.Callback(){public void onPlay(){resume();}public void onPause(){pause();}public void onStop(){stopSelf();}public void onSkipToNext(){move(1);}public void onSkipToPrevious(){move(-1);}});session.setActive(true);
+        session=new MediaSession(this,"AarisRecitation");session.setCallback(new MediaSession.Callback(){public void onPlay(){runMediaWhenReady(RecitationService.this::resume);}public void onPause(){mediaCommandGeneration++;pause();}public void onStop(){mediaCommandGeneration++;stopSelf();}public void onSkipToNext(){runMediaWhenReady(()->move(1));}public void onSkipToPrevious(){runMediaWhenReady(()->move(-1));}});session.setActive(true);
         AudioAttributes attrs=new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
         focus=new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).setAudioAttributes(attrs).setOnAudioFocusChangeListener(change->{
             if(change==AudioManager.AUDIOFOCUS_GAIN){
@@ -33,13 +33,17 @@ public final class RecitationService extends Service {
         },main).build();
         reciter=getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]);startForeground(42,notification("Preparing recitation"));
     }
-    @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null){stopSelf();return START_NOT_STICKY;}String action=intent.getAction();
+    @Override public int onStartCommand(Intent intent,int flags,int startId){if(intent==null){stopSelf();return START_NOT_STICKY;}String action=intent.getAction();mediaCommandGeneration++;
         if(STOP.equals(action)){stopSelf();return START_NOT_STICKY;}
         app.ready(()->{if(destroyed)return;if(app.content==null){fail("Quran content is unavailable");return;}if(PLAY.equals(action)){
             surah=Math.max(1,Math.min(114,intent.getIntExtra("surah",1)));ayah=Math.max(1,Math.min(app.content.surah(surah).count,intent.getIntExtra("ayah",1)));
             reciter=RecitationDownloads.valid(getSharedPreferences("recitation",0).getString("reciter",RecitationDownloads.IDS[0]));
             resetRepeat();play();
         }else if(PAUSE.equals(action)){if(paused)resume();else pause();}else if(NEXT.equals(action))move(1);else if(PREVIOUS.equals(action))move(-1);});return START_NOT_STICKY;
+    }
+    private void runMediaWhenReady(Runnable action){
+        final int token=++mediaCommandGeneration;
+        app.ready(()->{if(destroyed||token!=mediaCommandGeneration)return;if(app.content==null){fail("Quran content is unavailable");return;}action.run();});
     }
     private void play(){
         resumeAfterTransientFocusLoss=false;int token=++generation;app.recitationDownloads.cancelPlaybackFetch();if(pending!=null)pending.cancel(true);releasePlayer();paused=false;buffering=true;app.recitationActive=true;
@@ -95,6 +99,6 @@ public final class RecitationService extends Service {
     private void fail(String message){android.widget.Toast.makeText(this,message,android.widget.Toast.LENGTH_LONG).show();stopSelf();}
     private void abandonFocus(){if(audio!=null&&focus!=null)try{audio.abandonAudioFocusRequest(focus);}catch(RuntimeException ignored){}}
     private void releasePlayer(){MediaPlayer old=player;player=null;if(old!=null)try{old.release();}catch(RuntimeException ignored){}}
-    @Override public void onDestroy(){destroyed=true;generation++;buffering=false;app.recitationDownloads.cancelPlaybackFetch();if(pending!=null)pending.cancel(true);main.removeCallbacksAndMessages(null);releasePlayer();abandonFocus();if(session!=null){session.setActive(false);session.release();}app.recitationActive=false;app.recitationLabel="";app.main.post(()->{if(app.recitationChanged!=null)app.recitationChanged.run();});super.onDestroy();}
+    @Override public void onDestroy(){destroyed=true;generation++;mediaCommandGeneration++;buffering=false;app.recitationDownloads.cancelPlaybackFetch();if(pending!=null)pending.cancel(true);main.removeCallbacksAndMessages(null);releasePlayer();abandonFocus();if(session!=null){session.setActive(false);session.release();}app.recitationActive=false;app.recitationLabel="";app.main.post(()->{if(app.recitationChanged!=null)app.recitationChanged.run();});super.onDestroy();}
     @Override public IBinder onBind(Intent intent){return null;}
 }
