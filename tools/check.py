@@ -277,6 +277,8 @@ def main():
     assert 'recoverInterruptedInstalls();' in quran_audio_store_text and 'if(old.renameTo(target))delete(markerFile(surah));' in quran_audio_store_text, 'Interrupted Quran audio replacement must restore the last installed pack on restart'
     assert 'cleanupObsoletePartials();' in quran_audio_store_text and 'name.startsWith(".partial-")' in quran_audio_store_text, 'Quran audio must discard resumable partials from obsolete immutable source revisions'
     assert 'try{writeMarker(marker,markerValue(file,meta));}catch(IOException ignored){}' in quran_audio_store_text, 'A failed optimization marker write must not invalidate a fully verified Quran audio pack'
+    assert 'legacyRoot=new File(c.getFilesDir(),"recitations-v1")' in recitation_downloads_text and 'void cleanupLegacyCache()' in recitation_downloads_text, 'Wrong-coordinate legacy recitation bytes must have an explicit cleanup path'
+    assert 'recitationDownloadWorker.execute(recitationDownloads::cleanupLegacyCache);' in quran_app_text, 'Legacy recitation cleanup must run away from the Android UI thread'
     activity_result_start = main_activity_text.index('    @Override protected void onActivityResult')
     activity_result_end = main_activity_text.index('\n    @Override public void onBackPressed', activity_result_start)
     activity_result = main_activity_text[activity_result_start:activity_result_end]
