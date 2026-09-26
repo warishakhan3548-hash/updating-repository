@@ -91,9 +91,20 @@ final class QuranAudioStore {
         for(int surah=1;surah<=114;surah++){
             File old=new File(root,String.format(Locale.ROOT,".%03d.old",surah));
             if(!old.isFile())continue;
-            File target=surahFile(surah);
-            if(target.isFile()){delete(old);continue;}
-            if(old.renameTo(target))delete(markerFile(surah));
+            File target=surahFile(surah);PackMeta meta=meta(surah);
+            if(target.isFile()){
+                try{
+                    validateContainer(target,meta,true);
+                    delete(old);
+                    continue;
+                }catch(Exception invalid){
+                    // A crash may leave both the newly installed target and the previous verified
+                    // pack. Never discard the rollback copy until the new target re-verifies.
+                    delete(markerFile(surah));
+                    if(!target.delete())continue;
+                }
+            }
+            if(!target.exists()&&old.renameTo(target))delete(markerFile(surah));
         }
     }
     private void cleanupObsoletePartials(){
