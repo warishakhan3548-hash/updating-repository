@@ -102,27 +102,33 @@ final class RecitationDownloads {
     }
     /** Fast list-state check: parse a completion marker once per process, then use memory. */
     boolean markedComplete(String reciter,int surah,int ayahs){return completionLengths(reciter,surah,ayahs)!=null;}
-    /** Fast for completed Surahs; paused downloads verify only the requested saved ayah on demand. */
-    boolean ayahReady(String reciter,Ayah ayah,int ayahs){
-        if(ayah==null||ayah.number<1||ayah.number>ayahs)return false;
-        File audio=file(reciter,ayah);
-        long[] lengths=completionLengths(reciter,ayah.surah,ayahs);
-        if(lengths!=null)return ayah.number<lengths.length&&audio.isFile()&&audio.length()==lengths[ayah.number];
-
-        // A paused Surah has no complete.json by design, but already acquired ayahs retain their
-        // digest sidecars. Verify the one requested file so saved reciter audio wins over fallback
-        // word clips without scanning the rest of the Surah on the UI thread.
-        File digest=hashFile(reciter,ayah);
-        if(!audio.isFile()||!digest.isFile())return false;
+    private static boolean verifiedAudioFile(File audio,File digest,long expectedLength){
+        if(!audio.isFile()||!digest.isFile()||(expectedLength>=0&&audio.length()!=expectedLength))return false;
         try{
             String expected=new String(java.nio.file.Files.readAllBytes(digest.toPath()),StandardCharsets.UTF_8).trim();
-            return expected.length()==64&&expected.equals(ContentStore.hash(audio));
+            return expected.matches("[a-f0-9]{64}")&&expected.equals(ContentStore.hash(audio));
         }catch(Exception invalid){return false;}
+    }
+    /**
+     * Strong per-ayah verification. This is intentionally worker-only: even a completed Surah must
+     * re-check the digest before it can win playback selection. A same-length corrupt MP3 must not
+     * suppress the verified isolated-word fallback merely because complete.json still lists its size.
+     */
+    boolean ayahReady(String reciter,Ayah ayah,int ayahs){
+        if(ayah==null||ayah.number<1||ayah.number>ayahs)return false;
+        File audio=file(reciter,ayah),digest=hashFile(reciter,ayah);
+        long[] lengths=completionLengths(reciter,ayah.surah,ayahs);
+        long expectedLength=lengths!=null&&ayah.number<lengths.length?lengths[ayah.number]:-1L;
+        return verifiedAudioFile(audio,digest,expectedLength);
     }
     /** Strong whole-Surah verification. Run on the download worker, never a render hot path. */
     boolean ready(String reciter,int surah,int ayahs){
         long[] lengths=completionLengths(reciter,surah,ayahs);if(lengths==null)return false;File directory=folder(reciter,surah);
-        for(int i=1;i<=ayahs;i++){File audio=new File(directory,i+".mp3");if(!audio.isFile()||audio.length()!=lengths[i])return false;}return true;
+        for(int i=1;i<=ayahs;i++){
+            File audio=new File(directory,i+".mp3"),digest=new File(directory,i+".sha256");
+            if(!verifiedAudioFile(audio,digest,lengths[i]))return false;
+        }
+        return true;
     }
     private static final class ResumeState {
         final String validator;final long total;
