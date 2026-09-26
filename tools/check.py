@@ -215,9 +215,12 @@ def main():
     main_activity = next(a for a in application.findall('activity') if a.get(android + 'name') == '.MainActivity')
     assert main_activity.get(android + 'theme') == '@style/AppLaunchTheme', 'Main activity must use the launch theme'
     styles_text = (ROOT / 'app/src/main/res/values/styles.xml').read_text(encoding='utf-8')
+    api27_styles = (ROOT / 'app/src/main/res/values-v27/styles.xml').read_text(encoding='utf-8')
     splash_styles = (ROOT / 'app/src/main/res/values-v31/styles.xml').read_text(encoding='utf-8')
     splash_icon = (ROOT / 'app/src/main/res/drawable/ic_quran_splash.xml').read_text(encoding='utf-8')
     assert 'name="AppLaunchTheme"' in styles_text
+    assert 'android:windowLightNavigationBar' not in styles_text and 'android:windowLayoutInDisplayCutoutMode' not in styles_text, 'API 26 base theme must not reference API 27-only window attributes'
+    assert 'android:windowLightNavigationBar' in api27_styles and 'android:windowLayoutInDisplayCutoutMode' in api27_styles, 'API 27 theme must restore navigation-bar and display-cutout behavior'
     assert 'android:windowSplashScreenAnimatedIcon' in splash_styles
     assert '@drawable/ic_quran_splash' in splash_styles
     assert '<vector' in splash_icon and '#D8C28A' in splash_icon
@@ -259,6 +262,7 @@ def main():
     assert 'cachedGradientSurface!=style.effectiveSurfaceAtGradientEnd()' in arabic_text
     assert 'shadowDistance=0' in appearance_text, 'Legacy saved themes must keep the previous zero-distance shadow default'
     assert 'wordHighlighted||getSelectionStart()!=getSelectionEnd()' in arabic_text, 'Selected Quran text must bypass decorative shaders'
+    assert 'android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE' in quran_text, 'Quran TextView must use the SDK-declared break-strategy constant so Android lint can validate it'
     assert 'appearance.effectiveCardOpacity()' in glass_text and 'appearance.effectiveBorderStrength()' in glass_text
     assert 'cachedGradientAngle!=appearance.gradientAngle' in glass_text
     assert 'setLetterSpacing(' not in quran_text and 'setLetterSpacing(' not in arabic_text, 'Do not alter Quran Arabic tracking/shaping'
