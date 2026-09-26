@@ -46,7 +46,7 @@ jobs:
           AARIS_KEY_PASSWORD: ${{ secrets.AARIS_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon --stacktrace             :app:assembleRelease             :app:bundleRelease             -PrequireReleaseSigning=true
+          ./gradlew --no-daemon --stacktrace :app:assembleRelease :app:bundleRelease -PrequireReleaseSigning=true
 
       - name: Verify release packages
         run: |
