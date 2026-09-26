@@ -435,6 +435,9 @@ def main():
     assert 'public void onSkipToNext(){runMediaWhenReady(()->move(1));}' in recitation_service_text and 'public void onSkipToPrevious(){runMediaWhenReady(()->move(-1));}' in recitation_service_text, 'Media-session navigation must not be dropped during cold-start content loading'
     assert 'final int token=++mediaCommandGeneration;' in recitation_service_text and 'destroyed||token!=mediaCommandGeneration' in recitation_service_text, 'A superseded media command must not replay after content initialization'
     assert 'String action=intent.getAction();mediaCommandGeneration++;' in recitation_service_text, 'Service commands must supersede any pending MediaSession readiness handoff'
+    assert 'AudioManager.ACTION_AUDIO_BECOMING_NOISY' in recitation_service_text, 'Recitation must pause when headphones or another private audio route disconnects'
+    assert 'registerReceiver(noisy,noisyFilter,Context.RECEIVER_NOT_EXPORTED)' in recitation_service_text, 'Audio-route receiver must stay private on modern Android'
+    assert 'if(noisyReceiverRegistered){unregisterReceiver(noisy);noisyReceiverRegistered=false;}' in recitation_service_text, 'Recitation must release its noisy-route receiver with the Service lifecycle'
     assert 'if(++repeatCompleted<repeatPreference())play();' in recitation_service_text, 'Repeat changes must take effect at the next ayah completion without restarting playback'
     assert 'continuousPreference()&&ayah<app.content.surah(surah).count' in recitation_service_text, 'Continue-mode changes must take effect before advancing to the next ayah'
     audio_controls = java_method('audioControls')
