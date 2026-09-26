@@ -230,6 +230,7 @@ def main():
 
     # Translation speech must recover automatically when Android removes or renames a saved offline voice.
     translation_speech_text = (ROOT / 'app/src/main/java/com/aaris/quran/TranslationSpeech.java').read_text(encoding='utf-8')
+    assert 'TranslationSpeech(Context context){this.context=context.getApplicationContext();}' in translation_speech_text, 'Translation speech must not retain an Activity context across slow TTS initialization'
     assert 'private Voice preferredVoice(String language,List<Voice> available)' in translation_speech_text, 'Translation speech must resolve a usable offline voice centrally'
     assert 'preferences.edit().putString(language,voiceKey(fallback)).apply();' in translation_speech_text, 'A stale or missing voice preference must be repaired to the best installed offline voice'
     assert 'Voice selected=preferredVoice(entry.edition.language,available);' in translation_speech_text, 'Translation playback must use the resilient voice resolver'
@@ -277,6 +278,7 @@ def main():
     quran_audio_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranAudioStore.java').read_text(encoding='utf-8')
     recitation_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationDownloads.java').read_text(encoding='utf-8')
     recitation_service_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationService.java').read_text(encoding='utf-8')
+    ambient_service_text = (ROOT / 'app/src/main/java/com/aaris/quran/AmbientRecallService.java').read_text(encoding='utf-8')
     assert 'cleanupOldPacks(folder,target);' in content_store_text and '"install.tmp".equals(name)' in content_store_text, 'Verified Quran pack updates must reclaim obsolete database/staging files'
     assert '"translations.installing".equals(file.getName())' in translation_store_text, 'Verified translation pack updates must reclaim an abandoned install staging file'
     assert 'try{writeVerificationMarker(marker,target,packHash,packBytes);}' in hadith_store_text and 'catch(IOException ignored){}' in hadith_store_text, 'A failed Hadith verification-marker optimization must not hide a cryptographically verified evidence pack'
@@ -285,6 +287,7 @@ def main():
     assert 'try{writeMarker(marker,markerValue(file,meta));}catch(IOException ignored){}' in quran_audio_store_text, 'A failed optimization marker write must not invalidate a fully verified Quran audio pack'
     assert 'legacyRoot=new File(c.getFilesDir(),"recitations-v1")' in recitation_downloads_text and 'void cleanupLegacyCache()' in recitation_downloads_text, 'Wrong-coordinate legacy recitation bytes must have an explicit cleanup path'
     assert 'recitationDownloadWorker.execute(recitationDownloads::cleanupLegacyCache);' in quran_app_text, 'Legacy recitation cleanup must run away from the Android UI thread'
+    assert 'Display display=displays==null?null:displays.getDisplay(Display.DEFAULT_DISPLAY);' in ambient_service_text and 'if(display!=null)windowContext=createDisplayContext(display).createWindowContext' in ambient_service_text, 'Ambient recall must survive a transiently unavailable default display'
     assert 'layout.setPadding(left,top,right,bottom);overlay.setPadding(left,top,right,bottom);' in main_activity_text, 'Interactive UI must consume system/IME insets without insetting the full-screen themed backdrop'
     assert 'view.setPadding(edges.left,edges.top,edges.right,edges.bottom)' not in main_activity_text, 'Do not regress Android 15 edge-to-edge by padding the root/backdrop away from system bars'
     activity_result_start = main_activity_text.index('    @Override protected void onActivityResult')

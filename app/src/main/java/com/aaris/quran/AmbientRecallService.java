@@ -39,7 +39,13 @@ public final class AmbientRecallService extends Service {
 
     @Override public void onCreate(){
         super.onCreate();app=(QuranApp)getApplication();windowContext=this;
-        if(Build.VERSION.SDK_INT>=30){Display display=getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY);windowContext=createDisplayContext(display).createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,null);}
+        if(Build.VERSION.SDK_INT>=30){
+            DisplayManager displays=getSystemService(DisplayManager.class);
+            Display display=displays==null?null:displays.getDisplay(Display.DEFAULT_DISPLAY);
+            // Display lookup can transiently be unavailable during display/service transitions.
+            // Keep the Service context as the safe fallback instead of crashing recall startup.
+            if(display!=null)windowContext=createDisplayContext(display).createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,null);
+        }
         windows=windowContext.getSystemService(WindowManager.class);
         power=getSystemService(PowerManager.class);keyguard=getSystemService(KeyguardManager.class);
         font=Appearance.load(this).typeface(this);
