@@ -297,11 +297,11 @@ final class RecitationDownloads {
                 }
                 if(!cancelled){File temp=new File(folder(reciter,s),"complete.tmp"),target=new File(folder(reciter,s),"complete.json");try(FileOutputStream out=new FileOutputStream(temp)){out.write(completed.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}invalidateCompletion(reciter,s);if(target.exists()&&!target.delete())throw new IOException("Could not replace Surah completion state");if(!temp.renameTo(target))throw new IOException("Could not finish Surah download");if(!ready(reciter,s,count)){target.delete();invalidateCompletion(reciter,s);throw new IOException("Downloaded Surah verification failed");}}
             }
-            progress=cancelled?"Download paused · completed ayahs are kept":"Download complete";
+            progress=cancelled?"Download paused · saved progress is kept":"Download complete";
         }catch(Exception failure){
             progress=cancelled||failure instanceof InterruptedIOException?
-                "Download paused · completed ayahs are kept":
-                "Download stopped · completed ayahs are kept; tap Download to retry";
+                "Download paused · saved progress is kept":
+                "Download stopped · saved progress is kept; tap Download to retry";
             throw failure;
         }finally{busy=false;changed.run();}
     }
