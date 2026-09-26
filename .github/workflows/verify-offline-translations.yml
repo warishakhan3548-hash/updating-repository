@@ -33,7 +33,9 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: offline-translations-${{ github.ref }}
+  # A branch push and its PR event describe the same code. Key both by the head branch so the
+  # expensive evidence rebuild + Android verification runs once instead of twice per checkpoint.
+  group: offline-translations-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
