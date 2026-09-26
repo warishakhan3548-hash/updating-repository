@@ -78,8 +78,7 @@ final class TranslationStore implements AutoCloseable {
         return editions.isEmpty()?null:editions.get(0);
     }
     private static LinkedHashSet<String> columns(SQLiteDatabase db,String table){LinkedHashSet<String> result=new LinkedHashSet<>();try(Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null)){while(c.moveToNext())result.add(c.getString(1));}return result;}
-    private static String cacheKey(String editionId,String ayahId){return editionId+"
-"+ayahId;}
+    private static String cacheKey(String editionId,String ayahId){return editionId+"\n"+ayahId;}
     Entry get(String editionId,String ayahId){
         Edition edition=edition(editionId);if(edition==null||ayahId==null)return null;
         String key=cacheKey(edition.id,ayahId);Entry cached=entryCache.get(key);if(cached!=null)return cached;
