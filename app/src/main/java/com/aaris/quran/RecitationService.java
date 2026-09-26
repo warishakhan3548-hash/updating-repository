@@ -20,7 +20,7 @@ public final class RecitationService extends Service {
     static void command(Context context,String action,int surah,int ayah){Intent intent=new Intent(context,RecitationService.class).setAction(action).putExtra("surah",surah).putExtra("ayah",ayah);context.startForegroundService(intent);}
     @Override public void onCreate(){super.onCreate();app=(QuranApp)getApplication();audio=getSystemService(AudioManager.class);
         NotificationManager notifications=getSystemService(NotificationManager.class);notifications.createNotificationChannel(new NotificationChannel("recitation","Quran recitation",NotificationManager.IMPORTANCE_LOW));
-        session=new MediaSession(this,"AarisRecitation");session.setCallback(new MediaSession.Callback(){public void onPlay(){resume();}public void onPause(){pause();}public void onStop(){stopSelf();}public void onSkipToNext(){move(1);}public void onSkipToPrevious(){move(-1);}});session.setActive(true);
+        session=new MediaSession(this,"AarisRecitation");session.setCallback(new MediaSession.Callback(){public void onPlay(){app.ready(()->{if(destroyed)return;if(app.content==null){fail("Quran content is unavailable");return;}resume();});}public void onPause(){pause();}public void onStop(){stopSelf();}public void onSkipToNext(){move(1);}public void onSkipToPrevious(){move(-1);}});session.setActive(true);
         AudioAttributes attrs=new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
         focus=new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).setAudioAttributes(attrs).setOnAudioFocusChangeListener(change->{
             if(change==AudioManager.AUDIOFOCUS_GAIN){
