@@ -173,7 +173,14 @@ final class HadithStore implements AutoCloseable {
             try(Cursor c=opened.rawQuery("SELECT count(*) FROM collection",null)){
                 if(!c.moveToFirst()||c.getInt(0)!=collectionCount)throw new IOException("Hadith collection count mismatch");
             }
-            if(fullVerification)writeVerificationMarker(marker,target,packHash,packBytes);
+            if(fullVerification){
+                // The marker only avoids hashing this immutable private file on a later startup.
+                // Evidence trust was already established above by SHA-256 + SQLite quick_check.
+                // A transient low-storage/filesystem failure writing this tiny optimization must
+                // never hide an otherwise valid Hadith pack from the user.
+                try{writeVerificationMarker(marker,target,packHash,packBytes);}
+                catch(IOException ignored){}
+            }
             db=opened;
             collectionCache=Collections.unmodifiableList(loadCollections());
             for(CollectionInfo info:collectionCache){collectionAliases.put(info.id,info.id);collectionAliases.put(info.nameEn,info.id);collectionAliases.put(info.nameAr,info.id);}

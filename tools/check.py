@@ -273,11 +273,13 @@ def main():
     learning_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/LearningStore.java').read_text(encoding='utf-8')
     content_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/ContentStore.java').read_text(encoding='utf-8')
     translation_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/TranslationStore.java').read_text(encoding='utf-8')
+    hadith_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/HadithStore.java').read_text(encoding='utf-8')
     quran_audio_store_text = (ROOT / 'app/src/main/java/com/aaris/quran/QuranAudioStore.java').read_text(encoding='utf-8')
     recitation_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationDownloads.java').read_text(encoding='utf-8')
     recitation_service_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationService.java').read_text(encoding='utf-8')
     assert 'cleanupOldPacks(folder,target);' in content_store_text and '"install.tmp".equals(name)' in content_store_text, 'Verified Quran pack updates must reclaim obsolete database/staging files'
     assert '"translations.installing".equals(file.getName())' in translation_store_text, 'Verified translation pack updates must reclaim an abandoned install staging file'
+    assert 'try{writeVerificationMarker(marker,target,packHash,packBytes);}' in hadith_store_text and 'catch(IOException ignored){}' in hadith_store_text, 'A failed Hadith verification-marker optimization must not hide a cryptographically verified evidence pack'
     assert 'recoverInterruptedInstalls();' in quran_audio_store_text and 'if(old.renameTo(target))delete(markerFile(surah));' in quran_audio_store_text, 'Interrupted Quran audio replacement must restore the last installed pack on restart'
     assert 'cleanupObsoletePartials();' in quran_audio_store_text and 'name.startsWith(".partial-")' in quran_audio_store_text, 'Quran audio must discard resumable partials from obsolete immutable source revisions'
     assert 'try{writeMarker(marker,markerValue(file,meta));}catch(IOException ignored){}' in quran_audio_store_text, 'A failed optimization marker write must not invalidate a fully verified Quran audio pack'
