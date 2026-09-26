@@ -26,7 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     if not __debug__:
         raise SystemExit('Run checks without -O; integrity assertions must be enabled.')
-    assert body_text('<p>نَصٌّ <b>تَجْرِيبِيٌّ</b></p><p>أَخْبَارٌ &amp; آثار</p>') == 'نَصٌّ تَجْرِيبِيٌّ\nأَخْبَارٌ & آثار'
+    assert body_text('<p>نَصٌّ <b>تَجْرِيبِيٌّ</b></p><p>أَخْبَارٌ &amp; آثار</p>') == 'نَصٌّ تَجْرِيبِيٌّ
+أَخْبَارٌ & آثار'
     assert body_text('نَصٌّ تَجْرِيبِيٌّ') == 'نَصٌّ تَجْرِيبِيٌّ'
     parser = argparse.ArgumentParser()
     parser.add_argument('--android-jar', type=Path)
@@ -64,7 +65,8 @@ def main():
     for wid,aid,position,word_arabic in db.execute(
             "SELECT id,ayah_id,position,arabic FROM word "
             "WHERE position>0 AND id LIKE '%:W:%' AND mapping_state='SOURCE_ALIGNED' ORDER BY id"):
-        audio_alignment.update(f"{wid}\\t{aid}\\t{position}\\t{word_arabic}\\n".encode('utf-8'))
+        audio_alignment.update(f"{wid}\\t{aid}\\t{position}\\t{word_arabic}\
+".encode('utf-8'))
         audio_words += 1
     assert audio_words == 77326, 'Canonical Quran audio word count changed'
     assert manifest.get('audio_alignment_words') == audio_words, 'Audio alignment word metadata mismatch'
@@ -78,7 +80,9 @@ def main():
     coordinates = {row[0] for row in db.execute('SELECT id FROM ayah')}
     edition_ids = [row[0] for row in tdb.execute('SELECT id FROM edition ORDER BY rowid')]
     assert edition_ids == translation_manifest['editions'], 'Translation manifest/database edition drift'
-    assert 'urdu_jalandhari' in edition_ids, 'Fateh Muhammad Jalandhry translation must remain in the offline pack'\n    assert tdb.execute("SELECT language,title,version,source FROM edition WHERE id='urdu_jalandhari'").fetchone() == ('ur','Urdu Translation - Fateh Muhammad Jalandhry','snapshot-47ca096b','https://tanzil.net/trans/'), 'Jalandhari provenance metadata drift'\n    for edition in edition_ids:
+    assert 'urdu_jalandhari' in edition_ids, 'Fateh Muhammad Jalandhry translation must remain in the offline pack'
+    assert tdb.execute("SELECT language,title,version,source FROM edition WHERE id='urdu_jalandhari'").fetchone() == ('ur','Urdu Translation - Fateh Muhammad Jalandhry','snapshot-47ca096b','https://tanzil.net/trans/'), 'Jalandhari provenance metadata drift'
+    for edition in edition_ids:
         assert {row[0] for row in tdb.execute('SELECT ayah_id FROM translation WHERE edition_id=?', (edition,))} == coordinates
         archived = json.loads((ROOT / 'source-vault/translations' / (edition + '.json')).read_text())
         for chapter in archived.values():
@@ -220,7 +224,8 @@ def main():
     assert '@drawable/ic_quran_splash' in splash_styles
     assert '<vector' in splash_icon and '#D8C28A' in splash_icon
     permissions = {p.get(android + 'name') for p in android_manifest.findall('uses-permission')}
-    java_sources = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / 'app/src/main/java').rglob('*.java'))
+    java_sources = '
+'.join(p.read_text(encoding='utf-8') for p in (ROOT / 'app/src/main/java').rglob('*.java'))
     assert 'https://sunnah.com/' not in java_sources, 'Runtime Hadith website dependency returned'
 
     # Translation speech must recover automatically when Android removes or renames a saved offline voice.
@@ -247,7 +252,8 @@ def main():
     assert 'private void normalizeEditingLayer()' in appearance_studio_text and 'if(layer==5&&!style.gradient){layer=0;invalidateEditorColor();}' in appearance_studio_text, 'Appearance undo/redo must not leave a hidden gradient layer selected'
     assert 'boolean canUndo=historyIndex>0,canRedo=historyIndex+1<history.size();' in appearance_studio_text, 'Appearance history controls must derive enabled state from the real history cursor'
     assert 'undo.setEnabled(canUndo);undo.setFocusable(canUndo);undo.setAlpha(canUndo?1f:.45f);' in appearance_studio_text and 'redo.setEnabled(canRedo);redo.setFocusable(canRedo);redo.setAlpha(canRedo?1f:.45f);' in appearance_studio_text, 'Unavailable Undo/Redo controls must be visibly and semantically disabled instead of silently no-oping'
-    assert 'private void renderControls(){\n        normalizeEditingLayer();' in appearance_studio_text, 'Appearance editor must normalize its editing target before rebuilding controls'
+    assert 'private void renderControls(){
+        normalizeEditingLayer();' in appearance_studio_text, 'Appearance editor must normalize its editing target before rebuilding controls'
     assert '!highContrast&&appearance.rendersGradient()&&backgroundGradient!=null' in glass_text, 'Runtime backdrop must share the appearance gradient visibility rule'
     assert 'TEXT_PLAIN=0,TEXT_SOFT=1,TEXT_GLASS=2,TEXT_FOIL=3' in appearance_text
     assert 'shadowAngle' in appearance_text and 'shadowDistance' in appearance_text and 'gradientAngle' in appearance_text
@@ -268,7 +274,8 @@ def main():
     recitation_downloads_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationDownloads.java').read_text(encoding='utf-8')
     recitation_service_text = (ROOT / 'app/src/main/java/com/aaris/quran/RecitationService.java').read_text(encoding='utf-8')
     activity_result_start = main_activity_text.index('    @Override protected void onActivityResult')
-    activity_result_end = main_activity_text.index('\n    @Override public void onBackPressed', activity_result_start)
+    activity_result_end = main_activity_text.index('
+    @Override public void onBackPressed', activity_result_start)
     activity_result = main_activity_text[activity_result_start:activity_result_end]
     assert 'final AtomicBoolean exportPrepareBusy=new AtomicBoolean(false);' in quran_app_text, 'Export preparation must remain globally reserved across Activity recreation'
     assert 'final AtomicBoolean exportWriteBusy=new AtomicBoolean(false);' in quran_app_text, 'Destination writes need application-scoped busy state so Activity recreation cannot unlock a concurrent export'
@@ -297,7 +304,8 @@ def main():
     assert 'exportBusy=app.exportPrepareBusy.get()||app.exportWriteBusy.get()' in main_activity_text, 'Existing operation UI must reflect both export preparation and destination writing'
     assert main_activity_text.count('Preparing or saving export on your phone…') >= 2, 'Operation status must describe both export preparation and destination writes'
     assert 'private void updateHighContrast(boolean enabled)' in main_activity_text and 'contrast.setOnCheckedChangeListener((b,v)->updateHighContrast(v));' in main_activity_text, 'High-contrast setting must use the live surface refresh path'
-    assert 'highContrast=enabled;learning.set("contrast",""+enabled);\n        show();settings();' in main_activity_text, 'High-contrast changes must rebuild both the underlying screen and the open settings sheet immediately'
+    assert 'highContrast=enabled;learning.set("contrast",""+enabled);
+        show();settings();' in main_activity_text, 'High-contrast changes must rebuild both the underlying screen and the open settings sheet immediately'
     assert 'state.putStringArrayList("hadith_evidence",new ArrayList<>(selectedHadith))' in main_activity_text, 'Selected Hadith evidence must survive Activity recreation'
     assert 'ArrayList<String> hadithIds=state.getStringArrayList("hadith_evidence")' in main_activity_text, 'Recreated search must restore selected Hadith evidence before results render'
     assert 'boolean sameHadithQuery=nextQuery.equals(hadithQuery);' in main_activity_text and 'if(!sameHadithQuery)selectedHadith.clear();' in main_activity_text, 'Same-query Hadith refreshes must preserve user selection while genuinely new queries clear stale IDs'
@@ -307,7 +315,8 @@ def main():
     def java_method(name, return_type='void'):
         marker = f'    private {return_type} {name}('
         start = main_activity_text.index(marker)
-        end = main_activity_text.find('\n    private ', start + len(marker))
+        end = main_activity_text.find('
+    private ', start + len(marker))
         return main_activity_text[start:] if end < 0 else main_activity_text[start:end]
     restore_import_delivery = java_method('deliverRestoreImportResult')
     assert 'QuranApp.RestoreImportResult result=app.peekRestoreImportResult();' in restore_import_delivery, 'Restore confirmation must read the retained validated backup instead of Activity-local state'
@@ -378,7 +387,8 @@ def main():
     assert 'markedComplete(' not in recitation_rows, 'Rendering the 114-Surah download list must not perform filesystem status reads on the UI thread'
     assert '!list.isAttachedToWindow()' in recitation_rows, 'Detached recitation sheets must stop incremental row rendering'
     play_start = main_activity_text.index('    private void playAyah(Ayah a){')
-    play_end = main_activity_text.index('\n    private void audioControls', play_start)
+    play_end = main_activity_text.index('
+    private void audioControls', play_start)
     play_flow = main_activity_text[play_start:play_end]
     assert 'recitationStatusWorker.execute' in play_flow, 'Paused reciter verification must run off the Android UI thread'
     assert 'downloads.ayahReady(reciter,a,ayahCount)' in play_flow, 'Background playback selection must keep strong saved-reciter verification'
@@ -419,7 +429,8 @@ def main():
     assert 'previous.setEnabled(hasPrevious)' in reader_method and 'next.setEnabled(hasNext)' in reader_method, 'Reader boundary controls must not remain tappable no-ops'
     assert '"Start of Quran"' in reader_method and '"End of Quran"' in reader_method, 'Reader boundary controls need explicit user feedback'
     move_start = main_activity_text.index('    private boolean moveReaderPage(')
-    move_end = main_activity_text.find('\n    private ', move_start + 1)
+    move_end = main_activity_text.find('
+    private ', move_start + 1)
     move_reader = main_activity_text[move_start:] if move_end < 0 else main_activity_text[move_start:move_end]
     reader_open = java_method('open')
     reader_prefetch = java_method('prefetchReaderNeighbors')
@@ -468,7 +479,8 @@ def main():
         fixture_records = fixture_source / 'records' / 'fixture.jsonl'
         fixture_records.write_bytes((ROOT / 'source-vault/hadith/records.example.jsonl').read_bytes())
         fixture_permission = fixture_source / 'LICENSES' / 'PERMISSION.txt'
-        fixture_permission.write_text('Engineering test fixture only; not a distributable Hadith corpus.\n')
+        fixture_permission.write_text('Engineering test fixture only; not a distributable Hadith corpus.
+')
         fixture_manifest = {
             'pack_id': 'hadith-builder-fixture',
             'content_version': '0',
@@ -481,7 +493,8 @@ def main():
                 'LICENSES/PERMISSION.txt': hashlib.sha256(fixture_permission.read_bytes()).hexdigest(),
             },
         }
-        (fixture_source / 'manifest.json').write_text(json.dumps(fixture_manifest, indent=2) + '\n')
+        (fixture_source / 'manifest.json').write_text(json.dumps(fixture_manifest, indent=2) + '
+')
         fixture_output = Path(scratch) / 'hadith-fixture' / 'hadith.sqlite'
         subprocess.run([
             sys.executable, str(ROOT / 'tools/build_hadith.py'),
@@ -530,7 +543,8 @@ def main():
                 if translated:
                     hints = (hints + ' ' + translated).strip()
                 sounds = ' '.join(word_sounds.get(aid, []))
-                out.write(f'{surah}\t{number}\t{ordinal}\t{encode(arabic)}\t{encode(hints)}\t{encode(sounds)}\n')
+                out.write(f'{surah}\t{number}\t{ordinal}\t{encode(arabic)}\t{encode(hints)}\t{encode(sounds)}
+')
         subprocess.run([java, '-Xmx256m', '-cp', str(classes), 'com.aaris.quran.core.CorpusChecks', str(corpus)], check=True, cwd=ROOT)
         generated = Path(scratch) / 'generated'
         generated.mkdir()
