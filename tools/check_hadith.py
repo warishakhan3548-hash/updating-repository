@@ -90,6 +90,25 @@ def main():
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     args = parser.parse_args()
 
+    # Lifecycle regression: a selected Hadith can live on a later search page. After Activity
+    # recreation only the first search page is reloaded, so PDF/compare must resolve saved IDs from
+    # the immutable local pack instead of silently dropping selections that are not in hadithHits.
+    main_activity_text = (ROOT / "app/src/main/java/com/aaris/quran/MainActivity.java").read_text(encoding="utf-8")
+    hadith_store_text = (ROOT / "app/src/main/java/com/aaris/quran/HadithStore.java").read_text(encoding="utf-8")
+    research_export_text = (ROOT / "app/src/main/java/com/aaris/quran/ResearchExport.java").read_text(encoding="utf-8")
+    assert "List<Record> records(Collection<String> ids)" in hadith_store_text
+    assert "for(int start=0;start<all.size();start+=400)" in hadith_store_text, "Saved Hadith ID resolution must stay below SQLite bind limits"
+    assert "static Hit selected(Record record)" in hadith_store_text and "selectionOnly" in hadith_store_text
+    assert "private void resolveHadithResearchSelection(List<HadithStore.Hit> loaded)" in main_activity_text
+    resolver_start = main_activity_text.index("    private void resolveHadithResearchSelection(")
+    resolver_end = main_activity_text.index("\n    private void shareResearch(boolean hadith)", resolver_start)
+    resolver = main_activity_text[resolver_start:resolver_end]
+    assert "hadithBrowseWorker.submit" in resolver and "store.records(missing)" in resolver, "Off-page selected Hadith resolution must stay off the Android UI thread"
+    assert "HadithStore.Hit.selected(record)" in resolver, "Restored selections need a neutral source-only evidence state"
+    assert "if(!selectedHadith.isEmpty()&&hits.size()<selectedHadith.size())" in main_activity_text
+    assert "ResearchExport.hadithRetrievalLabel(hit)" in main_activity_text
+    assert "if(hit.selectionOnly)return \"SELECTED SOURCE" in research_export_text, "Restored selection exports must not fabricate search-match confidence"
+
     source = args.source.resolve()
     inventory = json.loads((source / "SOURCE.json").read_text(encoding="utf-8"))
     expected_core = {
