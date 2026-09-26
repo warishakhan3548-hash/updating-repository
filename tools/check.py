@@ -495,6 +495,7 @@ def main():
     assert 'synchronized Map<String,Recall.State> states(Collection<String> targets)' in learning_store_text, 'Recall single-target flows need the existing targeted state projection'
     assert 'WHERE target IN (' in learning_store_text, 'Targeted Recall state projection must stay bounded to requested targets when the global cache is cold'
     assert 'if(cachedStates!=null){' in learning_store_text and 'Recall.replay(events(Collections.singleton(target))' in learning_store_text and 'cachedStates=Collections.unmodifiableMap(next);' in learning_store_text, 'Appending one learning event must refresh only that target when the global Recall projection cache is warm'
+    assert 'surah>0?"Download stopped · Surah "+surah+": "+message:"Download stopped · "+message' in main_activity_text, 'Word-audio batch preflight failures must not display a fabricated Surah 0 coordinate'
     for method in ('enroll', 'review', 'reviewTransition'):
         recall_flow = java_method(method)
         assert 'learning.states()' not in recall_flow, f'{method} must not replay the complete learning history for one Recall target'
