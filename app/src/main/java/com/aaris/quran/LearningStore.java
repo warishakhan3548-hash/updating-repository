@@ -26,7 +26,10 @@ final class LearningStore extends SQLiteOpenHelper {
     void event(String target,Recall.Kind kind,String context){event(UUID.randomUUID().toString(),target,kind,context);}
     synchronized void event(String id,String target,Recall.Kind kind,String context) {
         long now=System.currentTimeMillis();
-        if(lastEventTime==0)try(Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(MAX(at),0) FROM event",null)){if(c.moveToFirst()){lastEventTime=c.getLong(0);if(lastEventTime>now+MAX_FUTURE_EVENT_SKEW)lastEventTime=now;}}
+        if(lastEventTime==0)try(Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(MAX(at),0) FROM event",null)){if(c.moveToFirst())lastEventTime=c.getLong(0);}
+        // Recover not only from imported/legacy future rows, but also from a wall-clock rollback
+        // while this process is alive. Sequence order remains authoritative for ledger replay.
+        if(lastEventTime>now+MAX_FUTURE_EVENT_SKEW)lastEventTime=now;
         ContentValues v=new ContentValues();v.put("id",id);v.put("target",target);v.put("kind",kind.name());
         v.put("at",lastEventTime=Math.max(now,lastEventTime+1));v.put("session",session);v.put("context",context==null?target:context);v.put("scheduler",Recall.VERSION);
         try(Cursor existing=getReadableDatabase().rawQuery("SELECT target,kind,context FROM event WHERE id=?",new String[]{id})) {
