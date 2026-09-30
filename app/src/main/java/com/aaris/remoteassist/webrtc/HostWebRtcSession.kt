@@ -67,6 +67,15 @@ class HostWebRtcSession(
         onProjectionStopped = listener::onProjectionStopped
     )
 
+    private val connectionWatchdog = Runnable {
+        if (
+            !closed.get() &&
+            (!peerConnected || !controlOpen)
+        ) {
+            listener.onRemoteDisconnect()
+        }
+    }
+
     private val leaseWatchdog = object : Runnable {
         override fun run() {
             if (closed.get()) return
@@ -106,6 +115,11 @@ class HostWebRtcSession(
 
         peer.addLocalVideoTrack(capture.videoTrack)
         capture.start(profile)
+        displayHandler.removeCallbacks(connectionWatchdog)
+        displayHandler.postDelayed(
+            connectionWatchdog,
+            CONNECT_TIMEOUT_MS
+        )
         peer.start()
     }
 
@@ -193,6 +207,7 @@ class HostWebRtcSession(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
 
+        displayHandler.removeCallbacks(connectionWatchdog)
         displayHandler.removeCallbacks(
             leaseWatchdog
         )
@@ -209,6 +224,8 @@ class HostWebRtcSession(
 
     private fun ensureLiveHandshake() {
         if (!peerConnected || !controlOpen || closed.get()) return
+
+        displayHandler.removeCallbacks(connectionWatchdog)
 
         val currentLease = lease ?: runCatching {
             SessionCoordinator.activateLive(sessionId)
@@ -246,6 +263,7 @@ class HostWebRtcSession(
         )
     }
     companion object {
+        private const val CONNECT_TIMEOUT_MS = 30_000L
         private const val LEASE_WATCHDOG_MS = 3_000L
     }
 }
