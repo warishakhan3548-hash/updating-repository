@@ -46,8 +46,10 @@ class MainActivity : Activity() {
 
     private var hostObserver: Closeable? = null
     private var approvalDialogSessionId: String? = null
+    private var pendingApprovalSessionId: String? = null
     private var pendingProjectionSessionId: String? = null
     private var shareExpiryJob: Job? = null
+    private var activityResumed = false
 
     private val prefs by lazy {
         getSharedPreferences("setup", Context.MODE_PRIVATE)
@@ -64,6 +66,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        activityResumed = true
 
         if (
             prefs.getBoolean(KEY_PENDING_SHARE, false) &&
@@ -76,6 +79,16 @@ class MainActivity : Activity() {
             SessionCoordinator.prepareReady()
             beginShare()
         }
+
+        pendingApprovalSessionId
+            ?.let { sessionId ->
+                showApproval(sessionId)
+            }
+    }
+
+    override fun onPause() {
+        activityResumed = false
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -381,6 +394,7 @@ class MainActivity : Activity() {
             hostObserver?.close()
             hostObserver = null
             approvalDialogSessionId = null
+            pendingApprovalSessionId = null
             SessionCoordinator.reset()
         }
 
@@ -516,12 +530,27 @@ class MainActivity : Activity() {
                                                 .PAIR_PENDING
                                         )
                                 }
-                                showApproval(sessionId)
+
+                                if (activityResumed) {
+                                    showApproval(sessionId)
+                                } else {
+                                    pendingApprovalSessionId =
+                                        sessionId
+                                    status.text =
+                                        "Your friend is ready. Return here and tap START."
+                                }
                             }
 
                             "CLOSED" -> {
                                 shareExpiryJob?.cancel()
                                 shareExpiryJob = null
+                                if (
+                                    pendingApprovalSessionId ==
+                                    sessionId
+                                ) {
+                                    pendingApprovalSessionId =
+                                        null
+                                }
 
                                 SessionCoordinator
                                     .close(sessionId)
@@ -547,6 +576,12 @@ class MainActivity : Activity() {
     private fun showApproval(
         sessionId: String
     ) {
+        if (!activityResumed) {
+            pendingApprovalSessionId =
+                sessionId
+            return
+        }
+
         if (
             approvalDialogSessionId ==
             sessionId
@@ -554,6 +589,7 @@ class MainActivity : Activity() {
             return
         }
 
+        pendingApprovalSessionId = null
         approvalDialogSessionId =
             sessionId
 
@@ -566,6 +602,7 @@ class MainActivity : Activity() {
                     _,
                     _ ->
                 approvalDialogSessionId = null
+                pendingApprovalSessionId = null
                 approveAndRequestScreen(
                     sessionId
                 )
@@ -574,6 +611,7 @@ class MainActivity : Activity() {
                     _,
                     _ ->
                 approvalDialogSessionId = null
+                pendingApprovalSessionId = null
 
                 scope.launch {
                     runCatching {
