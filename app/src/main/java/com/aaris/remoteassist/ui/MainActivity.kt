@@ -507,6 +507,9 @@ class MainActivity : Activity() {
     }
 
     private fun clearHostUi() {
+        activeHostSessionId = null
+        pendingProjectionSessionId = null
+
         hostObserver?.close()
         hostObserver = null
 
