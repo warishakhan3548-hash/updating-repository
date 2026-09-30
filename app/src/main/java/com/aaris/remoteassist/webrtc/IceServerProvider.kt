@@ -7,7 +7,10 @@ import kotlinx.coroutines.withTimeout
 import org.webrtc.PeerConnection
 
 object IceServerProvider {
-    suspend fun load(): List<PeerConnection.IceServer> {
+    suspend fun load(
+        sessionId: String
+    ): List<PeerConnection.IceServer> {
+        require(sessionId.isNotBlank())
         val fallback = fallbackServers()
 
         val result = runCatching {
@@ -15,7 +18,7 @@ object IceServerProvider {
                 FirebaseFunctions
                     .getInstance(BackendConfig.FUNCTIONS_REGION)
                     .getHttpsCallable("getIceConfig")
-                    .call()
+                    .call(mapOf("sessionId" to sessionId))
                     .await()
             }
         }.getOrNull() ?: return fallback
