@@ -62,6 +62,39 @@ function requireString(value: unknown, name: string): string {
   return value;
 }
 
+async function requireActiveSessionParticipant(
+  sessionId: string,
+  uid: string
+): Promise<void> {
+  const snap = await getDatabase()
+    .ref("sessions/" + sessionId)
+    .get();
+
+  if (!snap.exists()) {
+    throw new HttpsError("not-found", "Session not found.");
+  }
+
+  const session = snap.val() as {
+    hostUid?: string;
+    controllerUid?: string;
+    state?: SessionState;
+  };
+
+  if (uid !== session.hostUid && uid !== session.controllerUid) {
+    throw new HttpsError(
+      "permission-denied",
+      "Only session participants can request relay credentials."
+    );
+  }
+
+  if (session.state !== "SCREEN_READY" && session.state !== "LIVE") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Session is not ready for transport."
+    );
+  }
+}
+
 function normalizeCode(value: unknown): string {
   if (typeof value !== "string") {
     throw new HttpsError("invalid-argument", "Enter the 6-digit code.");
@@ -185,6 +218,12 @@ export const getIceConfig = onCall(
   },
   async (request) => {
     const uid = requireUid(request.auth?.uid);
+    const sessionId = requireString(
+      request.data?.sessionId,
+      "sessionId"
+    );
+    await requireActiveSessionParticipant(sessionId, uid);
+
     const iceServers: Array<{
       urls: string[];
       username?: string;
