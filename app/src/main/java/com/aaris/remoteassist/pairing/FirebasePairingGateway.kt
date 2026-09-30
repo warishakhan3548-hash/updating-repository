@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.pairing
 
 import android.content.Context
+import com.aaris.remoteassist.backend.BackendConfig
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
@@ -139,7 +140,7 @@ class FirebasePairingGateway(
 
     private fun functions(): FirebaseFunctions {
         requireConfigured()
-        return FirebaseFunctions.getInstance()
+        return FirebaseFunctions.getInstance(BackendConfig.FUNCTIONS_REGION)
     }
 
     private fun Map<*, *>.string(key: String): String =

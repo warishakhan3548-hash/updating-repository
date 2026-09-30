@@ -18,6 +18,12 @@ const PAIRING_PEPPER = defineSecret("PAIRING_PEPPER");
 const CODE_TTL_MS = 5 * 60_000;
 const REDEEM_WINDOW_MS = 60_000;
 const MAX_REDEEMS_PER_WINDOW = 8;
+const CONNECT_SETUP_TTL_MS = 3 * 60_000;
+const ICE_CONFIG_TTL_SECONDS = 60 * 60;
+const DEFAULT_STUN_URLS = [
+  "stun:stun.l.google.com:19302",
+  "stun:stun1.l.google.com:19302"
+];
 
 type SessionState =
   | "CODE_ACTIVE"
@@ -71,6 +77,24 @@ function lookupKey(code: string): string {
   return createHmac("sha256", PAIRING_PEPPER.value())
     .update(code)
     .digest("hex");
+}
+
+function configuredTurnUrls(): string[] {
+  return (process.env.TURN_URLS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => /^turns?:/i.test(value))
+    .slice(0, 8);
+}
+
+async function clearActiveHostSessionIfMatches(
+  hostUid: string,
+  sessionId: string
+): Promise<void> {
+  const ref = getDatabase().ref("activeHostSession/" + hostUid);
+  await ref.transaction((current) => {
+    return current === sessionId ? null : current;
+  }, undefined, false);
 }
 
 async function enforceRedeemRate(uid: string): Promise<void> {
@@ -145,7 +169,6 @@ async function closeExistingHostSession(hostUid: string): Promise<void> {
   updates["sessions/" + previousSessionId + "/state"] = "CLOSED";
   updates["sessions/" + previousSessionId + "/closedAtMs"] = Date.now();
   updates["serverSessionCodes/" + previousSessionId] = null;
-  updates["activeHostSession/" + hostUid] = null;
   clearSessionTransport(updates, previousSessionId);
 
   if (typeof previousCodeKey === "string") {
@@ -153,7 +176,49 @@ async function closeExistingHostSession(hostUid: string): Promise<void> {
   }
 
   await db.ref().update(updates);
+  await clearActiveHostSessionIfMatches(hostUid, previousSessionId);
 }
+
+export const getIceConfig = onCall(
+  {
+    enforceAppCheck: true
+  },
+  async (request) => {
+    const uid = requireUid(request.auth?.uid);
+    const iceServers: Array<{
+      urls: string[];
+      username?: string;
+      credential?: string;
+    }> = [
+      { urls: DEFAULT_STUN_URLS }
+    ];
+
+    const turnUrls = configuredTurnUrls();
+    const turnSecret = (process.env.TURN_SHARED_SECRET ?? "").trim();
+    let expiresAtMs = 0;
+
+    if (turnUrls.length > 0 && turnSecret.length >= 16) {
+      const expiresAtSeconds =
+        Math.floor(Date.now() / 1000) + ICE_CONFIG_TTL_SECONDS;
+      const username = expiresAtSeconds + ":" + uid;
+      const credential = createHmac("sha1", turnSecret)
+        .update(username)
+        .digest("base64");
+
+      iceServers.push({
+        urls: turnUrls,
+        username,
+        credential
+      });
+      expiresAtMs = expiresAtSeconds * 1000;
+    }
+
+    return {
+      iceServers,
+      expiresAtMs
+    };
+  }
+);
 
 export const createPairingSession = onCall(
   {
@@ -321,9 +386,12 @@ export const redeemPairingCode = onCall(
       updates["sessions/" + record.sessionId + "/closedAtMs"] = now;
       updates["pairingCodes/" + key] = null;
       updates["serverSessionCodes/" + record.sessionId] = null;
-      updates["activeHostSession/" + record.hostUid] = null;
       clearSessionTransport(updates, record.sessionId);
       await db.ref().update(updates);
+      await clearActiveHostSessionIfMatches(
+        record.hostUid,
+        record.sessionId
+      );
       throw new HttpsError("deadline-exceeded", "Code expired.");
     }
 
@@ -368,6 +436,7 @@ export const approvePairingSession = onCall(
       | "not-found"
       | "permission"
       | "state"
+      | "expired"
       | null = null;
 
     const tx = await ref.transaction((raw) => {
@@ -382,11 +451,17 @@ export const approvePairingSession = onCall(
         hostUid?: string;
         controllerUid?: string;
         state?: SessionState;
+        expiresAtMs?: number;
         [key: string]: unknown;
       };
 
       if (session.hostUid !== hostUid) {
         failure = "permission";
+        return;
+      }
+
+      if ((session.expiresAtMs ?? 0) <= now) {
+        failure = "expired";
         return;
       }
 
@@ -398,7 +473,8 @@ export const approvePairingSession = onCall(
       return {
         ...session,
         state: "HOST_APPROVED" satisfies SessionState,
-        approvedAtMs: now
+        approvedAtMs: now,
+        connectExpiresAtMs: now + CONNECT_SETUP_TTL_MS
       };
     }, undefined, false);
 
@@ -410,6 +486,12 @@ export const approvePairingSession = onCall(
         throw new HttpsError(
           "permission-denied",
           "Only the sharing phone can approve."
+        );
+      }
+      if (failure === "expired") {
+        throw new HttpsError(
+          "deadline-exceeded",
+          "Pairing request expired. Create a new code."
         );
       }
       throw new HttpsError(
@@ -441,6 +523,7 @@ export const markScreenReady = onCall(
       | "not-found"
       | "permission"
       | "state"
+      | "expired"
       | null = null;
 
     const tx = await ref.transaction((raw) => {
@@ -454,11 +537,17 @@ export const markScreenReady = onCall(
       const session = raw as {
         hostUid?: string;
         state?: SessionState;
+        connectExpiresAtMs?: number;
         [key: string]: unknown;
       };
 
       if (session.hostUid !== hostUid) {
         failure = "permission";
+        return;
+      }
+
+      if ((session.connectExpiresAtMs ?? 0) <= now) {
+        failure = "expired";
         return;
       }
 
@@ -482,6 +571,12 @@ export const markScreenReady = onCall(
         throw new HttpsError(
           "permission-denied",
           "Only the sharing phone can start."
+        );
+      }
+      if (failure === "expired") {
+        throw new HttpsError(
+          "deadline-exceeded",
+          "Connection setup expired. Create a new code."
         );
       }
       throw new HttpsError(
@@ -552,11 +647,13 @@ export const closePairingSession = onCall(
     if (typeof key === "string") {
       updates["pairingCodes/" + key] = null;
     }
-    if (typeof session.hostUid === "string") {
-      updates["activeHostSession/" + session.hostUid] = null;
-    }
-
     await db.ref().update(updates);
+    if (typeof session.hostUid === "string") {
+      await clearActiveHostSessionIfMatches(
+        session.hostUid,
+        sessionId
+      );
+    }
     return { ok: true };
   }
 );
@@ -580,6 +677,7 @@ export const markSessionLive = onCall(
       | "not-found"
       | "permission"
       | "state"
+      | "expired"
       | null = null;
 
     const tx = await ref.transaction((raw) => {
@@ -594,11 +692,17 @@ export const markSessionLive = onCall(
         hostUid?: string;
         controllerUid?: string;
         state?: SessionState;
+        connectExpiresAtMs?: number;
         [key: string]: unknown;
       };
 
       if (session.hostUid !== hostUid) {
         failure = "permission";
+        return;
+      }
+
+      if ((session.connectExpiresAtMs ?? 0) <= now) {
+        failure = "expired";
         return;
       }
 
@@ -622,6 +726,12 @@ export const markSessionLive = onCall(
         throw new HttpsError(
           "permission-denied",
           "Only the sharing phone can mark the session live."
+        );
+      }
+      if (failure === "expired") {
+        throw new HttpsError(
+          "deadline-exceeded",
+          "Connection setup expired. Create a new code."
         );
       }
       throw new HttpsError(
