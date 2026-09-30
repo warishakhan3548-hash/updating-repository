@@ -26,8 +26,10 @@ import com.aaris.remoteassist.session.SessionState
 import java.io.Closeable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : Activity() {
@@ -45,6 +47,7 @@ class MainActivity : Activity() {
     private var hostObserver: Closeable? = null
     private var approvalDialogSessionId: String? = null
     private var pendingProjectionSessionId: String? = null
+    private var shareExpiryJob: Job? = null
 
     private val prefs by lazy {
         getSharedPreferences("setup", Context.MODE_PRIVATE)
@@ -76,6 +79,8 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        shareExpiryJob?.cancel()
+        shareExpiryJob = null
         hostObserver?.close()
         hostObserver = null
         scope.cancel()
@@ -286,8 +291,12 @@ class MainActivity : Activity() {
                 val displayCode =
                     PairingCode.display(ticket.code)
 
-                status.text =
-                    "Code $displayCode • waiting for your friend…"
+                startShareExpiryCountdown(
+                    sessionId = ticket.sessionId,
+                    displayCode = displayCode,
+                    expiresAtEpochMs =
+                        ticket.expiresAtEpochMs
+                )
 
                 sharePairingCode(
                     displayCode
@@ -360,6 +369,9 @@ class MainActivity : Activity() {
             current.state == SessionState.PAIR_PENDING ||
             current.state == SessionState.HOST_APPROVED
         ) {
+            shareExpiryJob?.cancel()
+            shareExpiryJob = null
+
             current.sessionId?.let { oldSessionId ->
                 runCatching {
                     gateway.close(oldSessionId)
@@ -374,6 +386,70 @@ class MainActivity : Activity() {
 
         SessionCoordinator.prepareReady()
         return true
+    }
+
+    private fun startShareExpiryCountdown(
+        sessionId: String,
+        displayCode: String,
+        expiresAtEpochMs: Long
+    ) {
+        shareExpiryJob?.cancel()
+
+        shareExpiryJob = scope.launch {
+            while (true) {
+                val remainingMs =
+                    expiresAtEpochMs -
+                        System.currentTimeMillis()
+
+                if (remainingMs <= 0L) {
+                    val current =
+                        SessionCoordinator
+                            .snapshot()
+
+                    if (
+                        current.sessionId ==
+                        sessionId &&
+                        current.state ==
+                        SessionState.CODE_ACTIVE
+                    ) {
+                        runCatching {
+                            gateway.close(
+                                sessionId
+                            )
+                        }
+
+                        SessionCoordinator
+                            .close(sessionId)
+
+                        hostObserver?.close()
+                        hostObserver = null
+
+                        status.text =
+                            "Code expired. Tap Share for a new code."
+                    }
+
+                    shareExpiryJob = null
+                    return@launch
+                }
+
+                val totalSeconds =
+                    (remainingMs + 999L) /
+                        1_000L
+                val minutes =
+                    totalSeconds / 60L
+                val seconds =
+                    totalSeconds % 60L
+
+                status.text =
+                    "Code $displayCode • expires in " +
+                        "$minutes:" +
+                        seconds
+                            .toString()
+                            .padStart(2, '0')
+
+                delay(1_000L)
+            }
+        }
     }
 
     private fun sharePairingCode(
@@ -430,6 +506,9 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         when (backend.state) {
                             "PAIR_PENDING" -> {
+                                shareExpiryJob?.cancel()
+                                shareExpiryJob = null
+
                                 runCatching {
                                     SessionCoordinator
                                         .transition(
@@ -442,6 +521,9 @@ class MainActivity : Activity() {
                             }
 
                             "CLOSED" -> {
+                                shareExpiryJob?.cancel()
+                                shareExpiryJob = null
+
                                 SessionCoordinator
                                     .close(sessionId)
                                 status.text =
