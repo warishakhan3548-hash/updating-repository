@@ -43,6 +43,59 @@ class ControlProtocolTest {
     }
 
     @Test
+    fun recentsRoundTrips() {
+        val source = ControlPacket.Recents(
+            leaseSecret = 11L,
+            generation = 2,
+            sequence = 7L
+        )
+
+        assertEquals(
+            source,
+            ControlProtocol.decode(ControlProtocol.encode(source))
+        )
+    }
+
+    @Test
+    fun textRoundTripsAndConvertsToCommand() {
+        val source = ControlPacket.Text(
+            leaseSecret = 12L,
+            generation = 3,
+            sequence = 8L,
+            text = "Hello नमस्ते"
+        )
+
+        val decoded = ControlProtocol.decode(
+            ControlProtocol.encode(source)
+        )
+        assertEquals(source, decoded)
+
+        val command = ControlProtocol.toRemoteCommand(
+            sessionId = "s1",
+            packet = source,
+            widthPx = 100,
+            heightPx = 200
+        )
+        assertTrue(command is SetTextCommand)
+        assertEquals(
+            source.text,
+            (command as SetTextCommand).text
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun oversizedTextFailsClosed() {
+        ControlProtocol.encode(
+            ControlPacket.Text(
+                leaseSecret = 1L,
+                generation = 1,
+                sequence = 1L,
+                text = "x".repeat(3000)
+            )
+        )
+    }
+
+    @Test
     fun packetConvertsToRemotePixels() {
         val command = ControlProtocol.toRemoteCommand(
             sessionId = "s1",
