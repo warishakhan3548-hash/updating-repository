@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
@@ -25,8 +26,10 @@ class ScreenShareService : Service() {
         SupervisorJob() + Dispatchers.IO
     )
 
-    private var activeSessionId: String? = null
-    private var hostSession: HostWebRtcSession? = null
+    private var activeSessionId:
+        String? = null
+    private var hostSession:
+        HostWebRtcSession? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -39,151 +42,245 @@ class ScreenShareService : Service() {
         startId: Int
     ): Int {
         when (intent?.action) {
-            ACTION_START -> startApprovedSession(intent)
-            ACTION_STOP -> stopActiveSession("stopped_by_remote_user")
+            ACTION_START ->
+                startApprovedSession(
+                    intent
+                )
+
+            ACTION_STOP ->
+                stopActiveSession(
+                    "stopped_by_user"
+                )
         }
+
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        val id = activeSessionId
+        val id =
+            activeSessionId
+
         activeSessionId = null
 
         hostSession?.close()
         hostSession = null
 
         if (id != null) {
-            ProjectionGrantStore.clear(id)
-            SessionCoordinator.close(id)
+            ProjectionGrantStore.clear(
+                id
+            )
+            SessionCoordinator.close(
+                id
+            )
         }
 
         scope.cancel()
         super.onDestroy()
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(
+        intent: Intent?
+    ): IBinder? = null
 
-    private fun startApprovedSession(intent: Intent) {
-        if (activeSessionId != null) {
-            stopActiveSession("replaced_by_new_session")
-            return
-        }
+    private fun startApprovedSession(
+        intent: Intent
+    ) {
+        val sessionId =
+            intent.getStringExtra(
+                EXTRA_SESSION_ID
+            ) ?: run {
+                stopSelf()
+                return
+            }
 
-        val sessionId = intent.getStringExtra(EXTRA_SESSION_ID) ?: run {
-            stopSelf()
-            return
-        }
+        val existing =
+            activeSessionId
 
-        val resultCode = intent.getIntExtra(
-            EXTRA_RESULT_CODE,
-            Int.MIN_VALUE
-        )
+        if (existing != null) {
+            if (existing == sessionId) {
+                return
+            }
 
-        val captureData = if (Build.VERSION.SDK_INT >= 33) {
-            intent.getParcelableExtra(
-                EXTRA_CAPTURE_DATA,
-                Intent::class.java
+            stopActiveSession(
+                "replaced_by_new_session"
             )
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(EXTRA_CAPTURE_DATA)
+            return
         }
 
-        if (resultCode == Int.MIN_VALUE || captureData == null) {
+        val resultCode =
+            intent.getIntExtra(
+                EXTRA_RESULT_CODE,
+                Int.MIN_VALUE
+            )
+
+        val captureData =
+            if (
+                Build.VERSION.SDK_INT >=
+                33
+            ) {
+                intent.getParcelableExtra(
+                    EXTRA_CAPTURE_DATA,
+                    Intent::class.java
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(
+                    EXTRA_CAPTURE_DATA
+                )
+            }
+
+        if (
+            resultCode ==
+            Int.MIN_VALUE ||
+            captureData == null
+        ) {
             stopSelf()
             return
         }
 
-        activeSessionId = sessionId
+        activeSessionId =
+            sessionId
+
         startVisibleForeground()
 
-        val grant = ProjectionGrant(
-            sessionId = sessionId,
-            resultCode = resultCode,
-            data = captureData
-        )
+        val grant =
+            ProjectionGrant(
+                sessionId =
+                    sessionId,
+                resultCode =
+                    resultCode,
+                data =
+                    captureData
+            )
+
         ProjectionGrantStore.offer(
             sessionId,
             resultCode,
             captureData
         )
 
-        val stateOk = runCatching {
-            SessionCoordinator.transition(
-                sessionId,
-                SessionState.SCREEN_CONSENT
-            )
-            SessionCoordinator.transition(
-                sessionId,
-                SessionState.CONNECTING
-            )
-        }.isSuccess
+        val stateOk =
+            runCatching {
+                SessionCoordinator
+                    .transition(
+                        sessionId,
+                        SessionState
+                            .SCREEN_CONSENT
+                    )
+
+                SessionCoordinator
+                    .transition(
+                        sessionId,
+                        SessionState
+                            .CONNECTING
+                    )
+            }.isSuccess
 
         if (!stateOk) {
-            stopActiveSession("invalid_local_session_state")
+            stopActiveSession(
+                "invalid_local_session_state"
+            )
             return
         }
 
-        hostSession = runCatching {
-            HostWebRtcSession(
-                context = this,
-                sessionId = sessionId,
-                projectionGrant = grant,
-                listener = object : HostWebRtcSession.Listener {
-                    override fun onLive() {
-                        scope.launch {
-                            runCatching {
-                                FirebasePairingGateway(
-                                    this@ScreenShareService
-                                ).markLive(sessionId)
-                            }.onFailure {
-                                mainExecutor.execute {
-                                    stopActiveSession(
-                                        "backend_live_state_failed"
-                                    )
+        hostSession =
+            runCatching {
+                HostWebRtcSession(
+                    context = this,
+                    sessionId =
+                        sessionId,
+                    projectionGrant =
+                        grant,
+                    listener =
+                        object :
+                            HostWebRtcSession.Listener {
+                            override fun onLive() {
+                                scope.launch {
+                                    runCatching {
+                                        FirebasePairingGateway(
+                                            this@ScreenShareService
+                                        ).markLive(
+                                            sessionId
+                                        )
+                                    }.onFailure {
+                                        mainExecutor
+                                            .execute {
+                                                stopActiveSession(
+                                                    "backend_live_state_failed"
+                                                )
+                                            }
+                                    }
                                 }
                             }
-                        }
-                    }
 
-                    override fun onConnectivityChanged(
-                        connected: Boolean
-                    ) = Unit
+                            override fun onConnectivityChanged(
+                                connected:
+                                    Boolean
+                            ) {
+                                Log.d(
+                                    TAG,
+                                    "WebRTC connected=$connected"
+                                )
+                            }
 
-                    override fun onProjectionStopped() {
-                        mainExecutor.execute {
-                            stopActiveSession(
-                                "screen_projection_stopped"
-                            )
-                        }
-                    }
+                            override fun onProjectionStopped() {
+                                mainExecutor
+                                    .execute {
+                                        stopActiveSession(
+                                            "screen_projection_stopped"
+                                        )
+                                    }
+                            }
 
-                    override fun onRemoteDisconnect() {
-                        mainExecutor.execute {
-                            stopActiveSession(
-                                "controller_disconnected"
-                            )
-                        }
-                    }
+                            override fun onRemoteDisconnect() {
+                                mainExecutor
+                                    .execute {
+                                        stopActiveSession(
+                                            "controller_disconnected"
+                                        )
+                                    }
+                            }
 
-                    override fun onError(error: Throwable) {
-                        mainExecutor.execute {
-                            stopActiveSession(
-                                "webrtc_transport_failed"
-                            )
+                            override fun onError(
+                                error:
+                                    Throwable
+                            ) {
+                                Log.w(
+                                    TAG,
+                                    "WebRTC session error",
+                                    error
+                                )
+
+                                mainExecutor
+                                    .execute {
+                                        stopActiveSession(
+                                            "webrtc_transport_failed"
+                                        )
+                                    }
+                            }
                         }
-                    }
+                ).also {
+                    it.start()
                 }
-            ).also { it.start() }
-        }.getOrElse {
-            stopActiveSession("webrtc_start_failed")
-            return
-        }
+            }.getOrElse {
+                Log.w(
+                    TAG,
+                    "WebRTC start failed",
+                    it
+                )
+                stopActiveSession(
+                    "webrtc_start_failed"
+                )
+                return
+            }
 
         scope.launch {
             runCatching {
-                FirebasePairingGateway(this@ScreenShareService)
-                    .markScreenReady(sessionId)
+                FirebasePairingGateway(
+                    this@ScreenShareService
+                ).markScreenReady(
+                    sessionId
+                )
             }.onFailure {
                 mainExecutor.execute {
                     stopActiveSession(
@@ -194,79 +291,122 @@ class ScreenShareService : Service() {
         }
     }
 
-    private fun stopActiveSession(reason: String) {
-        val sessionId = activeSessionId
+    private fun stopActiveSession(
+        reason: String
+    ) {
+        Log.i(
+            TAG,
+            "Stopping remote session: $reason"
+        )
+
+        val sessionId =
+            activeSessionId
         activeSessionId = null
 
         hostSession?.close()
         hostSession = null
 
         if (sessionId != null) {
-            ProjectionGrantStore.clear(sessionId)
-            SessionCoordinator.close(sessionId)
+            ProjectionGrantStore.clear(
+                sessionId
+            )
+            SessionCoordinator.close(
+                sessionId
+            )
 
             scope.launch {
                 runCatching {
                     FirebasePairingGateway(
                         this@ScreenShareService
-                    ).close(sessionId)
+                    ).close(
+                        sessionId
+                    )
                 }
             }
         }
 
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopForeground(
+            STOP_FOREGROUND_REMOVE
+        )
         stopSelf()
     }
 
     private fun startVisibleForeground() {
-        val notification = buildNotification()
-        if (Build.VERSION.SDK_INT >= 29) {
+        val notification =
+            buildNotification()
+
+        if (
+            Build.VERSION.SDK_INT >=
+            29
+        ) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                ServiceInfo
+                    .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             )
         } else {
-            startForeground(NOTIFICATION_ID, notification)
+            startForeground(
+                NOTIFICATION_ID,
+                notification
+            )
         }
     }
 
-    private fun buildNotification(): Notification {
-        val contentIntent = PendingIntent.getActivity(
-            this,
-            100,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or
-                PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val stopIntent = Intent(
-            this,
-            ScreenShareService::class.java
-        ).apply {
-            action = ACTION_STOP
-        }
-
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            101,
-            stopIntent,
-            PendingIntent.FLAG_IMMUTABLE or
-                PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(
-                android.R.drawable.presence_video_online
+    private fun buildNotification():
+        Notification {
+        val contentIntent =
+            PendingIntent.getActivity(
+                this,
+                100,
+                Intent(
+                    this,
+                    MainActivity::class.java
+                ),
+                PendingIntent.FLAG_IMMUTABLE or
+                    PendingIntent
+                        .FLAG_UPDATE_CURRENT
             )
-            .setContentTitle("Aaris Remote is live")
+
+        val stopIntent =
+            Intent(
+                this,
+                ScreenShareService::class.java
+            ).apply {
+                action = ACTION_STOP
+            }
+
+        val stopPendingIntent =
+            PendingIntent.getService(
+                this,
+                101,
+                stopIntent,
+                PendingIntent.FLAG_IMMUTABLE or
+                    PendingIntent
+                        .FLAG_UPDATE_CURRENT
+            )
+
+        return Notification.Builder(
+            this,
+            CHANNEL_ID
+        )
+            .setSmallIcon(
+                android.R.drawable
+                    .presence_video_online
+            )
+            .setContentTitle(
+                "Aaris Remote is live"
+            )
             .setContentText(
                 "Remote support is active. Tap STOP any time."
             )
             .setOngoing(true)
-            .setContentIntent(contentIntent)
+            .setContentIntent(
+                contentIntent
+            )
             .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
+                android.R.drawable
+                    .ic_menu_close_clear_cancel,
                 "STOP",
                 stopPendingIntent
             )
@@ -274,18 +414,20 @@ class ScreenShareService : Service() {
     }
 
     private fun ensureChannel() {
-        getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Remote support session",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description =
-                        "Visible whenever remote support is active"
-                    setShowBadge(false)
-                }
-            )
+        getSystemService(
+            NotificationManager::class.java
+        ).createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                "Remote support session",
+                NotificationManager
+                    .IMPORTANCE_HIGH
+            ).apply {
+                description =
+                    "Visible whenever remote support is active"
+                setShowBadge(false)
+            }
+        )
     }
 
     companion object {
@@ -293,11 +435,18 @@ class ScreenShareService : Service() {
             "com.aaris.remoteassist.action.START_SCREEN_SHARE"
         const val ACTION_STOP =
             "com.aaris.remoteassist.action.STOP_SCREEN_SHARE"
-        const val EXTRA_SESSION_ID = "session_id"
-        const val EXTRA_RESULT_CODE = "result_code"
-        const val EXTRA_CAPTURE_DATA = "capture_data"
+        const val EXTRA_SESSION_ID =
+            "session_id"
+        const val EXTRA_RESULT_CODE =
+            "result_code"
+        const val EXTRA_CAPTURE_DATA =
+            "capture_data"
 
-        private const val CHANNEL_ID = "remote_session"
-        private const val NOTIFICATION_ID = 4107
+        private const val CHANNEL_ID =
+            "remote_session"
+        private const val NOTIFICATION_ID =
+            4107
+        private const val TAG =
+            "ScreenShareService"
     }
 }
