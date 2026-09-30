@@ -38,31 +38,49 @@ class RemoteControlActivity : Activity() {
         FirebasePairingGateway(this)
     }
 
-    private lateinit var renderer: SurfaceViewRenderer
-    private lateinit var status: TextView
+    private lateinit var renderer:
+        SurfaceViewRenderer
+    private lateinit var status:
+        TextView
 
     private var observer: Closeable? = null
-    private var rtcSession: ControllerWebRtcSession? = null
-    private var remoteTrack: VideoTrack? = null
-    private var sessionId: String? = null
-    private var remoteGeometry: RemoteGeometry? = null
+    private var rtcSession:
+        ControllerWebRtcSession? = null
+    private var remoteTrack:
+        VideoTrack? = null
+    private var sessionId:
+        String? = null
+    private var remoteGeometry:
+        RemoteGeometry? = null
 
     private var downX = 0f
     private var downY = 0f
     private var downAtMs = 0L
 
     private val touchSlop by lazy {
-        ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+        ViewConfiguration
+            .get(this)
+            .scaledTouchSlop
+            .toFloat()
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        window.addFlags(
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
+        super.onCreate(
+            savedInstanceState
         )
 
-        sessionId = intent.getStringExtra(EXTRA_SESSION_ID)
+        window.addFlags(
+            WindowManager.LayoutParams
+                .FLAG_KEEP_SCREEN_ON
+        )
+
+        sessionId =
+            intent.getStringExtra(
+                EXTRA_SESSION_ID
+            )
+
         if (sessionId == null) {
             finish()
             return
@@ -77,7 +95,9 @@ class RemoteControlActivity : Activity() {
         observer?.close()
         observer = null
 
-        remoteTrack?.removeSink(renderer)
+        remoteTrack?.removeSink(
+            renderer
+        )
         remoteTrack = null
 
         rtcSession?.close()
@@ -91,13 +111,17 @@ class RemoteControlActivity : Activity() {
         super.onDestroy()
     }
 
-    private fun observe(id: String) {
+    private fun observe(
+        id: String
+    ) {
         observer = runCatching {
             gateway.observeSession(
                 id,
                 listener = { backend ->
                     runOnUiThread {
-                        when (backend.state) {
+                        when (
+                            backend.state
+                        ) {
                             "PAIR_PENDING" ->
                                 showStatus(
                                     "Waiting for your friend to tap START…"
@@ -109,218 +133,375 @@ class RemoteControlActivity : Activity() {
                                 )
 
                             "SCREEN_READY" -> {
-                                advanceControllerState(id)
-                                ensureRtcStarted(id)
+                                advanceControllerState(
+                                    id
+                                )
+                                ensureRtcStarted(
+                                    id
+                                )
                             }
 
                             "LIVE" -> {
+                                advanceControllerState(
+                                    id
+                                )
+                                ensureRtcStarted(
+                                    id
+                                )
+
                                 runCatching {
                                     if (
-                                        SessionCoordinator.snapshot().state ==
+                                        SessionCoordinator
+                                            .snapshot()
+                                            .state ==
                                         SessionState.CONNECTING
                                     ) {
-                                        SessionCoordinator.transition(
-                                            id,
-                                            SessionState.LIVE
-                                        )
+                                        SessionCoordinator
+                                            .transition(
+                                                id,
+                                                SessionState.LIVE
+                                            )
                                     }
                                 }
 
-                                if (remoteTrack == null) {
-                                    showStatus(
-                                        "Connected • waiting for video…"
-                                    )
-                                } else {
-                                    status.visibility = View.GONE
-                                }
+                                updateConnectedStatus()
                             }
 
                             "CLOSED" -> {
-                                SessionCoordinator.close(id)
-                                showStatus("Session ended")
+                                SessionCoordinator
+                                    .close(id)
+                                closeRtcOnly()
+                                showStatus(
+                                    "Session ended"
+                                )
                             }
                         }
                     }
                 },
                 onError = {
                     runOnUiThread {
-                        showStatus("Connection lost")
+                        showStatus(
+                            "Connection watcher stopped"
+                        )
                     }
                 }
             )
         }.getOrElse {
             showStatus(
-                it.message ?: "Could not watch session"
+                it.message
+                    ?: "Could not watch session"
             )
             null
         }
     }
 
-    private fun advanceControllerState(id: String) {
+    private fun advanceControllerState(
+        id: String
+    ) {
         runCatching {
-            var state = SessionCoordinator.snapshot()
+            var state =
+                SessionCoordinator
+                    .snapshot()
 
-            if (state.state == SessionState.PAIR_PENDING) {
-                SessionCoordinator.transition(
-                    id,
-                    SessionState.HOST_APPROVED
-                )
-                state = SessionCoordinator.snapshot()
+            if (
+                state.state ==
+                SessionState.PAIR_PENDING
+            ) {
+                SessionCoordinator
+                    .transition(
+                        id,
+                        SessionState.HOST_APPROVED
+                    )
+
+                state =
+                    SessionCoordinator
+                        .snapshot()
             }
 
-            if (state.state == SessionState.HOST_APPROVED) {
-                SessionCoordinator.transition(
-                    id,
-                    SessionState.SCREEN_CONSENT
-                )
-                state = SessionCoordinator.snapshot()
+            if (
+                state.state ==
+                SessionState.HOST_APPROVED
+            ) {
+                SessionCoordinator
+                    .transition(
+                        id,
+                        SessionState.SCREEN_CONSENT
+                    )
+
+                state =
+                    SessionCoordinator
+                        .snapshot()
             }
 
-            if (state.state == SessionState.SCREEN_CONSENT) {
-                SessionCoordinator.transition(
-                    id,
-                    SessionState.CONNECTING
-                )
+            if (
+                state.state ==
+                SessionState.SCREEN_CONSENT
+            ) {
+                SessionCoordinator
+                    .transition(
+                        id,
+                        SessionState.CONNECTING
+                    )
             }
         }
     }
 
-    private fun ensureRtcStarted(id: String) {
-        if (rtcSession != null) return
+    private fun ensureRtcStarted(
+        id: String
+    ) {
+        if (rtcSession != null) {
+            return
+        }
 
-        showStatus("Establishing low-latency link…")
+        showStatus(
+            "Establishing low-latency link…"
+        )
 
-        rtcSession = ControllerWebRtcSession(
-            context = this,
-            sessionId = id,
-            listener = object : ControllerWebRtcSession.Listener {
-                override fun onLive(geometry: RemoteGeometry) {
-                    runOnUiThread {
-                        remoteGeometry = geometry
-                        if (remoteTrack != null) {
-                            status.visibility = View.GONE
+        rtcSession =
+            ControllerWebRtcSession(
+                context = this,
+                sessionId = id,
+                listener =
+                    object :
+                        ControllerWebRtcSession.Listener {
+                        override fun onLive(
+                            geometry:
+                                RemoteGeometry
+                        ) {
+                            runOnUiThread {
+                                remoteGeometry =
+                                    geometry
+                                updateConnectedStatus()
+                            }
+                        }
+
+                        override fun onConnectivityChanged(
+                            connected: Boolean
+                        ) {
+                            runOnUiThread {
+                                if (connected) {
+                                    updateConnectedStatus()
+                                } else {
+                                    showStatus(
+                                        "Reconnecting…"
+                                    )
+                                }
+                            }
+                        }
+
+                        override fun onRemoteVideoTrack(
+                            track:
+                                VideoTrack
+                        ) {
+                            runOnUiThread {
+                                remoteTrack
+                                    ?.removeSink(
+                                        renderer
+                                    )
+
+                                remoteTrack =
+                                    track
+
+                                track.addSink(
+                                    renderer
+                                )
+
+                                updateConnectedStatus()
+                            }
+                        }
+
+                        override fun onError(
+                            error: Throwable
+                        ) {
+                            runOnUiThread {
+                                showStatus(
+                                    "Connection problem"
+                                )
+                            }
                         }
                     }
-                }
-
-                override fun onConnectivityChanged(
-                    connected: Boolean
-                ) {
-                    runOnUiThread {
-                        if (!connected) {
-                            showStatus("Reconnecting…")
-                        }
-                    }
-                }
-
-                override fun onRemoteVideoTrack(track: VideoTrack) {
-                    runOnUiThread {
-                        remoteTrack?.removeSink(renderer)
-                        remoteTrack = track
-                        track.addSink(renderer)
-
-                        if (remoteGeometry != null) {
-                            status.visibility = View.GONE
-                        } else {
-                            showStatus(
-                                "Video connected • syncing controls…"
-                            )
-                        }
-                    }
-                }
-
-                override fun onError(error: Throwable) {
-                    runOnUiThread {
-                        showStatus("Connection ended")
-                    }
-                }
+            ).also {
+                it.start()
             }
-        ).also { it.start() }
+    }
+
+    private fun updateConnectedStatus() {
+        if (
+            remoteTrack != null &&
+            remoteGeometry != null
+        ) {
+            status.visibility =
+                View.GONE
+        } else {
+            showStatus(
+                "Connected • syncing screen…"
+            )
+        }
     }
 
     private fun disconnect() {
-        val id = sessionId ?: return
+        val id =
+            sessionId ?: return
 
-        rtcSession?.close()
-        rtcSession = null
+        closeRtcOnly()
 
         scope.launch {
-            runCatching { gateway.close(id) }
-            SessionCoordinator.close(id)
+            runCatching {
+                gateway.close(id)
+            }
+
+            SessionCoordinator
+                .close(id)
+
             finish()
         }
     }
 
-    private fun buildUi(): FrameLayout {
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-        }
+    private fun closeRtcOnly() {
+        remoteTrack?.removeSink(
+            renderer
+        )
+        remoteTrack = null
+        remoteGeometry = null
 
-        renderer = SurfaceViewRenderer(this).apply {
-            init(
-                WebRtcRuntime.eglBase(this@RemoteControlActivity)
-                    .eglBaseContext,
-                null
-            )
-            setScalingType(
-                RendererCommon.ScalingType.SCALE_ASPECT_FIT
-            )
-            setEnableHardwareScaler(true)
-            setMirror(false)
-            setOnTouchListener { _, event ->
-                handleRemoteTouch(event)
+        rtcSession?.close()
+        rtcSession = null
+    }
+
+    private fun buildUi():
+        FrameLayout {
+        val root =
+            FrameLayout(this).apply {
+                setBackgroundColor(
+                    Color.BLACK
+                )
             }
-        }
+
+        renderer =
+            SurfaceViewRenderer(
+                this
+            ).apply {
+                init(
+                    WebRtcRuntime
+                        .eglBase(
+                            this@RemoteControlActivity
+                        )
+                        .eglBaseContext,
+                    null
+                )
+
+                setScalingType(
+                    RendererCommon
+                        .ScalingType
+                        .SCALE_ASPECT_FIT
+                )
+                setEnableHardwareScaler(
+                    true
+                )
+                setMirror(false)
+
+                setOnTouchListener {
+                        _,
+                        event ->
+                    handleRemoteTouch(
+                        event
+                    )
+                }
+            }
 
         root.addView(
             renderer,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
+                FrameLayout
+                    .LayoutParams
+                    .MATCH_PARENT,
+                FrameLayout
+                    .LayoutParams
+                    .MATCH_PARENT
             )
         )
 
-        status = TextView(this).apply {
-            text = "Connecting…"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(
-                Color.argb(140, 0, 0, 0)
-            )
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setPadding(24, 16, 24, 16)
-        }
+        status =
+            TextView(this).apply {
+                text = "Connecting…"
+                setTextColor(
+                    Color.WHITE
+                )
+                setBackgroundColor(
+                    Color.argb(
+                        140,
+                        0,
+                        0,
+                        0
+                    )
+                )
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setPadding(
+                    24,
+                    16,
+                    24,
+                    16
+                )
+            }
 
         root.addView(
             status,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout
+                    .LayoutParams
+                    .WRAP_CONTENT,
+                FrameLayout
+                    .LayoutParams
+                    .WRAP_CONTENT,
                 Gravity.CENTER
             )
         )
 
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(8, 6, 8, 6)
-            setBackgroundColor(
-                Color.argb(190, 0, 0, 0)
-            )
-        }
+        val controls =
+            LinearLayout(this).apply {
+                orientation =
+                    LinearLayout.HORIZONTAL
+                gravity =
+                    Gravity.CENTER
+                setPadding(
+                    8,
+                    6,
+                    8,
+                    6
+                )
+                setBackgroundColor(
+                    Color.argb(
+                        190,
+                        0,
+                        0,
+                        0
+                    )
+                )
+            }
 
         controls.addView(
-            compactButton("Back") {
-                rtcSession?.sendBack()
+            compactButton(
+                "Back"
+            ) {
+                rtcSession
+                    ?.sendBack()
             }
         )
+
         controls.addView(
-            compactButton("Home") {
-                rtcSession?.sendHome()
+            compactButton(
+                "Home"
+            ) {
+                rtcSession
+                    ?.sendHome()
             }
         )
+
         controls.addView(
-            compactButton("Disconnect") {
+            compactButton(
+                "Disconnect"
+            ) {
                 disconnect()
             }
         )
@@ -328,9 +509,15 @@ class RemoteControlActivity : Activity() {
         root.addView(
             controls,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                FrameLayout
+                    .LayoutParams
+                    .WRAP_CONTENT,
+                FrameLayout
+                    .LayoutParams
+                    .WRAP_CONTENT,
+                Gravity.BOTTOM or
+                    Gravity
+                        .CENTER_HORIZONTAL
             )
         )
 
@@ -340,60 +527,85 @@ class RemoteControlActivity : Activity() {
     private fun compactButton(
         label: String,
         action: () -> Unit
-    ): Button = Button(this).apply {
-        text = label
-        isAllCaps = false
-        setOnClickListener { action() }
-    }
+    ): Button =
+        Button(this).apply {
+            text = label
+            isAllCaps = false
+            setOnClickListener {
+                action()
+            }
+        }
 
     private fun handleRemoteTouch(
         event: MotionEvent
     ): Boolean {
-        val session = rtcSession ?: return true
-        val geometry = remoteGeometry ?: return true
+        val session =
+            rtcSession ?: return true
+        val geometry =
+            remoteGeometry ?: return true
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
                 downY = event.y
-                downAtMs = SystemClock.elapsedRealtime()
+                downAtMs =
+                    SystemClock
+                        .elapsedRealtime()
                 return true
             }
 
             MotionEvent.ACTION_UP -> {
-                val start = normalizedPoint(
-                    downX,
-                    downY,
-                    geometry
-                ) ?: return true
+                val start =
+                    normalizedPoint(
+                        downX,
+                        downY,
+                        geometry
+                    ) ?: return true
 
-                val end = normalizedPoint(
-                    event.x,
-                    event.y,
-                    geometry
-                ) ?: return true
+                val end =
+                    normalizedPoint(
+                        event.x,
+                        event.y,
+                        geometry
+                    ) ?: return true
 
-                val duration = (
-                    SystemClock.elapsedRealtime() - downAtMs
-                ).coerceIn(1L, 5_000L)
-
-                val distance = hypot(
-                    event.x - downX,
-                    event.y - downY
-                )
-
-                if (distance <= touchSlop) {
-                    if (duration >= 500L) {
-                        session.sendLongPress(
-                            end.first,
-                            end.second,
-                            duration.toInt()
+                val duration =
+                    (
+                        SystemClock
+                            .elapsedRealtime() -
+                            downAtMs
+                        ).coerceIn(
+                            1L,
+                            5_000L
                         )
+
+                val distance =
+                    hypot(
+                        event.x - downX,
+                        event.y - downY
+                    )
+
+                if (
+                    distance <=
+                    touchSlop
+                ) {
+                    if (
+                        duration >=
+                        500L
+                    ) {
+                        session
+                            .sendLongPress(
+                                end.first,
+                                end.second,
+                                duration
+                                    .toInt()
+                            )
                     } else {
-                        session.sendTap(
-                            end.first,
-                            end.second
-                        )
+                        session
+                            .sendTap(
+                                end.first,
+                                end.second
+                            )
                     }
                 } else {
                     session.sendSwipe(
@@ -401,16 +613,20 @@ class RemoteControlActivity : Activity() {
                         start.second,
                         end.first,
                         end.second,
-                        duration.toInt().coerceIn(
-                            80,
-                            1500
-                        )
+                        duration
+                            .toInt()
+                            .coerceIn(
+                                80,
+                                1500
+                            )
                     )
                 }
+
                 return true
             }
 
-            MotionEvent.ACTION_CANCEL -> return true
+            MotionEvent.ACTION_CANCEL ->
+                return true
         }
 
         return true
@@ -433,12 +649,16 @@ class RemoteControlActivity : Activity() {
         return point.x to point.y
     }
 
-    private fun showStatus(message: String) {
-        status.visibility = View.VISIBLE
+    private fun showStatus(
+        message: String
+    ) {
+        status.visibility =
+            View.VISIBLE
         status.text = message
     }
 
     companion object {
-        const val EXTRA_SESSION_ID = "session_id"
+        const val EXTRA_SESSION_ID =
+            "session_id"
     }
 }
