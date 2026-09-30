@@ -163,7 +163,9 @@ class RemoteControlActivity : Activity() {
                 },
                 onError = {
                     runOnUiThread {
-                        showStatus("Connection lost")
+                        if (!disconnecting) {
+                            disconnect()
+                        }
                     }
                 }
             )
@@ -267,7 +269,9 @@ class RemoteControlActivity : Activity() {
 
                 override fun onError(error: Throwable) {
                     runOnUiThread {
-                        showStatus("Connection ended")
+                        if (!disconnecting) {
+                            disconnect()
+                        }
                     }
                 }
             }
