@@ -1,6 +1,5 @@
 package com.aaris.remoteassist.ui
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -19,6 +18,9 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import com.aaris.remoteassist.accessibility.PermissionGate
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
@@ -35,7 +37,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val gateway by lazy { FirebasePairingGateway(this) }
 
@@ -54,9 +56,20 @@ class MainActivity : Activity() {
         getSharedPreferences("setup", Context.MODE_PRIVATE)
     }
 
+    private val screenCaptureLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            handleProjectionResult(
+                result.resultCode,
+                result.data
+            )
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
+        installBackHandler()
 
         val restoredHostSession = recoverPersistedHostSession()
         if (
@@ -68,17 +81,28 @@ class MainActivity : Activity() {
         refreshIdleUi()
     }
 
-    @Deprecated("Use the system back dispatcher on newer Android versions.")
-    override fun onBackPressed() {
-        val id = activeHostSessionId
-        val state = SessionCoordinator.snapshot().state
+    private fun installBackHandler() {
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    val id = activeHostSessionId
+                    val state =
+                        SessionCoordinator.snapshot().state
 
-        if (id != null && state != SessionState.LIVE) {
-            cancelPendingHostAndFinish(id)
-            return
-        }
+                    if (
+                        id != null &&
+                        state != SessionState.LIVE
+                    ) {
+                        cancelPendingHostAndFinish(id)
+                        return
+                    }
 
-        super.onBackPressed()
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        )
     }
 
     override fun onResume() {
@@ -115,15 +139,10 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
-    @Deprecated("Platform MediaProjection consent callback.")
-    override fun onActivityResult(
-        requestCode: Int,
+    private fun handleProjectionResult(
         resultCode: Int,
         data: Intent?
     ) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_MEDIA_PROJECTION) return
-
         val sessionId = pendingProjectionSessionId
         pendingProjectionSessionId = null
 
@@ -452,9 +471,8 @@ class MainActivity : Activity() {
                     pendingProjectionSessionId = sessionId
                     val projectionManager =
                         getSystemService(MediaProjectionManager::class.java)
-                    startActivityForResult(
-                        projectionManager.createScreenCaptureIntent(),
-                        REQUEST_MEDIA_PROJECTION
+                    screenCaptureLauncher.launch(
+                        projectionManager.createScreenCaptureIntent()
                     )
                 }
                 .onFailure {
@@ -749,6 +767,5 @@ class MainActivity : Activity() {
         private const val KEY_PENDING_SHARE = "pending_share"
         private const val KEY_ACTIVE_HOST_SESSION =
             "active_host_session"
-        private const val REQUEST_MEDIA_PROJECTION = 7001
     }
 }
