@@ -221,6 +221,8 @@ export const redeemPairingCode = onCall(
     let failure: "not-found" | "expired" | "busy" | "self" | null = null;
 
     const tx = await codeRef.transaction((raw) => {
+      failure = null;
+
       if (raw === null) {
         failure = "not-found";
         return;
@@ -279,54 +281,99 @@ export const redeemPairingCode = onCall(
     }
 
     const sessionRef = db.ref("sessions/" + record.sessionId);
-    const sessionSnap = await sessionRef.get();
+    let sessionFailure:
+      | "not-found"
+      | "expired"
+      | "unavailable"
+      | "busy"
+      | null = null;
 
-    if (!sessionSnap.exists()) {
+    const sessionTx = await sessionRef.transaction((raw) => {
+      sessionFailure = null;
+
+      if (raw === null) {
+        sessionFailure = "not-found";
+        return;
+      }
+
+      const session = raw as {
+        state?: SessionState;
+        expiresAtMs?: number;
+        controllerUid?: string;
+        pairedAtMs?: number;
+      };
+
+      if (
+        session.state !== "CODE_ACTIVE" &&
+        session.state !== "PAIR_PENDING"
+      ) {
+        sessionFailure = "unavailable";
+        return;
+      }
+
+      if ((session.expiresAtMs ?? 0) <= now) {
+        sessionFailure = "expired";
+        return {
+          ...session,
+          state: "CLOSED" satisfies SessionState,
+          closedAtMs: now
+        };
+      }
+
+      if (
+        typeof session.controllerUid === "string" &&
+        session.controllerUid !== controllerUid
+      ) {
+        sessionFailure = "busy";
+        return;
+      }
+
+      return {
+        ...session,
+        controllerUid,
+        state: "PAIR_PENDING" satisfies SessionState,
+        pairedAtMs: session.pairedAtMs ?? now
+      };
+    }, undefined, false);
+
+    if (sessionFailure === "expired") {
+      const updates: Record<string, unknown> = {};
+      updates["pairingCodes/" + key] = null;
+      updates["serverSessionCodes/" + record.sessionId] = null;
+      updates["activeHostSession/" + record.hostUid] = null;
+      await db.ref().update(updates);
+      throw new HttpsError("deadline-exceeded", "Code expired.");
+    }
+
+    if (sessionFailure === "not-found") {
       await codeRef.remove();
       throw new HttpsError("not-found", "Session no longer exists.");
     }
 
-    const session = sessionSnap.val() as {
-      state?: SessionState;
-      expiresAtMs?: number;
-      controllerUid?: string;
-    };
-
-    if (
-      session.state !== "CODE_ACTIVE" &&
-      session.state !== "PAIR_PENDING"
-    ) {
+    if (sessionFailure === "unavailable") {
+      const updates: Record<string, unknown> = {};
+      updates["pairingCodes/" + key] = null;
+      updates["serverSessionCodes/" + record.sessionId] = null;
+      await db.ref().update(updates);
       throw new HttpsError(
         "failed-precondition",
         "Session is no longer available."
       );
     }
 
-    if ((session.expiresAtMs ?? 0) <= now) {
-      const updates: Record<string, unknown> = {};
-      updates["sessions/" + record.sessionId + "/state"] = "CLOSED";
-      updates["sessions/" + record.sessionId + "/closedAtMs"] = now;
-      updates["pairingCodes/" + key] = null;
-      updates["serverSessionCodes/" + record.sessionId] = null;
-      await db.ref().update(updates);
-      throw new HttpsError("deadline-exceeded", "Code expired.");
-    }
-
-    if (
-      typeof session.controllerUid === "string" &&
-      session.controllerUid !== controllerUid
-    ) {
+    if (sessionFailure === "busy") {
       throw new HttpsError(
         "already-exists",
         "Session is already reserved."
       );
     }
 
-    await sessionRef.update({
-      controllerUid,
-      state: "PAIR_PENDING" satisfies SessionState,
-      pairedAtMs: now
-    });
+    if (!sessionTx.committed) {
+      throw new HttpsError(
+        "aborted",
+        "Pairing changed while connecting. Try again."
+      );
+    }
 
     return {
       sessionId: record.sessionId,
@@ -347,36 +394,55 @@ export const approvePairingSession = onCall(
       "sessionId"
     );
     const ref = getDatabase().ref("sessions/" + sessionId);
-    const snap = await ref.get();
+    const now = Date.now();
+    let failure: "not-found" | "permission" | "invalid" | null = null;
 
-    if (!snap.exists()) {
+    const tx = await ref.transaction((raw) => {
+      failure = null;
+
+      if (raw === null) {
+        failure = "not-found";
+        return;
+      }
+
+      const session = raw as {
+        hostUid?: string;
+        controllerUid?: string;
+        state?: SessionState;
+      };
+
+      if (session.hostUid !== hostUid) {
+        failure = "permission";
+        return;
+      }
+
+      if (!session.controllerUid || session.state !== "PAIR_PENDING") {
+        failure = "invalid";
+        return;
+      }
+
+      return {
+        ...session,
+        state: "HOST_APPROVED" satisfies SessionState,
+        approvedAtMs: now
+      };
+    }, undefined, false);
+
+    if (failure === "not-found") {
       throw new HttpsError("not-found", "Session not found.");
     }
-
-    const session = snap.val() as {
-      hostUid?: string;
-      controllerUid?: string;
-      state?: SessionState;
-    };
-
-    if (session.hostUid !== hostUid) {
+    if (failure === "permission") {
       throw new HttpsError(
         "permission-denied",
         "Only the sharing phone can approve."
       );
     }
-
-    if (!session.controllerUid || session.state !== "PAIR_PENDING") {
+    if (failure === "invalid" || !tx.committed) {
       throw new HttpsError(
         "failed-precondition",
         "No valid connection request."
       );
     }
-
-    await ref.update({
-      state: "HOST_APPROVED" satisfies SessionState,
-      approvedAtMs: Date.now()
-    });
 
     return { ok: true };
   }
@@ -395,25 +461,49 @@ export const markScreenReady = onCall(
     );
     const db = getDatabase();
     const ref = db.ref("sessions/" + sessionId);
-    const snap = await ref.get();
+    const now = Date.now();
+    let failure: "not-found" | "permission" | "invalid" | null = null;
 
-    if (!snap.exists()) {
+    const tx = await ref.transaction((raw) => {
+      failure = null;
+
+      if (raw === null) {
+        failure = "not-found";
+        return;
+      }
+
+      const session = raw as {
+        hostUid?: string;
+        state?: SessionState;
+      };
+
+      if (session.hostUid !== hostUid) {
+        failure = "permission";
+        return;
+      }
+
+      if (session.state !== "HOST_APPROVED") {
+        failure = "invalid";
+        return;
+      }
+
+      return {
+        ...session,
+        state: "SCREEN_READY" satisfies SessionState,
+        screenReadyAtMs: now
+      };
+    }, undefined, false);
+
+    if (failure === "not-found") {
       throw new HttpsError("not-found", "Session not found.");
     }
-
-    const session = snap.val() as {
-      hostUid?: string;
-      state?: SessionState;
-    };
-
-    if (session.hostUid !== hostUid) {
+    if (failure === "permission") {
       throw new HttpsError(
         "permission-denied",
         "Only the sharing phone can start."
       );
     }
-
-    if (session.state !== "HOST_APPROVED") {
+    if (failure === "invalid" || !tx.committed) {
       throw new HttpsError(
         "failed-precondition",
         "Session was not approved."
@@ -426,8 +516,6 @@ export const markScreenReady = onCall(
     const key = codeSnap.val();
 
     const updates: Record<string, unknown> = {};
-    updates["sessions/" + sessionId + "/state"] = "SCREEN_READY";
-    updates["sessions/" + sessionId + "/screenReadyAtMs"] = Date.now();
     updates["serverSessionCodes/" + sessionId] = null;
 
     if (typeof key === "string") {
@@ -492,6 +580,72 @@ export const closePairingSession = onCall(
   }
 );
 
+
+export const markSessionLive = onCall(
+  {
+    secrets: [PAIRING_PEPPER],
+    enforceAppCheck: true
+  },
+  async (request) => {
+    const hostUid = requireUid(request.auth?.uid);
+    const sessionId = requireString(
+      request.data?.sessionId,
+      "sessionId"
+    );
+    const ref = getDatabase().ref("sessions/" + sessionId);
+    const now = Date.now();
+    let failure: "not-found" | "permission" | "invalid" | null = null;
+
+    const tx = await ref.transaction((raw) => {
+      failure = null;
+
+      if (raw === null) {
+        failure = "not-found";
+        return;
+      }
+
+      const session = raw as {
+        hostUid?: string;
+        controllerUid?: string;
+        state?: SessionState;
+      };
+
+      if (session.hostUid !== hostUid) {
+        failure = "permission";
+        return;
+      }
+
+      if (!session.controllerUid || session.state !== "SCREEN_READY") {
+        failure = "invalid";
+        return;
+      }
+
+      return {
+        ...session,
+        state: "LIVE" satisfies SessionState,
+        liveAtMs: now
+      };
+    }, undefined, false);
+
+    if (failure === "not-found") {
+      throw new HttpsError("not-found", "Session not found.");
+    }
+    if (failure === "permission") {
+      throw new HttpsError(
+        "permission-denied",
+        "Only the sharing phone can mark the session live."
+      );
+    }
+    if (failure === "invalid" || !tx.committed) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Session is not ready for live transport."
+      );
+    }
+
+    return { ok: true };
+  }
+);
 
 export const markSessionLive = onCall(
   {
