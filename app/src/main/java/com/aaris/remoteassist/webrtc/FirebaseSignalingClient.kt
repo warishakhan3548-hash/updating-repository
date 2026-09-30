@@ -7,8 +7,9 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
-import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import org.json.JSONObject
 
 class FirebaseSignalingClient(
     private val sessionId: String,
@@ -17,6 +18,7 @@ class FirebaseSignalingClient(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) : SignalingClient {
     private val closed = AtomicBoolean(false)
+    private val candidateSequence = AtomicLong(0L)
     private val root = database.getReference("sessions").child(sessionId)
 
     private val localSignal: DatabaseReference
@@ -80,22 +82,15 @@ class FirebaseSignalingClient(
                 snapshot: DataSnapshot,
                 previousChildName: String?
             ) {
-                val raw = snapshot.getValue(String::class.java) ?: return
-                runCatching {
-                    val json = JSONObject(raw)
-                    SignalCandidate(
-                        sdpMid = if (json.isNull("mid")) null else json.getString("mid"),
-                        sdpMLineIndex = json.getInt("mLine"),
-                        sdp = json.getString("sdp")
-                    )
-                }.onSuccess(listener::onRemoteCandidate)
-                    .onFailure(listener::onError)
+                dispatchRemoteCandidate(snapshot, listener)
             }
 
             override fun onChildChanged(
                 snapshot: DataSnapshot,
                 previousChildName: String?
-            ) = Unit
+            ) {
+                dispatchRemoteCandidate(snapshot, listener)
+            }
 
             override fun onChildRemoved(snapshot: DataSnapshot) = Unit
             override fun onChildMoved(
@@ -179,7 +174,13 @@ class FirebaseSignalingClient(
             .put("sdp", candidate.sdp)
             .toString()
 
-        localCandidates.push()
+        val sequence = candidateSequence.getAndIncrement()
+        val slot = Math.floorMod(
+            sequence,
+            MAX_CANDIDATE_SLOTS.toLong()
+        ).toString().padStart(CANDIDATE_SLOT_WIDTH, '0')
+
+        localCandidates.child(slot)
             .setValue(payload)
             .addOnFailureListener { listener?.onError(it) }
     }
@@ -235,5 +236,30 @@ class FirebaseSignalingClient(
         this.descriptionListener = null
         this.candidateListener = null
         this.presenceListener = null
+    }
+
+    private fun dispatchRemoteCandidate(
+        snapshot: DataSnapshot,
+        listener: SignalingClient.Listener
+    ) {
+        val raw = snapshot.getValue(String::class.java) ?: return
+        runCatching {
+            val json = JSONObject(raw)
+            SignalCandidate(
+                sdpMid = if (json.isNull("mid")) {
+                    null
+                } else {
+                    json.getString("mid")
+                },
+                sdpMLineIndex = json.getInt("mLine"),
+                sdp = json.getString("sdp")
+            )
+        }.onSuccess(listener::onRemoteCandidate)
+            .onFailure(listener::onError)
+    }
+
+    companion object {
+        private const val MAX_CANDIDATE_SLOTS = 96
+        private const val CANDIDATE_SLOT_WIDTH = 3
     }
 }
