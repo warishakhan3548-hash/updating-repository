@@ -84,14 +84,19 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
 
-        if (
-            prefs.getBoolean(KEY_PENDING_SHARE, false) &&
-            PermissionGate.isAccessibilityEnabled(this)
-        ) {
-            prefs.edit().putBoolean(KEY_PENDING_SHARE, false).apply()
-            SessionCoordinator.prepareReady()
-            beginShare()
-            return
+        val pendingShare =
+            prefs.getBoolean(KEY_PENDING_SHARE, false)
+
+        if (pendingShare) {
+            prefs.edit()
+                .putBoolean(KEY_PENDING_SHARE, false)
+                .apply()
+
+            if (PermissionGate.isAccessibilityEnabled(this)) {
+                SessionCoordinator.prepareReady()
+                beginShare()
+                return
+            }
         }
 
         refreshIdleUi()
