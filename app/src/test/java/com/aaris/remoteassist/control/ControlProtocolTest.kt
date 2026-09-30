@@ -43,6 +43,33 @@ class ControlProtocolTest {
     }
 
     @Test
+    fun recentsRoundTripsAndMapsToGlobalAction() {
+        val source = ControlPacket.Recents(
+            leaseSecret = 77L,
+            generation = 2,
+            sequence = 11L
+        )
+
+        val decoded = ControlProtocol.decode(
+            ControlProtocol.encode(source)
+        )
+        assertEquals(source, decoded)
+
+        val command = ControlProtocol.toRemoteCommand(
+            sessionId = "s-recents",
+            packet = source,
+            widthPx = 1080,
+            heightPx = 2400
+        )
+
+        assertTrue(command is GlobalActionCommand)
+        assertEquals(
+            GlobalAction.RECENTS,
+            (command as GlobalActionCommand).action
+        )
+    }
+
+    @Test
     fun packetConvertsToRemotePixels() {
         val command = ControlProtocol.toRemoteCommand(
             sessionId = "s1",
