@@ -15,7 +15,7 @@ setGlobalOptions({
 
 const PAIRING_PEPPER = defineSecret("PAIRING_PEPPER");
 
-const CODE_TTL_MS = 120_000;
+const CODE_TTL_MS = 5 * 60_000;
 const REDEEM_WINDOW_MS = 60_000;
 const MAX_REDEEMS_PER_WINDOW = 8;
 
