@@ -4,6 +4,7 @@ import android.app.Application
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 
 class RemoteApp : Application() {
@@ -16,9 +17,16 @@ class RemoteApp : Application() {
         }
 
         if (FirebaseApp.getApps(this).isNotEmpty()) {
+            val providerFactory =
+                if (BuildConfig.DEBUG) {
+                    DebugAppCheckProviderFactory.getInstance()
+                } else {
+                    PlayIntegrityAppCheckProviderFactory.getInstance()
+                }
+
             FirebaseAppCheck.getInstance()
                 .installAppCheckProviderFactory(
-                    PlayIntegrityAppCheckProviderFactory.getInstance()
+                    providerFactory
                 )
         }
     }

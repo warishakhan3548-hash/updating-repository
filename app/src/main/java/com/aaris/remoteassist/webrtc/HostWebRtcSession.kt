@@ -67,6 +67,26 @@ class HostWebRtcSession(
         onProjectionStopped = listener::onProjectionStopped
     )
 
+    private val leaseWatchdog = object : Runnable {
+        override fun run() {
+            if (closed.get()) return
+
+            val expected = lease
+            if (
+                expected != null &&
+                SessionRuntime.currentLease() == null
+            ) {
+                listener.onRemoteDisconnect()
+                return
+            }
+
+            displayHandler.postDelayed(
+                this,
+                LEASE_WATCHDOG_MS
+            )
+        }
+    }
+
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) = Unit
         override fun onDisplayRemoved(displayId: Int) = Unit
@@ -171,6 +191,9 @@ class HostWebRtcSession(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
 
+        displayHandler.removeCallbacks(
+            leaseWatchdog
+        )
         runCatching {
             displayManager.unregisterDisplayListener(displayListener)
         }
@@ -192,6 +215,13 @@ class HostWebRtcSession(
             return
         }.also {
             lease = it
+            displayHandler.removeCallbacks(
+                leaseWatchdog
+            )
+            displayHandler.postDelayed(
+                leaseWatchdog,
+                LEASE_WATCHDOG_MS
+            )
             listener.onLive()
         }
 
@@ -212,5 +242,8 @@ class HostWebRtcSession(
                 )
             )
         )
+    }
+    companion object {
+        private const val LEASE_WATCHDOG_MS = 3_000L
     }
 }

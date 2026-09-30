@@ -14,7 +14,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 
 ## Native stack
 
-- Android API 37 / AGP 9.4 / Gradle 9.6 / JDK 17
+- Android API 36 / AGP 9.4 / Gradle 9.6 / JDK 17
 - Kotlin-first native Android UI and services
 - Firebase Anonymous Auth + App Check + Cloud Functions + Realtime Database
 - WebRTC Android SDK for media and control transport
@@ -40,5 +40,6 @@ The repository intentionally does not contain a Firebase project credential.
 4. Create the Functions secret `PAIRING_PEPPER` with a strong random value.
 5. Deploy Cloud Functions and Realtime Database rules.
 6. Enable App Check / Play Integrity for production builds.
+7. Debug builds use Firebase's App Check debug provider. Register the emitted debug token in the Firebase console for development devices; never commit that token.
 
-The Gradle Google Services plugin is applied only when `google-services.json` exists, so CI can still compile the source tree without committing credentials.
+The Gradle Google Services plugin is applied only when `google-services.json` exists, so CI can still compile the source tree without committing credentials. Production builds use Play Integrity; debug builds use the Firebase debug provider, matching Firebase's recommended development flow.

@@ -421,54 +421,16 @@ class RemoteControlActivity : Activity() {
         y: Float,
         geometry: RemoteGeometry
     ): Pair<Float, Float>? {
-        val viewWidth = renderer.width.toFloat()
-        val viewHeight = renderer.height.toFloat()
+        val point = RemoteViewportMapper.normalize(
+            touchX = x,
+            touchY = y,
+            viewWidth = renderer.width.toFloat(),
+            viewHeight = renderer.height.toFloat(),
+            remoteWidth = geometry.widthPx,
+            remoteHeight = geometry.heightPx
+        ) ?: return null
 
-        if (viewWidth <= 0f || viewHeight <= 0f) {
-            return null
-        }
-
-        val remoteAspect =
-            geometry.widthPx.toFloat() /
-                geometry.heightPx.toFloat()
-        val viewAspect =
-            viewWidth / viewHeight
-
-        val left: Float
-        val top: Float
-        val contentWidth: Float
-        val contentHeight: Float
-
-        if (viewAspect > remoteAspect) {
-            contentHeight = viewHeight
-            contentWidth = viewHeight * remoteAspect
-            left = (viewWidth - contentWidth) / 2f
-            top = 0f
-        } else {
-            contentWidth = viewWidth
-            contentHeight = viewWidth / remoteAspect
-            left = 0f
-            top = (viewHeight - contentHeight) / 2f
-        }
-
-        if (
-            x < left ||
-            x > left + contentWidth ||
-            y < top ||
-            y > top + contentHeight
-        ) {
-            return null
-        }
-
-        val nx = (
-            (x - left) / contentWidth
-        ).coerceIn(0f, 1f)
-
-        val ny = (
-            (y - top) / contentHeight
-        ).coerceIn(0f, 1f)
-
-        return nx to ny
+        return point.x to point.y
     }
 
     private fun showStatus(message: String) {
