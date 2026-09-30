@@ -1,6 +1,8 @@
 package com.aaris.remoteassist.webrtc
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
@@ -32,13 +34,21 @@ class WebRtcPeer(
     private val appContext = context.applicationContext
     private val factory = WebRtcRuntime.factory(appContext)
     private val closed = AtomicBoolean(false)
+    private val started = AtomicBoolean(false)
+    private val connected = AtomicBoolean(false)
+    private val offerInFlight = AtomicBoolean(false)
     private val pendingRemoteCandidates = ArrayDeque<IceCandidate>()
+    private val handler = Handler(Looper.getMainLooper())
 
     @Volatile
     private var remoteDescriptionReady = false
 
     @Volatile
     private var controlChannel: DataChannel? = null
+
+    private val reconnectRunnable = Runnable {
+        attemptIceRestart()
+    }
 
     private val peerConnection: PeerConnection = checkNotNull(
         factory.createPeerConnection(
@@ -50,7 +60,13 @@ class WebRtcPeer(
     }
 
     fun start() {
-        check(!closed.get()) { "WebRTC peer is closed" }
+        check(!closed.get()) {
+            "WebRTC peer is closed"
+        }
+        check(started.compareAndSet(false, true)) {
+            "WebRTC peer already started"
+        }
+
         signaling.start(this)
 
         if (role == PeerRole.HOST) {
@@ -62,18 +78,34 @@ class WebRtcPeer(
                     }
                 )
             )
-            createOffer()
+            createOffer(
+                iceRestart = false
+            )
         }
     }
 
-    fun addLocalVideoTrack(track: VideoTrack) {
+    fun addLocalVideoTrack(
+        track: VideoTrack
+    ) {
         check(!closed.get())
-        peerConnection.addTrack(track, listOf(SCREEN_STREAM_ID))
+        peerConnection.addTrack(
+            track,
+            listOf(SCREEN_STREAM_ID)
+        )
     }
 
-    fun sendControl(bytes: ByteArray): Boolean {
-        val channel = controlChannel ?: return false
-        if (channel.state() != DataChannel.State.OPEN) return false
+    fun sendControl(
+        bytes: ByteArray
+    ): Boolean {
+        val channel =
+            controlChannel ?: return false
+
+        if (
+            channel.state() !=
+            DataChannel.State.OPEN
+        ) {
+            return false
+        }
 
         return channel.send(
             DataChannel.Buffer(
@@ -83,20 +115,24 @@ class WebRtcPeer(
         )
     }
 
-    override fun onRemoteDescription(description: SignalDescription) {
+    override fun onRemoteDescription(
+        description: SignalDescription
+    ) {
         if (closed.get()) return
 
-        val sessionDescription = runCatching {
-            SessionDescription(
-                SessionDescription.Type.fromCanonicalForm(
-                    description.type
-                ),
-                description.sdp
-            )
-        }.getOrElse {
-            listener.onError(it)
-            return
-        }
+        val sessionDescription =
+            runCatching {
+                SessionDescription(
+                    SessionDescription.Type
+                        .fromCanonicalForm(
+                            description.type
+                        ),
+                    description.sdp
+                )
+            }.getOrElse {
+                listener.onError(it)
+                return
+            }
 
         peerConnection.setRemoteDescription(
             object : SdpObserverAdapter() {
@@ -105,17 +141,22 @@ class WebRtcPeer(
                     flushPendingCandidates()
 
                     if (
-                        role == PeerRole.CONTROLLER &&
-                        sessionDescription.type == SessionDescription.Type.OFFER
+                        role ==
+                        PeerRole.CONTROLLER &&
+                        sessionDescription.type ==
+                        SessionDescription.Type.OFFER
                     ) {
                         createAnswer()
                     }
                 }
 
-                override fun onSetFailure(error: String?) {
+                override fun onSetFailure(
+                    error: String?
+                ) {
                     listener.onError(
                         IllegalStateException(
-                            error ?: "Could not set remote description"
+                            error
+                                ?: "Could not set remote description"
                         )
                     )
                 }
@@ -124,7 +165,9 @@ class WebRtcPeer(
         )
     }
 
-    override fun onRemoteCandidate(candidate: SignalCandidate) {
+    override fun onRemoteCandidate(
+        candidate: SignalCandidate
+    ) {
         if (closed.get()) return
 
         val ice = IceCandidate(
@@ -133,9 +176,12 @@ class WebRtcPeer(
             candidate.sdp
         )
 
-        synchronized(pendingRemoteCandidates) {
+        synchronized(
+            pendingRemoteCandidates
+        ) {
             if (!remoteDescriptionReady) {
-                pendingRemoteCandidates.addLast(ice)
+                pendingRemoteCandidates
+                    .addLast(ice)
                 return
             }
         }
@@ -143,137 +189,286 @@ class WebRtcPeer(
         peerConnection.addIceCandidate(ice)
     }
 
-    override fun onRemotePresence(online: Boolean) {
-        if (!online && role == PeerRole.CONTROLLER) {
-            listener.onPeerDisconnected()
+    override fun onRemotePresence(
+        online: Boolean
+    ) {
+        if (
+            !online &&
+            role == PeerRole.CONTROLLER
+        ) {
+            markDisconnected(
+                scheduleHostRestart = false,
+                immediate = false
+            )
         }
     }
 
-    override fun onError(error: Throwable) {
+    override fun onError(
+        error: Throwable
+    ) {
         listener.onError(error)
     }
 
     override fun onSignalingChange(
-        newState: PeerConnection.SignalingState
+        newState:
+            PeerConnection.SignalingState
     ) = Unit
 
     override fun onIceConnectionChange(
-        newState: PeerConnection.IceConnectionState
+        newState:
+            PeerConnection.IceConnectionState
     ) {
         when (newState) {
-            PeerConnection.IceConnectionState.CONNECTED,
-            PeerConnection.IceConnectionState.COMPLETED ->
-                listener.onPeerConnected()
+            PeerConnection
+                .IceConnectionState.CONNECTED,
+            PeerConnection
+                .IceConnectionState.COMPLETED ->
+                markConnected()
 
-            PeerConnection.IceConnectionState.DISCONNECTED,
-            PeerConnection.IceConnectionState.FAILED,
-            PeerConnection.IceConnectionState.CLOSED ->
-                listener.onPeerDisconnected()
+            PeerConnection
+                .IceConnectionState.DISCONNECTED ->
+                markDisconnected(
+                    scheduleHostRestart = true,
+                    immediate = false
+                )
+
+            PeerConnection
+                .IceConnectionState.FAILED ->
+                markDisconnected(
+                    scheduleHostRestart = true,
+                    immediate = true
+                )
+
+            PeerConnection
+                .IceConnectionState.CLOSED ->
+                markDisconnected(
+                    scheduleHostRestart = false,
+                    immediate = false
+                )
 
             else -> Unit
         }
     }
 
     override fun onConnectionChange(
-        newState: PeerConnection.PeerConnectionState
+        newState:
+            PeerConnection.PeerConnectionState
     ) {
         when (newState) {
-            PeerConnection.PeerConnectionState.CONNECTED ->
-                listener.onPeerConnected()
+            PeerConnection
+                .PeerConnectionState.CONNECTED ->
+                markConnected()
 
-            PeerConnection.PeerConnectionState.DISCONNECTED,
-            PeerConnection.PeerConnectionState.FAILED,
-            PeerConnection.PeerConnectionState.CLOSED ->
-                listener.onPeerDisconnected()
+            PeerConnection
+                .PeerConnectionState.DISCONNECTED ->
+                markDisconnected(
+                    scheduleHostRestart = true,
+                    immediate = false
+                )
+
+            PeerConnection
+                .PeerConnectionState.FAILED ->
+                markDisconnected(
+                    scheduleHostRestart = true,
+                    immediate = true
+                )
+
+            PeerConnection
+                .PeerConnectionState.CLOSED ->
+                markDisconnected(
+                    scheduleHostRestart = false,
+                    immediate = false
+                )
 
             else -> Unit
         }
     }
 
-    override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
-    override fun onIceGatheringChange(
-        newState: PeerConnection.IceGatheringState
+    override fun onIceConnectionReceivingChange(
+        receiving: Boolean
     ) = Unit
 
-    override fun onIceCandidate(candidate: IceCandidate) {
+    override fun onIceGatheringChange(
+        newState:
+            PeerConnection.IceGatheringState
+    ) = Unit
+
+    override fun onIceCandidate(
+        candidate: IceCandidate
+    ) {
         signaling.sendCandidate(
             SignalCandidate(
                 sdpMid = candidate.sdpMid,
-                sdpMLineIndex = candidate.sdpMLineIndex,
+                sdpMLineIndex =
+                    candidate.sdpMLineIndex,
                 sdp = candidate.sdp
             )
         )
     }
 
-    override fun onIceCandidatesRemoved(candidates: Array<IceCandidate>) = Unit
-    override fun onAddStream(stream: MediaStream) = Unit
-    override fun onRemoveStream(stream: MediaStream) = Unit
+    override fun onIceCandidatesRemoved(
+        candidates: Array<IceCandidate>
+    ) = Unit
 
-    override fun onDataChannel(dataChannel: DataChannel) {
-        if (dataChannel.label() == CONTROL_CHANNEL) {
-            bindControlChannel(dataChannel)
+    override fun onAddStream(
+        stream: MediaStream
+    ) = Unit
+
+    override fun onRemoveStream(
+        stream: MediaStream
+    ) = Unit
+
+    override fun onDataChannel(
+        dataChannel: DataChannel
+    ) {
+        if (
+            dataChannel.label() ==
+            CONTROL_CHANNEL
+        ) {
+            bindControlChannel(
+                dataChannel
+            )
         }
     }
 
-    override fun onRenegotiationNeeded() = Unit
+    override fun onRenegotiationNeeded() =
+        Unit
 
     override fun onAddTrack(
         receiver: RtpReceiver,
         mediaStreams: Array<MediaStream>
     ) {
-        (receiver.track() as? VideoTrack)?.let(listener::onRemoteVideoTrack)
+        (receiver.track() as? VideoTrack)
+            ?.let(
+                listener::onRemoteVideoTrack
+            )
     }
 
-    override fun onTrack(transceiver: RtpTransceiver) {
-        (transceiver.receiver.track() as? VideoTrack)
-            ?.let(listener::onRemoteVideoTrack)
+    override fun onTrack(
+        transceiver: RtpTransceiver
+    ) {
+        (
+            transceiver.receiver.track()
+                as? VideoTrack
+            )?.let(
+                listener::onRemoteVideoTrack
+            )
     }
 
     fun close() {
-        if (!closed.compareAndSet(false, true)) return
+        if (
+            !closed.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            return
+        }
 
-        runCatching { signaling.setPresence(false) }
-        runCatching { signaling.close() }
+        handler.removeCallbacks(
+            reconnectRunnable
+        )
+
+        runCatching {
+            signaling.setPresence(false)
+        }
+        runCatching {
+            signaling.close()
+        }
 
         controlChannel?.let {
-            runCatching { it.unregisterObserver() }
-            runCatching { it.close() }
-            runCatching { it.dispose() }
+            runCatching {
+                it.unregisterObserver()
+            }
+            runCatching {
+                it.close()
+            }
+            runCatching {
+                it.dispose()
+            }
         }
         controlChannel = null
 
-        runCatching { peerConnection.close() }
-        runCatching { peerConnection.dispose() }
+        runCatching {
+            peerConnection.close()
+        }
+        runCatching {
+            peerConnection.dispose()
+        }
 
-        synchronized(pendingRemoteCandidates) {
+        synchronized(
+            pendingRemoteCandidates
+        ) {
             pendingRemoteCandidates.clear()
         }
     }
 
-    private fun createOffer() {
+    private fun createOffer(
+        iceRestart: Boolean
+    ) {
+        if (
+            closed.get() ||
+            role != PeerRole.HOST ||
+            !offerInFlight.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            return
+        }
+
+        val constraints =
+            MediaConstraints().apply {
+                if (iceRestart) {
+                    mandatory.add(
+                        MediaConstraints.KeyValuePair(
+                            "IceRestart",
+                            "true"
+                        )
+                    )
+                }
+            }
+
         peerConnection.createOffer(
             object : SdpObserverAdapter() {
                 override fun onCreateSuccess(
-                    description: SessionDescription?
+                    description:
+                        SessionDescription?
                 ) {
-                    if (description == null) {
+                    if (
+                        description == null
+                    ) {
+                        offerInFlight
+                            .set(false)
                         listener.onError(
-                            IllegalStateException("Offer was null")
+                            IllegalStateException(
+                                "Offer was null"
+                            )
                         )
                         return
                     }
-                    setLocalAndSignal(description)
+
+                    setLocalAndSignal(
+                        description
+                    ) {
+                        offerInFlight
+                            .set(false)
+                    }
                 }
 
-                override fun onCreateFailure(error: String?) {
+                override fun onCreateFailure(
+                    error: String?
+                ) {
+                    offerInFlight.set(false)
                     listener.onError(
                         IllegalStateException(
-                            error ?: "Could not create offer"
+                            error
+                                ?: "Could not create offer"
                         )
                     )
                 }
             },
-            MediaConstraints()
+            constraints
         )
     }
 
@@ -281,21 +476,32 @@ class WebRtcPeer(
         peerConnection.createAnswer(
             object : SdpObserverAdapter() {
                 override fun onCreateSuccess(
-                    description: SessionDescription?
+                    description:
+                        SessionDescription?
                 ) {
-                    if (description == null) {
+                    if (
+                        description == null
+                    ) {
                         listener.onError(
-                            IllegalStateException("Answer was null")
+                            IllegalStateException(
+                                "Answer was null"
+                            )
                         )
                         return
                     }
-                    setLocalAndSignal(description)
+
+                    setLocalAndSignal(
+                        description
+                    )
                 }
 
-                override fun onCreateFailure(error: String?) {
+                override fun onCreateFailure(
+                    error: String?
+                ) {
                     listener.onError(
                         IllegalStateException(
-                            error ?: "Could not create answer"
+                            error
+                                ?: "Could not create answer"
                         )
                     )
                 }
@@ -305,23 +511,32 @@ class WebRtcPeer(
     }
 
     private fun setLocalAndSignal(
-        description: SessionDescription
+        description: SessionDescription,
+        onFinished: () -> Unit = {}
     ) {
         peerConnection.setLocalDescription(
             object : SdpObserverAdapter() {
                 override fun onSetSuccess() {
                     signaling.sendDescription(
                         SignalDescription(
-                            type = description.type.canonicalForm(),
-                            sdp = description.description
+                            type =
+                                description.type
+                                    .canonicalForm(),
+                            sdp =
+                                description.description
                         )
                     )
+                    onFinished()
                 }
 
-                override fun onSetFailure(error: String?) {
+                override fun onSetFailure(
+                    error: String?
+                ) {
+                    onFinished()
                     listener.onError(
                         IllegalStateException(
-                            error ?: "Could not set local description"
+                            error
+                                ?: "Could not set local description"
                         )
                     )
                 }
@@ -330,75 +545,226 @@ class WebRtcPeer(
         )
     }
 
-    private fun bindControlChannel(channel: DataChannel) {
-        controlChannel?.let { existing ->
+    private fun bindControlChannel(
+        channel: DataChannel
+    ) {
+        controlChannel?.let {
+                existing ->
             if (existing !== channel) {
-                runCatching { existing.unregisterObserver() }
-                runCatching { existing.close() }
-                runCatching { existing.dispose() }
+                runCatching {
+                    existing.unregisterObserver()
+                }
+                runCatching {
+                    existing.close()
+                }
+                runCatching {
+                    existing.dispose()
+                }
             }
         }
 
         controlChannel = channel
         channel.registerObserver(
-            object : DataChannel.Observer {
+            object :
+                DataChannel.Observer {
                 override fun onBufferedAmountChange(
                     previousAmount: Long
                 ) = Unit
 
                 override fun onStateChange() {
-                    if (channel.state() == DataChannel.State.OPEN) {
-                        listener.onControlChannelOpen()
+                    if (
+                        channel.state() ==
+                        DataChannel.State.OPEN
+                    ) {
+                        listener
+                            .onControlChannelOpen()
                     }
                 }
 
-                override fun onMessage(buffer: DataChannel.Buffer) {
-                    if (!buffer.binary) return
+                override fun onMessage(
+                    buffer: DataChannel.Buffer
+                ) {
+                    if (!buffer.binary) {
+                        return
+                    }
 
-                    val source = buffer.data.slice()
-                    val bytes = ByteArray(source.remaining())
+                    val source =
+                        buffer.data.slice()
+                    val bytes =
+                        ByteArray(
+                            source.remaining()
+                        )
                     source.get(bytes)
-                    listener.onControlMessage(bytes)
+
+                    listener.onControlMessage(
+                        bytes
+                    )
                 }
             }
         )
 
-        if (channel.state() == DataChannel.State.OPEN) {
+        if (
+            channel.state() ==
+            DataChannel.State.OPEN
+        ) {
             listener.onControlChannelOpen()
         }
     }
 
     private fun flushPendingCandidates() {
-        val pending = mutableListOf<IceCandidate>()
+        val pending =
+            mutableListOf<IceCandidate>()
 
-        synchronized(pendingRemoteCandidates) {
-            while (pendingRemoteCandidates.isNotEmpty()) {
-                pending += pendingRemoteCandidates.removeFirst()
+        synchronized(
+            pendingRemoteCandidates
+        ) {
+            while (
+                pendingRemoteCandidates
+                    .isNotEmpty()
+            ) {
+                pending +=
+                    pendingRemoteCandidates
+                        .removeFirst()
             }
         }
 
-        pending.forEach(peerConnection::addIceCandidate)
+        pending.forEach(
+            peerConnection::addIceCandidate
+        )
     }
 
-    private fun createRtcConfiguration(): PeerConnection.RTCConfiguration {
-        val iceServers = listOf(
-            PeerConnection.IceServer.builder(
-                "stun:stun.l.google.com:19302"
-            ).createIceServer(),
-            PeerConnection.IceServer.builder(
-                "stun:stun1.l.google.com:19302"
-            ).createIceServer()
+    private fun markConnected() {
+        if (closed.get()) return
+
+        handler.removeCallbacks(
+            reconnectRunnable
         )
 
-        return PeerConnection.RTCConfiguration(iceServers).apply {
-            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-            continualGatheringPolicy =
-                PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+        if (
+            connected.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            listener.onPeerConnected()
         }
     }
 
+    private fun markDisconnected(
+        scheduleHostRestart: Boolean,
+        immediate: Boolean
+    ) {
+        if (closed.get()) return
+
+        if (
+            connected.compareAndSet(
+                true,
+                false
+            )
+        ) {
+            listener.onPeerDisconnected()
+        }
+
+        if (
+            scheduleHostRestart &&
+            role == PeerRole.HOST &&
+            started.get()
+        ) {
+            scheduleReconnect(
+                immediate
+            )
+        }
+    }
+
+    private fun scheduleReconnect(
+        immediate: Boolean
+    ) {
+        handler.removeCallbacks(
+            reconnectRunnable
+        )
+
+        handler.postDelayed(
+            reconnectRunnable,
+            if (immediate) {
+                0L
+            } else {
+                RECONNECT_GRACE_MS
+            }
+        )
+    }
+
+    private fun attemptIceRestart() {
+        if (
+            closed.get() ||
+            connected.get() ||
+            role != PeerRole.HOST
+        ) {
+            return
+        }
+
+        if (
+            peerConnection
+                .signalingState() !=
+            PeerConnection
+                .SignalingState.STABLE
+        ) {
+            handler.postDelayed(
+                reconnectRunnable,
+                SIGNALING_RETRY_MS
+            )
+            return
+        }
+
+        createOffer(
+            iceRestart = true
+        )
+
+        handler.postDelayed(
+            reconnectRunnable,
+            RECONNECT_RETRY_MS
+        )
+    }
+
+    private fun createRtcConfiguration():
+        PeerConnection.RTCConfiguration {
+        val iceServers = listOf(
+            PeerConnection.IceServer
+                .builder(
+                    "stun:stun.l.google.com:19302"
+                )
+                .createIceServer(),
+            PeerConnection.IceServer
+                .builder(
+                    "stun:stun1.l.google.com:19302"
+                )
+                .createIceServer()
+        )
+
+        return PeerConnection
+            .RTCConfiguration(
+                iceServers
+            ).apply {
+                sdpSemantics =
+                    PeerConnection
+                        .SdpSemantics.UNIFIED_PLAN
+                continualGatheringPolicy =
+                    PeerConnection
+                        .ContinualGatheringPolicy
+                        .GATHER_CONTINUALLY
+            }
+    }
+
     companion object {
-        private const val CONTROL_CHANNEL = "control-v1"
-        private const val SCREEN_STREAM_ID = "remote-screen"
+        private const val CONTROL_CHANNEL =
+            "control-v1"
+        private const val SCREEN_STREAM_ID =
+            "remote-screen"
+
+        private const val RECONNECT_GRACE_MS =
+            1_500L
+        private const val SIGNALING_RETRY_MS =
+            1_000L
+        private const val RECONNECT_RETRY_MS =
+            5_000L
     }
 }
