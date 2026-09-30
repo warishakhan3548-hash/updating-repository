@@ -55,6 +55,12 @@ sealed interface ControlPacket {
         val sequence: Long
     ) : ControlPacket
 
+    data class Recents(
+        val leaseSecret: Long,
+        val generation: Int,
+        val sequence: Long
+    ) : ControlPacket
+
     data object Disconnect : ControlPacket
 }
 
@@ -69,6 +75,7 @@ object ControlProtocol {
     private const val BACK: Byte = 6
     private const val HOME: Byte = 7
     private const val DISCONNECT: Byte = 8
+    private const val RECENTS: Byte = 9
 
     fun encode(packet: ControlPacket): ByteArray {
         val size = when (packet) {
@@ -78,7 +85,8 @@ object ControlProtocol {
             is ControlPacket.LongPress -> 2 + 8 + 4 + 8 + 2 + 2 + 2
             is ControlPacket.Swipe -> 2 + 8 + 4 + 8 + 2 + 2 + 2 + 2 + 2
             is ControlPacket.Back,
-            is ControlPacket.Home -> 2 + 8 + 4 + 8
+            is ControlPacket.Home,
+            is ControlPacket.Recents -> 2 + 8 + 4 + 8
             ControlPacket.Disconnect -> 2
         }
 
@@ -149,6 +157,13 @@ object ControlProtocol {
             )
 
             is ControlPacket.Home -> putCommandHeader(
+                buffer,
+                packet.leaseSecret,
+                packet.generation,
+                packet.sequence
+            )
+
+            is ControlPacket.Recents -> putCommandHeader(
                 buffer,
                 packet.leaseSecret,
                 packet.generation,
@@ -251,6 +266,16 @@ object ControlProtocol {
                     ControlPacket.Disconnect
                 }
 
+                RECENTS -> {
+                    require(buffer.remaining() == 20)
+                    val header = readHeader(buffer)
+                    ControlPacket.Recents(
+                        header.leaseSecret,
+                        header.generation,
+                        header.sequence
+                    )
+                }
+
                 else -> null
             }
         }.getOrNull()
@@ -318,6 +343,14 @@ object ControlProtocol {
                 action = GlobalAction.HOME
             )
 
+            is ControlPacket.Recents -> GlobalActionCommand(
+                sessionId = sessionId,
+                leaseSecret = packet.leaseSecret,
+                generation = packet.generation,
+                sequence = packet.sequence,
+                action = GlobalAction.RECENTS
+            )
+
             is ControlPacket.Hello,
             is ControlPacket.Heartbeat,
             ControlPacket.Disconnect -> null
@@ -366,6 +399,7 @@ object ControlProtocol {
         is ControlPacket.Swipe -> SWIPE
         is ControlPacket.Back -> BACK
         is ControlPacket.Home -> HOME
+        is ControlPacket.Recents -> RECENTS
         ControlPacket.Disconnect -> DISCONNECT
     }
 }
