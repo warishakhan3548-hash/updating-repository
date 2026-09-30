@@ -569,7 +569,7 @@ class MainActivity : ComponentActivity() {
             )
             .setPositiveButton("START") { _, _ ->
                 approvalDialog = null
-                requestScreenPermission(sessionId)
+                approveAndRequestScreen(sessionId)
             }
             .setNegativeButton("DECLINE") { _, _ ->
                 approvalDialog = null
@@ -595,7 +595,7 @@ class MainActivity : ComponentActivity() {
             )
             .setPositiveButton("START") { _, _ ->
                 approvalDialog = null
-                approveAndRequestScreen(sessionId)
+                requestScreenPermission(sessionId)
             }
             .setNegativeButton("END") { _, _ ->
                 approvalDialog = null
