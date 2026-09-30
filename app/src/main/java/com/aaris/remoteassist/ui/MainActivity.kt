@@ -58,10 +58,27 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
 
-        if (PermissionGate.isAccessibilityEnabled(this)) {
+        val restoredHostSession = recoverPersistedHostSession()
+        if (
+            !restoredHostSession &&
+            PermissionGate.isAccessibilityEnabled(this)
+        ) {
             SessionCoordinator.prepareReady()
         }
         refreshIdleUi()
+    }
+
+    @Deprecated("Use the system back dispatcher on newer Android versions.")
+    override fun onBackPressed() {
+        val id = activeHostSessionId
+        val state = SessionCoordinator.snapshot().state
+
+        if (id != null && state != SessionState.LIVE) {
+            cancelPendingHostAndFinish(id)
+            return
+        }
+
+        super.onBackPressed()
     }
 
     override fun onResume() {
@@ -155,6 +172,12 @@ class MainActivity : Activity() {
             runCatching { gateway.createShareTicket() }
                 .onSuccess { ticket ->
                     activeHostSessionId = ticket.sessionId
+                    prefs.edit()
+                        .putString(
+                            KEY_ACTIVE_HOST_SESSION,
+                            ticket.sessionId
+                        )
+                        .apply()
                     runCatching {
                         SessionCoordinator.transition(
                             ticket.sessionId,
@@ -509,6 +532,9 @@ class MainActivity : Activity() {
     private fun clearHostUi() {
         activeHostSessionId = null
         pendingProjectionSessionId = null
+        prefs.edit()
+            .remove(KEY_ACTIVE_HOST_SESSION)
+            .apply()
 
         hostObserver?.close()
         hostObserver = null
@@ -521,6 +547,68 @@ class MainActivity : Activity() {
 
         approvalDialog?.dismiss()
         approvalDialog = null
+    }
+
+    private fun recoverPersistedHostSession(): Boolean {
+        val sessionId = prefs.getString(
+            KEY_ACTIVE_HOST_SESSION,
+            null
+        ) ?: return false
+
+        val snapshot = SessionCoordinator.snapshot()
+        val recoverable = snapshot.sessionId == sessionId &&
+            when (snapshot.state) {
+                SessionState.CODE_ACTIVE,
+                SessionState.PAIR_PENDING,
+                SessionState.CONNECTING,
+                SessionState.LIVE -> true
+
+                else -> false
+            }
+
+        if (!recoverable) {
+            prefs.edit()
+                .remove(KEY_ACTIVE_HOST_SESSION)
+                .apply()
+
+            if (snapshot.sessionId == sessionId) {
+                SessionCoordinator.close(sessionId)
+                SessionCoordinator.prepareReady()
+            }
+
+            scope.launch {
+                runCatching { gateway.close(sessionId) }
+            }
+            return false
+        }
+
+        activeHostSessionId = sessionId
+        setButtonsEnabled(false)
+        status.text = when (snapshot.state) {
+            SessionState.CODE_ACTIVE ->
+                "Share code is still active."
+            SessionState.PAIR_PENDING ->
+                "A connection request is waiting."
+            SessionState.CONNECTING ->
+                "Connecting phones…"
+            SessionState.LIVE ->
+                "Remote support is LIVE. Tap STOP • LIVE any time."
+            else -> "Session active."
+        }
+        observeHostSession(sessionId)
+        return true
+    }
+
+    private fun cancelPendingHostAndFinish(sessionId: String) {
+        setButtonsEnabled(false)
+        status.text = "Cancelling share session…"
+
+        scope.launch {
+            runCatching { gateway.close(sessionId) }
+            SessionCoordinator.close(sessionId)
+            clearHostUi()
+            finish()
+        }
     }
 
     private fun isIdleForNewSession(): Boolean {
@@ -547,6 +635,19 @@ class MainActivity : Activity() {
 
         if (idle && status.text.isNullOrBlank()) {
             status.text = "Ready"
+        } else if (!idle && status.text.isNullOrBlank()) {
+            status.text = when (SessionCoordinator.snapshot().state) {
+                SessionState.LIVE ->
+                    "Remote support is LIVE. Tap STOP • LIVE any time."
+                SessionState.CONNECTING ->
+                    "Connecting phones…"
+                SessionState.PAIR_PENDING ->
+                    "Waiting for approval…"
+                SessionState.CODE_ACTIVE ->
+                    "Share code is active."
+                else ->
+                    "Session in progress…"
+            }
         }
     }
 
@@ -637,6 +738,8 @@ class MainActivity : Activity() {
 
     companion object {
         private const val KEY_PENDING_SHARE = "pending_share"
+        private const val KEY_ACTIVE_HOST_SESSION =
+            "active_host_session"
         private const val REQUEST_MEDIA_PROJECTION = 7001
     }
 }
