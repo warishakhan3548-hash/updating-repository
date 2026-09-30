@@ -218,7 +218,7 @@ export const redeemPairingCode = onCall(
     const now = Date.now();
     const codeRef = db.ref("pairingCodes/" + key);
 
-    let failure: "not-found" | "expired" | "busy" | null = null;
+    let failure: "not-found" | "expired" | "busy" | "self" | null = null;
 
     const tx = await codeRef.transaction((raw) => {
       if (raw === null) {
@@ -231,6 +231,11 @@ export const redeemPairingCode = onCall(
       if (record.expiresAtMs <= now) {
         failure = "expired";
         return null;
+      }
+
+      if (record.hostUid === controllerUid) {
+        failure = "self";
+        return;
       }
 
       if (
@@ -249,6 +254,12 @@ export const redeemPairingCode = onCall(
       } satisfies PairingCodeRecord;
     }, undefined, false);
 
+    if (failure === "self") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Use this code from the other phone."
+      );
+    }
     if (failure === "busy") {
       throw new HttpsError(
         "already-exists",
@@ -265,13 +276,6 @@ export const redeemPairingCode = onCall(
     const record = tx.snapshot.val() as PairingCodeRecord | null;
     if (!record?.sessionId || !record.hostUid) {
       throw new HttpsError("not-found", "Code expired or invalid.");
-    }
-
-    if (record.hostUid === controllerUid) {
-      throw new HttpsError(
-        "failed-precondition",
-        "Use this code from the other phone."
-      );
     }
 
     const sessionRef = db.ref("sessions/" + record.sessionId);
