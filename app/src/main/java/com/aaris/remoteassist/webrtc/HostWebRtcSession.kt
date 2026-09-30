@@ -250,7 +250,8 @@ class HostWebRtcSession(
             is ControlPacket.LongPress,
             is ControlPacket.Swipe,
             is ControlPacket.Back,
-            is ControlPacket.Home -> {
+            is ControlPacket.Home,
+            is ControlPacket.Recents -> {
                 val currentProfile =
                     profile
 
