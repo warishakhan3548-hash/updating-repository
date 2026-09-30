@@ -201,6 +201,32 @@ export const approvePairingSession = onCall(
   }
 );
 
+export const beginHostConnection = onCall(
+  { enforceAppCheck: true, consumeAppCheckToken: true },
+  async (request) => {
+    const hostUid = requireUid(request);
+    const sessionId = String(request.data?.sessionId ?? "");
+    if (!sessionId) throw new HttpsError("invalid-argument", "Missing sessionId.");
+
+    const sessionRef = db.ref(`sessions/${sessionId}`);
+    const snap = await sessionRef.get();
+    const session = snap.val() as SessionRecord | null;
+
+    if (!session || session.hostUid !== hostUid) {
+      throw new HttpsError("permission-denied", "Only the sharing device can start capture.");
+    }
+    if (session.state !== "HOST_APPROVED" || !session.controllerUid) {
+      throw new HttpsError("failed-precondition", "Session is not ready to connect.");
+    }
+
+    await sessionRef.update({
+      state: "CONNECTING",
+      updatedAt: Date.now()
+    });
+    return { sessionId, connecting: true };
+  }
+);
+
 export const closePairingSession = onCall(
   { enforceAppCheck: true, consumeAppCheckToken: true },
   async (request) => {
