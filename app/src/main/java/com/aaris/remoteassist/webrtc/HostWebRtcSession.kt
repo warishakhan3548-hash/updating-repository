@@ -25,20 +25,28 @@ class HostWebRtcSession(
 ) : Closeable, WebRtcPeer.Listener {
     interface Listener {
         fun onLive()
-        fun onConnectivityChanged(connected: Boolean)
+        fun onConnectivityChanged(
+            connected: Boolean
+        )
         fun onProjectionStopped()
         fun onRemoteDisconnect()
         fun onError(error: Throwable)
     }
 
-    private val appContext = context.applicationContext
-    private val closed = AtomicBoolean(false)
+    private val appContext =
+        context.applicationContext
+    private val closed =
+        AtomicBoolean(false)
     private val displayManager =
-        appContext.getSystemService(DisplayManager::class.java)
-    private val displayHandler = Handler(Looper.getMainLooper())
+        appContext.getSystemService(
+            DisplayManager::class.java
+        )
+    private val displayHandler =
+        Handler(Looper.getMainLooper())
 
     @Volatile
-    private var profile = CaptureProfile.current(appContext)
+    private var profile =
+        CaptureProfile.current(appContext)
 
     @Volatile
     private var peerConnected = false
@@ -49,62 +57,91 @@ class HostWebRtcSession(
     @Volatile
     private var lease: LiveLease? = null
 
-    private val signaling = FirebaseSignalingClient(
-        sessionId = sessionId,
-        role = PeerRole.HOST
-    )
+    private val signaling =
+        FirebaseSignalingClient(
+            sessionId = sessionId,
+            role = PeerRole.HOST
+        )
 
-    private val peer = WebRtcPeer(
-        context = appContext,
-        role = PeerRole.HOST,
-        signaling = signaling,
-        listener = this
-    )
+    private val peer =
+        WebRtcPeer(
+            context = appContext,
+            role = PeerRole.HOST,
+            signaling = signaling,
+            listener = this
+        )
 
-    private val capture = ScreenCaptureTrack(
-        context = appContext,
-        grant = projectionGrant,
-        onProjectionStopped = listener::onProjectionStopped
-    )
+    private val capture =
+        ScreenCaptureTrack(
+            context = appContext,
+            grant = projectionGrant,
+            onProjectionStopped =
+                listener::onProjectionStopped
+        )
 
-    private val leaseWatchdog = object : Runnable {
-        override fun run() {
-            if (closed.get()) return
-
-            val expected = lease
+    private val disconnectTimeout =
+        Runnable {
             if (
-                expected != null &&
-                SessionRuntime.currentLease() == null
+                !closed.get() &&
+                !peerConnected
             ) {
                 listener.onRemoteDisconnect()
-                return
             }
-
-            displayHandler.postDelayed(
-                this,
-                LEASE_WATCHDOG_MS
-            )
         }
-    }
 
-    private val displayListener = object : DisplayManager.DisplayListener {
-        override fun onDisplayAdded(displayId: Int) = Unit
-        override fun onDisplayRemoved(displayId: Int) = Unit
+    private val leaseWatchdog =
+        object : Runnable {
+            override fun run() {
+                if (closed.get()) {
+                    return
+                }
 
-        override fun onDisplayChanged(displayId: Int) {
-            refreshDisplayProfile()
+                if (
+                    lease != null &&
+                    SessionRuntime
+                        .currentLease() == null
+                ) {
+                    listener.onRemoteDisconnect()
+                    return
+                }
+
+                displayHandler.postDelayed(
+                    this,
+                    LEASE_WATCHDOG_MS
+                )
+            }
         }
-    }
+
+    private val displayListener =
+        object :
+            DisplayManager.DisplayListener {
+            override fun onDisplayAdded(
+                displayId: Int
+            ) = Unit
+
+            override fun onDisplayRemoved(
+                displayId: Int
+            ) = Unit
+
+            override fun onDisplayChanged(
+                displayId: Int
+            ) {
+                refreshDisplayProfile()
+            }
+        }
 
     fun start() {
         check(!closed.get())
 
-        displayManager.registerDisplayListener(
-            displayListener,
-            displayHandler
-        )
+        displayManager
+            .registerDisplayListener(
+                displayListener,
+                displayHandler
+            )
 
-        peer.addLocalVideoTrack(capture.videoTrack)
+        peer.addLocalVideoTrack(
+            capture.videoTrack
+        )
         capture.start(profile)
         peer.start()
     }
@@ -112,30 +149,62 @@ class HostWebRtcSession(
     fun refreshDisplayProfile() {
         if (closed.get()) return
 
-        val latest = CaptureProfile.current(appContext)
-        if (latest == profile) return
+        val latest =
+            CaptureProfile.current(
+                appContext
+            )
+
+        if (latest == profile) {
+            return
+        }
 
         profile = latest
         capture.update(latest)
 
-        val currentLease = lease ?: return
-        val rotated = SessionCoordinator.bumpDisplayGeneration(
-            sessionId
-        ) ?: return
+        val currentLease =
+            lease ?: return
+
+        val rotated =
+            SessionCoordinator
+                .bumpDisplayGeneration(
+                    sessionId
+                )
+                ?: return
 
         lease = rotated
-        sendHello(rotated, latest)
+
+        sendHello(
+            rotated,
+            latest
+        )
     }
 
     override fun onPeerConnected() {
         peerConnected = true
-        listener.onConnectivityChanged(true)
+
+        displayHandler.removeCallbacks(
+            disconnectTimeout
+        )
+
+        listener
+            .onConnectivityChanged(true)
+
         ensureLiveHandshake()
     }
 
     override fun onPeerDisconnected() {
         peerConnected = false
-        listener.onConnectivityChanged(false)
+
+        listener
+            .onConnectivityChanged(false)
+
+        displayHandler.removeCallbacks(
+            disconnectTimeout
+        )
+        displayHandler.postDelayed(
+            disconnectTimeout,
+            DISCONNECT_GRACE_MS
+        )
     }
 
     override fun onControlChannelOpen() {
@@ -143,62 +212,111 @@ class HostWebRtcSession(
         ensureLiveHandshake()
     }
 
-    override fun onControlMessage(bytes: ByteArray) {
-        val packet = ControlProtocol.decode(bytes) ?: return
+    override fun onControlMessage(
+        bytes: ByteArray
+    ) {
+        val packet =
+            ControlProtocol.decode(bytes)
+                ?: return
 
         when (packet) {
             is ControlPacket.Heartbeat -> {
-                val currentLease = lease ?: return
-                if (packet.leaseSecret != currentLease.leaseSecret) return
+                val currentLease =
+                    lease ?: return
+
+                if (
+                    packet.leaseSecret !=
+                    currentLease.leaseSecret
+                ) {
+                    return
+                }
 
                 SessionRuntime.renew(
                     sessionId = sessionId,
-                    leaseSecret = currentLease.leaseSecret
-                )?.let { lease = it }
+                    leaseSecret =
+                        currentLease.leaseSecret
+                )?.let {
+                    lease = it
+                }
 
                 refreshDisplayProfile()
             }
 
             ControlPacket.Disconnect ->
-                listener.onRemoteDisconnect()
+                listener
+                    .onRemoteDisconnect()
 
             is ControlPacket.Tap,
             is ControlPacket.LongPress,
             is ControlPacket.Swipe,
             is ControlPacket.Back,
             is ControlPacket.Home -> {
-                val currentProfile = profile
-                val command = ControlProtocol.toRemoteCommand(
-                    sessionId = sessionId,
-                    packet = packet,
-                    widthPx = currentProfile.displayWidthPx,
-                    heightPx = currentProfile.displayHeightPx
-                ) ?: return
+                val currentProfile =
+                    profile
 
-                AssistAccessibilityService.dispatch(command)
+                val command =
+                    ControlProtocol
+                        .toRemoteCommand(
+                            sessionId =
+                                sessionId,
+                            packet = packet,
+                            widthPx =
+                                currentProfile
+                                    .displayWidthPx,
+                            heightPx =
+                                currentProfile
+                                    .displayHeightPx
+                        )
+                        ?: return
+
+                AssistAccessibilityService
+                    .dispatch(command)
             }
 
-            is ControlPacket.Hello -> Unit
+            is ControlPacket.Hello ->
+                Unit
         }
     }
 
-    override fun onRemoteVideoTrack(track: VideoTrack) = Unit
+    override fun onRemoteVideoTrack(
+        track: VideoTrack
+    ) = Unit
 
-    override fun onError(error: Throwable) {
+    override fun onError(
+        error: Throwable
+    ) {
         listener.onError(error)
     }
 
     override fun close() {
-        if (!closed.compareAndSet(false, true)) return
+        if (
+            !closed.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            return
+        }
 
+        displayHandler.removeCallbacks(
+            disconnectTimeout
+        )
         displayHandler.removeCallbacks(
             leaseWatchdog
         )
+
         runCatching {
-            displayManager.unregisterDisplayListener(displayListener)
+            displayManager
+                .unregisterDisplayListener(
+                    displayListener
+                )
         }
-        runCatching { peer.close() }
-        runCatching { capture.close() }
+        runCatching {
+            peer.close()
+        }
+        runCatching {
+            capture.close()
+        }
 
         peerConnected = false
         controlOpen = false
@@ -206,26 +324,43 @@ class HostWebRtcSession(
     }
 
     private fun ensureLiveHandshake() {
-        if (!peerConnected || !controlOpen || closed.get()) return
-
-        val currentLease = lease ?: runCatching {
-            SessionCoordinator.activateLive(sessionId)
-        }.getOrElse {
-            listener.onError(it)
+        if (
+            !peerConnected ||
+            !controlOpen ||
+            closed.get()
+        ) {
             return
-        }.also {
-            lease = it
-            displayHandler.removeCallbacks(
-                leaseWatchdog
-            )
-            displayHandler.postDelayed(
-                leaseWatchdog,
-                LEASE_WATCHDOG_MS
-            )
-            listener.onLive()
         }
 
-        sendHello(currentLease, profile)
+        val currentLease =
+            lease ?: runCatching {
+                SessionCoordinator
+                    .activateLive(
+                        sessionId
+                    )
+            }.getOrElse {
+                listener.onError(it)
+                return
+            }.also {
+                lease = it
+
+                displayHandler
+                    .removeCallbacks(
+                        leaseWatchdog
+                    )
+                displayHandler
+                    .postDelayed(
+                        leaseWatchdog,
+                        LEASE_WATCHDOG_MS
+                    )
+
+                listener.onLive()
+            }
+
+        sendHello(
+            currentLease,
+            profile
+        )
     }
 
     private fun sendHello(
@@ -235,15 +370,23 @@ class HostWebRtcSession(
         peer.sendControl(
             ControlProtocol.encode(
                 ControlPacket.Hello(
-                    leaseSecret = lease.leaseSecret,
-                    generation = lease.displayGeneration,
-                    widthPx = profile.displayWidthPx,
-                    heightPx = profile.displayHeightPx
+                    leaseSecret =
+                        lease.leaseSecret,
+                    generation =
+                        lease.displayGeneration,
+                    widthPx =
+                        profile.displayWidthPx,
+                    heightPx =
+                        profile.displayHeightPx
                 )
             )
         )
     }
+
     companion object {
-        private const val LEASE_WATCHDOG_MS = 3_000L
+        private const val DISCONNECT_GRACE_MS =
+            20_000L
+        private const val LEASE_WATCHDOG_MS =
+            3_000L
     }
 }
