@@ -47,3 +47,16 @@ The repository intentionally does not contain a Firebase project credential.
 8. For GitHub Actions APKs, optionally store base64-encoded `google-services.json` as the repository secret `GOOGLE_SERVICES_JSON_B64`; CI restores it only inside the runner and never commits it.
 
 The Gradle Google Services plugin is applied only when `google-services.json` exists, so CI can still compile the source tree without committing credentials. Production builds use Play Integrity; debug builds use the Firebase debug provider, matching Firebase's recommended development flow.
+
+## Production relay reliability
+
+Direct WebRTC works well on many networks, but carrier-grade NAT and symmetric NAT require a TURN relay for TeamViewer-class connection reliability.
+
+Aaris Remote 0.4.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
+
+Configure these environment values on the deployed Functions runtime:
+
+- `TURN_URLS`: comma-separated TURN/TURNS URLs, for example `turn:relay.example.com:3478?transport=udp,turns:relay.example.com:5349?transport=tcp`
+- `TURN_SHARED_SECRET`: the coturn REST shared secret, at least 16 characters and never committed to this repository
+
+If TURN is not configured or the ICE-config call fails, the Android client falls back to the built-in STUN list. For production, run at least UDP TURN plus TLS/TCP TURN on a reachable relay and rotate the shared secret through your deployment secret store.
