@@ -1,6 +1,5 @@
 package com.aaris.remoteassist.ui
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
@@ -16,6 +15,8 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
@@ -35,7 +36,7 @@ import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 
-class RemoteControlActivity : Activity() {
+class RemoteControlActivity : ComponentActivity() {
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.Main
     )
@@ -78,12 +79,15 @@ class RemoteControlActivity : Activity() {
 
         WebRtcRuntime.initialize(this)
         setContentView(buildUi())
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    disconnect()
+                }
+            }
+        )
         observe(sessionId!!)
-    }
-
-    @Deprecated("Use the system back dispatcher on newer Android versions.")
-    override fun onBackPressed() {
-        disconnect()
     }
 
     override fun onDestroy() {
