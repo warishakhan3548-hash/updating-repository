@@ -133,6 +133,37 @@ class ScreenShareService : Service() {
             return
         }
 
+        scope.launch {
+            runCatching {
+                FirebasePairingGateway(this@ScreenShareService)
+                    .markScreenReady(sessionId)
+            }.onSuccess {
+                mainExecutor.execute {
+                    if (activeSessionId == sessionId) {
+                        startTransport(sessionId, grant)
+                    }
+                }
+            }.onFailure {
+                mainExecutor.execute {
+                    stopActiveSession(
+                        "backend_screen_ready_failed"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun startTransport(
+        sessionId: String,
+        grant: ProjectionGrant
+    ) {
+        if (
+            activeSessionId != sessionId ||
+            hostSession != null
+        ) {
+            return
+        }
+
         hostSession = runCatching {
             HostWebRtcSession(
                 context = this,
@@ -186,20 +217,7 @@ class ScreenShareService : Service() {
             ).also { it.start() }
         }.getOrElse {
             stopActiveSession("webrtc_start_failed")
-            return
-        }
-
-        scope.launch {
-            runCatching {
-                FirebasePairingGateway(this@ScreenShareService)
-                    .markScreenReady(sessionId)
-            }.onFailure {
-                mainExecutor.execute {
-                    stopActiveSession(
-                        "backend_screen_ready_failed"
-                    )
-                }
-            }
+            null
         }
     }
 
