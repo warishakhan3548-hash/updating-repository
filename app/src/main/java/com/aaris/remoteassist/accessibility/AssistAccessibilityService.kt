@@ -5,6 +5,8 @@ import android.accessibilityservice.GestureDescription
 import android.app.KeyguardManager
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.view.Gravity
@@ -29,12 +31,13 @@ import java.lang.ref.WeakReference
 
 class AssistAccessibilityService : AccessibilityService() {
     private var stopOverlay: View? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val keyguard by lazy {
         getSystemService(KeyguardManager::class.java)
     }
 
     private val sessionListener: (SessionSnapshot) -> Unit = { snapshot ->
-        mainExecutor.execute {
+        mainHandler.post {
             if (snapshot.state == SessionState.LIVE) {
                 showStopOverlay()
             } else {
