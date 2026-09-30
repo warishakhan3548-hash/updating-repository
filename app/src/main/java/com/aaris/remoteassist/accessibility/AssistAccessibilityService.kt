@@ -81,6 +81,7 @@ class AssistAccessibilityService : AccessibilityService() {
                 when (command.action) {
                     GlobalAction.BACK -> GLOBAL_ACTION_BACK
                     GlobalAction.HOME -> GLOBAL_ACTION_HOME
+                    GlobalAction.RECENTS -> GLOBAL_ACTION_RECENTS
                 }
             )
         }
