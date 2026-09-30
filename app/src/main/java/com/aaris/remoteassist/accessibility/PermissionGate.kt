@@ -30,7 +30,7 @@ object PermissionGate {
     fun openAccessibilitySettings(context: Context) {
         val flags = Intent.FLAG_ACTIVITY_NEW_TASK
         val targeted = Intent(
-            Settings.ACTION_ACCESSIBILITY_DETAILS_SETTINGS,
+            "android.settings.ACCESSIBILITY_DETAILS_SETTINGS",
             Uri.parse("package:${context.packageName}")
         ).addFlags(flags)
 
