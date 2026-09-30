@@ -473,7 +473,10 @@ class MainActivity : ComponentActivity() {
                 onError = {
                     runOnUiThread {
                         if (activeHostSessionId == sessionId) {
-                            status.text = "Connection watcher stopped."
+                            endHostSession(
+                                sessionId,
+                                "Connection lost. Tap Share to try again."
+                            )
                         }
                     }
                 }

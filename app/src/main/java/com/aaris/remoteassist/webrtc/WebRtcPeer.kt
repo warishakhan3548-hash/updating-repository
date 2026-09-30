@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 
 class WebRtcPeer(
     context: Context,
+    private val sessionId: String,
     private val role: PeerRole,
     private val signaling: SignalingClient,
     private val listener: Listener
@@ -68,7 +69,7 @@ class WebRtcPeer(
         }
 
         scope.launch {
-            val iceServers = IceServerProvider.load()
+            val iceServers = IceServerProvider.load(sessionId)
             handler.post {
                 if (closed.get()) return@post
 

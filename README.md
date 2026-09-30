@@ -34,7 +34,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 6. Safety plane: expiring local live lease + sequence/generation checks + STOP/revoke.
 7. Recovery plane: transient post-connect network drops trigger a bounded ICE restart; duplicate ICE/peer callbacks are collapsed into one connectivity truth and pre-connect presence noise cannot falsely start the reconnect timer.
 8. Control-channel safety: a closed WebRTC DataChannel immediately leaves the control plane and is given only a short recovery grace before the sharing session fails closed.
-9. Pairing consistency: code reservation and session transition are transaction-guarded; if the controller cannot enter its local session after redeeming a code, the backend reservation is rolled back instead of leaving a poisoned pending request.
+9. Pairing consistency: code reservation and session transition are transaction-guarded; failed session creation or controller bootstrap rolls back its reservation instead of leaving a poisoned pending request.
+10. Relay authorization: TURN/ICE configuration is issued only to an authenticated participant of that active SCREEN_READY/LIVE session.
 
 ## Firebase setup
 
@@ -55,7 +56,7 @@ The Gradle Google Services plugin is applied only when `google-services.json` ex
 
 Direct WebRTC works well on many networks, but carrier-grade NAT and symmetric NAT require a TURN relay for TeamViewer-class connection reliability.
 
-Aaris Remote 0.8.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
+Aaris Remote 0.9.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
 
 Configure these environment values on the deployed Functions runtime:
 

@@ -59,6 +59,7 @@ class HostWebRtcSession(
 
     private val peer = WebRtcPeer(
         context = appContext,
+        sessionId = sessionId,
         role = PeerRole.HOST,
         signaling = signaling,
         listener = this

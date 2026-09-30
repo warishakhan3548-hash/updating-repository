@@ -82,6 +82,17 @@ class FirebasePairingGateway(
 
         val valueListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
+                if (!snapshot.exists()) {
+                    listener(
+                        BackendSession(
+                            sessionId = sessionId,
+                            state = "CLOSED",
+                            displayGeneration = 0
+                        )
+                    )
+                    return
+                }
+
                 val state = snapshot.child("state")
                     .getValue(String::class.java) ?: return
                 val generation = snapshot.child("displayGeneration")
