@@ -46,6 +46,7 @@ class ControllerWebRtcSession(
 
     private val peer = WebRtcPeer(
         context = appContext,
+        sessionId = sessionId,
         role = PeerRole.CONTROLLER,
         signaling = signaling,
         listener = this
