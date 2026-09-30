@@ -11,7 +11,7 @@ data class LiveLease(
 )
 
 object SessionRuntime {
-    private const val DEFAULT_LEASE_MS = 15_000L
+    private const val DEFAULT_LEASE_MS = 30_000L
 
     private val random = SecureRandom()
     private val liveLease = AtomicReference<LiveLease?>(null)
