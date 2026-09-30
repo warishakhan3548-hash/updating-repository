@@ -139,7 +139,7 @@ class FirebasePairingGateway(
 
     private fun functions(): FirebaseFunctions {
         requireConfigured()
-        return FirebaseFunctions.getInstance()
+        return FirebaseFunctions.getInstance(FUNCTIONS_REGION)
     }
 
     private fun Map<*, *>.string(key: String): String =
@@ -154,6 +154,7 @@ class FirebasePairingGateway(
     }
 
     companion object {
+        const val FUNCTIONS_REGION = "asia-south1"
         private const val AUTH_TIMEOUT_MS = 12_000L
         private const val FUNCTION_TIMEOUT_MS = 15_000L
     }
