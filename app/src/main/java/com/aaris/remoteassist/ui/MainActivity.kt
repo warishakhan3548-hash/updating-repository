@@ -410,7 +410,7 @@ class MainActivity : ComponentActivity() {
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("Share this code")
-            .setMessage("It works once and expires shortly.")
+            .setMessage("It works once and expires in 5 minutes.")
             .setView(codeView)
             .setPositiveButton("SEND", null)
             .setNeutralButton("COPY", null)
