@@ -218,7 +218,7 @@ export const redeemPairingCode = onCall(
     const now = Date.now();
     const codeRef = db.ref("pairingCodes/" + key);
 
-    let failure: "not-found" | "expired" | "busy" | null = null;
+    let failure: "not-found" | "expired" | "busy" | "self" | null = null;
 
     const tx = await codeRef.transaction((raw) => {
       if (raw === null) {
@@ -227,6 +227,11 @@ export const redeemPairingCode = onCall(
       }
 
       const record = raw as PairingCodeRecord;
+
+      if (record.hostUid === controllerUid) {
+        failure = "self";
+        return;
+      }
 
       if (record.expiresAtMs <= now) {
         failure = "expired";
@@ -249,6 +254,12 @@ export const redeemPairingCode = onCall(
       } satisfies PairingCodeRecord;
     }, undefined, false);
 
+    if (failure === "self") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Use this code from the other phone."
+      );
+    }
     if (failure === "busy") {
       throw new HttpsError(
         "already-exists",
@@ -265,13 +276,6 @@ export const redeemPairingCode = onCall(
     const record = tx.snapshot.val() as PairingCodeRecord | null;
     if (!record?.sessionId || !record.hostUid) {
       throw new HttpsError("not-found", "Code expired or invalid.");
-    }
-
-    if (record.hostUid === controllerUid) {
-      throw new HttpsError(
-        "failed-precondition",
-        "Use this code from the other phone."
-      );
     }
 
     const sessionRef = db.ref("sessions/" + record.sessionId);
@@ -343,36 +347,61 @@ export const approvePairingSession = onCall(
       "sessionId"
     );
     const ref = getDatabase().ref("sessions/" + sessionId);
-    const snap = await ref.get();
+    const now = Date.now();
 
-    if (!snap.exists()) {
-      throw new HttpsError("not-found", "Session not found.");
-    }
+    let failure:
+      | "not-found"
+      | "permission"
+      | "state"
+      | null = null;
 
-    const session = snap.val() as {
-      hostUid?: string;
-      controllerUid?: string;
-      state?: SessionState;
-    };
+    const tx = await ref.transaction((raw) => {
+      failure = null;
 
-    if (session.hostUid !== hostUid) {
-      throw new HttpsError(
-        "permission-denied",
-        "Only the sharing phone can approve."
-      );
-    }
+      if (raw === null) {
+        failure = "not-found";
+        return;
+      }
 
-    if (!session.controllerUid || session.state !== "PAIR_PENDING") {
+      const session = raw as {
+        hostUid?: string;
+        controllerUid?: string;
+        state?: SessionState;
+        [key: string]: unknown;
+      };
+
+      if (session.hostUid !== hostUid) {
+        failure = "permission";
+        return;
+      }
+
+      if (!session.controllerUid || session.state !== "PAIR_PENDING") {
+        failure = "state";
+        return;
+      }
+
+      return {
+        ...session,
+        state: "HOST_APPROVED" satisfies SessionState,
+        approvedAtMs: now
+      };
+    }, undefined, false);
+
+    if (!tx.committed) {
+      if (failure === "not-found") {
+        throw new HttpsError("not-found", "Session not found.");
+      }
+      if (failure === "permission") {
+        throw new HttpsError(
+          "permission-denied",
+          "Only the sharing phone can approve."
+        );
+      }
       throw new HttpsError(
         "failed-precondition",
         "No valid connection request."
       );
     }
-
-    await ref.update({
-      state: "HOST_APPROVED" satisfies SessionState,
-      approvedAtMs: Date.now()
-    });
 
     return { ok: true };
   }
@@ -391,25 +420,55 @@ export const markScreenReady = onCall(
     );
     const db = getDatabase();
     const ref = db.ref("sessions/" + sessionId);
-    const snap = await ref.get();
+    const now = Date.now();
 
-    if (!snap.exists()) {
-      throw new HttpsError("not-found", "Session not found.");
-    }
+    let failure:
+      | "not-found"
+      | "permission"
+      | "state"
+      | null = null;
 
-    const session = snap.val() as {
-      hostUid?: string;
-      state?: SessionState;
-    };
+    const tx = await ref.transaction((raw) => {
+      failure = null;
 
-    if (session.hostUid !== hostUid) {
-      throw new HttpsError(
-        "permission-denied",
-        "Only the sharing phone can start."
-      );
-    }
+      if (raw === null) {
+        failure = "not-found";
+        return;
+      }
 
-    if (session.state !== "HOST_APPROVED") {
+      const session = raw as {
+        hostUid?: string;
+        state?: SessionState;
+        [key: string]: unknown;
+      };
+
+      if (session.hostUid !== hostUid) {
+        failure = "permission";
+        return;
+      }
+
+      if (session.state !== "HOST_APPROVED") {
+        failure = "state";
+        return;
+      }
+
+      return {
+        ...session,
+        state: "SCREEN_READY" satisfies SessionState,
+        screenReadyAtMs: now
+      };
+    }, undefined, false);
+
+    if (!tx.committed) {
+      if (failure === "not-found") {
+        throw new HttpsError("not-found", "Session not found.");
+      }
+      if (failure === "permission") {
+        throw new HttpsError(
+          "permission-denied",
+          "Only the sharing phone can start."
+        );
+      }
       throw new HttpsError(
         "failed-precondition",
         "Session was not approved."
@@ -422,8 +481,6 @@ export const markScreenReady = onCall(
     const key = codeSnap.val();
 
     const updates: Record<string, unknown> = {};
-    updates["sessions/" + sessionId + "/state"] = "SCREEN_READY";
-    updates["sessions/" + sessionId + "/screenReadyAtMs"] = Date.now();
     updates["serverSessionCodes/" + sessionId] = null;
 
     if (typeof key === "string") {
@@ -501,36 +558,61 @@ export const markSessionLive = onCall(
       "sessionId"
     );
     const ref = getDatabase().ref("sessions/" + sessionId);
-    const snap = await ref.get();
+    const now = Date.now();
 
-    if (!snap.exists()) {
-      throw new HttpsError("not-found", "Session not found.");
-    }
+    let failure:
+      | "not-found"
+      | "permission"
+      | "state"
+      | null = null;
 
-    const session = snap.val() as {
-      hostUid?: string;
-      controllerUid?: string;
-      state?: SessionState;
-    };
+    const tx = await ref.transaction((raw) => {
+      failure = null;
 
-    if (session.hostUid !== hostUid) {
-      throw new HttpsError(
-        "permission-denied",
-        "Only the sharing phone can mark the session live."
-      );
-    }
+      if (raw === null) {
+        failure = "not-found";
+        return;
+      }
 
-    if (!session.controllerUid || session.state !== "SCREEN_READY") {
+      const session = raw as {
+        hostUid?: string;
+        controllerUid?: string;
+        state?: SessionState;
+        [key: string]: unknown;
+      };
+
+      if (session.hostUid !== hostUid) {
+        failure = "permission";
+        return;
+      }
+
+      if (!session.controllerUid || session.state !== "SCREEN_READY") {
+        failure = "state";
+        return;
+      }
+
+      return {
+        ...session,
+        state: "LIVE" satisfies SessionState,
+        liveAtMs: now
+      };
+    }, undefined, false);
+
+    if (!tx.committed) {
+      if (failure === "not-found") {
+        throw new HttpsError("not-found", "Session not found.");
+      }
+      if (failure === "permission") {
+        throw new HttpsError(
+          "permission-denied",
+          "Only the sharing phone can mark the session live."
+        );
+      }
       throw new HttpsError(
         "failed-precondition",
         "Session is not ready for live transport."
       );
     }
-
-    await ref.update({
-      state: "LIVE" satisfies SessionState,
-      liveAtMs: Date.now()
-    });
 
     return { ok: true };
   }

@@ -46,6 +46,7 @@ class RemoteControlActivity : Activity() {
     private var remoteTrack: VideoTrack? = null
     private var sessionId: String? = null
     private var remoteGeometry: RemoteGeometry? = null
+    private var disconnecting = false
 
     private var downX = 0f
     private var downY = 0f
@@ -71,6 +72,11 @@ class RemoteControlActivity : Activity() {
         WebRtcRuntime.initialize(this)
         setContentView(buildUi())
         observe(sessionId!!)
+    }
+
+    @Deprecated("Use the system back dispatcher on newer Android versions.")
+    override fun onBackPressed() {
+        disconnect()
     }
 
     override fun onDestroy() {
@@ -137,7 +143,10 @@ class RemoteControlActivity : Activity() {
 
                             "CLOSED" -> {
                                 SessionCoordinator.close(id)
+                                rtcSession?.close()
+                                rtcSession = null
                                 showStatus("Session ended")
+                                finish()
                             }
                         }
                     }
@@ -239,7 +248,16 @@ class RemoteControlActivity : Activity() {
     }
 
     private fun disconnect() {
-        val id = sessionId ?: return
+        if (disconnecting) return
+        disconnecting = true
+
+        val id = sessionId
+        if (id == null) {
+            finish()
+            return
+        }
+
+        showStatus("Ending session…")
 
         rtcSession?.close()
         rtcSession = null
