@@ -186,7 +186,8 @@ class ControllerWebRtcSession(
     }
 
     fun sendText(text: String): Boolean {
-        if (text.isEmpty()) return false
+        val safeText = text.take(MAX_REMOTE_TEXT_CHARS)
+        if (safeText.isEmpty()) return false
         val lease = leaseSecret ?: return false
         val geometry = geometry ?: return false
 
@@ -196,7 +197,7 @@ class ControllerWebRtcSession(
                     leaseSecret = lease,
                     generation = geometry.generation,
                     sequence = sequence.incrementAndGet(),
-                    text = text
+                    text = safeText
                 )
             )
         )
@@ -268,5 +269,6 @@ class ControllerWebRtcSession(
 
     companion object {
         private const val HEARTBEAT_MS = 5_000L
+        private const val MAX_REMOTE_TEXT_CHARS = 500
     }
 }
