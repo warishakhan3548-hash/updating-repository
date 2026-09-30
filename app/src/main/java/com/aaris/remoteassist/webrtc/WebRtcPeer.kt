@@ -112,6 +112,10 @@ class WebRtcPeer(
             return
         }
 
+        synchronized(pendingRemoteCandidates) {
+            remoteDescriptionReady = false
+        }
+
         peerConnection.setRemoteDescription(
             object : SdpObserverAdapter() {
                 override fun onSetSuccess() {
