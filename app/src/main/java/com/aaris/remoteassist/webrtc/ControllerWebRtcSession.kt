@@ -170,6 +170,21 @@ class ControllerWebRtcSession(
         )
     }
 
+    fun sendRecents(): Boolean {
+        val lease = leaseSecret ?: return false
+        val geometry = geometry ?: return false
+
+        return peer.sendControl(
+            ControlProtocol.encode(
+                ControlPacket.Recents(
+                    leaseSecret = lease,
+                    generation = geometry.generation,
+                    sequence = sequence.incrementAndGet()
+                )
+            )
+        )
+    }
+
     override fun onPeerConnected() {
         listener.onConnectivityChanged(true)
     }
