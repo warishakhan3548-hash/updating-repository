@@ -402,13 +402,17 @@ class MainActivity : ComponentActivity() {
                                     KEY_PENDING_HOST_START_SESSION,
                                     null
                                 )
-                                if (
-                                    pendingStart == sessionId &&
-                                    PermissionGate.isAccessibilityEnabled(
-                                        this@MainActivity
-                                    )
-                                ) {
-                                    continueHostStart(sessionId)
+                                if (pendingStart == sessionId) {
+                                    if (
+                                        PermissionGate.isAccessibilityEnabled(
+                                            this@MainActivity
+                                        )
+                                    ) {
+                                        continueHostStart(sessionId)
+                                    } else {
+                                        status.text =
+                                            "Turn on Aaris Remote once. Setup resumes automatically."
+                                    }
                                 } else {
                                     showApproval(sessionId)
                                 }
@@ -422,13 +426,17 @@ class MainActivity : ComponentActivity() {
                                     KEY_PENDING_HOST_START_SESSION,
                                     null
                                 )
-                                if (
-                                    pendingStart == sessionId &&
-                                    PermissionGate.isAccessibilityEnabled(
-                                        this@MainActivity
-                                    )
-                                ) {
-                                    continueApprovedHostStart(sessionId)
+                                if (pendingStart == sessionId) {
+                                    if (
+                                        PermissionGate.isAccessibilityEnabled(
+                                            this@MainActivity
+                                        )
+                                    ) {
+                                        continueApprovedHostStart(sessionId)
+                                    } else {
+                                        status.text =
+                                            "Turn on Aaris Remote once. Setup resumes automatically."
+                                    }
                                 } else if (
                                     recovered &&
                                     prefs.getString(
