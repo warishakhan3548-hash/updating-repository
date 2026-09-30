@@ -2,9 +2,11 @@ package com.aaris.remoteassist.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Intent
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Button
@@ -16,28 +18,51 @@ import com.aaris.remoteassist.control.LongPressCommand
 import com.aaris.remoteassist.control.RemoteCommand
 import com.aaris.remoteassist.control.SwipeCommand
 import com.aaris.remoteassist.control.TapCommand
+import com.aaris.remoteassist.session.SessionCoordinator
+import com.aaris.remoteassist.session.SessionSnapshot
+import com.aaris.remoteassist.session.SessionState
 import java.lang.ref.WeakReference
 
 class AssistAccessibilityService : AccessibilityService() {
-    private var stopView: Button? = null
+    private var stopOverlay: View? = null
+
+    private val sessionListener: (SessionSnapshot) -> Unit = { snapshot ->
+        mainExecutor.execute {
+            if (snapshot.state == SessionState.LIVE) {
+                showStopOverlay()
+            } else {
+                hideStopOverlay()
+            }
+        }
+    }
 
     override fun onServiceConnected() {
         instance = WeakReference(this)
+        SessionCoordinator.addListener(sessionListener)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
-        removeStopOverlay()
+        SessionCoordinator.removeListener(sessionListener)
+        hideStopOverlay()
         instance.clear()
         super.onDestroy()
     }
 
     private fun execute(command: RemoteCommand): Boolean {
         if (!CommandGate.accept(command)) return false
+
         return when (command) {
-            is TapCommand -> gesture(command.xPx, command.yPx, command.xPx, command.yPx, 55L)
+            is TapCommand -> gesture(
+                command.xPx,
+                command.yPx,
+                command.xPx,
+                command.yPx,
+                55L
+            )
             is LongPressCommand -> gesture(
                 command.xPx,
                 command.yPx,
@@ -68,31 +93,56 @@ class AssistAccessibilityService : AccessibilityService() {
         toY: Float,
         durationMs: Long
     ): Boolean {
-        if (!fromX.isFinite() || !fromY.isFinite() || !toX.isFinite() || !toY.isFinite()) {
+        if (
+            !fromX.isFinite() ||
+            !fromY.isFinite() ||
+            !toX.isFinite() ||
+            !toY.isFinite()
+        ) {
             return false
         }
+
         val path = Path().apply {
             moveTo(fromX, fromY)
-            if (fromX != toX || fromY != toY) lineTo(toX, toY)
+            if (fromX != toX || fromY != toY) {
+                lineTo(toX, toY)
+            }
         }
-        val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
+
+        val stroke = GestureDescription.StrokeDescription(
+            path,
+            0L,
+            durationMs
+        )
+
         return dispatchGesture(
-            GestureDescription.Builder().addStroke(stroke).build(),
+            GestureDescription.Builder()
+                .addStroke(stroke)
+                .build(),
             null,
             null
         )
     }
 
-    private fun showStopOverlay(sessionId: String) {
-        if (stopView != null) return
+    private fun showStopOverlay() {
+        if (stopOverlay != null) return
+
         val windowManager = getSystemService(WindowManager::class.java)
         val button = Button(this).apply {
-            text = "STOP"
-            textSize = 12f
+            text = "STOP • LIVE"
+            isAllCaps = false
             setOnClickListener {
-                startService(ScreenShareService.stopIntent(this@AssistAccessibilityService, sessionId))
+                startService(
+                    Intent(
+                        this@AssistAccessibilityService,
+                        ScreenShareService::class.java
+                    ).apply {
+                        action = ScreenShareService.ACTION_STOP
+                    }
+                )
             }
         }
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -102,17 +152,23 @@ class AssistAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.END
-            x = 12
-            y = 96
+            x = 20
+            y = 72
         }
-        windowManager.addView(button, params)
-        stopView = button
+
+        runCatching {
+            windowManager.addView(button, params)
+            stopOverlay = button
+        }
     }
 
-    private fun removeStopOverlay() {
-        val view = stopView ?: return
-        runCatching { getSystemService(WindowManager::class.java).removeView(view) }
-        stopView = null
+    private fun hideStopOverlay() {
+        val view = stopOverlay ?: return
+        stopOverlay = null
+        runCatching {
+            getSystemService(WindowManager::class.java)
+                .removeView(view)
+        }
     }
 
     companion object {
@@ -122,13 +178,5 @@ class AssistAccessibilityService : AccessibilityService() {
             instance.get()?.execute(command) ?: false
 
         fun isConnected(): Boolean = instance.get() != null
-
-        fun showStopOverlay(sessionId: String) {
-            instance.get()?.showStopOverlay(sessionId)
-        }
-
-        fun removeStopOverlay() {
-            instance.get()?.removeStopOverlay()
-        }
     }
 }

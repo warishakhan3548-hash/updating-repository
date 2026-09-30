@@ -5,15 +5,14 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import com.aaris.remoteassist.accessibility.AssistAccessibilityService
-import com.aaris.remoteassist.control.CommandGate
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
-import com.aaris.remoteassist.session.SessionRuntime
+import com.aaris.remoteassist.session.SessionCoordinator
+import com.aaris.remoteassist.session.SessionState
+import com.aaris.remoteassist.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,61 +21,97 @@ import kotlinx.coroutines.launch
 
 class ScreenShareService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var sessionId: String? = null
+    private var activeSessionId: String? = null
 
     override fun onCreate() {
         super.onCreate()
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                "Live remote support",
-                NotificationManager.IMPORTANCE_LOW
-            )
-        )
+        ensureChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> {
-                val id = intent.getStringExtra(EXTRA_SESSION_ID) ?: return START_NOT_STICKY
-                sessionId = id
-                startVisibleSession(id)
-                AssistAccessibilityService.showStopOverlay(id)
-                // The MediaProjection consent Intent is intentionally retained for the
-                // WebRTC screen capturer, which must consume it exactly once.
-                ProjectionGrantStore.put(
-                    sessionId = id,
-                    resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0),
-                    permissionData = intent.permissionIntent()
-                        ?: return stopAndReturn()
-                )
-            }
-            ACTION_STOP -> stopSession(intent.getStringExtra(EXTRA_SESSION_ID))
+            ACTION_START -> startApprovedSession(intent)
+            ACTION_STOP -> stopActiveSession("stopped_by_remote_user")
         }
         return START_NOT_STICKY
     }
 
-    private fun startVisibleSession(sessionId: String) {
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            91,
-            stopIntent(this, sessionId),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Aaris Remote is live")
-            .setContentText("Your screen is ready to share.")
-            .setSmallIcon(android.R.drawable.presence_video_online)
-            .setOngoing(true)
-            .addAction(
-                Notification.Action.Builder(
-                    null,
-                    "STOP",
-                    stopPendingIntent
-                ).build()
-            )
-            .build()
+    override fun onDestroy() {
+        val id = activeSessionId
+        activeSessionId = null
+        if (id != null) {
+            ProjectionGrantStore.clear(id)
+            SessionCoordinator.close(id)
+        }
+        scope.cancel()
+        super.onDestroy()
+    }
 
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun startApprovedSession(intent: Intent) {
+        val sessionId = intent.getStringExtra(EXTRA_SESSION_ID) ?: run {
+            stopSelf()
+            return
+        }
+        val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Int.MIN_VALUE)
+        val captureData = if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(EXTRA_CAPTURE_DATA, Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(EXTRA_CAPTURE_DATA)
+        }
+
+        if (resultCode == Int.MIN_VALUE || captureData == null) {
+            stopSelf()
+            return
+        }
+
+        activeSessionId = sessionId
+        startVisibleForeground()
+        ProjectionGrantStore.offer(sessionId, resultCode, captureData)
+
+        val stateOk = runCatching {
+            SessionCoordinator.transition(sessionId, SessionState.SCREEN_CONSENT)
+            SessionCoordinator.transition(sessionId, SessionState.CONNECTING)
+        }.isSuccess
+
+        if (!stateOk) {
+            stopActiveSession("invalid_local_session_state")
+            return
+        }
+
+        scope.launch {
+            runCatching {
+                FirebasePairingGateway(this@ScreenShareService)
+                    .markScreenReady(sessionId)
+            }.onFailure {
+                stopActiveSession("backend_screen_ready_failed")
+            }
+        }
+    }
+
+    private fun stopActiveSession(reason: String) {
+        val sessionId = activeSessionId
+        activeSessionId = null
+
+        if (sessionId != null) {
+            ProjectionGrantStore.clear(sessionId)
+            SessionCoordinator.close(sessionId)
+            scope.launch {
+                runCatching {
+                    FirebasePairingGateway(this@ScreenShareService)
+                        .close(sessionId)
+                }
+            }
+        }
+
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun startVisibleForeground() {
+        val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(
                 NOTIFICATION_ID,
@@ -88,80 +123,60 @@ class ScreenShareService : Service() {
         }
     }
 
-    private fun stopSession(requestedId: String?) {
-        val id = requestedId ?: sessionId
-        ProjectionGrantStore.clear(id)
-        SessionRuntime.reset()
-        CommandGate.reset()
-        AssistAccessibilityService.removeStopOverlay()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+    private fun buildNotification(): Notification {
+        val contentIntent = PendingIntent.getActivity(
+            this,
+            100,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
 
-        if (id == null) {
-            stopSelf()
-            return
+        val stopIntent = Intent(this, ScreenShareService::class.java).apply {
+            action = ACTION_STOP
         }
+        val stopPendingIntent = PendingIntent.getService(
+            this,
+            101,
+            stopIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
 
-        scope.launch {
-            runCatching { FirebasePairingGateway().close(id) }
-            stopSelf()
-        }
+        return Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.presence_video_online)
+            .setContentTitle("Aaris Remote is live")
+            .setContentText("Remote support is active. Tap STOP any time.")
+            .setOngoing(true)
+            .setContentIntent(contentIntent)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "STOP",
+                stopPendingIntent
+            )
+            .build()
     }
 
-    private fun stopAndReturn(): Int {
-        stopSession(sessionId)
-        return START_NOT_STICKY
+    private fun ensureChannel() {
+        getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "Remote support session",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Visible whenever remote support is active"
+                    setShowBadge(false)
+                }
+            )
     }
-
-    override fun onDestroy() {
-        AssistAccessibilityService.removeStopOverlay()
-        scope.cancel()
-        super.onDestroy()
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    @Suppress("DEPRECATION")
-    private fun Intent.permissionIntent(): Intent? =
-        if (Build.VERSION.SDK_INT >= 33) {
-            getParcelableExtra(EXTRA_PERMISSION_DATA, Intent::class.java)
-        } else {
-            getParcelableExtra(EXTRA_PERMISSION_DATA)
-        }
 
     companion object {
-        private const val CHANNEL_ID = "live_remote_support"
+        const val ACTION_START = "com.aaris.remoteassist.action.START_SCREEN_SHARE"
+        const val ACTION_STOP = "com.aaris.remoteassist.action.STOP_SCREEN_SHARE"
+        const val EXTRA_SESSION_ID = "session_id"
+        const val EXTRA_RESULT_CODE = "result_code"
+        const val EXTRA_CAPTURE_DATA = "capture_data"
+
+        private const val CHANNEL_ID = "remote_session"
         private const val NOTIFICATION_ID = 4107
-
-        private const val ACTION_START = "com.aaris.remoteassist.START_SHARE"
-        private const val ACTION_STOP = "com.aaris.remoteassist.STOP_SHARE"
-        private const val EXTRA_SESSION_ID = "sessionId"
-        private const val EXTRA_CONTROLLER_UID = "controllerUid"
-        private const val EXTRA_RESULT_CODE = "resultCode"
-        private const val EXTRA_PERMISSION_DATA = "permissionData"
-
-        fun start(
-            context: Context,
-            sessionId: String,
-            controllerUid: String,
-            resultCode: Int,
-            permissionData: Intent
-        ) {
-            val intent = Intent(context, ScreenShareService::class.java)
-                .setAction(ACTION_START)
-                .putExtra(EXTRA_SESSION_ID, sessionId)
-                .putExtra(EXTRA_CONTROLLER_UID, controllerUid)
-                .putExtra(EXTRA_RESULT_CODE, resultCode)
-                .putExtra(EXTRA_PERMISSION_DATA, permissionData)
-            if (Build.VERSION.SDK_INT >= 26) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
-        }
-
-        fun stopIntent(context: Context, sessionId: String): Intent =
-            Intent(context, ScreenShareService::class.java)
-                .setAction(ACTION_STOP)
-                .putExtra(EXTRA_SESSION_ID, sessionId)
     }
 }

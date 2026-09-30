@@ -3,42 +3,54 @@
     ".read": false,
     ".write": false,
 
-    "sessions": {
-      "$sessionId": {
-        ".read": "auth != null && (data.child('hostUid').val() === auth.uid || data.child('controllerUid').val() === auth.uid)",
-        ".write": false
-      }
-    },
-
-    "signals": {
-      "$sessionId": {
-        ".read": "auth != null && (root.child('sessions').child($sessionId).child('hostUid').val() === auth.uid || root.child('sessions').child($sessionId).child('controllerUid').val() === auth.uid)",
-        "$uid": {
-          ".write": "auth != null && auth.uid === $uid && (root.child('sessions').child($sessionId).child('hostUid').val() === auth.uid || root.child('sessions').child($sessionId).child('controllerUid').val() === auth.uid) && (root.child('sessions').child($sessionId).child('state').val() === 'HOST_APPROVED' || root.child('sessions').child($sessionId).child('state').val() === 'SCREEN_CONSENT' || root.child('sessions').child($sessionId).child('state').val() === 'CONNECTING' || root.child('sessions').child($sessionId).child('state').val() === 'LIVE')"
-        }
-      }
-    },
-
-    "presence": {
-      "$sessionId": {
-        ".read": "auth != null && (root.child('sessions').child($sessionId).child('hostUid').val() === auth.uid || root.child('sessions').child($sessionId).child('controllerUid').val() === auth.uid)",
-        "$uid": {
-          ".write": "auth != null && auth.uid === $uid && (root.child('sessions').child($sessionId).child('hostUid').val() === auth.uid || root.child('sessions').child($sessionId).child('controllerUid').val() === auth.uid)"
-        }
-      }
-    },
-
     "pairingCodes": {
       ".read": false,
       ".write": false
     },
-    "sessionSecrets": {
+    "serverSessionCodes": {
       ".read": false,
       ".write": false
     },
-    "rateLimits": {
+    "activeHostSession": {
       ".read": false,
       ".write": false
+    },
+    "redeemRate": {
+      ".read": false,
+      ".write": false
+    },
+
+    "sessions": {
+      "$sessionId": {
+        ".read": "auth != null && (data.child('hostUid').val() === auth.uid || data.child('controllerUid').val() === auth.uid)",
+
+        "controllerSignal": {
+          ".write": "auth != null && root.child('sessions').child($sessionId).child('controllerUid').val() === auth.uid",
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 50000)"
+        },
+        "hostSignal": {
+          ".write": "auth != null && root.child('sessions').child($sessionId).child('hostUid').val() === auth.uid",
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 50000)"
+        },
+        "controllerCandidates": {
+          "$candidateId": {
+            ".write": "auth != null && root.child('sessions').child($sessionId).child('controllerUid').val() === auth.uid",
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 4096)"
+          }
+        },
+        "hostCandidates": {
+          "$candidateId": {
+            ".write": "auth != null && root.child('sessions').child($sessionId).child('hostUid').val() === auth.uid",
+            ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 4096)"
+          }
+        },
+        "presence": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && (root.child('sessions').child($sessionId).child('hostUid').val() === auth.uid || root.child('sessions').child($sessionId).child('controllerUid').val() === auth.uid)",
+            ".validate": "!newData.exists() || newData.isBoolean()"
+          }
+        }
+      }
     }
   }
 }

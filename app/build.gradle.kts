@@ -2,6 +2,10 @@ plugins {
     id("com.android.application")
 }
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.aaris.remoteassist"
     compileSdk = 37

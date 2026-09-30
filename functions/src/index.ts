@@ -1,162 +1,327 @@
-import { randomInt, randomUUID } from "node:crypto";
+import { createHmac, randomInt, randomUUID } from "node:crypto";
 import { initializeApp } from "firebase-admin/app";
 import { getDatabase } from "firebase-admin/database";
+import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { setGlobalOptions } from "firebase-functions/v2/options";
 
 initializeApp();
 
-const db = getDatabase();
+setGlobalOptions({
+  region: "asia-south1",
+  maxInstances: 100,
+  concurrency: 40
+});
 
-const CODE_TTL_MS = 90_000;
-const CREATE_MIN_INTERVAL_MS = 2_500;
-const REDEEM_MIN_INTERVAL_MS = 750;
-const MAX_CODE_ATTEMPTS = 12;
+const PAIRING_PEPPER = defineSecret("PAIRING_PEPPER");
 
-type PairingCodeRecord = {
+const CODE_TTL_MS = 120_000;
+const REDEEM_WINDOW_MS = 60_000;
+const MAX_REDEEMS_PER_WINDOW = 8;
+
+type SessionState =
+  | "CODE_ACTIVE"
+  | "PAIR_PENDING"
+  | "HOST_APPROVED"
+  | "SCREEN_READY"
+  | "CONNECTING"
+  | "LIVE"
+  | "CLOSED";
+
+interface PairingCodeRecord {
   sessionId: string;
   hostUid: string;
-  controllerUid?: string;
-  status: "OPEN" | "CLAIMED" | "USED" | "CLOSED";
-  expiresAt: number;
-};
+  expiresAtMs: number;
+  state: "ACTIVE" | "RESERVED";
+  reservedBy?: string;
+  reservedAtMs?: number;
+}
 
-type SessionRecord = {
-  hostUid: string;
-  controllerUid?: string;
-  state:
-    | "CODE_ACTIVE"
-    | "PAIR_PENDING"
-    | "HOST_APPROVED"
-    | "SCREEN_CONSENT"
-    | "CONNECTING"
-    | "LIVE"
-    | "CLOSED";
-  createdAt: number;
-  updatedAt: number;
-  expiresAt: number;
-};
+interface RedeemRateRecord {
+  windowStartMs: number;
+  count: number;
+}
 
-function requireUid(request: { auth?: { uid: string } | null }): string {
-  const uid = request.auth?.uid;
+function requireUid(uid?: string): string {
   if (!uid) {
-    throw new HttpsError("unauthenticated", "Sign in before starting a remote-support session.");
+    throw new HttpsError("unauthenticated", "Authentication is required.");
   }
   return uid;
 }
 
-async function throttle(uid: string, bucket: string, minIntervalMs: number): Promise<void> {
+function requireString(value: unknown, name: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new HttpsError("invalid-argument", name + " is required.");
+  }
+  return value;
+}
+
+function normalizeCode(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new HttpsError("invalid-argument", "Enter the 6-digit code.");
+  }
+  const code = value.replace(/\D/g, "");
+  if (!/^\d{6}$/.test(code)) {
+    throw new HttpsError("invalid-argument", "Enter the 6-digit code.");
+  }
+  return code;
+}
+
+function lookupKey(code: string): string {
+  return createHmac("sha256", PAIRING_PEPPER.value())
+    .update(code)
+    .digest("hex");
+}
+
+async function enforceRedeemRate(uid: string): Promise<void> {
+  const db = getDatabase();
+  const ref = db.ref("redeemRate/" + uid);
   const now = Date.now();
-  const ref = db.ref(`rateLimits/${uid}/${bucket}`);
-  const result = await ref.transaction((last: number | null) => {
-    if (typeof last === "number" && now - last < minIntervalMs) return;
-    return now;
+  let blocked = false;
+
+  const tx = await ref.transaction((raw) => {
+    const current = raw as RedeemRateRecord | null;
+
+    if (
+      current === null ||
+      now - current.windowStartMs >= REDEEM_WINDOW_MS
+    ) {
+      return {
+        windowStartMs: now,
+        count: 1
+      } satisfies RedeemRateRecord;
+    }
+
+    if (current.count >= MAX_REDEEMS_PER_WINDOW) {
+      blocked = true;
+      return;
+    }
+
+    return {
+      windowStartMs: current.windowStartMs,
+      count: current.count + 1
+    } satisfies RedeemRateRecord;
   }, undefined, false);
 
-  if (!result.committed) {
-    throw new HttpsError("resource-exhausted", "Too many requests. Try again shortly.");
+  if (blocked || !tx.committed) {
+    throw new HttpsError(
+      "resource-exhausted",
+      "Too many pairing attempts. Try again shortly."
+    );
   }
 }
 
-async function claimFreshCode(hostUid: string, sessionId: string, expiresAt: number): Promise<string> {
-  for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt += 1) {
-    const code = randomInt(100_000, 1_000_000).toString();
-    const ref = db.ref(`pairingCodes/${code}`);
-    const result = await ref.transaction((current: PairingCodeRecord | null) => {
-      if (current != null && current.expiresAt > Date.now()) return;
-      const next: PairingCodeRecord = {
-        sessionId,
-        hostUid,
-        status: "OPEN",
-        expiresAt
-      };
-      return next;
-    }, undefined, false);
+async function closeExistingHostSession(hostUid: string): Promise<void> {
+  const db = getDatabase();
+  const activeRef = db.ref("activeHostSession/" + hostUid);
+  const activeSnap = await activeRef.get();
+  const previousSessionId = activeSnap.val();
 
-    if (result.committed) return code;
+  if (
+    typeof previousSessionId !== "string" ||
+    previousSessionId.length === 0
+  ) {
+    return;
   }
-  throw new HttpsError("resource-exhausted", "Could not allocate a pairing code. Try again.");
+
+  const codeSnap = await db
+    .ref("serverSessionCodes/" + previousSessionId)
+    .get();
+  const previousCodeKey = codeSnap.val();
+
+  const updates: Record<string, unknown> = {};
+  updates["sessions/" + previousSessionId + "/state"] = "CLOSED";
+  updates["sessions/" + previousSessionId + "/closedAtMs"] = Date.now();
+  updates["serverSessionCodes/" + previousSessionId] = null;
+  updates["activeHostSession/" + hostUid] = null;
+
+  if (typeof previousCodeKey === "string") {
+    updates["pairingCodes/" + previousCodeKey] = null;
+  }
+
+  await db.ref().update(updates);
 }
 
 export const createPairingSession = onCall(
-  { enforceAppCheck: true, consumeAppCheckToken: true },
+  {
+    secrets: [PAIRING_PEPPER],
+    enforceAppCheck: true
+  },
   async (request) => {
-    const hostUid = requireUid(request);
-    await throttle(hostUid, "createPairingSession", CREATE_MIN_INTERVAL_MS);
+    const hostUid = requireUid(request.auth?.uid);
+    const db = getDatabase();
 
-    const now = Date.now();
-    const sessionId = randomUUID();
-    const expiresAt = now + CODE_TTL_MS;
-    const code = await claimFreshCode(hostUid, sessionId, expiresAt);
+    await closeExistingHostSession(hostUid);
 
-    const session: SessionRecord = {
-      hostUid,
-      state: "CODE_ACTIVE",
-      createdAt: now,
-      updatedAt: now,
-      expiresAt
-    };
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const code = String(randomInt(100000, 1000000));
+      const key = lookupKey(code);
+      const sessionId = randomUUID();
+      const now = Date.now();
+      const expiresAtMs = now + CODE_TTL_MS;
+      const codeRef = db.ref("pairingCodes/" + key);
 
-    try {
-      await db.ref().update({
-        [`sessions/${sessionId}`]: session,
-        [`sessionSecrets/${sessionId}/pairingCode`]: code
-      });
-    } catch (error) {
-      await db.ref(`pairingCodes/${code}`).remove().catch(() => undefined);
-      throw error;
+      const transaction = await codeRef.transaction((existing) => {
+        if (existing !== null) return;
+
+        const record: PairingCodeRecord = {
+          sessionId,
+          hostUid,
+          expiresAtMs,
+          state: "ACTIVE"
+        };
+        return record;
+      }, undefined, false);
+
+      if (!transaction.committed) continue;
+
+      const updates: Record<string, unknown> = {};
+      updates["sessions/" + sessionId] = {
+        hostUid,
+        state: "CODE_ACTIVE" satisfies SessionState,
+        createdAtMs: now,
+        expiresAtMs,
+        displayGeneration: 0
+      };
+      updates["serverSessionCodes/" + sessionId] = key;
+      updates["activeHostSession/" + hostUid] = sessionId;
+
+      await db.ref().update(updates);
+
+      return {
+        sessionId,
+        code,
+        expiresAtMs,
+        expiresAt: expiresAtMs
+      };
     }
 
-    return { sessionId, code, expiresAt };
+    throw new HttpsError(
+      "resource-exhausted",
+      "Could not allocate a pairing code. Try again."
+    );
   }
 );
 
 export const redeemPairingCode = onCall(
-  { enforceAppCheck: true, consumeAppCheckToken: true },
+  {
+    secrets: [PAIRING_PEPPER],
+    enforceAppCheck: true
+  },
   async (request) => {
-    const controllerUid = requireUid(request);
-    await throttle(controllerUid, "redeemPairingCode", REDEEM_MIN_INTERVAL_MS);
+    const controllerUid = requireUid(request.auth?.uid);
+    await enforceRedeemRate(controllerUid);
 
-    const code = String(request.data?.code ?? "").replace(/\D/g, "");
-    if (!/^\d{6}$/.test(code)) {
-      throw new HttpsError("invalid-argument", "Enter a valid six-digit code.");
-    }
+    const code = normalizeCode(request.data?.code);
+    const key = lookupKey(code);
+    const db = getDatabase();
+    const now = Date.now();
+    const codeRef = db.ref("pairingCodes/" + key);
 
-    const codeRef = db.ref(`pairingCodes/${code}`);
-    let claimed: PairingCodeRecord | null = null;
+    let failure: "not-found" | "expired" | "busy" | null = null;
 
-    const result = await codeRef.transaction((current: PairingCodeRecord | null) => {
-      if (!current) return;
-      if (current.expiresAt <= Date.now()) return;
-      if (current.status !== "OPEN") return;
-      if (current.hostUid === controllerUid) return;
+    const tx = await codeRef.transaction((raw) => {
+      if (raw === null) {
+        failure = "not-found";
+        return;
+      }
 
-      const next: PairingCodeRecord = {
-        ...current,
-        status: "CLAIMED",
-        controllerUid
-      };
-      claimed = next;
-      return next;
+      const record = raw as PairingCodeRecord;
+
+      if (record.expiresAtMs <= now) {
+        failure = "expired";
+        return null;
+      }
+
+      if (
+        record.state === "RESERVED" &&
+        record.reservedBy !== controllerUid
+      ) {
+        failure = "busy";
+        return;
+      }
+
+      return {
+        ...record,
+        state: "RESERVED",
+        reservedBy: controllerUid,
+        reservedAtMs: record.reservedAtMs ?? now
+      } satisfies PairingCodeRecord;
     }, undefined, false);
 
-    if (!result.committed || !claimed) {
-      throw new HttpsError("not-found", "That code is invalid, expired, or already used.");
+    if (failure === "busy") {
+      throw new HttpsError(
+        "already-exists",
+        "That code is already being used."
+      );
+    }
+    if (failure === "expired") {
+      throw new HttpsError("deadline-exceeded", "Code expired.");
+    }
+    if (failure === "not-found" || !tx.committed) {
+      throw new HttpsError("not-found", "Code expired or invalid.");
     }
 
-    const record = claimed as PairingCodeRecord;
-    const sessionRef = db.ref(`sessions/${record.sessionId}`);
-    const sessionSnap = await sessionRef.get();
-    const session = sessionSnap.val() as SessionRecord | null;
+    const record = tx.snapshot.val() as PairingCodeRecord | null;
+    if (!record?.sessionId || !record.hostUid) {
+      throw new HttpsError("not-found", "Code expired or invalid.");
+    }
 
-    if (!session || session.hostUid !== record.hostUid || session.expiresAt <= Date.now()) {
-      await codeRef.update({ status: "CLOSED" });
-      throw new HttpsError("failed-precondition", "This session is no longer available.");
+    if (record.hostUid === controllerUid) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Use this code from the other phone."
+      );
+    }
+
+    const sessionRef = db.ref("sessions/" + record.sessionId);
+    const sessionSnap = await sessionRef.get();
+
+    if (!sessionSnap.exists()) {
+      await codeRef.remove();
+      throw new HttpsError("not-found", "Session no longer exists.");
+    }
+
+    const session = sessionSnap.val() as {
+      state?: SessionState;
+      expiresAtMs?: number;
+      controllerUid?: string;
+    };
+
+    if (
+      session.state !== "CODE_ACTIVE" &&
+      session.state !== "PAIR_PENDING"
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Session is no longer available."
+      );
+    }
+
+    if ((session.expiresAtMs ?? 0) <= now) {
+      const updates: Record<string, unknown> = {};
+      updates["sessions/" + record.sessionId + "/state"] = "CLOSED";
+      updates["sessions/" + record.sessionId + "/closedAtMs"] = now;
+      updates["pairingCodes/" + key] = null;
+      updates["serverSessionCodes/" + record.sessionId] = null;
+      await db.ref().update(updates);
+      throw new HttpsError("deadline-exceeded", "Code expired.");
+    }
+
+    if (
+      typeof session.controllerUid === "string" &&
+      session.controllerUid !== controllerUid
+    ) {
+      throw new HttpsError(
+        "already-exists",
+        "Session is already reserved."
+      );
     }
 
     await sessionRef.update({
       controllerUid,
-      state: "PAIR_PENDING",
-      updatedAt: Date.now()
+      state: "PAIR_PENDING" satisfies SessionState,
+      pairedAtMs: now
     });
 
     return {
@@ -167,93 +332,158 @@ export const redeemPairingCode = onCall(
 );
 
 export const approvePairingSession = onCall(
-  { enforceAppCheck: true, consumeAppCheckToken: true },
+  {
+    secrets: [PAIRING_PEPPER],
+    enforceAppCheck: true
+  },
   async (request) => {
-    const hostUid = requireUid(request);
-    const sessionId = String(request.data?.sessionId ?? "");
-    if (!sessionId) throw new HttpsError("invalid-argument", "Missing sessionId.");
+    const hostUid = requireUid(request.auth?.uid);
+    const sessionId = requireString(
+      request.data?.sessionId,
+      "sessionId"
+    );
+    const ref = getDatabase().ref("sessions/" + sessionId);
+    const snap = await ref.get();
 
-    const sessionRef = db.ref(`sessions/${sessionId}`);
-    const snap = await sessionRef.get();
-    const session = snap.val() as SessionRecord | null;
-
-    if (!session || session.hostUid !== hostUid) {
-      throw new HttpsError("permission-denied", "Only the sharing device can approve.");
-    }
-    if (session.state !== "PAIR_PENDING" || !session.controllerUid) {
-      throw new HttpsError("failed-precondition", "No pending controller is waiting.");
+    if (!snap.exists()) {
+      throw new HttpsError("not-found", "Session not found.");
     }
 
-    const codeSnap = await db.ref(`sessionSecrets/${sessionId}/pairingCode`).get();
-    const code = codeSnap.val();
-    if (typeof code !== "string") {
-      throw new HttpsError("failed-precondition", "Pairing code record is missing.");
+    const session = snap.val() as {
+      hostUid?: string;
+      controllerUid?: string;
+      state?: SessionState;
+    };
+
+    if (session.hostUid !== hostUid) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only the sharing phone can approve."
+      );
     }
 
-    const now = Date.now();
-    await db.ref().update({
-      [`sessions/${sessionId}/state`]: "HOST_APPROVED",
-      [`sessions/${sessionId}/updatedAt`]: now,
-      [`pairingCodes/${code}/status`]: "USED"
+    if (!session.controllerUid || session.state !== "PAIR_PENDING") {
+      throw new HttpsError(
+        "failed-precondition",
+        "No valid connection request."
+      );
+    }
+
+    await ref.update({
+      state: "HOST_APPROVED" satisfies SessionState,
+      approvedAtMs: Date.now()
     });
 
-    return { sessionId, approved: true };
+    return { ok: true };
   }
 );
 
-export const beginHostConnection = onCall(
-  { enforceAppCheck: true, consumeAppCheckToken: true },
+export const markScreenReady = onCall(
+  {
+    secrets: [PAIRING_PEPPER],
+    enforceAppCheck: true
+  },
   async (request) => {
-    const hostUid = requireUid(request);
-    const sessionId = String(request.data?.sessionId ?? "");
-    if (!sessionId) throw new HttpsError("invalid-argument", "Missing sessionId.");
+    const hostUid = requireUid(request.auth?.uid);
+    const sessionId = requireString(
+      request.data?.sessionId,
+      "sessionId"
+    );
+    const db = getDatabase();
+    const ref = db.ref("sessions/" + sessionId);
+    const snap = await ref.get();
 
-    const sessionRef = db.ref(`sessions/${sessionId}`);
-    const snap = await sessionRef.get();
-    const session = snap.val() as SessionRecord | null;
-
-    if (!session || session.hostUid !== hostUid) {
-      throw new HttpsError("permission-denied", "Only the sharing device can start capture.");
-    }
-    if (session.state !== "HOST_APPROVED" || !session.controllerUid) {
-      throw new HttpsError("failed-precondition", "Session is not ready to connect.");
+    if (!snap.exists()) {
+      throw new HttpsError("not-found", "Session not found.");
     }
 
-    await sessionRef.update({
-      state: "CONNECTING",
-      updatedAt: Date.now()
-    });
-    return { sessionId, connecting: true };
+    const session = snap.val() as {
+      hostUid?: string;
+      state?: SessionState;
+    };
+
+    if (session.hostUid !== hostUid) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only the sharing phone can start."
+      );
+    }
+
+    if (session.state !== "HOST_APPROVED") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Session was not approved."
+      );
+    }
+
+    const codeSnap = await db
+      .ref("serverSessionCodes/" + sessionId)
+      .get();
+    const key = codeSnap.val();
+
+    const updates: Record<string, unknown> = {};
+    updates["sessions/" + sessionId + "/state"] = "SCREEN_READY";
+    updates["sessions/" + sessionId + "/screenReadyAtMs"] = Date.now();
+    updates["serverSessionCodes/" + sessionId] = null;
+
+    if (typeof key === "string") {
+      updates["pairingCodes/" + key] = null;
+    }
+
+    await db.ref().update(updates);
+    return { ok: true };
   }
 );
 
 export const closePairingSession = onCall(
-  { enforceAppCheck: true, consumeAppCheckToken: true },
+  {
+    secrets: [PAIRING_PEPPER],
+    enforceAppCheck: true
+  },
   async (request) => {
-    const uid = requireUid(request);
-    const sessionId = String(request.data?.sessionId ?? "");
-    if (!sessionId) throw new HttpsError("invalid-argument", "Missing sessionId.");
+    const uid = requireUid(request.auth?.uid);
+    const sessionId = requireString(
+      request.data?.sessionId,
+      "sessionId"
+    );
+    const db = getDatabase();
+    const ref = db.ref("sessions/" + sessionId);
+    const snap = await ref.get();
 
-    const sessionRef = db.ref(`sessions/${sessionId}`);
-    const snap = await sessionRef.get();
-    const session = snap.val() as SessionRecord | null;
-
-    if (!session || (session.hostUid !== uid && session.controllerUid !== uid)) {
-      throw new HttpsError("permission-denied", "You are not part of this session.");
+    if (!snap.exists()) {
+      return { ok: true };
     }
 
-    const codeSnap = await db.ref(`sessionSecrets/${sessionId}/pairingCode`).get();
-    const code = codeSnap.val();
-    const updates: Record<string, unknown> = {
-      [`sessions/${sessionId}/state`]: "CLOSED",
-      [`sessions/${sessionId}/updatedAt`]: Date.now(),
-      [`signals/${sessionId}`]: null,
-      [`presence/${sessionId}`]: null,
-      [`sessionSecrets/${sessionId}`]: null
+    const session = snap.val() as {
+      hostUid?: string;
+      controllerUid?: string;
     };
-    if (typeof code === "string") updates[`pairingCodes/${code}`] = null;
+
+    if (uid !== session.hostUid && uid !== session.controllerUid) {
+      throw new HttpsError(
+        "permission-denied",
+        "Not a session participant."
+      );
+    }
+
+    const codeSnap = await db
+      .ref("serverSessionCodes/" + sessionId)
+      .get();
+    const key = codeSnap.val();
+
+    const updates: Record<string, unknown> = {};
+    updates["sessions/" + sessionId + "/state"] = "CLOSED";
+    updates["sessions/" + sessionId + "/closedAtMs"] = Date.now();
+    updates["serverSessionCodes/" + sessionId] = null;
+
+    if (typeof key === "string") {
+      updates["pairingCodes/" + key] = null;
+    }
+    if (typeof session.hostUid === "string") {
+      updates["activeHostSession/" + session.hostUid] = null;
+    }
 
     await db.ref().update(updates);
-    return { sessionId, closed: true };
+    return { ok: true };
   }
 );

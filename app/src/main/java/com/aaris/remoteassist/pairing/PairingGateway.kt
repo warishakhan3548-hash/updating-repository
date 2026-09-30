@@ -1,15 +1,23 @@
 package com.aaris.remoteassist.pairing
 
+import java.io.Closeable
+
+data class BackendSession(
+    val sessionId: String,
+    val state: String,
+    val displayGeneration: Int
+)
+
 interface PairingGateway {
     suspend fun createShareTicket(): ShareTicket
     suspend fun redeemCode(code: String): PairRequest
     suspend fun approve(sessionId: String)
-    suspend fun beginConnecting(sessionId: String)
+    suspend fun markScreenReady(sessionId: String)
     suspend fun close(sessionId: String)
 
-    fun watchSession(
+    fun observeSession(
         sessionId: String,
-        onUpdate: (RemoteSessionView) -> Unit,
-        onError: (Throwable) -> Unit
-    ): AutoCloseable
+        listener: (BackendSession) -> Unit,
+        onError: (Throwable) -> Unit = {}
+    ): Closeable
 }

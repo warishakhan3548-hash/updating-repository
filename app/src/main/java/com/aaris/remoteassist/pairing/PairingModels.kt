@@ -1,7 +1,5 @@
 package com.aaris.remoteassist.pairing
 
-import com.aaris.remoteassist.session.SessionState
-
 data class ShareTicket(
     val sessionId: String,
     val code: String,
@@ -12,14 +10,6 @@ data class PairRequest(
     val sessionId: String,
     val hostUid: String,
     val controllerUid: String?
-)
-
-data class RemoteSessionView(
-    val sessionId: String,
-    val hostUid: String,
-    val controllerUid: String?,
-    val state: SessionState,
-    val expiresAtEpochMs: Long
 )
 
 object PairingCode {
