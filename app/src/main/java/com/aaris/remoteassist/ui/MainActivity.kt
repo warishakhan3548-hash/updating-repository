@@ -428,7 +428,6 @@ class MainActivity : Activity() {
                             "Code expired. Tap Share for a new code."
                     }
 
-                    shareExpiryJob = null
                     return@launch
                 }
 
