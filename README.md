@@ -11,6 +11,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 - Pairing codes are short-lived, single-controller and one-time.
 - A visible foreground notification and accessibility STOP overlay remain available during live control.
 - No hidden sessions, credential/OTP harvesting, or permission bypasses.
+- Live control supports tap, long-press, swipe, Back, Home, Recents, and explicit text entry into the currently focused non-password field.
+- Commands are rejected while the sharing phone is locked.
 
 ## Native stack
 

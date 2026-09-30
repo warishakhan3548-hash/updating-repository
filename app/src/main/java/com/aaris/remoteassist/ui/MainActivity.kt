@@ -1,6 +1,5 @@
 package com.aaris.remoteassist.ui
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -19,6 +18,9 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import com.aaris.remoteassist.accessibility.PermissionGate
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
@@ -35,7 +37,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val gateway by lazy { FirebasePairingGateway(this) }
 
@@ -54,27 +56,71 @@ class MainActivity : Activity() {
         getSharedPreferences("setup", Context.MODE_PRIVATE)
     }
 
+    private val screenCaptureLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            handleProjectionResult(
+                result.resultCode,
+                result.data
+            )
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
+        installBackHandler()
 
-        if (PermissionGate.isAccessibilityEnabled(this)) {
+        val restoredHostSession = recoverPersistedHostSession()
+        if (
+            !restoredHostSession &&
+            PermissionGate.isAccessibilityEnabled(this)
+        ) {
             SessionCoordinator.prepareReady()
         }
         refreshIdleUi()
     }
 
+    private fun installBackHandler() {
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    val id = activeHostSessionId
+                    val state =
+                        SessionCoordinator.snapshot().state
+
+                    if (
+                        id != null &&
+                        state != SessionState.LIVE
+                    ) {
+                        cancelPendingHostAndFinish(id)
+                        return
+                    }
+
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        )
+    }
+
     override fun onResume() {
         super.onResume()
 
-        if (
-            prefs.getBoolean(KEY_PENDING_SHARE, false) &&
-            PermissionGate.isAccessibilityEnabled(this)
-        ) {
-            prefs.edit().putBoolean(KEY_PENDING_SHARE, false).apply()
-            SessionCoordinator.prepareReady()
-            beginShare()
-            return
+        val pendingShare =
+            prefs.getBoolean(KEY_PENDING_SHARE, false)
+
+        if (pendingShare) {
+            prefs.edit()
+                .putBoolean(KEY_PENDING_SHARE, false)
+                .apply()
+
+            if (PermissionGate.isAccessibilityEnabled(this)) {
+                SessionCoordinator.prepareReady()
+                beginShare()
+                return
+            }
         }
 
         refreshIdleUi()
@@ -93,15 +139,10 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
-    @Deprecated("Platform MediaProjection consent callback.")
-    override fun onActivityResult(
-        requestCode: Int,
+    private fun handleProjectionResult(
         resultCode: Int,
         data: Intent?
     ) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_MEDIA_PROJECTION) return
-
         val sessionId = pendingProjectionSessionId
         pendingProjectionSessionId = null
 
@@ -155,6 +196,12 @@ class MainActivity : Activity() {
             runCatching { gateway.createShareTicket() }
                 .onSuccess { ticket ->
                     activeHostSessionId = ticket.sessionId
+                    prefs.edit()
+                        .putString(
+                            KEY_ACTIVE_HOST_SESSION,
+                            ticket.sessionId
+                        )
+                        .apply()
                     runCatching {
                         SessionCoordinator.transition(
                             ticket.sessionId,
@@ -424,9 +471,8 @@ class MainActivity : Activity() {
                     pendingProjectionSessionId = sessionId
                     val projectionManager =
                         getSystemService(MediaProjectionManager::class.java)
-                    startActivityForResult(
-                        projectionManager.createScreenCaptureIntent(),
-                        REQUEST_MEDIA_PROJECTION
+                    screenCaptureLauncher.launch(
+                        projectionManager.createScreenCaptureIntent()
                     )
                 }
                 .onFailure {
@@ -446,13 +492,17 @@ class MainActivity : Activity() {
                     .coerceAtLeast(0L)
             delay(remaining)
 
+            val state = SessionCoordinator.snapshot().state
             if (
                 activeHostSessionId == ticket.sessionId &&
-                SessionCoordinator.snapshot().state == SessionState.CODE_ACTIVE
+                (
+                    state == SessionState.CODE_ACTIVE ||
+                        state == SessionState.PAIR_PENDING
+                )
             ) {
                 endHostSession(
                     ticket.sessionId,
-                    "Code expired. Tap Share to create a new one."
+                    "Request expired. Tap Share to create a new code."
                 )
             }
         }
@@ -509,6 +559,9 @@ class MainActivity : Activity() {
     private fun clearHostUi() {
         activeHostSessionId = null
         pendingProjectionSessionId = null
+        prefs.edit()
+            .remove(KEY_ACTIVE_HOST_SESSION)
+            .apply()
 
         hostObserver?.close()
         hostObserver = null
@@ -521,6 +574,68 @@ class MainActivity : Activity() {
 
         approvalDialog?.dismiss()
         approvalDialog = null
+    }
+
+    private fun recoverPersistedHostSession(): Boolean {
+        val sessionId = prefs.getString(
+            KEY_ACTIVE_HOST_SESSION,
+            null
+        ) ?: return false
+
+        val snapshot = SessionCoordinator.snapshot()
+        val recoverable = snapshot.sessionId == sessionId &&
+            when (snapshot.state) {
+                SessionState.CODE_ACTIVE,
+                SessionState.PAIR_PENDING,
+                SessionState.CONNECTING,
+                SessionState.LIVE -> true
+
+                else -> false
+            }
+
+        if (!recoverable) {
+            prefs.edit()
+                .remove(KEY_ACTIVE_HOST_SESSION)
+                .apply()
+
+            if (snapshot.sessionId == sessionId) {
+                SessionCoordinator.close(sessionId)
+                SessionCoordinator.prepareReady()
+            }
+
+            scope.launch {
+                runCatching { gateway.close(sessionId) }
+            }
+            return false
+        }
+
+        activeHostSessionId = sessionId
+        setButtonsEnabled(false)
+        status.text = when (snapshot.state) {
+            SessionState.CODE_ACTIVE ->
+                "Share code is still active."
+            SessionState.PAIR_PENDING ->
+                "A connection request is waiting."
+            SessionState.CONNECTING ->
+                "Connecting phones…"
+            SessionState.LIVE ->
+                "Remote support is LIVE. Tap STOP • LIVE any time."
+            else -> "Session active."
+        }
+        observeHostSession(sessionId)
+        return true
+    }
+
+    private fun cancelPendingHostAndFinish(sessionId: String) {
+        setButtonsEnabled(false)
+        status.text = "Cancelling share session…"
+
+        scope.launch {
+            runCatching { gateway.close(sessionId) }
+            SessionCoordinator.close(sessionId)
+            clearHostUi()
+            finish()
+        }
     }
 
     private fun isIdleForNewSession(): Boolean {
@@ -547,6 +662,19 @@ class MainActivity : Activity() {
 
         if (idle && status.text.isNullOrBlank()) {
             status.text = "Ready"
+        } else if (!idle && status.text.isNullOrBlank()) {
+            status.text = when (SessionCoordinator.snapshot().state) {
+                SessionState.LIVE ->
+                    "Remote support is LIVE. Tap STOP • LIVE any time."
+                SessionState.CONNECTING ->
+                    "Connecting phones…"
+                SessionState.PAIR_PENDING ->
+                    "Waiting for approval…"
+                SessionState.CODE_ACTIVE ->
+                    "Share code is active."
+                else ->
+                    "Session in progress…"
+            }
         }
     }
 
@@ -637,6 +765,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val KEY_PENDING_SHARE = "pending_share"
-        private const val REQUEST_MEDIA_PROJECTION = 7001
+        private const val KEY_ACTIVE_HOST_SESSION =
+            "active_host_session"
     }
 }

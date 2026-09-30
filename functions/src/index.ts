@@ -111,6 +111,18 @@ async function enforceRedeemRate(uid: string): Promise<void> {
   }
 }
 
+function clearSessionTransport(
+  updates: Record<string, unknown>,
+  sessionId: string
+): void {
+  const prefix = "sessions/" + sessionId + "/";
+  updates[prefix + "hostSignal"] = null;
+  updates[prefix + "controllerSignal"] = null;
+  updates[prefix + "hostCandidates"] = null;
+  updates[prefix + "controllerCandidates"] = null;
+  updates[prefix + "presence"] = null;
+}
+
 async function closeExistingHostSession(hostUid: string): Promise<void> {
   const db = getDatabase();
   const activeRef = db.ref("activeHostSession/" + hostUid);
@@ -134,6 +146,7 @@ async function closeExistingHostSession(hostUid: string): Promise<void> {
   updates["sessions/" + previousSessionId + "/closedAtMs"] = Date.now();
   updates["serverSessionCodes/" + previousSessionId] = null;
   updates["activeHostSession/" + hostUid] = null;
+  clearSessionTransport(updates, previousSessionId);
 
   if (typeof previousCodeKey === "string") {
     updates["pairingCodes/" + previousCodeKey] = null;
@@ -308,6 +321,8 @@ export const redeemPairingCode = onCall(
       updates["sessions/" + record.sessionId + "/closedAtMs"] = now;
       updates["pairingCodes/" + key] = null;
       updates["serverSessionCodes/" + record.sessionId] = null;
+      updates["activeHostSession/" + record.hostUid] = null;
+      clearSessionTransport(updates, record.sessionId);
       await db.ref().update(updates);
       throw new HttpsError("deadline-exceeded", "Code expired.");
     }
@@ -532,6 +547,7 @@ export const closePairingSession = onCall(
     updates["sessions/" + sessionId + "/state"] = "CLOSED";
     updates["sessions/" + sessionId + "/closedAtMs"] = Date.now();
     updates["serverSessionCodes/" + sessionId] = null;
+    clearSessionTransport(updates, sessionId);
 
     if (typeof key === "string") {
       updates["pairingCodes/" + key] = null;

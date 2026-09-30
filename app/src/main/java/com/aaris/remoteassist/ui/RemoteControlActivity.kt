@@ -1,18 +1,22 @@
 package com.aaris.remoteassist.ui
 
-import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
 import android.os.SystemClock
+import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
@@ -23,14 +27,16 @@ import java.io.Closeable
 import kotlin.math.hypot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 
-class RemoteControlActivity : Activity() {
+class RemoteControlActivity : ComponentActivity() {
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.Main
     )
@@ -47,6 +53,8 @@ class RemoteControlActivity : Activity() {
     private var sessionId: String? = null
     private var remoteGeometry: RemoteGeometry? = null
     private var disconnecting = false
+    private var rtcConnected = false
+    private var disconnectTimeout: Job? = null
 
     private var downX = 0f
     private var downY = 0f
@@ -71,12 +79,15 @@ class RemoteControlActivity : Activity() {
 
         WebRtcRuntime.initialize(this)
         setContentView(buildUi())
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    disconnect()
+                }
+            }
+        )
         observe(sessionId!!)
-    }
-
-    @Deprecated("Use the system back dispatcher on newer Android versions.")
-    override fun onBackPressed() {
-        disconnect()
     }
 
     override fun onDestroy() {
@@ -85,6 +96,9 @@ class RemoteControlActivity : Activity() {
 
         remoteTrack?.removeSink(renderer)
         remoteTrack = null
+
+        disconnectTimeout?.cancel()
+        disconnectTimeout = null
 
         rtcSession?.close()
         rtcSession = null
@@ -153,7 +167,9 @@ class RemoteControlActivity : Activity() {
                 },
                 onError = {
                     runOnUiThread {
-                        showStatus("Connection lost")
+                        if (!disconnecting) {
+                            disconnect()
+                        }
                     }
                 }
             )
@@ -216,8 +232,25 @@ class RemoteControlActivity : Activity() {
                     connected: Boolean
                 ) {
                     runOnUiThread {
-                        if (!connected) {
+                        rtcConnected = connected
+                        disconnectTimeout?.cancel()
+                        disconnectTimeout = null
+
+                        if (connected) {
+                            if (
+                                remoteTrack != null &&
+                                remoteGeometry != null
+                            ) {
+                                status.visibility = View.GONE
+                            }
+                        } else {
                             showStatus("Reconnecting…")
+                            disconnectTimeout = scope.launch {
+                                delay(DISCONNECT_GRACE_MS)
+                                if (!rtcConnected && !disconnecting) {
+                                    disconnect()
+                                }
+                            }
                         }
                     }
                 }
@@ -240,7 +273,9 @@ class RemoteControlActivity : Activity() {
 
                 override fun onError(error: Throwable) {
                     runOnUiThread {
-                        showStatus("Connection ended")
+                        if (!disconnecting) {
+                            disconnect()
+                        }
                     }
                 }
             }
@@ -285,8 +320,15 @@ class RemoteControlActivity : Activity() {
             )
             setEnableHardwareScaler(true)
             setMirror(false)
-            setOnTouchListener { _, event ->
-                handleRemoteTouch(event)
+            setOnTouchListener { view, event ->
+                val handled = handleRemoteTouch(event)
+                if (
+                    handled &&
+                    event.actionMasked == MotionEvent.ACTION_UP
+                ) {
+                    view.performClick()
+                }
+                handled
             }
         }
 
@@ -338,7 +380,17 @@ class RemoteControlActivity : Activity() {
             }
         )
         controls.addView(
-            compactButton("Disconnect") {
+            compactButton("Apps") {
+                rtcSession?.sendRecents()
+            }
+        )
+        controls.addView(
+            compactButton("Type") {
+                showTextDialog()
+            }
+        )
+        controls.addView(
+            compactButton("End") {
                 disconnect()
             }
         )
@@ -355,12 +407,59 @@ class RemoteControlActivity : Activity() {
         return root
     }
 
+    private fun showTextDialog() {
+        val input = EditText(this).apply {
+            hint = "Text to enter"
+            inputType =
+                InputType.TYPE_CLASS_TEXT or
+                    InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 2
+            maxLines = 5
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Type on remote phone")
+            .setMessage(
+                "Text is sent only to the focused non-password field."
+            )
+            .setView(input)
+            .setPositiveButton("SEND", null)
+            .setNegativeButton("CANCEL", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener {
+                    val text = input.text?.toString().orEmpty()
+                    if (text.isBlank()) {
+                        input.error = "Enter text"
+                        return@setOnClickListener
+                    }
+
+                    if (rtcSession?.sendText(text) == true) {
+                        dialog.dismiss()
+                    } else {
+                        input.error = "Remote field is not ready"
+                    }
+                }
+        }
+
+        dialog.show()
+        input.requestFocus()
+    }
+
     private fun compactButton(
         label: String,
         action: () -> Unit
     ): Button = Button(this).apply {
         text = label
         isAllCaps = false
+        textSize = 12f
+        minWidth = 0
+        minimumWidth = 0
+        minHeight = 0
+        minimumHeight = 0
+        setPadding(12, 8, 12, 8)
         setOnClickListener { action() }
     }
 
@@ -458,5 +557,6 @@ class RemoteControlActivity : Activity() {
 
     companion object {
         const val EXTRA_SESSION_ID = "session_id"
+        private const val DISCONNECT_GRACE_MS = 15_000L
     }
 }

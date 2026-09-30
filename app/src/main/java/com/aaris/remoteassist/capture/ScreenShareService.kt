@@ -8,7 +8,9 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
@@ -24,6 +26,8 @@ class ScreenShareService : Service() {
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO
     )
+
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var activeSessionId: String? = null
     private var hostSession: HostWebRtcSession? = null
@@ -64,13 +68,22 @@ class ScreenShareService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun startApprovedSession(intent: Intent) {
-        if (activeSessionId != null) {
-            stopActiveSession("replaced_by_new_session")
+        val sessionId = intent.getStringExtra(EXTRA_SESSION_ID) ?: run {
+            stopSelf()
             return
         }
 
-        val sessionId = intent.getStringExtra(EXTRA_SESSION_ID) ?: run {
-            stopSelf()
+        val active = activeSessionId
+        if (active != null) {
+            if (active != sessionId) {
+                scope.launch {
+                    runCatching {
+                        FirebasePairingGateway(
+                            this@ScreenShareService
+                        ).close(sessionId)
+                    }
+                }
+            }
             return
         }
 
@@ -124,6 +137,37 @@ class ScreenShareService : Service() {
             return
         }
 
+        scope.launch {
+            runCatching {
+                FirebasePairingGateway(this@ScreenShareService)
+                    .markScreenReady(sessionId)
+            }.onSuccess {
+                mainHandler.post {
+                    if (activeSessionId == sessionId) {
+                        startTransport(sessionId, grant)
+                    }
+                }
+            }.onFailure {
+                mainHandler.post {
+                    stopActiveSession(
+                        "backend_screen_ready_failed"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun startTransport(
+        sessionId: String,
+        grant: ProjectionGrant
+    ) {
+        if (
+            activeSessionId != sessionId ||
+            hostSession != null
+        ) {
+            return
+        }
+
         hostSession = runCatching {
             HostWebRtcSession(
                 context = this,
@@ -137,7 +181,7 @@ class ScreenShareService : Service() {
                                     this@ScreenShareService
                                 ).markLive(sessionId)
                             }.onFailure {
-                                mainExecutor.execute {
+                                mainHandler.post {
                                     stopActiveSession(
                                         "backend_live_state_failed"
                                     )
@@ -151,7 +195,7 @@ class ScreenShareService : Service() {
                     ) = Unit
 
                     override fun onProjectionStopped() {
-                        mainExecutor.execute {
+                        mainHandler.post {
                             stopActiveSession(
                                 "screen_projection_stopped"
                             )
@@ -159,7 +203,7 @@ class ScreenShareService : Service() {
                     }
 
                     override fun onRemoteDisconnect() {
-                        mainExecutor.execute {
+                        mainHandler.post {
                             stopActiveSession(
                                 "controller_disconnected"
                             )
@@ -167,7 +211,7 @@ class ScreenShareService : Service() {
                     }
 
                     override fun onError(error: Throwable) {
-                        mainExecutor.execute {
+                        mainHandler.post {
                             stopActiveSession(
                                 "webrtc_transport_failed"
                             )
@@ -177,20 +221,7 @@ class ScreenShareService : Service() {
             ).also { it.start() }
         }.getOrElse {
             stopActiveSession("webrtc_start_failed")
-            return
-        }
-
-        scope.launch {
-            runCatching {
-                FirebasePairingGateway(this@ScreenShareService)
-                    .markScreenReady(sessionId)
-            }.onFailure {
-                mainExecutor.execute {
-                    stopActiveSession(
-                        "backend_screen_ready_failed"
-                    )
-                }
-            }
+            null
         }
     }
 

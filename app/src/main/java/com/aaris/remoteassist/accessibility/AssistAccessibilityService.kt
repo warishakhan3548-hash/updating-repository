@@ -2,13 +2,18 @@ package com.aaris.remoteassist.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.app.KeyguardManager
 import android.content.Intent
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.control.CommandGate
@@ -16,6 +21,7 @@ import com.aaris.remoteassist.control.GlobalAction
 import com.aaris.remoteassist.control.GlobalActionCommand
 import com.aaris.remoteassist.control.LongPressCommand
 import com.aaris.remoteassist.control.RemoteCommand
+import com.aaris.remoteassist.control.SetTextCommand
 import com.aaris.remoteassist.control.SwipeCommand
 import com.aaris.remoteassist.control.TapCommand
 import com.aaris.remoteassist.session.SessionCoordinator
@@ -25,9 +31,13 @@ import java.lang.ref.WeakReference
 
 class AssistAccessibilityService : AccessibilityService() {
     private var stopOverlay: View? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val keyguard by lazy {
+        getSystemService(KeyguardManager::class.java)
+    }
 
     private val sessionListener: (SessionSnapshot) -> Unit = { snapshot ->
-        mainExecutor.execute {
+        mainHandler.post {
             if (snapshot.state == SessionState.LIVE) {
                 showStopOverlay()
             } else {
@@ -54,6 +64,7 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private fun execute(command: RemoteCommand): Boolean {
         if (!CommandGate.accept(command)) return false
+        if (keyguard.isDeviceLocked) return false
 
         return when (command) {
             is TapCommand -> gesture(
@@ -81,9 +92,32 @@ class AssistAccessibilityService : AccessibilityService() {
                 when (command.action) {
                     GlobalAction.BACK -> GLOBAL_ACTION_BACK
                     GlobalAction.HOME -> GLOBAL_ACTION_HOME
+                    GlobalAction.RECENTS -> GLOBAL_ACTION_RECENTS
                 }
             )
+            is SetTextCommand -> setFocusedText(command.text)
         }
+    }
+
+    private fun setFocusedText(text: String): Boolean {
+        val node = rootInActiveWindow
+            ?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: return false
+
+        if (!node.isEditable || node.isPassword) return false
+
+        val safeText = text.take(MAX_REMOTE_TEXT_CHARS)
+        val arguments = Bundle().apply {
+            putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                safeText
+            )
+        }
+
+        return node.performAction(
+            AccessibilityNodeInfo.ACTION_SET_TEXT,
+            arguments
+        )
     }
 
     private fun gesture(
@@ -172,6 +206,7 @@ class AssistAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        private const val MAX_REMOTE_TEXT_CHARS = 1000
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
         fun dispatch(command: RemoteCommand): Boolean =

@@ -22,3 +22,12 @@ Control responsiveness wins over visual quality. Video bitrate/resolution may de
 ## Coordinate policy
 
 Controller touch points are mapped through the actual rendered remote-video rectangle, normalized to [0,1], then transformed into the latest remote display generation. Touches outside the video viewport are ignored.
+
+
+## Production network boundary
+
+The current peer configuration uses public STUN and therefore cannot honestly promise
+TeamViewer-class connectivity across every carrier-grade or symmetric NAT. Production
+distribution must add an authenticated TURN relay (UDP with TCP/TLS fallback) and mint
+short-lived relay credentials server-side. TURN credentials must never be hard-coded in
+the APK. Until that relay is provisioned, direct WebRTC remains a best-effort path.
