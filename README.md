@@ -4,11 +4,11 @@ A native Android remote-support app with a deliberately tiny user interface and 
 
 ## Product contract
 
-- Home stays simple: enter one-time code + Connect, or Share my phone.
+- Home stays simple: only Connect and Share are primary actions.
 - Accessibility is a one-time setup, but it never grants unattended remote access by itself.
 - Every screen-share session uses Android's MediaProjection consent.
 - A sharing phone explicitly approves every new controller request.
-- Pairing codes are short-lived, single-controller and one-time.
+- Pairing codes are five-minute, single-controller and one-time; shared messages also carry an `aarisremote://connect` join link that prefills the code but still requires START.
 - A visible foreground notification and accessibility STOP overlay remain available during live control.
 - No hidden sessions, credential/OTP harvesting, or permission bypasses.
 - Live control supports tap, long-press, swipe, Back, Home, Recents, and explicit text entry into the currently focused non-password field.
@@ -31,6 +31,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 4. Media plane: MediaProjection -> WebRTC video track.
 5. Control plane: WebRTC DataChannel -> command gate -> AccessibilityService.
 6. Safety plane: expiring local live lease + sequence/generation checks + STOP/revoke.
+7. Recovery plane: transient post-connect network drops trigger a bounded ICE restart; control still expires fail-closed if heartbeats do not recover.
 
 ## Firebase setup
 
@@ -43,5 +44,6 @@ The repository intentionally does not contain a Firebase project credential.
 5. Deploy Cloud Functions and Realtime Database rules.
 6. Enable App Check / Play Integrity for production builds.
 7. Debug builds use Firebase's App Check debug provider. Register the emitted debug token in the Firebase console for development devices; never commit that token.
+8. For GitHub Actions APKs, optionally store base64-encoded `google-services.json` as the repository secret `GOOGLE_SERVICES_JSON_B64`; CI restores it only inside the runner and never commits it.
 
 The Gradle Google Services plugin is applied only when `google-services.json` exists, so CI can still compile the source tree without committing credentials. Production builds use Play Integrity; debug builds use the Firebase debug provider, matching Firebase's recommended development flow.

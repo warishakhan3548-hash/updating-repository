@@ -106,18 +106,65 @@ class AssistAccessibilityService : AccessibilityService() {
 
         if (!node.isEditable || node.isPassword) return false
 
-        val safeText = text.take(MAX_REMOTE_TEXT_CHARS)
+        val current = node.text?.toString().orEmpty()
+        val selectionStart = node.textSelectionStart
+            .takeIf { it >= 0 }
+            ?: current.length
+        val selectionEnd = node.textSelectionEnd
+            .takeIf { it >= 0 }
+            ?: selectionStart
+
+        val from = minOf(selectionStart, selectionEnd)
+            .coerceIn(0, current.length)
+        val to = maxOf(selectionStart, selectionEnd)
+            .coerceIn(from, current.length)
+
+        val retainedChars = current.length - (to - from)
+        val available =
+            (MAX_REMOTE_FIELD_CHARS - retainedChars)
+                .coerceAtLeast(0)
+        if (available == 0) return false
+
+        val insertion = text
+            .take(MAX_REMOTE_TEXT_CHARS)
+            .take(available)
+        if (insertion.isEmpty()) return false
+
+        val updated = current.replaceRange(
+            from,
+            to,
+            insertion
+        )
         val arguments = Bundle().apply {
             putCharSequence(
                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                safeText
+                updated
             )
         }
 
-        return node.performAction(
+        val applied = node.performAction(
             AccessibilityNodeInfo.ACTION_SET_TEXT,
             arguments
         )
+        if (!applied) return false
+
+        val cursor = (from + insertion.length)
+            .coerceAtMost(updated.length)
+        val selection = Bundle().apply {
+            putInt(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT,
+                cursor
+            )
+            putInt(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT,
+                cursor
+            )
+        }
+        node.performAction(
+            AccessibilityNodeInfo.ACTION_SET_SELECTION,
+            selection
+        )
+        return true
     }
 
     private fun gesture(
@@ -207,6 +254,7 @@ class AssistAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val MAX_REMOTE_TEXT_CHARS = 1000
+        private const val MAX_REMOTE_FIELD_CHARS = 4000
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
         fun dispatch(command: RemoteCommand): Boolean =

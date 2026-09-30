@@ -9,6 +9,7 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import java.io.Closeable
 
 class FirebasePairingGateway(
@@ -18,10 +19,12 @@ class FirebasePairingGateway(
 
     override suspend fun createShareTicket(): ShareTicket {
         ensureSignedIn()
-        val result = functions()
-            .getHttpsCallable("createPairingSession")
-            .call()
-            .await()
+        val result = withTimeout(FUNCTION_TIMEOUT_MS) {
+            functions()
+                .getHttpsCallable("createPairingSession")
+                .call()
+                .await()
+        }
         val map = result.data as? Map<*, *>
             ?: error("Invalid createPairingSession response")
         return ShareTicket(
@@ -35,10 +38,12 @@ class FirebasePairingGateway(
         ensureSignedIn()
         val normalized = PairingCode.normalize(code)
             ?: error("Enter a valid 6-digit code")
-        val result = functions()
-            .getHttpsCallable("redeemPairingCode")
-            .call(mapOf("code" to normalized))
-            .await()
+        val result = withTimeout(FUNCTION_TIMEOUT_MS) {
+            functions()
+                .getHttpsCallable("redeemPairingCode")
+                .call(mapOf("code" to normalized))
+                .await()
+        }
         val map = result.data as? Map<*, *>
             ?: error("Invalid redeemPairingCode response")
         return PairRequest(
@@ -100,16 +105,22 @@ class FirebasePairingGateway(
 
     private suspend fun callSessionFunction(name: String, sessionId: String) {
         ensureSignedIn()
-        functions()
-            .getHttpsCallable(name)
-            .call(mapOf("sessionId" to sessionId))
-            .await()
+        withTimeout(FUNCTION_TIMEOUT_MS) {
+            functions()
+                .getHttpsCallable(name)
+                .call(mapOf("sessionId" to sessionId))
+                .await()
+        }
     }
 
     private suspend fun ensureSignedIn() {
         requireConfigured()
         val auth = auth()
-        if (auth.currentUser == null) auth.signInAnonymously().await()
+        if (auth.currentUser == null) {
+            withTimeout(AUTH_TIMEOUT_MS) {
+                auth.signInAnonymously().await()
+            }
+        }
         checkNotNull(auth.currentUser) {
             "Firebase anonymous authentication failed"
         }
@@ -140,5 +151,10 @@ class FirebasePairingGateway(
             if (value != null) return value.toLong()
         }
         error("Missing numeric field")
+    }
+
+    companion object {
+        private const val AUTH_TIMEOUT_MS = 12_000L
+        private const val FUNCTION_TIMEOUT_MS = 15_000L
     }
 }

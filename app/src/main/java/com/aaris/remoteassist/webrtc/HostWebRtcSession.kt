@@ -44,6 +44,9 @@ class HostWebRtcSession(
     private var peerConnected = false
 
     @Volatile
+    private var everConnected = false
+
+    @Volatile
     private var controlOpen = false
 
     @Volatile
@@ -73,6 +76,16 @@ class HostWebRtcSession(
             (!peerConnected || !controlOpen)
         ) {
             listener.onRemoteDisconnect()
+        }
+    }
+
+    private val iceRestart = Runnable {
+        if (
+            !closed.get() &&
+            everConnected &&
+            !peerConnected
+        ) {
+            peer.requestIceRestart()
         }
     }
 
@@ -143,6 +156,8 @@ class HostWebRtcSession(
 
     override fun onPeerConnected() {
         peerConnected = true
+        everConnected = true
+        displayHandler.removeCallbacks(iceRestart)
         listener.onConnectivityChanged(true)
         ensureLiveHandshake()
     }
@@ -150,6 +165,14 @@ class HostWebRtcSession(
     override fun onPeerDisconnected() {
         peerConnected = false
         listener.onConnectivityChanged(false)
+
+        if (everConnected && !closed.get()) {
+            displayHandler.removeCallbacks(iceRestart)
+            displayHandler.postDelayed(
+                iceRestart,
+                ICE_RESTART_DELAY_MS
+            )
+        }
     }
 
     override fun onControlChannelOpen() {
@@ -208,6 +231,7 @@ class HostWebRtcSession(
         if (!closed.compareAndSet(false, true)) return
 
         displayHandler.removeCallbacks(connectionWatchdog)
+        displayHandler.removeCallbacks(iceRestart)
         displayHandler.removeCallbacks(
             leaseWatchdog
         )
@@ -218,6 +242,7 @@ class HostWebRtcSession(
         runCatching { capture.close() }
 
         peerConnected = false
+        everConnected = false
         controlOpen = false
         lease = null
     }
@@ -264,6 +289,7 @@ class HostWebRtcSession(
     }
     companion object {
         private const val CONNECT_TIMEOUT_MS = 30_000L
+        private const val ICE_RESTART_DELAY_MS = 1_500L
         private const val LEASE_WATCHDOG_MS = 3_000L
     }
 }

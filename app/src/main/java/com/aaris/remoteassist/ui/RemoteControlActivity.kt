@@ -557,6 +557,6 @@ class RemoteControlActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_SESSION_ID = "session_id"
-        private const val DISCONNECT_GRACE_MS = 15_000L
+        private const val DISCONNECT_GRACE_MS = 25_000L
     }
 }
