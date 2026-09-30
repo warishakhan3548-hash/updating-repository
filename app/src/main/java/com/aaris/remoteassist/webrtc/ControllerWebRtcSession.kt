@@ -3,6 +3,7 @@ package com.aaris.remoteassist.webrtc
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import com.aaris.remoteassist.control.ControlPacket
 import com.aaris.remoteassist.control.ControlProtocol
 import org.webrtc.VideoTrack
@@ -30,7 +31,9 @@ class ControllerWebRtcSession(
 
     private val appContext = context.applicationContext
     private val closed = AtomicBoolean(false)
-    private val sequence = AtomicLong(0L)
+    private val sequence = AtomicLong(
+        SystemClock.elapsedRealtimeNanos()
+    )
     private val handler = Handler(Looper.getMainLooper())
 
     @Volatile
