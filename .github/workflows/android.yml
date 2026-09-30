@@ -1,4 +1,4 @@
-name: Android CI
+name: CI
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  build:
+  android:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -16,8 +16,24 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
-      - run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
+      - run: sdkmanager "platforms;android-37"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.6.0"
-      - run: gradle :app:assembleDebug --stacktrace
+      - run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
+
+  functions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: functions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: functions/package.json
+      - run: npm install --ignore-scripts
+      - run: npm run build
