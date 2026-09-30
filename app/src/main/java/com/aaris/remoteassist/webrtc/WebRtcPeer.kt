@@ -71,6 +71,20 @@ class WebRtcPeer(
         peerConnection.addTrack(track, listOf(SCREEN_STREAM_ID))
     }
 
+    fun requestIceRestart(): Boolean {
+        if (closed.get() || role != PeerRole.HOST) return false
+
+        return runCatching {
+            remoteDescriptionReady = false
+            peerConnection.restartIce()
+            createOffer()
+            true
+        }.getOrElse {
+            listener.onError(it)
+            false
+        }
+    }
+
     fun sendControl(bytes: ByteArray): Boolean {
         val channel = controlChannel ?: return false
         if (channel.state() != DataChannel.State.OPEN) return false
