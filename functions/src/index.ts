@@ -357,33 +357,86 @@ export const redeemPairingCode = onCall(
     }
 
     const sessionRef = db.ref("sessions/" + record.sessionId);
-    const sessionSnap = await sessionRef.get();
+    let sessionFailure:
+      | "not-found"
+      | "expired"
+      | "state"
+      | "busy"
+      | null = null;
 
-    if (!sessionSnap.exists()) {
-      await codeRef.remove();
-      throw new HttpsError("not-found", "Session no longer exists.");
+    let sessionTx;
+    try {
+      sessionTx = await sessionRef.transaction((raw) => {
+        sessionFailure = null;
+
+        if (raw === null) {
+          sessionFailure = "not-found";
+          return;
+        }
+
+        const session = raw as {
+          state?: SessionState;
+          expiresAtMs?: number;
+          controllerUid?: string;
+          pairedAtMs?: number;
+          [key: string]: unknown;
+        };
+
+        if ((session.expiresAtMs ?? 0) <= now) {
+          sessionFailure = "expired";
+          return {
+            ...session,
+            state: "CLOSED" satisfies SessionState,
+            closedAtMs: now
+          };
+        }
+
+        if (
+          session.state !== "CODE_ACTIVE" &&
+          session.state !== "PAIR_PENDING"
+        ) {
+          sessionFailure = "state";
+          return;
+        }
+
+        if (
+          typeof session.controllerUid === "string" &&
+          session.controllerUid !== controllerUid
+        ) {
+          sessionFailure = "busy";
+          return;
+        }
+
+        return {
+          ...session,
+          controllerUid,
+          state: "PAIR_PENDING" satisfies SessionState,
+          pairedAtMs: session.pairedAtMs ?? now
+        };
+      }, undefined, false);
+    } catch (error) {
+      await codeRef.transaction((raw) => {
+        const current = raw as PairingCodeRecord | null;
+        if (
+          current === null ||
+          current.state !== "RESERVED" ||
+          current.reservedBy !== controllerUid
+        ) {
+          return;
+        }
+
+        return {
+          sessionId: current.sessionId,
+          hostUid: current.hostUid,
+          expiresAtMs: current.expiresAtMs,
+          state: "ACTIVE"
+        } satisfies PairingCodeRecord;
+      }, undefined, false).catch(() => undefined);
+      throw error;
     }
 
-    const session = sessionSnap.val() as {
-      state?: SessionState;
-      expiresAtMs?: number;
-      controllerUid?: string;
-    };
-
-    if (
-      session.state !== "CODE_ACTIVE" &&
-      session.state !== "PAIR_PENDING"
-    ) {
-      throw new HttpsError(
-        "failed-precondition",
-        "Session is no longer available."
-      );
-    }
-
-    if ((session.expiresAtMs ?? 0) <= now) {
+    if (sessionFailure === "expired" && sessionTx.committed) {
       const updates: Record<string, unknown> = {};
-      updates["sessions/" + record.sessionId + "/state"] = "CLOSED";
-      updates["sessions/" + record.sessionId + "/closedAtMs"] = now;
       updates["pairingCodes/" + key] = null;
       updates["serverSessionCodes/" + record.sessionId] = null;
       clearSessionTransport(updates, record.sessionId);
@@ -395,21 +448,36 @@ export const redeemPairingCode = onCall(
       throw new HttpsError("deadline-exceeded", "Code expired.");
     }
 
-    if (
-      typeof session.controllerUid === "string" &&
-      session.controllerUid !== controllerUid
-    ) {
+    if (!sessionTx.committed) {
+      if (sessionFailure === "busy") {
+        throw new HttpsError(
+          "already-exists",
+          "Session is already reserved."
+        );
+      }
+
+      if (
+        sessionFailure === "not-found" ||
+        sessionFailure === "state"
+      ) {
+        await codeRef.remove();
+        await db.ref(
+          "serverSessionCodes/" + record.sessionId
+        ).remove();
+      }
+
+      if (sessionFailure === "not-found") {
+        throw new HttpsError(
+          "not-found",
+          "Session no longer exists."
+        );
+      }
+
       throw new HttpsError(
-        "already-exists",
-        "Session is already reserved."
+        "failed-precondition",
+        "Session is no longer available."
       );
     }
-
-    await sessionRef.update({
-      controllerUid,
-      state: "PAIR_PENDING" satisfies SessionState,
-      pairedAtMs: now
-    });
 
     return {
       sessionId: record.sessionId,

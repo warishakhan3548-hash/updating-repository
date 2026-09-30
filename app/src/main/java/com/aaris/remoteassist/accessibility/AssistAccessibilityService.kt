@@ -38,10 +38,12 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private val sessionListener: (SessionSnapshot) -> Unit = { snapshot ->
         mainHandler.post {
-            if (snapshot.state == SessionState.LIVE) {
-                showStopOverlay()
-            } else {
-                hideStopOverlay()
+            when (snapshot.state) {
+                SessionState.SCREEN_CONSENT,
+                SessionState.CONNECTING,
+                SessionState.LIVE -> showStopOverlay()
+
+                else -> hideStopOverlay()
             }
         }
     }
@@ -210,7 +212,7 @@ class AssistAccessibilityService : AccessibilityService() {
 
         val windowManager = getSystemService(WindowManager::class.java)
         val button = Button(this).apply {
-            text = "STOP • LIVE"
+            text = "STOP • SHARING"
             isAllCaps = false
             setOnClickListener {
                 startService(

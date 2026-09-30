@@ -9,7 +9,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 - Every screen-share session uses Android's MediaProjection consent.
 - A sharing phone explicitly approves every new controller request.
 - Pairing codes are five-minute, single-controller and one-time; shared messages also carry an `aarisremote://connect` join link that prefills the code but still requires START.
-- A visible foreground notification and accessibility STOP overlay remain available during live control.
+- A visible foreground notification and accessibility STOP overlay remain available while screen sharing connects and during live control.
 - No hidden sessions, credential/OTP harvesting, or permission bypasses.
 - Live control supports tap, long-press, swipe, Back, Home, Recents, and explicit text entry into the currently focused non-password field.
 - Commands are rejected while the sharing phone is locked.
@@ -32,6 +32,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 5. Control plane: WebRTC DataChannel -> command gate -> AccessibilityService.
 6. Safety plane: expiring local live lease + sequence/generation checks + STOP/revoke.
 7. Recovery plane: transient post-connect network drops trigger a bounded ICE restart; control still expires fail-closed if heartbeats do not recover.
+8. Pairing consistency: code reservation and session transition are transaction-guarded so a concurrent close cannot resurrect a session.
 
 ## Firebase setup
 
@@ -52,7 +53,7 @@ The Gradle Google Services plugin is applied only when `google-services.json` ex
 
 Direct WebRTC works well on many networks, but carrier-grade NAT and symmetric NAT require a TURN relay for TeamViewer-class connection reliability.
 
-Aaris Remote 0.4.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
+Aaris Remote 0.5.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
 
 Configure these environment values on the deployed Functions runtime:
 
