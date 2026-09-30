@@ -500,6 +500,15 @@ class RemoteControlActivity : Activity() {
 
         controls.addView(
             compactButton(
+                "Apps"
+            ) {
+                rtcSession
+                    ?.sendRecents()
+            }
+        )
+
+        controls.addView(
+            compactButton(
                 "Disconnect"
             ) {
                 disconnect()
