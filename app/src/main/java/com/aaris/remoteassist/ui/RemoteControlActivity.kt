@@ -320,8 +320,15 @@ class RemoteControlActivity : ComponentActivity() {
             )
             setEnableHardwareScaler(true)
             setMirror(false)
-            setOnTouchListener { _, event ->
-                handleRemoteTouch(event)
+            setOnTouchListener { view, event ->
+                val handled = handleRemoteTouch(event)
+                if (
+                    handled &&
+                    event.actionMasked == MotionEvent.ACTION_UP
+                ) {
+                    view.performClick()
+                }
+                handled
             }
         }
 
