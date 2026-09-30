@@ -290,9 +290,9 @@ class ScreenShareService : Service() {
             .setSmallIcon(
                 android.R.drawable.presence_video_online
             )
-            .setContentTitle("Aaris Remote is live")
+            .setContentTitle("Aaris Remote is sharing")
             .setContentText(
-                "Remote support is active. Tap STOP any time."
+                "Screen sharing is active. Tap STOP any time."
             )
             .setOngoing(true)
             .setContentIntent(contentIntent)

@@ -10,7 +10,6 @@ import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
-import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -190,7 +189,7 @@ class MainActivity : ComponentActivity() {
         if (!PermissionGate.isAccessibilityEnabled(this)) {
             prefs.edit().putBoolean(KEY_PENDING_SHARE, true).apply()
             SessionCoordinator.markSetupRequired()
-            status.text = "Enable Aaris Remote once, then return here."
+            status.text = "Turn on Aaris Remote once, then return here."
             PermissionGate.openAccessibilitySettings(this)
             return
         }
@@ -208,12 +207,8 @@ class MainActivity : ComponentActivity() {
             runCatching { gateway.createShareTicket() }
                 .onSuccess { ticket ->
                     activeHostSessionId = ticket.sessionId
-                    prefs.edit()
-                        .putString(
-                            KEY_ACTIVE_HOST_SESSION,
-                            ticket.sessionId
-                        )
-                        .apply()
+                    persistHostTicket(ticket)
+
                     runCatching {
                         SessionCoordinator.transition(
                             ticket.sessionId,
@@ -252,6 +247,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        val suggestedCode = initialCode ?: pairingCodeFromClipboard()
         val input = EditText(this).apply {
             hint = "000 000"
             gravity = Gravity.CENTER
@@ -262,7 +258,7 @@ class MainActivity : ComponentActivity() {
             imeOptions = EditorInfo.IME_ACTION_DONE
         }
 
-        initialCode?.let { code ->
+        suggestedCode?.let { code ->
             input.setText(code)
             input.setSelection(input.text.length)
         }
@@ -301,6 +297,21 @@ class MainActivity : ComponentActivity() {
 
         dialog.show()
         input.requestFocus()
+    }
+
+    private fun pairingCodeFromClipboard(): String? {
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        if (!clipboard.hasPrimaryClip()) return null
+
+        val clip = clipboard.primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+
+        val raw = clip.getItemAt(0)
+            .coerceToText(this)
+            ?.toString()
+            ?: return null
+
+        return PairingCode.normalize(raw)
     }
 
     private fun connect(code: String) {
@@ -351,21 +362,50 @@ class MainActivity : ComponentActivity() {
                             return@runOnUiThread
                         }
 
+                        val recovered = reconcileHostState(
+                            sessionId,
+                            backend.state
+                        ) ?: return@runOnUiThread
+
                         when (backend.state) {
-                            "PAIR_PENDING" -> {
-                                runCatching {
-                                    SessionCoordinator.transition(
-                                        sessionId,
-                                        SessionState.PAIR_PENDING
-                                    )
+                            "CODE_ACTIVE" -> {
+                                status.text = "Share code is still active."
+                                if (recovered) {
+                                    val ticket =
+                                        persistedShareTicket(sessionId)
+                                    if (ticket == null) {
+                                        endHostSession(
+                                            sessionId,
+                                            "Share code expired. Tap Share again."
+                                        )
+                                        return@runOnUiThread
+                                    }
+                                    showShareCode(ticket)
+                                    scheduleShareExpiry(ticket)
                                 }
+                            }
+
+                            "PAIR_PENDING" -> {
+                                clearPersistedShareCode()
                                 shareDialog?.dismiss()
                                 shareDialog = null
                                 showApproval(sessionId)
                             }
 
-                            "HOST_APPROVED" ->
+                            "HOST_APPROVED" -> {
+                                clearPersistedShareCode()
                                 status.text = "Waiting for screen permission…"
+
+                                if (
+                                    recovered &&
+                                    prefs.getString(
+                                        KEY_PENDING_PROJECTION_SESSION,
+                                        null
+                                    ) != sessionId
+                                ) {
+                                    showResumeScreenShare(sessionId)
+                                }
+                            }
 
                             "SCREEN_READY",
                             "CONNECTING" ->
@@ -373,7 +413,7 @@ class MainActivity : ComponentActivity() {
 
                             "LIVE" ->
                                 status.text =
-                                    "Remote support is LIVE. Tap STOP • LIVE any time."
+                                    "Remote support is LIVE. Tap STOP • SHARING any time."
 
                             "CLOSED" -> {
                                 SessionCoordinator.close(sessionId)
@@ -394,6 +434,78 @@ class MainActivity : ComponentActivity() {
             )
         }.getOrElse {
             showBackendError(it)
+            null
+        }
+    }
+
+    private fun reconcileHostState(
+        sessionId: String,
+        backendState: String
+    ): Boolean? {
+        val current = SessionCoordinator.snapshot()
+        val localSessionIsActive =
+            current.sessionId == sessionId &&
+                when (current.state) {
+                    SessionState.CODE_ACTIVE,
+                    SessionState.PAIR_PENDING,
+                    SessionState.HOST_APPROVED,
+                    SessionState.SCREEN_CONSENT,
+                    SessionState.CONNECTING,
+                    SessionState.LIVE -> true
+
+                    else -> false
+                }
+
+        if (localSessionIsActive) return false
+
+        val target = when (backendState) {
+            "CODE_ACTIVE" -> SessionState.CODE_ACTIVE
+            "PAIR_PENDING" -> SessionState.PAIR_PENDING
+            "HOST_APPROVED" -> SessionState.HOST_APPROVED
+
+            "SCREEN_READY",
+            "CONNECTING",
+            "LIVE" -> {
+                endHostSession(
+                    sessionId,
+                    "Session was interrupted. Tap Share to start again."
+                )
+                return null
+            }
+
+            else -> return false
+        }
+
+        return runCatching {
+            SessionCoordinator.reset()
+            SessionCoordinator.prepareReady()
+            SessionCoordinator.transition(
+                sessionId,
+                SessionState.CODE_ACTIVE
+            )
+
+            if (
+                target == SessionState.PAIR_PENDING ||
+                target == SessionState.HOST_APPROVED
+            ) {
+                SessionCoordinator.transition(
+                    sessionId,
+                    SessionState.PAIR_PENDING
+                )
+            }
+
+            if (target == SessionState.HOST_APPROVED) {
+                SessionCoordinator.transition(
+                    sessionId,
+                    SessionState.HOST_APPROVED
+                )
+            }
+            true
+        }.getOrElse {
+            endHostSession(
+                sessionId,
+                "Could not restore the session. Tap Share again."
+            )
             null
         }
     }
@@ -473,6 +585,32 @@ class MainActivity : ComponentActivity() {
         dialog.show()
     }
 
+    private fun showResumeScreenShare(sessionId: String) {
+        if (approvalDialog?.isShowing == true) return
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Continue remote support?")
+            .setMessage(
+                "The app restarted before screen sharing began. Tap START to continue securely."
+            )
+            .setPositiveButton("START") { _, _ ->
+                approvalDialog = null
+                requestScreenPermission(sessionId)
+            }
+            .setNegativeButton("END") { _, _ ->
+                approvalDialog = null
+                endHostSession(
+                    sessionId,
+                    "Session ended."
+                )
+            }
+            .setCancelable(false)
+            .create()
+
+        approvalDialog = dialog
+        dialog.show()
+    }
+
     private fun approveAndRequestScreen(sessionId: String) {
         status.text = "Preparing screen share…"
 
@@ -480,10 +618,18 @@ class MainActivity : ComponentActivity() {
             runCatching { gateway.approve(sessionId) }
                 .onSuccess {
                     runCatching {
-                        SessionCoordinator.transition(
-                            sessionId,
-                            SessionState.HOST_APPROVED
-                        )
+                        val current = SessionCoordinator.snapshot()
+                        if (current.state == SessionState.PAIR_PENDING) {
+                            SessionCoordinator.transition(
+                                sessionId,
+                                SessionState.HOST_APPROVED
+                            )
+                        } else {
+                            require(
+                                current.sessionId == sessionId &&
+                                    current.state == SessionState.HOST_APPROVED
+                            )
+                        }
                     }.onFailure {
                         endHostSession(
                             sessionId,
@@ -492,18 +638,7 @@ class MainActivity : ComponentActivity() {
                         return@onSuccess
                     }
 
-                    pendingProjectionSessionId = sessionId
-                    prefs.edit()
-                        .putString(
-                            KEY_PENDING_PROJECTION_SESSION,
-                            sessionId
-                        )
-                        .apply()
-                    val projectionManager =
-                        getSystemService(MediaProjectionManager::class.java)
-                    screenCaptureLauncher.launch(
-                        projectionManager.createScreenCaptureIntent()
-                    )
+                    requestScreenPermission(sessionId)
                 }
                 .onFailure {
                     endHostSession(
@@ -512,6 +647,34 @@ class MainActivity : ComponentActivity() {
                     )
                 }
         }
+    }
+
+    private fun requestScreenPermission(sessionId: String) {
+        val current = SessionCoordinator.snapshot()
+        if (
+            current.sessionId != sessionId ||
+            current.state != SessionState.HOST_APPROVED
+        ) {
+            endHostSession(
+                sessionId,
+                "Session state changed. Tap Share again."
+            )
+            return
+        }
+
+        pendingProjectionSessionId = sessionId
+        prefs.edit()
+            .putString(
+                KEY_PENDING_PROJECTION_SESSION,
+                sessionId
+            )
+            .apply()
+
+        val projectionManager =
+            getSystemService(MediaProjectionManager::class.java)
+        screenCaptureLauncher.launch(
+            projectionManager.createScreenCaptureIntent()
+        )
     }
 
     private fun scheduleShareExpiry(ticket: ShareTicket) {
@@ -566,6 +729,45 @@ class MainActivity : ComponentActivity() {
         toast("Code copied")
     }
 
+    private fun persistHostTicket(ticket: ShareTicket) {
+        prefs.edit()
+            .putString(KEY_ACTIVE_HOST_SESSION, ticket.sessionId)
+            .putString(KEY_ACTIVE_HOST_CODE, ticket.code)
+            .putLong(
+                KEY_ACTIVE_HOST_EXPIRES_AT,
+                ticket.expiresAtEpochMs
+            )
+            .apply()
+    }
+
+    private fun persistedShareTicket(sessionId: String): ShareTicket? {
+        val code = prefs.getString(KEY_ACTIVE_HOST_CODE, null)
+            ?: return null
+        val expiresAt = prefs.getLong(
+            KEY_ACTIVE_HOST_EXPIRES_AT,
+            0L
+        )
+        if (expiresAt <= System.currentTimeMillis()) return null
+
+        return runCatching {
+            PairingCode.normalize(code)
+                ?.let {
+                    ShareTicket(
+                        sessionId = sessionId,
+                        code = it,
+                        expiresAtEpochMs = expiresAt
+                    )
+                }
+        }.getOrNull()
+    }
+
+    private fun clearPersistedShareCode() {
+        prefs.edit()
+            .remove(KEY_ACTIVE_HOST_CODE)
+            .remove(KEY_ACTIVE_HOST_EXPIRES_AT)
+            .apply()
+    }
+
     private fun endHostSession(
         sessionId: String,
         message: String
@@ -595,6 +797,8 @@ class MainActivity : ComponentActivity() {
         prefs.edit()
             .remove(KEY_ACTIVE_HOST_SESSION)
             .remove(KEY_PENDING_PROJECTION_SESSION)
+            .remove(KEY_ACTIVE_HOST_CODE)
+            .remove(KEY_ACTIVE_HOST_EXPIRES_AT)
             .apply()
 
         hostObserver?.close()
@@ -616,29 +820,8 @@ class MainActivity : ComponentActivity() {
             null
         ) ?: return false
 
-        val snapshot = SessionCoordinator.snapshot()
-        val recoverable = snapshot.sessionId == sessionId &&
-            when (snapshot.state) {
-                SessionState.CODE_ACTIVE,
-                SessionState.PAIR_PENDING,
-                SessionState.HOST_APPROVED,
-                SessionState.SCREEN_CONSENT,
-                SessionState.CONNECTING,
-                SessionState.LIVE -> true
-
-                else -> false
-            }
-
-        if (!recoverable) {
-            prefs.edit()
-                .remove(KEY_ACTIVE_HOST_SESSION)
-                .apply()
-
-            if (snapshot.sessionId == sessionId) {
-                SessionCoordinator.close(sessionId)
-                SessionCoordinator.prepareReady()
-            }
-
+        if (!PermissionGate.isAccessibilityEnabled(this)) {
+            clearHostUi()
             scope.launch {
                 runCatching { gateway.close(sessionId) }
             }
@@ -646,21 +829,12 @@ class MainActivity : ComponentActivity() {
         }
 
         activeHostSessionId = sessionId
+        pendingProjectionSessionId = prefs.getString(
+            KEY_PENDING_PROJECTION_SESSION,
+            null
+        )
         setButtonsEnabled(false)
-        status.text = when (snapshot.state) {
-            SessionState.CODE_ACTIVE ->
-                "Share code is still active."
-            SessionState.PAIR_PENDING ->
-                "A connection request is waiting."
-            SessionState.HOST_APPROVED,
-            SessionState.SCREEN_CONSENT ->
-                "Waiting for screen permission…"
-            SessionState.CONNECTING ->
-                "Connecting phones…"
-            SessionState.LIVE ->
-                "Remote support is LIVE. Tap STOP • LIVE any time."
-            else -> "Session active."
-        }
+        status.text = "Restoring secure session…"
         observeHostSession(sessionId)
         return true
     }
@@ -678,6 +852,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isIdleForNewSession(): Boolean {
+        if (activeHostSessionId != null) return false
+
         return when (SessionCoordinator.snapshot().state) {
             SessionState.IDLE,
             SessionState.SETUP_REQUIRED,
@@ -704,7 +880,7 @@ class MainActivity : ComponentActivity() {
         } else if (!idle && status.text.isNullOrBlank()) {
             status.text = when (SessionCoordinator.snapshot().state) {
                 SessionState.LIVE ->
-                    "Remote support is LIVE. Tap STOP • LIVE any time."
+                    "Remote support is LIVE. Tap STOP • SHARING any time."
                 SessionState.CONNECTING ->
                     "Connecting phones…"
                 SessionState.PAIR_PENDING ->
@@ -812,5 +988,9 @@ class MainActivity : ComponentActivity() {
             "active_host_session"
         private const val KEY_PENDING_PROJECTION_SESSION =
             "pending_projection_session"
+        private const val KEY_ACTIVE_HOST_CODE =
+            "active_host_code"
+        private const val KEY_ACTIVE_HOST_EXPIRES_AT =
+            "active_host_expires_at"
     }
 }
