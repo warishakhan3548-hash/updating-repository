@@ -64,13 +64,22 @@ class ScreenShareService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun startApprovedSession(intent: Intent) {
-        if (activeSessionId != null) {
-            stopActiveSession("replaced_by_new_session")
+        val sessionId = intent.getStringExtra(EXTRA_SESSION_ID) ?: run {
+            stopSelf()
             return
         }
 
-        val sessionId = intent.getStringExtra(EXTRA_SESSION_ID) ?: run {
-            stopSelf()
+        val active = activeSessionId
+        if (active != null) {
+            if (active != sessionId) {
+                scope.launch {
+                    runCatching {
+                        FirebasePairingGateway(
+                            this@ScreenShareService
+                        ).close(sessionId)
+                    }
+                }
+            }
             return
         }
 
