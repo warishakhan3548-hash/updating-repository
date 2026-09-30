@@ -166,7 +166,9 @@ class HostWebRtcSession(
             is ControlPacket.LongPress,
             is ControlPacket.Swipe,
             is ControlPacket.Back,
-            is ControlPacket.Home -> {
+            is ControlPacket.Home,
+            is ControlPacket.Recents,
+            is ControlPacket.Text -> {
                 val currentProfile = profile
                 val command = ControlProtocol.toRemoteCommand(
                     sessionId = sessionId,
