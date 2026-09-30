@@ -569,7 +569,7 @@ class MainActivity : ComponentActivity() {
             )
             .setPositiveButton("START") { _, _ ->
                 approvalDialog = null
-                approveAndRequestScreen(sessionId)
+                requestScreenPermission(sessionId)
             }
             .setNegativeButton("DECLINE") { _, _ ->
                 approvalDialog = null
@@ -638,18 +638,7 @@ class MainActivity : ComponentActivity() {
                         return@onSuccess
                     }
 
-                    pendingProjectionSessionId = sessionId
-                    prefs.edit()
-                        .putString(
-                            KEY_PENDING_PROJECTION_SESSION,
-                            sessionId
-                        )
-                        .apply()
-                    val projectionManager =
-                        getSystemService(MediaProjectionManager::class.java)
-                    screenCaptureLauncher.launch(
-                        projectionManager.createScreenCaptureIntent()
-                    )
+                    requestScreenPermission(sessionId)
                 }
                 .onFailure {
                     endHostSession(
@@ -658,6 +647,34 @@ class MainActivity : ComponentActivity() {
                     )
                 }
         }
+    }
+
+    private fun requestScreenPermission(sessionId: String) {
+        val current = SessionCoordinator.snapshot()
+        if (
+            current.sessionId != sessionId ||
+            current.state != SessionState.HOST_APPROVED
+        ) {
+            endHostSession(
+                sessionId,
+                "Session state changed. Tap Share again."
+            )
+            return
+        }
+
+        pendingProjectionSessionId = sessionId
+        prefs.edit()
+            .putString(
+                KEY_PENDING_PROJECTION_SESSION,
+                sessionId
+            )
+            .apply()
+
+        val projectionManager =
+            getSystemService(MediaProjectionManager::class.java)
+        screenCaptureLauncher.launch(
+            projectionManager.createScreenCaptureIntent()
+        )
     }
 
     private fun scheduleShareExpiry(ticket: ShareTicket) {
@@ -671,11 +688,14 @@ class MainActivity : ComponentActivity() {
             val state = SessionCoordinator.snapshot().state
             if (
                 activeHostSessionId == ticket.sessionId &&
-                state == SessionState.CODE_ACTIVE
+                (
+                    state == SessionState.CODE_ACTIVE ||
+                        state == SessionState.PAIR_PENDING
+                )
             ) {
                 endHostSession(
                     ticket.sessionId,
-                    "Code expired. Tap Share to create a new one."
+                    "Request expired. Tap Share to create a new code."
                 )
             }
         }
