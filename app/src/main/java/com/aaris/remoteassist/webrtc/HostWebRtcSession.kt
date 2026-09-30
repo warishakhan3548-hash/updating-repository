@@ -177,7 +177,19 @@ class HostWebRtcSession(
 
     override fun onControlChannelOpen() {
         controlOpen = true
+        displayHandler.removeCallbacks(connectionWatchdog)
         ensureLiveHandshake()
+    }
+
+    override fun onControlChannelClosed() {
+        controlOpen = false
+        if (!closed.get()) {
+            displayHandler.removeCallbacks(connectionWatchdog)
+            displayHandler.postDelayed(
+                connectionWatchdog,
+                CONTROL_CHANNEL_GRACE_MS
+            )
+        }
     }
 
     override fun onControlMessage(bytes: ByteArray) {
@@ -289,6 +301,7 @@ class HostWebRtcSession(
     }
     companion object {
         private const val CONNECT_TIMEOUT_MS = 30_000L
+        private const val CONTROL_CHANNEL_GRACE_MS = 5_000L
         private const val ICE_RESTART_DELAY_MS = 1_500L
         private const val LEASE_WATCHDOG_MS = 3_000L
     }

@@ -31,6 +31,7 @@ class WebRtcPeer(
         fun onPeerConnected()
         fun onPeerDisconnected()
         fun onControlChannelOpen()
+        fun onControlChannelClosed()
         fun onControlMessage(bytes: ByteArray)
         fun onRemoteVideoTrack(track: VideoTrack)
         fun onError(error: Throwable)
@@ -43,6 +44,7 @@ class WebRtcPeer(
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pendingRemoteCandidates = ArrayDeque<IceCandidate>()
+    private val connectivity = PeerConnectivityTracker()
 
     @Volatile
     private var remoteDescriptionReady = false
@@ -194,7 +196,7 @@ class WebRtcPeer(
 
     override fun onRemotePresence(online: Boolean) {
         if (!online && role == PeerRole.CONTROLLER) {
-            listener.onPeerDisconnected()
+            publishPeerDisconnected()
         }
     }
 
@@ -208,32 +210,35 @@ class WebRtcPeer(
 
     override fun onIceConnectionChange(
         newState: PeerConnection.IceConnectionState
-    ) {
-        when (newState) {
-            PeerConnection.IceConnectionState.CONNECTED,
-            PeerConnection.IceConnectionState.COMPLETED ->
-                listener.onPeerConnected()
-
-            PeerConnection.IceConnectionState.DISCONNECTED,
-            PeerConnection.IceConnectionState.FAILED,
-            PeerConnection.IceConnectionState.CLOSED ->
-                listener.onPeerDisconnected()
-
-            else -> Unit
-        }
-    }
+    ) = Unit
 
     override fun onConnectionChange(
         newState: PeerConnection.PeerConnectionState
     ) {
         when (newState) {
             PeerConnection.PeerConnectionState.CONNECTED ->
-                listener.onPeerConnected()
+                publishPeerConnected()
 
-            PeerConnection.PeerConnectionState.DISCONNECTED,
-            PeerConnection.PeerConnectionState.FAILED,
-            PeerConnection.PeerConnectionState.CLOSED ->
-                listener.onPeerDisconnected()
+            PeerConnection.PeerConnectionState.DISCONNECTED ->
+                publishPeerDisconnected()
+
+            PeerConnection.PeerConnectionState.FAILED -> {
+                if (connectivity.hasEverConnected()) {
+                    publishPeerDisconnected()
+                } else {
+                    listener.onError(
+                        IllegalStateException(
+                            "WebRTC connection failed before becoming live"
+                        )
+                    )
+                }
+            }
+
+            PeerConnection.PeerConnectionState.CLOSED -> {
+                if (!closed.get()) {
+                    publishPeerDisconnected()
+                }
+            }
 
             else -> Unit
         }
@@ -399,8 +404,17 @@ class WebRtcPeer(
                 ) = Unit
 
                 override fun onStateChange() {
-                    if (channel.state() == DataChannel.State.OPEN) {
-                        listener.onControlChannelOpen()
+                    when (channel.state()) {
+                        DataChannel.State.OPEN ->
+                            listener.onControlChannelOpen()
+
+                        DataChannel.State.CLOSED -> {
+                            if (!closed.get()) {
+                                listener.onControlChannelClosed()
+                            }
+                        }
+
+                        else -> Unit
                     }
                 }
 
@@ -417,6 +431,18 @@ class WebRtcPeer(
 
         if (channel.state() == DataChannel.State.OPEN) {
             listener.onControlChannelOpen()
+        }
+    }
+
+    private fun publishPeerConnected() {
+        if (connectivity.onConnected()) {
+            listener.onPeerConnected()
+        }
+    }
+
+    private fun publishPeerDisconnected() {
+        if (connectivity.onDisconnected()) {
+            listener.onPeerDisconnected()
         }
     }
 

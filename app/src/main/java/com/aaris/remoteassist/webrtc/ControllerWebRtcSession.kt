@@ -226,7 +226,13 @@ class ControllerWebRtcSession(
         listener.onConnectivityChanged(false)
     }
 
-    override fun onControlChannelOpen() = Unit
+    override fun onControlChannelOpen() {
+        listener.onConnectivityChanged(true)
+    }
+
+    override fun onControlChannelClosed() {
+        listener.onConnectivityChanged(false)
+    }
 
     override fun onControlMessage(bytes: ByteArray) {
         when (val packet = ControlProtocol.decode(bytes)) {

@@ -328,34 +328,39 @@ class MainActivity : ComponentActivity() {
         status.text = "Finding your friend's phone…"
 
         scope.launch {
-            runCatching { gateway.redeemCode(code) }
-                .onSuccess { request ->
-                    runCatching {
-                        SessionCoordinator.transition(
-                            request.sessionId,
-                            SessionState.PAIR_PENDING
-                        )
-                    }.onFailure {
-                        setButtonsEnabled(true)
-                        status.text = "Could not start this connection."
-                        return@onSuccess
-                    }
+            val request = runCatching {
+                gateway.redeemCode(code)
+            }.getOrElse {
+                setButtonsEnabled(true)
+                showBackendError(it)
+                return@launch
+            }
 
-                    status.text = "Connection request sent."
-                    startActivity(
-                        Intent(
-                            this@MainActivity,
-                            RemoteControlActivity::class.java
-                        ).putExtra(
-                            RemoteControlActivity.EXTRA_SESSION_ID,
-                            request.sessionId
-                        )
-                    )
-                }
-                .onFailure {
-                    setButtonsEnabled(true)
-                    showBackendError(it)
-                }
+            val localStarted = runCatching {
+                SessionCoordinator.transition(
+                    request.sessionId,
+                    SessionState.PAIR_PENDING
+                )
+            }.isSuccess
+
+            if (!localStarted) {
+                runCatching { gateway.close(request.sessionId) }
+                SessionCoordinator.close(request.sessionId)
+                setButtonsEnabled(true)
+                status.text = "Could not start this connection. Try again."
+                return@launch
+            }
+
+            status.text = "Connection request sent."
+            startActivity(
+                Intent(
+                    this@MainActivity,
+                    RemoteControlActivity::class.java
+                ).putExtra(
+                    RemoteControlActivity.EXTRA_SESSION_ID,
+                    request.sessionId
+                )
+            )
         }
     }
 
