@@ -264,7 +264,23 @@ export const createPairingSession = onCall(
       updates["serverSessionCodes/" + sessionId] = key;
       updates["activeHostSession/" + hostUid] = sessionId;
 
-      await db.ref().update(updates);
+      try {
+        await db.ref().update(updates);
+      } catch (error) {
+        await codeRef.transaction((raw) => {
+          const current = raw as PairingCodeRecord | null;
+          if (
+            current === null ||
+            current.sessionId !== sessionId ||
+            current.hostUid !== hostUid
+          ) {
+            return;
+          }
+          return null;
+        }, undefined, false).catch(() => undefined);
+
+        throw error;
+      }
 
       return {
         sessionId,
