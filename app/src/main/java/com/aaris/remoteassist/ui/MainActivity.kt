@@ -469,13 +469,17 @@ class MainActivity : Activity() {
                     .coerceAtLeast(0L)
             delay(remaining)
 
+            val state = SessionCoordinator.snapshot().state
             if (
                 activeHostSessionId == ticket.sessionId &&
-                SessionCoordinator.snapshot().state == SessionState.CODE_ACTIVE
+                (
+                    state == SessionState.CODE_ACTIVE ||
+                        state == SessionState.PAIR_PENDING
+                )
             ) {
                 endHostSession(
                     ticket.sessionId,
-                    "Code expired. Tap Share to create a new one."
+                    "Request expired. Tap Share to create a new code."
                 )
             }
         }
