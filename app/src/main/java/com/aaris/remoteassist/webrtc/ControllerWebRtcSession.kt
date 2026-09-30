@@ -51,6 +51,16 @@ class ControllerWebRtcSession(
         listener = this
     )
 
+    private val helloWatchdog = Runnable {
+        if (!closed.get() && leaseSecret == null) {
+            listener.onError(
+                IllegalStateException(
+                    "Remote control handshake timed out"
+                )
+            )
+        }
+    }
+
     private val heartbeat = object : Runnable {
         override fun run() {
             if (closed.get()) return
@@ -70,6 +80,11 @@ class ControllerWebRtcSession(
 
     fun start() {
         check(!closed.get())
+        handler.removeCallbacks(helloWatchdog)
+        handler.postDelayed(
+            helloWatchdog,
+            HELLO_TIMEOUT_MS
+        )
         peer.start()
     }
 
@@ -225,6 +240,7 @@ class ControllerWebRtcSession(
                 }
 
                 leaseSecret = packet.leaseSecret
+                handler.removeCallbacks(helloWatchdog)
                 val geometry = RemoteGeometry(
                     generation = packet.generation,
                     widthPx = packet.widthPx,
@@ -253,6 +269,7 @@ class ControllerWebRtcSession(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
 
+        handler.removeCallbacks(helloWatchdog)
         handler.removeCallbacks(heartbeat)
         runCatching {
             peer.sendControl(
@@ -269,6 +286,7 @@ class ControllerWebRtcSession(
 
     companion object {
         private const val HEARTBEAT_MS = 5_000L
+        private const val HELLO_TIMEOUT_MS = 30_000L
         private const val MAX_REMOTE_TEXT_CHARS = 500
     }
 }
