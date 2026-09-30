@@ -13,6 +13,7 @@ interface PairingGateway {
     suspend fun redeemCode(code: String): PairRequest
     suspend fun approve(sessionId: String)
     suspend fun markScreenReady(sessionId: String)
+    suspend fun markLive(sessionId: String)
     suspend fun close(sessionId: String)
 
     fun observeSession(

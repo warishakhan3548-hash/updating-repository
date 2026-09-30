@@ -56,6 +56,10 @@ class FirebasePairingGateway(
         callSessionFunction("markScreenReady", sessionId)
     }
 
+    override suspend fun markLive(sessionId: String) {
+        callSessionFunction("markSessionLive", sessionId)
+    }
+
     override suspend fun close(sessionId: String) {
         callSessionFunction("closePairingSession", sessionId)
     }

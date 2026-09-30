@@ -1,6 +1,9 @@
 package com.aaris.remoteassist.webrtc
 
 import android.content.Context
+import android.hardware.display.DisplayManager
+import android.os.Handler
+import android.os.Looper
 import com.aaris.remoteassist.accessibility.AssistAccessibilityService
 import com.aaris.remoteassist.capture.CaptureProfile
 import com.aaris.remoteassist.capture.ProjectionGrant
@@ -10,9 +13,9 @@ import com.aaris.remoteassist.control.ControlProtocol
 import com.aaris.remoteassist.session.LiveLease
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionRuntime
-import org.webrtc.VideoTrack
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
+import org.webrtc.VideoTrack
 
 class HostWebRtcSession(
     context: Context,
@@ -30,6 +33,9 @@ class HostWebRtcSession(
 
     private val appContext = context.applicationContext
     private val closed = AtomicBoolean(false)
+    private val displayManager =
+        appContext.getSystemService(DisplayManager::class.java)
+    private val displayHandler = Handler(Looper.getMainLooper())
 
     @Volatile
     private var profile = CaptureProfile.current(appContext)
@@ -61,8 +67,22 @@ class HostWebRtcSession(
         onProjectionStopped = listener::onProjectionStopped
     )
 
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+
+        override fun onDisplayChanged(displayId: Int) {
+            refreshDisplayProfile()
+        }
+    }
+
     fun start() {
         check(!closed.get())
+
+        displayManager.registerDisplayListener(
+            displayListener,
+            displayHandler
+        )
 
         peer.addLocalVideoTrack(capture.videoTrack)
         capture.start(profile)
@@ -79,10 +99,8 @@ class HostWebRtcSession(
         capture.update(latest)
 
         val currentLease = lease ?: return
-        val rotated = SessionRuntime.rotateDisplayGeneration(
-            sessionId = sessionId,
-            leaseSecret = currentLease.leaseSecret,
-            generation = currentLease.displayGeneration + 1
+        val rotated = SessionCoordinator.bumpDisplayGeneration(
+            sessionId
         ) ?: return
 
         lease = rotated
@@ -117,9 +135,12 @@ class HostWebRtcSession(
                     sessionId = sessionId,
                     leaseSecret = currentLease.leaseSecret
                 )?.let { lease = it }
+
+                refreshDisplayProfile()
             }
 
-            ControlPacket.Disconnect -> listener.onRemoteDisconnect()
+            ControlPacket.Disconnect ->
+                listener.onRemoteDisconnect()
 
             is ControlPacket.Tap,
             is ControlPacket.LongPress,
@@ -150,6 +171,9 @@ class HostWebRtcSession(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
 
+        runCatching {
+            displayManager.unregisterDisplayListener(displayListener)
+        }
         runCatching { peer.close() }
         runCatching { capture.close() }
 

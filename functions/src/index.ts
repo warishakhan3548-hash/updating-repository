@@ -487,3 +487,51 @@ export const closePairingSession = onCall(
     return { ok: true };
   }
 );
+
+
+export const markSessionLive = onCall(
+  {
+    secrets: [PAIRING_PEPPER],
+    enforceAppCheck: true
+  },
+  async (request) => {
+    const hostUid = requireUid(request.auth?.uid);
+    const sessionId = requireString(
+      request.data?.sessionId,
+      "sessionId"
+    );
+    const ref = getDatabase().ref("sessions/" + sessionId);
+    const snap = await ref.get();
+
+    if (!snap.exists()) {
+      throw new HttpsError("not-found", "Session not found.");
+    }
+
+    const session = snap.val() as {
+      hostUid?: string;
+      controllerUid?: string;
+      state?: SessionState;
+    };
+
+    if (session.hostUid !== hostUid) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only the sharing phone can mark the session live."
+      );
+    }
+
+    if (!session.controllerUid || session.state !== "SCREEN_READY") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Session is not ready for live transport."
+      );
+    }
+
+    await ref.update({
+      state: "LIVE" satisfies SessionState,
+      liveAtMs: Date.now()
+    });
+
+    return { ok: true };
+  }
+);

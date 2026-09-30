@@ -75,6 +75,31 @@ object SessionCoordinator {
     }
 
     @Synchronized
+    fun bumpDisplayGeneration(sessionId: String): LiveLease? {
+        val current = machine.snapshot()
+        if (current.sessionId != sessionId) return null
+        if (
+            current.state != SessionState.LIVE &&
+            current.state != SessionState.CONNECTING
+        ) {
+            return null
+        }
+
+        val lease = SessionRuntime.currentLease() ?: return null
+        val updatedSnapshot = machine.bumpDisplayGeneration(
+            System.nanoTime() / 1_000_000L
+        )
+        val updatedLease = SessionRuntime.rotateDisplayGeneration(
+            sessionId = sessionId,
+            leaseSecret = lease.leaseSecret,
+            generation = updatedSnapshot.displayGeneration
+        )
+        CommandGate.reset()
+        publish(updatedSnapshot)
+        return updatedLease
+    }
+
+    @Synchronized
     fun close(sessionId: String? = null): SessionSnapshot {
         val current = machine.snapshot()
         if (

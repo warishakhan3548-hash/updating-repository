@@ -53,7 +53,7 @@ class WebRtcPeer(
         check(!closed.get()) { "WebRTC peer is closed" }
         signaling.start(this)
 
-        if (role == PeerRole.CONTROLLER) {
+        if (role == PeerRole.HOST) {
             bindControlChannel(
                 peerConnection.createDataChannel(
                     CONTROL_CHANNEL,
@@ -105,7 +105,7 @@ class WebRtcPeer(
                     flushPendingCandidates()
 
                     if (
-                        role == PeerRole.HOST &&
+                        role == PeerRole.CONTROLLER &&
                         sessionDescription.type == SessionDescription.Type.OFFER
                     ) {
                         createAnswer()
