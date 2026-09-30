@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Aaris Remote</string>
+    <string name="accessibility_description">Allows remote gestures only during a visible, user-approved live support session.</string>
+</resources>
