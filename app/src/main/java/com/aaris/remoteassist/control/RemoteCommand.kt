@@ -38,7 +38,7 @@ data class SwipeCommand(
     val durationMs: Long
 ) : RemoteCommand
 
-enum class GlobalAction { BACK, HOME }
+enum class GlobalAction { BACK, HOME, RECENTS }
 
 data class GlobalActionCommand(
     override val sessionId: String,
