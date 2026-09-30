@@ -5,7 +5,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 ## Product contract
 
 - Home stays simple: only Connect and Share are primary actions.
-- Accessibility is a one-time setup, but it never grants unattended remote access by itself.
+- Share creates the one-time code immediately; Accessibility setup is requested only after the sharing phone explicitly taps START, then the flow resumes automatically on return.
+- Accessibility never grants unattended remote access by itself.
 - Every screen-share session uses Android's MediaProjection consent.
 - A sharing phone explicitly approves every new controller request.
 - Pairing codes are five-minute, single-controller and one-time; shared messages also carry an `aarisremote://connect` join link that prefills the code but still requires START.
@@ -53,7 +54,7 @@ The Gradle Google Services plugin is applied only when `google-services.json` ex
 
 Direct WebRTC works well on many networks, but carrier-grade NAT and symmetric NAT require a TURN relay for TeamViewer-class connection reliability.
 
-Aaris Remote 0.5.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
+Aaris Remote 0.7.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
 
 Configure these environment values on the deployed Functions runtime:
 
