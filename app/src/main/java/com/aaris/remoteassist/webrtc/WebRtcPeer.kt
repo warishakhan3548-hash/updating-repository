@@ -1,6 +1,8 @@
 package com.aaris.remoteassist.webrtc
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
@@ -13,6 +15,11 @@ import org.webrtc.VideoTrack
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class WebRtcPeer(
     context: Context,
@@ -32,6 +39,9 @@ class WebRtcPeer(
     private val appContext = context.applicationContext
     private val factory = WebRtcRuntime.factory(appContext)
     private val closed = AtomicBoolean(false)
+    private val started = AtomicBoolean(false)
+    private val handler = Handler(Looper.getMainLooper())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pendingRemoteCandidates = ArrayDeque<IceCandidate>()
 
     @Volatile
@@ -42,7 +52,7 @@ class WebRtcPeer(
 
     private val peerConnection: PeerConnection = checkNotNull(
         factory.createPeerConnection(
-            createRtcConfiguration(),
+            createRtcConfiguration(IceServerProvider.fallbackServers()),
             this
         )
     ) {
@@ -51,6 +61,27 @@ class WebRtcPeer(
 
     fun start() {
         check(!closed.get()) { "WebRTC peer is closed" }
+        check(started.compareAndSet(false, true)) {
+            "WebRTC peer already started"
+        }
+
+        scope.launch {
+            val iceServers = IceServerProvider.load()
+            handler.post {
+                if (closed.get()) return@post
+
+                runCatching {
+                    peerConnection.setConfiguration(
+                        createRtcConfiguration(iceServers)
+                    )
+                    startSignaling()
+                }.onFailure(listener::onError)
+            }
+        }
+    }
+
+    private fun startSignaling() {
+        if (closed.get()) return
         signaling.start(this)
 
         if (role == PeerRole.HOST) {
@@ -260,6 +291,9 @@ class WebRtcPeer(
         }
         controlChannel = null
 
+        scope.cancel()
+        handler.removeCallbacksAndMessages(null)
+
         runCatching { peerConnection.close() }
         runCatching { peerConnection.dispose() }
 
@@ -398,16 +432,9 @@ class WebRtcPeer(
         pending.forEach(peerConnection::addIceCandidate)
     }
 
-    private fun createRtcConfiguration(): PeerConnection.RTCConfiguration {
-        val iceServers = listOf(
-            PeerConnection.IceServer.builder(
-                "stun:stun.l.google.com:19302"
-            ).createIceServer(),
-            PeerConnection.IceServer.builder(
-                "stun:stun1.l.google.com:19302"
-            ).createIceServer()
-        )
-
+    private fun createRtcConfiguration(
+        iceServers: List<PeerConnection.IceServer>
+    ): PeerConnection.RTCConfiguration {
         return PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy =
