@@ -2,8 +2,6 @@ package com.aaris.remoteassist.ui
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
@@ -11,8 +9,8 @@ import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
-import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -33,11 +31,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 class MainActivity : Activity() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val gateway by lazy { FirebasePairingGateway(this) }
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main
+    )
+    private val gateway by lazy {
+        FirebasePairingGateway(this)
+    }
 
-    private lateinit var codeInput: EditText
-    private lateinit var codeOutput: TextView
     private lateinit var status: TextView
     private lateinit var connectButton: Button
     private lateinit var shareButton: Button
@@ -61,11 +61,15 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+
         if (
             prefs.getBoolean(KEY_PENDING_SHARE, false) &&
             PermissionGate.isAccessibilityEnabled(this)
         ) {
-            prefs.edit().putBoolean(KEY_PENDING_SHARE, false).apply()
+            prefs.edit()
+                .putBoolean(KEY_PENDING_SHARE, false)
+                .apply()
+
             SessionCoordinator.prepareReady()
             beginShare()
         }
@@ -84,37 +88,165 @@ class MainActivity : Activity() {
         resultCode: Int,
         data: Intent?
     ) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_MEDIA_PROJECTION) return
+        super.onActivityResult(
+            requestCode,
+            resultCode,
+            data
+        )
+
+        if (requestCode != REQUEST_MEDIA_PROJECTION) {
+            return
+        }
 
         val sessionId = pendingProjectionSessionId
         pendingProjectionSessionId = null
 
-        if (sessionId == null || resultCode != RESULT_OK || data == null) {
+        if (
+            sessionId == null ||
+            resultCode != RESULT_OK ||
+            data == null
+        ) {
             if (sessionId != null) {
-                scope.launch { runCatching { gateway.close(sessionId) } }
+                scope.launch {
+                    runCatching {
+                        gateway.close(sessionId)
+                    }
+                }
                 SessionCoordinator.close(sessionId)
             }
-            status.text = "Screen sharing was not started."
+
+            status.text =
+                "Screen sharing was not started."
             return
         }
 
         startForegroundService(
-            Intent(this, ScreenShareService::class.java).apply {
+            Intent(
+                this,
+                ScreenShareService::class.java
+            ).apply {
                 action = ScreenShareService.ACTION_START
-                putExtra(ScreenShareService.EXTRA_SESSION_ID, sessionId)
-                putExtra(ScreenShareService.EXTRA_RESULT_CODE, resultCode)
-                putExtra(ScreenShareService.EXTRA_CAPTURE_DATA, data)
+                putExtra(
+                    ScreenShareService.EXTRA_SESSION_ID,
+                    sessionId
+                )
+                putExtra(
+                    ScreenShareService.EXTRA_RESULT_CODE,
+                    resultCode
+                )
+                putExtra(
+                    ScreenShareService.EXTRA_CAPTURE_DATA,
+                    data
+                )
             }
         )
-        status.text = "Starting secure connection…"
+
+        status.text =
+            "Starting secure connection…"
+    }
+
+    private fun showConnectDialog() {
+        val density = resources.displayMetrics.density
+
+        val input = EditText(this).apply {
+            hint = "000 000"
+            gravity = Gravity.CENTER
+            inputType = InputType.TYPE_CLASS_NUMBER
+            textSize = 24f
+            letterSpacing = 0.12f
+            isSingleLine = true
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            setPadding(
+                (18 * density).toInt(),
+                (10 * density).toInt(),
+                (18 * density).toInt(),
+                (10 * density).toInt()
+            )
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (24 * density).toInt(),
+                0,
+                (24 * density).toInt(),
+                0
+            )
+            addView(
+                input,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Connect")
+            .setMessage(
+                "Enter the 6-digit code from your friend."
+            )
+            .setView(container)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Connect", null)
+            .create()
+
+        dialog.setOnShowListener {
+            fun submit() {
+                val code = PairingCode.normalize(
+                    input.text.toString()
+                )
+
+                if (code == null) {
+                    input.error = "Enter all 6 digits"
+                    return
+                }
+
+                dialog.dismiss()
+                connect(code)
+            }
+
+            dialog.getButton(
+                AlertDialog.BUTTON_POSITIVE
+            ).setOnClickListener {
+                submit()
+            }
+
+            input.setOnEditorActionListener {
+                    _,
+                    actionId,
+                    _ ->
+                if (
+                    actionId ==
+                    EditorInfo.IME_ACTION_DONE
+                ) {
+                    submit()
+                    true
+                } else {
+                    false
+                }
+            }
+
+            input.requestFocus()
+            dialog.window?.setSoftInputMode(
+                WindowManager.LayoutParams
+                    .SOFT_INPUT_STATE_ALWAYS_VISIBLE
+            )
+        }
+
+        dialog.show()
     }
 
     private fun requestShare() {
         if (!PermissionGate.isAccessibilityEnabled(this)) {
-            prefs.edit().putBoolean(KEY_PENDING_SHARE, true).apply()
+            prefs.edit()
+                .putBoolean(KEY_PENDING_SHARE, true)
+                .apply()
+
             SessionCoordinator.markSetupRequired()
-            status.text = "Turn on Aaris Remote accessibility once, then come back."
+            status.text =
+                "One-time setup: turn on Aaris Remote accessibility, then return."
+
             PermissionGate.openAccessibilitySettings(this)
             return
         }
@@ -125,70 +257,172 @@ class MainActivity : Activity() {
 
     private fun beginShare() {
         setButtonsEnabled(false)
-        status.text = "Creating secure one-time code…"
+        status.text =
+            "Creating a secure one-time code…"
 
         scope.launch {
-            runCatching { gateway.createShareTicket() }
-                .onSuccess { ticket ->
+            if (!prepareForNewSession()) {
+                setButtonsEnabled(true)
+                return@launch
+            }
+
+            runCatching {
+                gateway.createShareTicket()
+            }.onSuccess { ticket ->
+                runCatching {
+                    SessionCoordinator.transition(
+                        ticket.sessionId,
+                        SessionState.CODE_ACTIVE
+                    )
+                }.onFailure { error ->
                     setButtonsEnabled(true)
-                    runCatching {
-                        SessionCoordinator.transition(
-                            ticket.sessionId,
-                            SessionState.CODE_ACTIVE
-                        )
-                    }
-                    codeOutput.visibility = View.VISIBLE
-                    codeOutput.text = PairingCode.display(ticket.code)
-                    status.text = "Tap the code to copy. It expires shortly and works once."
-                    observeHostSession(ticket.sessionId)
+                    showBackendError(error)
+                    return@onSuccess
                 }
-                .onFailure {
-                    setButtonsEnabled(true)
-                    showBackendError(it)
-                }
+
+                setButtonsEnabled(true)
+                observeHostSession(ticket.sessionId)
+
+                val displayCode =
+                    PairingCode.display(ticket.code)
+
+                status.text =
+                    "Code $displayCode • waiting for your friend…"
+
+                sharePairingCode(
+                    displayCode
+                )
+            }.onFailure {
+                setButtonsEnabled(true)
+                showBackendError(it)
+            }
         }
     }
 
-    private fun connect() {
-        val code = PairingCode.normalize(codeInput.text.toString())
-        if (code == null) {
-            toast("Enter the 6-digit code")
-            return
+    private fun connect(code: String) {
+        setButtonsEnabled(false)
+        status.text =
+            "Finding your friend's phone…"
+
+        scope.launch {
+            if (!prepareForNewSession()) {
+                setButtonsEnabled(true)
+                return@launch
+            }
+
+            runCatching {
+                gateway.redeemCode(code)
+            }.onSuccess { request ->
+                runCatching {
+                    SessionCoordinator.transition(
+                        request.sessionId,
+                        SessionState.PAIR_PENDING
+                    )
+                }.onFailure { error ->
+                    setButtonsEnabled(true)
+                    showBackendError(error)
+                    return@onSuccess
+                }
+
+                setButtonsEnabled(true)
+
+                startActivity(
+                    Intent(
+                        this@MainActivity,
+                        RemoteControlActivity::class.java
+                    ).putExtra(
+                        RemoteControlActivity.EXTRA_SESSION_ID,
+                        request.sessionId
+                    )
+                )
+            }.onFailure {
+                setButtonsEnabled(true)
+                showBackendError(it)
+            }
+        }
+    }
+
+    private suspend fun prepareForNewSession(): Boolean {
+        val current = SessionCoordinator.snapshot()
+
+        if (
+            current.state == SessionState.LIVE ||
+            current.state == SessionState.CONNECTING ||
+            current.state == SessionState.SCREEN_CONSENT
+        ) {
+            status.text =
+                "A remote-support session is already active."
+            return false
+        }
+
+        if (
+            current.state == SessionState.CODE_ACTIVE ||
+            current.state == SessionState.PAIR_PENDING ||
+            current.state == SessionState.HOST_APPROVED
+        ) {
+            current.sessionId?.let { oldSessionId ->
+                runCatching {
+                    gateway.close(oldSessionId)
+                }
+            }
+
+            hostObserver?.close()
+            hostObserver = null
+            approvalDialogSessionId = null
+            SessionCoordinator.reset()
         }
 
         SessionCoordinator.prepareReady()
-        setButtonsEnabled(false)
-        status.text = "Finding your friend's phone…"
+        return true
+    }
 
-        scope.launch {
-            runCatching { gateway.redeemCode(code) }
-                .onSuccess { request ->
-                    setButtonsEnabled(true)
-                    runCatching {
-                        SessionCoordinator.transition(
-                            request.sessionId,
-                            SessionState.PAIR_PENDING
-                        )
-                    }
-                    startActivity(
-                        Intent(
-                            this@MainActivity,
-                            RemoteControlActivity::class.java
-                        ).putExtra(
-                            RemoteControlActivity.EXTRA_SESSION_ID,
-                            request.sessionId
-                        )
-                    )
-                }
-                .onFailure {
-                    setButtonsEnabled(true)
-                    showBackendError(it)
-                }
+    private fun sharePairingCode(
+        displayCode: String
+    ) {
+        val message = buildString {
+            appendLine("Aaris Remote")
+            appendLine()
+            appendLine(
+                "Connection code: $displayCode"
+            )
+            appendLine()
+            append(
+                "Open Aaris Remote, tap Connect, and enter this code. "
+            )
+            append(
+                "The code expires shortly and works once."
+            )
+        }
+
+        val sendIntent = Intent(
+            Intent.ACTION_SEND
+        ).apply {
+            type = "text/plain"
+            putExtra(
+                Intent.EXTRA_TEXT,
+                message
+            )
+        }
+
+        runCatching {
+            startActivity(
+                Intent.createChooser(
+                    sendIntent,
+                    "Send connection code"
+                )
+            )
+        }.onFailure {
+            toast(
+                "Share this code: $displayCode"
+            )
         }
     }
 
-    private fun observeHostSession(sessionId: String) {
+    private fun observeHostSession(
+        sessionId: String
+    ) {
         hostObserver?.close()
+
         hostObserver = runCatching {
             gateway.observeSession(
                 sessionId = sessionId,
@@ -197,24 +431,29 @@ class MainActivity : Activity() {
                         when (backend.state) {
                             "PAIR_PENDING" -> {
                                 runCatching {
-                                    SessionCoordinator.transition(
-                                        sessionId,
-                                        SessionState.PAIR_PENDING
-                                    )
+                                    SessionCoordinator
+                                        .transition(
+                                            sessionId,
+                                            SessionState
+                                                .PAIR_PENDING
+                                        )
                                 }
                                 showApproval(sessionId)
                             }
+
                             "CLOSED" -> {
-                                SessionCoordinator.close(sessionId)
-                                codeOutput.visibility = View.GONE
-                                status.text = "Session ended."
+                                SessionCoordinator
+                                    .close(sessionId)
+                                status.text =
+                                    "Session ended."
                             }
                         }
                     }
                 },
                 onError = {
                     runOnUiThread {
-                        status.text = "Connection watcher stopped."
+                        status.text =
+                            "Connection watcher stopped."
                     }
                 }
             )
@@ -224,25 +463,49 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showApproval(sessionId: String) {
-        if (approvalDialogSessionId == sessionId) return
-        approvalDialogSessionId = sessionId
+    private fun showApproval(
+        sessionId: String
+    ) {
+        if (
+            approvalDialogSessionId ==
+            sessionId
+        ) {
+            return
+        }
+
+        approvalDialogSessionId =
+            sessionId
 
         AlertDialog.Builder(this)
-            .setTitle("Start remote support?")
+            .setTitle("Your friend is ready")
             .setMessage(
-                "A device entered your one-time code. Start only if you want to share and control this phone now."
+                "Tap START to share and allow remote control now. You can stop the session any time."
             )
-            .setPositiveButton("START") { _, _ ->
+            .setPositiveButton("START") {
+                    _,
+                    _ ->
                 approvalDialogSessionId = null
-                approveAndRequestScreen(sessionId)
+                approveAndRequestScreen(
+                    sessionId
+                )
             }
-            .setNegativeButton("DECLINE") { _, _ ->
+            .setNegativeButton("DECLINE") {
+                    _,
+                    _ ->
                 approvalDialogSessionId = null
-                scope.launch { runCatching { gateway.close(sessionId) } }
-                SessionCoordinator.close(sessionId)
-                codeOutput.visibility = View.GONE
-                status.text = "Connection declined."
+
+                scope.launch {
+                    runCatching {
+                        gateway.close(sessionId)
+                    }
+                }
+
+                SessionCoordinator.close(
+                    sessionId
+                )
+
+                status.text =
+                    "Connection declined."
             }
             .setOnCancelListener {
                 approvalDialogSessionId = null
@@ -250,160 +513,214 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun approveAndRequestScreen(sessionId: String) {
-        status.text = "Preparing screen share…"
-        scope.launch {
-            runCatching { gateway.approve(sessionId) }
-                .onSuccess {
-                    runCatching {
-                        SessionCoordinator.transition(
-                            sessionId,
-                            SessionState.HOST_APPROVED
-                        )
-                    }
-                    pendingProjectionSessionId = sessionId
-                    val projectionManager =
-                        getSystemService(MediaProjectionManager::class.java)
-                    startActivityForResult(
-                        projectionManager.createScreenCaptureIntent(),
-                        REQUEST_MEDIA_PROJECTION
-                    )
+    private fun approveAndRequestScreen(
+        sessionId: String
+    ) {
+        if (
+            !PermissionGate
+                .isAccessibilityEnabled(this)
+        ) {
+            scope.launch {
+                runCatching {
+                    gateway.close(sessionId)
                 }
-                .onFailure { showBackendError(it) }
-        }
-    }
+            }
 
-    private fun copyCode() {
-        val text = codeOutput.text.toString()
-            .filter(Char::isDigit)
-        if (text.length != 6) return
-
-        getSystemService(ClipboardManager::class.java)
-            .setPrimaryClip(
-                ClipData.newPlainText("Aaris Remote code", text)
+            SessionCoordinator.close(
+                sessionId
             )
-        status.text = "Code copied."
+
+            status.text =
+                "Accessibility was turned off. Tap Share and enable it again."
+            return
+        }
+
+        status.text =
+            "Preparing screen share…"
+
+        scope.launch {
+            runCatching {
+                gateway.approve(sessionId)
+            }.onSuccess {
+                runCatching {
+                    SessionCoordinator.transition(
+                        sessionId,
+                        SessionState.HOST_APPROVED
+                    )
+                }.onFailure { error ->
+                    showBackendError(error)
+                    return@onSuccess
+                }
+
+                pendingProjectionSessionId =
+                    sessionId
+
+                val projectionManager =
+                    getSystemService(
+                        MediaProjectionManager::class.java
+                    )
+
+                startActivityForResult(
+                    projectionManager
+                        .createScreenCaptureIntent(),
+                    REQUEST_MEDIA_PROJECTION
+                )
+            }.onFailure {
+                showBackendError(it)
+            }
+        }
     }
 
     private fun buildUi(): LinearLayout {
-        val density = resources.displayMetrics.density
-        fun dp(value: Int) = (value * density).toInt()
+        val density =
+            resources.displayMetrics.density
+
+        fun dp(value: Int): Int =
+            (value * density).toInt()
 
         val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(52), dp(24), dp(24))
-        }
-
-        root.addView(TextView(this).apply {
-            text = "Aaris Remote"
-            textSize = 28f
-            setTypeface(typeface, Typeface.BOLD)
-        }, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
-
-        root.addView(TextView(this).apply {
-            text = "Connect with a one-time code"
-            textSize = 15f
-            setPadding(0, dp(8), 0, dp(28))
-        })
-
-        codeInput = EditText(this).apply {
-            hint = "000 000"
-            gravity = Gravity.CENTER
-            inputType = InputType.TYPE_CLASS_NUMBER
-            textSize = 24f
-            letterSpacing = 0.12f
-            isSingleLine = true
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            setOnEditorActionListener { _, actionId, _ ->
-                if (actionId == EditorInfo.IME_ACTION_DONE) {
-                    connect()
-                    true
-                } else {
-                    false
-                }
-            }
+            orientation =
+                LinearLayout.VERTICAL
+            gravity =
+                Gravity.CENTER_HORIZONTAL
+            setPadding(
+                dp(24),
+                dp(52),
+                dp(24),
+                dp(24)
+            )
         }
 
         root.addView(
-            codeInput,
+            TextView(this).apply {
+                text = "Aaris Remote"
+                textSize = 28f
+                setTypeface(
+                    typeface,
+                    Typeface.BOLD
+                )
+            },
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(58)
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
             )
         )
 
-        connectButton = Button(this).apply {
-            text = "Connect"
-            isAllCaps = false
-            setOnClickListener { connect() }
+        root.addView(
+            TextView(this).apply {
+                text =
+                    "Remote help in two taps"
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    0,
+                    dp(8),
+                    0,
+                    dp(26)
+                )
+            }
+        )
+
+        val actions = LinearLayout(this).apply {
+            orientation =
+                LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
         }
 
-        root.addView(
+        connectButton =
+            Button(this).apply {
+                text = "Connect"
+                isAllCaps = false
+                setOnClickListener {
+                    showConnectDialog()
+                }
+            }
+
+        shareButton =
+            Button(this).apply {
+                text = "Share"
+                isAllCaps = false
+                setOnClickListener {
+                    requestShare()
+                }
+            }
+
+        actions.addView(
             connectButton,
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(58)
+                0,
+                dp(60),
+                1f
             ).apply {
-                topMargin = dp(12)
+                marginEnd = dp(6)
             }
         )
 
-        shareButton = Button(this).apply {
-            text = "Share my phone"
-            isAllCaps = false
-            setOnClickListener { requestShare() }
-        }
-
-        root.addView(
+        actions.addView(
             shareButton,
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(58)
+                0,
+                dp(60),
+                1f
             ).apply {
-                topMargin = dp(18)
+                marginStart = dp(6)
             }
         )
 
-        codeOutput = TextView(this).apply {
-            visibility = View.GONE
-            gravity = Gravity.CENTER
-            textSize = 32f
-            setPadding(0, dp(20), 0, dp(6))
-            setOnClickListener { copyCode() }
-        }
-
-        root.addView(codeOutput)
+        root.addView(
+            actions,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
 
         status = TextView(this).apply {
+            text =
+                "Choose Connect or Share."
             gravity = Gravity.CENTER
             textSize = 14f
-            setPadding(0, dp(18), 0, 0)
+            setPadding(
+                0,
+                dp(24),
+                0,
+                0
+            )
         }
 
         root.addView(status)
-
         return root
     }
 
-    private fun setButtonsEnabled(enabled: Boolean) {
-        connectButton.isEnabled = enabled
-        shareButton.isEnabled = enabled
+    private fun setButtonsEnabled(
+        enabled: Boolean
+    ) {
+        connectButton.isEnabled =
+            enabled
+        shareButton.isEnabled =
+            enabled
     }
 
-    private fun showBackendError(error: Throwable) {
-        status.text = error.message ?: "Could not connect. Try again."
+    private fun showBackendError(
+        error: Throwable
+    ) {
+        status.text =
+            error.message
+                ?: "Could not connect. Try again."
     }
 
     private fun toast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        Toast.makeText(
+            this,
+            message,
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     companion object {
-        private const val KEY_PENDING_SHARE = "pending_share"
-        private const val REQUEST_MEDIA_PROJECTION = 7001
+        private const val KEY_PENDING_SHARE =
+            "pending_share"
+        private const val REQUEST_MEDIA_PROJECTION =
+            7001
     }
 }
