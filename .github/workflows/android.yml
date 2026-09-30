@@ -21,6 +21,11 @@ jobs:
         with:
           gradle-version: "9.6.0"
       - run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AarisRemote-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
 
   functions:
     runs-on: ubuntu-latest
