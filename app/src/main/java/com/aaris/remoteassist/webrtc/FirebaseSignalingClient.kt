@@ -43,6 +43,8 @@ class FirebaseSignalingClient(
     private var descriptionListener: ValueEventListener? = null
     private var candidateListener: ChildEventListener? = null
     private var presenceListener: ValueEventListener? = null
+    private var remotePresenceReference: DatabaseReference? = null
+    private var remotePresenceListener: ValueEventListener? = null
     private var lastRemoteDescription: String? = null
 
     override fun start(listener: SignalingClient.Listener) {
@@ -115,21 +117,36 @@ class FirebaseSignalingClient(
 
             val presenceListener = object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
+                    val previousRef = remotePresenceReference
+                    val previousListener = remotePresenceListener
+                    if (previousRef != null && previousListener != null) {
+                        previousRef.removeEventListener(previousListener)
+                    }
+                    remotePresenceReference = null
+                    remotePresenceListener = null
+
                     val remoteUid = snapshot.getValue(String::class.java)
                     if (remoteUid.isNullOrBlank()) {
                         listener.onRemotePresence(false)
                         return
                     }
 
-                    root.child("presence")
-                        .child(remoteUid)
-                        .get()
-                        .addOnSuccessListener { presence ->
+                    val remoteRef = root.child("presence").child(remoteUid)
+                    val remoteListener = object : ValueEventListener {
+                        override fun onDataChange(presence: DataSnapshot) {
                             listener.onRemotePresence(
                                 presence.getValue(Boolean::class.java) == true
                             )
                         }
-                        .addOnFailureListener(listener::onError)
+
+                        override fun onCancelled(error: DatabaseError) {
+                            listener.onError(error.toException())
+                        }
+                    }
+
+                    remotePresenceReference = remoteRef
+                    remotePresenceListener = remoteListener
+                    remoteRef.addValueEventListener(remoteListener)
                 }
 
                 override fun onCancelled(error: DatabaseError) {
@@ -200,6 +217,14 @@ class FirebaseSignalingClient(
                 if (role == PeerRole.HOST) "controllerUid" else "hostUid"
             root.child(remoteUidField).removeEventListener(presenceListener)
         }
+
+        val remoteRef = remotePresenceReference
+        val remoteListener = remotePresenceListener
+        if (remoteRef != null && remoteListener != null) {
+            remoteRef.removeEventListener(remoteListener)
+        }
+        remotePresenceReference = null
+        remotePresenceListener = null
 
         val uid = auth.currentUser?.uid
         if (uid != null) {
