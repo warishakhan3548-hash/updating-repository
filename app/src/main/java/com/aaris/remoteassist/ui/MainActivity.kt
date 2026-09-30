@@ -25,6 +25,7 @@ import com.aaris.remoteassist.accessibility.PermissionGate
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.pairing.PairingCode
+import com.aaris.remoteassist.pairing.PairingLink
 import com.aaris.remoteassist.pairing.ShareTicket
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
@@ -79,6 +80,13 @@ class MainActivity : ComponentActivity() {
             SessionCoordinator.prepareReady()
         }
         refreshIdleUi()
+        handleIncomingJoin(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingJoin(intent)
     }
 
     private fun installBackHandler() {
@@ -219,6 +227,7 @@ class MainActivity : ComponentActivity() {
                     showShareCode(ticket)
                     observeHostSession(ticket.sessionId)
                     scheduleShareExpiry(ticket)
+                    sendCode(ticket.code)
                 }
                 .onFailure {
                     setButtonsEnabled(true)
@@ -227,7 +236,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun showConnectDialog() {
+    private fun handleIncomingJoin(source: Intent?) {
+        val code = PairingLink.parse(source?.dataString) ?: return
+        source?.setData(null)
+        showConnectDialog(code)
+    }
+
+    private fun showConnectDialog(initialCode: String? = null) {
         if (!isIdleForNewSession()) {
             toast("Finish the current session first")
             return
@@ -241,6 +256,11 @@ class MainActivity : ComponentActivity() {
             letterSpacing = 0.12f
             isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_DONE
+        }
+
+        initialCode?.let { code ->
+            input.setText(code)
+            input.setSelection(input.text.length)
         }
 
         val dialog = AlertDialog.Builder(this)
@@ -510,8 +530,11 @@ class MainActivity : ComponentActivity() {
 
     private fun sendCode(code: String) {
         val plain = code.filter(Char::isDigit)
+        val joinLink = PairingLink.uri(plain)
         val message =
-            "Aaris Remote code: $plain\nOpen Aaris Remote → Connect → START."
+            "Aaris Remote code: $plain\n" +
+                "Tap to join: $joinLink\n" +
+                "Or open Aaris Remote → Connect → START."
 
         startActivity(
             Intent.createChooser(
