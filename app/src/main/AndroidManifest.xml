@@ -12,11 +12,12 @@
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:label="@string/app_name"
+        android:icon="@drawable/ic_app"
+        android:roundIcon="@drawable/ic_app"
         android:theme="@style/Theme.AarisRemote">
 
         <activity
             android:name=".ui.RemoteControlActivity"
-            android:screenOrientation="unspecified"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
             android:exported="false" />
 
