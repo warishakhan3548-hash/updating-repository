@@ -12,6 +12,7 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -34,6 +35,7 @@ android {
 
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
     implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
     implementation("com.google.firebase:firebase-auth")
@@ -43,4 +45,6 @@ dependencies {
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
 
     implementation("io.github.webrtc-sdk:android:150.7871.01")
+
+    testImplementation("junit:junit:4.13.2")
 }
