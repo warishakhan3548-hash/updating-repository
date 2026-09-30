@@ -152,7 +152,11 @@ class MainActivity : ComponentActivity() {
         data: Intent?
     ) {
         val sessionId = pendingProjectionSessionId
+            ?: prefs.getString(KEY_PENDING_PROJECTION_SESSION, null)
         pendingProjectionSessionId = null
+        prefs.edit()
+            .remove(KEY_PENDING_PROJECTION_SESSION)
+            .apply()
 
         if (sessionId == null || resultCode != RESULT_OK || data == null) {
             if (sessionId != null) {
@@ -489,6 +493,12 @@ class MainActivity : ComponentActivity() {
                     }
 
                     pendingProjectionSessionId = sessionId
+                    prefs.edit()
+                        .putString(
+                            KEY_PENDING_PROJECTION_SESSION,
+                            sessionId
+                        )
+                        .apply()
                     val projectionManager =
                         getSystemService(MediaProjectionManager::class.java)
                     screenCaptureLauncher.launch(
@@ -584,6 +594,7 @@ class MainActivity : ComponentActivity() {
         pendingProjectionSessionId = null
         prefs.edit()
             .remove(KEY_ACTIVE_HOST_SESSION)
+            .remove(KEY_PENDING_PROJECTION_SESSION)
             .apply()
 
         hostObserver?.close()
@@ -610,6 +621,8 @@ class MainActivity : ComponentActivity() {
             when (snapshot.state) {
                 SessionState.CODE_ACTIVE,
                 SessionState.PAIR_PENDING,
+                SessionState.HOST_APPROVED,
+                SessionState.SCREEN_CONSENT,
                 SessionState.CONNECTING,
                 SessionState.LIVE -> true
 
@@ -639,6 +652,9 @@ class MainActivity : ComponentActivity() {
                 "Share code is still active."
             SessionState.PAIR_PENDING ->
                 "A connection request is waiting."
+            SessionState.HOST_APPROVED,
+            SessionState.SCREEN_CONSENT ->
+                "Waiting for screen permission…"
             SessionState.CONNECTING ->
                 "Connecting phones…"
             SessionState.LIVE ->
@@ -708,28 +724,13 @@ class MainActivity : ComponentActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(52), dp(24), dp(24))
+            setPadding(dp(20), dp(32), dp(20), dp(20))
         }
 
-        root.addView(
-            TextView(this).apply {
-                text = "Aaris Remote"
-                textSize = 28f
-                setTypeface(typeface, Typeface.BOLD)
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        root.addView(
-            TextView(this).apply {
-                text = "Two taps. One secure session."
-                textSize = 15f
-                setPadding(0, dp(8), 0, dp(32))
-            }
-        )
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
 
         connectButton = Button(this).apply {
             text = "Connect"
@@ -738,14 +739,6 @@ class MainActivity : ComponentActivity() {
             setOnClickListener { showConnectDialog() }
         }
 
-        root.addView(
-            connectButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(64)
-            )
-        )
-
         shareButton = Button(this).apply {
             text = "Share"
             isAllCaps = false
@@ -753,23 +746,50 @@ class MainActivity : ComponentActivity() {
             setOnClickListener { requestShare() }
         }
 
-        root.addView(
-            shareButton,
+        actions.addView(
+            connectButton,
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(64)
+                0,
+                dp(64),
+                1f
             ).apply {
-                topMargin = dp(14)
+                marginEnd = dp(6)
             }
         )
 
+        actions.addView(
+            shareButton,
+            LinearLayout.LayoutParams(
+                0,
+                dp(64),
+                1f
+            ).apply {
+                marginStart = dp(6)
+            }
+        )
+
+        root.addView(
+            actions,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
         status = TextView(this).apply {
+            text = "Ready"
             gravity = Gravity.CENTER
             textSize = 14f
-            setPadding(0, dp(24), 0, 0)
+            setPadding(0, dp(20), 0, 0)
         }
 
-        root.addView(status)
+        root.addView(
+            status,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
         return root
     }
 
@@ -790,5 +810,7 @@ class MainActivity : ComponentActivity() {
         private const val KEY_PENDING_SHARE = "pending_share"
         private const val KEY_ACTIVE_HOST_SESSION =
             "active_host_session"
+        private const val KEY_PENDING_PROJECTION_SESSION =
+            "pending_projection_session"
     }
 }
