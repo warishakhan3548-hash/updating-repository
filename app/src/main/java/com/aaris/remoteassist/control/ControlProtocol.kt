@@ -55,6 +55,19 @@ sealed interface ControlPacket {
         val sequence: Long
     ) : ControlPacket
 
+    data class Recents(
+        val leaseSecret: Long,
+        val generation: Int,
+        val sequence: Long
+    ) : ControlPacket
+
+    data class Text(
+        val leaseSecret: Long,
+        val generation: Int,
+        val sequence: Long,
+        val text: String
+    ) : ControlPacket
+
     data object Disconnect : ControlPacket
 }
 
@@ -69,8 +82,21 @@ object ControlProtocol {
     private const val BACK: Byte = 6
     private const val HOME: Byte = 7
     private const val DISCONNECT: Byte = 8
+    private const val RECENTS: Byte = 9
+    private const val TEXT: Byte = 10
+
+    private const val MAX_TEXT_BYTES = 2048
 
     fun encode(packet: ControlPacket): ByteArray {
+        val textBytes = (packet as? ControlPacket.Text)
+            ?.text
+            ?.toByteArray(Charsets.UTF_8)
+        if (textBytes != null) {
+            require(textBytes.size <= MAX_TEXT_BYTES) {
+                "Remote text is too large"
+            }
+        }
+
         val size = when (packet) {
             is ControlPacket.Hello -> 2 + 8 + 4 + 4 + 4
             is ControlPacket.Heartbeat -> 2 + 8
@@ -78,7 +104,9 @@ object ControlProtocol {
             is ControlPacket.LongPress -> 2 + 8 + 4 + 8 + 2 + 2 + 2
             is ControlPacket.Swipe -> 2 + 8 + 4 + 8 + 2 + 2 + 2 + 2 + 2
             is ControlPacket.Back,
-            is ControlPacket.Home -> 2 + 8 + 4 + 8
+            is ControlPacket.Home,
+            is ControlPacket.Recents -> 2 + 8 + 4 + 8
+            is ControlPacket.Text -> 2 + 8 + 4 + 8 + 2 + checkNotNull(textBytes).size
             ControlPacket.Disconnect -> 2
         }
 
@@ -154,6 +182,25 @@ object ControlProtocol {
                 packet.generation,
                 packet.sequence
             )
+
+            is ControlPacket.Recents -> putCommandHeader(
+                buffer,
+                packet.leaseSecret,
+                packet.generation,
+                packet.sequence
+            )
+
+            is ControlPacket.Text -> {
+                putCommandHeader(
+                    buffer,
+                    packet.leaseSecret,
+                    packet.generation,
+                    packet.sequence
+                )
+                val bytes = checkNotNull(textBytes)
+                buffer.putShort(bytes.size.toShort())
+                buffer.put(bytes)
+            }
 
             ControlPacket.Disconnect -> Unit
         }
@@ -246,6 +293,32 @@ object ControlProtocol {
                     )
                 }
 
+                RECENTS -> {
+                    require(buffer.remaining() == 20)
+                    val header = readHeader(buffer)
+                    ControlPacket.Recents(
+                        header.leaseSecret,
+                        header.generation,
+                        header.sequence
+                    )
+                }
+
+                TEXT -> {
+                    require(buffer.remaining() >= 22)
+                    val header = readHeader(buffer)
+                    val length = buffer.short.toInt() and 0xffff
+                    require(length <= MAX_TEXT_BYTES)
+                    require(buffer.remaining() == length)
+                    val payload = ByteArray(length)
+                    buffer.get(payload)
+                    ControlPacket.Text(
+                        header.leaseSecret,
+                        header.generation,
+                        header.sequence,
+                        payload.toString(Charsets.UTF_8)
+                    )
+                }
+
                 DISCONNECT -> {
                     require(buffer.remaining() == 0)
                     ControlPacket.Disconnect
@@ -318,6 +391,22 @@ object ControlProtocol {
                 action = GlobalAction.HOME
             )
 
+            is ControlPacket.Recents -> GlobalActionCommand(
+                sessionId = sessionId,
+                leaseSecret = packet.leaseSecret,
+                generation = packet.generation,
+                sequence = packet.sequence,
+                action = GlobalAction.RECENTS
+            )
+
+            is ControlPacket.Text -> SetTextCommand(
+                sessionId = sessionId,
+                leaseSecret = packet.leaseSecret,
+                generation = packet.generation,
+                sequence = packet.sequence,
+                text = packet.text
+            )
+
             is ControlPacket.Hello,
             is ControlPacket.Heartbeat,
             ControlPacket.Disconnect -> null
@@ -366,6 +455,8 @@ object ControlProtocol {
         is ControlPacket.Swipe -> SWIPE
         is ControlPacket.Back -> BACK
         is ControlPacket.Home -> HOME
+        is ControlPacket.Recents -> RECENTS
+        is ControlPacket.Text -> TEXT
         ControlPacket.Disconnect -> DISCONNECT
     }
 }
