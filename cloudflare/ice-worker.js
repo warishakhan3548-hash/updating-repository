@@ -199,10 +199,12 @@ export default {
           Authorization: "Bearer " + env.TURN_KEY_SECRET,
           "Content-Type": "application/json"
         },
+        // Keep this request on the documented generate-ice-servers
+        // contract. Usage tagging belongs to the separate credentials
+        // generation endpoint and must not make connectivity depend on an
+        // optional field here.
         body: JSON.stringify({
-          ttl: 21600,
-          customIdentifier:
-            claims.sub + ":" + sessionId.slice(0, 8)
+          ttl: 21600
         })
       }
     );
