@@ -138,7 +138,7 @@ class RemoteControlActivity : ComponentActivity() {
         sessionDeadlineJob?.cancel()
         sessionDeadlineJob = null
 
-        rtcSession?.close()
+        rtcSession?.close(notifyRemote = false)
         rtcSession = null
 
         if (::renderer.isInitialized) {
