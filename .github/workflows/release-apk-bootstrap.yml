@@ -53,7 +53,7 @@ jobs:
           } > "$RUNNER_TEMP/release-key-info.txt"
 
       - name: Test, lint and assemble release
-        run: gradle :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease --stacktrace
+        run: gradle :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
 
       - name: Zipalign and sign release APK
         shell: bash
