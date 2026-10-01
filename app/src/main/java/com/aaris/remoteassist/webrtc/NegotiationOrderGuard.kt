@@ -1,20 +1,42 @@
 package com.aaris.remoteassist.webrtc
 
-internal class NegotiationOrderGuard {
+import java.util.ArrayDeque
+
+internal class NegotiationOrderGuard(
+    private val retiredCapacity: Int = 8
+) {
     private val lock = Any()
     private var remoteClientId: String? = null
     private var highestEpoch = 0L
+    private val retiredClientIds = ArrayDeque<String>()
+
+    init {
+        require(retiredCapacity > 0)
+    }
 
     fun accept(negotiationId: String): Boolean =
         synchronized(lock) {
-            val parsed = parse(negotiationId)
-
-            if (parsed == null) {
+            if (negotiationId == LEGACY_NEGOTIATION_ID) {
                 return@synchronized remoteClientId == null
             }
 
+            val parsed = parse(negotiationId)
+                ?: return@synchronized false
             val (clientId, epoch) = parsed
-            if (remoteClientId != clientId) {
+            val activeClient = remoteClientId
+
+            if (activeClient == null) {
+                remoteClientId = clientId
+                highestEpoch = epoch
+                return@synchronized true
+            }
+
+            if (activeClient != clientId) {
+                if (retiredClientIds.contains(clientId)) {
+                    return@synchronized false
+                }
+
+                retire(activeClient)
                 remoteClientId = clientId
                 highestEpoch = epoch
                 return@synchronized true
@@ -28,13 +50,19 @@ internal class NegotiationOrderGuard {
             true
         }
 
+    private fun retire(clientId: String) {
+        if (retiredClientIds.contains(clientId)) return
+
+        if (retiredClientIds.size >= retiredCapacity) {
+            retiredClientIds.removeFirst()
+        }
+        retiredClientIds.addLast(clientId)
+    }
+
     private fun parse(
         negotiationId: String
     ): Pair<String, Long>? {
-        if (
-            negotiationId.isBlank() ||
-            negotiationId == LEGACY_NEGOTIATION_ID
-        ) {
+        if (negotiationId.isBlank()) {
             return null
         }
 
@@ -47,6 +75,10 @@ internal class NegotiationOrderGuard {
         }
 
         val clientId = negotiationId.substring(0, separator)
+        if (clientId.length > MAX_CLIENT_ID_CHARS) {
+            return null
+        }
+
         val epoch = negotiationId
             .substring(separator + 1)
             .toLongOrNull()
@@ -54,5 +86,9 @@ internal class NegotiationOrderGuard {
 
         if (epoch <= 0L) return null
         return clientId to epoch
+    }
+
+    companion object {
+        private const val MAX_CLIENT_ID_CHARS = 64
     }
 }
