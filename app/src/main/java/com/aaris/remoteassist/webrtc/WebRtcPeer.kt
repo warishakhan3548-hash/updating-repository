@@ -135,6 +135,20 @@ class WebRtcPeer(
     fun requestIceRestart(): Boolean {
         if (closed.get() || role != PeerRole.HOST) return false
 
+        val nowMs = System.nanoTime() / 1_000_000L
+        while (true) {
+            val previous = lastIceRestartAtMs.get()
+            if (
+                previous != 0L &&
+                nowMs - previous < ICE_RESTART_MIN_INTERVAL_MS
+            ) {
+                return false
+            }
+            if (lastIceRestartAtMs.compareAndSet(previous, nowMs)) {
+                break
+            }
+        }
+
         scope.launch {
             val refreshed = IceServerProvider.loadConfig(
                 sessionId = sessionId,
@@ -601,6 +615,7 @@ class WebRtcPeer(
         private const val MAX_VIDEO_BITRATE_BPS = 2_500_000
         private const val MAX_VIDEO_FRAMERATE = 30
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L
+        private const val ICE_RESTART_MIN_INTERVAL_MS = 2_500L
         private const val INITIAL_ICE_RESTART_DELAY_MS = 1_500L
     }
 }
