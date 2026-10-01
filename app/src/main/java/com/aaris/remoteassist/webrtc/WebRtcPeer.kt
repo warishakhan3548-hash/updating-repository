@@ -252,9 +252,12 @@ class WebRtcPeer(
     }
 
     override fun onRemotePresence(online: Boolean) {
-        if (!online && role == PeerRole.CONTROLLER) {
-            publishPeerDisconnected()
-        }
+        // RTDB presence is signaling-plane telemetry, not transport truth.
+        // A temporary Firebase disconnect can flip presence false while the
+        // peer connection and ordered control channel are still healthy.
+        // Connectivity is therefore driven only by WebRTC + DataChannel.
+        @Suppress("UNUSED_VARIABLE")
+        val advisoryPresence = online
     }
 
     override fun onError(error: Throwable) {
