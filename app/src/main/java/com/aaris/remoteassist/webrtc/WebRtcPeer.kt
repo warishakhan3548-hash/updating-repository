@@ -537,6 +537,7 @@ class WebRtcPeer(
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy =
                 PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+            iceCandidatePoolSize = 2
         }
     }
 
