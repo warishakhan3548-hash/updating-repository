@@ -5,7 +5,8 @@ import java.io.Closeable
 data class BackendSession(
     val sessionId: String,
     val state: String,
-    val displayGeneration: Int
+    val displayGeneration: Int,
+    val deadlineAtEpochMs: Long? = null
 )
 
 interface PairingGateway {
