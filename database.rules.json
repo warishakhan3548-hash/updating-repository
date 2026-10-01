@@ -38,10 +38,6 @@
           ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 50000)"
         },
 
-        "controllerRestartRequest": {
-          ".write": "auth != null && root.child('sessions').child($sessionId).child('controllerUid').val() === auth.uid && (root.child('sessions').child($sessionId).child('state').val() === 'SCREEN_READY' || root.child('sessions').child($sessionId).child('state').val() === 'LIVE')",
-          ".validate": "newData.isString() && newData.val().length <= 100"
-        },
         "hostSignal": {
           ".write": "auth != null && root.child('sessions').child($sessionId).child('hostUid').val() === auth.uid && (root.child('sessions').child($sessionId).child('state').val() === 'SCREEN_READY' || root.child('sessions').child($sessionId).child('state').val() === 'LIVE')",
           ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 50000)"

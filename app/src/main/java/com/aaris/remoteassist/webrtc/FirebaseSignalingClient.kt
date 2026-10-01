@@ -20,8 +20,8 @@ class FirebaseSignalingClient(
 ) : SignalingClient {
     private val closed = AtomicBoolean(false)
     private val candidateSequence = AtomicLong(0L)
-    private val restartRequestSequence = AtomicLong(0L)
-    private val clientInstanceId =
+    @Volatile
+    private var clientInstanceId =
         java.util.UUID.randomUUID().toString()
     private val candidateGate =
         CandidatePublishGate<SignalCandidate>(MAX_CANDIDATE_SLOTS)
@@ -55,10 +55,10 @@ class FirebaseSignalingClient(
     private var presenceListener: ValueEventListener? = null
     private var remotePresenceReference: DatabaseReference? = null
     private var remotePresenceListener: ValueEventListener? = null
-    private var restartRequestListener: ValueEventListener? = null
     private var lastRemoteDescription: String? = null
-    private var lastRemoteRestartRequest: String? = null
-    private var remoteRestartSnapshotSeen = false
+
+    @Volatile
+    private var lastLocalDescription: SignalDescription? = null
 
     override fun start(listener: SignalingClient.Listener) {
         check(!closed.get()) { "Signaling client is closed" }
@@ -175,41 +175,6 @@ class FirebaseSignalingClient(
             root.child(remoteUidField).addValueEventListener(presenceListener)
         }
 
-        if (role == PeerRole.HOST) {
-            val restartListener = object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    val request = snapshot.getValue(String::class.java)
-
-                    // Ignore the first cached value from a previous transport.
-                    // Only a fresh controller-side network handoff should
-                    // trigger a new host ICE negotiation.
-                    if (!remoteRestartSnapshotSeen) {
-                        remoteRestartSnapshotSeen = true
-                        lastRemoteRestartRequest = request
-                        return
-                    }
-
-                    if (
-                        request.isNullOrBlank() ||
-                        request == lastRemoteRestartRequest
-                    ) {
-                        return
-                    }
-
-                    lastRemoteRestartRequest = request
-                    listener.onRemoteIceRestartRequested()
-                }
-
-                override fun onCancelled(error: DatabaseError) {
-                    // Advisory recovery hint only. The existing WebRTC
-                    // watchdog remains authoritative if RTDB is unavailable.
-                }
-            }
-            restartRequestListener = restartListener
-            root.child(CONTROLLER_RESTART_REQUEST)
-                .addValueEventListener(restartListener)
-        }
-
         setPresence(true)
     }
 
@@ -246,6 +211,9 @@ class FirebaseSignalingClient(
                 if (closed.get()) {
                     return@addOnSuccessListener
                 }
+                if (role == PeerRole.CONTROLLER) {
+                    lastLocalDescription = description
+                }
 
                 candidateGate
                     .markDescriptionPublished(negotiationEpoch)
@@ -269,14 +237,31 @@ class FirebaseSignalingClient(
     override fun requestRemoteIceRestart() {
         if (closed.get() || role != PeerRole.CONTROLLER) return
 
-        val requestId =
-            "$clientInstanceId:${restartRequestSequence.incrementAndGet()}"
+        val previousAnswer = lastLocalDescription ?: return
+        if (!previousAnswer.type.equals("answer", ignoreCase = true)) {
+            return
+        }
 
-        // Do not make this advisory hint fatal. Firebase may be briefly
-        // offline during the Wi-Fi/mobile handoff; its local write queue
-        // can publish the request after connectivity returns.
-        root.child(CONTROLLER_RESTART_REQUEST)
-            .setValue(requestId)
+        // Re-publish the last valid answer under a fresh signaling
+        // identity without mutating CandidatePublishGate. This avoids
+        // clearing candidates if a real ICE negotiation is already in flight.
+        // Hosts already interpret a fresh ANSWER received while STABLE as a
+        // bounded ICE-restart request, including older compatible hosts.
+        clientInstanceId = java.util.UUID.randomUUID().toString()
+        val recoveryEpoch =
+            candidateGate.currentEpoch().coerceAtLeast(1L)
+        val payload = JSONObject()
+            .put("type", previousAnswer.type)
+            .put("sdp", previousAnswer.sdp)
+            .put(
+                "negotiationId",
+                negotiationIdFor(recoveryEpoch)
+            )
+            .toString()
+
+        // Advisory only: Firebase can queue this write across the exact
+        // Wi-Fi/mobile handoff. Failure must not tear down a healthy peer.
+        localSignal.setValue(payload)
     }
 
     override fun setPresence(online: Boolean) {
@@ -318,17 +303,9 @@ class FirebaseSignalingClient(
             remoteRef.removeEventListener(remoteListener)
         }
 
-        val restartListener = restartRequestListener
-        if (restartListener != null) {
-            root.child(CONTROLLER_RESTART_REQUEST)
-                .removeEventListener(restartListener)
-        }
-
         remotePresenceReference = null
         remotePresenceListener = null
-        restartRequestListener = null
-        lastRemoteRestartRequest = null
-        remoteRestartSnapshotSeen = false
+        lastLocalDescription = null
         candidateGate.reset()
 
         val uid = auth.currentUser?.uid
@@ -399,8 +376,6 @@ class FirebaseSignalingClient(
 
 
     companion object {
-        private const val CONTROLLER_RESTART_REQUEST =
-            "controllerRestartRequest"
         private const val MAX_CANDIDATE_SLOTS = 96
         private const val CANDIDATE_SLOT_WIDTH = 3
     }
