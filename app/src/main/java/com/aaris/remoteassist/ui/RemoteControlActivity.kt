@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.ui
 
 import android.app.AlertDialog
+import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -116,6 +117,15 @@ class RemoteControlActivity : ComponentActivity() {
             }
         )
         observe(requestedSessionId)
+    }
+
+    override fun onConfigurationChanged(
+        newConfig: Configuration
+    ) {
+        super.onConfigurationChanged(newConfig)
+        if (::controlDock.isInitialized) {
+            applyControlDockLayout(newConfig.screenWidthDp)
+        }
     }
 
     override fun onDestroy() {
@@ -599,32 +609,36 @@ class RemoteControlActivity : ComponentActivity() {
             elevation = dp(6).toFloat()
         }
 
-        controlDock.addView(
+        fun addDockButton(button: Button) {
+            controlDock.addView(button)
+        }
+
+        addDockButton(
             compactButton("Back") {
                 rtcSession?.sendBack()
             }
         )
-        controlDock.addView(
+        addDockButton(
             compactButton("Home") {
                 rtcSession?.sendHome()
             }
         )
-        controlDock.addView(
+        addDockButton(
             compactButton("Apps") {
                 rtcSession?.sendRecents()
             }
         )
-        controlDock.addView(
+        addDockButton(
             compactButton("Type") {
                 showTextDialog()
             }
         )
-        controlDock.addView(
+        addDockButton(
             compactButton("Hide") {
                 setControlDockVisible(false)
             }
         )
-        controlDock.addView(
+        addDockButton(
             compactButton("End", danger = true) {
                 disconnect()
             }
@@ -641,6 +655,9 @@ class RemoteControlActivity : ComponentActivity() {
                 marginStart = dp(12)
                 marginEnd = dp(12)
             }
+        )
+        applyControlDockLayout(
+            resources.configuration.screenWidthDp
         )
 
         controlHandle = compactButton("Controls") {
@@ -699,6 +716,39 @@ class RemoteControlActivity : ComponentActivity() {
         root.requestApplyInsets()
 
         return root
+    }
+
+    private fun applyControlDockLayout(screenWidthDp: Int) {
+        val narrow =
+            screenWidthDp in 1..NARROW_CONTROL_WIDTH_DP
+
+        for (index in 0 until controlDock.childCount) {
+            val child = controlDock.getChildAt(index)
+            child.layoutParams =
+                if (narrow) {
+                    LinearLayout.LayoutParams(
+                        0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        1f
+                    )
+                } else {
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                }
+        }
+
+        val params =
+            controlDock.layoutParams as? FrameLayout.LayoutParams
+                ?: return
+        params.width =
+            if (narrow) {
+                FrameLayout.LayoutParams.MATCH_PARENT
+            } else {
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            }
+        controlDock.layoutParams = params
     }
 
     private fun setControlDockVisible(visible: Boolean) {
