@@ -24,6 +24,8 @@ class FirebaseSignalingClient(
         java.util.UUID.randomUUID().toString()
     private val candidateGate =
         CandidatePublishGate<SignalCandidate>(MAX_CANDIDATE_SLOTS)
+    private val remoteNegotiationGuard =
+        NegotiationOrderGuard()
     private val root = database.getReference("sessions").child(sessionId)
 
     private val localSignal: DatabaseReference
@@ -63,7 +65,6 @@ class FirebaseSignalingClient(
             override fun onDataChange(snapshot: DataSnapshot) {
                 val raw = snapshot.getValue(String::class.java) ?: return
                 if (raw == lastRemoteDescription) return
-                lastRemoteDescription = raw
 
                 runCatching {
                     val json = JSONObject(raw)
@@ -75,8 +76,16 @@ class FirebaseSignalingClient(
                             LEGACY_NEGOTIATION_ID
                         )
                     )
-                }.onSuccess(listener::onRemoteDescription)
-                    .onFailure(listener::onError)
+                }.onSuccess { description ->
+                    if (
+                        remoteNegotiationGuard.accept(
+                            description.negotiationId
+                        )
+                    ) {
+                        lastRemoteDescription = raw
+                        listener.onRemoteDescription(description)
+                    }
+                }.onFailure(listener::onError)
             }
 
             override fun onCancelled(error: DatabaseError) {
