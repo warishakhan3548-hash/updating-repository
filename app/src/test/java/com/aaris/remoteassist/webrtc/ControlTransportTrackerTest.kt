@@ -30,8 +30,8 @@ class ControlTransportTrackerTest {
 
         assertEquals(false, tracker.onControlChannelClosed())
         assertNull(tracker.onControlChannelClosed())
-        assertNull(tracker.onControlChannelOpen())
-        assertEquals(true, tracker.onPeerConnected())
+        assertEquals(true, tracker.onControlChannelOpen())
+        assertNull(tracker.onPeerConnected())
     }
 
     @Test
@@ -42,7 +42,7 @@ class ControlTransportTrackerTest {
         tracker.onControlChannelOpen()
 
         assertEquals(false, tracker.onPeerDisconnected())
-        assertNull(tracker.onPeerConnected())
-        assertEquals(true, tracker.onControlChannelOpen())
+        assertEquals(true, tracker.onPeerConnected())
+        assertNull(tracker.onControlChannelOpen())
     }
 }
