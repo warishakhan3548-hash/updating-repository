@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import com.aaris.remoteassist.control.ControlPacket
+import com.aaris.remoteassist.control.ControlPathPoint
 import com.aaris.remoteassist.control.ControlProtocol
 import org.webrtc.VideoTrack
 import java.io.Closeable
@@ -92,9 +93,13 @@ class ControllerWebRtcSession(
 
     fun remoteGeometry(): RemoteGeometry? = geometry
 
-    fun sendTap(nx: Float, ny: Float): Boolean {
+    fun sendTap(
+        nx: Float,
+        ny: Float,
+        expectedGeneration: Int? = null
+    ): Boolean {
         val lease = leaseSecret ?: return false
-        val geometry = geometry ?: return false
+        val geometry = currentGeometry(expectedGeneration) ?: return false
 
         return peer.sendControl(
             ControlProtocol.encode(
@@ -112,10 +117,11 @@ class ControllerWebRtcSession(
     fun sendLongPress(
         nx: Float,
         ny: Float,
-        durationMs: Int
+        durationMs: Int,
+        expectedGeneration: Int? = null
     ): Boolean {
         val lease = leaseSecret ?: return false
-        val geometry = geometry ?: return false
+        val geometry = currentGeometry(expectedGeneration) ?: return false
 
         return peer.sendControl(
             ControlProtocol.encode(
@@ -136,10 +142,11 @@ class ControllerWebRtcSession(
         fromNy: Float,
         toNx: Float,
         toNy: Float,
-        durationMs: Int
+        durationMs: Int,
+        expectedGeneration: Int? = null
     ): Boolean {
         val lease = leaseSecret ?: return false
-        val geometry = geometry ?: return false
+        val geometry = currentGeometry(expectedGeneration) ?: return false
 
         return peer.sendControl(
             ControlProtocol.encode(
@@ -157,6 +164,36 @@ class ControllerWebRtcSession(
         )
     }
 
+    fun sendGesturePath(
+        points: List<Pair<Float, Float>>,
+        durationMs: Int,
+        expectedGeneration: Int
+    ): Boolean {
+        if (points.size !in 2..MAX_GESTURE_PATH_POINTS) return false
+
+        val lease = leaseSecret ?: return false
+        val geometry = currentGeometry(expectedGeneration) ?: return false
+        val controlPoints = points.map { (nx, ny) ->
+            if (!nx.isFinite() || !ny.isFinite()) return false
+            ControlPathPoint(
+                nx = nx.coerceIn(0f, 1f),
+                ny = ny.coerceIn(0f, 1f)
+            )
+        }
+
+        return peer.sendControl(
+            ControlProtocol.encode(
+                ControlPacket.GesturePath(
+                    leaseSecret = lease,
+                    generation = geometry.generation,
+                    sequence = sequence.incrementAndGet(),
+                    points = controlPoints,
+                    durationMs = durationMs
+                )
+            )
+        )
+    }
+
     fun sendTwoFingerGesture(
         firstFromNx: Float,
         firstFromNy: Float,
@@ -166,10 +203,11 @@ class ControllerWebRtcSession(
         secondFromNy: Float,
         secondToNx: Float,
         secondToNy: Float,
-        durationMs: Int
+        durationMs: Int,
+        expectedGeneration: Int? = null
     ): Boolean {
         val lease = leaseSecret ?: return false
-        val geometry = geometry ?: return false
+        val geometry = currentGeometry(expectedGeneration) ?: return false
 
         return peer.sendControl(
             ControlProtocol.encode(
@@ -254,6 +292,19 @@ class ControllerWebRtcSession(
         )
     }
 
+    private fun currentGeometry(
+        expectedGeneration: Int?
+    ): RemoteGeometry? {
+        val current = geometry ?: return null
+        if (
+            expectedGeneration != null &&
+            current.generation != expectedGeneration
+        ) {
+            return null
+        }
+        return current
+    }
+
     override fun onPeerConnected() {
         transport.onPeerConnected()
             ?.let(listener::onConnectivityChanged)
@@ -334,5 +385,6 @@ class ControllerWebRtcSession(
         private const val HEARTBEAT_MS = 5_000L
         private const val HELLO_TIMEOUT_MS = 30_000L
         private const val MAX_REMOTE_TEXT_CHARS = 500
+        private const val MAX_GESTURE_PATH_POINTS = 96
     }
 }
