@@ -55,6 +55,7 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private val pendingCommands = ArrayDeque<PendingCommand>()
     private var activeCommand: PendingCommand? = null
+    private var activeCommandTimeout: Runnable? = null
 
     private val sessionListener: (SessionSnapshot) -> Unit = { snapshot ->
         mainHandler.post {
@@ -512,6 +513,16 @@ class AssistAccessibilityService : AccessibilityService() {
 
         val next = pendingCommands.pollFirst() ?: return
         activeCommand = next
+
+        val timeout = Runnable {
+            finishCommand(next, false)
+        }
+        activeCommandTimeout = timeout
+        mainHandler.postDelayed(
+            timeout,
+            COMMAND_EXECUTION_TIMEOUT_MS
+        )
+
         execute(next.command) { applied ->
             finishCommand(next, applied)
         }
@@ -533,12 +544,20 @@ class AssistAccessibilityService : AccessibilityService() {
 
         pending.complete(applied)
         if (activeCommand === pending) {
+            activeCommandTimeout?.let(
+                mainHandler::removeCallbacks
+            )
+            activeCommandTimeout = null
             activeCommand = null
             drainCommandQueue()
         }
     }
 
     private fun failPendingCommands() {
+        activeCommandTimeout?.let(
+            mainHandler::removeCallbacks
+        )
+        activeCommandTimeout = null
         activeCommand?.complete(false)
         activeCommand = null
 
@@ -598,6 +617,7 @@ class AssistAccessibilityService : AccessibilityService() {
         private const val MAX_REMOTE_TEXT_CHARS = 1000
         private const val MAX_REMOTE_FIELD_CHARS = 4000
         private const val MAX_PENDING_COMMANDS = 16
+        private const val COMMAND_EXECUTION_TIMEOUT_MS = 3_000L
         @Volatile
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
