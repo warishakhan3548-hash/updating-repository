@@ -11,6 +11,7 @@ interface SignalingClient : Closeable {
     }
 
     fun start(listener: Listener)
+    fun beginLocalDescription()
     fun sendDescription(description: SignalDescription)
     fun sendCandidate(candidate: SignalCandidate)
     fun setPresence(online: Boolean)
