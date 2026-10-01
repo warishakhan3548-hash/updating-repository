@@ -38,6 +38,24 @@ data class SwipeCommand(
     val durationMs: Long
 ) : RemoteCommand
 
+data class RemotePathPoint(
+    val xPx: Float,
+    val yPx: Float
+)
+
+data class GesturePathCommand(
+    override val sessionId: String,
+    override val leaseSecret: Long,
+    override val generation: Int,
+    override val sequence: Long,
+    val points: List<RemotePathPoint>,
+    val durationMs: Long
+) : RemoteCommand {
+    init {
+        require(points.size >= 2)
+    }
+}
+
 data class TwoFingerCommand(
     override val sessionId: String,
     override val leaseSecret: Long,
