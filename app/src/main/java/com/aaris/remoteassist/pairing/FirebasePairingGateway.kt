@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.pairing
 
 import android.content.Context
+import com.aaris.remoteassist.backend.FirebaseBackend
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
@@ -16,6 +17,7 @@ import java.security.SecureRandom
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 
 class FirebasePairingGateway(
@@ -69,6 +71,12 @@ class FirebasePairingGateway(
                     expiresAtEpochMs = expiresAtMs
                 )
             } catch (error: Throwable) {
+                if (error is TimeoutCancellationException) {
+                    throw IllegalStateException(
+                        "Could not reach Firebase Realtime Database. Check internet and try again.",
+                        error
+                    )
+                }
                 if (attempt == CODE_ALLOCATION_ATTEMPTS - 1) {
                     throw error
                 }
@@ -441,8 +449,15 @@ class FirebasePairingGateway(
             false
         )
 
-        return withTimeout(DATABASE_TIMEOUT_MS) {
-            result.await()
+        return try {
+            withTimeout(DATABASE_TIMEOUT_MS) {
+                result.await()
+            }
+        } catch (error: TimeoutCancellationException) {
+            throw IllegalStateException(
+                "Could not reach Firebase Realtime Database. Check internet and try again.",
+                error
+            )
         }
     }
 
@@ -450,8 +465,15 @@ class FirebasePairingGateway(
         requireConfigured()
         val auth = auth()
         if (auth.currentUser == null) {
-            withTimeout(AUTH_TIMEOUT_MS) {
-                auth.signInAnonymously().await()
+            try {
+                withTimeout(AUTH_TIMEOUT_MS) {
+                    auth.signInAnonymously().await()
+                }
+            } catch (error: TimeoutCancellationException) {
+                throw IllegalStateException(
+                    "Could not reach Firebase Authentication. Check internet and try again.",
+                    error
+                )
             }
         }
         checkNotNull(auth.currentUser) {
@@ -501,7 +523,7 @@ class FirebasePairingGateway(
 
     private fun database(): FirebaseDatabase {
         requireConfigured()
-        return FirebaseDatabase.getInstance()
+        return FirebaseBackend.database()
     }
 
     companion object {
