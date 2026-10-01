@@ -51,6 +51,9 @@ class HostWebRtcSession(
     private var controlOpen = false
 
     @Volatile
+    private var transportReady = false
+
+    @Volatile
     private var lease: LiveLease? = null
 
     private val signaling = FirebaseSignalingClient(
@@ -175,6 +178,7 @@ class HostWebRtcSession(
 
     override fun onPeerDisconnected() {
         peerConnected = false
+        transportReady = false
         listener.onConnectivityChanged(false)
 
         if (everConnected && !closed.get()) {
@@ -193,6 +197,7 @@ class HostWebRtcSession(
 
     override fun onControlChannelClosed() {
         controlOpen = false
+        transportReady = false
         if (!closed.get()) {
             displayHandler.removeCallbacks(connectionWatchdog)
             displayHandler.postDelayed(
@@ -267,29 +272,43 @@ class HostWebRtcSession(
         peerConnected = false
         everConnected = false
         controlOpen = false
+        transportReady = false
         lease = null
     }
 
     @Synchronized
     private fun ensureLiveHandshake() {
-        if (!peerConnected || !controlOpen || closed.get()) return
+        if (
+            !peerConnected ||
+            !controlOpen ||
+            closed.get() ||
+            transportReady
+        ) {
+            return
+        }
 
         displayHandler.removeCallbacks(connectionWatchdog)
 
-        val currentLease = lease ?: runCatching {
+        val firstLive = lease == null
+        val currentLease = runCatching {
             SessionCoordinator.activateLive(sessionId)
         }.getOrElse {
             listener.onError(it)
             return
-        }.also {
-            lease = it
-            displayHandler.removeCallbacks(
-                leaseWatchdog
-            )
-            displayHandler.postDelayed(
-                leaseWatchdog,
-                LEASE_WATCHDOG_MS
-            )
+        }
+
+        transportReady = true
+        lease = currentLease
+
+        displayHandler.removeCallbacks(
+            leaseWatchdog
+        )
+        displayHandler.postDelayed(
+            leaseWatchdog,
+            LEASE_WATCHDOG_MS
+        )
+
+        if (firstLive) {
             listener.onLive()
         }
 
