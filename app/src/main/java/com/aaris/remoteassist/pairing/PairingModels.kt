@@ -15,11 +15,11 @@ data class PairRequest(
 object PairingCode {
     private val nonDigits = Regex("\\D")
     private val embeddedCandidate =
-        Regex("(?<!\\d)(\\d{3}[\\s-]?\\d{3})(?!\\d)")
+        Regex("(?<!\\d)(\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4})(?!\\d)")
 
     fun normalize(raw: String): String? {
         val digits = raw.replace(nonDigits, "")
-        return digits.takeIf { it.length == 6 }
+        return digits.takeIf { it.length == DIGITS }
     }
 
     fun extract(raw: String): String? {
@@ -38,9 +38,11 @@ object PairingCode {
     }
 
     fun display(code: String): String {
-        require(code.length == 6 && code.all(Char::isDigit))
-        return code.take(3) + " " + code.drop(3)
+        require(code.length == DIGITS && code.all(Char::isDigit))
+        return code.chunked(4).joinToString(" ")
     }
+
+    const val DIGITS = 12
 }
 
 object PairingLink {
@@ -48,7 +50,7 @@ object PairingLink {
 
     fun uri(code: String): String {
         val normalized = PairingCode.normalize(code)
-            ?: error("Pairing code must contain 6 digits")
+            ?: error("Pairing code must contain " + PairingCode.DIGITS + " digits")
         return PREFIX + "code=" + normalized
     }
 
