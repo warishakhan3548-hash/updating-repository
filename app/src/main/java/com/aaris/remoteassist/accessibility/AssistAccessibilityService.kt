@@ -87,6 +87,19 @@ class AssistAccessibilityService : AccessibilityService() {
             return false
         }
 
+        val gestureBlockedBySensitiveFocus =
+            command is TapCommand ||
+                command is LongPressCommand ||
+                command is SwipeCommand ||
+                command is TwoFingerCommand
+
+        if (
+            gestureBlockedBySensitiveFocus &&
+            hasSensitiveFocusedInput()
+        ) {
+            return false
+        }
+
         return when (command) {
             is TapCommand -> gesture(
                 command.xPx,
@@ -119,6 +132,14 @@ class AssistAccessibilityService : AccessibilityService() {
             )
             is SetTextCommand -> setFocusedText(command.text)
         }
+    }
+
+    private fun hasSensitiveFocusedInput(): Boolean {
+        val node = rootInActiveWindow
+            ?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: return false
+
+        return node.isEditable && isSensitiveInput(node)
     }
 
     private fun setFocusedText(text: String): Boolean {
