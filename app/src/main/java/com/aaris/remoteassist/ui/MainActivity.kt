@@ -342,10 +342,9 @@ class MainActivity : ComponentActivity() {
             }
 
             if (!AssistAccessibilityService.isConnected()) {
-                clearPendingShareRequest()
                 setButtonsEnabled(true)
                 status.text =
-                    "Accessibility is on but not ready yet. Tap Share to retry."
+                    "Accessibility is on but still starting. Tap Share to retry."
                 return@launch
             }
 
@@ -1792,10 +1791,10 @@ class MainActivity : ComponentActivity() {
         private const val KEY_NOTIFICATION_PERMISSION_ASKED =
             "notification_permission_asked"
         private const val ACCESSIBILITY_SERVICE_READY_TIMEOUT_MS =
-            4_000L
+            12_000L
         private const val ACCESSIBILITY_SERVICE_READY_POLL_MS =
             100L
         private const val PENDING_SHARE_MAX_AGE_MS =
-            2 * 60_000L
+            10 * 60_000L
     }
 }
