@@ -19,6 +19,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import com.aaris.remoteassist.pairing.BackendSessionCloser
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
@@ -96,11 +97,13 @@ class RemoteControlActivity : ComponentActivity() {
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
 
-        sessionId = intent.getStringExtra(EXTRA_SESSION_ID)
-        if (sessionId == null) {
+        val requestedSessionId =
+            intent.getStringExtra(EXTRA_SESSION_ID)
+        if (requestedSessionId.isNullOrBlank()) {
             finish()
             return
         }
+        sessionId = requestedSessionId
 
         WebRtcRuntime.initialize(this)
         setContentView(buildUi())
@@ -112,7 +115,7 @@ class RemoteControlActivity : ComponentActivity() {
                 }
             }
         )
-        observe(sessionId!!)
+        observe(requestedSessionId)
     }
 
     override fun onDestroy() {
@@ -365,11 +368,9 @@ class RemoteControlActivity : ComponentActivity() {
         rtcSession?.close()
         rtcSession = null
 
-        scope.launch {
-            runCatching { gateway.close(id) }
-            SessionCoordinator.close(id)
-            finish()
-        }
+        BackendSessionCloser.close(this, id)
+        SessionCoordinator.close(id)
+        finish()
     }
 
     private fun buildUi(): FrameLayout {
