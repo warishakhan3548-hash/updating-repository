@@ -173,7 +173,24 @@ class FirebaseSignalingClient(
             .put("sdp", description.sdp)
             .toString()
 
-        localSignal.setValue(payload)
+        val updates = mutableMapOf<String, Any?>(
+            localSignal.key.orEmpty() to payload
+        )
+        val candidateBranch =
+            if (role == PeerRole.HOST) {
+                "hostCandidates"
+            } else {
+                "controllerCandidates"
+            }
+
+        repeat(MAX_CANDIDATE_SLOTS) { index ->
+            val slot = index
+                .toString()
+                .padStart(CANDIDATE_SLOT_WIDTH, '0')
+            updates["$candidateBranch/$slot"] = null
+        }
+
+        root.updateChildren(updates)
             .addOnSuccessListener {
                 if (closed.get()) {
                     return@addOnSuccessListener
