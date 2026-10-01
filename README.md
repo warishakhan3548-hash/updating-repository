@@ -65,7 +65,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 30. Default-network handoff recovery: once a host has been live, switching the sharing phone between Wi‑Fi and mobile data proactively triggers the existing rate-limited ICE restart instead of waiting only for a transport timeout.
 31. Share chooser hardening: the app now attempts the Android Sharesheet directly and falls back to copying the full invite only when launch actually fails, avoiding false “no share app” results caused by OEM/package-visibility quirks.
 32. Link-safe handoff wording: the 12-digit code is the authoritative join path, while the custom-scheme quick link is explicitly treated as optional so messaging apps that do not hyperlink custom schemes do not create a dead-end setup flow.
-33. Bidirectional network-handoff recovery: if the controller phone changes its default Wi-Fi/mobile route after a live connection, it re-publishes its last valid signaling answer with a fresh negotiation epoch; the host's existing stable-answer guard starts the same rate-limited ICE restart without a new backend path, rule, UI control, or setup step.
+33. Bidirectional network-handoff recovery: if the controller phone changes its default Wi-Fi/mobile route after a live connection, it re-publishes its last valid signaling answer under a fresh signaling identity; the host's existing stable-answer guard starts the same rate-limited ICE restart without a new backend path, rule, UI control, or setup step.
 
 ## Firebase setup
 
