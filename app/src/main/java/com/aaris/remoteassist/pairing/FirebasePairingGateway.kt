@@ -132,10 +132,24 @@ class FirebasePairingGateway(
             .getReference("sessions")
             .child(sessionId)
 
-        runTransaction(
+        val claimAbortMessage =
+            "That code is already being used or expired."
+        val claimSnapshot = runTransaction(
             reference = sessionRef,
-            abortMessage = "That code is already being used or expired."
+            abortMessage = claimAbortMessage
         ) { current ->
+            /*
+             * Realtime Database may invoke a transaction once with a null
+             * local-cache value even when this session exists on the server.
+             * Returning success without changing that null value lets Firebase
+             * perform its compare-and-retry cycle and call us again with the
+             * authoritative server value. Aborting here would reject every
+             * first-time controller whose session is not already cached.
+             */
+            if (current.value == null) {
+                return@runTransaction true
+            }
+
             val state = current.child("state").value as? String
             val currentHostUid =
                 current.child("hostUid").value as? String
@@ -147,7 +161,6 @@ class FirebasePairingGateway(
                     ?: 0L
 
             if (
-                current.value == null ||
                 state != "CODE_ACTIVE" ||
                 currentHostUid != hostUid ||
                 currentController != null ||
@@ -162,6 +175,25 @@ class FirebasePairingGateway(
             current.child("approvalExpiresAtMs").value =
                 now + PAIR_APPROVAL_TTL_MS
             true
+        }
+
+        val committedState = claimSnapshot
+            .child("state")
+            .getValue(String::class.java)
+        val committedHostUid = claimSnapshot
+            .child("hostUid")
+            .getValue(String::class.java)
+        val committedControllerUid = claimSnapshot
+            .child("controllerUid")
+            .getValue(String::class.java)
+
+        if (
+            !claimSnapshot.exists() ||
+            committedState != "PAIR_PENDING" ||
+            committedHostUid != hostUid ||
+            committedControllerUid != uid
+        ) {
+            error(claimAbortMessage)
         }
 
         runCatching {
