@@ -37,7 +37,7 @@ WebRTC peer connectivity alone is not treated as usable remote control. The cont
 
 ## Recovery
 
-After a previously-live peer disconnects, the host performs a bounded ICE restart. A host-side default-network change triggers that restart proactively. A controller-side default-network change publishes a small authenticated advisory RTDB restart hint; the host deduplicates the hint and starts the same rate-limited ICE restart rather than waiting only for WebRTC disconnect detection. The hint is not transport truth and its failure never tears down an otherwise healthy peer.
+After a previously-live peer disconnects, the host performs a bounded ICE restart. A host-side default-network change triggers that restart proactively. A controller-side default-network change re-publishes the controller's last successfully signaled WebRTC answer with a fresh negotiation epoch through the existing participant-scoped `controllerSignal` record. The host already treats a fresh answer received while the peer is stable as an advisory request for the same rate-limited ICE restart, so handoff recovery remains backward-compatible and requires no new RTDB path or security-rule deployment. The hint is not transport truth and its failure never tears down an otherwise healthy peer.
 
 The Spark build intentionally uses provider-diverse public STUN servers and does not depend on Cloud Functions or billing-backed TURN credential minting. STUN-only operation works on many ordinary Wi-Fi and mobile networks, but restrictive carrier-grade or symmetric NAT can still require a separately operated TURN relay for high connection coverage.
 
