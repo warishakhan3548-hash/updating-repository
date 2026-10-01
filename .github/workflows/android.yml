@@ -25,14 +25,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "9.6.0"
-      - name: Restore Firebase config or synthesize public runtime options
-        env:
-          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+      - name: Verify staged Aaris Control Firebase config
         run: |
           set -euo pipefail
-          if [ -n "$GOOGLE_SERVICES_JSON_B64" ]; then
-            printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > app/google-services.json
-            python3 - <<'PY'
+          test -f app/google-services.json
+          python3 - <<'PY'
           import json
           d=json.load(open("app/google-services.json"))
           assert d.get("project_info",{}).get("project_id")=="aaris-control"
@@ -41,36 +38,8 @@ jobs:
               for c in d.get("client",[])
           ]
           assert "com.aaris.remoteassist" in pkgs
-          print("Firebase Android config verified.")
+          print("Firebase config verified: aaris-control / com.aaris.remoteassist")
           PY
-          else
-            echo "GitHub Firebase secret is unavailable; trying Firebase Hosting public config."
-            curl -fsSL --retry 2 --connect-timeout 10               "https://aaris-control.web.app/__/firebase/init.json"               -o /tmp/firebase-init.json
-            python3 - <<'PY'
-          import json, pathlib, xml.sax.saxutils as sx
-          d=json.load(open("/tmp/firebase-init.json"))
-          assert d.get("projectId")=="aaris-control", d.get("projectId")
-          required=["appId","apiKey","projectId"]
-          for k in required:
-              assert d.get(k), f"missing {k}"
-          vals={
-              "google_app_id": d["appId"],
-              "google_api_key": d["apiKey"],
-              "project_id": d["projectId"],
-              "firebase_database_url": d.get("databaseURL","https://aaris-control-default-rtdb.asia-southeast1.firebasedatabase.app"),
-              "gcm_defaultSenderId": d.get("messagingSenderId",""),
-              "google_storage_bucket": d.get("storageBucket",""),
-          }
-          out=['<?xml version="1.0" encoding="utf-8"?>','<resources>']
-          for k,v in vals.items():
-              if v:
-                  out.append(f'    <string name="{k}" translatable="false">{sx.escape(str(v))}</string>')
-          out.append('</resources>')
-          p=pathlib.Path("app/src/main/res/values/firebase_public_runtime.xml")
-          p.write_text("\n".join(out)+"\n")
-          print("Firebase public runtime options prepared for project", d["projectId"])
-          PY
-          fi
       - name: Build debug and signed test-release APK
         env:
           AARIS_TEST_RELEASE_SIGNING: "true"
