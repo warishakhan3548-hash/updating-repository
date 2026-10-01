@@ -31,6 +31,15 @@ class PairingCodeTest {
     }
 
     @Test
+    fun doesNotAggregateUnrelatedClipboardDigits() {
+        assertNull(
+            PairingCode.extract(
+                "Order 123456, ticket 789012"
+            )
+        )
+    }
+
+    @Test
     fun extractsHumanFormattedEmbeddedCode() {
         assertEquals(
             "654321098765",
