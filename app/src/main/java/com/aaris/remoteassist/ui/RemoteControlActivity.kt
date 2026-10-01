@@ -857,8 +857,7 @@ class RemoteControlActivity : ComponentActivity() {
                     !appendSingleGesturePoint(
                         event.x,
                         event.y,
-                        geometry,
-                        clampToContent = true
+                        geometry
                     )
                 return true
             }
@@ -897,7 +896,8 @@ class RemoteControlActivity : ComponentActivity() {
                     !appendSingleGesturePoint(
                         event.x,
                         event.y,
-                        geometry
+                        geometry,
+                        clampToContent = true
                     )
                 ) {
                     singleGestureInvalid = true
