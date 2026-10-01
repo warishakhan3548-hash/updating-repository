@@ -100,6 +100,7 @@ class WebRtcPeer(
     private val lastIceRestartAtMs = AtomicLong(0L)
     private val controllerRelayRefreshAttempts = AtomicLong(0L)
     private var bootstrapRecoveryAttempts = 0
+    private var offerRedeliveryAttempts = 0
 
     @Volatile
     private var preLiveDisconnected = false
@@ -126,26 +127,66 @@ class WebRtcPeer(
                 return
             }
 
-            if (
-                peerConnection.signalingState() ==
-                PeerConnection.SignalingState.STABLE
-            ) {
-                val forceRelay =
-                    bootstrapRecoveryAttempts > 0
-                if (
-                    requestIceRestart(
-                        forceRelay = forceRelay
-                    )
-                ) {
-                    bootstrapRecoveryAttempts += 1
+            val signalingState =
+                peerConnection.signalingState()
+
+            when (signalingState) {
+                PeerConnection.SignalingState.HAVE_LOCAL_OFFER -> {
+                    /*
+                     * An ICE restart cannot begin until the pending offer has
+                     * an answer. Re-deliver that exact offer instead of
+                     * creating a second offer or overwriting its negotiation.
+                     *
+                     * This recovers the two important startup-loss cases:
+                     *  1. controller attached after the first signal write;
+                     *  2. controller answered, but the answer write was lost.
+                     *
+                     * The same negotiationId is retained, so existing trickle
+                     * candidates remain correlated with the offer.
+                     */
+                    if (
+                        offerRedeliveryAttempts <
+                            MAX_OFFER_REDELIVERY_ATTEMPTS &&
+                        signaling.retryLocalDescription()
+                    ) {
+                        offerRedeliveryAttempts += 1
+                    }
                 }
+
+                PeerConnection.SignalingState.STABLE -> {
+                    val forceRelay =
+                        bootstrapRecoveryAttempts > 0
+                    if (
+                        bootstrapRecoveryAttempts <
+                            MAX_BOOTSTRAP_RECOVERY_ATTEMPTS &&
+                        requestIceRestart(
+                            forceRelay = forceRelay
+                        )
+                    ) {
+                        bootstrapRecoveryAttempts += 1
+                    }
+                }
+
+                else -> Unit
             }
+
+            val recoveryRemaining =
+                when (peerConnection.signalingState()) {
+                    PeerConnection.SignalingState.HAVE_LOCAL_OFFER ->
+                        offerRedeliveryAttempts <
+                            MAX_OFFER_REDELIVERY_ATTEMPTS
+
+                    PeerConnection.SignalingState.STABLE ->
+                        bootstrapRecoveryAttempts <
+                            MAX_BOOTSTRAP_RECOVERY_ATTEMPTS
+
+                    else -> true
+                }
 
             if (
                 !closed.get() &&
                 !connectivity.hasEverConnected() &&
-                bootstrapRecoveryAttempts <
-                    MAX_BOOTSTRAP_RECOVERY_ATTEMPTS
+                recoveryRemaining
             ) {
                 handler.postDelayed(
                     this,
@@ -772,6 +813,9 @@ class WebRtcPeer(
         onLocalDescriptionSet: (() -> Unit)? = null,
         onFailure: (() -> Unit)? = null
     ) {
+        // Redelivery budget belongs to one concrete SDP generation.
+        offerRedeliveryAttempts = 0
+
         val negotiationEpoch =
             signaling.beginLocalDescription()
         peerConnection.createOffer(
@@ -994,5 +1038,6 @@ class WebRtcPeer(
         private const val CONTROLLER_RELAY_REFRESH_INTERVAL_MS = 7_000L
         private const val MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS = 3L
         private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 3
+        private const val MAX_OFFER_REDELIVERY_ATTEMPTS = 3
     }
 }
