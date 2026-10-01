@@ -16,6 +16,8 @@ val hasCodemagicSigning = listOf(
     codemagicKeyAlias,
     codemagicKeyPassword
 ).all { !it.isNullOrBlank() }
+val useTestReleaseSigning =
+    System.getenv("AARIS_TEST_RELEASE_SIGNING") == "true"
 
 android {
     namespace = "com.aaris.remoteassist"
@@ -53,8 +55,12 @@ android {
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
-            if (hasCodemagicSigning) {
-                signingConfig = signingConfigs.getByName("release")
+            signingConfig = when {
+                hasCodemagicSigning ->
+                    signingConfigs.getByName("release")
+                useTestReleaseSigning ->
+                    signingConfigs.getByName("debug")
+                else -> null
             }
         }
     }
