@@ -505,6 +505,10 @@ class MainActivity : ComponentActivity() {
                                     "Remote support is LIVE. Tap STOP • SHARING any time."
 
                             "CLOSED" -> {
+                                BackendSessionCloser.close(
+                                    this@MainActivity,
+                                    sessionId
+                                )
                                 SessionCoordinator.close(sessionId)
                                 clearHostUi()
                                 status.text = "Session ended."
