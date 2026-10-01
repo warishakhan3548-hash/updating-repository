@@ -5,12 +5,16 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.MutableData
+import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
 import java.io.Closeable
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.UUID
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 
@@ -25,21 +29,12 @@ class FirebasePairingGateway(
         val uid = requireNotNull(auth().currentUser?.uid)
         val database = database()
 
-        repeat(CODE_ALLOCATION_ATTEMPTS) {
+        repeat(CODE_ALLOCATION_ATTEMPTS) { attempt ->
             val code = generateCode()
             val codeHash = hashCode(code)
             val sessionId = UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
             val expiresAtMs = now + CODE_TTL_MS
-
-            val codeRef = database
-                .getReference("pairingCodes")
-                .child(codeHash)
-
-            val occupied = withTimeout(DATABASE_TIMEOUT_MS) {
-                codeRef.get().await().exists()
-            }
-            if (occupied) return@repeat
 
             val codeRecord = mapOf(
                 "sessionId" to sessionId,
@@ -56,13 +51,15 @@ class FirebasePairingGateway(
                 "pairingHash" to codeHash
             )
 
+            val updates = mapOf<String, Any?>(
+                "pairingCodes/$codeHash" to codeRecord,
+                "sessions/$sessionId" to session
+            )
+
             try {
                 withTimeout(DATABASE_TIMEOUT_MS) {
-                    codeRef.setValue(codeRecord).await()
-                    database
-                        .getReference("sessions")
-                        .child(sessionId)
-                        .setValue(session)
+                    database.reference
+                        .updateChildren(updates)
                         .await()
                 }
 
@@ -72,10 +69,7 @@ class FirebasePairingGateway(
                     expiresAtEpochMs = expiresAtMs
                 )
             } catch (error: Throwable) {
-                runCatching {
-                    codeRef.removeValue().await()
-                }
-                if (it == CODE_ALLOCATION_ATTEMPTS - 1) {
+                if (attempt == CODE_ALLOCATION_ATTEMPTS - 1) {
                     throw error
                 }
             }
@@ -91,13 +85,12 @@ class FirebasePairingGateway(
         val uid = requireNotNull(auth().currentUser?.uid)
         val database = database()
         val codeHash = hashCode(normalized)
+        val codeRef = database
+            .getReference("pairingCodes")
+            .child(codeHash)
 
         val codeSnapshot = withTimeout(DATABASE_TIMEOUT_MS) {
-            database
-                .getReference("pairingCodes")
-                .child(codeHash)
-                .get()
-                .await()
+            codeRef.get().await()
         }
 
         if (!codeSnapshot.exists()) {
@@ -124,30 +117,47 @@ class FirebasePairingGateway(
             error("Code expired.")
         }
 
+        val now = System.currentTimeMillis()
         val sessionRef = database
             .getReference("sessions")
             .child(sessionId)
-        val before = withTimeout(DATABASE_TIMEOUT_MS) {
-            sessionRef.get().await()
+
+        runTransaction(
+            reference = sessionRef,
+            abortMessage = "That code is already being used or expired."
+        ) { current ->
+            val state = current.child("state").value as? String
+            val currentHostUid =
+                current.child("hostUid").value as? String
+            val currentController =
+                current.child("controllerUid").value
+            val currentExpiry =
+                (current.child("expiresAtMs").value as? Number)
+                    ?.toLong()
+                    ?: 0L
+
+            if (
+                current.value == null ||
+                state != "CODE_ACTIVE" ||
+                currentHostUid != hostUid ||
+                currentController != null ||
+                currentExpiry <= now
+            ) {
+                return@runTransaction false
+            }
+
+            current.child("controllerUid").value = uid
+            current.child("state").value = "PAIR_PENDING"
+            current.child("pairedAtMs").value = now
+            current.child("approvalExpiresAtMs").value =
+                now + PAIR_APPROVAL_TTL_MS
+            true
         }
 
-        if (!before.exists()) {
-            error("Session no longer exists.")
-        }
-        if (before.child("state").getValue(String::class.java) != "CODE_ACTIVE") {
-            error("That code is already being used.")
-        }
-
-        val now = System.currentTimeMillis()
-        val updates = mapOf<String, Any?>(
-            "controllerUid" to uid,
-            "state" to "PAIR_PENDING",
-            "pairedAtMs" to now,
-            "approvalExpiresAtMs" to (now + PAIR_APPROVAL_TTL_MS)
-        )
-
-        withTimeout(DATABASE_TIMEOUT_MS) {
-            sessionRef.updateChildren(updates).await()
+        runCatching {
+            withTimeout(DATABASE_TIMEOUT_MS) {
+                codeRef.removeValue().await()
+            }
         }
 
         return PairRequest(
@@ -160,76 +170,77 @@ class FirebasePairingGateway(
     override suspend fun approve(sessionId: String) {
         ensureSignedIn()
         val uid = requireNotNull(auth().currentUser?.uid)
-        val ref = sessionRef(sessionId)
-        val snapshot = withTimeout(DATABASE_TIMEOUT_MS) {
-            ref.get().await()
-        }
-
-        requireHost(snapshot, uid)
-        check(snapshot.child("state").getValue(String::class.java) == "PAIR_PENDING") {
-            "No valid connection request."
-        }
-
-        val approvalDeadline = snapshot
-            .child("approvalExpiresAtMs")
-            .getValue(Long::class.java)
-            ?: 0L
-        check(approvalDeadline > System.currentTimeMillis()) {
-            "Pairing request expired. Create a new code."
-        }
-
         val now = System.currentTimeMillis()
-        withTimeout(DATABASE_TIMEOUT_MS) {
-            ref.updateChildren(
-                mapOf(
-                    "state" to "HOST_APPROVED",
-                    "approvedAtMs" to now,
-                    "connectExpiresAtMs" to (now + CONNECT_SETUP_TTL_MS)
-                )
-            ).await()
+
+        runTransaction(
+            reference = sessionRef(sessionId),
+            abortMessage = "No valid connection request."
+        ) { current ->
+            val hostUid = current.child("hostUid").value as? String
+            val state = current.child("state").value as? String
+            val approvalDeadline =
+                (current.child("approvalExpiresAtMs").value as? Number)
+                    ?.toLong()
+                    ?: 0L
+
+            if (
+                hostUid != uid ||
+                state != "PAIR_PENDING" ||
+                approvalDeadline <= now
+            ) {
+                return@runTransaction false
+            }
+
+            current.child("state").value = "HOST_APPROVED"
+            current.child("approvedAtMs").value = now
+            current.child("connectExpiresAtMs").value =
+                now + CONNECT_SETUP_TTL_MS
+            true
         }
     }
 
     override suspend fun markScreenReady(sessionId: String) {
         ensureSignedIn()
         val uid = requireNotNull(auth().currentUser?.uid)
-        val ref = sessionRef(sessionId)
-        val snapshot = withTimeout(DATABASE_TIMEOUT_MS) {
-            ref.get().await()
-        }
+        val now = System.currentTimeMillis()
 
-        requireHost(snapshot, uid)
-        check(snapshot.child("state").getValue(String::class.java) == "HOST_APPROVED") {
-            "Session was not approved."
-        }
+        val snapshot = runTransaction(
+            reference = sessionRef(sessionId),
+            abortMessage = "Session was not approved or setup expired."
+        ) { current ->
+            val hostUid = current.child("hostUid").value as? String
+            val state = current.child("state").value as? String
+            val connectDeadline =
+                (current.child("connectExpiresAtMs").value as? Number)
+                    ?.toLong()
+                    ?: 0L
 
-        val connectDeadline = snapshot
-            .child("connectExpiresAtMs")
-            .getValue(Long::class.java)
-            ?: 0L
-        check(connectDeadline > System.currentTimeMillis()) {
-            "Connection setup expired. Create a new code."
-        }
+            if (
+                hostUid != uid ||
+                state != "HOST_APPROVED" ||
+                connectDeadline <= now
+            ) {
+                return@runTransaction false
+            }
 
-        withTimeout(DATABASE_TIMEOUT_MS) {
-            ref.updateChildren(
-                mapOf(
-                    "state" to "SCREEN_READY",
-                    "screenReadyAtMs" to System.currentTimeMillis()
-                )
-            ).await()
+            current.child("state").value = "SCREEN_READY"
+            current.child("screenReadyAtMs").value = now
+            true
         }
 
         val pairingHash = snapshot
             .child("pairingHash")
             .getValue(String::class.java)
+
         if (!pairingHash.isNullOrBlank()) {
             runCatching {
-                database()
-                    .getReference("pairingCodes")
-                    .child(pairingHash)
-                    .removeValue()
-                    .await()
+                withTimeout(DATABASE_TIMEOUT_MS) {
+                    database()
+                        .getReference("pairingCodes")
+                        .child(pairingHash)
+                        .removeValue()
+                        .await()
+                }
             }
         }
     }
@@ -237,31 +248,30 @@ class FirebasePairingGateway(
     override suspend fun markLive(sessionId: String) {
         ensureSignedIn()
         val uid = requireNotNull(auth().currentUser?.uid)
-        val ref = sessionRef(sessionId)
-        val snapshot = withTimeout(DATABASE_TIMEOUT_MS) {
-            ref.get().await()
-        }
+        val now = System.currentTimeMillis()
 
-        requireHost(snapshot, uid)
-        check(snapshot.child("state").getValue(String::class.java) == "SCREEN_READY") {
-            "Session is not ready for live transport."
-        }
+        runTransaction(
+            reference = sessionRef(sessionId),
+            abortMessage = "Session is not ready for live transport."
+        ) { current ->
+            val hostUid = current.child("hostUid").value as? String
+            val state = current.child("state").value as? String
+            val connectDeadline =
+                (current.child("connectExpiresAtMs").value as? Number)
+                    ?.toLong()
+                    ?: 0L
 
-        val connectDeadline = snapshot
-            .child("connectExpiresAtMs")
-            .getValue(Long::class.java)
-            ?: 0L
-        check(connectDeadline > System.currentTimeMillis()) {
-            "Connection setup expired. Create a new code."
-        }
+            if (
+                hostUid != uid ||
+                state != "SCREEN_READY" ||
+                connectDeadline <= now
+            ) {
+                return@runTransaction false
+            }
 
-        withTimeout(DATABASE_TIMEOUT_MS) {
-            ref.updateChildren(
-                mapOf(
-                    "state" to "LIVE",
-                    "liveAtMs" to System.currentTimeMillis()
-                )
-            ).await()
+            current.child("state").value = "LIVE"
+            current.child("liveAtMs").value = now
+            true
         }
     }
 
@@ -385,6 +395,54 @@ class FirebasePairingGateway(
         reference.addValueEventListener(valueListener)
         return Closeable {
             reference.removeEventListener(valueListener)
+        }
+    }
+
+    private suspend fun runTransaction(
+        reference: DatabaseReference,
+        abortMessage: String,
+        mutation: (MutableData) -> Boolean
+    ): DataSnapshot {
+        val result = CompletableDeferred<DataSnapshot>()
+
+        reference.runTransaction(
+            object : Transaction.Handler {
+                override fun doTransaction(
+                    currentData: MutableData
+                ): Transaction.Result {
+                    return if (mutation(currentData)) {
+                        Transaction.success(currentData)
+                    } else {
+                        Transaction.abort()
+                    }
+                }
+
+                override fun onComplete(
+                    error: DatabaseError?,
+                    committed: Boolean,
+                    currentData: DataSnapshot?
+                ) {
+                    when {
+                        error != null ->
+                            result.completeExceptionally(
+                                error.toException()
+                            )
+
+                        !committed || currentData == null ->
+                            result.completeExceptionally(
+                                IllegalStateException(abortMessage)
+                            )
+
+                        else ->
+                            result.complete(currentData)
+                    }
+                }
+            },
+            false
+        )
+
+        return withTimeout(DATABASE_TIMEOUT_MS) {
+            result.await()
         }
     }
 
