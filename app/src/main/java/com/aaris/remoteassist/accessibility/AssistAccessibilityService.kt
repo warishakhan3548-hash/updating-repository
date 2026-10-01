@@ -380,7 +380,9 @@ class AssistAccessibilityService : AccessibilityService() {
     companion object {
         private const val MAX_REMOTE_TEXT_CHARS = 1000
         private const val MAX_REMOTE_FIELD_CHARS = 4000
-        private var instance = WeakReference<AssistAccessibilityService>(null)
+        @Volatile
+        private var instance =
+            WeakReference<AssistAccessibilityService>(null)
 
         fun dispatch(command: RemoteCommand): Boolean =
             instance.get()?.dispatchOnMain(command) ?: false
