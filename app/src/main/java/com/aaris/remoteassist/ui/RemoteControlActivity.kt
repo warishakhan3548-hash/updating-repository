@@ -74,10 +74,12 @@ class RemoteControlActivity : ComponentActivity() {
     private var downX = 0f
     private var downY = 0f
     private var downAtMs = 0L
+    private var singleGestureGeneration = -1
 
     private var twoFingerActive = false
     private var suppressSingleUp = false
     private var twoFingerStartedAtMs = 0L
+    private var twoFingerGeneration = -1
     private var firstPointerId = MotionEvent.INVALID_POINTER_ID
     private var secondPointerId = MotionEvent.INVALID_POINTER_ID
     private var firstStartNx = 0f
@@ -781,6 +783,7 @@ class RemoteControlActivity : ComponentActivity() {
                 downX = event.x
                 downY = event.y
                 downAtMs = SystemClock.elapsedRealtime()
+                singleGestureGeneration = geometry.generation
                 return true
             }
 
@@ -816,6 +819,7 @@ class RemoteControlActivity : ComponentActivity() {
                 secondStartNy = second.second
                 twoFingerStartedAtMs =
                     SystemClock.elapsedRealtime()
+                twoFingerGeneration = geometry.generation
                 twoFingerActive = true
                 return true
             }
@@ -823,6 +827,11 @@ class RemoteControlActivity : ComponentActivity() {
             MotionEvent.ACTION_POINTER_UP -> {
                 if (!twoFingerActive) {
                     suppressSingleUp = true
+                    return true
+                }
+
+                if (geometry.generation != twoFingerGeneration) {
+                    resetTwoFingerState(keepSuppression = true)
                     return true
                 }
 
@@ -864,6 +873,12 @@ class RemoteControlActivity : ComponentActivity() {
                 if (suppressSingleUp) {
                     resetTwoFingerState()
                     suppressSingleUp = false
+                    singleGestureGeneration = -1
+                    return true
+                }
+
+                if (geometry.generation != singleGestureGeneration) {
+                    singleGestureGeneration = -1
                     return true
                 }
 
@@ -913,12 +928,14 @@ class RemoteControlActivity : ComponentActivity() {
                         )
                     )
                 }
+                singleGestureGeneration = -1
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
                 resetTwoFingerState()
                 suppressSingleUp = false
+                singleGestureGeneration = -1
                 return true
             }
         }
@@ -956,6 +973,7 @@ class RemoteControlActivity : ComponentActivity() {
         secondStartNx = 0f
         secondStartNy = 0f
         twoFingerStartedAtMs = 0L
+        twoFingerGeneration = -1
 
         if (!keepSuppression) {
             suppressSingleUp = false
