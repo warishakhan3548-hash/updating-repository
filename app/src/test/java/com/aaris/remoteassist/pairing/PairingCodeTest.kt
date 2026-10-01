@@ -90,6 +90,11 @@ class PairingCodeTest {
                 "aarisremote://connect/unsafe?code=123456789012"
             )
         )
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://connect?code=abc123456789012xyz"
+            )
+        )
     }
 
     @Test
