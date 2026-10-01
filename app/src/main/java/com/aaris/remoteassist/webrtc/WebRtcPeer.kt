@@ -46,11 +46,20 @@ class WebRtcPeer(
     private val started = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val pendingRemoteCandidates = ArrayDeque<IceCandidate>()
+    private data class PendingRemoteCandidate(
+        val negotiationId: String,
+        val candidate: IceCandidate
+    )
+
+    private val pendingRemoteCandidates =
+        ArrayDeque<PendingRemoteCandidate>()
     private val connectivity = PeerConnectivityTracker()
 
     @Volatile
     private var remoteDescriptionReady = false
+
+    @Volatile
+    private var remoteNegotiationId: String? = null
 
     @Volatile
     private var controlChannel: DataChannel? = null
@@ -194,6 +203,17 @@ class WebRtcPeer(
 
         synchronized(pendingRemoteCandidates) {
             remoteDescriptionReady = false
+            remoteNegotiationId = description.negotiationId
+
+            val retained = pendingRemoteCandidates
+                .filter {
+                    it.negotiationId ==
+                        description.negotiationId
+                }
+            pendingRemoteCandidates.clear()
+            retained.forEach(
+                pendingRemoteCandidates::addLast
+            )
         }
 
         peerConnection.setRemoteDescription(
@@ -232,8 +252,23 @@ class WebRtcPeer(
         )
 
         synchronized(pendingRemoteCandidates) {
-            if (!remoteDescriptionReady) {
-                pendingRemoteCandidates.addLast(ice)
+            val activeId = remoteNegotiationId
+            if (
+                !remoteDescriptionReady ||
+                activeId != candidate.negotiationId
+            ) {
+                if (
+                    pendingRemoteCandidates.size >=
+                    MAX_PENDING_REMOTE_CANDIDATES
+                ) {
+                    pendingRemoteCandidates.removeFirst()
+                }
+                pendingRemoteCandidates.addLast(
+                    PendingRemoteCandidate(
+                        negotiationId = candidate.negotiationId,
+                        candidate = ice
+                    )
+                )
                 return
             }
         }
@@ -514,12 +549,23 @@ class WebRtcPeer(
     }
 
     private fun flushPendingCandidates() {
+        val activeId = remoteNegotiationId ?: return
         val pending = mutableListOf<IceCandidate>()
 
         synchronized(pendingRemoteCandidates) {
+            val retained = mutableListOf<PendingRemoteCandidate>()
             while (pendingRemoteCandidates.isNotEmpty()) {
-                pending += pendingRemoteCandidates.removeFirst()
+                val item = pendingRemoteCandidates.removeFirst()
+                if (item.negotiationId == activeId) {
+                    pending += item.candidate
+                } else {
+                    retained += item
+                }
             }
+
+            retained
+                .takeLast(MAX_PENDING_REMOTE_CANDIDATES)
+                .forEach(pendingRemoteCandidates::addLast)
         }
 
         pending.forEach(peerConnection::addIceCandidate)
@@ -553,6 +599,7 @@ class WebRtcPeer(
     }
 
     companion object {
+        private const val MAX_PENDING_REMOTE_CANDIDATES = 192
         private const val CONTROL_CHANNEL = "control-v1"
         private const val SCREEN_STREAM_ID = "remote-screen"
         private const val MAX_VIDEO_BITRATE_BPS = 2_500_000
