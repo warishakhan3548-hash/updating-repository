@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "280260077456",
+    "project_id": "aaris-control",
+    "storage_bucket": "aaris-control.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:280260077456:android:bd52b9bbe74b5d111c3515",
+        "android_client_info": {
+          "package_name": "com.aaris.remoteassist"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDQ3JVhE5UK7Wgm0wNyD6PcE4pI1K84hPc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
