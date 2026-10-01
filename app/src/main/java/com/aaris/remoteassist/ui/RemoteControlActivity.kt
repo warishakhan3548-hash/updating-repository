@@ -223,16 +223,36 @@ class RemoteControlActivity : ComponentActivity() {
 
                             "LIVE" -> {
                                 if (rtcSession == null) {
-                                    finishController(
-                                        "Session was interrupted. Connect again with a new code."
-                                    )
+                                    advanceControllerState(id)
+                                    val local =
+                                        SessionCoordinator.snapshot()
+                                    val resumable =
+                                        local.sessionId == id &&
+                                            (
+                                                local.state ==
+                                                    SessionState.CONNECTING ||
+                                                local.state ==
+                                                    SessionState.LIVE
+                                            )
+
+                                    if (!resumable) {
+                                        finishController(
+                                            "Session was interrupted. Connect again with a new code."
+                                        )
+                                        return@runOnUiThread
+                                    }
+
+                                    ensureRtcStarted(id)
                                     return@runOnUiThread
                                 }
 
                                 runCatching {
+                                    val local =
+                                        SessionCoordinator.snapshot()
                                     if (
-                                        SessionCoordinator.snapshot().state ==
-                                        SessionState.CONNECTING
+                                        local.sessionId == id &&
+                                        local.state ==
+                                            SessionState.CONNECTING
                                     ) {
                                         SessionCoordinator.transition(
                                             id,
@@ -344,6 +364,21 @@ class RemoteControlActivity : ComponentActivity() {
             listener = object : ControllerWebRtcSession.Listener {
                 override fun onLive(geometry: RemoteGeometry) {
                     runOnUiThread {
+                        runCatching {
+                            val local =
+                                SessionCoordinator.snapshot()
+                            if (
+                                local.sessionId == id &&
+                                local.state ==
+                                    SessionState.CONNECTING
+                            ) {
+                                SessionCoordinator.transition(
+                                    id,
+                                    SessionState.LIVE
+                                )
+                            }
+                        }
+
                         if (
                             singleGestureGeneration >= 0 &&
                             singleGestureGeneration != geometry.generation
