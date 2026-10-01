@@ -1,6 +1,5 @@
 package com.aaris.remoteassist.webrtc
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,22 +33,38 @@ class IceServerProviderTest {
     }
 
     @Test
-    fun ignoresTurnEntriesWithoutCredentials() {
-        val parsed = IceServerProvider.parseIceServers(
-            """
-            {
-              "iceServers": [
-                {
-                  "urls": [
-                    "turn:turn.cloudflare.com:3478?transport=udp"
-                  ]
-                }
-              ]
-            }
-            """.trimIndent()
-        )
+    fun turnRequiresUsernameAndCredential() {
+        val url =
+            "turn:turn.cloudflare.com:3478?transport=udp"
 
-        assertEquals(0, parsed.size)
+        assertFalse(
+            IceServerProvider.isUsableIceUrl(
+                url = url,
+                username = "",
+                credential = ""
+            )
+        )
+        assertFalse(
+            IceServerProvider.isUsableIceUrl(
+                url = url,
+                username = "user",
+                credential = ""
+            )
+        )
+        assertTrue(
+            IceServerProvider.isUsableIceUrl(
+                url = url,
+                username = "user",
+                credential = "credential"
+            )
+        )
+        assertTrue(
+            IceServerProvider.isUsableIceUrl(
+                url = "stun:stun.cloudflare.com:3478",
+                username = "",
+                credential = ""
+            )
+        )
     }
 
     @Test
