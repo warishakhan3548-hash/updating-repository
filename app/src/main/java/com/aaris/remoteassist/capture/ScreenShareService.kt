@@ -100,6 +100,8 @@ class ScreenShareService : Service() {
         }
 
         if (resultCode == Int.MIN_VALUE || captureData == null) {
+            SessionCoordinator.close(sessionId)
+            BackendSessionCloser.close(this, sessionId)
             stopSelf()
             return
         }
