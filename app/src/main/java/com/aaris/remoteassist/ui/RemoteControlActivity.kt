@@ -230,6 +230,7 @@ class RemoteControlActivity : ComponentActivity() {
                                         id
                                     )
                                     SessionCoordinator.close(id)
+                                    finish()
                                     return@runOnUiThread
                                 }
 
