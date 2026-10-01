@@ -55,9 +55,24 @@ internal object SensitiveFieldHints {
             return true
         }
 
-        return securityPinTerms.any { term ->
-            normalized.contains(term) ||
-                compact.contains(term.replace(" ", ""))
+        if (securityPinTerms.any { term ->
+                normalized.contains(term) ||
+                    compact.contains(term.replace(" ", ""))
+            }
+        ) {
+            return true
         }
+
+        val hasStandalonePin =
+            Regex("\\bpin\\b").containsMatchIn(normalized)
+        val looksPostal = listOf(
+            "postal",
+            "shipping",
+            "address",
+            "zip",
+            "pin code"
+        ).any(normalized::contains)
+
+        return hasStandalonePin && !looksPostal
     }
 }
