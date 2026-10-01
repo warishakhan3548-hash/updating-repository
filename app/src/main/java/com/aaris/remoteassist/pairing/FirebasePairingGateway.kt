@@ -127,7 +127,6 @@ class FirebasePairingGateway(
             error("Code expired.")
         }
 
-        val now = System.currentTimeMillis()
         val sessionRef = database
             .getReference("sessions")
             .child(sessionId)
