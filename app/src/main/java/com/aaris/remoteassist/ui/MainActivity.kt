@@ -264,14 +264,35 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        startForegroundService(
-            Intent(this, ScreenShareService::class.java).apply {
-                action = ScreenShareService.ACTION_START
-                putExtra(ScreenShareService.EXTRA_SESSION_ID, sessionId)
-                putExtra(ScreenShareService.EXTRA_RESULT_CODE, resultCode)
-                putExtra(ScreenShareService.EXTRA_CAPTURE_DATA, data)
-            }
-        )
+        val serviceStarted = runCatching {
+            startForegroundService(
+                Intent(this, ScreenShareService::class.java).apply {
+                    action = ScreenShareService.ACTION_START
+                    putExtra(
+                        ScreenShareService.EXTRA_SESSION_ID,
+                        sessionId
+                    )
+                    putExtra(
+                        ScreenShareService.EXTRA_RESULT_CODE,
+                        resultCode
+                    )
+                    putExtra(
+                        ScreenShareService.EXTRA_CAPTURE_DATA,
+                        data
+                    )
+                }
+            )
+        }.isSuccess
+
+        if (!serviceStarted) {
+            endHostSession(
+                sessionId = sessionId,
+                message =
+                    "Could not start screen sharing. Tap Share to try again."
+            )
+            return
+        }
+
         status.text = "Starting secure connection…"
     }
 
