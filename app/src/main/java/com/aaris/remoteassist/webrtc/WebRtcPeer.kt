@@ -221,6 +221,18 @@ class WebRtcPeer(
             return
         }
 
+        if (
+            role == PeerRole.HOST &&
+            sessionDescription.type == SessionDescription.Type.ANSWER &&
+            peerConnection.signalingState() !=
+                PeerConnection.SignalingState.HAVE_LOCAL_OFFER
+        ) {
+            if (connectivity.hasEverConnected()) {
+                requestIceRestart()
+            }
+            return
+        }
+
         remoteCandidates.beginRemoteDescription(
             description.negotiationId
         )
