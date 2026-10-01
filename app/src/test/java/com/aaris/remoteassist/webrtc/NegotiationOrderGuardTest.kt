@@ -27,6 +27,20 @@ class NegotiationOrderGuardTest {
     }
 
     @Test
+    fun identifiesOnlyTheActiveNegotiation() {
+        val guard = NegotiationOrderGuard()
+
+        assertFalse(guard.isCurrent("client-a:1"))
+        assertTrue(guard.accept("client-a:1"))
+        assertTrue(guard.isCurrent("client-a:1"))
+        assertFalse(guard.isCurrent("client-a:2"))
+
+        assertTrue(guard.accept("client-a:2"))
+        assertFalse(guard.isCurrent("client-a:1"))
+        assertTrue(guard.isCurrent("client-a:2"))
+    }
+
+    @Test
     fun acceptsNewClientInstance() {
         val guard = NegotiationOrderGuard()
 
