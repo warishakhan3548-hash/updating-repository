@@ -305,7 +305,7 @@ class FirebasePairingGateway(
         when (uid) {
             hostUid -> {
                 val closedRecord = mutableMapOf<String, Any>(
-                    "hostUid" to hostUid,
+                    "hostUid" to uid,
                     "state" to "CLOSED",
                     "closedAtMs" to System.currentTimeMillis()
                 )
