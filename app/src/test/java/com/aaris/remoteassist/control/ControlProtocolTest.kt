@@ -43,6 +43,74 @@ class ControlProtocolTest {
     }
 
     @Test
+    fun swipeRoundTrips() {
+        val source = ControlPacket.Swipe(
+            leaseSecret = 44L,
+            generation = 6,
+            sequence = 100L,
+            fromNx = 0.12f,
+            fromNy = 0.22f,
+            toNx = 0.88f,
+            toNy = 0.72f,
+            durationMs = 340
+        )
+
+        val decoded = ControlProtocol.decode(
+            ControlProtocol.encode(source)
+        ) as ControlPacket.Swipe
+
+        assertEquals(source.leaseSecret, decoded.leaseSecret)
+        assertEquals(source.generation, decoded.generation)
+        assertEquals(source.sequence, decoded.sequence)
+        assertEquals(source.fromNx, decoded.fromNx, 0.00002f)
+        assertEquals(source.fromNy, decoded.fromNy, 0.00002f)
+        assertEquals(source.toNx, decoded.toNx, 0.00002f)
+        assertEquals(source.toNy, decoded.toNy, 0.00002f)
+        assertEquals(source.durationMs, decoded.durationMs)
+    }
+
+    @Test
+    fun twoFingerRoundTripsAndMapsToPixels() {
+        val source = ControlPacket.TwoFinger(
+            leaseSecret = 77L,
+            generation = 5,
+            sequence = 101L,
+            firstFromNx = 0.25f,
+            firstFromNy = 0.30f,
+            firstToNx = 0.15f,
+            firstToNy = 0.20f,
+            secondFromNx = 0.75f,
+            secondFromNy = 0.70f,
+            secondToNx = 0.85f,
+            secondToNy = 0.80f,
+            durationMs = 420
+        )
+
+        val decoded = ControlProtocol.decode(
+            ControlProtocol.encode(source)
+        ) as ControlPacket.TwoFinger
+
+        assertEquals(source.leaseSecret, decoded.leaseSecret)
+        assertEquals(source.generation, decoded.generation)
+        assertEquals(source.sequence, decoded.sequence)
+        assertEquals(source.firstFromNx, decoded.firstFromNx, 0.00002f)
+        assertEquals(source.secondToNy, decoded.secondToNy, 0.00002f)
+        assertEquals(source.durationMs, decoded.durationMs)
+
+        val command = ControlProtocol.toRemoteCommand(
+            sessionId = "s1",
+            packet = decoded,
+            widthPx = 1000,
+            heightPx = 2000
+        )
+        assertTrue(command is TwoFingerCommand)
+
+        val twoFinger = command as TwoFingerCommand
+        assertEquals(249.75f, twoFinger.firstFromXPx, 0.02f)
+        assertEquals(1599.2f, twoFinger.secondToYPx, 0.05f)
+    }
+
+    @Test
     fun recentsRoundTrips() {
         val source = ControlPacket.Recents(
             leaseSecret = 11L,

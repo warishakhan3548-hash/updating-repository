@@ -24,6 +24,7 @@ import com.aaris.remoteassist.control.RemoteCommand
 import com.aaris.remoteassist.control.SetTextCommand
 import com.aaris.remoteassist.control.SwipeCommand
 import com.aaris.remoteassist.control.TapCommand
+import com.aaris.remoteassist.control.TwoFingerCommand
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionSnapshot
 import com.aaris.remoteassist.session.SessionState
@@ -60,7 +61,9 @@ class AssistAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         SessionCoordinator.removeListener(sessionListener)
         hideStopOverlay()
-        instance.clear()
+        if (instance.get() === this) {
+            instance.clear()
+        }
         super.onDestroy()
     }
 
@@ -90,6 +93,7 @@ class AssistAccessibilityService : AccessibilityService() {
                 command.toYPx,
                 command.durationMs.coerceIn(80L, 1500L)
             )
+            is TwoFingerCommand -> twoFingerGesture(command)
             is GlobalActionCommand -> performGlobalAction(
                 when (command.action) {
                     GlobalAction.BACK -> GLOBAL_ACTION_BACK
@@ -207,6 +211,72 @@ class AssistAccessibilityService : AccessibilityService() {
         )
     }
 
+    private fun twoFingerGesture(command: TwoFingerCommand): Boolean {
+        val points = floatArrayOf(
+            command.firstFromXPx,
+            command.firstFromYPx,
+            command.firstToXPx,
+            command.firstToYPx,
+            command.secondFromXPx,
+            command.secondFromYPx,
+            command.secondToXPx,
+            command.secondToYPx
+        )
+        if (points.any { !it.isFinite() }) return false
+
+        val duration = command.durationMs.coerceIn(80L, 1_500L)
+        fun path(fromX: Float, fromY: Float, toX: Float, toY: Float) =
+            Path().apply {
+                moveTo(fromX, fromY)
+                if (fromX != toX || fromY != toY) {
+                    lineTo(toX, toY)
+                }
+            }
+
+        return dispatchGesture(
+            GestureDescription.Builder()
+                .addStroke(
+                    GestureDescription.StrokeDescription(
+                        path(
+                            command.firstFromXPx,
+                            command.firstFromYPx,
+                            command.firstToXPx,
+                            command.firstToYPx
+                        ),
+                        0L,
+                        duration
+                    )
+                )
+                .addStroke(
+                    GestureDescription.StrokeDescription(
+                        path(
+                            command.secondFromXPx,
+                            command.secondFromYPx,
+                            command.secondToXPx,
+                            command.secondToYPx
+                        ),
+                        0L,
+                        duration
+                    )
+                )
+                .build(),
+            null,
+            null
+        )
+    }
+
+    private fun dispatchOnMain(command: RemoteCommand): Boolean {
+        if (Looper.myLooper() == mainHandler.looper) {
+            return execute(command)
+        }
+
+        return mainHandler.post {
+            if (instance.get() === this) {
+                execute(command)
+            }
+        }
+    }
+
     private fun showStopOverlay() {
         if (stopOverlay != null) return
 
@@ -260,7 +330,7 @@ class AssistAccessibilityService : AccessibilityService() {
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
         fun dispatch(command: RemoteCommand): Boolean =
-            instance.get()?.execute(command) ?: false
+            instance.get()?.dispatchOnMain(command) ?: false
 
         fun isConnected(): Boolean = instance.get() != null
     }

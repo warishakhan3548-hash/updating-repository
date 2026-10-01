@@ -223,6 +223,7 @@ class HostWebRtcSession(
             is ControlPacket.Tap,
             is ControlPacket.LongPress,
             is ControlPacket.Swipe,
+            is ControlPacket.TwoFinger,
             is ControlPacket.Back,
             is ControlPacket.Home,
             is ControlPacket.Recents,

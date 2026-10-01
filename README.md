@@ -12,7 +12,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 - Pairing codes are five-minute, single-controller and one-time; after a valid redeem, the host gets a fresh three-minute approval window, followed by a separate three-minute screen/setup window. Shared messages also carry an `aarisremote://connect` join link that prefills the code but still requires START.
 - A visible foreground notification and accessibility STOP overlay remain available while screen sharing connects and during live control.
 - No hidden sessions, credential/OTP harvesting, or permission bypasses.
-- Live control supports tap, long-press, swipe, Back, Home, Recents, and explicit text entry into the currently focused non-password field.
+- Live control supports tap, long-press, swipe, true two-finger gestures (including pinch/zoom and two-finger pan), Back, Home, Recents, and explicit text entry into the currently focused non-password field.
 - Commands are rejected while the sharing phone is locked.
 
 ## Native stack
@@ -40,6 +40,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 12. Deadline isolation: code discovery, host approval, and screen/transport setup use separate backend deadlines so a code redeemed near expiry cannot collapse the consent/setup phase.
 13. Local-control liveness: if Android removes or disables the active AccessibilityService during a LIVE session, the host fails closed instead of continuing a view-only session that appears controllable.
 14. Interaction-first media: the screen-video sender prefers maintaining frame cadence under congestion and caps its send envelope so touch feedback stays responsive while WebRTC adapts resolution as needed.
+15. Multi-touch control: two controller fingers are transported as one generation-bound command and replayed as simultaneous Accessibility strokes, enabling pinch/zoom and two-finger navigation without layering hidden input paths.
+16. Serialized accessibility dispatch: remote commands are executed on the AccessibilityService main looper, and a stale destroyed service instance cannot clear a newer connected instance.
 
 ## Firebase setup
 
@@ -60,7 +62,7 @@ The Gradle Google Services plugin is applied only when `google-services.json` ex
 
 Direct WebRTC works well on many networks, but carrier-grade NAT and symmetric NAT require a TURN relay for TeamViewer-class connection reliability.
 
-Aaris Remote 1.1.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
+Aaris Remote 1.2.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
 
 Configure the relay endpoint and secret on the deployed Functions runtime:
 

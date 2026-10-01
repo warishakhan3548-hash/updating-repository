@@ -157,6 +157,40 @@ class ControllerWebRtcSession(
         )
     }
 
+    fun sendTwoFingerGesture(
+        firstFromNx: Float,
+        firstFromNy: Float,
+        firstToNx: Float,
+        firstToNy: Float,
+        secondFromNx: Float,
+        secondFromNy: Float,
+        secondToNx: Float,
+        secondToNy: Float,
+        durationMs: Int
+    ): Boolean {
+        val lease = leaseSecret ?: return false
+        val geometry = geometry ?: return false
+
+        return peer.sendControl(
+            ControlProtocol.encode(
+                ControlPacket.TwoFinger(
+                    leaseSecret = lease,
+                    generation = geometry.generation,
+                    sequence = sequence.incrementAndGet(),
+                    firstFromNx = firstFromNx,
+                    firstFromNy = firstFromNy,
+                    firstToNx = firstToNx,
+                    firstToNy = firstToNy,
+                    secondFromNx = secondFromNx,
+                    secondFromNy = secondFromNy,
+                    secondToNx = secondToNx,
+                    secondToNy = secondToNy,
+                    durationMs = durationMs
+                )
+            )
+        )
+    }
+
     fun sendBack(): Boolean {
         val lease = leaseSecret ?: return false
         val geometry = geometry ?: return false

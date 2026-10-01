@@ -42,6 +42,14 @@ A LIVE control lease is valid only while the host AccessibilityService remains c
 
 The host applies an RTP sender policy that prefers maintaining frame cadence under congestion and caps the video send envelope. WebRTC remains free to reduce resolution/bitrate below that ceiling, prioritizing responsive touch feedback over preserving every pixel at a fixed quality.
 
+## Multi-touch control
+
+The controller can encode two simultaneous normalized pointer paths in one generation-bound control packet. The host maps both paths against the same current display geometry and replays them as simultaneous AccessibilityService strokes. This keeps pinch/zoom and two-finger pan atomic across rotation boundaries instead of approximating them as unrelated taps or swipes.
+
+## Accessibility execution threading
+
+WebRTC may deliver DataChannel callbacks off the Android main looper. Remote commands are therefore serialized onto the AccessibilityService main handler before gesture, global-action, or text APIs are invoked. A destroyed service clears the static instance only when it is still the registered instance, preventing a stale lifecycle callback from disconnecting a newer service instance.
+
 ## Production network boundary
 
 The client first requests session-bound ICE configuration from the `asia-south1` `getIceConfig` callable. The function always supplies STUN and, when relay configuration is deployed, mints short-lived coturn REST credentials only for the authenticated host/controller of an active `SCREEN_READY` or `LIVE` session.
