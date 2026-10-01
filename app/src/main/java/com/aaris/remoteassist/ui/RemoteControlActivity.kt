@@ -274,7 +274,9 @@ class RemoteControlActivity : ComponentActivity() {
 
         showStatus("Establishing low-latency link…")
 
-        rtcSession = ControllerWebRtcSession(
+        var createdSession: ControllerWebRtcSession? = null
+        rtcSession = runCatching {
+            ControllerWebRtcSession(
             context = this,
             sessionId = id,
             listener = object : ControllerWebRtcSession.Listener {
@@ -338,7 +340,19 @@ class RemoteControlActivity : ComponentActivity() {
                     }
                 }
             }
-        ).also { it.start() }
+            ).also {
+                createdSession = it
+                it.start()
+            }
+        }.getOrElse { error ->
+            runCatching { createdSession?.close() }
+            showStatus(
+                error.message ?: "Could not start remote connection"
+            )
+            BackendSessionCloser.close(this, id)
+            SessionCoordinator.close(id)
+            null
+        }
     }
 
     private fun updateControllerDeadline(
