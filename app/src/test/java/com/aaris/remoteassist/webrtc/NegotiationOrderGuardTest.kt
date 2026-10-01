@@ -35,6 +35,20 @@ class NegotiationOrderGuardTest {
     }
 
     @Test
+    fun malformedNegotiationIdsFailClosed() {
+        val guard = NegotiationOrderGuard()
+
+        assertFalse(guard.accept(""))
+        assertFalse(guard.accept("client"))
+        assertFalse(guard.accept("client:not-a-number"))
+        assertFalse(
+            guard.accept(
+                "x".repeat(65) + ":1"
+            )
+        )
+    }
+
+    @Test
     fun legacyIsAllowedOnlyBeforeModernNegotiation() {
         val guard = NegotiationOrderGuard()
 
