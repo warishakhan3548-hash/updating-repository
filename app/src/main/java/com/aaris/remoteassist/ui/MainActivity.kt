@@ -10,6 +10,8 @@ import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -35,6 +37,7 @@ import com.aaris.remoteassist.pairing.BackendSessionCloser
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.pairing.PairingCode
 import com.aaris.remoteassist.pairing.PairingLink
+import com.aaris.remoteassist.pairing.PairingShareText
 import com.aaris.remoteassist.pairing.ShareTicket
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
@@ -77,6 +80,27 @@ class MainActivity : ComponentActivity() {
                 result.resultCode,
                 result.data
             )
+        }
+
+    private val remoteControlLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            val message = result.data?.getStringExtra(
+                RemoteControlActivity.EXTRA_RESULT_MESSAGE
+            )
+
+            if (
+                activeHostSessionId == null &&
+                SessionCoordinator.snapshot().state == SessionState.CLOSED
+            ) {
+                SessionCoordinator.prepareReady()
+            }
+
+            refreshIdleUi()
+            if (isIdleForNewSession()) {
+                status.text = message ?: "Ready"
+            }
         }
 
     private val notificationPermissionLauncher =
@@ -235,6 +259,12 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        if (!hasInternetTransport()) {
+            status.text =
+                "No internet connection. Turn on Wi-Fi or mobile data and try again."
+            return
+        }
+
         SessionCoordinator.prepareReady()
         beginShare()
     }
@@ -360,6 +390,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connect(code: String) {
+        if (!hasInternetTransport()) {
+            status.text =
+                "No internet connection. Turn on Wi-Fi or mobile data and try again."
+            return
+        }
+
         SessionCoordinator.prepareReady()
         setButtonsEnabled(false)
         status.text = "Finding your friend's phone…"
@@ -392,7 +428,7 @@ class MainActivity : ComponentActivity() {
             }
 
             status.text = "Connection request sent."
-            startActivity(
+            remoteControlLauncher.launch(
                 Intent(
                     this@MainActivity,
                     RemoteControlActivity::class.java
@@ -965,13 +1001,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun sendCode(code: String) {
-        val plain = code.filter(Char::isDigit)
-        val joinLink = PairingLink.uri(plain)
-        val message =
-            "Aaris Remote code: $plain\n" +
-                "Tap to join: $joinLink\n" +
-                "Or open Aaris Remote → Connect → START."
-
+        val message = PairingShareText.build(code)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, message)
@@ -990,13 +1020,13 @@ class MainActivity : ComponentActivity() {
             getSystemService(ClipboardManager::class.java)
                 .setPrimaryClip(
                     ClipData.newPlainText(
-                        "Aaris Remote code",
-                        plain
+                        "Aaris Remote invite",
+                        message
                     )
                 )
             status.text =
-                "No sharing app was available. Code copied."
-            toast("Code copied")
+                "No sharing app was available. Invite copied."
+            toast("Invite copied")
         }
     }
 
@@ -1471,7 +1501,9 @@ class MainActivity : ComponentActivity() {
             "cancelled",
             "declined",
             "not started",
-            "ended"
+            "ended",
+            "no internet",
+            "unavailable"
         ).any(value::contains)
 
         status.setTextColor(
@@ -1488,6 +1520,17 @@ class MainActivity : ComponentActivity() {
 
     private fun showBackendError(error: Throwable) {
         status.text = error.message ?: "Could not connect. Try again."
+    }
+
+    private fun hasInternetTransport(): Boolean {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        val network = manager.activeNetwork ?: return false
+        val capabilities =
+            manager.getNetworkCapabilities(network) ?: return false
+
+        return capabilities.hasCapability(
+            NetworkCapabilities.NET_CAPABILITY_INTERNET
+        )
     }
 
     private fun toast(message: String) {

@@ -1,5 +1,9 @@
 package com.aaris.remoteassist.pairing
 
+import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
+
 data class ShareTicket(
     val sessionId: String,
     val code: String,
@@ -46,20 +50,34 @@ object PairingCode {
 }
 
 object PairingLink {
-    private const val PREFIX = "aarisremote://connect?"
+    private const val SCHEME = "aarisremote"
+    private const val HOST = "connect"
 
     fun uri(code: String): String {
         val normalized = PairingCode.normalize(code)
             ?: error("Pairing code must contain " + PairingCode.DIGITS + " digits")
-        return PREFIX + "code=" + normalized
+        return "$SCHEME://$HOST?code=$normalized"
     }
 
     fun parse(raw: String?): String? {
         if (raw.isNullOrBlank()) return null
-        if (!raw.startsWith(PREFIX, ignoreCase = true)) return null
 
-        val query = raw.substringAfter('?', "")
-        val encodedCode = query
+        val parsed = runCatching {
+            URI(raw.trim())
+        }.getOrNull() ?: return null
+
+        if (
+            !parsed.scheme.equals(SCHEME, ignoreCase = true) ||
+            !parsed.host.equals(HOST, ignoreCase = true)
+        ) {
+            return null
+        }
+
+        val path = parsed.rawPath.orEmpty()
+        if (path.isNotEmpty() && path != "/") return null
+
+        val rawQuery = parsed.rawQuery ?: return null
+        val encodedCode = rawQuery
             .split('&')
             .asSequence()
             .mapNotNull { part ->
@@ -77,6 +95,29 @@ object PairingLink {
             ?.second
             ?: return null
 
-        return PairingCode.normalize(encodedCode)
+        val decodedCode = runCatching {
+            URLDecoder.decode(
+                encodedCode,
+                StandardCharsets.UTF_8.name()
+            )
+        }.getOrNull() ?: return null
+
+        val allowedCode = Regex(
+            "^\\d{12}$|^\\d{4}[ -]\\d{4}[ -]\\d{4}$"
+        )
+        if (!allowedCode.matches(decodedCode)) return null
+
+        return PairingCode.normalize(decodedCode)
+    }
+}
+
+object PairingShareText {
+    fun build(code: String): String {
+        val normalized = PairingCode.normalize(code)
+            ?: error("Pairing code must contain " + PairingCode.DIGITS + " digits")
+
+        return "Aaris Remote code: ${PairingCode.display(normalized)}\n" +
+            "Tap to join: ${PairingLink.uri(normalized)}\n" +
+            "Or open Aaris Remote → Connect → START."
     }
 }

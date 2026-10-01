@@ -32,6 +32,9 @@ object IceServerProvider {
         ).createIceServer(),
         PeerConnection.IceServer.builder(
             "stun:stun1.l.google.com:19302"
+        ).createIceServer(),
+        PeerConnection.IceServer.builder(
+            "stun:stun.cloudflare.com:3478"
         ).createIceServer()
     )
 
