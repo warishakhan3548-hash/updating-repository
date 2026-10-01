@@ -5,6 +5,11 @@ import java.io.Closeable
 interface SignalingClient : Closeable {
     interface Listener {
         fun onRemoteDescription(description: SignalDescription)
+        fun onRemoteDescriptionRedelivery(
+            description: SignalDescription
+        ) {
+            onRemoteDescription(description)
+        }
         fun onRemoteCandidate(candidate: SignalCandidate)
         fun onRemoteIceRestartRequested()
         fun onRemotePresence(online: Boolean)
