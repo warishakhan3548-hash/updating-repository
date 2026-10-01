@@ -97,11 +97,31 @@ class FirebasePairingGateway(
                     .getValue(String::class.java) ?: return
                 val generation = snapshot.child("displayGeneration")
                     .getValue(Long::class.java)?.toInt() ?: 0
+                val deadlineAtEpochMs = when (state) {
+                    "CODE_ACTIVE" ->
+                        snapshot.child("expiresAtMs")
+                            .getValue(Long::class.java)
+
+                    "PAIR_PENDING" ->
+                        snapshot.child("approvalExpiresAtMs")
+                            .getValue(Long::class.java)
+                            ?: snapshot.child("expiresAtMs")
+                                .getValue(Long::class.java)
+
+                    "HOST_APPROVED",
+                    "SCREEN_READY",
+                    "CONNECTING" ->
+                        snapshot.child("connectExpiresAtMs")
+                            .getValue(Long::class.java)
+
+                    else -> null
+                }
                 listener(
                     BackendSession(
                         sessionId = sessionId,
                         state = state,
-                        displayGeneration = generation
+                        displayGeneration = generation,
+                        deadlineAtEpochMs = deadlineAtEpochMs
                     )
                 )
             }

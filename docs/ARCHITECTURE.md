@@ -8,6 +8,8 @@
 4. **Media plane** — MediaProjection -> WebRTC video track -> controller renderer.
 5. **Control plane** — compact WebRTC data messages -> generation-aware coordinate mapper -> AccessibilityService gestures.
 6. **Safety plane** — no valid LIVE lease means no gesture execution; STOP/network loss/projector stop revokes the lease.
+7. **Transport-truth plane** — a controller is connected only when the WebRTC peer and ordered control DataChannel are both ready.
+8. **Deadline plane** — code discovery, host approval, and screen/transport setup have independent server deadlines.
 
 ## Session states
 
@@ -24,10 +26,16 @@ Control responsiveness wins over visual quality. Video bitrate/resolution may de
 Controller touch points are mapped through the actual rendered remote-video rectangle, normalized to [0,1], then transformed into the latest remote display generation. Touches outside the video viewport are ignored.
 
 
+## Pairing deadlines
+
+`CODE_ACTIVE` uses a five-minute one-time-code lifetime. A successful redeem moves the session to `PAIR_PENDING` and starts a fresh three-minute host-approval deadline. Host approval starts a separate three-minute screen/transport setup deadline. This prevents a code entered near the end of its discovery lifetime from prematurely expiring an otherwise valid consent flow.
+
+## Transport readiness
+
+WebRTC peer connectivity alone is not treated as usable remote control. The controller becomes connected only when both the peer connection and the ordered `control-v1` DataChannel are ready. The host's initial watchdog remains armed until both conditions are true, so a half-open transport cannot remain stuck indefinitely.
+
 ## Production network boundary
 
-The current peer configuration uses public STUN and therefore cannot honestly promise
-TeamViewer-class connectivity across every carrier-grade or symmetric NAT. Production
-distribution must add an authenticated TURN relay (UDP with TCP/TLS fallback) and mint
-short-lived relay credentials server-side. TURN credentials must never be hard-coded in
-the APK. Until that relay is provisioned, direct WebRTC remains a best-effort path.
+The client first requests session-bound ICE configuration from the `asia-south1` `getIceConfig` callable. The function always supplies STUN and, when relay configuration is deployed, mints short-lived coturn REST credentials only for the authenticated host/controller of an active `SCREEN_READY` or `LIVE` session.
+
+Carrier-grade or symmetric NAT still requires real TURN infrastructure for high connection coverage. Configure reachable UDP TURN plus TCP/TLS fallback through `TURN_URLS` and keep `TURN_SHARED_SECRET` only in the server deployment environment/secret store; never hard-code relay credentials in the APK. If relay configuration is unavailable, the client deliberately falls back to STUN-only best-effort connectivity.

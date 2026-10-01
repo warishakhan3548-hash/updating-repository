@@ -18,6 +18,7 @@ const PAIRING_PEPPER = defineSecret("PAIRING_PEPPER");
 const CODE_TTL_MS = 5 * 60_000;
 const REDEEM_WINDOW_MS = 60_000;
 const MAX_REDEEMS_PER_WINDOW = 8;
+const PAIR_APPROVAL_TTL_MS = 3 * 60_000;
 const CONNECT_SETUP_TTL_MS = 3 * 60_000;
 const ICE_CONFIG_TTL_SECONDS = 60 * 60;
 const DEFAULT_STUN_URLS = [
@@ -466,7 +467,8 @@ export const redeemPairingCode = onCall(
           ...session,
           controllerUid,
           state: "PAIR_PENDING" satisfies SessionState,
-          pairedAtMs: session.pairedAtMs ?? now
+          pairedAtMs: session.pairedAtMs ?? now,
+          approvalExpiresAtMs: now + PAIR_APPROVAL_TTL_MS
         };
       }, undefined, false);
     } catch (error) {
@@ -575,6 +577,7 @@ export const approvePairingSession = onCall(
         controllerUid?: string;
         state?: SessionState;
         expiresAtMs?: number;
+        approvalExpiresAtMs?: number;
         [key: string]: unknown;
       };
 
@@ -583,7 +586,12 @@ export const approvePairingSession = onCall(
         return;
       }
 
-      if ((session.expiresAtMs ?? 0) <= now) {
+      const approvalExpiresAtMs =
+        session.approvalExpiresAtMs ??
+        session.expiresAtMs ??
+        0;
+
+      if (approvalExpiresAtMs <= now) {
         failure = "expired";
         return;
       }

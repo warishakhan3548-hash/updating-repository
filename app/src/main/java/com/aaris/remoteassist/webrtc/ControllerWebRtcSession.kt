@@ -32,6 +32,7 @@ class ControllerWebRtcSession(
     private val closed = AtomicBoolean(false)
     private val sequence = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
+    private val transport = ControlTransportTracker()
 
     @Volatile
     private var leaseSecret: Long? = null
@@ -220,19 +221,23 @@ class ControllerWebRtcSession(
     }
 
     override fun onPeerConnected() {
-        listener.onConnectivityChanged(true)
+        transport.onPeerConnected()
+            ?.let(listener::onConnectivityChanged)
     }
 
     override fun onPeerDisconnected() {
-        listener.onConnectivityChanged(false)
+        transport.onPeerDisconnected()
+            ?.let(listener::onConnectivityChanged)
     }
 
     override fun onControlChannelOpen() {
-        listener.onConnectivityChanged(true)
+        transport.onControlChannelOpen()
+            ?.let(listener::onConnectivityChanged)
     }
 
     override fun onControlChannelClosed() {
-        listener.onConnectivityChanged(false)
+        transport.onControlChannelClosed()
+            ?.let(listener::onConnectivityChanged)
     }
 
     override fun onControlMessage(bytes: ByteArray) {

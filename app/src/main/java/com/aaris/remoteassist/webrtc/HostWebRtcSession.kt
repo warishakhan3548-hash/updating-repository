@@ -178,7 +178,6 @@ class HostWebRtcSession(
 
     override fun onControlChannelOpen() {
         controlOpen = true
-        displayHandler.removeCallbacks(connectionWatchdog)
         ensureLiveHandshake()
     }
 

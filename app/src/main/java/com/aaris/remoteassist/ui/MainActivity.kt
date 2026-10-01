@@ -22,6 +22,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import com.aaris.remoteassist.accessibility.PermissionGate
 import com.aaris.remoteassist.capture.ScreenShareService
+import com.aaris.remoteassist.pairing.BackendSession
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.pairing.PairingCode
 import com.aaris.remoteassist.pairing.PairingLink
@@ -48,7 +49,7 @@ class MainActivity : ComponentActivity() {
     private var hostObserver: Closeable? = null
     private var shareDialog: AlertDialog? = null
     private var approvalDialog: AlertDialog? = null
-    private var shareExpiryJob: Job? = null
+    private var sessionDeadlineJob: Job? = null
     private var activeHostSessionId: String? = null
     private var pendingProjectionSessionId: String? = null
     private var hostStartInFlight = false
@@ -152,8 +153,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         hostObserver?.close()
         hostObserver = null
-        shareExpiryJob?.cancel()
-        shareExpiryJob = null
+        sessionDeadlineJob?.cancel()
+        sessionDeadlineJob = null
         shareDialog?.dismiss()
         shareDialog = null
         approvalDialog?.dismiss()
@@ -233,7 +234,11 @@ class MainActivity : ComponentActivity() {
                     status.text = "Code ready. Send it to the other phone."
                     showShareCode(ticket)
                     observeHostSession(ticket.sessionId)
-                    scheduleShareExpiry(ticket)
+                    scheduleSessionDeadline(
+                        sessionId = ticket.sessionId,
+                        deadlineAtEpochMs = ticket.expiresAtEpochMs,
+                        backendState = "CODE_ACTIVE"
+                    )
                     sendCode(ticket.code)
                 }
                 .onFailure {
@@ -375,6 +380,11 @@ class MainActivity : ComponentActivity() {
                             return@runOnUiThread
                         }
 
+                        updateHostDeadline(
+                            sessionId,
+                            backend
+                        )
+
                         val recovered = reconcileHostState(
                             sessionId,
                             backend.state
@@ -394,7 +404,6 @@ class MainActivity : ComponentActivity() {
                                         return@runOnUiThread
                                     }
                                     showShareCode(ticket)
-                                    scheduleShareExpiry(ticket)
                                 }
                             }
 
@@ -790,27 +799,83 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun scheduleShareExpiry(ticket: ShareTicket) {
-        shareExpiryJob?.cancel()
-        shareExpiryJob = scope.launch {
+    private fun updateHostDeadline(
+        sessionId: String,
+        backend: BackendSession
+    ) {
+        if (
+            backend.state == "LIVE" ||
+            backend.state == "CLOSED"
+        ) {
+            sessionDeadlineJob?.cancel()
+            sessionDeadlineJob = null
+            return
+        }
+
+        val deadline = backend.deadlineAtEpochMs ?: return
+        scheduleSessionDeadline(
+            sessionId = sessionId,
+            deadlineAtEpochMs = deadline,
+            backendState = backend.state
+        )
+    }
+
+    private fun scheduleSessionDeadline(
+        sessionId: String,
+        deadlineAtEpochMs: Long,
+        backendState: String
+    ) {
+        sessionDeadlineJob?.cancel()
+        sessionDeadlineJob = scope.launch {
             val remaining =
-                (ticket.expiresAtEpochMs - System.currentTimeMillis())
-                    .coerceAtLeast(0L)
+                (
+                    deadlineAtEpochMs -
+                        System.currentTimeMillis() +
+                        CLIENT_DEADLINE_GRACE_MS
+                ).coerceAtLeast(0L)
             delay(remaining)
 
-            val state = SessionCoordinator.snapshot().state
-            if (
-                activeHostSessionId == ticket.sessionId &&
-                (
-                    state == SessionState.CODE_ACTIVE ||
-                        state == SessionState.PAIR_PENDING
-                )
-            ) {
-                endHostSession(
-                    ticket.sessionId,
-                    "Request expired. Tap Share to create a new code."
-                )
+            if (activeHostSessionId != sessionId) {
+                return@launch
             }
+
+            val localState = SessionCoordinator.snapshot().state
+            val stillInExpiredPhase = when (backendState) {
+                "CODE_ACTIVE" ->
+                    localState == SessionState.CODE_ACTIVE
+
+                "PAIR_PENDING" ->
+                    localState == SessionState.PAIR_PENDING
+
+                "HOST_APPROVED",
+                "SCREEN_READY",
+                "CONNECTING" ->
+                    localState == SessionState.HOST_APPROVED ||
+                        localState == SessionState.SCREEN_CONSENT ||
+                        localState == SessionState.CONNECTING
+
+                else -> false
+            }
+
+            if (!stillInExpiredPhase) {
+                return@launch
+            }
+
+            val message = when (backendState) {
+                "CODE_ACTIVE" ->
+                    "Share code expired. Tap Share to create a new code."
+
+                "PAIR_PENDING" ->
+                    "Connection request expired. Tap Share to try again."
+
+                else ->
+                    "Connection setup expired. Tap Share to try again."
+            }
+
+            endHostSession(
+                sessionId,
+                message
+            )
         }
     }
 
@@ -920,8 +985,8 @@ class MainActivity : ComponentActivity() {
         hostObserver?.close()
         hostObserver = null
 
-        shareExpiryJob?.cancel()
-        shareExpiryJob = null
+        sessionDeadlineJob?.cancel()
+        sessionDeadlineJob = null
 
         shareDialog?.dismiss()
         shareDialog = null
@@ -1091,6 +1156,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val CLIENT_DEADLINE_GRACE_MS = 2_000L
         private const val KEY_ACTIVE_HOST_SESSION =
             "active_host_session"
         private const val KEY_PENDING_PROJECTION_SESSION =

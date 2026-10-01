@@ -9,7 +9,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 - Accessibility never grants unattended remote access by itself.
 - Every screen-share session uses Android's MediaProjection consent.
 - A sharing phone explicitly approves every new controller request.
-- Pairing codes are five-minute, single-controller and one-time; shared messages also carry an `aarisremote://connect` join link that prefills the code but still requires START.
+- Pairing codes are five-minute, single-controller and one-time; after a valid redeem, the host gets a fresh three-minute approval window, followed by a separate three-minute screen/setup window. Shared messages also carry an `aarisremote://connect` join link that prefills the code but still requires START.
 - A visible foreground notification and accessibility STOP overlay remain available while screen sharing connects and during live control.
 - No hidden sessions, credential/OTP harvesting, or permission bypasses.
 - Live control supports tap, long-press, swipe, Back, Home, Recents, and explicit text entry into the currently focused non-password field.
@@ -36,6 +36,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 8. Control-channel safety: a closed WebRTC DataChannel immediately leaves the control plane and is given only a short recovery grace before the sharing session fails closed.
 9. Pairing consistency: code reservation and session transition are transaction-guarded; failed session creation or controller bootstrap rolls back its reservation instead of leaving a poisoned pending request.
 10. Relay authorization: TURN/ICE configuration is issued only to an authenticated participant of that active SCREEN_READY/LIVE session.
+11. Transport truth: controller UI reports connected only when both the WebRTC peer and ordered control DataChannel are ready; losing either plane leaves connected state immediately.
+12. Deadline isolation: code discovery, host approval, and screen/transport setup use separate backend deadlines so a code redeemed near expiry cannot collapse the consent/setup phase.
 
 ## Firebase setup
 
@@ -56,7 +58,7 @@ The Gradle Google Services plugin is applied only when `google-services.json` ex
 
 Direct WebRTC works well on many networks, but carrier-grade NAT and symmetric NAT require a TURN relay for TeamViewer-class connection reliability.
 
-Aaris Remote 0.9.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
+Aaris Remote 1.0.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
 
 Configure these environment values on the deployed Functions runtime:
 
