@@ -363,7 +363,8 @@ class WebRtcPeer(
     }
 
     private fun createOffer() {
-        signaling.beginLocalDescription()
+        val negotiationEpoch =
+            signaling.beginLocalDescription()
         peerConnection.createOffer(
             object : SdpObserverAdapter() {
                 override fun onCreateSuccess(
@@ -375,7 +376,10 @@ class WebRtcPeer(
                         )
                         return
                     }
-                    setLocalAndSignal(description)
+                    setLocalAndSignal(
+                        description,
+                        negotiationEpoch
+                    )
                 }
 
                 override fun onCreateFailure(error: String?) {
@@ -391,7 +395,8 @@ class WebRtcPeer(
     }
 
     private fun createAnswer() {
-        signaling.beginLocalDescription()
+        val negotiationEpoch =
+            signaling.beginLocalDescription()
         peerConnection.createAnswer(
             object : SdpObserverAdapter() {
                 override fun onCreateSuccess(
@@ -403,7 +408,10 @@ class WebRtcPeer(
                         )
                         return
                     }
-                    setLocalAndSignal(description)
+                    setLocalAndSignal(
+                        description,
+                        negotiationEpoch
+                    )
                 }
 
                 override fun onCreateFailure(error: String?) {
@@ -419,16 +427,18 @@ class WebRtcPeer(
     }
 
     private fun setLocalAndSignal(
-        description: SessionDescription
+        description: SessionDescription,
+        negotiationEpoch: Long
     ) {
         peerConnection.setLocalDescription(
             object : SdpObserverAdapter() {
                 override fun onSetSuccess() {
                     signaling.sendDescription(
-                        SignalDescription(
+                        description = SignalDescription(
                             type = description.type.canonicalForm(),
                             sdp = description.description
-                        )
+                        ),
+                        negotiationEpoch = negotiationEpoch
                     )
                 }
 
