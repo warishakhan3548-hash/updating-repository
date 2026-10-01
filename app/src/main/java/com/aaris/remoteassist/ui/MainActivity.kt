@@ -964,15 +964,32 @@ class MainActivity : ComponentActivity() {
                 "Tap to join: $joinLink\n" +
                 "Or open Aaris Remote → Connect → START."
 
-        startActivity(
-            Intent.createChooser(
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, message)
-                },
-                "Send Aaris Remote code"
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, message)
+        }
+
+        val launched = runCatching {
+            startActivity(
+                Intent.createChooser(
+                    shareIntent,
+                    "Send Aaris Remote code"
+                )
             )
-        )
+        }.isSuccess
+
+        if (!launched) {
+            getSystemService(ClipboardManager::class.java)
+                .setPrimaryClip(
+                    ClipData.newPlainText(
+                        "Aaris Remote code",
+                        plain
+                    )
+                )
+            status.text =
+                "No sharing app was available. Code copied."
+            toast("Code copied")
+        }
     }
 
     private fun copyCode(code: String) {
