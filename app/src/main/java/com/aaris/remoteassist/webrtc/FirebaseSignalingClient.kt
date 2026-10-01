@@ -20,6 +20,7 @@ class FirebaseSignalingClient(
 ) : SignalingClient {
     private val closed = AtomicBoolean(false)
     private val candidateSequence = AtomicLong(0L)
+    private val restartRequestSequence = AtomicLong(0L)
     @Volatile
     private var clientInstanceId =
         java.util.UUID.randomUUID().toString()
@@ -55,10 +56,7 @@ class FirebaseSignalingClient(
     private var presenceListener: ValueEventListener? = null
     private var remotePresenceReference: DatabaseReference? = null
     private var remotePresenceListener: ValueEventListener? = null
-    private var lastRemoteDescription: String? = null
-
-    @Volatile
-    private var lastLocalDescription: SignalDescription? = null
+    private var lastRemoteSignal: String? = null
 
     override fun start(listener: SignalingClient.Listener) {
         check(!closed.get()) { "Signaling client is closed" }
@@ -68,25 +66,38 @@ class FirebaseSignalingClient(
         val descriptionListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val raw = snapshot.getValue(String::class.java) ?: return
-                if (raw == lastRemoteDescription) return
+                if (raw == lastRemoteSignal) return
 
                 runCatching {
                     val json = JSONObject(raw)
-                    SignalDescription(
-                        type = json.getString("type"),
-                        sdp = json.getString("sdp"),
-                        negotiationId = json.optString(
-                            "negotiationId",
-                            LEGACY_NEGOTIATION_ID
+                    if (
+                        json.optString("kind") ==
+                        ICE_RESTART_REQUEST_KIND
+                    ) {
+                        null
+                    } else {
+                        SignalDescription(
+                            type = json.getString("type"),
+                            sdp = json.getString("sdp"),
+                            negotiationId = json.optString(
+                                "negotiationId",
+                                LEGACY_NEGOTIATION_ID
+                            )
                         )
-                    )
+                    }
                 }.onSuccess { description ->
+                    if (description == null) {
+                        lastRemoteSignal = raw
+                        listener.onRemoteIceRestartRequested()
+                        return@onSuccess
+                    }
+
                     if (
                         remoteNegotiationGuard.accept(
                             description.negotiationId
                         )
                     ) {
-                        lastRemoteDescription = raw
+                        lastRemoteSignal = raw
                         listener.onRemoteDescription(description)
                     }
                 }.onFailure(listener::onError)
@@ -211,10 +222,6 @@ class FirebaseSignalingClient(
                 if (closed.get()) {
                     return@addOnSuccessListener
                 }
-                if (role == PeerRole.CONTROLLER) {
-                    lastLocalDescription = description
-                }
-
                 candidateGate
                     .markDescriptionPublished(negotiationEpoch)
                     .forEach(::publishCandidate)
@@ -237,30 +244,24 @@ class FirebaseSignalingClient(
     override fun requestRemoteIceRestart() {
         if (closed.get() || role != PeerRole.CONTROLLER) return
 
-        val previousAnswer = lastLocalDescription ?: return
-        if (!previousAnswer.type.equals("answer", ignoreCase = true)) {
-            return
-        }
-
-        // Re-publish the last valid answer under a fresh signaling
-        // identity without mutating CandidatePublishGate. This avoids
-        // clearing candidates if a real ICE negotiation is already in flight.
-        // Hosts already interpret a fresh ANSWER received while STABLE as a
-        // bounded ICE-restart request, including older compatible hosts.
-        clientInstanceId = java.util.UUID.randomUUID().toString()
-        val recoveryEpoch =
-            candidateGate.currentEpoch().coerceAtLeast(1L)
+        /*
+         * A restart request is control-plane signaling, not an SDP answer.
+         * Re-publishing an old answer can race a newly-created host offer and
+         * make that stale answer look like the answer for the new ICE
+         * generation. Use an explicit envelope instead so offer/answer state
+         * remains strictly owned by WebRTC.
+         */
+        val requestId =
+            "$clientInstanceId:" +
+                restartRequestSequence.incrementAndGet()
         val payload = JSONObject()
-            .put("type", previousAnswer.type)
-            .put("sdp", previousAnswer.sdp)
-            .put(
-                "negotiationId",
-                negotiationIdFor(recoveryEpoch)
-            )
+            .put("kind", ICE_RESTART_REQUEST_KIND)
+            .put("requestId", requestId)
             .toString()
 
         // Advisory only: Firebase can queue this write across the exact
-        // Wi-Fi/mobile handoff. Failure must not tear down a healthy peer.
+        // Wi-Fi/mobile handoff. If an offer is already in flight, the host
+        // simply ignores this request and that offer remains authoritative.
         localSignal.setValue(payload)
     }
 
@@ -305,7 +306,6 @@ class FirebaseSignalingClient(
 
         remotePresenceReference = null
         remotePresenceListener = null
-        lastLocalDescription = null
         candidateGate.reset()
 
         val uid = auth.currentUser?.uid
@@ -337,9 +337,14 @@ class FirebaseSignalingClient(
             MAX_CANDIDATE_SLOTS.toLong()
         ).toString().padStart(CANDIDATE_SLOT_WIDTH, '0')
 
+        /*
+         * Trickle ICE candidates are individually recoverable. One transient
+         * candidate write must not tear down the whole session; later
+         * candidates and the bounded ICE-restart path can still establish a
+         * valid route. SDP publication failures remain fatal.
+         */
         localCandidates.child(slot)
             .setValue(payload)
-            .addOnFailureListener { listener?.onError(it) }
     }
 
     private fun dispatchRemoteCandidate(
@@ -376,6 +381,8 @@ class FirebaseSignalingClient(
 
 
     companion object {
+        private const val ICE_RESTART_REQUEST_KIND =
+            "ice_restart_request"
         private const val MAX_CANDIDATE_SLOTS = 96
         private const val CANDIDATE_SLOT_WIDTH = 3
     }
