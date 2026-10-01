@@ -178,6 +178,20 @@ class WebRtcPeer(
             return
         }
 
+        val expectedRemoteType = when (role) {
+            PeerRole.HOST -> SessionDescription.Type.ANSWER
+            PeerRole.CONTROLLER -> SessionDescription.Type.OFFER
+        }
+        if (sessionDescription.type != expectedRemoteType) {
+            listener.onError(
+                IllegalStateException(
+                    "Unexpected remote SDP type: " +
+                        sessionDescription.type
+                )
+            )
+            return
+        }
+
         synchronized(pendingRemoteCandidates) {
             remoteDescriptionReady = false
         }
