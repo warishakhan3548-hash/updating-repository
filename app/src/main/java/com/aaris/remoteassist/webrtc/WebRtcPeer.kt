@@ -524,7 +524,15 @@ class WebRtcPeer(
                     if (!buffer.binary) return
 
                     val source = buffer.data.slice()
-                    val bytes = ByteArray(source.remaining())
+                    val size = source.remaining()
+                    if (
+                        size <= 0 ||
+                        size > MAX_CONTROL_PACKET_BYTES
+                    ) {
+                        return
+                    }
+
+                    val bytes = ByteArray(size)
                     source.get(bytes)
                     listener.onControlMessage(bytes)
                 }
@@ -600,6 +608,7 @@ class WebRtcPeer(
 
     companion object {
         private const val MAX_PENDING_REMOTE_CANDIDATES = 192
+        private const val MAX_CONTROL_PACKET_BYTES = 4_096
         private const val CONTROL_CHANNEL = "control-v1"
         private const val SCREEN_STREAM_ID = "remote-screen"
         private const val MAX_VIDEO_BITRATE_BPS = 2_500_000
