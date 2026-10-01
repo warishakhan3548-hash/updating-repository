@@ -4,9 +4,13 @@
     ".write": false,
 
     "pairingCodes": {
-      ".read": false,
-      ".write": false
+      "$codeHash": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid && newData.child('sessionId').isString() && newData.child('expiresAtMs').isNumber() && newData.child('expiresAtMs').val() > now && $codeHash.matches(/^[0-9a-f]{64}$/)) || (data.exists() && !newData.exists() && (data.child('hostUid').val() === auth.uid || root.child('sessions').child(data.child('sessionId').val()).child('controllerUid').val() === auth.uid)))",
+        ".validate": "!newData.exists() || (newData.hasChildren(['sessionId', 'hostUid', 'expiresAtMs']) && newData.child('sessionId').isString() && newData.child('hostUid').isString() && newData.child('expiresAtMs').isNumber() && newData.child('expiresAtMs').val() > now && newData.child('expiresAtMs').val() <= now + 300000)"
+      }
     },
+
     "serverSessionCodes": {
       ".read": false,
       ".write": false
@@ -22,7 +26,12 @@
 
     "sessions": {
       "$sessionId": {
-        ".read": "auth != null && (data.child('hostUid').val() === auth.uid || data.child('controllerUid').val() === auth.uid)",
+        ".read": "auth != null && (data.child('hostUid').val() === auth.uid || data.child('controllerUid').val() === auth.uid || (data.child('state').val() === 'CODE_ACTIVE' && !data.child('controllerUid').exists() && data.child('expiresAtMs').val() > now))",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid && newData.child('state').val() === 'CODE_ACTIVE' && !newData.child('controllerUid').exists() && newData.child('expiresAtMs').isNumber() && newData.child('expiresAtMs').val() > now && newData.child('expiresAtMs').val() <= now + 300000 && newData.child('pairingHash').isString()) || (data.child('hostUid').val() === auth.uid && newData.child('hostUid').val() === auth.uid) || (data.exists() && !data.child('controllerUid').exists() && data.child('state').val() === 'CODE_ACTIVE' && data.child('expiresAtMs').val() > now && newData.child('hostUid').val() === data.child('hostUid').val() && newData.child('controllerUid').val() === auth.uid && newData.child('state').val() === 'PAIR_PENDING' && newData.child('createdAtMs').val() === data.child('createdAtMs').val() && newData.child('expiresAtMs').val() === data.child('expiresAtMs').val() && newData.child('displayGeneration').val() === data.child('displayGeneration').val() && newData.child('pairingHash').val() === data.child('pairingHash').val() && newData.child('approvalExpiresAtMs').isNumber() && newData.child('approvalExpiresAtMs').val() > now && newData.child('approvalExpiresAtMs').val() <= now + 180000))",
+
+        "state": {
+          ".write": "auth != null && root.child('sessions').child($sessionId).child('controllerUid').val() === auth.uid && newData.val() === 'CLOSED'"
+        },
 
         "controllerSignal": {
           ".write": "auth != null && root.child('sessions').child($sessionId).child('controllerUid').val() === auth.uid && (root.child('sessions').child($sessionId).child('state').val() === 'SCREEN_READY' || root.child('sessions').child($sessionId).child('state').val() === 'LIVE')",
