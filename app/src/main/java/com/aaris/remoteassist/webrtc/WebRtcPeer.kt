@@ -200,9 +200,15 @@ class WebRtcPeer(
         }
 
         scope.launch {
+            val refreshTimeoutMs =
+                if (connectivity.hasEverConnected()) {
+                    RESTART_ICE_REFRESH_TIMEOUT_MS
+                } else {
+                    PRELIVE_ICE_REFRESH_TIMEOUT_MS
+                }
             val refreshed = IceServerProvider.loadConfig(
                 sessionId = sessionId,
-                timeoutMs = RESTART_ICE_REFRESH_TIMEOUT_MS
+                timeoutMs = refreshTimeoutMs
             )
             val selectedServers =
                 if (refreshed.fromBackend) {
@@ -716,6 +722,7 @@ class WebRtcPeer(
         private const val MAX_VIDEO_BITRATE_BPS = 2_500_000
         private const val MAX_VIDEO_FRAMERATE = 30
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L
+        private const val PRELIVE_ICE_REFRESH_TIMEOUT_MS = 5_000L
         private const val ICE_RESTART_MIN_INTERVAL_MS = 2_500L
         private const val INITIAL_ICE_RESTART_DELAY_MS = 1_500L
     }
