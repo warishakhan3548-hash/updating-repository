@@ -159,7 +159,7 @@ object IceServerProvider {
         }
     }
 
-    private fun isAllowedIceUrl(url: String): Boolean {
+    internal fun isAllowedIceUrl(url: String): Boolean {
         if (url.length !in 5..MAX_ICE_URL_LENGTH) return false
         val lower = url.lowercase()
         return lower.startsWith("stun:") ||
