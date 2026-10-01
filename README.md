@@ -53,10 +53,12 @@ A native Android remote-support app with a deliberately tiny user interface and 
 
 ## Firebase setup
 
-The repository intentionally does not contain a Firebase project credential.
+The production Firebase Android app is registered in project `aaris-control` for package `com.aaris.remoteassist`.
 
-1. Register Android app `com.aaris.remoteassist` in Firebase.
-2. Put `google-services.json` at `app/google-services.json`.
+The repository intentionally does not commit `google-services.json`. Release builds restore it securely at build time from Codemagic variable `GOOGLE_SERVICES_JSON_B64`, then verify both the Firebase project ID and Android package before Gradle runs.
+
+1. Use Firebase project `aaris-control` and Android app `com.aaris.remoteassist`.
+2. Store the base64-encoded `google-services.json` in Codemagic as secure variable `GOOGLE_SERVICES_JSON_B64`.
 3. Enable Anonymous Authentication and Realtime Database.
 4. Create the Functions secret `PAIRING_PEPPER` with a strong random value.
 5. Deploy Cloud Functions and Realtime Database rules.
