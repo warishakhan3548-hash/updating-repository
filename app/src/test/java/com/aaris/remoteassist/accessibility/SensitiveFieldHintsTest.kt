@@ -32,6 +32,11 @@ class SensitiveFieldHintsTest {
                 "cardCvv"
             )
         )
+        assertTrue(
+            SensitiveFieldHints.isSensitive(
+                "Enter PIN"
+            )
+        )
     }
 
     @Test
