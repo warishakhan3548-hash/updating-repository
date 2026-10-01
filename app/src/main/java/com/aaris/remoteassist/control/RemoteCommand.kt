@@ -38,6 +38,22 @@ data class SwipeCommand(
     val durationMs: Long
 ) : RemoteCommand
 
+data class TwoFingerCommand(
+    override val sessionId: String,
+    override val leaseSecret: Long,
+    override val generation: Int,
+    override val sequence: Long,
+    val firstFromXPx: Float,
+    val firstFromYPx: Float,
+    val firstToXPx: Float,
+    val firstToYPx: Float,
+    val secondFromXPx: Float,
+    val secondFromYPx: Float,
+    val secondToXPx: Float,
+    val secondToYPx: Float,
+    val durationMs: Long
+) : RemoteCommand
+
 enum class GlobalAction { BACK, HOME, RECENTS }
 
 data class GlobalActionCommand(

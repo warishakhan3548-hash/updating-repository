@@ -61,6 +61,16 @@ class RemoteControlActivity : ComponentActivity() {
     private var downY = 0f
     private var downAtMs = 0L
 
+    private var twoFingerActive = false
+    private var suppressSingleUp = false
+    private var twoFingerStartedAtMs = 0L
+    private var firstPointerId = MotionEvent.INVALID_POINTER_ID
+    private var secondPointerId = MotionEvent.INVALID_POINTER_ID
+    private var firstStartNx = 0f
+    private var firstStartNy = 0f
+    private var secondStartNx = 0f
+    private var secondStartNy = 0f
+
     private val touchSlop by lazy {
         ViewConfiguration.get(this).scaledTouchSlop.toFloat()
     }
@@ -515,13 +525,97 @@ class RemoteControlActivity : ComponentActivity() {
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                resetTwoFingerState()
+                suppressSingleUp = false
                 downX = event.x
                 downY = event.y
                 downAtMs = SystemClock.elapsedRealtime()
                 return true
             }
 
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                suppressSingleUp = true
+
+                if (event.pointerCount != 2) {
+                    resetTwoFingerState(keepSuppression = true)
+                    return true
+                }
+
+                val first = normalizedPoint(
+                    event.getX(0),
+                    event.getY(0),
+                    geometry
+                )
+                val second = normalizedPoint(
+                    event.getX(1),
+                    event.getY(1),
+                    geometry
+                )
+
+                if (first == null || second == null) {
+                    resetTwoFingerState(keepSuppression = true)
+                    return true
+                }
+
+                firstPointerId = event.getPointerId(0)
+                secondPointerId = event.getPointerId(1)
+                firstStartNx = first.first
+                firstStartNy = first.second
+                secondStartNx = second.first
+                secondStartNy = second.second
+                twoFingerStartedAtMs =
+                    SystemClock.elapsedRealtime()
+                twoFingerActive = true
+                return true
+            }
+
+            MotionEvent.ACTION_POINTER_UP -> {
+                if (!twoFingerActive) {
+                    suppressSingleUp = true
+                    return true
+                }
+
+                val firstEnd = normalizedPointer(
+                    event,
+                    firstPointerId,
+                    geometry
+                )
+                val secondEnd = normalizedPointer(
+                    event,
+                    secondPointerId,
+                    geometry
+                )
+
+                if (firstEnd != null && secondEnd != null) {
+                    val duration = (
+                        SystemClock.elapsedRealtime() -
+                            twoFingerStartedAtMs
+                    ).coerceIn(80L, 1_500L)
+
+                    session.sendTwoFingerGesture(
+                        firstFromNx = firstStartNx,
+                        firstFromNy = firstStartNy,
+                        firstToNx = firstEnd.first,
+                        firstToNy = firstEnd.second,
+                        secondFromNx = secondStartNx,
+                        secondFromNy = secondStartNy,
+                        secondToNx = secondEnd.first,
+                        secondToNy = secondEnd.second,
+                        durationMs = duration.toInt()
+                    )
+                }
+
+                resetTwoFingerState(keepSuppression = true)
+                return true
+            }
+
             MotionEvent.ACTION_UP -> {
+                if (suppressSingleUp) {
+                    resetTwoFingerState()
+                    suppressSingleUp = false
+                    return true
+                }
+
                 val start = normalizedPoint(
                     downX,
                     downY,
@@ -571,10 +665,50 @@ class RemoteControlActivity : ComponentActivity() {
                 return true
             }
 
-            MotionEvent.ACTION_CANCEL -> return true
+            MotionEvent.ACTION_CANCEL -> {
+                resetTwoFingerState()
+                suppressSingleUp = false
+                return true
+            }
         }
 
         return true
+    }
+
+    private fun normalizedPointer(
+        event: MotionEvent,
+        pointerId: Int,
+        geometry: RemoteGeometry
+    ): Pair<Float, Float>? {
+        if (pointerId == MotionEvent.INVALID_POINTER_ID) {
+            return null
+        }
+
+        val index = event.findPointerIndex(pointerId)
+        if (index < 0) return null
+
+        return normalizedPoint(
+            event.getX(index),
+            event.getY(index),
+            geometry
+        )
+    }
+
+    private fun resetTwoFingerState(
+        keepSuppression: Boolean = false
+    ) {
+        twoFingerActive = false
+        firstPointerId = MotionEvent.INVALID_POINTER_ID
+        secondPointerId = MotionEvent.INVALID_POINTER_ID
+        firstStartNx = 0f
+        firstStartNy = 0f
+        secondStartNx = 0f
+        secondStartNy = 0f
+        twoFingerStartedAtMs = 0L
+
+        if (!keepSuppression) {
+            suppressSingleUp = false
+        }
     }
 
     private fun normalizedPoint(

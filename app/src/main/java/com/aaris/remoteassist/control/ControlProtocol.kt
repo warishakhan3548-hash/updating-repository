@@ -43,6 +43,21 @@ sealed interface ControlPacket {
         val durationMs: Int
     ) : ControlPacket
 
+    data class TwoFinger(
+        val leaseSecret: Long,
+        val generation: Int,
+        val sequence: Long,
+        val firstFromNx: Float,
+        val firstFromNy: Float,
+        val firstToNx: Float,
+        val firstToNy: Float,
+        val secondFromNx: Float,
+        val secondFromNy: Float,
+        val secondToNx: Float,
+        val secondToNy: Float,
+        val durationMs: Int
+    ) : ControlPacket
+
     data class Back(
         val leaseSecret: Long,
         val generation: Int,
@@ -84,6 +99,7 @@ object ControlProtocol {
     private const val DISCONNECT: Byte = 8
     private const val RECENTS: Byte = 9
     private const val TEXT: Byte = 10
+    private const val TWO_FINGER: Byte = 11
 
     private const val MAX_TEXT_BYTES = 2048
 
@@ -103,6 +119,8 @@ object ControlProtocol {
             is ControlPacket.Tap -> 2 + 8 + 4 + 8 + 2 + 2
             is ControlPacket.LongPress -> 2 + 8 + 4 + 8 + 2 + 2 + 2
             is ControlPacket.Swipe -> 2 + 8 + 4 + 8 + 2 + 2 + 2 + 2 + 2
+            is ControlPacket.TwoFinger ->
+                2 + 8 + 4 + 8 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 2
             is ControlPacket.Back,
             is ControlPacket.Home,
             is ControlPacket.Recents -> 2 + 8 + 4 + 8
@@ -164,6 +182,26 @@ object ControlProtocol {
                 putUnit(buffer, packet.fromNy)
                 putUnit(buffer, packet.toNx)
                 putUnit(buffer, packet.toNy)
+                buffer.putShort(
+                    packet.durationMs.coerceIn(80, 5_000).toShort()
+                )
+            }
+
+            is ControlPacket.TwoFinger -> {
+                putCommandHeader(
+                    buffer,
+                    packet.leaseSecret,
+                    packet.generation,
+                    packet.sequence
+                )
+                putUnit(buffer, packet.firstFromNx)
+                putUnit(buffer, packet.firstFromNy)
+                putUnit(buffer, packet.firstToNx)
+                putUnit(buffer, packet.firstToNy)
+                putUnit(buffer, packet.secondFromNx)
+                putUnit(buffer, packet.secondFromNy)
+                putUnit(buffer, packet.secondToNx)
+                putUnit(buffer, packet.secondToNy)
                 buffer.putShort(
                     packet.durationMs.coerceIn(80, 5_000).toShort()
                 )
@@ -259,12 +297,31 @@ object ControlProtocol {
                 }
 
                 SWIPE -> {
-                    require(buffer.remaining() == 30)
+                    require(buffer.remaining() == 28)
                     val header = readHeader(buffer)
                     ControlPacket.Swipe(
                         header.leaseSecret,
                         header.generation,
                         header.sequence,
+                        getUnit(buffer),
+                        getUnit(buffer),
+                        getUnit(buffer),
+                        getUnit(buffer),
+                        buffer.short.toInt() and 0xffff
+                    )
+                }
+
+                TWO_FINGER -> {
+                    require(buffer.remaining() == 38)
+                    val header = readHeader(buffer)
+                    ControlPacket.TwoFinger(
+                        header.leaseSecret,
+                        header.generation,
+                        header.sequence,
+                        getUnit(buffer),
+                        getUnit(buffer),
+                        getUnit(buffer),
+                        getUnit(buffer),
                         getUnit(buffer),
                         getUnit(buffer),
                         getUnit(buffer),
@@ -375,6 +432,22 @@ object ControlProtocol {
                 durationMs = packet.durationMs.toLong()
             )
 
+            is ControlPacket.TwoFinger -> TwoFingerCommand(
+                sessionId = sessionId,
+                leaseSecret = packet.leaseSecret,
+                generation = packet.generation,
+                sequence = packet.sequence,
+                firstFromXPx = x(packet.firstFromNx),
+                firstFromYPx = y(packet.firstFromNy),
+                firstToXPx = x(packet.firstToNx),
+                firstToYPx = y(packet.firstToNy),
+                secondFromXPx = x(packet.secondFromNx),
+                secondFromYPx = y(packet.secondFromNy),
+                secondToXPx = x(packet.secondToNx),
+                secondToYPx = y(packet.secondToNy),
+                durationMs = packet.durationMs.toLong()
+            )
+
             is ControlPacket.Back -> GlobalActionCommand(
                 sessionId = sessionId,
                 leaseSecret = packet.leaseSecret,
@@ -453,6 +526,7 @@ object ControlProtocol {
         is ControlPacket.Tap -> TAP
         is ControlPacket.LongPress -> LONG_PRESS
         is ControlPacket.Swipe -> SWIPE
+        is ControlPacket.TwoFinger -> TWO_FINGER
         is ControlPacket.Back -> BACK
         is ControlPacket.Home -> HOME
         is ControlPacket.Recents -> RECENTS
