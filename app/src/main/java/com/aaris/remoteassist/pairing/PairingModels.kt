@@ -18,6 +18,8 @@ data class PairRequest(
 
 object PairingCode {
     private val nonDigits = Regex("\\D")
+    private val directCandidate =
+        Regex("^\\d{12}$|^\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}$")
     private val embeddedCandidate =
         Regex("(?<!\\d)(\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4})(?!\\d)")
 
@@ -27,7 +29,10 @@ object PairingCode {
     }
 
     fun extract(raw: String): String? {
-        normalize(raw)?.let { return it }
+        val trimmed = raw.trim()
+        if (directCandidate.matches(trimmed)) {
+            return normalize(trimmed)
+        }
 
         val candidates = embeddedCandidate
             .findAll(raw)
