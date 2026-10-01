@@ -193,6 +193,9 @@ class RemoteControlActivity : ComponentActivity() {
                             }
 
                             "LIVE" -> {
+                                advanceControllerState(id)
+                                ensureRtcStarted(id)
+
                                 runCatching {
                                     if (
                                         SessionCoordinator.snapshot().state ==
@@ -207,7 +210,7 @@ class RemoteControlActivity : ComponentActivity() {
 
                                 if (remoteTrack == null) {
                                     showStatus(
-                                        "Connected • waiting for video…"
+                                        "Connected • restoring video…"
                                     )
                                 } else {
                                     statusPanel.visibility = View.GONE
@@ -243,6 +246,31 @@ class RemoteControlActivity : ComponentActivity() {
     private fun advanceControllerState(id: String) {
         runCatching {
             var state = SessionCoordinator.snapshot()
+
+            if (
+                state.sessionId != null &&
+                state.sessionId != id &&
+                state.state != SessionState.CLOSED
+            ) {
+                return@runCatching
+            }
+
+            if (
+                state.state == SessionState.IDLE ||
+                state.state == SessionState.SETUP_REQUIRED ||
+                state.state == SessionState.CLOSED
+            ) {
+                SessionCoordinator.prepareReady()
+                state = SessionCoordinator.snapshot()
+            }
+
+            if (state.state == SessionState.READY) {
+                SessionCoordinator.transition(
+                    id,
+                    SessionState.PAIR_PENDING
+                )
+                state = SessionCoordinator.snapshot()
+            }
 
             if (state.state == SessionState.PAIR_PENDING) {
                 SessionCoordinator.transition(
