@@ -25,7 +25,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 
 - Android API 36 / AGP 9.4 / Gradle 9.6 / JDK 17
 - Kotlin-first native Android UI and services
-- Firebase Anonymous Auth + App Check + Cloud Functions + Realtime Database
+- Firebase Anonymous Auth + Realtime Database on the Spark plan
 - WebRTC Android SDK for media and control transport
 - AccessibilityService for user-approved remote gestures
 - MediaProjection foreground service for screen capture
@@ -33,7 +33,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 ## Internal planes
 
 1. Session state machine: fail-closed state transitions.
-2. Pairing plane: Cloud Functions mint and redeem one-time codes.
+2. Pairing plane: the two authenticated clients coordinate through RTDB using a 12-digit one-time code whose SHA-256 hash is the lookup key.
 3. Signaling plane: RTDB carries participant-scoped SDP/ICE only.
 4. Media plane: MediaProjection -> WebRTC video track.
 5. Control plane: WebRTC DataChannel -> command gate -> AccessibilityService.
@@ -41,7 +41,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 7. Recovery plane: transient post-connect network drops trigger a bounded ICE restart; duplicate ICE/peer callbacks are collapsed into one connectivity truth and pre-connect presence noise cannot falsely start the reconnect timer.
 8. Control-channel safety: a closed WebRTC DataChannel immediately leaves the control plane and is given only a short recovery grace before the sharing session fails closed.
 9. Pairing consistency: code reservation and session transition are transaction-guarded; failed session creation or controller bootstrap rolls back its reservation instead of leaving a poisoned pending request.
-10. Relay authorization: TURN/ICE configuration is issued only to an authenticated participant of that active SCREEN_READY/LIVE session.
+10. ICE configuration: Spark builds use Google STUN directly; no billing-backed relay credential service is required.
 11. Transport truth: controller UI reports connected only when both the WebRTC peer and ordered control DataChannel are ready; losing either plane leaves connected state immediately.
 12. Deadline isolation: code discovery, host approval, and screen/transport setup use separate backend deadlines so a code redeemed near expiry cannot collapse the consent/setup phase.
 13. Local-control liveness: if Android removes or disables the active AccessibilityService during a LIVE session, the host fails closed instead of continuing a view-only session that appears controllable.
@@ -49,40 +49,26 @@ A native Android remote-support app with a deliberately tiny user interface and 
 15. Multi-touch control: two controller fingers are transported as one generation-bound command and replayed as simultaneous Accessibility strokes, enabling pinch/zoom and two-finger navigation without layering hidden input paths.
 16. Serialized accessibility dispatch: remote commands are executed on the AccessibilityService main looper, and a stale destroyed service instance cannot clear a newer connected instance.
 17. Frictionless code recovery: Connect extracts one unique six-digit pairing code from copied share text, but does not guess when multiple different candidate codes are present.
-18. Relay-refresh recovery: every host ICE restart refreshes its session-bound ICE/TURN configuration before restarting connectivity, so long-running sessions do not depend on stale relay credentials.
+18. ICE-restart recovery: transient network drops reuse the current STUN configuration and restart ICE without a Cloud Functions dependency.
 
 ## Firebase setup
 
-The production Firebase Android app is registered in project `aaris-control` for package `com.aaris.remoteassist`.
+Aaris Remote is designed to run on Firebase's Spark plan without Cloud Functions.
 
-The repository intentionally does not commit `google-services.json`. Release builds restore it securely at build time from Codemagic variable `GOOGLE_SERVICES_JSON_B64`, then verify both the Firebase project ID and Android package before Gradle runs.
+1. Firebase project: `aaris-control`.
+2. Android package: `com.aaris.remoteassist`.
+3. Anonymous Authentication must be enabled.
+4. Realtime Database must exist in `asia-southeast1`.
+5. Deploy the repository's `database.rules.json`; it is the authorization boundary for pairing, session state, signaling, and presence.
+6. Codemagic restores `google-services.json` from secure variable `GOOGLE_SERVICES_JSON_B64` and verifies both the project ID and Android package before the release build.
+7. Pairing codes are 12 digits, one-time, five-minute credentials. The database stores only the SHA-256 lookup key rather than the raw code.
 
-1. Use Firebase project `aaris-control` and Android app `com.aaris.remoteassist`.
-2. Store the base64-encoded `google-services.json` in Codemagic as secure variable `GOOGLE_SERVICES_JSON_B64`.
-3. Enable Anonymous Authentication and Realtime Database.
-4. Create the Functions secret `PAIRING_PEPPER` with a strong random value.
-5. Deploy Cloud Functions and Realtime Database rules.
-6. Enable App Check / Play Integrity for production builds.
-7. Debug builds use Firebase's App Check debug provider. Register the emitted debug token in the Firebase console for development devices; never commit that token.
-8. For GitHub Actions APKs, optionally store base64-encoded `google-services.json` as the repository secret `GOOGLE_SERVICES_JSON_B64`; CI restores it only inside the runner and never commits it.
+No Firebase billing account, Cloud Functions, App Check, Firebase Messaging, or Google sign-in is required for the core remote-support flow.
 
-The Gradle Google Services plugin is applied only when `google-services.json` exists, so CI can still compile the source tree without committing credentials. Production builds use Play Integrity; debug builds use the Firebase debug provider, matching Firebase's recommended development flow.
+## Network reliability
 
-## Production relay reliability
+The Spark build uses public STUN servers for WebRTC NAT traversal. This keeps the core app free of billing-backed infrastructure and works on many ordinary Wi-Fi/mobile-network combinations.
 
-Direct WebRTC works well on many networks, but carrier-grade NAT and symmetric NAT require a TURN relay for TeamViewer-class connection reliability.
+A TURN relay is still the standard way to improve connection coverage on restrictive carrier-grade or symmetric NATs. Because TURN requires a reachable relay service, the current Spark-only build intentionally treats it as an optional future deployment rather than requiring Firebase billing.
 
-Aaris Remote 1.5.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
-
-Configure the relay endpoint and secret on the deployed Functions runtime:
-
-- `TURN_URLS`: comma-separated TURN/TURNS URLs, for example `turn:relay.example.com:3478?transport=udp,turns:relay.example.com:5349?transport=tcp`
-- `TURN_SHARED_SECRET`: a Firebase Functions secret containing the coturn REST shared secret, at least 16 characters and never committed to this repository
-
-Create or rotate the TURN secret before deploying Functions:
-
-```bash
-firebase functions:secrets:set TURN_SHARED_SECRET
-```
-
-If TURN URLs are not configured or the ICE-config call fails, the Android client falls back to the built-in STUN list. For TeamViewer-class connection coverage across restrictive carrier/symmetric NATs, deploy reachable UDP TURN plus TCP/TLS fallback and rotate the shared secret through the Functions secret store.
+The control and video paths remain WebRTC peer transport; RTDB is used only for pairing/session state and SDP/ICE signaling.

@@ -8,17 +8,17 @@ class PairingLinkTest {
     @Test
     fun buildsCanonicalJoinLink() {
         assertEquals(
-            "aarisremote://connect?code=123456",
-            PairingLink.uri("123 456")
+            "aarisremote://connect?code=123456789012",
+            PairingLink.uri("1234 5678 9012")
         )
     }
 
     @Test
     fun parsesCanonicalJoinLink() {
         assertEquals(
-            "123456",
+            "123456789012",
             PairingLink.parse(
-                "aarisremote://connect?code=123456"
+                "aarisremote://connect?code=123456789012"
             )
         )
     }
@@ -26,9 +26,9 @@ class PairingLinkTest {
     @Test
     fun acceptsExtraQueryParameters() {
         assertEquals(
-            "654321",
+            "654321098765",
             PairingLink.parse(
-                "aarisremote://connect?source=share&code=654321"
+                "aarisremote://connect?source=share&code=654321098765"
             )
         )
     }
@@ -37,12 +37,12 @@ class PairingLinkTest {
     fun rejectsWrongSchemeOrInvalidCode() {
         assertNull(
             PairingLink.parse(
-                "https://example.com/connect?code=123456"
+                "https://example.com/connect?code=123456789012"
             )
         )
         assertNull(
             PairingLink.parse(
-                "aarisremote://connect?code=12345"
+                "aarisremote://connect?code=12345678901"
             )
         )
     }

@@ -292,7 +292,7 @@ class MainActivity : ComponentActivity() {
 
         val suggestedCode = initialCode ?: pairingCodeFromClipboard()
         val input = EditText(this).apply {
-            hint = "000 000"
+            hint = "0000 0000 0000"
             gravity = Gravity.CENTER
             inputType = InputType.TYPE_CLASS_NUMBER
             textSize = 24f
@@ -308,7 +308,7 @@ class MainActivity : ComponentActivity() {
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("Connect")
-            .setMessage("Enter the 6-digit code from your friend.")
+            .setMessage("Enter the 12-digit one-time code from your friend.")
             .setView(input)
             .setPositiveButton("START", null)
             .setNegativeButton("CANCEL", null)
@@ -317,7 +317,7 @@ class MainActivity : ComponentActivity() {
         fun submit() {
             val code = PairingCode.normalize(input.text.toString())
             if (code == null) {
-                input.error = "Enter the 6-digit code"
+                input.error = "Enter the 12-digit code"
                 return
             }
             dialog.dismiss()
@@ -606,7 +606,7 @@ class MainActivity : ComponentActivity() {
 
         val codeView = TextView(this).apply {
             text = PairingCode.display(ticket.code)
-            textSize = 34f
+            textSize = 28f
             gravity = Gravity.CENTER
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             letterSpacing = 0.08f
