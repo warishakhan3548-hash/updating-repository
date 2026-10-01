@@ -75,6 +75,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 40. Controller viewer startup safety: if the remote-rendering surface or WebRTC runtime cannot initialize on a controller device, the app closes that attempt cleanly and returns a clear status instead of appearing to jump out of the app.
 41. Approval-time Accessibility liveness: tapping START no longer trusts the Android enabled-services flag alone. The sharing phone waits for the actual AccessibilityService connection before backend approval and again before MediaProjection, preserving the pending session across the settings round-trip instead of failing later as an interrupted connection.
 42. Controller relay refresh: when the controller initially starts with STUN fallback because authenticated TURN was temporarily unavailable, it makes one bounded pre-live TURN refresh so the host's staged ICE restart can still converge on a relay path without another code or user action.
+43. Restart-signaling correctness: controller ICE-restart requests use an explicit signaling envelope instead of replaying an old SDP answer, and host restart preparation is single-flight so TURN refresh, bootstrap recovery, network handoff and disconnect recovery cannot create overlapping offers.
+44. Truthful pre-live safety UI: the host overlay says STOP • CONNECTING while transport is being established and switches to STOP • SHARING only after peer + ordered control channel are actually live.
 
 ## Firebase setup
 
