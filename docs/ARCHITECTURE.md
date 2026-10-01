@@ -2,64 +2,82 @@
 
 ## Planes
 
-1. **Session plane** — strict state machine and fail-closed session guard.
-2. **Pairing plane** — Firebase anonymous identity + callable functions for short-lived single-use codes.
-3. **Signaling plane** — Realtime Database SDP/ICE exchange scoped to the two session participants.
+1. **Session plane** — strict local state machine and fail-closed session guard.
+2. **Pairing plane** — Firebase Anonymous Auth + Realtime Database using a 12-digit, five-minute, one-time code. Only the SHA-256 lookup key is stored in RTDB.
+3. **Signaling plane** — participant-scoped SDP/ICE exchange through the Singapore Realtime Database.
 4. **Media plane** — MediaProjection -> WebRTC video track -> controller renderer.
-5. **Control plane** — compact WebRTC data messages -> generation-aware coordinate mapper -> AccessibilityService gestures.
-6. **Safety plane** — no valid LIVE lease means no gesture execution; STOP/network loss/projector stop revokes the lease.
-7. **Transport-truth plane** — a controller is connected only when the WebRTC peer and ordered control DataChannel are both ready.
-8. **Deadline plane** — code discovery, host approval, and screen/transport setup have independent server deadlines.
+5. **Control plane** — ordered WebRTC DataChannel messages -> generation-aware coordinate mapping -> AccessibilityService gestures.
+6. **Safety plane** — no valid LIVE lease means no gesture execution; STOP, lease expiry, Accessibility loss, projection stop, or transport failure revokes local control.
+7. **Transport-truth plane** — the controller is usable only when both the WebRTC peer and the ordered `control-v1` DataChannel are ready.
+8. **Deadline plane** — code discovery, host approval, and screen/transport setup use separate deadlines.
 
 ## Session states
 
-IDLE -> SETUP_REQUIRED -> READY -> CODE_ACTIVE -> PAIR_PENDING -> HOST_APPROVED -> SCREEN_CONSENT -> CONNECTING -> LIVE -> CLOSED
+`IDLE -> SETUP_REQUIRED -> READY -> CODE_ACTIVE -> PAIR_PENDING -> HOST_APPROVED -> SCREEN_CONSENT -> CONNECTING -> LIVE -> CLOSED`
 
-Every transition is monotonic for a session. A closed session is never revived.
+Every local transition is monotonic for a session. A closed local state machine is replaced only when starting a new session.
 
-## Latency policy
+## Pairing consistency
 
-Control responsiveness wins over visual quality. Video bitrate/resolution may degrade under congestion; command traffic is isolated from the video track. Stale display generations and stale gesture packets are discarded.
+Share-ticket creation writes the code reservation and session record as one RTDB multi-location update. Controller claim and host state transitions use RTDB transactions so simultaneous redeems or stale clients cannot legitimately advance the same session twice.
 
-## Coordinate policy
+The app uses the explicit database endpoint:
 
-Controller touch points are mapped through the actual rendered remote-video rectangle, normalized to [0,1], then transformed into the latest remote display generation. Touches outside the video viewport are ignored.
+`https://aaris-control-default-rtdb.asia-southeast1.firebasedatabase.app`
 
+This avoids relying on whether an older `google-services.json` happened to contain a Realtime Database URL.
 
 ## Pairing deadlines
 
-`CODE_ACTIVE` uses a five-minute one-time-code lifetime. A successful redeem moves the session to `PAIR_PENDING` and starts a fresh three-minute host-approval deadline. Host approval starts a separate three-minute screen/transport setup deadline. This prevents a code entered near the end of its discovery lifetime from prematurely expiring an otherwise valid consent flow.
+`CODE_ACTIVE` has a five-minute discovery lifetime. A successful controller claim creates a fresh three-minute `PAIR_PENDING` approval window. Host approval creates a separate three-minute screen/transport setup window.
 
 ## Transport readiness
 
-WebRTC peer connectivity alone is not treated as usable remote control. The controller becomes connected only when both the peer connection and the ordered `control-v1` DataChannel are ready. The host's initial watchdog remains armed until both conditions are true, so a half-open transport cannot remain stuck indefinitely.
+WebRTC peer connectivity alone is not treated as usable remote control. The controller becomes connected only when both peer connectivity and the ordered control channel are ready. The host keeps an initial transport watchdog armed until that condition is met.
+
+## Recovery
+
+After a previously-live peer disconnects, the host performs a bounded ICE restart. The Spark build intentionally uses public Google STUN servers and does not depend on Cloud Functions or billing-backed TURN credential minting.
+
+STUN-only operation works on many ordinary Wi-Fi and mobile networks, but restrictive carrier-grade or symmetric NAT can still require a separately operated TURN relay for high connection coverage.
+
+## Coordinate policy
+
+Controller touches are mapped through the actual rendered video rectangle rather than the whole local display. Letterbox bars are ignored. The controller also compares the received video-frame aspect ratio with the current remote display geometry and temporarily rejects touches during stale portrait/landscape transitions.
+
+Normalized coordinates are bound to a display generation. Rotation bumps the generation once a live lease exists, invalidating stale control packets.
 
 ## Local-control liveness
 
-A LIVE control lease is valid only while the host AccessibilityService remains connected. The host watchdog checks this alongside lease expiry; if Android disables or removes the service, the session closes instead of silently degrading into a misleading view-only connection.
+The host creates a short-lived local lease only after peer + control channel are ready. Heartbeats renew that lease. If the lease expires or Android removes the AccessibilityService, the host fails closed.
 
-## Interaction-first media policy
+## Accessibility execution
 
-The host applies an RTP sender policy that prefers maintaining frame cadence under congestion and caps the video send envelope. WebRTC remains free to reduce resolution/bitrate below that ceiling, prioritizing responsive touch feedback over preserving every pixel at a fixed quality.
+WebRTC callbacks may arrive off the Android main looper, so remote commands are serialized onto the AccessibilityService main handler before gesture, global-action, or focused-text APIs are invoked.
 
-## Multi-touch control
+Direct remote text entry is limited to a focused editable non-sensitive field. Android password input types and local metadata hints such as password, OTP, verification code, UPI/ATM PIN, CVV/CVC, and similar credential fields are rejected. Postal PIN-code metadata is not treated as a credential by metadata alone.
 
-The controller can encode two simultaneous normalized pointer paths in one generation-bound control packet. The host maps both paths against the same current display geometry and replays them as simultaneous AccessibilityService strokes. This keeps pinch/zoom and two-finger pan atomic across rotation boundaries instead of approximating them as unrelated taps or swipes.
+## Media policy
 
-## Accessibility execution threading
+The screen sender prefers maintaining frame cadence under congestion and caps its video envelope. WebRTC may lower bitrate or resolution to preserve interaction responsiveness.
 
-WebRTC may deliver DataChannel callbacks off the Android main looper. Remote commands are therefore serialized onto the AccessibilityService main handler before gesture, global-action, or text APIs are invoked. A destroyed service clears the static instance only when it is still the registered instance, preventing a stale lifecycle callback from disconnecting a newer service instance.
+## Multi-touch
 
-## Frictionless pairing input
+Two controller pointers are encoded in one generation-bound packet and replayed as simultaneous Accessibility strokes, supporting pinch/zoom and two-finger pan without splitting them into unrelated gestures.
 
-Connect still requires an explicit user action and START confirmation, but clipboard assistance accepts either a raw six-digit code or one unique code embedded in the complete Aaris Remote share message. If copied text contains multiple different six-digit candidates, the app refuses to guess and leaves the field for the user.
+## Visible-session contract
 
-## ICE restart credential refresh
+Every host session requires:
+- explicit pairing acceptance,
+- Accessibility enabled by the sharing user,
+- Android MediaProjection consent for that session,
+- a visible foreground notification,
+- and an Accessibility `STOP • SHARING` overlay.
 
-The host reloads session-authorized ICE configuration before every ICE restart, using a short refresh budget so recovery is not blocked by a slow backend. A successful refresh renews short-lived coturn REST credentials and is applied before `restartIce()` and the new offer. If that refresh fails, the peer preserves its last-known-good ICE/TURN configuration instead of replacing working relay routes with a transient fallback; initial setup still fails safely to STUN-only when no backend ICE configuration is available.
+The app does not bypass Android secure windows or the device lock screen. Remote commands are rejected while the sharing phone is locked.
 
-## Production network boundary
+## Firebase / Spark boundary
 
-The client first requests session-bound ICE configuration from the `asia-south1` `getIceConfig` callable. The function always supplies STUN and, when relay configuration is deployed, mints short-lived coturn REST credentials only for the authenticated host/controller of an active `SCREEN_READY` or `LIVE` session.
+The core flow uses Firebase Anonymous Auth + Realtime Database on the Spark plan. Cloud Functions, Firebase Messaging, App Check, and Google sign-in are not required by the current runtime.
 
-Carrier-grade or symmetric NAT still requires real TURN infrastructure for high connection coverage. Configure reachable UDP TURN plus TCP/TLS fallback through `TURN_URLS` and keep `TURN_SHARED_SECRET` only in the Firebase Functions secret store; never hard-code relay credentials in the APK. If relay configuration is unavailable, the client deliberately falls back to STUN-only best-effort connectivity.
+RTDB is used only for pairing/session metadata, presence, and SDP/ICE signaling. Video and control payloads travel peer-to-peer over WebRTC.

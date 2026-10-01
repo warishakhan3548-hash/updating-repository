@@ -20,6 +20,10 @@ class FirebaseSignalingClient(
 ) : SignalingClient {
     private val closed = AtomicBoolean(false)
     private val candidateSequence = AtomicLong(0L)
+    private val clientInstanceId =
+        java.util.UUID.randomUUID().toString()
+    private val candidateGate =
+        CandidatePublishGate<SignalCandidate>(MAX_CANDIDATE_SLOTS)
     private val root = database.getReference("sessions").child(sessionId)
 
     private val localSignal: DatabaseReference
@@ -65,7 +69,11 @@ class FirebaseSignalingClient(
                     val json = JSONObject(raw)
                     SignalDescription(
                         type = json.getString("type"),
-                        sdp = json.getString("sdp")
+                        sdp = json.getString("sdp"),
+                        negotiationId = json.optString(
+                            "negotiationId",
+                            LEGACY_NEGOTIATION_ID
+                        )
                     )
                 }.onSuccess(listener::onRemoteDescription)
                     .onFailure(listener::onError)
@@ -156,34 +164,71 @@ class FirebaseSignalingClient(
         setPresence(true)
     }
 
-    override fun sendDescription(description: SignalDescription) {
-        if (closed.get()) return
+    override fun beginLocalDescription(): Long {
+        if (closed.get()) return -1L
+        return candidateGate.beginNegotiation()
+    }
+
+    override fun sendDescription(
+        description: SignalDescription,
+        negotiationEpoch: Long
+    ) {
+        if (
+            closed.get() ||
+            negotiationEpoch < 0L ||
+            negotiationEpoch != candidateGate.currentEpoch()
+        ) {
+            return
+        }
+
+        val negotiationId =
+            negotiationIdFor(negotiationEpoch)
         val payload = JSONObject()
             .put("type", description.type)
             .put("sdp", description.sdp)
+            .put("negotiationId", negotiationId)
             .toString()
 
-        localSignal.setValue(payload)
+        val updates = mutableMapOf<String, Any?>(
+            localSignal.key.orEmpty() to payload
+        )
+        val candidateBranch =
+            if (role == PeerRole.HOST) {
+                "hostCandidates"
+            } else {
+                "controllerCandidates"
+            }
+
+        repeat(MAX_CANDIDATE_SLOTS) { index ->
+            val slot = index
+                .toString()
+                .padStart(CANDIDATE_SLOT_WIDTH, '0')
+            updates["$candidateBranch/$slot"] = null
+        }
+
+        root.updateChildren(updates)
+            .addOnSuccessListener {
+                if (closed.get()) {
+                    return@addOnSuccessListener
+                }
+
+                candidateGate
+                    .markDescriptionPublished(negotiationEpoch)
+                    .forEach(::publishCandidate)
+            }
             .addOnFailureListener { listener?.onError(it) }
     }
 
     override fun sendCandidate(candidate: SignalCandidate) {
         if (closed.get()) return
-        val payload = JSONObject()
-            .put("mid", candidate.sdpMid)
-            .put("mLine", candidate.sdpMLineIndex)
-            .put("sdp", candidate.sdp)
-            .toString()
 
-        val sequence = candidateSequence.getAndIncrement()
-        val slot = Math.floorMod(
-            sequence,
-            MAX_CANDIDATE_SLOTS.toLong()
-        ).toString().padStart(CANDIDATE_SLOT_WIDTH, '0')
-
-        localCandidates.child(slot)
-            .setValue(payload)
-            .addOnFailureListener { listener?.onError(it) }
+        val tagged = candidate.copy(
+            negotiationId = negotiationIdFor(
+                candidateGate.currentEpoch()
+            )
+        )
+        candidateGate.offer(tagged)
+            ?.let(::publishCandidate)
     }
 
     override fun setPresence(online: Boolean) {
@@ -227,6 +272,7 @@ class FirebaseSignalingClient(
         }
         remotePresenceReference = null
         remotePresenceListener = null
+        candidateGate.reset()
 
         val uid = auth.currentUser?.uid
         if (uid != null) {
@@ -237,6 +283,29 @@ class FirebaseSignalingClient(
         this.descriptionListener = null
         this.candidateListener = null
         this.presenceListener = null
+    }
+
+    private fun publishCandidate(
+        candidate: SignalCandidate
+    ) {
+        if (closed.get()) return
+
+        val payload = JSONObject()
+            .put("mid", candidate.sdpMid)
+            .put("mLine", candidate.sdpMLineIndex)
+            .put("sdp", candidate.sdp)
+            .put("negotiationId", candidate.negotiationId)
+            .toString()
+
+        val sequence = candidateSequence.getAndIncrement()
+        val slot = Math.floorMod(
+            sequence,
+            MAX_CANDIDATE_SLOTS.toLong()
+        ).toString().padStart(CANDIDATE_SLOT_WIDTH, '0')
+
+        localCandidates.child(slot)
+            .setValue(payload)
+            .addOnFailureListener { listener?.onError(it) }
     }
 
     private fun dispatchRemoteCandidate(
@@ -253,11 +322,24 @@ class FirebaseSignalingClient(
                     json.getString("mid")
                 },
                 sdpMLineIndex = json.getInt("mLine"),
-                sdp = json.getString("sdp")
+                sdp = json.getString("sdp"),
+                negotiationId = json.optString(
+                    "negotiationId",
+                    LEGACY_NEGOTIATION_ID
+                )
             )
         }.onSuccess(listener::onRemoteCandidate)
             .onFailure(listener::onError)
     }
+
+    private fun negotiationIdFor(epoch: Long): String {
+        return if (epoch <= 0L) {
+            LEGACY_NEGOTIATION_ID
+        } else {
+            "$clientInstanceId:$epoch"
+        }
+    }
+
 
     companion object {
         private const val MAX_CANDIDATE_SLOTS = 96

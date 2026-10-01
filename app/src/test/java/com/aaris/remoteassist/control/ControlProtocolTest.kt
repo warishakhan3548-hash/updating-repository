@@ -164,6 +164,35 @@ class ControlProtocolTest {
     }
 
     @Test
+    fun rejectsWrongProtocolVersion() {
+        val encoded = ControlProtocol.encode(
+            ControlPacket.Heartbeat(7L)
+        )
+        encoded[0] = 99
+        org.junit.Assert.assertNull(
+            ControlProtocol.decode(encoded)
+        )
+    }
+
+    @Test
+    fun rejectsTruncatedCommandPacket() {
+        val encoded = ControlProtocol.encode(
+            ControlPacket.Tap(
+                leaseSecret = 1L,
+                generation = 1,
+                sequence = 1L,
+                nx = 0.5f,
+                ny = 0.5f
+            )
+        )
+        org.junit.Assert.assertNull(
+            ControlProtocol.decode(
+                encoded.copyOf(encoded.size - 1)
+            )
+        )
+    }
+
+    @Test
     fun packetConvertsToRemotePixels() {
         val command = ControlProtocol.toRemoteCommand(
             sessionId = "s1",

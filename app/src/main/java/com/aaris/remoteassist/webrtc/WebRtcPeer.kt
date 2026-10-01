@@ -46,11 +46,20 @@ class WebRtcPeer(
     private val started = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val pendingRemoteCandidates = ArrayDeque<IceCandidate>()
+    private data class PendingRemoteCandidate(
+        val negotiationId: String,
+        val candidate: IceCandidate
+    )
+
+    private val pendingRemoteCandidates =
+        ArrayDeque<PendingRemoteCandidate>()
     private val connectivity = PeerConnectivityTracker()
 
     @Volatile
     private var remoteDescriptionReady = false
+
+    @Volatile
+    private var remoteNegotiationId: String? = null
 
     @Volatile
     private var controlChannel: DataChannel? = null
@@ -178,8 +187,33 @@ class WebRtcPeer(
             return
         }
 
+        val expectedRemoteType = when (role) {
+            PeerRole.HOST -> SessionDescription.Type.ANSWER
+            PeerRole.CONTROLLER -> SessionDescription.Type.OFFER
+        }
+        if (sessionDescription.type != expectedRemoteType) {
+            listener.onError(
+                IllegalStateException(
+                    "Unexpected remote SDP type: " +
+                        sessionDescription.type
+                )
+            )
+            return
+        }
+
         synchronized(pendingRemoteCandidates) {
             remoteDescriptionReady = false
+            remoteNegotiationId = description.negotiationId
+
+            val retained = pendingRemoteCandidates
+                .filter {
+                    it.negotiationId ==
+                        description.negotiationId
+                }
+            pendingRemoteCandidates.clear()
+            retained.forEach(
+                pendingRemoteCandidates::addLast
+            )
         }
 
         peerConnection.setRemoteDescription(
@@ -218,8 +252,23 @@ class WebRtcPeer(
         )
 
         synchronized(pendingRemoteCandidates) {
-            if (!remoteDescriptionReady) {
-                pendingRemoteCandidates.addLast(ice)
+            val activeId = remoteNegotiationId
+            if (
+                !remoteDescriptionReady ||
+                activeId != candidate.negotiationId
+            ) {
+                if (
+                    pendingRemoteCandidates.size >=
+                    MAX_PENDING_REMOTE_CANDIDATES
+                ) {
+                    pendingRemoteCandidates.removeFirst()
+                }
+                pendingRemoteCandidates.addLast(
+                    PendingRemoteCandidate(
+                        negotiationId = candidate.negotiationId,
+                        candidate = ice
+                    )
+                )
                 return
             }
         }
@@ -297,9 +346,17 @@ class WebRtcPeer(
     override fun onRemoveStream(stream: MediaStream) = Unit
 
     override fun onDataChannel(dataChannel: DataChannel) {
-        if (dataChannel.label() == CONTROL_CHANNEL) {
+        if (
+            role == PeerRole.CONTROLLER &&
+            dataChannel.label() == CONTROL_CHANNEL
+        ) {
             bindControlChannel(dataChannel)
+            return
         }
+
+        runCatching { dataChannel.unregisterObserver() }
+        runCatching { dataChannel.close() }
+        runCatching { dataChannel.dispose() }
     }
 
     override fun onRenegotiationNeeded() = Unit
@@ -341,6 +398,8 @@ class WebRtcPeer(
     }
 
     private fun createOffer() {
+        val negotiationEpoch =
+            signaling.beginLocalDescription()
         peerConnection.createOffer(
             object : SdpObserverAdapter() {
                 override fun onCreateSuccess(
@@ -352,7 +411,10 @@ class WebRtcPeer(
                         )
                         return
                     }
-                    setLocalAndSignal(description)
+                    setLocalAndSignal(
+                        description,
+                        negotiationEpoch
+                    )
                 }
 
                 override fun onCreateFailure(error: String?) {
@@ -368,6 +430,8 @@ class WebRtcPeer(
     }
 
     private fun createAnswer() {
+        val negotiationEpoch =
+            signaling.beginLocalDescription()
         peerConnection.createAnswer(
             object : SdpObserverAdapter() {
                 override fun onCreateSuccess(
@@ -379,7 +443,10 @@ class WebRtcPeer(
                         )
                         return
                     }
-                    setLocalAndSignal(description)
+                    setLocalAndSignal(
+                        description,
+                        negotiationEpoch
+                    )
                 }
 
                 override fun onCreateFailure(error: String?) {
@@ -395,16 +462,18 @@ class WebRtcPeer(
     }
 
     private fun setLocalAndSignal(
-        description: SessionDescription
+        description: SessionDescription,
+        negotiationEpoch: Long
     ) {
         peerConnection.setLocalDescription(
             object : SdpObserverAdapter() {
                 override fun onSetSuccess() {
                     signaling.sendDescription(
-                        SignalDescription(
+                        description = SignalDescription(
                             type = description.type.canonicalForm(),
                             sdp = description.description
-                        )
+                        ),
+                        negotiationEpoch = negotiationEpoch
                     )
                 }
 
@@ -455,7 +524,15 @@ class WebRtcPeer(
                     if (!buffer.binary) return
 
                     val source = buffer.data.slice()
-                    val bytes = ByteArray(source.remaining())
+                    val size = source.remaining()
+                    if (
+                        size <= 0 ||
+                        size > MAX_CONTROL_PACKET_BYTES
+                    ) {
+                        return
+                    }
+
+                    val bytes = ByteArray(size)
                     source.get(bytes)
                     listener.onControlMessage(bytes)
                 }
@@ -480,12 +557,23 @@ class WebRtcPeer(
     }
 
     private fun flushPendingCandidates() {
+        val activeId = remoteNegotiationId ?: return
         val pending = mutableListOf<IceCandidate>()
 
         synchronized(pendingRemoteCandidates) {
+            val retained = mutableListOf<PendingRemoteCandidate>()
             while (pendingRemoteCandidates.isNotEmpty()) {
-                pending += pendingRemoteCandidates.removeFirst()
+                val item = pendingRemoteCandidates.removeFirst()
+                if (item.negotiationId == activeId) {
+                    pending += item.candidate
+                } else {
+                    retained += item
+                }
             }
+
+            retained
+                .takeLast(MAX_PENDING_REMOTE_CANDIDATES)
+                .forEach(pendingRemoteCandidates::addLast)
         }
 
         pending.forEach(peerConnection::addIceCandidate)
@@ -519,6 +607,8 @@ class WebRtcPeer(
     }
 
     companion object {
+        private const val MAX_PENDING_REMOTE_CANDIDATES = 192
+        private const val MAX_CONTROL_PACKET_BYTES = 4_096
         private const val CONTROL_CHANNEL = "control-v1"
         private const val SCREEN_STREAM_ID = "remote-screen"
         private const val MAX_VIDEO_BITRATE_BPS = 2_500_000

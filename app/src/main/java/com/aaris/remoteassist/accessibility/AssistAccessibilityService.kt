@@ -51,8 +51,18 @@ class AssistAccessibilityService : AccessibilityService() {
     }
 
     override fun onServiceConnected() {
+        super.onServiceConnected()
         instance = WeakReference(this)
         SessionCoordinator.addListener(sessionListener)
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        SessionCoordinator.removeListener(sessionListener)
+        hideStopOverlay()
+        if (instance.get() === this) {
+            instance.clear()
+        }
+        return super.onUnbind(intent)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
@@ -70,7 +80,12 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private fun execute(command: RemoteCommand): Boolean {
         if (!CommandGate.accept(command)) return false
-        if (keyguard.isDeviceLocked) return false
+        if (
+            keyguard.isKeyguardLocked ||
+            keyguard.isDeviceLocked
+        ) {
+            return false
+        }
 
         return when (command) {
             is TapCommand -> gesture(
@@ -208,7 +223,7 @@ class AssistAccessibilityService : AccessibilityService() {
             node.viewIdResourceName
         ).joinToString(" ")
 
-        return SENSITIVE_INPUT_HINT.containsMatchIn(metadata)
+        return SensitiveFieldHints.isSensitive(metadata)
     }
 
     private fun gesture(
@@ -365,9 +380,6 @@ class AssistAccessibilityService : AccessibilityService() {
     companion object {
         private const val MAX_REMOTE_TEXT_CHARS = 1000
         private const val MAX_REMOTE_FIELD_CHARS = 4000
-        private val SENSITIVE_INPUT_HINT = Regex(
-            "(?i)\\b(otp|one[- ]?time|verification[- ]?code|passcode|pin|cvv|cvc|security[- ]?code)\\b"
-        )
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
         fun dispatch(command: RemoteCommand): Boolean =

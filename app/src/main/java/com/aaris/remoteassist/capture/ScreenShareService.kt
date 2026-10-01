@@ -7,10 +7,12 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import com.aaris.remoteassist.pairing.BackendSessionCloser
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
@@ -59,6 +61,7 @@ class ScreenShareService : Service() {
         if (id != null) {
             ProjectionGrantStore.clear(id)
             SessionCoordinator.close(id)
+            BackendSessionCloser.close(this, id)
         }
 
         scope.cancel()
@@ -76,13 +79,7 @@ class ScreenShareService : Service() {
         val active = activeSessionId
         if (active != null) {
             if (active != sessionId) {
-                scope.launch {
-                    runCatching {
-                        FirebasePairingGateway(
-                            this@ScreenShareService
-                        ).close(sessionId)
-                    }
-                }
+                BackendSessionCloser.close(this, sessionId)
             }
             return
         }
@@ -168,6 +165,7 @@ class ScreenShareService : Service() {
             return
         }
 
+        var createdSession: HostWebRtcSession? = null
         hostSession = runCatching {
             HostWebRtcSession(
                 context = this,
@@ -226,8 +224,12 @@ class ScreenShareService : Service() {
                         }
                     }
                 }
-            ).also { it.start() }
+            ).also {
+                createdSession = it
+                it.start()
+            }
         }.getOrElse {
+            runCatching { createdSession?.close() }
             stopActiveSession("webrtc_start_failed")
             null
         }
@@ -244,13 +246,7 @@ class ScreenShareService : Service() {
             ProjectionGrantStore.clear(sessionId)
             SessionCoordinator.close(sessionId)
 
-            scope.launch {
-                runCatching {
-                    FirebasePairingGateway(
-                        this@ScreenShareService
-                    ).close(sessionId)
-                }
-            }
+            BackendSessionCloser.close(this, sessionId)
         }
 
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -305,9 +301,14 @@ class ScreenShareService : Service() {
             .setOngoing(true)
             .setContentIntent(contentIntent)
             .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "STOP",
-                stopPendingIntent
+                Notification.Action.Builder(
+                    Icon.createWithResource(
+                        this,
+                        android.R.drawable.ic_menu_close_clear_cancel
+                    ),
+                    "STOP",
+                    stopPendingIntent
+                ).build()
             )
             .build()
     }

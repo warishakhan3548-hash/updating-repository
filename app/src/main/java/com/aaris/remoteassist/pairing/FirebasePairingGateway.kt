@@ -20,6 +20,11 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 
+private class BackendUnavailableException(
+    message: String,
+    cause: Throwable
+) : IllegalStateException(message, cause)
+
 class FirebasePairingGateway(
     context: Context
 ) : PairingGateway {
@@ -59,7 +64,7 @@ class FirebasePairingGateway(
             )
 
             try {
-                withTimeout(DATABASE_TIMEOUT_MS) {
+                databaseCall {
                     database.reference
                         .updateChildren(updates)
                         .await()
@@ -71,13 +76,10 @@ class FirebasePairingGateway(
                     expiresAtEpochMs = expiresAtMs
                 )
             } catch (error: Throwable) {
-                if (error is TimeoutCancellationException) {
-                    throw IllegalStateException(
-                        "Could not reach Firebase Realtime Database. Check internet and try again.",
-                        error
-                    )
-                }
-                if (attempt == CODE_ALLOCATION_ATTEMPTS - 1) {
+                if (
+                    error is BackendUnavailableException ||
+                    attempt == CODE_ALLOCATION_ATTEMPTS - 1
+                ) {
                     throw error
                 }
             }
@@ -97,7 +99,7 @@ class FirebasePairingGateway(
             .getReference("pairingCodes")
             .child(codeHash)
 
-        val codeSnapshot = withTimeout(DATABASE_TIMEOUT_MS) {
+        val codeSnapshot = databaseCall {
             codeRef.get().await()
         }
 
@@ -163,7 +165,7 @@ class FirebasePairingGateway(
         }
 
         runCatching {
-            withTimeout(DATABASE_TIMEOUT_MS) {
+            databaseCall {
                 codeRef.removeValue().await()
             }
         }
@@ -242,7 +244,7 @@ class FirebasePairingGateway(
 
         if (!pairingHash.isNullOrBlank()) {
             runCatching {
-                withTimeout(DATABASE_TIMEOUT_MS) {
+                databaseCall {
                     database()
                         .getReference("pairingCodes")
                         .child(pairingHash)
@@ -287,7 +289,7 @@ class FirebasePairingGateway(
         ensureSignedIn()
         val uid = requireNotNull(auth().currentUser?.uid)
         val ref = sessionRef(sessionId)
-        val snapshot = withTimeout(DATABASE_TIMEOUT_MS) {
+        val snapshot = databaseCall {
             ref.get().await()
         }
 
@@ -302,23 +304,22 @@ class FirebasePairingGateway(
 
         when (uid) {
             hostUid -> {
-                withTimeout(DATABASE_TIMEOUT_MS) {
-                    ref.updateChildren(
-                        mapOf(
-                            "state" to "CLOSED",
-                            "closedAtMs" to System.currentTimeMillis(),
-                            "hostSignal" to null,
-                            "controllerSignal" to null,
-                            "hostCandidates" to null,
-                            "controllerCandidates" to null,
-                            "presence" to null
-                        )
-                    ).await()
+                val closedRecord = mutableMapOf<String, Any>(
+                    "hostUid" to uid,
+                    "state" to "CLOSED",
+                    "closedAtMs" to System.currentTimeMillis()
+                )
+                if (!controllerUid.isNullOrBlank()) {
+                    closedRecord["controllerUid"] = controllerUid
+                }
+
+                databaseCall {
+                    ref.setValue(closedRecord).await()
                 }
             }
 
             controllerUid -> {
-                withTimeout(DATABASE_TIMEOUT_MS) {
+                databaseCall {
                     ref.child("state").setValue("CLOSED").await()
                 }
             }
@@ -331,11 +332,13 @@ class FirebasePairingGateway(
             .getValue(String::class.java)
         if (!pairingHash.isNullOrBlank()) {
             runCatching {
-                database()
-                    .getReference("pairingCodes")
-                    .child(pairingHash)
-                    .removeValue()
-                    .await()
+                databaseCall {
+                    database()
+                        .getReference("pairingCodes")
+                        .child(pairingHash)
+                        .removeValue()
+                        .await()
+                }
             }
         }
     }
@@ -406,6 +409,21 @@ class FirebasePairingGateway(
         }
     }
 
+    private suspend fun <T> databaseCall(
+        block: suspend () -> T
+    ): T {
+        return try {
+            withTimeout(DATABASE_TIMEOUT_MS) {
+                block()
+            }
+        } catch (error: TimeoutCancellationException) {
+            throw BackendUnavailableException(
+                "Could not reach Firebase Realtime Database. Check internet and try again.",
+                error
+            )
+        }
+    }
+
     private suspend fun runTransaction(
         reference: DatabaseReference,
         abortMessage: String,
@@ -449,15 +467,8 @@ class FirebasePairingGateway(
             false
         )
 
-        return try {
-            withTimeout(DATABASE_TIMEOUT_MS) {
-                result.await()
-            }
-        } catch (error: TimeoutCancellationException) {
-            throw IllegalStateException(
-                "Could not reach Firebase Realtime Database. Check internet and try again.",
-                error
-            )
+        return databaseCall {
+            result.await()
         }
     }
 
@@ -511,8 +522,11 @@ class FirebasePairingGateway(
     }
 
     private fun requireConfigured() {
-        check(FirebaseApp.getApps(appContext).isNotEmpty()) {
-            "Firebase project is not configured on this build yet."
+        val app = FirebaseApp.getApps(appContext).firstOrNull()
+            ?: error("Firebase project is not configured on this build yet.")
+
+        check(app.options.projectId == EXPECTED_PROJECT_ID) {
+            "This build has the wrong Firebase project configuration."
         }
     }
 
@@ -527,6 +541,7 @@ class FirebasePairingGateway(
     }
 
     companion object {
+        private const val EXPECTED_PROJECT_ID = "aaris-control"
         private const val AUTH_TIMEOUT_MS = 12_000L
         private const val DATABASE_TIMEOUT_MS = 15_000L
         private const val CODE_TTL_MS = 5 * 60_000L

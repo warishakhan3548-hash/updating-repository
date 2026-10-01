@@ -2,6 +2,7 @@ package com.aaris.remoteassist.ui
 
 import android.app.AlertDialog
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.text.InputType
@@ -19,6 +20,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import com.aaris.remoteassist.pairing.BackendSessionCloser
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
@@ -93,14 +95,15 @@ class RemoteControlActivity : ComponentActivity() {
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
-        window.statusBarColor = Color.BLACK
-        window.navigationBarColor = Color.BLACK
+        configureRemoteSystemBars()
 
-        sessionId = intent.getStringExtra(EXTRA_SESSION_ID)
-        if (sessionId == null) {
+        val requestedSessionId =
+            intent.getStringExtra(EXTRA_SESSION_ID)
+        if (requestedSessionId.isNullOrBlank()) {
             finish()
             return
         }
+        sessionId = requestedSessionId
 
         WebRtcRuntime.initialize(this)
         setContentView(buildUi())
@@ -112,7 +115,7 @@ class RemoteControlActivity : ComponentActivity() {
                 }
             }
         )
-        observe(sessionId!!)
+        observe(requestedSessionId)
     }
 
     override fun onDestroy() {
@@ -139,6 +142,28 @@ class RemoteControlActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    @Suppress("DEPRECATION")
+    private fun configureRemoteSystemBars() {
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.insetsController?.setSystemBarsAppearance(
+                0,
+                android.view.WindowInsetsController
+                    .APPEARANCE_LIGHT_STATUS_BARS or
+                    android.view.WindowInsetsController
+                        .APPEARANCE_LIGHT_NAVIGATION_BARS
+            )
+        } else {
+            window.decorView.systemUiVisibility =
+                window.decorView.systemUiVisibility and
+                    View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv() and
+                    View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+        }
+    }
+
+
     private fun observe(id: String) {
         observer = runCatching {
             gateway.observeSession(
@@ -163,11 +188,52 @@ class RemoteControlActivity : ComponentActivity() {
                                 )
 
                             "SCREEN_READY" -> {
+                                val local =
+                                    SessionCoordinator.snapshot()
+                                val resumable =
+                                    local.sessionId == id &&
+                                        (
+                                            local.state ==
+                                                SessionState.PAIR_PENDING ||
+                                                local.state ==
+                                                    SessionState.HOST_APPROVED ||
+                                                local.state ==
+                                                    SessionState.SCREEN_CONSENT ||
+                                                local.state ==
+                                                    SessionState.CONNECTING
+                                        )
+
+                                if (!resumable && rtcSession == null) {
+                                    showStatus(
+                                        "Session was interrupted. Reconnect with a new code."
+                                    )
+                                    BackendSessionCloser.close(
+                                        this@RemoteControlActivity,
+                                        id
+                                    )
+                                    SessionCoordinator.close(id)
+                                    finish()
+                                    return@runOnUiThread
+                                }
+
                                 advanceControllerState(id)
                                 ensureRtcStarted(id)
                             }
 
                             "LIVE" -> {
+                                if (rtcSession == null) {
+                                    showStatus(
+                                        "Session was interrupted. Reconnect with a new code."
+                                    )
+                                    BackendSessionCloser.close(
+                                        this@RemoteControlActivity,
+                                        id
+                                    )
+                                    SessionCoordinator.close(id)
+                                    finish()
+                                    return@runOnUiThread
+                                }
+
                                 runCatching {
                                     if (
                                         SessionCoordinator.snapshot().state ==
@@ -219,6 +285,31 @@ class RemoteControlActivity : ComponentActivity() {
         runCatching {
             var state = SessionCoordinator.snapshot()
 
+            if (
+                state.sessionId != null &&
+                state.sessionId != id &&
+                state.state != SessionState.CLOSED
+            ) {
+                return@runCatching
+            }
+
+            if (
+                state.state == SessionState.IDLE ||
+                state.state == SessionState.SETUP_REQUIRED ||
+                state.state == SessionState.CLOSED
+            ) {
+                SessionCoordinator.prepareReady()
+                state = SessionCoordinator.snapshot()
+            }
+
+            if (state.state == SessionState.READY) {
+                SessionCoordinator.transition(
+                    id,
+                    SessionState.PAIR_PENDING
+                )
+                state = SessionCoordinator.snapshot()
+            }
+
             if (state.state == SessionState.PAIR_PENDING) {
                 SessionCoordinator.transition(
                     id,
@@ -249,7 +340,9 @@ class RemoteControlActivity : ComponentActivity() {
 
         showStatus("Establishing low-latency link…")
 
-        rtcSession = ControllerWebRtcSession(
+        var createdSession: ControllerWebRtcSession? = null
+        rtcSession = runCatching {
+            ControllerWebRtcSession(
             context = this,
             sessionId = id,
             listener = object : ControllerWebRtcSession.Listener {
@@ -313,7 +406,19 @@ class RemoteControlActivity : ComponentActivity() {
                     }
                 }
             }
-        ).also { it.start() }
+            ).also {
+                createdSession = it
+                it.start()
+            }
+        }.getOrElse { error ->
+            runCatching { createdSession?.close() }
+            showStatus(
+                error.message ?: "Could not start remote connection"
+            )
+            BackendSessionCloser.close(this, id)
+            SessionCoordinator.close(id)
+            null
+        }
     }
 
     private fun updateControllerDeadline(
@@ -365,11 +470,9 @@ class RemoteControlActivity : ComponentActivity() {
         rtcSession?.close()
         rtcSession = null
 
-        scope.launch {
-            runCatching { gateway.close(id) }
-            SessionCoordinator.close(id)
-            finish()
-        }
+        BackendSessionCloser.close(this, id)
+        SessionCoordinator.close(id)
+        finish()
     }
 
     private fun buildUi(): FrameLayout {
