@@ -146,6 +146,7 @@ class HostWebRtcSession(
         peer.start()
     }
 
+    @Synchronized
     fun refreshDisplayProfile() {
         if (closed.get()) return
 
@@ -269,6 +270,7 @@ class HostWebRtcSession(
         lease = null
     }
 
+    @Synchronized
     private fun ensureLiveHandshake() {
         if (!peerConnected || !controlOpen || closed.get()) return
 
