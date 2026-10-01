@@ -71,6 +71,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 36. Accessibility readiness preflight: Share waits for the actual AccessibilityService connection rather than trusting only the Android enabled-services setting, so slow OEM binding after Restricted settings cannot start a pairing deadline too early.
 37. Host-only STOP overlay: the STOP • SHARING accessibility overlay is keyed to the active screen-sharing service on this phone, so a controller phone that happens to have Accessibility enabled cannot display a false sharing indicator.
 38. Relay-first candidate correctness: ICE candidate pooling is disabled until the authenticated TURN configuration has been applied and setConfiguration is checked, preventing fallback-only pre-gathered candidates from bypassing the freshly loaded relay list.
+39. Stalled-start recovery: if the initial host/controller negotiation reaches a stable SDP state but WebRTC is still not connected, the host performs up to two timed, rate-limited ICE restarts with fresh TURN credentials before the final session watchdog gives up.
+40. Controller viewer startup safety: if the remote-rendering surface or WebRTC runtime cannot initialize on a controller device, the app closes that attempt cleanly and returns a clear status instead of appearing to jump out of the app.
 
 ## Firebase setup
 
