@@ -189,6 +189,9 @@ class FirebaseSignalingClient(
             .put("negotiationId", negotiationId)
             .toString()
 
+        // Candidate slots are intentionally retained between negotiations.
+        // Published Spark RTDB rules accept candidate strings but not client-side
+        // candidate deletion. Negotiation IDs below make stale slots harmless.
         localSignal.setValue(payload)
             .addOnSuccessListener {
                 if (closed.get()) {
