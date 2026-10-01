@@ -112,14 +112,21 @@ class FirebaseSignalingClient(
                         return@onSuccess
                     }
 
+                    val duplicateCurrent =
+                        redelivery &&
+                            remoteNegotiationGuard.isCurrent(
+                                description.negotiationId
+                            )
                     val previous =
                         lastAcceptedRemoteDescription
+
                     if (
-                        redelivery &&
-                        previous?.negotiationId ==
-                            description.negotiationId &&
+                        duplicateCurrent &&
+                        previous != null &&
                         (
-                            previous.type != description.type ||
+                            previous.negotiationId !=
+                                description.negotiationId ||
+                                previous.type != description.type ||
                                 previous.sdp != description.sdp
                             )
                     ) {
@@ -140,7 +147,17 @@ class FirebaseSignalingClient(
                         lastAcceptedRemoteDescription =
                             description
                         lastRemoteSignal = raw
-                        listener.onRemoteDescription(description)
+
+                        if (duplicateCurrent) {
+                            listener
+                                .onRemoteDescriptionRedelivery(
+                                    description
+                                )
+                        } else {
+                            listener.onRemoteDescription(
+                                description
+                            )
+                        }
                     }
                 }.onFailure(listener::onError)
             }
