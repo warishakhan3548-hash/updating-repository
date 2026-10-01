@@ -259,9 +259,8 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        if (!hasInternetTransport()) {
-            status.text =
-                "No internet connection. Turn on Wi-Fi or mobile data and try again."
+        connectivityBlockMessage()?.let { message ->
+            status.text = message
             return
         }
 
@@ -390,9 +389,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connect(code: String) {
-        if (!hasInternetTransport()) {
-            status.text =
-                "No internet connection. Turn on Wi-Fi or mobile data and try again."
+        connectivityBlockMessage()?.let { message ->
+            status.text = message
             return
         }
 
@@ -1522,15 +1520,33 @@ class MainActivity : ComponentActivity() {
         status.text = error.message ?: "Could not connect. Try again."
     }
 
-    private fun hasInternetTransport(): Boolean {
+    private fun connectivityBlockMessage(): String? {
         val manager = getSystemService(ConnectivityManager::class.java)
-        val network = manager.activeNetwork ?: return false
-        val capabilities =
-            manager.getNetworkCapabilities(network) ?: return false
+        val network = manager.activeNetwork
+            ?: return "No internet connection. Turn on Wi-Fi or mobile data and try again."
+        val capabilities = manager.getNetworkCapabilities(network)
+            ?: return "No internet connection. Turn on Wi-Fi or mobile data and try again."
 
-        return capabilities.hasCapability(
-            NetworkCapabilities.NET_CAPABILITY_INTERNET
-        )
+        if (
+            capabilities.hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL
+            )
+        ) {
+            return "Wi-Fi needs sign-in. Finish Wi-Fi sign-in and try again."
+        }
+
+        if (
+            !capabilities.hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_INTERNET
+            )
+        ) {
+            return "No internet connection. Turn on Wi-Fi or mobile data and try again."
+        }
+
+        // Do not require NET_CAPABILITY_VALIDATED here. Android validation can
+        // lag behind a usable route; Firebase's bounded timeout remains the
+        // authority for uncertain-but-potentially-working networks.
+        return null
     }
 
     private fun toast(message: String) {
