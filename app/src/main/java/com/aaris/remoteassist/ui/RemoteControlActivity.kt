@@ -9,11 +9,13 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -45,6 +47,8 @@ class RemoteControlActivity : ComponentActivity() {
     }
 
     private lateinit var renderer: SurfaceViewRenderer
+    private lateinit var statusPanel: LinearLayout
+    private lateinit var statusProgress: ProgressBar
     private lateinit var status: TextView
 
     private var observer: Closeable? = null
@@ -81,6 +85,8 @@ class RemoteControlActivity : ComponentActivity() {
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
 
         sessionId = intent.getStringExtra(EXTRA_SESSION_ID)
         if (sessionId == null) {
@@ -171,7 +177,7 @@ class RemoteControlActivity : ComponentActivity() {
                                         "Connected • waiting for video…"
                                     )
                                 } else {
-                                    status.visibility = View.GONE
+                                    statusPanel.visibility = View.GONE
                                 }
                             }
 
@@ -243,7 +249,7 @@ class RemoteControlActivity : ComponentActivity() {
                     runOnUiThread {
                         remoteGeometry = geometry
                         if (remoteTrack != null) {
-                            status.visibility = View.GONE
+                            statusPanel.visibility = View.GONE
                         }
                     }
                 }
@@ -261,7 +267,7 @@ class RemoteControlActivity : ComponentActivity() {
                                 remoteTrack != null &&
                                 remoteGeometry != null
                             ) {
-                                status.visibility = View.GONE
+                                statusPanel.visibility = View.GONE
                             }
                         } else {
                             showStatus("Reconnecting…")
@@ -282,7 +288,7 @@ class RemoteControlActivity : ComponentActivity() {
                         track.addSink(renderer)
 
                         if (remoteGeometry != null) {
-                            status.visibility = View.GONE
+                            statusPanel.visibility = View.GONE
                         } else {
                             showStatus(
                                 "Video connected • syncing controls…"
@@ -359,8 +365,10 @@ class RemoteControlActivity : ComponentActivity() {
     }
 
     private fun buildUi(): FrameLayout {
+        fun dp(value: Int) = AarisUi.dp(this, value)
+
         val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
+            setBackgroundColor(AarisUi.REMOTE_CANVAS)
         }
 
         renderer = SurfaceViewRenderer(this).apply {
@@ -394,33 +402,76 @@ class RemoteControlActivity : ComponentActivity() {
             )
         )
 
+        statusPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = AarisUi.panel(
+                context = this@RemoteControlActivity,
+                fill = AarisUi.REMOTE_PANEL,
+                radiusDp = 18,
+                strokeColor = AarisUi.REMOTE_BORDER
+            )
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            elevation = dp(4).toFloat()
+        }
+
+        statusProgress = ProgressBar(this).apply {
+            isIndeterminate = true
+            AarisUi.tintProgress(this, AarisUi.REMOTE_ACCENT)
+        }
+        statusPanel.addView(
+            statusProgress,
+            LinearLayout.LayoutParams(
+                dp(20),
+                dp(20)
+            ).apply {
+                marginEnd = dp(10)
+            }
+        )
+
         status = TextView(this).apply {
             text = "Connecting…"
             setTextColor(Color.WHITE)
-            setBackgroundColor(
-                Color.argb(140, 0, 0, 0)
+            textSize = 14f
+            typeface = android.graphics.Typeface.create(
+                "sans-serif-medium",
+                android.graphics.Typeface.NORMAL
             )
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setPadding(24, 16, 24, 16)
+            gravity = Gravity.CENTER_VERTICAL
         }
 
-        root.addView(
+        statusPanel.addView(
             status,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        root.addView(
+            statusPanel,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-            )
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            ).apply {
+                topMargin = dp(16)
+                marginStart = dp(16)
+                marginEnd = dp(16)
+            }
         )
 
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(8, 6, 8, 6)
-            setBackgroundColor(
-                Color.argb(190, 0, 0, 0)
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = AarisUi.panel(
+                context = this@RemoteControlActivity,
+                fill = AarisUi.REMOTE_PANEL,
+                radiusDp = 22,
+                strokeColor = AarisUi.REMOTE_BORDER
             )
+            elevation = dp(6).toFloat()
         }
 
         controls.addView(
@@ -444,7 +495,7 @@ class RemoteControlActivity : ComponentActivity() {
             }
         )
         controls.addView(
-            compactButton("End") {
+            compactButton("End", danger = true) {
                 disconnect()
             }
         )
@@ -455,7 +506,11 @@ class RemoteControlActivity : ComponentActivity() {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            )
+            ).apply {
+                bottomMargin = dp(18)
+                marginStart = dp(12)
+                marginEnd = dp(12)
+            }
         )
 
         return root
@@ -504,17 +559,17 @@ class RemoteControlActivity : ComponentActivity() {
 
     private fun compactButton(
         label: String,
+        danger: Boolean = false,
         action: () -> Unit
     ): Button = Button(this).apply {
         text = label
-        isAllCaps = false
-        textSize = 12f
-        minWidth = 0
-        minimumWidth = 0
-        minHeight = 0
-        minimumHeight = 0
-        setPadding(12, 8, 12, 8)
-        setOnClickListener { action() }
+        contentDescription =
+            if (danger) "End remote session" else label
+        AarisUi.remoteDockButton(this, danger)
+        setOnClickListener {
+            AarisUi.haptic(this)
+            action()
+        }
     }
 
     private fun handleRemoteTouch(
@@ -729,8 +784,21 @@ class RemoteControlActivity : ComponentActivity() {
     }
 
     private fun showStatus(message: String) {
-        status.visibility = View.VISIBLE
+        statusPanel.visibility = View.VISIBLE
         status.text = message
+
+        val value = message.lowercase()
+        val busy = listOf(
+            "waiting",
+            "connecting",
+            "establishing",
+            "syncing",
+            "reconnecting",
+            "ending"
+        ).any(value::contains)
+
+        statusProgress.visibility =
+            if (busy) View.VISIBLE else View.GONE
     }
 
     companion object {

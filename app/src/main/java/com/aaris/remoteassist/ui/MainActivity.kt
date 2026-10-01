@@ -1,20 +1,27 @@
 package com.aaris.remoteassist.ui
 
+import android.Manifest
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -43,6 +50,7 @@ class MainActivity : ComponentActivity() {
     private val gateway by lazy { FirebasePairingGateway(this) }
 
     private lateinit var status: TextView
+    private lateinit var statusProgress: ProgressBar
     private lateinit var connectButton: Button
     private lateinit var shareButton: Button
 
@@ -52,6 +60,7 @@ class MainActivity : ComponentActivity() {
     private var sessionDeadlineJob: Job? = null
     private var activeHostSessionId: String? = null
     private var pendingProjectionSessionId: String? = null
+    private var pendingNotificationSessionId: String? = null
     private var hostStartInFlight = false
 
     private val prefs by lazy {
@@ -66,6 +75,27 @@ class MainActivity : ComponentActivity() {
                 result.resultCode,
                 result.data
             )
+        }
+
+    private val notificationPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) {
+            val sessionId = pendingNotificationSessionId
+            pendingNotificationSessionId = null
+            prefs.edit()
+                .putBoolean(KEY_NOTIFICATION_PERMISSION_ASKED, true)
+                .apply()
+
+            if (
+                sessionId != null &&
+                activeHostSessionId == sessionId
+            ) {
+                continueHostStart(
+                    sessionId = sessionId,
+                    skipNotificationPrompt = true
+                )
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -578,7 +608,15 @@ class MainActivity : ComponentActivity() {
             text = PairingCode.display(ticket.code)
             textSize = 34f
             gravity = Gravity.CENTER
-            setTypeface(typeface, Typeface.BOLD)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            letterSpacing = 0.08f
+            setTextColor(AarisUi.TEXT_PRIMARY)
+            background = AarisUi.panel(
+                context = this@MainActivity,
+                fill = AarisUi.SURFACE_MUTED,
+                radiusDp = 18,
+                strokeColor = AarisUi.BORDER
+            )
             setPadding(dp(24), dp(20), dp(24), dp(20))
         }
 
@@ -669,8 +707,24 @@ class MainActivity : ComponentActivity() {
         dialog.show()
     }
 
-    private fun continueHostStart(sessionId: String) {
+    private fun continueHostStart(
+        sessionId: String,
+        skipNotificationPrompt: Boolean = false
+    ) {
         if (activeHostSessionId != sessionId) return
+
+        if (
+            !skipNotificationPrompt &&
+            shouldAskNotificationPermission()
+        ) {
+            pendingNotificationSessionId = sessionId
+            status.text =
+                "Allow session alerts so STOP stays easy to reach."
+            notificationPermissionLauncher.launch(
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+            return
+        }
 
         if (!PermissionGate.isAccessibilityEnabled(this)) {
             prefs.edit()
@@ -686,6 +740,21 @@ class MainActivity : ComponentActivity() {
         }
 
         approveAndRequestScreen(sessionId)
+    }
+
+    private fun shouldAskNotificationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < 33) return false
+        if (
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+
+        return !prefs.getBoolean(
+            KEY_NOTIFICATION_PERMISSION_ASKED,
+            false
+        )
     }
 
     private fun continueApprovedHostStart(sessionId: String) {
@@ -959,6 +1028,7 @@ class MainActivity : ComponentActivity() {
 
         activeHostSessionId = null
         pendingProjectionSessionId = null
+        pendingNotificationSessionId = null
         hostStartInFlight = false
         clearHostUi()
         SessionCoordinator.close(sessionId)
@@ -973,6 +1043,7 @@ class MainActivity : ComponentActivity() {
     private fun clearHostUi() {
         activeHostSessionId = null
         pendingProjectionSessionId = null
+        pendingNotificationSessionId = null
         hostStartInFlight = false
         prefs.edit()
             .remove(KEY_ACTIVE_HOST_SESSION)
@@ -1067,32 +1138,140 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildUi(): LinearLayout {
-        val density = resources.displayMetrics.density
-        fun dp(value: Int) = (value * density).toInt()
+        fun dp(value: Int) = AarisUi.dp(this, value)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(20), dp(32), dp(20), dp(20))
+            setPadding(dp(22), dp(30), dp(22), dp(22))
+            setBackgroundColor(AarisUi.CANVAS)
         }
+
+        val brandRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val mark = TextView(this).apply {
+            text = "AR"
+            gravity = Gravity.CENTER
+            textSize = 16f
+            setTextColor(AarisUi.ON_PRIMARY)
+            typeface = Typeface.create(
+                "sans-serif-medium",
+                Typeface.NORMAL
+            )
+            background = AarisUi.panel(
+                context = this@MainActivity,
+                fill = AarisUi.PRIMARY,
+                radiusDp = 16
+            )
+        }
+        brandRow.addView(
+            mark,
+            LinearLayout.LayoutParams(
+                dp(48),
+                dp(48)
+            )
+        )
+
+        val brandText = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), 0, 0, 0)
+        }
+        brandText.addView(
+            TextView(this).apply {
+                text = "Aaris Remote"
+                textSize = 21f
+                setTextColor(AarisUi.TEXT_PRIMARY)
+                typeface = Typeface.create(
+                    "sans-serif-medium",
+                    Typeface.NORMAL
+                )
+            }
+        )
+        brandText.addView(
+            TextView(this).apply {
+                text = "Secure remote support"
+                textSize = 13f
+                setTextColor(AarisUi.TEXT_SECONDARY)
+            }
+        )
+        brandRow.addView(
+            brandText,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+
+        root.addView(
+            brandRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        root.addView(
+            TextView(this).apply {
+                text = "Help someone. Stay in control."
+                textSize = 30f
+                setTextColor(AarisUi.TEXT_PRIMARY)
+                typeface = Typeface.create(
+                    "sans-serif-medium",
+                    Typeface.NORMAL
+                )
+                setPadding(0, dp(34), 0, 0)
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        root.addView(
+            TextView(this).apply {
+                text =
+                    "One-time pairing, visible sharing, and a STOP button that stays with you."
+                textSize = 15f
+                setTextColor(AarisUi.TEXT_SECONDARY)
+                setLineSpacing(0f, 1.15f)
+                setPadding(0, dp(10), 0, 0)
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
 
         val actions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
+            setPadding(0, dp(28), 0, 0)
         }
 
         connectButton = Button(this).apply {
             text = "Connect"
-            isAllCaps = false
-            textSize = 18f
-            setOnClickListener { showConnectDialog() }
+            contentDescription =
+                "Connect to a friend's Aaris Remote session"
+            AarisUi.secondaryButton(this)
+            setOnClickListener {
+                AarisUi.haptic(this)
+                showConnectDialog()
+            }
         }
 
         shareButton = Button(this).apply {
             text = "Share"
-            isAllCaps = false
-            textSize = 18f
-            setOnClickListener { requestShare() }
+            contentDescription =
+                "Share this phone for remote support"
+            AarisUi.primaryButton(this)
+            setOnClickListener {
+                AarisUi.haptic(this)
+                requestShare()
+            }
         }
 
         actions.addView(
@@ -1102,7 +1281,7 @@ class MainActivity : ComponentActivity() {
                 dp(64),
                 1f
             ).apply {
-                marginEnd = dp(6)
+                marginEnd = dp(7)
             }
         )
 
@@ -1113,7 +1292,7 @@ class MainActivity : ComponentActivity() {
                 dp(64),
                 1f
             ).apply {
-                marginStart = dp(6)
+                marginStart = dp(7)
             }
         )
 
@@ -1125,26 +1304,145 @@ class MainActivity : ComponentActivity() {
             )
         )
 
-        status = TextView(this).apply {
-            text = "Ready"
-            gravity = Gravity.CENTER
-            textSize = 14f
-            setPadding(0, dp(20), 0, 0)
+        val statusCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = AarisUi.panel(
+                context = this@MainActivity,
+                fill = AarisUi.SURFACE,
+                radiusDp = 18,
+                strokeColor = AarisUi.BORDER
+            )
+            setPadding(dp(16), dp(15), dp(16), dp(15))
+            elevation = dp(1).toFloat()
         }
 
-        root.addView(
+        statusProgress = ProgressBar(this).apply {
+            isIndeterminate = true
+            visibility = View.GONE
+            AarisUi.tintProgress(this, AarisUi.PRIMARY)
+        }
+        statusCard.addView(
+            statusProgress,
+            LinearLayout.LayoutParams(
+                dp(22),
+                dp(22)
+            ).apply {
+                marginEnd = dp(12)
+            }
+        )
+
+        status = TextView(this).apply {
+            text = "Ready"
+            textSize = 14f
+            setTextColor(AarisUi.TEXT_PRIMARY)
+            typeface = Typeface.create(
+                "sans-serif-medium",
+                Typeface.NORMAL
+            )
+            addTextChangedListener(
+                object : TextWatcher {
+                    override fun beforeTextChanged(
+                        s: CharSequence?,
+                        start: Int,
+                        count: Int,
+                        after: Int
+                    ) = Unit
+
+                    override fun onTextChanged(
+                        s: CharSequence?,
+                        start: Int,
+                        before: Int,
+                        count: Int
+                    ) = Unit
+
+                    override fun afterTextChanged(s: Editable?) {
+                        updateStatusChrome(
+                            s?.toString().orEmpty()
+                        )
+                    }
+                }
+            )
+        }
+
+        statusCard.addView(
             status,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+
+        root.addView(
+            statusCard,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(22)
+            }
+        )
+
+        root.addView(
+            TextView(this).apply {
+                text =
+                    "Protected by explicit approval • one-time code • screen-share consent"
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setTextColor(AarisUi.TEXT_TERTIARY)
+                setPadding(dp(8), dp(18), dp(8), 0)
+            },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         )
+
+        updateStatusChrome(status.text.toString())
         return root
+    }
+
+    private fun updateStatusChrome(message: String) {
+        if (!::statusProgress.isInitialized) return
+
+        val value = message.lowercase()
+        val busy = listOf(
+            "creating",
+            "finding",
+            "waiting",
+            "preparing",
+            "starting",
+            "connecting",
+            "restoring",
+            "finishing",
+            "cancelling",
+            "ending"
+        ).any(value::contains)
+
+        statusProgress.visibility =
+            if (busy) View.VISIBLE else View.GONE
+
+        val error = listOf(
+            "could not",
+            "expired",
+            "lost",
+            "cancelled",
+            "declined",
+            "not started",
+            "ended"
+        ).any(value::contains)
+
+        status.setTextColor(
+            if (error) AarisUi.DANGER else AarisUi.TEXT_PRIMARY
+        )
     }
 
     private fun setButtonsEnabled(enabled: Boolean) {
         connectButton.isEnabled = enabled
         shareButton.isEnabled = enabled
+        connectButton.alpha = if (enabled) 1f else 0.58f
+        shareButton.alpha = if (enabled) 1f else 0.58f
     }
 
     private fun showBackendError(error: Throwable) {
@@ -1167,5 +1465,7 @@ class MainActivity : ComponentActivity() {
             "active_host_code"
         private const val KEY_ACTIVE_HOST_EXPIRES_AT =
             "active_host_expires_at"
+        private const val KEY_NOTIFICATION_PERMISSION_ASKED =
+            "notification_permission_asked"
     }
 }

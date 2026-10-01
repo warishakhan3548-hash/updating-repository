@@ -4,7 +4,9 @@ A native Android remote-support app with a deliberately tiny user interface and 
 
 ## Product contract
 
-- Home stays simple: only Connect and Share are primary actions.
+- Home stays simple: only Connect and Share are primary actions, now presented in a polished blue/white support surface with a live status card rather than raw platform-default controls.
+- Busy pairing/setup/reconnect phases expose an indeterminate progress indicator instead of looking frozen; idle, live, and terminal states settle back to a calm status surface.
+- Android 13+ notification permission is requested just-in-time after the sharing phone explicitly approves remote support, never as first-launch friction; denial does not bypass the always-visible in-app accessibility STOP overlay.
 - Share creates the one-time code immediately; Accessibility setup is requested only after the sharing phone explicitly taps START, then the flow resumes automatically on return.
 - Connect can recover the same unique six-digit code even when the receiver copied the entire shared Aaris Remote message, while refusing ambiguous clipboard text that contains different candidate codes.
 - Accessibility never grants unattended remote access by itself.
@@ -65,7 +67,7 @@ The Gradle Google Services plugin is applied only when `google-services.json` ex
 
 Direct WebRTC works well on many networks, but carrier-grade NAT and symmetric NAT require a TURN relay for TeamViewer-class connection reliability.
 
-Aaris Remote 1.3.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
+Aaris Remote 1.4.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
 
 Configure the relay endpoint and secret on the deployed Functions runtime:
 
