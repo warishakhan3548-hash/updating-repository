@@ -961,20 +961,10 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        if (!PermissionGate.isAccessibilityEnabled(this)) {
-            prefs.edit()
-                .putString(
-                    KEY_PENDING_HOST_START_SESSION,
-                    sessionId
-                )
-                .apply()
-            status.text =
-                "Turn on Aaris Remote once. Setup resumes automatically."
-            PermissionGate.openAccessibilitySettings(this)
-            return
-        }
-
-        approveAndRequestScreen(sessionId)
+        ensureHostAccessibilityReady(
+            sessionId = sessionId,
+            approved = false
+        )
     }
 
     private fun shouldAskNotificationPermission(): Boolean {
@@ -995,6 +985,18 @@ class MainActivity : ComponentActivity() {
     private fun continueApprovedHostStart(sessionId: String) {
         if (activeHostSessionId != sessionId) return
 
+        ensureHostAccessibilityReady(
+            sessionId = sessionId,
+            approved = true
+        )
+    }
+
+    private fun ensureHostAccessibilityReady(
+        sessionId: String,
+        approved: Boolean
+    ) {
+        if (activeHostSessionId != sessionId) return
+
         if (!PermissionGate.isAccessibilityEnabled(this)) {
             prefs.edit()
                 .putString(
@@ -1008,17 +1010,93 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        if (AssistAccessibilityService.isConnected()) {
+            prefs.edit()
+                .remove(KEY_PENDING_HOST_START_SESSION)
+                .apply()
+
+            if (approved) {
+                requestScreenPermission(sessionId)
+            } else {
+                approveAndRequestScreen(sessionId)
+            }
+            return
+        }
+
+        accessibilityReadyJob?.cancel()
         prefs.edit()
-            .remove(KEY_PENDING_HOST_START_SESSION)
+            .putString(
+                KEY_PENDING_HOST_START_SESSION,
+                sessionId
+            )
             .apply()
-        requestScreenPermission(sessionId)
+        status.text = "Finishing Accessibility setup…"
+
+        accessibilityReadyJob = scope.launch {
+            val deadline =
+                SystemClock.elapsedRealtime() +
+                    ACCESSIBILITY_SERVICE_READY_TIMEOUT_MS
+
+            while (
+                isActive &&
+                activeHostSessionId == sessionId &&
+                !AssistAccessibilityService.isConnected() &&
+                SystemClock.elapsedRealtime() < deadline
+            ) {
+                delay(ACCESSIBILITY_SERVICE_READY_POLL_MS)
+            }
+
+            accessibilityReadyJob = null
+
+            if (activeHostSessionId != sessionId) {
+                return@launch
+            }
+
+            if (
+                !PermissionGate.isAccessibilityEnabled(
+                    this@MainActivity
+                )
+            ) {
+                status.text =
+                    "Accessibility was turned off. Turn on Aaris Remote to continue."
+                PermissionGate.openAccessibilitySettings(
+                    this@MainActivity
+                )
+                return@launch
+            }
+
+            if (!AssistAccessibilityService.isConnected()) {
+                status.text =
+                    "Accessibility needs attention. Open Aaris Remote and turn it off and on once."
+                PermissionGate.openAccessibilitySettings(
+                    this@MainActivity
+                )
+                return@launch
+            }
+
+            prefs.edit()
+                .remove(KEY_PENDING_HOST_START_SESSION)
+                .apply()
+
+            if (approved) {
+                requestScreenPermission(sessionId)
+            } else {
+                approveAndRequestScreen(sessionId)
+            }
+        }
     }
 
     private fun approveAndRequestScreen(sessionId: String) {
         if (hostStartInFlight) return
 
-        if (!PermissionGate.isAccessibilityEnabled(this)) {
-            continueHostStart(sessionId)
+        if (
+            !PermissionGate.isAccessibilityEnabled(this) ||
+            !AssistAccessibilityService.isConnected()
+        ) {
+            continueHostStart(
+                sessionId = sessionId,
+                skipNotificationPrompt = true
+            )
             return
         }
 
@@ -1079,7 +1157,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestScreenPermission(sessionId: String) {
-        if (!PermissionGate.isAccessibilityEnabled(this)) {
+        if (
+            !PermissionGate.isAccessibilityEnabled(this) ||
+            !AssistAccessibilityService.isConnected()
+        ) {
             continueApprovedHostStart(sessionId)
             return
         }
