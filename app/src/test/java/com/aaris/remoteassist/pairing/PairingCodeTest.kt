@@ -56,4 +56,57 @@ class PairingCodeTest {
             PairingCode.display("123456789012")
         )
     }
+
+    @Test
+    fun parsesCanonicalAndNormalizedJoinLinks() {
+        assertEquals(
+            "123456789012",
+            PairingLink.parse(
+                "aarisremote://connect?code=123456789012"
+            )
+        )
+        assertEquals(
+            "123456789012",
+            PairingLink.parse(
+                "AARISREMOTE://CONNECT/?source=share&code=1234%205678%209012"
+            )
+        )
+    }
+
+    @Test
+    fun rejectsJoinLinksForWrongDestination() {
+        assertNull(
+            PairingLink.parse(
+                "https://connect?code=123456789012"
+            )
+        )
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://other?code=123456789012"
+            )
+        )
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://connect/unsafe?code=123456789012"
+            )
+        )
+    }
+
+    @Test
+    fun shareTextIsReadableAndClipboardRecoverable() {
+        val message = PairingShareText.build("123456789012")
+
+        assertEquals(
+            "123456789012",
+            PairingCode.extract(message)
+        )
+        org.junit.Assert.assertTrue(
+            message.contains("1234 5678 9012")
+        )
+        org.junit.Assert.assertTrue(
+            message.contains(
+                "aarisremote://connect?code=123456789012"
+            )
+        )
+    }
 }
