@@ -1002,21 +1002,25 @@ class MainActivity : ComponentActivity() {
         val message = PairingShareText.build(code)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
+            putExtra(
+                Intent.EXTRA_SUBJECT,
+                "Aaris Remote support code"
+            )
             putExtra(Intent.EXTRA_TEXT, message)
         }
 
-        val hasShareTarget =
-            shareIntent.resolveActivity(packageManager) != null
-        val launched =
-            hasShareTarget &&
-                runCatching {
-                    startActivity(
-                        Intent.createChooser(
-                            shareIntent,
-                            "Send Aaris Remote code"
-                        )
-                    )
-                }.isSuccess
+        // Launch the system chooser directly. Pre-resolving ACTION_SEND can
+        // produce false negatives on some OEM/package-visibility combinations.
+        // If the chooser cannot be opened, keep the same live session and copy
+        // the complete invite instead of forcing the user through setup again.
+        val launched = runCatching {
+            startActivity(
+                Intent.createChooser(
+                    shareIntent,
+                    "Send Aaris Remote code"
+                )
+            )
+        }.isSuccess
 
         if (!launched) {
             getSystemService(ClipboardManager::class.java)
@@ -1521,7 +1525,36 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showBackendError(error: Throwable) {
-        status.text = error.message ?: "Could not connect. Try again."
+        val detail = generateSequence(error as Throwable?) {
+            it.cause
+        }
+            .mapNotNull { it.message }
+            .joinToString(" ")
+            .lowercase()
+
+        status.text = when {
+            "wrong firebase project" in detail ->
+                "This build is connected to the wrong Aaris Remote service."
+
+            "not configured" in detail ->
+                "Aaris Remote service is not configured on this build."
+
+            "permission denied" in detail ||
+                "permission_denied" in detail ->
+                "Aaris Remote service setup needs attention. Try the latest build."
+
+            "network" in detail ||
+                "timeout" in detail ||
+                "timed out" in detail ||
+                "unavailable" in detail ||
+                "could not reach" in detail ->
+                "Could not reach Aaris Remote. Check internet and try again."
+
+            else ->
+                error.message
+                    ?.takeIf { it.length <= 120 }
+                    ?: "Could not connect. Try again."
+        }
     }
 
     private fun connectivityBlockMessage(): String? {
