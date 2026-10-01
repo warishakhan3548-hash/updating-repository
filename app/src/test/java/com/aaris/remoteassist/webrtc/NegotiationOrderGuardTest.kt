@@ -11,8 +11,33 @@ class NegotiationOrderGuardTest {
 
         assertTrue(guard.accept("client-a:2"))
         assertFalse(guard.accept("client-a:2"))
-        assertFalse(guard.accept("client-a:1"))
+        assertTrue(
+            guard.accept(
+                "client-a:2",
+                allowCurrentDuplicate = true
+            )
+        )
+        assertFalse(
+            guard.accept(
+                "client-a:1",
+                allowCurrentDuplicate = true
+            )
+        )
         assertTrue(guard.accept("client-a:3"))
+    }
+
+    @Test
+    fun identifiesOnlyTheActiveNegotiation() {
+        val guard = NegotiationOrderGuard()
+
+        assertFalse(guard.isCurrent("client-a:1"))
+        assertTrue(guard.accept("client-a:1"))
+        assertTrue(guard.isCurrent("client-a:1"))
+        assertFalse(guard.isCurrent("client-a:2"))
+
+        assertTrue(guard.accept("client-a:2"))
+        assertFalse(guard.isCurrent("client-a:1"))
+        assertTrue(guard.isCurrent("client-a:2"))
     }
 
     @Test
@@ -30,7 +55,12 @@ class NegotiationOrderGuardTest {
 
         assertTrue(guard.accept("client-a:9"))
         assertTrue(guard.accept("client-b:1"))
-        assertFalse(guard.accept("client-a:10"))
+        assertFalse(
+            guard.accept(
+                "client-a:10",
+                allowCurrentDuplicate = true
+            )
+        )
         assertTrue(guard.accept("client-b:2"))
     }
 

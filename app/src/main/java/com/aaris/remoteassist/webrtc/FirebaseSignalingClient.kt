@@ -21,6 +21,7 @@ class FirebaseSignalingClient(
     private val closed = AtomicBoolean(false)
     private val candidateSequence = AtomicLong(0L)
     private val restartRequestSequence = AtomicLong(0L)
+    private val descriptionDeliverySequence = AtomicLong(0L)
     @Volatile
     private var clientInstanceId =
         java.util.UUID.randomUUID().toString()
@@ -29,6 +30,15 @@ class FirebaseSignalingClient(
     private val remoteNegotiationGuard =
         NegotiationOrderGuard()
     private val root = database.getReference("sessions").child(sessionId)
+
+    private data class LocalDescriptionRecord(
+        val description: SignalDescription,
+        val negotiationEpoch: Long,
+        val negotiationId: String
+    )
+
+    @Volatile
+    private var lastLocalDescription: LocalDescriptionRecord? = null
 
     private val localSignal: DatabaseReference
         get() = root.child(
@@ -57,6 +67,7 @@ class FirebaseSignalingClient(
     private var remotePresenceReference: DatabaseReference? = null
     private var remotePresenceListener: ValueEventListener? = null
     private var lastRemoteSignal: String? = null
+    private var lastAcceptedRemoteDescription: SignalDescription? = null
 
     override fun start(listener: SignalingClient.Listener) {
         check(!closed.get()) { "Signaling client is closed" }
@@ -74,31 +85,79 @@ class FirebaseSignalingClient(
                         json.optString("kind") ==
                         ICE_RESTART_REQUEST_KIND
                     ) {
-                        null
+                        Pair<SignalDescription?, Boolean>(
+                            null,
+                            false
+                        )
                     } else {
-                        SignalDescription(
-                            type = json.getString("type"),
-                            sdp = json.getString("sdp"),
-                            negotiationId = json.optString(
-                                "negotiationId",
-                                LEGACY_NEGOTIATION_ID
+                        Pair(
+                            SignalDescription(
+                                type = json.getString("type"),
+                                sdp = json.getString("sdp"),
+                                negotiationId = json.optString(
+                                    "negotiationId",
+                                    LEGACY_NEGOTIATION_ID
+                                )
+                            ),
+                            json.optBoolean(
+                                "redelivery",
+                                false
                             )
                         )
                     }
-                }.onSuccess { description ->
+                }.onSuccess { (description, redelivery) ->
                     if (description == null) {
                         lastRemoteSignal = raw
                         listener.onRemoteIceRestartRequested()
                         return@onSuccess
                     }
 
+                    val duplicateCurrent =
+                        redelivery &&
+                            remoteNegotiationGuard.isCurrent(
+                                description.negotiationId
+                            )
+                    val previous =
+                        lastAcceptedRemoteDescription
+
+                    if (
+                        duplicateCurrent &&
+                        previous != null &&
+                        (
+                            previous.negotiationId !=
+                                description.negotiationId ||
+                                previous.type != description.type ||
+                                previous.sdp != description.sdp
+                            )
+                    ) {
+                        // A retry is allowed to change only its delivery
+                        // marker. Same negotiation ID with different SDP is
+                        // not idempotent and must fail closed.
+                        return@onSuccess
+                    }
+
                     if (
                         remoteNegotiationGuard.accept(
-                            description.negotiationId
+                            negotiationId =
+                                description.negotiationId,
+                            allowCurrentDuplicate =
+                                redelivery
                         )
                     ) {
+                        lastAcceptedRemoteDescription =
+                            description
                         lastRemoteSignal = raw
-                        listener.onRemoteDescription(description)
+
+                        if (duplicateCurrent) {
+                            listener
+                                .onRemoteDescriptionRedelivery(
+                                    description
+                                )
+                        } else {
+                            listener.onRemoteDescription(
+                                description
+                            )
+                        }
                     }
                 }.onFailure(listener::onError)
             }
@@ -206,27 +265,38 @@ class FirebaseSignalingClient(
             return
         }
 
-        val negotiationId =
-            negotiationIdFor(negotiationEpoch)
-        val payload = JSONObject()
-            .put("type", description.type)
-            .put("sdp", description.sdp)
-            .put("negotiationId", negotiationId)
-            .toString()
+        val record = LocalDescriptionRecord(
+            description = description,
+            negotiationEpoch = negotiationEpoch,
+            negotiationId =
+                negotiationIdFor(negotiationEpoch)
+        )
+        lastLocalDescription = record
 
-        // Candidate slots are intentionally retained between negotiations.
-        // Published Spark RTDB rules allow candidate strings but not client-side
-        // deletion at the candidate branch. Negotiation IDs make stale slots safe.
-        localSignal.setValue(payload)
-            .addOnSuccessListener {
-                if (closed.get()) {
-                    return@addOnSuccessListener
-                }
-                candidateGate
-                    .markDescriptionPublished(negotiationEpoch)
-                    .forEach(::publishCandidate)
-            }
-            .addOnFailureListener { listener?.onError(it) }
+        publishLocalDescription(
+            record = record,
+            redelivery = false,
+            failSessionOnError = true
+        )
+    }
+
+    override fun retryLocalDescription(): Boolean {
+        if (closed.get()) return false
+
+        val record = lastLocalDescription ?: return false
+        if (
+            record.negotiationEpoch !=
+            candidateGate.currentEpoch()
+        ) {
+            return false
+        }
+
+        publishLocalDescription(
+            record = record,
+            redelivery = true,
+            failSessionOnError = false
+        )
+        return true
     }
 
     override fun sendCandidate(candidate: SignalCandidate) {
@@ -306,6 +376,8 @@ class FirebaseSignalingClient(
 
         remotePresenceReference = null
         remotePresenceListener = null
+        lastAcceptedRemoteDescription = null
+        lastLocalDescription = null
         candidateGate.reset()
 
         val uid = auth.currentUser?.uid
@@ -317,6 +389,53 @@ class FirebaseSignalingClient(
         this.descriptionListener = null
         this.candidateListener = null
         this.presenceListener = null
+    }
+
+    private fun publishLocalDescription(
+        record: LocalDescriptionRecord,
+        redelivery: Boolean,
+        failSessionOnError: Boolean
+    ) {
+        if (closed.get()) return
+
+        val payloadBuilder = JSONObject()
+            .put("type", record.description.type)
+            .put("sdp", record.description.sdp)
+            .put("negotiationId", record.negotiationId)
+
+        if (redelivery) {
+            payloadBuilder
+                .put("redelivery", true)
+                .put(
+                    "deliveryAttempt",
+                    descriptionDeliverySequence
+                        .incrementAndGet()
+                )
+        }
+
+        val task = localSignal.setValue(
+            payloadBuilder.toString()
+        )
+        task.addOnSuccessListener {
+            if (closed.get()) {
+                return@addOnSuccessListener
+            }
+
+            // A successful redelivery is also sufficient proof that the
+            // description reached RTDB. Open the candidate gate if the
+            // original write was still pending or was transiently lost.
+            candidateGate
+                .markDescriptionPublished(
+                    record.negotiationEpoch
+                )
+                .forEach(::publishCandidate)
+        }
+
+        if (failSessionOnError) {
+            task.addOnFailureListener {
+                listener?.onError(it)
+            }
+        }
     }
 
     private fun publishCandidate(

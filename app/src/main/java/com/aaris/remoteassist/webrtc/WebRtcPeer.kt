@@ -97,9 +97,19 @@ class WebRtcPeer(
         RemoteCandidateBuffer<IceCandidate>(
             MAX_PENDING_REMOTE_CANDIDATES
         )
+    private val remoteDescriptionInFlight =
+        AtomicBoolean(false)
+
+    @Volatile
+    private var lastAppliedRemoteNegotiationId: String? = null
+
+    @Volatile
+    private var lastAnsweredRemoteNegotiationId: String? = null
+
     private val lastIceRestartAtMs = AtomicLong(0L)
     private val controllerRelayRefreshAttempts = AtomicLong(0L)
     private var bootstrapRecoveryAttempts = 0
+    private var offerRedeliveryAttempts = 0
 
     @Volatile
     private var preLiveDisconnected = false
@@ -126,26 +136,66 @@ class WebRtcPeer(
                 return
             }
 
-            if (
-                peerConnection.signalingState() ==
-                PeerConnection.SignalingState.STABLE
-            ) {
-                val forceRelay =
-                    bootstrapRecoveryAttempts > 0
-                if (
-                    requestIceRestart(
-                        forceRelay = forceRelay
-                    )
-                ) {
-                    bootstrapRecoveryAttempts += 1
+            val signalingState =
+                peerConnection.signalingState()
+
+            when (signalingState) {
+                PeerConnection.SignalingState.HAVE_LOCAL_OFFER -> {
+                    /*
+                     * An ICE restart cannot begin until the pending offer has
+                     * an answer. Re-deliver that exact offer instead of
+                     * creating a second offer or overwriting its negotiation.
+                     *
+                     * This recovers the two important startup-loss cases:
+                     *  1. controller attached after the first signal write;
+                     *  2. controller answered, but the answer write was lost.
+                     *
+                     * The same negotiationId is retained, so existing trickle
+                     * candidates remain correlated with the offer.
+                     */
+                    if (
+                        offerRedeliveryAttempts <
+                            MAX_OFFER_REDELIVERY_ATTEMPTS &&
+                        signaling.retryLocalDescription()
+                    ) {
+                        offerRedeliveryAttempts += 1
+                    }
                 }
+
+                PeerConnection.SignalingState.STABLE -> {
+                    val forceRelay =
+                        bootstrapRecoveryAttempts > 0
+                    if (
+                        bootstrapRecoveryAttempts <
+                            MAX_BOOTSTRAP_RECOVERY_ATTEMPTS &&
+                        requestIceRestart(
+                            forceRelay = forceRelay
+                        )
+                    ) {
+                        bootstrapRecoveryAttempts += 1
+                    }
+                }
+
+                else -> Unit
             }
+
+            val recoveryRemaining =
+                when (peerConnection.signalingState()) {
+                    PeerConnection.SignalingState.HAVE_LOCAL_OFFER ->
+                        offerRedeliveryAttempts <
+                            MAX_OFFER_REDELIVERY_ATTEMPTS
+
+                    PeerConnection.SignalingState.STABLE ->
+                        bootstrapRecoveryAttempts <
+                            MAX_BOOTSTRAP_RECOVERY_ATTEMPTS
+
+                    else -> true
+                }
 
             if (
                 !closed.get() &&
                 !connectivity.hasEverConnected() &&
-                bootstrapRecoveryAttempts <
-                    MAX_BOOTSTRAP_RECOVERY_ATTEMPTS
+                recoveryRemaining
             ) {
                 handler.postDelayed(
                     this,
@@ -504,6 +554,21 @@ class WebRtcPeer(
         }
 
         if (
+            role == PeerRole.CONTROLLER &&
+            sessionDescription.type == SessionDescription.Type.OFFER &&
+            peerConnection.signalingState() !=
+                PeerConnection.SignalingState.STABLE
+        ) {
+            /*
+             * Startup redelivery may arrive while the controller is still
+             * finishing the first copy of the same offer. Do not run two
+             * concurrent setRemoteDescription/createAnswer pipelines.
+             * The host will redeliver again if the answer never lands.
+             */
+            return
+        }
+
+        if (
             role == PeerRole.HOST &&
             sessionDescription.type == SessionDescription.Type.ANSWER &&
             peerConnection.signalingState() !=
@@ -517,35 +582,94 @@ class WebRtcPeer(
             return
         }
 
+        if (
+            !remoteDescriptionInFlight.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            // The authoritative signal remains in RTDB. If this was a newer
+            // generation the host-side delivery watchdog will re-deliver it
+            // after the current SDP application has settled.
+            return
+        }
+
         remoteCandidates.beginRemoteDescription(
             description.negotiationId
         )
 
-        peerConnection.setRemoteDescription(
-            object : SdpObserverAdapter() {
-                override fun onSetSuccess() {
-                    remoteCandidates
-                        .markDescriptionReady()
-                        .forEach(peerConnection::addIceCandidate)
+        runCatching {
+            peerConnection.setRemoteDescription(
+                object : SdpObserverAdapter() {
+                    override fun onSetSuccess() {
+                        lastAppliedRemoteNegotiationId =
+                            description.negotiationId
+                        remoteDescriptionInFlight.set(false)
 
-                    if (
-                        role == PeerRole.CONTROLLER &&
-                        sessionDescription.type == SessionDescription.Type.OFFER
-                    ) {
-                        createAnswer()
+                        remoteCandidates
+                            .markDescriptionReady()
+                            .forEach(peerConnection::addIceCandidate)
+
+                        if (
+                            role == PeerRole.CONTROLLER &&
+                            sessionDescription.type ==
+                                SessionDescription.Type.OFFER
+                        ) {
+                            createAnswer(
+                                description.negotiationId
+                            )
+                        }
                     }
-                }
 
-                override fun onSetFailure(error: String?) {
-                    listener.onError(
-                        IllegalStateException(
-                            error ?: "Could not set remote description"
+                    override fun onSetFailure(error: String?) {
+                        remoteDescriptionInFlight.set(false)
+                        listener.onError(
+                            IllegalStateException(
+                                error ?:
+                                    "Could not set remote description"
+                            )
                         )
-                    )
-                }
-            },
-            sessionDescription
-        )
+                    }
+                },
+                sessionDescription
+            )
+        }.onFailure {
+            remoteDescriptionInFlight.set(false)
+            listener.onError(it)
+        }
+    }
+
+    override fun onRemoteDescriptionRedelivery(
+        description: SignalDescription
+    ) {
+        if (closed.get()) return
+
+        /*
+         * A delivery retry is not a new SDP generation.
+         *
+         * - If this exact remote generation never reached WebRTC, process it.
+         * - If the controller already applied the offer and has an answer for
+         *   it, re-publish that SAME answer/negotiation ID. This preserves
+         *   trickle-candidate correlation instead of manufacturing a second
+         *   answer generation.
+         * - If the answer is still being created, do nothing; the host's next
+         *   bounded redelivery can retry after it settles.
+         */
+        if (
+            lastAppliedRemoteNegotiationId !=
+            description.negotiationId
+        ) {
+            onRemoteDescription(description)
+            return
+        }
+
+        if (
+            role == PeerRole.CONTROLLER &&
+            lastAnsweredRemoteNegotiationId ==
+                description.negotiationId
+        ) {
+            signaling.retryLocalDescription()
+        }
     }
 
     override fun onRemoteIceRestartRequested() {
@@ -735,6 +859,9 @@ class WebRtcPeer(
         runCatching { peerConnection.close() }
         runCatching { peerConnection.dispose() }
 
+        lastAppliedRemoteNegotiationId = null
+        lastAnsweredRemoteNegotiationId = null
+        remoteDescriptionInFlight.set(false)
         remoteCandidates.reset()
     }
 
@@ -772,6 +899,9 @@ class WebRtcPeer(
         onLocalDescriptionSet: (() -> Unit)? = null,
         onFailure: (() -> Unit)? = null
     ) {
+        // Redelivery budget belongs to one concrete SDP generation.
+        offerRedeliveryAttempts = 0
+
         val negotiationEpoch =
             signaling.beginLocalDescription()
         peerConnection.createOffer(
@@ -808,7 +938,9 @@ class WebRtcPeer(
         )
     }
 
-    private fun createAnswer() {
+    private fun createAnswer(
+        remoteNegotiationId: String
+    ) {
         val negotiationEpoch =
             signaling.beginLocalDescription()
         peerConnection.createAnswer(
@@ -823,8 +955,12 @@ class WebRtcPeer(
                         return
                     }
                     setLocalAndSignal(
-                        description,
-                        negotiationEpoch
+                        description = description,
+                        negotiationEpoch = negotiationEpoch,
+                        onLocalDescriptionSet = {
+                            lastAnsweredRemoteNegotiationId =
+                                remoteNegotiationId
+                        }
                     )
                 }
 
@@ -994,5 +1130,6 @@ class WebRtcPeer(
         private const val CONTROLLER_RELAY_REFRESH_INTERVAL_MS = 7_000L
         private const val MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS = 3L
         private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 3
+        private const val MAX_OFFER_REDELIVERY_ATTEMPTS = 3
     }
 }
