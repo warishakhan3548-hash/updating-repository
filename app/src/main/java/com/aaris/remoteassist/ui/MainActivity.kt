@@ -229,7 +229,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         accessibilityReadyJob?.cancel()
         accessibilityReadyJob = null
-        clearPendingShareRequest()
         hostObserver?.close()
         hostObserver = null
         sessionDeadlineJob?.cancel()
