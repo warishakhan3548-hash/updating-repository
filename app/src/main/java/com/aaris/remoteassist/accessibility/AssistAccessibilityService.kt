@@ -70,7 +70,12 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private fun execute(command: RemoteCommand): Boolean {
         if (!CommandGate.accept(command)) return false
-        if (keyguard.isDeviceLocked) return false
+        if (
+            keyguard.isKeyguardLocked ||
+            keyguard.isDeviceLocked
+        ) {
+            return false
+        }
 
         return when (command) {
             is TapCommand -> gesture(
