@@ -98,6 +98,30 @@ class PairingCodeTest {
     }
 
     @Test
+    fun rejectsAmbiguousOrUnexpectedJoinLinkAuthority() {
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://connect?code=123456789012&code=654321098765"
+            )
+        )
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://connect?code=123456789012&code=123456789012"
+            )
+        )
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://connect:443?code=123456789012"
+            )
+        )
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://connect?code=123456789012#unexpected"
+            )
+        )
+    }
+
+    @Test
     fun shareTextIsReadableAndClipboardRecoverable() {
         val message = PairingShareText.build("123456789012")
 
