@@ -1005,14 +1005,18 @@ class MainActivity : ComponentActivity() {
             putExtra(Intent.EXTRA_TEXT, message)
         }
 
-        val launched = runCatching {
-            startActivity(
-                Intent.createChooser(
-                    shareIntent,
-                    "Send Aaris Remote code"
-                )
-            )
-        }.isSuccess
+        val hasShareTarget =
+            shareIntent.resolveActivity(packageManager) != null
+        val launched =
+            hasShareTarget &&
+                runCatching {
+                    startActivity(
+                        Intent.createChooser(
+                            shareIntent,
+                            "Send Aaris Remote code"
+                        )
+                    )
+                }.isSuccess
 
         if (!launched) {
             getSystemService(ClipboardManager::class.java)
