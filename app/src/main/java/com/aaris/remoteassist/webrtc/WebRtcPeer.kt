@@ -97,6 +97,15 @@ class WebRtcPeer(
         RemoteCandidateBuffer<IceCandidate>(
             MAX_PENDING_REMOTE_CANDIDATES
         )
+    private val remoteDescriptionInFlight =
+        AtomicBoolean(false)
+
+    @Volatile
+    private var lastAppliedRemoteNegotiationId: String? = null
+
+    @Volatile
+    private var lastAnsweredRemoteNegotiationId: String? = null
+
     private val lastIceRestartAtMs = AtomicLong(0L)
     private val controllerRelayRefreshAttempts = AtomicLong(0L)
     private var bootstrapRecoveryAttempts = 0
@@ -573,35 +582,94 @@ class WebRtcPeer(
             return
         }
 
+        if (
+            !remoteDescriptionInFlight.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            // The authoritative signal remains in RTDB. If this was a newer
+            // generation the host-side delivery watchdog will re-deliver it
+            // after the current SDP application has settled.
+            return
+        }
+
         remoteCandidates.beginRemoteDescription(
             description.negotiationId
         )
 
-        peerConnection.setRemoteDescription(
-            object : SdpObserverAdapter() {
-                override fun onSetSuccess() {
-                    remoteCandidates
-                        .markDescriptionReady()
-                        .forEach(peerConnection::addIceCandidate)
+        runCatching {
+            peerConnection.setRemoteDescription(
+                object : SdpObserverAdapter() {
+                    override fun onSetSuccess() {
+                        lastAppliedRemoteNegotiationId =
+                            description.negotiationId
+                        remoteDescriptionInFlight.set(false)
 
-                    if (
-                        role == PeerRole.CONTROLLER &&
-                        sessionDescription.type == SessionDescription.Type.OFFER
-                    ) {
-                        createAnswer()
+                        remoteCandidates
+                            .markDescriptionReady()
+                            .forEach(peerConnection::addIceCandidate)
+
+                        if (
+                            role == PeerRole.CONTROLLER &&
+                            sessionDescription.type ==
+                                SessionDescription.Type.OFFER
+                        ) {
+                            createAnswer(
+                                description.negotiationId
+                            )
+                        }
                     }
-                }
 
-                override fun onSetFailure(error: String?) {
-                    listener.onError(
-                        IllegalStateException(
-                            error ?: "Could not set remote description"
+                    override fun onSetFailure(error: String?) {
+                        remoteDescriptionInFlight.set(false)
+                        listener.onError(
+                            IllegalStateException(
+                                error ?:
+                                    "Could not set remote description"
+                            )
                         )
-                    )
-                }
-            },
-            sessionDescription
-        )
+                    }
+                },
+                sessionDescription
+            )
+        }.onFailure {
+            remoteDescriptionInFlight.set(false)
+            listener.onError(it)
+        }
+    }
+
+    override fun onRemoteDescriptionRedelivery(
+        description: SignalDescription
+    ) {
+        if (closed.get()) return
+
+        /*
+         * A delivery retry is not a new SDP generation.
+         *
+         * - If this exact remote generation never reached WebRTC, process it.
+         * - If the controller already applied the offer and has an answer for
+         *   it, re-publish that SAME answer/negotiation ID. This preserves
+         *   trickle-candidate correlation instead of manufacturing a second
+         *   answer generation.
+         * - If the answer is still being created, do nothing; the host's next
+         *   bounded redelivery can retry after it settles.
+         */
+        if (
+            lastAppliedRemoteNegotiationId !=
+            description.negotiationId
+        ) {
+            onRemoteDescription(description)
+            return
+        }
+
+        if (
+            role == PeerRole.CONTROLLER &&
+            lastAnsweredRemoteNegotiationId ==
+                description.negotiationId
+        ) {
+            signaling.retryLocalDescription()
+        }
     }
 
     override fun onRemoteIceRestartRequested() {
@@ -791,6 +859,9 @@ class WebRtcPeer(
         runCatching { peerConnection.close() }
         runCatching { peerConnection.dispose() }
 
+        lastAppliedRemoteNegotiationId = null
+        lastAnsweredRemoteNegotiationId = null
+        remoteDescriptionInFlight.set(false)
         remoteCandidates.reset()
     }
 
@@ -867,7 +938,9 @@ class WebRtcPeer(
         )
     }
 
-    private fun createAnswer() {
+    private fun createAnswer(
+        remoteNegotiationId: String
+    ) {
         val negotiationEpoch =
             signaling.beginLocalDescription()
         peerConnection.createAnswer(
@@ -882,8 +955,12 @@ class WebRtcPeer(
                         return
                     }
                     setLocalAndSignal(
-                        description,
-                        negotiationEpoch
+                        description = description,
+                        negotiationEpoch = negotiationEpoch,
+                        onLocalDescriptionSet = {
+                            lastAnsweredRemoteNegotiationId =
+                                remoteNegotiationId
+                        }
                     )
                 }
 
