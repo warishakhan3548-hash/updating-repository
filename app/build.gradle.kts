@@ -25,8 +25,8 @@ android {
         applicationId = "com.aaris.remoteassist"
         minSdk = 26
         targetSdk = 36
-        versionCode = 36
-        versionName = "1.7.14"
+        versionCode = 37
+        versionName = "1.7.15"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
