@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class ScreenShareService : Service() {
@@ -182,19 +183,12 @@ class ScreenShareService : Service() {
                 projectionGrant = grant,
                 listener = object : HostWebRtcSession.Listener {
                     override fun onLive() {
-                        scope.launch {
-                            runCatching {
-                                FirebasePairingGateway(
-                                    this@ScreenShareService
-                                ).markLive(sessionId)
-                            }.onFailure {
-                                mainHandler.post {
-                                    stopActiveSession(
-                                        "backend_live_state_failed"
-                                    )
-                                }
+                        mainHandler.post {
+                            if (activeSessionId == sessionId) {
+                                updateForegroundNotification(isLive = true)
                             }
                         }
+                        publishBackendLive(sessionId)
                     }
 
                     override fun onConnectivityChanged(
@@ -244,6 +238,39 @@ class ScreenShareService : Service() {
         }
     }
 
+    private fun publishBackendLive(sessionId: String) {
+        scope.launch {
+            var attempt = 0
+
+            while (
+                activeSessionId == sessionId &&
+                attempt < BACKEND_LIVE_PUBLISH_ATTEMPTS
+            ) {
+                val published = runCatching {
+                    FirebasePairingGateway(
+                        this@ScreenShareService
+                    ).markLive(sessionId)
+                }.isSuccess
+
+                if (published) {
+                    return@launch
+                }
+
+                attempt += 1
+                if (attempt >= BACKEND_LIVE_PUBLISH_ATTEMPTS) {
+                    return@launch
+                }
+
+                val backoffMs =
+                    (
+                        BACKEND_LIVE_RETRY_BASE_MS *
+                            (1L shl (attempt - 1).coerceAtMost(3))
+                    ).coerceAtMost(BACKEND_LIVE_RETRY_MAX_MS)
+                delay(backoffMs)
+            }
+        }
+    }
+
     private fun stopActiveSession(reason: String) {
         val sessionId = activeSessionId
         activeSessionId = null
@@ -263,7 +290,7 @@ class ScreenShareService : Service() {
     }
 
     private fun startVisibleForeground() {
-        val notification = buildNotification()
+        val notification = buildNotification(isLive = false)
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(
                 NOTIFICATION_ID,
@@ -275,7 +302,15 @@ class ScreenShareService : Service() {
         }
     }
 
-    private fun buildNotification(): Notification {
+    private fun updateForegroundNotification(isLive: Boolean) {
+        getSystemService(NotificationManager::class.java)
+            .notify(
+                NOTIFICATION_ID,
+                buildNotification(isLive)
+            )
+    }
+
+    private fun buildNotification(isLive: Boolean): Notification {
         val contentIntent = PendingIntent.getActivity(
             this,
             100,
@@ -299,14 +334,25 @@ class ScreenShareService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val title =
+            if (isLive) {
+                "Aaris Remote is sharing"
+            } else {
+                "Aaris Remote is preparing"
+            }
+        val message =
+            if (isLive) {
+                "Remote support is live. Tap STOP any time."
+            } else {
+                "Setting up the secure connection. Tap STOP any time."
+            }
+
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(
                 android.R.drawable.presence_video_online
             )
-            .setContentTitle("Aaris Remote is sharing")
-            .setContentText(
-                "Screen sharing is active. Tap STOP any time."
-            )
+            .setContentTitle(title)
+            .setContentText(message)
             .setOngoing(true)
             .setContentIntent(contentIntent)
             .addAction(
@@ -348,5 +394,8 @@ class ScreenShareService : Service() {
 
         private const val CHANNEL_ID = "remote_session"
         private const val NOTIFICATION_ID = 4107
+        private const val BACKEND_LIVE_PUBLISH_ATTEMPTS = 7
+        private const val BACKEND_LIVE_RETRY_BASE_MS = 750L
+        private const val BACKEND_LIVE_RETRY_MAX_MS = 6_000L
     }
 }
