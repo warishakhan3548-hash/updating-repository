@@ -1,6 +1,8 @@
 package com.aaris.remoteassist.webrtc
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Handler
 import android.os.Looper
 import org.webrtc.DataChannel
@@ -47,6 +49,45 @@ class WebRtcPeer(
     private val initialIceRestartAttempted = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val connectivityManager =
+        appContext.getSystemService(ConnectivityManager::class.java)
+    private val networkLock = Any()
+
+    @Volatile
+    private var networkCallbackRegistered = false
+
+    private var activeDefaultNetwork: Network? = null
+    private var hasSeenDefaultNetwork = false
+
+    private val networkCallback =
+        object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                val changed = synchronized(networkLock) {
+                    val previous = activeDefaultNetwork
+                    val hadPrevious = hasSeenDefaultNetwork
+                    activeDefaultNetwork = network
+                    hasSeenDefaultNetwork = true
+                    hadPrevious && previous != network
+                }
+
+                if (
+                    changed &&
+                    role == PeerRole.HOST &&
+                    connectivity.hasEverConnected()
+                ) {
+                    requestIceRestart()
+                }
+            }
+
+            override fun onLost(network: Network) {
+                synchronized(networkLock) {
+                    if (activeDefaultNetwork == network) {
+                        activeDefaultNetwork = null
+                    }
+                }
+            }
+        }
+
     private val remoteCandidates =
         RemoteCandidateBuffer<IceCandidate>(
             MAX_PENDING_REMOTE_CANDIDATES
@@ -89,6 +130,8 @@ class WebRtcPeer(
         check(started.compareAndSet(false, true)) {
             "WebRTC peer already started"
         }
+
+        registerNetworkHandoffObserver()
 
         scope.launch {
             val loaded = IceServerProvider.loadConfig(sessionId)
@@ -413,6 +456,8 @@ class WebRtcPeer(
     fun close() {
         if (!closed.compareAndSet(false, true)) return
 
+        unregisterNetworkHandoffObserver()
+
         runCatching { signaling.setPresence(false) }
         runCatching { signaling.close() }
 
@@ -430,6 +475,36 @@ class WebRtcPeer(
         runCatching { peerConnection.dispose() }
 
         remoteCandidates.reset()
+    }
+
+    private fun registerNetworkHandoffObserver() {
+        if (networkCallbackRegistered) return
+
+        synchronized(networkLock) {
+            activeDefaultNetwork = connectivityManager.activeNetwork
+            hasSeenDefaultNetwork = activeDefaultNetwork != null
+        }
+
+        networkCallbackRegistered = runCatching {
+            connectivityManager.registerDefaultNetworkCallback(
+                networkCallback
+            )
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun unregisterNetworkHandoffObserver() {
+        if (!networkCallbackRegistered) return
+        networkCallbackRegistered = false
+
+        runCatching {
+            connectivityManager.unregisterNetworkCallback(networkCallback)
+        }
+
+        synchronized(networkLock) {
+            activeDefaultNetwork = null
+            hasSeenDefaultNetwork = false
+        }
     }
 
     private fun createOffer() {
