@@ -143,9 +143,13 @@ class WebRtcPeer(
 
                 runCatching {
                     activeIceServers = loaded.servers
-                    peerConnection.setConfiguration(
-                        createRtcConfiguration(activeIceServers)
-                    )
+                    check(
+                        peerConnection.setConfiguration(
+                            createRtcConfiguration(activeIceServers)
+                        )
+                    ) {
+                        "Could not apply ICE server configuration"
+                    }
                     startSignaling()
                 }.onFailure(listener::onError)
             }
@@ -215,9 +219,13 @@ class WebRtcPeer(
                         activeIceServers = refreshed.servers
                     }
                     remoteCandidates.markDescriptionNotReady()
-                    peerConnection.setConfiguration(
-                        createRtcConfiguration(selectedServers)
-                    )
+                    check(
+                        peerConnection.setConfiguration(
+                            createRtcConfiguration(selectedServers)
+                        )
+                    ) {
+                        "Could not refresh ICE server configuration"
+                    }
                     peerConnection.restartIce()
                     createOffer()
                 }.onFailure(listener::onError)
@@ -693,7 +701,10 @@ class WebRtcPeer(
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy =
                 PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
-            iceCandidatePoolSize = 2
+            // The final ICE list is loaded immediately before signaling.
+            // Keeping the pool at zero prevents fallback-only candidates from
+            // being pre-gathered before TURN is applied with setConfiguration.
+            iceCandidatePoolSize = 0
         }
     }
 
