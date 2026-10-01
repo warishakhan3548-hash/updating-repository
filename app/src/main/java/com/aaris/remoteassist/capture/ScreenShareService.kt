@@ -32,6 +32,7 @@ class ScreenShareService : Service() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    @Volatile
     private var activeSessionId: String? = null
     private var hostSession: HostWebRtcSession? = null
 
