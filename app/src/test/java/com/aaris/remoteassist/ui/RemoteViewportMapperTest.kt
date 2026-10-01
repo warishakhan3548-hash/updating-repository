@@ -37,6 +37,23 @@ class RemoteViewportMapperTest {
     }
 
     @Test
+    fun clampsContinuingGestureToRemoteEdge() {
+        val point = RemoteViewportMapper.normalize(
+            touchX = 20f,
+            touchY = 1000f,
+            viewWidth = 1000f,
+            viewHeight = 2000f,
+            remoteWidth = 1080,
+            remoteHeight = 2400,
+            clampToContent = true
+        )
+
+        assertNotNull(point)
+        assertEquals(0f, point!!.x, 0.0001f)
+        assertEquals(0.5f, point.y, 0.0001f)
+    }
+
+    @Test
     fun mapsLandscapeRemoteInsideTallController() {
         val point = RemoteViewportMapper.normalize(
             touchX = 500f,
