@@ -47,7 +47,7 @@ class WebRtcPeer(
     private val closed = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
     private val initialIceRestartAttempted = AtomicBoolean(false)
-    private val iceRestartPreparationInFlight = AtomicBoolean(false)
+    private val offerPreparationInFlight = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val connectivity = PeerConnectivityTracker()
@@ -272,7 +272,22 @@ class WebRtcPeer(
                     }
                 )
             )
-            createOffer()
+            check(
+                offerPreparationInFlight.compareAndSet(
+                    false,
+                    true
+                )
+            ) {
+                "Initial WebRTC offer already in progress"
+            }
+            createOffer(
+                onLocalDescriptionSet = {
+                    offerPreparationInFlight.set(false)
+                },
+                onFailure = {
+                    offerPreparationInFlight.set(false)
+                }
+            )
             bootstrapRecoveryAttempts = 0
             handler.removeCallbacks(bootstrapRecovery)
             handler.postDelayed(
@@ -303,10 +318,10 @@ class WebRtcPeer(
         if (closed.get() || role != PeerRole.HOST) return false
 
         /*
-         * Only one host offer may own negotiation at a time. In particular,
-         * TURN refresh, bootstrap recovery, route handoff and disconnect
-         * recovery can all fire close together on mobile networks. Starting a
-         * second createOffer() while another local offer is pending is enough
+         * Only one host offer may own negotiation at a time. The same gate
+         * covers the initial offer plus TURN refresh, bootstrap recovery,
+         * route handoff and disconnect recovery. Starting a second
+         * createOffer() while another local offer is being prepared is enough
          * to poison the SDP/ICE generation and leave both phones "connecting".
          */
         if (
@@ -316,7 +331,7 @@ class WebRtcPeer(
             return false
         }
         if (
-            !iceRestartPreparationInFlight.compareAndSet(
+            !offerPreparationInFlight.compareAndSet(
                 false,
                 true
             )
@@ -331,7 +346,7 @@ class WebRtcPeer(
                 previous != 0L &&
                 nowMs - previous < ICE_RESTART_MIN_INTERVAL_MS
             ) {
-                iceRestartPreparationInFlight.set(false)
+                offerPreparationInFlight.set(false)
                 return false
             }
             if (lastIceRestartAtMs.compareAndSet(previous, nowMs)) {
@@ -364,7 +379,7 @@ class WebRtcPeer(
 
             handler.post {
                 if (closed.get()) {
-                    iceRestartPreparationInFlight.set(false)
+                    offerPreparationInFlight.set(false)
                     return@post
                 }
 
@@ -372,7 +387,7 @@ class WebRtcPeer(
                     peerConnection.signalingState() !=
                     PeerConnection.SignalingState.STABLE
                 ) {
-                    iceRestartPreparationInFlight.set(false)
+                    offerPreparationInFlight.set(false)
                     return@post
                 }
 
@@ -395,14 +410,14 @@ class WebRtcPeer(
                     peerConnection.restartIce()
                     createOffer(
                         onLocalDescriptionSet = {
-                            iceRestartPreparationInFlight.set(false)
+                            offerPreparationInFlight.set(false)
                         },
                         onFailure = {
-                            iceRestartPreparationInFlight.set(false)
+                            offerPreparationInFlight.set(false)
                         }
                     )
                 }.onFailure {
-                    iceRestartPreparationInFlight.set(false)
+                    offerPreparationInFlight.set(false)
                     listener.onError(it)
                 }
             }
