@@ -20,7 +20,6 @@ class FirebaseSignalingClient(
 ) : SignalingClient {
     private val closed = AtomicBoolean(false)
     private val candidateSequence = AtomicLong(0L)
-    private val restartRequestSequence = AtomicLong(0L)
     private val clientInstanceId =
         java.util.UUID.randomUUID().toString()
     private val candidateGate =
@@ -203,15 +202,14 @@ class FirebaseSignalingClient(
             .put("negotiationId", negotiationId)
             .toString()
 
-        if (role == PeerRole.CONTROLLER) {
-            lastLocalDescription = description
-        }
-
         // Candidate slots are intentionally retained between negotiations.
         // Published Spark RTDB rules allow candidate strings but not client-side
         // deletion at the candidate branch. Negotiation IDs make stale slots safe.
         localSignal.setValue(payload)
             .addOnSuccessListener {
+                if (role == PeerRole.CONTROLLER) {
+                    lastLocalDescription = description
+                }
                 if (closed.get()) {
                     return@addOnSuccessListener
                 }
@@ -254,10 +252,6 @@ class FirebaseSignalingClient(
             .put(
                 "negotiationId",
                 negotiationIdFor(recoveryEpoch)
-            )
-            .put(
-                "handoff",
-                restartRequestSequence.incrementAndGet()
             )
             .toString()
 
