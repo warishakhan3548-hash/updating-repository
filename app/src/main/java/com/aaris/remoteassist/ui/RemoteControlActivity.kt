@@ -188,6 +188,34 @@ class RemoteControlActivity : ComponentActivity() {
                                 )
 
                             "SCREEN_READY" -> {
+                                val local =
+                                    SessionCoordinator.snapshot()
+                                val resumable =
+                                    local.sessionId == id &&
+                                        (
+                                            local.state ==
+                                                SessionState.PAIR_PENDING ||
+                                                local.state ==
+                                                    SessionState.HOST_APPROVED ||
+                                                local.state ==
+                                                    SessionState.SCREEN_CONSENT ||
+                                                local.state ==
+                                                    SessionState.CONNECTING
+                                        )
+
+                                if (!resumable && rtcSession == null) {
+                                    showStatus(
+                                        "Session was interrupted. Reconnect with a new code."
+                                    )
+                                    BackendSessionCloser.close(
+                                        this@RemoteControlActivity,
+                                        id
+                                    )
+                                    SessionCoordinator.close(id)
+                                    finish()
+                                    return@runOnUiThread
+                                }
+
                                 advanceControllerState(id)
                                 ensureRtcStarted(id)
                             }
