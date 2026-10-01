@@ -11,8 +11,11 @@ interface SignalingClient : Closeable {
     }
 
     fun start(listener: Listener)
-    fun beginLocalDescription()
-    fun sendDescription(description: SignalDescription)
+    fun beginLocalDescription(): Long
+    fun sendDescription(
+        description: SignalDescription,
+        negotiationEpoch: Long
+    )
     fun sendCandidate(candidate: SignalCandidate)
     fun setPresence(online: Boolean)
 }
