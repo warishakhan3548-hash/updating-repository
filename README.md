@@ -71,8 +71,10 @@ A native Android remote-support app with a deliberately tiny user interface and 
 36. Accessibility readiness preflight: Share waits for the actual AccessibilityService connection rather than trusting only the Android enabled-services setting, so slow OEM binding after Restricted settings cannot start a pairing deadline too early.
 37. Host-only STOP overlay: the STOP • SHARING accessibility overlay is keyed to the active screen-sharing service on this phone, so a controller phone that happens to have Accessibility enabled cannot display a false sharing indicator.
 38. Relay-first candidate correctness: ICE candidate pooling is disabled until the authenticated TURN configuration has been applied and setConfiguration is checked, preventing fallback-only pre-gathered candidates from bypassing the freshly loaded relay list.
-39. Stalled-start recovery: if the initial host/controller negotiation reaches a stable SDP state but WebRTC is still not connected, the host performs up to two timed, rate-limited ICE restarts with fresh TURN credentials before the final session watchdog gives up.
+39. Stalled-start recovery: if the initial host/controller negotiation reaches a stable SDP state but WebRTC is still not connected, the host performs up to two timed, rate-limited ICE restarts with fresh TURN credentials; the later retry escalates to relay-only transport when TURN is available instead of repeatedly selecting a broken direct path.
 40. Controller viewer startup safety: if the remote-rendering surface or WebRTC runtime cannot initialize on a controller device, the app closes that attempt cleanly and returns a clear status instead of appearing to jump out of the app.
+41. Approval-time Accessibility liveness: tapping START no longer trusts the Android enabled-services flag alone. The sharing phone waits for the actual AccessibilityService connection before backend approval and again before MediaProjection, preserving the pending session across the settings round-trip instead of failing later as an interrupted connection.
+42. Controller relay refresh: when the controller initially starts with STUN fallback because authenticated TURN was temporarily unavailable, it makes one bounded pre-live TURN refresh so the host's staged ICE restart can still converge on a relay path without another code or user action.
 
 ## Firebase setup
 
