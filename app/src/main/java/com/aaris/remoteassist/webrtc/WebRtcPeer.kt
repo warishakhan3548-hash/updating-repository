@@ -114,15 +114,25 @@ class WebRtcPeer(
     fun requestIceRestart(): Boolean {
         if (closed.get() || role != PeerRole.HOST) return false
 
-        return runCatching {
-            remoteDescriptionReady = false
-            peerConnection.restartIce()
-            createOffer()
-            true
-        }.getOrElse {
-            listener.onError(it)
-            false
+        scope.launch {
+            val iceServers = IceServerProvider.load(sessionId)
+
+            handler.post {
+                if (closed.get()) return@post
+
+                runCatching {
+                    synchronized(pendingRemoteCandidates) {
+                        remoteDescriptionReady = false
+                    }
+                    peerConnection.setConfiguration(
+                        createRtcConfiguration(iceServers)
+                    )
+                    peerConnection.restartIce()
+                    createOffer()
+                }.onFailure(listener::onError)
+            }
         }
+        return true
     }
 
     fun sendControl(bytes: ByteArray): Boolean {

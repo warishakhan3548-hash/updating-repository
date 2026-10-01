@@ -6,6 +6,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 
 - Home stays simple: only Connect and Share are primary actions.
 - Share creates the one-time code immediately; Accessibility setup is requested only after the sharing phone explicitly taps START, then the flow resumes automatically on return.
+- Connect can recover the same unique six-digit code even when the receiver copied the entire shared Aaris Remote message, while refusing ambiguous clipboard text that contains different candidate codes.
 - Accessibility never grants unattended remote access by itself.
 - Every screen-share session uses Android's MediaProjection consent.
 - A sharing phone explicitly approves every new controller request.
@@ -42,6 +43,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 14. Interaction-first media: the screen-video sender prefers maintaining frame cadence under congestion and caps its send envelope so touch feedback stays responsive while WebRTC adapts resolution as needed.
 15. Multi-touch control: two controller fingers are transported as one generation-bound command and replayed as simultaneous Accessibility strokes, enabling pinch/zoom and two-finger navigation without layering hidden input paths.
 16. Serialized accessibility dispatch: remote commands are executed on the AccessibilityService main looper, and a stale destroyed service instance cannot clear a newer connected instance.
+17. Frictionless code recovery: Connect extracts one unique six-digit pairing code from copied share text, but does not guess when multiple different candidate codes are present.
+18. Relay-refresh recovery: every host ICE restart refreshes its session-bound ICE/TURN configuration before restarting connectivity, so long-running sessions do not depend on stale relay credentials.
 
 ## Firebase setup
 
@@ -62,7 +65,7 @@ The Gradle Google Services plugin is applied only when `google-services.json` ex
 
 Direct WebRTC works well on many networks, but carrier-grade NAT and symmetric NAT require a TURN relay for TeamViewer-class connection reliability.
 
-Aaris Remote 1.2.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
+Aaris Remote 1.3.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
 
 Configure the relay endpoint and secret on the deployed Functions runtime:
 

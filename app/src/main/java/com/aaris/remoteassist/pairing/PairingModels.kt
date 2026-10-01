@@ -14,10 +14,27 @@ data class PairRequest(
 
 object PairingCode {
     private val nonDigits = Regex("\\D")
+    private val embeddedCandidate =
+        Regex("(?<!\\d)(\\d{3}[\\s-]?\\d{3})(?!\\d)")
 
     fun normalize(raw: String): String? {
         val digits = raw.replace(nonDigits, "")
         return digits.takeIf { it.length == 6 }
+    }
+
+    fun extract(raw: String): String? {
+        normalize(raw)?.let { return it }
+
+        val candidates = embeddedCandidate
+            .findAll(raw)
+            .mapNotNull { match ->
+                normalize(match.groupValues[1])
+            }
+            .distinct()
+            .take(2)
+            .toList()
+
+        return candidates.singleOrNull()
     }
 
     fun display(code: String): String {
