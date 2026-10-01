@@ -16,12 +16,12 @@ internal class NegotiationOrderGuard(
 
     fun accept(negotiationId: String): Boolean =
         synchronized(lock) {
-            val parsed = parse(negotiationId)
-
-            if (parsed == null) {
+            if (negotiationId == LEGACY_NEGOTIATION_ID) {
                 return@synchronized remoteClientId == null
             }
 
+            val parsed = parse(negotiationId)
+                ?: return@synchronized false
             val (clientId, epoch) = parsed
             val activeClient = remoteClientId
 
@@ -62,10 +62,7 @@ internal class NegotiationOrderGuard(
     private fun parse(
         negotiationId: String
     ): Pair<String, Long>? {
-        if (
-            negotiationId.isBlank() ||
-            negotiationId == LEGACY_NEGOTIATION_ID
-        ) {
+        if (negotiationId.isBlank()) {
             return null
         }
 
@@ -78,6 +75,10 @@ internal class NegotiationOrderGuard(
         }
 
         val clientId = negotiationId.substring(0, separator)
+        if (clientId.length > MAX_CLIENT_ID_CHARS) {
+            return null
+        }
+
         val epoch = negotiationId
             .substring(separator + 1)
             .toLongOrNull()
@@ -85,5 +86,9 @@ internal class NegotiationOrderGuard(
 
         if (epoch <= 0L) return null
         return clientId to epoch
+    }
+
+    companion object {
+        private const val MAX_CLIENT_ID_CHARS = 64
     }
 }
