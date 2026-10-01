@@ -62,6 +62,9 @@ A native Android remote-support app with a deliberately tiny user interface and 
 27. Edge-continuous gestures: a gesture must start inside the rendered remote screen, but an already-valid swipe or pinch may drift into local letterbox space and is clamped to the nearest remote edge instead of being silently discarded.
 28. Join-link ambiguity guard: deep links accept exactly one pairing-code parameter and reject unexpected authority/fragment forms so malformed shared links cannot select an unintended code.
 29. Signaling/transport separation: Firebase presence is advisory only; a transient RTDB presence drop cannot tear down an otherwise healthy WebRTC peer plus ordered control channel.
+30. Default-network handoff recovery: once a host has been live, switching the sharing phone between Wi‑Fi and mobile data proactively triggers the existing rate-limited ICE restart instead of waiting only for a transport timeout.
+31. Share chooser hardening: the app now attempts the Android Sharesheet directly and falls back to copying the full invite only when launch actually fails, avoiding false “no share app” results caused by OEM/package-visibility quirks.
+32. Link-safe handoff wording: the 12-digit code is the authoritative join path, while the custom-scheme quick link is explicitly treated as optional so messaging apps that do not hyperlink custom schemes do not create a dead-end setup flow.
 
 ## Firebase setup
 
