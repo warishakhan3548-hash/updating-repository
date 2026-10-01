@@ -7,12 +7,12 @@ A native Android remote-support app with a deliberately tiny user interface and 
 - Home stays simple: only Connect and Share are primary actions, now presented in a polished blue/white support surface with a live status card rather than raw platform-default controls.
 - Busy pairing/setup/reconnect phases expose an indeterminate progress indicator instead of looking frozen; idle, live, and terminal states settle back to a calm status surface.
 - Android 13+ notification permission is requested just-in-time after the sharing phone explicitly approves remote support, never as first-launch friction; denial does not bypass the always-visible in-app accessibility STOP overlay.
-- Share creates the one-time code immediately; Accessibility setup is requested only after the sharing phone explicitly taps START, then the flow resumes automatically on return.
+- Share creates the one-time code immediately; the Android share sheet is crash-safe and falls back to copying the invite when a share target cannot be opened. Accessibility setup is requested only after the sharing phone explicitly taps START, then the flow resumes automatically on return.
 - Connect can recover the same unique 12-digit code even when the receiver copied the entire shared Aaris Remote message, while refusing ambiguous clipboard text that contains different candidate codes.
 - Accessibility never grants unattended remote access by itself.
 - Every screen-share session uses Android's MediaProjection consent.
 - A sharing phone explicitly approves every new controller request.
-- Pairing codes are five-minute, single-controller and one-time; after a valid redeem, the host gets a fresh three-minute approval window, followed by a separate three-minute screen/setup window. Shared messages also carry an `aarisremote://connect` join link that prefills the code but still requires START.
+- Pairing codes are five-minute, single-controller and one-time; after a valid redeem, the host gets a fresh three-minute approval window, followed by a separate three-minute screen/setup window. Shared messages also carry an `aarisremote://connect` join link that tolerates safe URI normalization, prefills the code, and still requires START.
 - A visible foreground notification and accessibility STOP overlay remain available while screen sharing connects and during live control.
 - No hidden sessions, credential/OTP harvesting, or permission bypasses.
 - Live control supports tap, long-press, swipe, true two-finger gestures (including pinch/zoom and two-finger pan), Back, Home, Recents, and explicit text entry into the currently focused non-sensitive field.
@@ -41,7 +41,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 7. Recovery plane: transient post-connect network drops trigger a bounded ICE restart; duplicate ICE/peer callbacks are collapsed into one connectivity truth and pre-connect presence noise cannot falsely start the reconnect timer.
 8. Control-channel safety: a closed WebRTC DataChannel immediately leaves the control plane and is given only a short recovery grace before the sharing session fails closed.
 9. Pairing consistency: code reservation and session transition are atomic and transaction-guarded; failed session creation or controller bootstrap rolls back its reservation instead of leaving a poisoned pending request.
-10. ICE configuration: Spark builds use Google STUN directly; no billing-backed relay credential service is required.
+10. ICE configuration: Spark builds use provider-diverse public STUN (Google + Cloudflare) for direct-path discovery; no billing-backed relay credential service is required.
 11. Transport truth: controller UI reports connected only when both the WebRTC peer and ordered control DataChannel are ready; losing either plane leaves connected state immediately.
 12. Deadline isolation: code discovery, host approval, and screen/transport setup use separate backend deadlines so a code redeemed near expiry cannot collapse the consent/setup phase.
 13. Local-control liveness: if Android removes or disables the active AccessibilityService during a LIVE session, the host fails closed instead of continuing a view-only session that appears controllable.
@@ -67,7 +67,7 @@ No Firebase billing account, Cloud Functions, App Check, Firebase Messaging, or 
 
 ## Network reliability
 
-The Spark build uses public STUN servers for WebRTC NAT traversal. This keeps the core app free of billing-backed infrastructure and works on many ordinary Wi-Fi/mobile-network combinations.
+The Spark build uses provider-diverse public STUN servers for WebRTC NAT traversal. This keeps the core app free of billing-backed infrastructure, avoids a single STUN-provider dependency, and works on many ordinary Wi-Fi/mobile-network combinations.
 
 A TURN relay is still the standard way to improve connection coverage on restrictive carrier-grade or symmetric NATs. Because TURN requires a reachable relay service, the current Spark-only build intentionally treats it as an optional future deployment rather than requiring Firebase billing.
 
