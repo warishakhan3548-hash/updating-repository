@@ -661,6 +661,43 @@ class RemoteControlActivity : ComponentActivity() {
             }
         )
 
+        @Suppress("DEPRECATION")
+        root.setOnApplyWindowInsetsListener { _, insets ->
+            (statusPanel.layoutParams as? FrameLayout.LayoutParams)
+                ?.let { params ->
+                    params.topMargin =
+                        dp(16) + insets.systemWindowInsetTop
+                    params.marginStart =
+                        dp(16) + insets.systemWindowInsetLeft
+                    params.marginEnd =
+                        dp(16) + insets.systemWindowInsetRight
+                    statusPanel.layoutParams = params
+                }
+
+            (controlDock.layoutParams as? FrameLayout.LayoutParams)
+                ?.let { params ->
+                    params.bottomMargin =
+                        dp(18) + insets.systemWindowInsetBottom
+                    params.marginStart =
+                        dp(12) + insets.systemWindowInsetLeft
+                    params.marginEnd =
+                        dp(12) + insets.systemWindowInsetRight
+                    controlDock.layoutParams = params
+                }
+
+            (controlHandle.layoutParams as? FrameLayout.LayoutParams)
+                ?.let { params ->
+                    params.bottomMargin =
+                        dp(18) + insets.systemWindowInsetBottom
+                    params.marginEnd =
+                        dp(14) + insets.systemWindowInsetRight
+                    controlHandle.layoutParams = params
+                }
+
+            insets
+        }
+        root.requestApplyInsets()
+
         return root
     }
 
