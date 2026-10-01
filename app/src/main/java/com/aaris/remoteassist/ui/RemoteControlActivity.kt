@@ -857,7 +857,8 @@ class RemoteControlActivity : ComponentActivity() {
                     !appendSingleGesturePoint(
                         event.x,
                         event.y,
-                        geometry
+                        geometry,
+                        clampToContent = true
                     )
                 return true
             }
@@ -883,7 +884,8 @@ class RemoteControlActivity : ComponentActivity() {
                         !appendSingleGesturePoint(
                             event.getHistoricalX(index),
                             event.getHistoricalY(index),
-                            geometry
+                            geometry,
+                            clampToContent = true
                         )
                     ) {
                         singleGestureInvalid = true
@@ -964,12 +966,14 @@ class RemoteControlActivity : ComponentActivity() {
                 val firstEnd = normalizedPointer(
                     event,
                     firstPointerId,
-                    geometry
+                    geometry,
+                    clampToContent = true
                 )
                 val secondEnd = normalizedPointer(
                     event,
                     secondPointerId,
-                    geometry
+                    geometry,
+                    clampToContent = true
                 )
 
                 if (firstEnd != null && secondEnd != null) {
@@ -1019,7 +1023,8 @@ class RemoteControlActivity : ComponentActivity() {
                 val end = normalizedPoint(
                     event.x,
                     event.y,
-                    geometry
+                    geometry,
+                    clampToContent = true
                 )
                 if (end == null) {
                     resetSingleGestureState()
@@ -1031,7 +1036,8 @@ class RemoteControlActivity : ComponentActivity() {
                         event.x,
                         event.y,
                         geometry,
-                        force = true
+                        force = true,
+                        clampToContent = true
                     )
                 ) {
                     resetSingleGestureState()
@@ -1094,7 +1100,8 @@ class RemoteControlActivity : ComponentActivity() {
         x: Float,
         y: Float,
         geometry: RemoteGeometry,
-        force: Boolean = false
+        force: Boolean = false,
+        clampToContent: Boolean = false
     ): Boolean {
         if (
             geometry.generation != singleGestureGeneration
@@ -1105,7 +1112,8 @@ class RemoteControlActivity : ComponentActivity() {
         val point = normalizedPoint(
             x,
             y,
-            geometry
+            geometry,
+            clampToContent = clampToContent
         ) ?: return false
 
         val candidate = point.first to point.second
@@ -1172,7 +1180,8 @@ class RemoteControlActivity : ComponentActivity() {
     private fun normalizedPointer(
         event: MotionEvent,
         pointerId: Int,
-        geometry: RemoteGeometry
+        geometry: RemoteGeometry,
+        clampToContent: Boolean = false
     ): Pair<Float, Float>? {
         if (pointerId == MotionEvent.INVALID_POINTER_ID) {
             return null
@@ -1184,7 +1193,8 @@ class RemoteControlActivity : ComponentActivity() {
         return normalizedPoint(
             event.getX(index),
             event.getY(index),
-            geometry
+            geometry,
+            clampToContent = clampToContent
         )
     }
 
@@ -1209,7 +1219,8 @@ class RemoteControlActivity : ComponentActivity() {
     private fun normalizedPoint(
         x: Float,
         y: Float,
-        geometry: RemoteGeometry
+        geometry: RemoteGeometry,
+        clampToContent: Boolean = false
     ): Pair<Float, Float>? {
         val frameWidth =
             renderedFrameWidth.takeIf { it > 0 }
@@ -1237,7 +1248,8 @@ class RemoteControlActivity : ComponentActivity() {
             remoteWidth = geometry.widthPx,
             remoteHeight = geometry.heightPx,
             frameWidth = frameWidth,
-            frameHeight = frameHeight
+            frameHeight = frameHeight,
+            clampToContent = clampToContent
         ) ?: return null
 
         return point.x to point.y
