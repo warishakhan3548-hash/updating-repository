@@ -253,9 +253,19 @@ class HostWebRtcSession(
                     heightPx = currentProfile.displayHeightPx
                 ) ?: return
 
-                AssistAccessibilityService.dispatch(command)
+                AssistAccessibilityService.dispatch(command) { applied ->
+                    peer.sendControl(
+                        ControlProtocol.encode(
+                            ControlPacket.CommandResult(
+                                sequence = command.sequence,
+                                applied = applied
+                            )
+                        )
+                    )
+                }
             }
 
+            is ControlPacket.CommandResult,
             is ControlPacket.Hello -> Unit
         }
     }

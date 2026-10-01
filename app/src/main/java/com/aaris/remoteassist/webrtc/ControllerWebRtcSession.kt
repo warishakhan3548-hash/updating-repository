@@ -26,6 +26,7 @@ class ControllerWebRtcSession(
         fun onLive(geometry: RemoteGeometry)
         fun onConnectivityChanged(connected: Boolean)
         fun onRemoteVideoTrack(track: VideoTrack)
+        fun onCommandResult(sequence: Long, applied: Boolean)
         fun onError(error: Throwable)
     }
 
@@ -350,6 +351,12 @@ class ControllerWebRtcSession(
 
                 listener.onLive(geometry)
             }
+
+            is ControlPacket.CommandResult ->
+                listener.onCommandResult(
+                    sequence = packet.sequence,
+                    applied = packet.applied
+                )
 
             else -> Unit
         }

@@ -18,6 +18,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 - Live control supports tap, long-press, path-aware swipe/drag, true two-finger gestures (including pinch/zoom and two-finger pan), Back, Home, Recents, and explicit text entry into the currently focused non-sensitive field.
 - Controller controls can collapse to a small Controls handle, exposing the full remote canvas so bottom-of-screen targets are not hidden behind the local control dock.
 - Touch mapping uses the actual rendered-frame aspect and rejects transient stale rotation geometry instead of risking a tap on the wrong remote target.
+- Remote actions now report host-side execution truth over the same ordered control channel: completed Accessibility gestures clear normally, while rejected or cancelled actions use the existing status surface instead of silently looking successful.
 - Password, OTP, PIN, verification-code, CVV/CVC and similar sensitive fields remain local to the sharing phone; remote direct-text injection does not populate them.
 - Commands are rejected while the sharing phone is locked.
 
@@ -54,6 +55,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 20. Share handoff resilience: if Android cannot open a share target, the complete invite is copied locally and the existing session remains usable without another setup screen.
 21. Controller terminal-state handoff: connection loss, setup expiry, and transport-start failures return a clear reason to the existing home status surface instead of leaving stale pairing text behind.
 22. Offline fast-fail: Connect and Share reject an obviously unavailable network before starting Firebase work, while the existing backend timeouts remain the authority for uncertain network states.
+23. Command execution truth: the host acknowledges each sequenced remote action only after Android accepts or completes it; cancellations and safety rejections are returned to the controller without adding another control surface.
+24. Captive-portal awareness: an explicitly captive Wi-Fi network is rejected up front, while merely unvalidated routes are still allowed to reach the bounded Firebase/WebRTC timeouts.
 
 ## Firebase setup
 
