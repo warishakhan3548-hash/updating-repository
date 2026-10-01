@@ -15,7 +15,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 - Pairing codes are five-minute, single-controller and one-time; after a valid redeem, the host gets a fresh three-minute approval window, followed by a separate three-minute screen/setup window. Shared messages also carry an `aarisremote://connect` join link that prefills the code but still requires START.
 - A visible foreground notification and accessibility STOP overlay remain available while screen sharing connects and during live control.
 - No hidden sessions, credential/OTP harvesting, or permission bypasses.
-- Live control supports tap, long-press, swipe, true two-finger gestures (including pinch/zoom and two-finger pan), Back, Home, Recents, and explicit text entry into the currently focused non-sensitive field.
+- Live control supports tap, long-press, path-aware swipe/drag, true two-finger gestures (including pinch/zoom and two-finger pan), Back, Home, Recents, and explicit text entry into the currently focused non-sensitive field.
 - Controller controls can collapse to a small Controls handle, exposing the full remote canvas so bottom-of-screen targets are not hidden behind the local control dock.
 - Touch mapping uses the actual rendered-frame aspect and rejects transient stale rotation geometry instead of risking a tap on the wrong remote target.
 - Password, OTP, PIN, verification-code, CVV/CVC and similar sensitive fields remain local to the sharing phone; remote direct-text injection does not populate them.
@@ -50,6 +50,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 16. Serialized accessibility dispatch: remote commands are executed on the AccessibilityService main looper, and a stale destroyed service instance cannot clear a newer connected instance.
 17. Frictionless code recovery: Connect extracts one unique 12-digit pairing code from copied share text, but does not guess when multiple different candidate codes are present.
 18. ICE-restart recovery: transient network drops reuse the current STUN configuration and restart ICE without a Cloud Functions dependency.
+19. Gesture fidelity: bounded MotionEvent history is transported as one generation-bound path so curved drags and fast pans preserve their trajectory; rotation-stale gestures are discarded instead of replayed against new geometry.
+20. Share handoff resilience: if Android cannot open a share target, the one-time code is copied locally and the session remains usable without adding another setup screen.
 
 ## Firebase setup
 
