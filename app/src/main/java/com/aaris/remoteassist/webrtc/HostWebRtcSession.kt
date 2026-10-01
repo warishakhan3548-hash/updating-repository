@@ -220,7 +220,9 @@ class HostWebRtcSession(
                     leaseSecret = currentLease.leaseSecret
                 )?.let { lease = it }
 
-                refreshDisplayProfile()
+                displayHandler.post {
+                    refreshDisplayProfile()
+                }
             }
 
             ControlPacket.Disconnect ->
