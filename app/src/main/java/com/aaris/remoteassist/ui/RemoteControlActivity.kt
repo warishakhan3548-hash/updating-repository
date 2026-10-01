@@ -71,6 +71,7 @@ class RemoteControlActivity : ComponentActivity() {
     private var rtcConnected = false
     private var disconnectTimeout: Job? = null
     private var sessionDeadlineJob: Job? = null
+    private var lastCommandResultSequence = 0L
 
     private var downX = 0f
     private var downY = 0f
@@ -418,6 +419,10 @@ class RemoteControlActivity : ComponentActivity() {
                         if (disconnecting || !rtcConnected) {
                             return@runOnUiThread
                         }
+                        if (sequence <= lastCommandResultSequence) {
+                            return@runOnUiThread
+                        }
+                        lastCommandResultSequence = sequence
 
                         if (applied) {
                             if (

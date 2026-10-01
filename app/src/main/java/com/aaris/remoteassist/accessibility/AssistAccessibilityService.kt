@@ -31,6 +31,7 @@ import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionSnapshot
 import com.aaris.remoteassist.session.SessionState
 import java.lang.ref.WeakReference
+import java.util.ArrayDeque
 
 class AssistAccessibilityService : AccessibilityService() {
     private var stopOverlay: View? = null
@@ -38,6 +39,23 @@ class AssistAccessibilityService : AccessibilityService() {
     private val keyguard by lazy {
         getSystemService(KeyguardManager::class.java)
     }
+
+    private class PendingCommand(
+        val command: RemoteCommand,
+        private val callback: (Boolean) -> Unit
+    ) {
+        private var completed = false
+
+        fun complete(applied: Boolean) {
+            if (completed) return
+            completed = true
+            runCatching { callback(applied) }
+        }
+    }
+
+    private val pendingCommands = ArrayDeque<PendingCommand>()
+    private var activeCommand: PendingCommand? = null
+    private var activeCommandTimeout: Runnable? = null
 
     private val sessionListener: (SessionSnapshot) -> Unit = { snapshot ->
         mainHandler.post {
@@ -60,6 +78,7 @@ class AssistAccessibilityService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         SessionCoordinator.removeListener(sessionListener)
         hideStopOverlay()
+        failPendingCommands()
         if (instance.get() === this) {
             instance.clear()
         }
@@ -73,6 +92,7 @@ class AssistAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         SessionCoordinator.removeListener(sessionListener)
         hideStopOverlay()
+        failPendingCommands()
         if (instance.get() === this) {
             instance.clear()
         }
@@ -455,7 +475,7 @@ class AssistAccessibilityService : AccessibilityService() {
     ): Boolean {
         val task = Runnable {
             if (instance.get() === this) {
-                execute(command, onResult)
+                enqueueCommand(command, onResult)
             } else {
                 onResult(false)
             }
@@ -467,6 +487,83 @@ class AssistAccessibilityService : AccessibilityService() {
         }
 
         return mainHandler.post(task)
+    }
+
+    private fun enqueueCommand(
+        command: RemoteCommand,
+        onResult: (Boolean) -> Unit
+    ) {
+        val pending = PendingCommand(command, onResult)
+        val inFlight = if (activeCommand == null) 0 else 1
+
+        if (
+            pendingCommands.size + inFlight >=
+            MAX_PENDING_COMMANDS
+        ) {
+            pending.complete(false)
+            return
+        }
+
+        pendingCommands.addLast(pending)
+        drainCommandQueue()
+    }
+
+    private fun drainCommandQueue() {
+        if (activeCommand != null) return
+
+        val next = pendingCommands.pollFirst() ?: return
+        activeCommand = next
+
+        val timeout = Runnable {
+            finishCommand(next, false)
+        }
+        activeCommandTimeout = timeout
+        mainHandler.postDelayed(
+            timeout,
+            COMMAND_EXECUTION_TIMEOUT_MS
+        )
+
+        execute(next.command) { applied ->
+            finishCommand(next, applied)
+        }
+    }
+
+    private fun finishCommand(
+        pending: PendingCommand,
+        applied: Boolean
+    ) {
+        if (Looper.myLooper() != mainHandler.looper) {
+            val posted = mainHandler.post {
+                finishCommand(pending, applied)
+            }
+            if (!posted) {
+                pending.complete(false)
+            }
+            return
+        }
+
+        pending.complete(applied)
+        if (activeCommand === pending) {
+            activeCommandTimeout?.let(
+                mainHandler::removeCallbacks
+            )
+            activeCommandTimeout = null
+            activeCommand = null
+            drainCommandQueue()
+        }
+    }
+
+    private fun failPendingCommands() {
+        activeCommandTimeout?.let(
+            mainHandler::removeCallbacks
+        )
+        activeCommandTimeout = null
+        activeCommand?.complete(false)
+        activeCommand = null
+
+        while (pendingCommands.isNotEmpty()) {
+            pendingCommands.removeFirst().complete(false)
+        }
     }
 
     private fun showStopOverlay() {
@@ -519,6 +616,8 @@ class AssistAccessibilityService : AccessibilityService() {
     companion object {
         private const val MAX_REMOTE_TEXT_CHARS = 1000
         private const val MAX_REMOTE_FIELD_CHARS = 4000
+        private const val MAX_PENDING_COMMANDS = 16
+        private const val COMMAND_EXECUTION_TIMEOUT_MS = 3_000L
         @Volatile
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
