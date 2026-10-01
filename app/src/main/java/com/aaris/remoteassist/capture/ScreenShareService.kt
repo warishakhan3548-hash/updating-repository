@@ -165,6 +165,7 @@ class ScreenShareService : Service() {
             return
         }
 
+        var createdSession: HostWebRtcSession? = null
         hostSession = runCatching {
             HostWebRtcSession(
                 context = this,
@@ -223,8 +224,12 @@ class ScreenShareService : Service() {
                         }
                     }
                 }
-            ).also { it.start() }
+            ).also {
+                createdSession = it
+                it.start()
+            }
         }.getOrElse {
+            runCatching { createdSession?.close() }
             stopActiveSession("webrtc_start_failed")
             null
         }
