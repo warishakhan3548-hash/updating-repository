@@ -20,7 +20,8 @@ class FirebaseSignalingClient(
 ) : SignalingClient {
     private val closed = AtomicBoolean(false)
     private val candidateSequence = AtomicLong(0L)
-    private val clientInstanceId =
+    @Volatile
+    private var clientInstanceId =
         java.util.UUID.randomUUID().toString()
     private val candidateGate =
         CandidatePublishGate<SignalCandidate>(MAX_CANDIDATE_SLOTS)
@@ -207,11 +208,11 @@ class FirebaseSignalingClient(
         // deletion at the candidate branch. Negotiation IDs make stale slots safe.
         localSignal.setValue(payload)
             .addOnSuccessListener {
-                if (role == PeerRole.CONTROLLER) {
-                    lastLocalDescription = description
-                }
                 if (closed.get()) {
                     return@addOnSuccessListener
+                }
+                if (role == PeerRole.CONTROLLER) {
+                    lastLocalDescription = description
                 }
 
                 candidateGate
@@ -241,11 +242,14 @@ class FirebaseSignalingClient(
             return
         }
 
-        // Re-publish the last valid answer with a fresh negotiation epoch.
+        // Re-publish the last valid answer under a fresh signaling
+        // identity without mutating CandidatePublishGate. This avoids
+        // clearing candidates if a real ICE negotiation is already in flight.
         // Hosts already interpret a fresh ANSWER received while STABLE as a
-        // bounded ICE-restart request, so this remains backward-compatible
-        // with older hosts and needs no new RTDB path or security rule.
-        val recoveryEpoch = candidateGate.beginNegotiation()
+        // bounded ICE-restart request, including older compatible hosts.
+        clientInstanceId = java.util.UUID.randomUUID().toString()
+        val recoveryEpoch =
+            candidateGate.currentEpoch().coerceAtLeast(1L)
         val payload = JSONObject()
             .put("type", previousAnswer.type)
             .put("sdp", previousAnswer.sdp)
