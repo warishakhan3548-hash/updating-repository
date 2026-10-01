@@ -352,7 +352,7 @@ class HostWebRtcSession(
         )
     }
     companion object {
-        private const val CONNECT_TIMEOUT_MS = 30_000L
+        private const val CONNECT_TIMEOUT_MS = 45_000L
         private const val CONTROL_CHANNEL_GRACE_MS = 5_000L
         private const val ICE_RESTART_DELAY_MS = 1_500L
         private const val LEASE_WATCHDOG_MS = 3_000L
