@@ -39,7 +39,7 @@ WebRTC peer connectivity alone is not treated as usable remote control. The cont
 
 After a previously-live peer disconnects, the host performs a bounded ICE restart. A host-side default-network change triggers that restart proactively. A controller-side default-network change re-publishes the controller's last successfully signaled WebRTC answer under a fresh signaling identity through the existing participant-scoped `controllerSignal` record, without advancing or clearing the candidate-publish gate. The host already treats a fresh answer received while the peer is stable as an advisory request for the same rate-limited ICE restart, so handoff recovery remains backward-compatible and requires no new RTDB path or security-rule deployment. The hint is not transport truth and its failure never tears down an otherwise healthy peer.
 
-The Spark build intentionally uses provider-diverse public STUN servers and does not depend on Cloud Functions or billing-backed TURN credential minting. STUN-only operation works on many ordinary Wi-Fi and mobile networks, but restrictive carrier-grade or symmetric NAT can still require a separately operated TURN relay for high connection coverage.
+Initial transport setup requests short-lived Cloudflare Realtime TURN credentials through the authenticated `aaris-remote-ice` Worker, then merges those relay URLs with provider-diverse public STUN. The long-lived TURN key never ships in the APK. The Worker verifies the Firebase ID token and confirms the caller is the active session host/controller before minting credentials. If the Worker is temporarily unavailable, WebRTC still attempts the direct STUN path. ICE candidate pooling stays disabled until this final configuration is applied, preventing fallback-only pre-gathered candidates from racing ahead of TURN.
 
 ## Coordinate policy
 
@@ -72,12 +72,14 @@ Every host session requires:
 - Accessibility enabled by the sharing user,
 - Android MediaProjection consent for that session,
 - a visible foreground notification,
-- and an Accessibility `STOP • SHARING` overlay.
+- and an Accessibility `STOP • SHARING` overlay keyed to the active host screen-sharing service, never merely to a controller-side local session state.
 
 The app does not bypass Android secure windows or the device lock screen. Remote commands are rejected while the sharing phone is locked.
 
 ## Firebase / Spark boundary
 
-The core flow uses Firebase Anonymous Auth + Realtime Database on the Spark plan. Cloud Functions, Firebase Messaging, App Check, and Google sign-in are not required by the current runtime.
+The core state/signaling flow uses Firebase Anonymous Auth + Realtime Database on the Spark plan. Cloud Functions, Firebase Messaging, App Check, and Google sign-in are not required by the current runtime.
 
-RTDB is used only for pairing/session metadata, presence, and SDP/ICE signaling. Video and control payloads travel peer-to-peer over WebRTC.
+A separate Cloudflare Worker brokers short-lived Realtime TURN credentials for restrictive networks. Its long-lived TURN key is stored only as Worker secrets, and the source is versioned under `cloudflare/`. RTDB remains the authorization source for whether a UID is the host/controller of the requested `SCREEN_READY` or `LIVE` session.
+
+RTDB is used for pairing/session metadata, presence, and SDP/ICE signaling. Screen video and remote-control payloads travel over WebRTC, directly when possible and through TURN only when ICE needs a relay.

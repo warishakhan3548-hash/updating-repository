@@ -112,9 +112,15 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) {
-            val sessionId = pendingNotificationSessionId
+            val sessionId =
+                pendingNotificationSessionId
+                    ?: prefs.getString(
+                        KEY_PENDING_NOTIFICATION_SESSION,
+                        null
+                    )
             pendingNotificationSessionId = null
             prefs.edit()
+                .remove(KEY_PENDING_NOTIFICATION_SESSION)
                 .putBoolean(KEY_NOTIFICATION_PERMISSION_ASKED, true)
                 .apply()
 
@@ -264,14 +270,35 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        startForegroundService(
-            Intent(this, ScreenShareService::class.java).apply {
-                action = ScreenShareService.ACTION_START
-                putExtra(ScreenShareService.EXTRA_SESSION_ID, sessionId)
-                putExtra(ScreenShareService.EXTRA_RESULT_CODE, resultCode)
-                putExtra(ScreenShareService.EXTRA_CAPTURE_DATA, data)
-            }
-        )
+        val serviceStarted = runCatching {
+            startForegroundService(
+                Intent(this, ScreenShareService::class.java).apply {
+                    action = ScreenShareService.ACTION_START
+                    putExtra(
+                        ScreenShareService.EXTRA_SESSION_ID,
+                        sessionId
+                    )
+                    putExtra(
+                        ScreenShareService.EXTRA_RESULT_CODE,
+                        resultCode
+                    )
+                    putExtra(
+                        ScreenShareService.EXTRA_CAPTURE_DATA,
+                        data
+                    )
+                }
+            )
+        }.isSuccess
+
+        if (!serviceStarted) {
+            endHostSession(
+                sessionId = sessionId,
+                message =
+                    "Could not start screen sharing. Tap Share to try again."
+            )
+            return
+        }
+
         status.text = "Starting secure connection…"
     }
 
@@ -342,10 +369,9 @@ class MainActivity : ComponentActivity() {
             }
 
             if (!AssistAccessibilityService.isConnected()) {
-                clearPendingShareRequest()
                 setButtonsEnabled(true)
                 status.text =
-                    "Accessibility is on but not ready yet. Tap Share to retry."
+                    "Accessibility is on but still starting. Tap Share to retry."
                 return@launch
             }
 
@@ -921,6 +947,12 @@ class MainActivity : ComponentActivity() {
             shouldAskNotificationPermission()
         ) {
             pendingNotificationSessionId = sessionId
+            prefs.edit()
+                .putString(
+                    KEY_PENDING_NOTIFICATION_SESSION,
+                    sessionId
+                )
+                .apply()
             status.text =
                 "Allow session alerts so STOP stays easy to reach."
             notificationPermissionLauncher.launch(
@@ -1298,6 +1330,7 @@ class MainActivity : ComponentActivity() {
         prefs.edit()
             .remove(KEY_ACTIVE_HOST_SESSION)
             .remove(KEY_PENDING_PROJECTION_SESSION)
+            .remove(KEY_PENDING_NOTIFICATION_SESSION)
             .remove(KEY_PENDING_HOST_START_SESSION)
             .remove(KEY_ACTIVE_HOST_CODE)
             .remove(KEY_ACTIVE_HOST_EXPIRES_AT)
@@ -1325,6 +1358,10 @@ class MainActivity : ComponentActivity() {
         activeHostSessionId = sessionId
         pendingProjectionSessionId = prefs.getString(
             KEY_PENDING_PROJECTION_SESSION,
+            null
+        )
+        pendingNotificationSessionId = prefs.getString(
+            KEY_PENDING_NOTIFICATION_SESSION,
             null
         )
         setButtonsEnabled(false)
@@ -1779,6 +1816,8 @@ class MainActivity : ComponentActivity() {
             "active_host_session"
         private const val KEY_PENDING_PROJECTION_SESSION =
             "pending_projection_session"
+        private const val KEY_PENDING_NOTIFICATION_SESSION =
+            "pending_notification_session"
         private const val KEY_PENDING_HOST_START_SESSION =
             "pending_host_start_session"
         private const val KEY_PENDING_SHARE_AFTER_ACCESSIBILITY =
@@ -1792,10 +1831,10 @@ class MainActivity : ComponentActivity() {
         private const val KEY_NOTIFICATION_PERMISSION_ASKED =
             "notification_permission_asked"
         private const val ACCESSIBILITY_SERVICE_READY_TIMEOUT_MS =
-            4_000L
+            12_000L
         private const val ACCESSIBILITY_SERVICE_READY_POLL_MS =
             100L
         private const val PENDING_SHARE_MAX_AGE_MS =
-            2 * 60_000L
+            10 * 60_000L
     }
 }

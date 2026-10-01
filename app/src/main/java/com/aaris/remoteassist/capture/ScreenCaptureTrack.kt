@@ -90,8 +90,11 @@ class ScreenCaptureTrack(
 
         runCatching { videoTrack.setEnabled(false) }
         runCatching { videoTrack.dispose() }
-        runCatching { videoSource.dispose() }
+
+        // Stop/dispose the producer before its VideoSource observer. This
+        // avoids late capturer callbacks targeting an already-disposed source.
         runCatching { capturer.dispose() }
+        runCatching { videoSource.dispose() }
         runCatching { surfaceTextureHelper.dispose() }
     }
 }

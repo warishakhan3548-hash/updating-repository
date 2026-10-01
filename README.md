@@ -7,7 +7,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 - Home stays simple: only Connect and Share are primary actions, now presented in a polished blue/white support surface with a live status card rather than raw platform-default controls.
 - Busy pairing/setup/reconnect phases expose an indeterminate progress indicator instead of looking frozen; idle, live, and terminal states settle back to a calm status surface.
 - Android 13+ notification permission is requested just-in-time after the sharing phone explicitly approves remote support, never as first-launch friction; denial does not bypass the always-visible in-app accessibility STOP overlay.
-- Share creates the one-time code immediately; the Android share handoff is crash-safe and falls back to copying the complete invite when a share target cannot be opened. Accessibility setup is requested only after the sharing phone explicitly taps START, then the flow resumes automatically on return.
+- Share first verifies that the sharing phone's Accessibility service is actually enabled and connected; only then is a one-time code created. On sideloaded Android builds the pending Share intent survives the Restricted settings/Accessibility round-trip and resumes automatically when the service is ready.
 - Connect can recover the same unique 12-digit code even when the receiver copied the entire shared Aaris Remote message, while refusing ambiguous clipboard text that contains different candidate codes.
 - Accessibility never grants unattended remote access by itself.
 - Every screen-share session uses Android's MediaProjection consent.
@@ -42,7 +42,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 7. Recovery plane: transient post-connect network drops trigger a bounded ICE restart; duplicate ICE/peer callbacks are collapsed into one connectivity truth and pre-connect presence noise cannot falsely start the reconnect timer.
 8. Control-channel safety: a closed WebRTC DataChannel immediately leaves the control plane and is given only a short recovery grace before the sharing session fails closed.
 9. Pairing consistency: code reservation and session transition are atomic and transaction-guarded; failed session creation or controller bootstrap rolls back its reservation instead of leaving a poisoned pending request.
-10. ICE configuration: Spark builds use provider-diverse public STUN (Google + Cloudflare) for direct-path discovery; no billing-backed relay credential service is required.
+10. ICE configuration: the app requests short-lived authenticated Cloudflare Realtime TURN credentials for the active Firebase session, then merges them with provider-diverse public STUN fallback. Long-lived TURN secrets remain server-side in the Worker.
 11. Transport truth: controller UI reports connected only when both the WebRTC peer and ordered control DataChannel are ready; losing either plane leaves connected state immediately.
 12. Deadline isolation: code discovery, host approval, and screen/transport setup use separate backend deadlines so a code redeemed near expiry cannot collapse the consent/setup phase.
 13. Local-control liveness: if Android removes or disables the active AccessibilityService during a LIVE session, the host fails closed instead of continuing a view-only session that appears controllable.
@@ -50,7 +50,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 15. Multi-touch control: two controller fingers are transported as one generation-bound command and replayed as simultaneous Accessibility strokes, enabling pinch/zoom and two-finger navigation without layering hidden input paths.
 16. Serialized accessibility dispatch: remote commands are executed on the AccessibilityService main looper, and a stale destroyed service instance cannot clear a newer connected instance.
 17. Frictionless code recovery: Connect extracts one unique 12-digit pairing code from copied share text, but does not guess when multiple different candidate codes are present.
-18. ICE-restart recovery: transient network drops reuse the current STUN configuration and restart ICE without a Cloud Functions dependency.
+18. ICE-restart recovery: transient network drops refresh TURN configuration when available, otherwise reuse the current ICE configuration, and restart ICE without a Cloud Functions dependency.
 19. Gesture fidelity: bounded MotionEvent history is sent as one display-generation-bound path, preserving curved drags and fast pans while discarding rotation-stale gestures.
 20. Share handoff resilience: if Android cannot open a share target, the complete invite is copied locally and the existing session remains usable without another setup screen.
 21. Controller terminal-state handoff: connection loss, setup expiry, and transport-start failures return a clear reason to the existing home status surface instead of leaving stale pairing text behind.
@@ -68,6 +68,9 @@ A native Android remote-support app with a deliberately tiny user interface and 
 33. Bidirectional network-handoff recovery: if the controller phone changes its default Wi-Fi/mobile route after a live connection, it re-publishes its last valid signaling answer under a fresh signaling identity; the host's existing stable-answer guard starts the same rate-limited ICE restart without a new backend path, rule, UI control, or setup step.
 34. Null-safe pairing claim: a fresh controller can redeem a valid code even when its local RTDB cache has never seen the session; the transaction allows Firebase's authoritative server retry, then verifies the committed controller/state before consuming the one-time code.
 35. Cold-cache transaction hardening: every state-changing RTDB transaction now performs an authoritative read first, tolerates Firebase's documented initial null callback, and verifies the committed postcondition; this protects controller redeem plus host approval/screen/live transitions after cold starts without requiring a new database path or rule deployment.
+36. Accessibility readiness preflight: Share waits for the actual AccessibilityService connection rather than trusting only the Android enabled-services setting, so slow OEM binding after Restricted settings cannot start a pairing deadline too early.
+37. Host-only STOP overlay: the STOP • SHARING accessibility overlay is keyed to the active screen-sharing service on this phone, so a controller phone that happens to have Accessibility enabled cannot display a false sharing indicator.
+38. Relay-first candidate correctness: ICE candidate pooling is disabled until the authenticated TURN configuration has been applied and setConfiguration is checked, preventing fallback-only pre-gathered candidates from bypassing the freshly loaded relay list.
 
 ## Firebase setup
 
@@ -81,12 +84,15 @@ Aaris Remote is designed to run on Firebase's Spark plan without Cloud Functions
 6. Codemagic restores `google-services.json` from secure variable `GOOGLE_SERVICES_JSON_B64` and verifies both the project ID and Android package before the release build.
 7. Pairing codes are 12 digits, one-time, five-minute credentials. The database stores only the SHA-256 lookup key rather than the raw code.
 
-No Firebase billing account, Cloud Functions, App Check, Firebase Messaging, or Google sign-in is required for the core remote-support flow.
+No Firebase billing account, Cloud Functions, App Check, Firebase Messaging, or Google sign-in is required for the core remote-support flow. Restrictive-NAT relay coverage is provided separately by the authenticated Cloudflare Realtime TURN Worker under `cloudflare/`.
 
 ## Network reliability
 
-The Spark build uses provider-diverse public STUN servers for WebRTC NAT traversal. This keeps the core app free of billing-backed infrastructure, avoids a single STUN-provider dependency, and works on many ordinary Wi-Fi/mobile-network combinations.
+Aaris Remote now uses two ICE layers:
 
-A TURN relay is still the standard way to improve connection coverage on restrictive carrier-grade or symmetric NATs. Because TURN requires a reachable relay service, the current Spark-only build intentionally treats it as an optional future deployment rather than requiring Firebase billing.
+1. Direct-path discovery through provider-diverse public STUN (Google + Cloudflare).
+2. Authenticated Cloudflare Realtime TURN relay credentials for restrictive carrier-grade NAT, symmetric NAT, and firewall paths where peer-to-peer ICE cannot connect.
 
-The control and video paths remain WebRTC peer transport; RTDB is used only for pairing/session state and SDP/ICE signaling.
+The Android app never contains the long-lived TURN key. After the host reaches `SCREEN_READY`, each participant sends its Firebase ID token plus session UUID to the Worker. The Worker verifies the token, confirms that UID is the session host/controller in RTDB, and returns short-lived TURN credentials with `Cache-Control: no-store`. If that credential service is temporarily unavailable, the app still falls back to STUN rather than failing before signaling starts.
+
+The production Worker source is kept in `cloudflare/ice-worker.js`; runtime TURN credentials remain Cloudflare secrets. The control and video paths remain WebRTC transport, while RTDB is used for pairing/session state and SDP/ICE signaling.

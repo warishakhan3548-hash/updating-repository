@@ -143,9 +143,13 @@ class WebRtcPeer(
 
                 runCatching {
                     activeIceServers = loaded.servers
-                    peerConnection.setConfiguration(
-                        createRtcConfiguration(activeIceServers)
-                    )
+                    check(
+                        peerConnection.setConfiguration(
+                            createRtcConfiguration(activeIceServers)
+                        )
+                    ) {
+                        "Could not apply ICE server configuration"
+                    }
                     startSignaling()
                 }.onFailure(listener::onError)
             }
@@ -196,9 +200,15 @@ class WebRtcPeer(
         }
 
         scope.launch {
+            val refreshTimeoutMs =
+                if (connectivity.hasEverConnected()) {
+                    RESTART_ICE_REFRESH_TIMEOUT_MS
+                } else {
+                    PRELIVE_ICE_REFRESH_TIMEOUT_MS
+                }
             val refreshed = IceServerProvider.loadConfig(
                 sessionId = sessionId,
-                timeoutMs = RESTART_ICE_REFRESH_TIMEOUT_MS
+                timeoutMs = refreshTimeoutMs
             )
             val selectedServers =
                 if (refreshed.fromBackend) {
@@ -215,9 +225,13 @@ class WebRtcPeer(
                         activeIceServers = refreshed.servers
                     }
                     remoteCandidates.markDescriptionNotReady()
-                    peerConnection.setConfiguration(
-                        createRtcConfiguration(selectedServers)
-                    )
+                    check(
+                        peerConnection.setConfiguration(
+                            createRtcConfiguration(selectedServers)
+                        )
+                    ) {
+                        "Could not refresh ICE server configuration"
+                    }
                     peerConnection.restartIce()
                     createOffer()
                 }.onFailure(listener::onError)
@@ -693,7 +707,10 @@ class WebRtcPeer(
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy =
                 PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
-            iceCandidatePoolSize = 2
+            // The final ICE list is loaded immediately before signaling.
+            // Keeping the pool at zero prevents fallback-only candidates from
+            // being pre-gathered before TURN is applied with setConfiguration.
+            iceCandidatePoolSize = 0
         }
     }
 
@@ -705,6 +722,7 @@ class WebRtcPeer(
         private const val MAX_VIDEO_BITRATE_BPS = 2_500_000
         private const val MAX_VIDEO_FRAMERATE = 30
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L
+        private const val PRELIVE_ICE_REFRESH_TIMEOUT_MS = 5_000L
         private const val ICE_RESTART_MIN_INTERVAL_MS = 2_500L
         private const val INITIAL_ICE_RESTART_DELAY_MS = 1_500L
     }

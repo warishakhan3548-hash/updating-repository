@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.webrtc
 
 import com.google.firebase.auth.FirebaseAuth
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
@@ -92,7 +93,13 @@ object IceServerProvider {
 
             urls.asSequence()
                 .map(String::trim)
-                .filter(::isAllowedIceUrl)
+                .filter { url ->
+                    isUsableIceUrl(
+                        url = url,
+                        username = username,
+                        credential = credential
+                    )
+                }
                 .take(MAX_URLS_PER_RESPONSE)
                 .forEach { url ->
                     val builder =
@@ -137,6 +144,7 @@ object IceServerProvider {
             connection.connectTimeout = connectTimeoutMs
             connection.readTimeout = connectTimeoutMs
             connection.instanceFollowRedirects = false
+            connection.useCaches = false
             connection.doOutput = true
             connection.setRequestProperty(
                 "Authorization",
@@ -145,6 +153,10 @@ object IceServerProvider {
             connection.setRequestProperty(
                 "Accept",
                 "application/json"
+            )
+            connection.setRequestProperty(
+                "Cache-Control",
+                "no-store"
             )
             connection.setRequestProperty(
                 "Content-Type",
@@ -165,9 +177,24 @@ object IceServerProvider {
                 return@withContext emptyList()
             }
 
-            val body = connection.inputStream
-                .bufferedReader()
-                .use { it.readText() }
+            val body = connection.inputStream.use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(4_096)
+                var total = 0
+
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+
+                    total += read
+                    if (total > MAX_ICE_RESPONSE_BYTES) {
+                        return@withContext emptyList()
+                    }
+                    output.write(buffer, 0, read)
+                }
+
+                output.toString(Charsets.UTF_8.name())
+            }
 
             parseIceServers(body)
         } finally {
@@ -183,13 +210,28 @@ object IceServerProvider {
             lower.startsWith("turns:")
     }
 
-    private fun isTurnServer(
-        server: PeerConnection.IceServer
-    ): Boolean = server.urls.any { url ->
+    internal fun isTurnUrl(url: String): Boolean {
         val lower = url.lowercase()
-        lower.startsWith("turn:") ||
+        return lower.startsWith("turn:") ||
             lower.startsWith("turns:")
     }
+
+    internal fun isUsableIceUrl(
+        url: String,
+        username: String,
+        credential: String
+    ): Boolean {
+        if (!isAllowedIceUrl(url)) return false
+        return !isTurnUrl(url) ||
+            (
+                username.isNotBlank() &&
+                    credential.isNotBlank()
+                )
+    }
+
+    private fun isTurnServer(
+        server: PeerConnection.IceServer
+    ): Boolean = server.urls.any(::isTurnUrl)
 
     private fun mergeDistinct(
         preferred: List<PeerConnection.IceServer>,
@@ -219,4 +261,5 @@ object IceServerProvider {
     private const val MAX_ICE_SERVERS = 16
     private const val MAX_URLS_PER_RESPONSE = 12
     private const val MAX_ICE_URL_LENGTH = 512
+    private const val MAX_ICE_RESPONSE_BYTES = 64 * 1024
 }
