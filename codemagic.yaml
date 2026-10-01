@@ -28,14 +28,12 @@ workflows:
       - name: Restore Firebase config when configured
         script: |
           set -euo pipefail
-          if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
-            python3 -c 'import base64, os, pathlib; pathlib.Path(os.environ["CM_BUILD_DIR"], "app", "google-services.json").write_bytes(base64.b64decode(os.environ["GOOGLE_SERVICES_JSON_B64"]))'
-            echo "Firebase Android config restored."
-          else
-            echo "GOOGLE_SERVICES_JSON_B64 is required for a usable release build."
-            echo "Register Firebase Android app com.aaris.remoteassist and add its google-services.json to Codemagic."
+          test -n "${GOOGLE_SERVICES_JSON_B64:-}" || {
+            echo "GOOGLE_SERVICES_JSON_B64 is required for the release build."
             exit 1
-          fi
+          }
+          python3 -c 'import base64, json, os, pathlib; p=pathlib.Path(os.environ["CM_BUILD_DIR"], "app", "google-services.json"); p.write_bytes(base64.b64decode(os.environ["GOOGLE_SERVICES_JSON_B64"])); d=json.loads(p.read_text()); assert d.get("project_info",{}).get("project_id")=="aaris-control", "Wrong Firebase project"; pkgs=[x.get("client_info",{}).get("android_client_info",{}).get("package_name") for x in d.get("client",[])]; assert "com.aaris.remoteassist" in pkgs, "Wrong Android package"'
+          echo "Firebase config verified: aaris-control / com.aaris.remoteassist."
 
       - name: Validate release signing
         script: |
