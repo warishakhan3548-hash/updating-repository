@@ -1,67 +1,20 @@
 package com.aaris.remoteassist.webrtc
 
-import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IceServerProviderTest {
     @Test
-    fun parsesCloudflareTurnIceServers() {
-        val raw = """
-            {
-              "iceServers": [
-                {
-                  "urls": ["stun:stun.cloudflare.com:3478"]
-                },
-                {
-                  "urls": [
-                    "turn:turn.cloudflare.com:3478?transport=udp",
-                    "turns:turn.cloudflare.com:443?transport=tcp"
-                  ],
-                  "username": "user",
-                  "credential": "pass"
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val servers = IceServerProvider.parseIceServers(raw)
-
-        assertEquals(3, servers.size)
-        assertTrue(
-            servers.any { server ->
-                server.urls.any { it.startsWith("turn:") } &&
-                    server.username == "user"
-            }
-        )
-        assertTrue(
-            servers.any { server ->
-                server.urls.any { it.startsWith("turns:") } &&
-                    server.username == "user"
-            }
-        )
+    fun acceptsSupportedIceSchemes() {
+        assertTrue(IceServerProvider.isAllowedIceUrl("stun:example.org:3478"))
+        assertTrue(IceServerProvider.isAllowedIceUrl("turn:example.org:3478?transport=udp"))
+        assertTrue(IceServerProvider.isAllowedIceUrl("turns:example.org:443?transport=tcp"))
     }
 
     @Test
-    fun ignoresUnsupportedIceSchemes() {
-        val raw = """
-            {
-              "iceServers": [
-                {
-                  "urls": [
-                    "https://example.com/not-ice",
-                    "turn:turn.cloudflare.com:443?transport=tcp"
-                  ],
-                  "username": "u",
-                  "credential": "p"
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val servers = IceServerProvider.parseIceServers(raw)
-
-        assertEquals(1, servers.size)
-        assertTrue(servers.single().urls.single().startsWith("turn:"))
+    fun rejectsUnsupportedAndOversizedUrls() {
+        assertFalse(IceServerProvider.isAllowedIceUrl("https://example.org/not-ice"))
+        assertFalse(IceServerProvider.isAllowedIceUrl("turn:" + "x".repeat(600)))
     }
 }
