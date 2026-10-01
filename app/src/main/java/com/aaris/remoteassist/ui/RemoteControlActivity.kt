@@ -410,6 +410,30 @@ class RemoteControlActivity : ComponentActivity() {
                     }
                 }
 
+                override fun onCommandResult(
+                    sequence: Long,
+                    applied: Boolean
+                ) {
+                    runOnUiThread {
+                        if (disconnecting || !rtcConnected) {
+                            return@runOnUiThread
+                        }
+
+                        if (applied) {
+                            if (
+                                status.text.toString() ==
+                                COMMAND_NOT_APPLIED_MESSAGE
+                            ) {
+                                statusPanel.visibility = View.GONE
+                            }
+                        } else {
+                            showStatus(
+                                COMMAND_NOT_APPLIED_MESSAGE
+                            )
+                        }
+                    }
+                }
+
                 override fun onError(error: Throwable) {
                     runOnUiThread {
                         if (!disconnecting) {
@@ -1234,6 +1258,8 @@ class RemoteControlActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_SESSION_ID = "session_id"
+        private const val COMMAND_NOT_APPLIED_MESSAGE =
+            "Action wasn’t applied on the remote phone."
         const val EXTRA_RESULT_MESSAGE = "result_message"
         private const val CLIENT_DEADLINE_GRACE_MS = 2_000L
         private const val DISCONNECT_GRACE_MS = 25_000L
