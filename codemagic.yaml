@@ -13,8 +13,6 @@ workflows:
       vars:
         PACKAGE_NAME: "com.aaris.remoteassist"
         GRADLE_VERSION: "9.6.0"
-        VERSION_NAME: "1.7.4"
-        VERSION_CODE: "26"
 
     scripts:
       - name: Validate native Android project
@@ -73,18 +71,31 @@ workflows:
           set -euo pipefail
           APK="$(find "$CM_BUILD_DIR/app/build/outputs/apk/release" -type f -name '*.apk' ! -name '*unsigned*' | head -1)"
           test -n "$APK" || { echo "Signed release APK was not produced."; exit 1; }
+
           APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | head -1)"
           AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | head -1)"
           test -x "$APKSIGNER" || { echo "apksigner not found"; exit 1; }
           test -x "$AAPT" || { echo "aapt not found"; exit 1; }
+
           "$APKSIGNER" verify --verbose --print-certs "$APK"
+
           BADGING="$("$AAPT" dump badging "$APK" | head -20)"
           echo "$BADGING"
-          echo "$BADGING" | grep -F "package: name='$PACKAGE_NAME'" >/dev/null
-          echo "$BADGING" | grep -F "versionCode='$VERSION_CODE'" >/dev/null
-          echo "$BADGING" | grep -F "versionName='$VERSION_NAME'" >/dev/null
+          PACKAGE_LINE="$(printf '%s\n' "$BADGING" | head -1)"
+
+          echo "$PACKAGE_LINE" | grep -F "package: name='$PACKAGE_NAME'" >/dev/null
+
+          VERSION_CODE="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          VERSION_NAME="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+          test -n "$VERSION_CODE" || { echo "Could not read APK versionCode."; exit 1; }
+          test -n "$VERSION_NAME" || { echo "Could not read APK versionName."; exit 1; }
+
           FINAL_APK="$CM_BUILD_DIR/app/build/outputs/apk/release/AarisRemote-$VERSION_NAME-release.apk"
-          mv "$APK" "$FINAL_APK"
+          if [ "$APK" != "$FINAL_APK" ]; then
+            mv "$APK" "$FINAL_APK"
+          fi
+
+          echo "Verified APK metadata: versionName=$VERSION_NAME versionCode=$VERSION_CODE"
           shasum -a 256 "$FINAL_APK"
           echo "Final release APK: $FINAL_APK"
 
