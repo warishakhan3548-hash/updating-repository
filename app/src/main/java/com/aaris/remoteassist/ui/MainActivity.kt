@@ -14,6 +14,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -30,6 +31,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import com.aaris.remoteassist.accessibility.AssistAccessibilityService
 import com.aaris.remoteassist.accessibility.PermissionGate
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.pairing.BackendSession
@@ -49,6 +51,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -68,6 +71,7 @@ class MainActivity : ComponentActivity() {
     private var pendingProjectionSessionId: String? = null
     private var pendingNotificationSessionId: String? = null
     private var hostStartInFlight = false
+    private var accessibilityReadyJob: Job? = null
 
     private val prefs by lazy {
         getSharedPreferences("setup", Context.MODE_PRIVATE)
@@ -175,35 +179,18 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
 
-        if (
-            prefs.getBoolean(
-                KEY_PENDING_SHARE_AFTER_ACCESSIBILITY,
-                false
-            )
-        ) {
-            if (
-                activeHostSessionId == null &&
-                PermissionGate.isAccessibilityEnabled(this)
-            ) {
-                prefs.edit()
-                    .remove(KEY_PENDING_SHARE_AFTER_ACCESSIBILITY)
-                    .apply()
-
-                connectivityBlockMessage()?.let { message ->
-                    status.text = message
-                    refreshIdleUi()
+        if (hasFreshPendingShare()) {
+            if (activeHostSessionId == null) {
+                if (PermissionGate.isAccessibilityEnabled(this)) {
+                    startShareWhenAccessibilityReady()
                     return
                 }
 
-                SessionCoordinator.prepareReady()
-                beginShare()
-                return
-            }
-
-            if (!PermissionGate.isAccessibilityEnabled(this)) {
                 status.text =
                     "Turn on Aaris Remote once. Share starts automatically when you return."
             }
+        } else {
+            clearPendingShareRequest()
         }
 
         val pendingStart = prefs.getString(
@@ -240,6 +227,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        accessibilityReadyJob?.cancel()
+        accessibilityReadyJob = null
         hostObserver?.close()
         hostObserver = null
         sessionDeadlineJob?.cancel()
@@ -297,25 +286,120 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        rememberPendingShare()
+
         if (!PermissionGate.isAccessibilityEnabled(this)) {
             SessionCoordinator.markSetupRequired()
-            prefs.edit()
-                .putBoolean(
-                    KEY_PENDING_SHARE_AFTER_ACCESSIBILITY,
-                    true
-                )
-                .apply()
             status.text =
                 "Turn on Aaris Remote once. Share starts automatically when you return."
             PermissionGate.openAccessibilitySettings(this)
             return
         }
 
+        startShareWhenAccessibilityReady()
+    }
+
+    private fun startShareWhenAccessibilityReady() {
+        if (
+            activeHostSessionId != null ||
+            !isIdleForNewSession()
+        ) {
+            return
+        }
+
+        if (!PermissionGate.isAccessibilityEnabled(this)) {
+            SessionCoordinator.markSetupRequired()
+            status.text =
+                "Turn on Aaris Remote once. Share starts automatically when you return."
+            return
+        }
+
+        accessibilityReadyJob?.cancel()
+        setButtonsEnabled(false)
+        status.text = "Finishing Accessibility setup…"
+
+        accessibilityReadyJob = scope.launch {
+            val deadline =
+                SystemClock.elapsedRealtime() +
+                    ACCESSIBILITY_SERVICE_READY_TIMEOUT_MS
+
+            while (
+                isActive &&
+                !AssistAccessibilityService.isConnected() &&
+                SystemClock.elapsedRealtime() < deadline
+            ) {
+                delay(ACCESSIBILITY_SERVICE_READY_POLL_MS)
+            }
+
+            accessibilityReadyJob = null
+
+            if (!PermissionGate.isAccessibilityEnabled(this@MainActivity)) {
+                SessionCoordinator.markSetupRequired()
+                setButtonsEnabled(true)
+                status.text =
+                    "Accessibility was turned off. Tap Share to continue."
+                return@launch
+            }
+
+            if (!AssistAccessibilityService.isConnected()) {
+                clearPendingShareRequest()
+                setButtonsEnabled(true)
+                status.text =
+                    "Accessibility is on but not ready yet. Tap Share to retry."
+                return@launch
+            }
+
+            clearPendingShareRequest()
+
+            connectivityBlockMessage()?.let { message ->
+                setButtonsEnabled(true)
+                status.text = message
+                return@launch
+            }
+
+            SessionCoordinator.prepareReady()
+            beginShare()
+        }
+    }
+
+    private fun rememberPendingShare() {
+        prefs.edit()
+            .putBoolean(
+                KEY_PENDING_SHARE_AFTER_ACCESSIBILITY,
+                true
+            )
+            .putLong(
+                KEY_PENDING_SHARE_REQUESTED_AT,
+                System.currentTimeMillis()
+            )
+            .apply()
+    }
+
+    private fun hasFreshPendingShare(): Boolean {
+        if (
+            !prefs.getBoolean(
+                KEY_PENDING_SHARE_AFTER_ACCESSIBILITY,
+                false
+            )
+        ) {
+            return false
+        }
+
+        val requestedAt = prefs.getLong(
+            KEY_PENDING_SHARE_REQUESTED_AT,
+            0L
+        )
+        if (requestedAt <= 0L) return false
+
+        val age = System.currentTimeMillis() - requestedAt
+        return age in 0..PENDING_SHARE_MAX_AGE_MS
+    }
+
+    private fun clearPendingShareRequest() {
         prefs.edit()
             .remove(KEY_PENDING_SHARE_AFTER_ACCESSIBILITY)
+            .remove(KEY_PENDING_SHARE_REQUESTED_AT)
             .apply()
-        SessionCoordinator.prepareReady()
-        beginShare()
     }
 
     private fun beginShare() {
@@ -439,9 +523,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connect(code: String) {
-        prefs.edit()
-            .remove(KEY_PENDING_SHARE_AFTER_ACCESSIBILITY)
-            .apply()
+        clearPendingShareRequest()
 
         connectivityBlockMessage()?.let { message ->
             status.text = message
@@ -1701,11 +1783,19 @@ class MainActivity : ComponentActivity() {
             "pending_host_start_session"
         private const val KEY_PENDING_SHARE_AFTER_ACCESSIBILITY =
             "pending_share_after_accessibility"
+        private const val KEY_PENDING_SHARE_REQUESTED_AT =
+            "pending_share_requested_at"
         private const val KEY_ACTIVE_HOST_CODE =
             "active_host_code"
         private const val KEY_ACTIVE_HOST_EXPIRES_AT =
             "active_host_expires_at"
         private const val KEY_NOTIFICATION_PERMISSION_ASKED =
             "notification_permission_asked"
+        private const val ACCESSIBILITY_SERVICE_READY_TIMEOUT_MS =
+            4_000L
+        private const val ACCESSIBILITY_SERVICE_READY_POLL_MS =
+            100L
+        private const val PENDING_SHARE_MAX_AGE_MS =
+            2 * 60_000L
     }
 }
