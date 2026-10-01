@@ -74,6 +74,10 @@ class RemoteControlActivity : ComponentActivity() {
     private var downX = 0f
     private var downY = 0f
     private var downAtMs = 0L
+    private val singleGesturePoints =
+        ArrayList<Pair<Float, Float>>(MAX_GESTURE_PATH_POINTS)
+    private var singleGestureGeneration = -1
+    private var singleGestureInvalid = false
 
     private var twoFingerActive = false
     private var suppressSingleUp = false
@@ -84,6 +88,7 @@ class RemoteControlActivity : ComponentActivity() {
     private var firstStartNy = 0f
     private var secondStartNx = 0f
     private var secondStartNy = 0f
+    private var twoFingerGeneration = -1
 
     private val touchSlop by lazy {
         ViewConfiguration.get(this).scaledTouchSlop.toFloat()
@@ -348,6 +353,21 @@ class RemoteControlActivity : ComponentActivity() {
             listener = object : ControllerWebRtcSession.Listener {
                 override fun onLive(geometry: RemoteGeometry) {
                     runOnUiThread {
+                        if (
+                            singleGestureGeneration >= 0 &&
+                            singleGestureGeneration != geometry.generation
+                        ) {
+                            singleGestureInvalid = true
+                        }
+                        if (
+                            twoFingerActive &&
+                            twoFingerGeneration != geometry.generation
+                        ) {
+                            resetTwoFingerState(
+                                keepSuppression = true
+                            )
+                        }
+
                         remoteGeometry = geometry
                         if (remoteTrack != null) {
                             statusPanel.visibility = View.GONE
@@ -777,18 +797,71 @@ class RemoteControlActivity : ComponentActivity() {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 resetTwoFingerState()
+                resetSingleGestureState()
                 suppressSingleUp = false
                 downX = event.x
                 downY = event.y
                 downAtMs = SystemClock.elapsedRealtime()
+                singleGestureGeneration = geometry.generation
+                singleGestureInvalid =
+                    !appendSingleGesturePoint(
+                        event.x,
+                        event.y,
+                        geometry
+                    )
+                return true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (
+                    suppressSingleUp ||
+                    twoFingerActive ||
+                    singleGestureInvalid
+                ) {
+                    return true
+                }
+
+                if (
+                    geometry.generation != singleGestureGeneration
+                ) {
+                    singleGestureInvalid = true
+                    return true
+                }
+
+                for (index in 0 until event.historySize) {
+                    if (
+                        !appendSingleGesturePoint(
+                            event.getHistoricalX(index),
+                            event.getHistoricalY(index),
+                            geometry
+                        )
+                    ) {
+                        singleGestureInvalid = true
+                        return true
+                    }
+                }
+
+                if (
+                    !appendSingleGesturePoint(
+                        event.x,
+                        event.y,
+                        geometry
+                    )
+                ) {
+                    singleGestureInvalid = true
+                }
                 return true
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
                 suppressSingleUp = true
+                singleGestureInvalid = true
+                singleGesturePoints.clear()
 
                 if (event.pointerCount != 2) {
-                    resetTwoFingerState(keepSuppression = true)
+                    resetTwoFingerState(
+                        keepSuppression = true
+                    )
                     return true
                 }
 
@@ -804,7 +877,9 @@ class RemoteControlActivity : ComponentActivity() {
                 )
 
                 if (first == null || second == null) {
-                    resetTwoFingerState(keepSuppression = true)
+                    resetTwoFingerState(
+                        keepSuppression = true
+                    )
                     return true
                 }
 
@@ -816,6 +891,7 @@ class RemoteControlActivity : ComponentActivity() {
                 secondStartNy = second.second
                 twoFingerStartedAtMs =
                     SystemClock.elapsedRealtime()
+                twoFingerGeneration = geometry.generation
                 twoFingerActive = true
                 return true
             }
@@ -823,6 +899,15 @@ class RemoteControlActivity : ComponentActivity() {
             MotionEvent.ACTION_POINTER_UP -> {
                 if (!twoFingerActive) {
                     suppressSingleUp = true
+                    return true
+                }
+
+                if (
+                    geometry.generation != twoFingerGeneration
+                ) {
+                    resetTwoFingerState(
+                        keepSuppression = true
+                    )
                     return true
                 }
 
@@ -852,32 +937,56 @@ class RemoteControlActivity : ComponentActivity() {
                         secondFromNy = secondStartNy,
                         secondToNx = secondEnd.first,
                         secondToNy = secondEnd.second,
-                        durationMs = duration.toInt()
+                        durationMs = duration.toInt(),
+                        expectedGeneration =
+                            twoFingerGeneration
                     )
                 }
 
-                resetTwoFingerState(keepSuppression = true)
+                resetTwoFingerState(
+                    keepSuppression = true
+                )
                 return true
             }
 
             MotionEvent.ACTION_UP -> {
                 if (suppressSingleUp) {
                     resetTwoFingerState()
+                    resetSingleGestureState()
                     suppressSingleUp = false
                     return true
                 }
 
-                val start = normalizedPoint(
-                    downX,
-                    downY,
-                    geometry
-                ) ?: return true
+                if (
+                    singleGestureInvalid ||
+                    singleGestureGeneration < 0 ||
+                    geometry.generation != singleGestureGeneration
+                ) {
+                    resetSingleGestureState()
+                    return true
+                }
 
                 val end = normalizedPoint(
                     event.x,
                     event.y,
                     geometry
-                ) ?: return true
+                )
+                if (end == null) {
+                    resetSingleGestureState()
+                    return true
+                }
+
+                if (
+                    !appendSingleGesturePoint(
+                        event.x,
+                        event.y,
+                        geometry,
+                        force = true
+                    )
+                ) {
+                    resetSingleGestureState()
+                    return true
+                }
 
                 val duration = (
                     SystemClock.elapsedRealtime() - downAtMs
@@ -888,42 +997,126 @@ class RemoteControlActivity : ComponentActivity() {
                     event.y - downY
                 )
 
+                val generation = singleGestureGeneration
                 if (distance <= touchSlop) {
                     if (duration >= 500L) {
                         session.sendLongPress(
                             end.first,
                             end.second,
-                            duration.toInt()
+                            duration.toInt(),
+                            expectedGeneration = generation
                         )
                     } else {
                         session.sendTap(
                             end.first,
-                            end.second
+                            end.second,
+                            expectedGeneration = generation
                         )
                     }
                 } else {
-                    session.sendSwipe(
-                        start.first,
-                        start.second,
-                        end.first,
-                        end.second,
-                        duration.toInt().coerceIn(
-                            80,
-                            1500
+                    val path = singleGesturePoints.toList()
+                    if (path.size >= 2) {
+                        session.sendGesturePath(
+                            points = path,
+                            durationMs = duration.toInt()
+                                .coerceIn(80, 1_500),
+                            expectedGeneration = generation
                         )
-                    )
+                    }
                 }
+
+                resetSingleGestureState()
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
                 resetTwoFingerState()
+                resetSingleGestureState()
                 suppressSingleUp = false
                 return true
             }
         }
 
         return true
+    }
+
+    private fun appendSingleGesturePoint(
+        x: Float,
+        y: Float,
+        geometry: RemoteGeometry,
+        force: Boolean = false
+    ): Boolean {
+        if (
+            geometry.generation != singleGestureGeneration
+        ) {
+            return false
+        }
+
+        val point = normalizedPoint(
+            x,
+            y,
+            geometry
+        ) ?: return false
+
+        val candidate = point.first to point.second
+        val last = singleGesturePoints.lastOrNull()
+        if (last != null && !force) {
+            val delta = hypot(
+                candidate.first - last.first,
+                candidate.second - last.second
+            )
+            if (delta < MIN_GESTURE_SAMPLE_DELTA) {
+                if (singleGesturePoints.size > 1) {
+                    singleGesturePoints[
+                        singleGesturePoints.lastIndex
+                    ] = candidate
+                }
+                return true
+            }
+        }
+
+        if (
+            singleGesturePoints.size >=
+            MAX_GESTURE_PATH_POINTS
+        ) {
+            compactSingleGesturePath()
+        }
+
+        val tail = singleGesturePoints.lastOrNull()
+        if (tail != candidate) {
+            singleGesturePoints += candidate
+        }
+        return true
+    }
+
+    private fun compactSingleGesturePath() {
+        if (singleGesturePoints.size < 3) return
+
+        val compacted =
+            ArrayList<Pair<Float, Float>>(
+                (singleGesturePoints.size / 2) + 2
+            )
+        compacted += singleGesturePoints.first()
+
+        var index = 2
+        while (index < singleGesturePoints.lastIndex) {
+            compacted += singleGesturePoints[index]
+            index += 2
+        }
+
+        val last = singleGesturePoints.last()
+        if (compacted.last() != last) {
+            compacted += last
+        }
+
+        singleGesturePoints.clear()
+        singleGesturePoints.addAll(compacted)
+    }
+
+    private fun resetSingleGestureState() {
+        singleGesturePoints.clear()
+        singleGestureGeneration = -1
+        singleGestureInvalid = false
     }
 
     private fun normalizedPointer(
@@ -956,6 +1149,7 @@ class RemoteControlActivity : ComponentActivity() {
         secondStartNx = 0f
         secondStartNy = 0f
         twoFingerStartedAtMs = 0L
+        twoFingerGeneration = -1
 
         if (!keepSuppression) {
             suppressSingleUp = false
@@ -1021,5 +1215,7 @@ class RemoteControlActivity : ComponentActivity() {
         const val EXTRA_SESSION_ID = "session_id"
         private const val CLIENT_DEADLINE_GRACE_MS = 2_000L
         private const val DISCONNECT_GRACE_MS = 25_000L
+        private const val MAX_GESTURE_PATH_POINTS = 96
+        private const val MIN_GESTURE_SAMPLE_DELTA = 0.0015f
     }
 }
