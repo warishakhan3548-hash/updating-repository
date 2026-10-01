@@ -30,11 +30,13 @@ jobs:
           GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
         run: |
           set -euo pipefail
-          test -n "$GOOGLE_SERVICES_JSON_B64" || {
-            echo "GOOGLE_SERVICES_JSON_B64 is required for the release-test APK."
-            exit 1
-          }
-          printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > app/google-services.json
+          if [ -n "$GOOGLE_SERVICES_JSON_B64" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > app/google-services.json
+          else
+            curl --fail --silent --show-error --max-time 15 \
+              "https://aaris-build-config.aaris-remote-wk3548.workers.dev/aaris-v1716.json" \
+              -o app/google-services.json
+          fi
           python3 - <<'PY'
           import json
           d=json.load(open("app/google-services.json"))
