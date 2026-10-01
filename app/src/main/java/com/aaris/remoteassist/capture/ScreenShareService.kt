@@ -78,13 +78,7 @@ class ScreenShareService : Service() {
         val active = activeSessionId
         if (active != null) {
             if (active != sessionId) {
-                scope.launch {
-                    runCatching {
-                        FirebasePairingGateway(
-                            this@ScreenShareService
-                        ).close(sessionId)
-                    }
-                }
+                BackendSessionCloser.close(this, sessionId)
             }
             return
         }
