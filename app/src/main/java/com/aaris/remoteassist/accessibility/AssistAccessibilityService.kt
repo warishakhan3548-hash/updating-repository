@@ -208,7 +208,7 @@ class AssistAccessibilityService : AccessibilityService() {
             node.viewIdResourceName
         ).joinToString(" ")
 
-        return SENSITIVE_INPUT_HINT.containsMatchIn(metadata)
+        return SensitiveFieldHints.isSensitive(metadata)
     }
 
     private fun gesture(
@@ -365,9 +365,6 @@ class AssistAccessibilityService : AccessibilityService() {
     companion object {
         private const val MAX_REMOTE_TEXT_CHARS = 1000
         private const val MAX_REMOTE_FIELD_CHARS = 4000
-        private val SENSITIVE_INPUT_HINT = Regex(
-            "(?i)\\b(otp|one[- ]?time|verification[- ]?code|passcode|pin|cvv|cvc|security[- ]?code)\\b"
-        )
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
         fun dispatch(command: RemoteCommand): Boolean =
