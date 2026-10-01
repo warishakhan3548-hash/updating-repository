@@ -34,8 +34,16 @@ Controller touch points are mapped through the actual rendered remote-video rect
 
 WebRTC peer connectivity alone is not treated as usable remote control. The controller becomes connected only when both the peer connection and the ordered `control-v1` DataChannel are ready. The host's initial watchdog remains armed until both conditions are true, so a half-open transport cannot remain stuck indefinitely.
 
+## Local-control liveness
+
+A LIVE control lease is valid only while the host AccessibilityService remains connected. The host watchdog checks this alongside lease expiry; if Android disables or removes the service, the session closes instead of silently degrading into a misleading view-only connection.
+
+## Interaction-first media policy
+
+The host applies an RTP sender policy that prefers maintaining frame cadence under congestion and caps the video send envelope. WebRTC remains free to reduce resolution/bitrate below that ceiling, prioritizing responsive touch feedback over preserving every pixel at a fixed quality.
+
 ## Production network boundary
 
 The client first requests session-bound ICE configuration from the `asia-south1` `getIceConfig` callable. The function always supplies STUN and, when relay configuration is deployed, mints short-lived coturn REST credentials only for the authenticated host/controller of an active `SCREEN_READY` or `LIVE` session.
 
-Carrier-grade or symmetric NAT still requires real TURN infrastructure for high connection coverage. Configure reachable UDP TURN plus TCP/TLS fallback through `TURN_URLS` and keep `TURN_SHARED_SECRET` only in the server deployment environment/secret store; never hard-code relay credentials in the APK. If relay configuration is unavailable, the client deliberately falls back to STUN-only best-effort connectivity.
+Carrier-grade or symmetric NAT still requires real TURN infrastructure for high connection coverage. Configure reachable UDP TURN plus TCP/TLS fallback through `TURN_URLS` and keep `TURN_SHARED_SECRET` only in the Firebase Functions secret store; never hard-code relay credentials in the APK. If relay configuration is unavailable, the client deliberately falls back to STUN-only best-effort connectivity.

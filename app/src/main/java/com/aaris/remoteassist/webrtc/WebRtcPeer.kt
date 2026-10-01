@@ -8,7 +8,9 @@ import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
+import org.webrtc.RtpParameters
 import org.webrtc.RtpReceiver
+import org.webrtc.RtpSender
 import org.webrtc.RtpTransceiver
 import org.webrtc.SessionDescription
 import org.webrtc.VideoTrack
@@ -102,7 +104,11 @@ class WebRtcPeer(
 
     fun addLocalVideoTrack(track: VideoTrack) {
         check(!closed.get())
-        peerConnection.addTrack(track, listOf(SCREEN_STREAM_ID))
+        val sender = peerConnection.addTrack(
+            track,
+            listOf(SCREEN_STREAM_ID)
+        )
+        applyInteractiveVideoPolicy(sender)
     }
 
     fun requestIceRestart(): Boolean {
@@ -459,6 +465,23 @@ class WebRtcPeer(
         pending.forEach(peerConnection::addIceCandidate)
     }
 
+    private fun applyInteractiveVideoPolicy(
+        sender: RtpSender
+    ) {
+        runCatching {
+            val parameters = sender.parameters
+            parameters.degradationPreference =
+                RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+
+            parameters.encodings.forEach { encoding ->
+                encoding.maxBitrateBps = MAX_VIDEO_BITRATE_BPS
+                encoding.maxFramerate = MAX_VIDEO_FRAMERATE
+            }
+
+            sender.setParameters(parameters)
+        }
+    }
+
     private fun createRtcConfiguration(
         iceServers: List<PeerConnection.IceServer>
     ): PeerConnection.RTCConfiguration {
@@ -472,5 +495,7 @@ class WebRtcPeer(
     companion object {
         private const val CONTROL_CHANNEL = "control-v1"
         private const val SCREEN_STREAM_ID = "remote-screen"
+        private const val MAX_VIDEO_BITRATE_BPS = 2_500_000
+        private const val MAX_VIDEO_FRAMERATE = 30
     }
 }

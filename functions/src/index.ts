@@ -14,6 +14,7 @@ setGlobalOptions({
 });
 
 const PAIRING_PEPPER = defineSecret("PAIRING_PEPPER");
+const TURN_SHARED_SECRET = defineSecret("TURN_SHARED_SECRET");
 
 const CODE_TTL_MS = 5 * 60_000;
 const REDEEM_WINDOW_MS = 60_000;
@@ -215,6 +216,7 @@ async function closeExistingHostSession(hostUid: string): Promise<void> {
 
 export const getIceConfig = onCall(
   {
+    secrets: [TURN_SHARED_SECRET],
     enforceAppCheck: true
   },
   async (request) => {
@@ -234,7 +236,7 @@ export const getIceConfig = onCall(
     ];
 
     const turnUrls = configuredTurnUrls();
-    const turnSecret = (process.env.TURN_SHARED_SECRET ?? "").trim();
+    const turnSecret = TURN_SHARED_SECRET.value().trim();
     let expiresAtMs = 0;
 
     if (turnUrls.length > 0 && turnSecret.length >= 16) {

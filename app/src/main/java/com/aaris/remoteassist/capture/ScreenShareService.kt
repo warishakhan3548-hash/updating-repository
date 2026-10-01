@@ -210,6 +210,14 @@ class ScreenShareService : Service() {
                         }
                     }
 
+                    override fun onLocalControlUnavailable() {
+                        mainHandler.post {
+                            stopActiveSession(
+                                "accessibility_control_unavailable"
+                            )
+                        }
+                    }
+
                     override fun onError(error: Throwable) {
                         mainHandler.post {
                             stopActiveSession(

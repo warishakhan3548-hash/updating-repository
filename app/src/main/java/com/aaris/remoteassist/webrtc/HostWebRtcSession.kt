@@ -28,6 +28,7 @@ class HostWebRtcSession(
         fun onConnectivityChanged(connected: Boolean)
         fun onProjectionStopped()
         fun onRemoteDisconnect()
+        fun onLocalControlUnavailable()
         fun onError(error: Throwable)
     }
 
@@ -100,6 +101,14 @@ class HostWebRtcSession(
                 SessionRuntime.currentLease() == null
             ) {
                 listener.onRemoteDisconnect()
+                return
+            }
+
+            if (
+                expected != null &&
+                !AssistAccessibilityService.isConnected()
+            ) {
+                listener.onLocalControlUnavailable()
                 return
             }
 
