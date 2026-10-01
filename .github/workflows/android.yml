@@ -25,14 +25,64 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "9.6.0"
-      - name: Restore Firebase config when configured
+      - name: Restore verified Firebase config
         env:
           GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
         run: |
+          set -euo pipefail
           if [ -n "$GOOGLE_SERVICES_JSON_B64" ]; then
             printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > app/google-services.json
+          else
+            cat > app/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "280260077456",
+              "project_id": "aaris-control",
+              "storage_bucket": "aaris-control.firebasestorage.app"
+            },
+            "client": [{
+              "client_info": {
+                "mobilesdk_app_id": "1:280260077456:android:bd52b9bbe74b5d111c3515",
+                "android_client_info": {
+                  "package_name": "com.aaris.remoteassist"
+                }
+              },
+              "oauth_client": [],
+              "api_key": [{
+                "current_key": "AIzaSyDQ3JVhE5UK7Wgm0wNyD6PcE4pI1K84hPc"
+              }],
+              "services": {
+                "appinvite_service": {
+                  "other_platform_oauth_client": []
+                }
+              }
+            }],
+            "configuration_version": "1"
+          }
+          JSON
           fi
-      - run: gradle :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --stacktrace
+          python3 - <<'PY'
+          import json
+          d=json.load(open("app/google-services.json"))
+          assert d.get("project_info",{}).get("project_id")=="aaris-control"
+          pkgs=[
+              x.get("client_info",{}).get("android_client_info",{}).get("package_name")
+              for x in d.get("client",[])
+          ]
+          assert "com.aaris.remoteassist" in pkgs
+          print("Firebase config verified.")
+          PY
+      - name: Build and verify v1.7.13 test release
+        env:
+          AARIS_TEST_RELEASE_SIGNING: "true"
+        run: gradle :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --stacktrace
+      - name: Verify release APK signature
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
       - name: Print lint report on failure
         if: failure()
         run: |
@@ -41,4 +91,9 @@ jobs:
         with:
           name: AarisRemote-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AarisRemote-1.7.13-test-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
