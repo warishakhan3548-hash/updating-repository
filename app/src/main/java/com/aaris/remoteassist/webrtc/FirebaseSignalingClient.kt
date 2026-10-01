@@ -1,5 +1,6 @@
 package com.aaris.remoteassist.webrtc
 
+import com.aaris.remoteassist.backend.FirebaseBackend
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.ChildEventListener
 import com.google.firebase.database.DataSnapshot
@@ -14,7 +15,7 @@ import org.json.JSONObject
 class FirebaseSignalingClient(
     private val sessionId: String,
     private val role: PeerRole,
-    private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
+    private val database: FirebaseDatabase = FirebaseBackend.database(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) : SignalingClient {
     private val closed = AtomicBoolean(false)
