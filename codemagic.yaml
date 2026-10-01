@@ -6,7 +6,7 @@ workflows:
 
     environment:
       groups:
-        - firebase_credentials
+        - "Firebase credentials"
       java: 17
       android_signing:
         - aarish_upload_keystore
