@@ -161,10 +161,10 @@ internal object AarisUi {
         button.minHeight = 0
         button.minimumHeight = 0
         button.setPadding(
-            dp(context, 13),
-            dp(context, 10),
-            dp(context, 13),
-            dp(context, 10)
+            dp(context, 6),
+            dp(context, 8),
+            dp(context, 6),
+            dp(context, 8)
         )
     }
 
