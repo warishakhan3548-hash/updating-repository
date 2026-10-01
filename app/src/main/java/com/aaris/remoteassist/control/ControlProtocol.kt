@@ -297,7 +297,7 @@ object ControlProtocol {
                 }
 
                 SWIPE -> {
-                    require(buffer.remaining() == 28)
+                    require(buffer.remaining() == 30)
                     val header = readHeader(buffer)
                     ControlPacket.Swipe(
                         header.leaseSecret,
