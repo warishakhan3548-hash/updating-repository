@@ -1,5 +1,6 @@
 package com.aaris.remoteassist.accessibility
 
+import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -28,15 +29,35 @@ object PermissionGate {
     }
 
     fun openAccessibilitySettings(context: Context) {
-        val flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        val component = ComponentName(
+            context,
+            AssistAccessibilityService::class.java
+        )
+        val flags =
+            if (context is Activity) {
+                0
+            } else {
+                Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+
         val targeted = Intent(
             "android.settings.ACCESSIBILITY_DETAILS_SETTINGS",
             Uri.parse("package:${context.packageName}")
-        ).addFlags(flags)
+        )
+            .putExtra(
+                Intent.EXTRA_COMPONENT_NAME,
+                component.flattenToString()
+            )
+            .addFlags(flags)
 
         val fallback = Intent(
             Settings.ACTION_ACCESSIBILITY_SETTINGS
-        ).addFlags(flags)
+        )
+            .putExtra(
+                Intent.EXTRA_COMPONENT_NAME,
+                component.flattenToString()
+            )
+            .addFlags(flags)
 
         runCatching {
             context.startActivity(targeted)
