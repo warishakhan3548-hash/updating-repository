@@ -29,15 +29,7 @@ workflows:
         script: |
           set -euo pipefail
           if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
-            python3 - <<'PY'
-import base64
-import os
-from pathlib import Path
-
-Path(os.environ["CM_BUILD_DIR"], "app", "google-services.json").write_bytes(
-    base64.b64decode(os.environ["GOOGLE_SERVICES_JSON_B64"])
-)
-PY
+            python3 -c 'import base64, os, pathlib; pathlib.Path(os.environ["CM_BUILD_DIR"], "app", "google-services.json").write_bytes(base64.b64decode(os.environ["GOOGLE_SERVICES_JSON_B64"]))'
             echo "Firebase Android config restored."
           else
             echo "GOOGLE_SERVICES_JSON_B64 is not configured; continuing without generated Firebase resources."
