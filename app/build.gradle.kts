@@ -6,6 +6,17 @@ if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
 }
 
+val codemagicKeystorePath = System.getenv("CM_KEYSTORE_PATH")
+val codemagicKeystorePassword = System.getenv("CM_KEYSTORE_PASSWORD")
+val codemagicKeyAlias = System.getenv("CM_KEY_ALIAS")
+val codemagicKeyPassword = System.getenv("CM_KEY_PASSWORD")
+val hasCodemagicSigning = listOf(
+    codemagicKeystorePath,
+    codemagicKeystorePassword,
+    codemagicKeyAlias,
+    codemagicKeyPassword
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.aaris.remoteassist"
     compileSdk = 36
@@ -26,6 +37,26 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    signingConfigs {
+        if (hasCodemagicSigning) {
+            create("release") {
+                storeFile = file(codemagicKeystorePath!!)
+                storePassword = codemagicKeystorePassword
+                keyAlias = codemagicKeyAlias
+                keyPassword = codemagicKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            if (hasCodemagicSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     packaging {
