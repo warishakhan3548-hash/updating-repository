@@ -93,6 +93,13 @@ object IceServerProvider {
             urls.asSequence()
                 .map(String::trim)
                 .filter(::isAllowedIceUrl)
+                .filter { url ->
+                    !isTurnUrl(url) ||
+                        (
+                            username.isNotBlank() &&
+                                credential.isNotBlank()
+                            )
+                }
                 .take(MAX_URLS_PER_RESPONSE)
                 .forEach { url ->
                     val builder =
@@ -137,6 +144,7 @@ object IceServerProvider {
             connection.connectTimeout = connectTimeoutMs
             connection.readTimeout = connectTimeoutMs
             connection.instanceFollowRedirects = false
+            connection.useCaches = false
             connection.doOutput = true
             connection.setRequestProperty(
                 "Authorization",
@@ -145,6 +153,10 @@ object IceServerProvider {
             connection.setRequestProperty(
                 "Accept",
                 "application/json"
+            )
+            connection.setRequestProperty(
+                "Cache-Control",
+                "no-store"
             )
             connection.setRequestProperty(
                 "Content-Type",
@@ -183,13 +195,15 @@ object IceServerProvider {
             lower.startsWith("turns:")
     }
 
-    private fun isTurnServer(
-        server: PeerConnection.IceServer
-    ): Boolean = server.urls.any { url ->
+    internal fun isTurnUrl(url: String): Boolean {
         val lower = url.lowercase()
-        lower.startsWith("turn:") ||
+        return lower.startsWith("turn:") ||
             lower.startsWith("turns:")
     }
+
+    private fun isTurnServer(
+        server: PeerConnection.IceServer
+    ): Boolean = server.urls.any(::isTurnUrl)
 
     private fun mergeDistinct(
         preferred: List<PeerConnection.IceServer>,
