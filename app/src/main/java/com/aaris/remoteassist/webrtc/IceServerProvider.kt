@@ -214,8 +214,8 @@ object IceServerProvider {
 
     private const val ICE_CONFIG_ENDPOINT =
         "https://aaris-remote-ice.aaris-remote-wk3548.workers.dev/v1/ice"
-    private const val LOAD_TIMEOUT_MS = 4_000L
-    private const val MAX_HTTP_TIMEOUT_MS = 3_500L
+    private const val LOAD_TIMEOUT_MS = 7_000L
+    private const val MAX_HTTP_TIMEOUT_MS = 6_000L
     private const val MAX_ICE_SERVERS = 16
     private const val MAX_URLS_PER_RESPONSE = 12
     private const val MAX_ICE_URL_LENGTH = 512
