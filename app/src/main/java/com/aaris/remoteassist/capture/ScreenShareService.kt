@@ -59,7 +59,6 @@ class ScreenShareService : Service() {
         hostSession = null
 
         if (id != null) {
-            ProjectionGrantStore.clear(id)
             SessionCoordinator.close(id)
             BackendSessionCloser.close(this, id)
         }
@@ -111,11 +110,6 @@ class ScreenShareService : Service() {
             sessionId = sessionId,
             resultCode = resultCode,
             data = captureData
-        )
-        ProjectionGrantStore.offer(
-            sessionId,
-            resultCode,
-            captureData
         )
 
         val stateOk = runCatching {
@@ -243,7 +237,6 @@ class ScreenShareService : Service() {
         hostSession = null
 
         if (sessionId != null) {
-            ProjectionGrantStore.clear(sessionId)
             SessionCoordinator.close(sessionId)
 
             BackendSessionCloser.close(this, sessionId)
