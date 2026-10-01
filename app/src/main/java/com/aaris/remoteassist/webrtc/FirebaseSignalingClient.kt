@@ -198,24 +198,10 @@ class FirebaseSignalingClient(
             .put("negotiationId", negotiationId)
             .toString()
 
-        val updates = mutableMapOf<String, Any?>(
-            localSignal.key.orEmpty() to payload
-        )
-        val candidateBranch =
-            if (role == PeerRole.HOST) {
-                "hostCandidates"
-            } else {
-                "controllerCandidates"
-            }
-
-        repeat(MAX_CANDIDATE_SLOTS) { index ->
-            val slot = index
-                .toString()
-                .padStart(CANDIDATE_SLOT_WIDTH, '0')
-            updates["$candidateBranch/$slot"] = null
-        }
-
-        root.updateChildren(updates)
+        // Candidate slots are intentionally retained between negotiations.
+        // Published Spark RTDB rules allow candidate strings but not client-side
+        // deletion at the candidate branch. Negotiation IDs make stale slots safe.
+        localSignal.setValue(payload)
             .addOnSuccessListener {
                 if (closed.get()) {
                     return@addOnSuccessListener
