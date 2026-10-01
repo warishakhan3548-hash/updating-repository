@@ -10,6 +10,7 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
@@ -26,6 +27,11 @@ class FirebaseSignalingClient(
     private val descriptionDeliverySequence = AtomicLong(0L)
     private val descriptionRetryHandler =
         Handler(Looper.getMainLooper())
+    private val candidateRetryHandler =
+        Handler(Looper.getMainLooper())
+    private val candidateWriteToken = AtomicLong(0L)
+    private val candidateSlotOwners =
+        ConcurrentHashMap<String, Long>()
     @Volatile
     private var clientInstanceId =
         java.util.UUID.randomUUID().toString()
@@ -411,6 +417,8 @@ class FirebaseSignalingClient(
         }
 
         descriptionRetryHandler.removeCallbacksAndMessages(null)
+        candidateRetryHandler.removeCallbacksAndMessages(null)
+        candidateSlotOwners.clear()
 
         val remoteRef = remotePresenceReference
         val remoteListener = remotePresenceListener
@@ -556,6 +564,43 @@ class FirebaseSignalingClient(
     ) {
         if (closed.get()) return
 
+        val sequence = candidateSequence.getAndIncrement()
+        val slot = Math.floorMod(
+            sequence,
+            MAX_CANDIDATE_SLOTS.toLong()
+        ).toString().padStart(CANDIDATE_SLOT_WIDTH, '0')
+        val writeToken = candidateWriteToken.incrementAndGet()
+
+        /*
+         * A slot can be reused after the bounded ring wraps. Bind retries to
+         * the exact slot owner so a delayed failure callback from an older
+         * candidate can never overwrite a newer candidate in that slot.
+         */
+        candidateSlotOwners[slot] = writeToken
+
+        publishCandidateAttempt(
+            candidate = candidate,
+            slot = slot,
+            writeToken = writeToken,
+            attempt = 1
+        )
+    }
+
+    private fun publishCandidateAttempt(
+        candidate: SignalCandidate,
+        slot: String,
+        writeToken: Long,
+        attempt: Int
+    ) {
+        if (
+            closed.get() ||
+            candidateSlotOwners[slot] != writeToken ||
+            candidate.negotiationId !=
+                negotiationIdFor(candidateGate.currentEpoch())
+        ) {
+            return
+        }
+
         val payload = JSONObject()
             .put("mid", candidate.sdpMid)
             .put("mLine", candidate.sdpMLineIndex)
@@ -563,20 +608,51 @@ class FirebaseSignalingClient(
             .put("negotiationId", candidate.negotiationId)
             .toString()
 
-        val sequence = candidateSequence.getAndIncrement()
-        val slot = Math.floorMod(
-            sequence,
-            MAX_CANDIDATE_SLOTS.toLong()
-        ).toString().padStart(CANDIDATE_SLOT_WIDTH, '0')
+        val task = localCandidates.child(slot).setValue(payload)
 
-        /*
-         * Trickle ICE candidates are individually recoverable. One transient
-         * candidate write must not tear down the whole session; later
-         * candidates and the bounded ICE-restart path can still establish a
-         * valid route. SDP publication failures remain fatal.
-         */
-        localCandidates.child(slot)
-            .setValue(payload)
+        task.addOnSuccessListener {
+            candidateSlotOwners.remove(slot, writeToken)
+        }
+
+        task.addOnFailureListener {
+            if (
+                closed.get() ||
+                candidateSlotOwners[slot] != writeToken ||
+                candidate.negotiationId !=
+                    negotiationIdFor(candidateGate.currentEpoch())
+            ) {
+                return@addOnFailureListener
+            }
+
+            if (attempt >= MAX_CANDIDATE_WRITE_ATTEMPTS) {
+                /*
+                 * Candidate loss is not session-fatal. A different candidate
+                 * or the bounded host ICE-restart path can still establish a
+                 * route. Drop only this candidate after its retry budget.
+                 */
+                candidateSlotOwners.remove(slot, writeToken)
+                return@addOnFailureListener
+            }
+
+            val exponent = (attempt - 1).coerceIn(0, 3)
+            val backoffMs =
+                (
+                    CANDIDATE_WRITE_RETRY_BASE_MS *
+                        (1L shl exponent)
+                ).coerceAtMost(CANDIDATE_WRITE_RETRY_MAX_MS)
+
+            candidateRetryHandler.postDelayed(
+                {
+                    publishCandidateAttempt(
+                        candidate = candidate,
+                        slot = slot,
+                        writeToken = writeToken,
+                        attempt = attempt + 1
+                    )
+                },
+                backoffMs
+            )
+        }
     }
 
     private fun dispatchRemoteCandidate(
@@ -620,5 +696,8 @@ class FirebaseSignalingClient(
         private const val MAX_DESCRIPTION_WRITE_ATTEMPTS = 7
         private const val DESCRIPTION_WRITE_RETRY_BASE_MS = 250L
         private const val DESCRIPTION_WRITE_RETRY_MAX_MS = 4_000L
+        private const val MAX_CANDIDATE_WRITE_ATTEMPTS = 4
+        private const val CANDIDATE_WRITE_RETRY_BASE_MS = 200L
+        private const val CANDIDATE_WRITE_RETRY_MAX_MS = 1_500L
     }
 }
