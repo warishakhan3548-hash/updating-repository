@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
@@ -871,9 +872,16 @@ class MainActivity : ComponentActivity() {
 
         val projectionManager =
             getSystemService(MediaProjectionManager::class.java)
-        screenCaptureLauncher.launch(
-            projectionManager.createScreenCaptureIntent()
-        )
+        val captureIntent =
+            if (Build.VERSION.SDK_INT >= 34) {
+                projectionManager.createScreenCaptureIntent(
+                    MediaProjectionConfig.createConfigForDefaultDisplay()
+                )
+            } else {
+                projectionManager.createScreenCaptureIntent()
+            }
+
+        screenCaptureLauncher.launch(captureIntent)
     }
 
     private fun updateHostDeadline(
