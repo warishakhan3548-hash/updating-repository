@@ -56,6 +56,16 @@ internal class NegotiationOrderGuard(
             true
         }
 
+    fun isCurrent(negotiationId: String): Boolean =
+        synchronized(lock) {
+            val parsed = parse(negotiationId)
+                ?: return@synchronized false
+            val (clientId, epoch) = parsed
+
+            remoteClientId == clientId &&
+                highestEpoch == epoch
+        }
+
     private fun retire(clientId: String) {
         if (retiredClientIds.contains(clientId)) return
 
