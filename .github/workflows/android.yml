@@ -32,7 +32,37 @@ jobs:
           if [ -n "$GOOGLE_SERVICES_JSON_B64" ]; then
             printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > app/google-services.json
           fi
-      - run: gradle :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --stacktrace
+      - name: Verify Firebase config
+        run: |
+          python3 - <<'PY'
+          import json
+          d=json.load(open("app/google-services.json"))
+          assert d.get("project_info",{}).get("project_id")=="aaris-control"
+          pkgs=[
+              x.get("client_info",{}).get("android_client_info",{}).get("package_name")
+              for x in d.get("client",[])
+          ]
+          assert "com.aaris.remoteassist" in pkgs
+          print("Firebase config verified.")
+          PY
+      - name: Build debug and signed test-release APK
+        env:
+          AARIS_TEST_RELEASE_SIGNING: "true"
+        run: gradle :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --stacktrace
+      - name: Verify signed release APK
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -1)"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          BADGING="$("$AAPT" dump badging "$APK" | head -1)"
+          echo "$BADGING"
+          echo "$BADGING" | grep -F "package: name='com.aaris.remoteassist'" >/dev/null
+          echo "$BADGING" | grep -F "versionCode='35'" >/dev/null
+          echo "$BADGING" | grep -F "versionName='1.7.13'" >/dev/null
+          sha256sum "$APK"
       - name: Print lint report on failure
         if: failure()
         run: |
@@ -41,4 +71,9 @@ jobs:
         with:
           name: AarisRemote-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AarisRemote-1.7.13-test-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
