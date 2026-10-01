@@ -20,6 +20,8 @@ class FirebaseSignalingClient(
 ) : SignalingClient {
     private val closed = AtomicBoolean(false)
     private val candidateSequence = AtomicLong(0L)
+    private val candidateGate =
+        CandidatePublishGate<SignalCandidate>(MAX_CANDIDATE_SLOTS)
     private val root = database.getReference("sessions").child(sessionId)
 
     private val localSignal: DatabaseReference
@@ -156,34 +158,38 @@ class FirebaseSignalingClient(
         setPresence(true)
     }
 
+    override fun beginLocalDescription() {
+        if (closed.get()) return
+        candidateGate.beginNegotiation()
+    }
+
     override fun sendDescription(description: SignalDescription) {
         if (closed.get()) return
+
+        val epoch = candidateGate.currentEpoch()
         val payload = JSONObject()
             .put("type", description.type)
             .put("sdp", description.sdp)
             .toString()
 
         localSignal.setValue(payload)
+            .addOnSuccessListener {
+                if (closed.get()) {
+                    return@addOnSuccessListener
+                }
+
+                candidateGate
+                    .markDescriptionPublished(epoch)
+                    .forEach(::publishCandidate)
+            }
             .addOnFailureListener { listener?.onError(it) }
     }
 
     override fun sendCandidate(candidate: SignalCandidate) {
         if (closed.get()) return
-        val payload = JSONObject()
-            .put("mid", candidate.sdpMid)
-            .put("mLine", candidate.sdpMLineIndex)
-            .put("sdp", candidate.sdp)
-            .toString()
 
-        val sequence = candidateSequence.getAndIncrement()
-        val slot = Math.floorMod(
-            sequence,
-            MAX_CANDIDATE_SLOTS.toLong()
-        ).toString().padStart(CANDIDATE_SLOT_WIDTH, '0')
-
-        localCandidates.child(slot)
-            .setValue(payload)
-            .addOnFailureListener { listener?.onError(it) }
+        candidateGate.offer(candidate)
+            ?.let(::publishCandidate)
     }
 
     override fun setPresence(online: Boolean) {
@@ -227,6 +233,7 @@ class FirebaseSignalingClient(
         }
         remotePresenceReference = null
         remotePresenceListener = null
+        candidateGate.reset()
 
         val uid = auth.currentUser?.uid
         if (uid != null) {
@@ -237,6 +244,28 @@ class FirebaseSignalingClient(
         this.descriptionListener = null
         this.candidateListener = null
         this.presenceListener = null
+    }
+
+    private fun publishCandidate(
+        candidate: SignalCandidate
+    ) {
+        if (closed.get()) return
+
+        val payload = JSONObject()
+            .put("mid", candidate.sdpMid)
+            .put("mLine", candidate.sdpMLineIndex)
+            .put("sdp", candidate.sdp)
+            .toString()
+
+        val sequence = candidateSequence.getAndIncrement()
+        val slot = Math.floorMod(
+            sequence,
+            MAX_CANDIDATE_SLOTS.toLong()
+        ).toString().padStart(CANDIDATE_SLOT_WIDTH, '0')
+
+        localCandidates.child(slot)
+            .setValue(payload)
+            .addOnFailureListener { listener?.onError(it) }
     }
 
     private fun dispatchRemoteCandidate(
