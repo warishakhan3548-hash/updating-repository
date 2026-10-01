@@ -128,7 +128,7 @@ object PairingShareText {
             ?: error("Pairing code must contain " + PairingCode.DIGITS + " digits")
 
         return "Aaris Remote code: ${PairingCode.display(normalized)}\n" +
-            "Tap to join: ${PairingLink.uri(normalized)}\n" +
-            "Or open Aaris Remote → Connect → START."
+            "Open Aaris Remote → Connect → START.\n" +
+            "Quick join (if supported): ${PairingLink.uri(normalized)}"
     }
 }
