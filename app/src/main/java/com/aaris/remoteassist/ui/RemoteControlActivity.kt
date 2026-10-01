@@ -682,13 +682,19 @@ class RemoteControlActivity : ComponentActivity() {
         }
 
         addDockControl("Back") {
-            rtcSession?.sendBack()
+            if (rtcSession?.sendBack() != true) {
+                showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+            }
         }
         addDockControl("Home") {
-            rtcSession?.sendHome()
+            if (rtcSession?.sendHome() != true) {
+                showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+            }
         }
         addDockControl("Apps") {
-            rtcSession?.sendRecents()
+            if (rtcSession?.sendRecents() != true) {
+                showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+            }
         }
         addDockControl("Type") {
             showTextDialog()
@@ -982,7 +988,7 @@ class RemoteControlActivity : ComponentActivity() {
                             twoFingerStartedAtMs
                     ).coerceIn(80L, 1_500L)
 
-                    session.sendTwoFingerGesture(
+                    val queued = session.sendTwoFingerGesture(
                         firstFromNx = firstStartNx,
                         firstFromNy = firstStartNy,
                         firstToNx = firstEnd.first,
@@ -995,6 +1001,9 @@ class RemoteControlActivity : ComponentActivity() {
                         expectedGeneration =
                             twoFingerGeneration
                     )
+                    if (!queued) {
+                        showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+                    }
                 }
 
                 resetTwoFingerState(
@@ -1056,28 +1065,40 @@ class RemoteControlActivity : ComponentActivity() {
                 val generation = singleGestureGeneration
                 if (distance <= touchSlop) {
                     if (duration >= 500L) {
-                        session.sendLongPress(
-                            end.first,
-                            end.second,
-                            duration.toInt(),
-                            expectedGeneration = generation
-                        )
+                        if (
+                            !session.sendLongPress(
+                                end.first,
+                                end.second,
+                                duration.toInt(),
+                                expectedGeneration = generation
+                            )
+                        ) {
+                            showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+                        }
                     } else {
-                        session.sendTap(
-                            end.first,
-                            end.second,
-                            expectedGeneration = generation
-                        )
+                        if (
+                            !session.sendTap(
+                                end.first,
+                                end.second,
+                                expectedGeneration = generation
+                            )
+                        ) {
+                            showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+                        }
                     }
                 } else {
                     val points = singleGesturePoints.toList()
                     if (points.size >= 2) {
-                        session.sendGesturePath(
-                            points = points,
-                            durationMs = duration.toInt()
-                                .coerceIn(80, 1_500),
-                            expectedGeneration = generation
-                        )
+                        if (
+                            !session.sendGesturePath(
+                                points = points,
+                                durationMs = duration.toInt()
+                                    .coerceIn(80, 1_500),
+                                expectedGeneration = generation
+                            )
+                        ) {
+                            showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+                        }
                     }
                 }
 
