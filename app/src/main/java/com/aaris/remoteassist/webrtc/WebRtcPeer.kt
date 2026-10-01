@@ -15,7 +15,6 @@ import org.webrtc.RtpTransceiver
 import org.webrtc.SessionDescription
 import org.webrtc.VideoTrack
 import java.nio.ByteBuffer
-import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,20 +45,11 @@ class WebRtcPeer(
     private val started = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private data class PendingRemoteCandidate(
-        val negotiationId: String,
-        val candidate: IceCandidate
-    )
-
-    private val pendingRemoteCandidates =
-        ArrayDeque<PendingRemoteCandidate>()
+    private val remoteCandidates =
+        RemoteCandidateBuffer<IceCandidate>(
+            MAX_PENDING_REMOTE_CANDIDATES
+        )
     private val connectivity = PeerConnectivityTracker()
-
-    @Volatile
-    private var remoteDescriptionReady = false
-
-    @Volatile
-    private var remoteNegotiationId: String? = null
 
     @Volatile
     private var controlChannel: DataChannel? = null
@@ -146,9 +136,7 @@ class WebRtcPeer(
                     if (refreshed.fromBackend) {
                         activeIceServers = refreshed.servers
                     }
-                    synchronized(pendingRemoteCandidates) {
-                        remoteDescriptionReady = false
-                    }
+                    remoteCandidates.markDescriptionNotReady()
                     peerConnection.setConfiguration(
                         createRtcConfiguration(selectedServers)
                     )
@@ -201,26 +189,16 @@ class WebRtcPeer(
             return
         }
 
-        synchronized(pendingRemoteCandidates) {
-            remoteDescriptionReady = false
-            remoteNegotiationId = description.negotiationId
-
-            val retained = pendingRemoteCandidates
-                .filter {
-                    it.negotiationId ==
-                        description.negotiationId
-                }
-            pendingRemoteCandidates.clear()
-            retained.forEach(
-                pendingRemoteCandidates::addLast
-            )
-        }
+        remoteCandidates.beginRemoteDescription(
+            description.negotiationId
+        )
 
         peerConnection.setRemoteDescription(
             object : SdpObserverAdapter() {
                 override fun onSetSuccess() {
-                    remoteDescriptionReady = true
-                    flushPendingCandidates()
+                    remoteCandidates
+                        .markDescriptionReady()
+                        .forEach(peerConnection::addIceCandidate)
 
                     if (
                         role == PeerRole.CONTROLLER &&
@@ -251,29 +229,10 @@ class WebRtcPeer(
             candidate.sdp
         )
 
-        synchronized(pendingRemoteCandidates) {
-            val activeId = remoteNegotiationId
-            if (
-                !remoteDescriptionReady ||
-                activeId != candidate.negotiationId
-            ) {
-                if (
-                    pendingRemoteCandidates.size >=
-                    MAX_PENDING_REMOTE_CANDIDATES
-                ) {
-                    pendingRemoteCandidates.removeFirst()
-                }
-                pendingRemoteCandidates.addLast(
-                    PendingRemoteCandidate(
-                        negotiationId = candidate.negotiationId,
-                        candidate = ice
-                    )
-                )
-                return
-            }
-        }
-
-        peerConnection.addIceCandidate(ice)
+        remoteCandidates.offer(
+            negotiationId = candidate.negotiationId,
+            value = ice
+        )?.let(peerConnection::addIceCandidate)
     }
 
     override fun onRemotePresence(online: Boolean) {
@@ -392,9 +351,7 @@ class WebRtcPeer(
         runCatching { peerConnection.close() }
         runCatching { peerConnection.dispose() }
 
-        synchronized(pendingRemoteCandidates) {
-            pendingRemoteCandidates.clear()
-        }
+        remoteCandidates.reset()
     }
 
     private fun createOffer() {
@@ -554,29 +511,6 @@ class WebRtcPeer(
         if (connectivity.onDisconnected()) {
             listener.onPeerDisconnected()
         }
-    }
-
-    private fun flushPendingCandidates() {
-        val activeId = remoteNegotiationId ?: return
-        val pending = mutableListOf<IceCandidate>()
-
-        synchronized(pendingRemoteCandidates) {
-            val retained = mutableListOf<PendingRemoteCandidate>()
-            while (pendingRemoteCandidates.isNotEmpty()) {
-                val item = pendingRemoteCandidates.removeFirst()
-                if (item.negotiationId == activeId) {
-                    pending += item.candidate
-                } else {
-                    retained += item
-                }
-            }
-
-            retained
-                .takeLast(MAX_PENDING_REMOTE_CANDIDATES)
-                .forEach(pendingRemoteCandidates::addLast)
-        }
-
-        pending.forEach(peerConnection::addIceCandidate)
     }
 
     private fun applyInteractiveVideoPolicy(
