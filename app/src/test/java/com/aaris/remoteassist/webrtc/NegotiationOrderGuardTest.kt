@@ -25,6 +25,16 @@ class NegotiationOrderGuardTest {
     }
 
     @Test
+    fun retiredClientCannotBecomeCurrentAgain() {
+        val guard = NegotiationOrderGuard()
+
+        assertTrue(guard.accept("client-a:9"))
+        assertTrue(guard.accept("client-b:1"))
+        assertFalse(guard.accept("client-a:10"))
+        assertTrue(guard.accept("client-b:2"))
+    }
+
+    @Test
     fun legacyIsAllowedOnlyBeforeModernNegotiation() {
         val guard = NegotiationOrderGuard()
 
