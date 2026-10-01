@@ -308,6 +308,11 @@ class HostWebRtcSession(
             return
         }
 
+        if (!AssistAccessibilityService.isConnected()) {
+            listener.onLocalControlUnavailable()
+            return
+        }
+
         displayHandler.removeCallbacks(connectionWatchdog)
 
         val firstLive = lease == null
