@@ -67,6 +67,7 @@ class FirebaseSignalingClient(
     private var remotePresenceReference: DatabaseReference? = null
     private var remotePresenceListener: ValueEventListener? = null
     private var lastRemoteSignal: String? = null
+    private var lastAcceptedRemoteDescription: SignalDescription? = null
 
     override fun start(listener: SignalingClient.Listener) {
         check(!closed.get()) { "Signaling client is closed" }
@@ -111,6 +112,23 @@ class FirebaseSignalingClient(
                         return@onSuccess
                     }
 
+                    val previous =
+                        lastAcceptedRemoteDescription
+                    if (
+                        redelivery &&
+                        previous?.negotiationId ==
+                            description.negotiationId &&
+                        (
+                            previous.type != description.type ||
+                                previous.sdp != description.sdp
+                            )
+                    ) {
+                        // A retry is allowed to change only its delivery
+                        // marker. Same negotiation ID with different SDP is
+                        // not idempotent and must fail closed.
+                        return@onSuccess
+                    }
+
                     if (
                         remoteNegotiationGuard.accept(
                             negotiationId =
@@ -119,6 +137,8 @@ class FirebaseSignalingClient(
                                 redelivery
                         )
                     ) {
+                        lastAcceptedRemoteDescription =
+                            description
                         lastRemoteSignal = raw
                         listener.onRemoteDescription(description)
                     }
@@ -339,6 +359,7 @@ class FirebaseSignalingClient(
 
         remotePresenceReference = null
         remotePresenceListener = null
+        lastAcceptedRemoteDescription = null
         lastLocalDescription = null
         candidateGate.reset()
 
