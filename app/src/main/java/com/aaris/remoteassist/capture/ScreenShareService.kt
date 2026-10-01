@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import com.aaris.remoteassist.backend.FirebaseBackend
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
@@ -59,6 +60,7 @@ class ScreenShareService : Service() {
         if (id != null) {
             ProjectionGrantStore.clear(id)
             SessionCoordinator.close(id)
+            closeBackendDetached(id)
         }
 
         scope.cancel()
@@ -244,18 +246,32 @@ class ScreenShareService : Service() {
             ProjectionGrantStore.clear(sessionId)
             SessionCoordinator.close(sessionId)
 
-            scope.launch {
-                runCatching {
-                    FirebasePairingGateway(
-                        this@ScreenShareService
-                    ).close(sessionId)
-                }
-            }
+            closeBackendDetached(sessionId)
         }
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
+
+    private fun closeBackendDetached(sessionId: String) {
+        val appContext = applicationContext
+
+        runCatching {
+            FirebaseBackend.database()
+                .getReference("sessions")
+                .child(sessionId)
+                .child("state")
+                .setValue("CLOSED")
+        }
+
+        BACKEND_CLEANUP_SCOPE.launch {
+            runCatching {
+                FirebasePairingGateway(appContext)
+                    .close(sessionId)
+            }
+        }
+    }
+
 
     private fun startVisibleForeground() {
         val notification = buildNotification()
@@ -335,6 +351,10 @@ class ScreenShareService : Service() {
         const val EXTRA_SESSION_ID = "session_id"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_CAPTURE_DATA = "capture_data"
+
+        private val BACKEND_CLEANUP_SCOPE = CoroutineScope(
+            SupervisorJob() + Dispatchers.IO
+        )
 
         private const val CHANNEL_ID = "remote_session"
         private const val NOTIFICATION_ID = 4107
