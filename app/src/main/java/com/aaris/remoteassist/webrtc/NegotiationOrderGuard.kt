@@ -14,8 +14,10 @@ internal class NegotiationOrderGuard(
         require(retiredCapacity > 0)
     }
 
-    fun accept(negotiationId: String): Boolean =
-        synchronized(lock) {
+    fun accept(
+        negotiationId: String,
+        allowCurrentDuplicate: Boolean = false
+    ): Boolean = synchronized(lock) {
             if (negotiationId == LEGACY_NEGOTIATION_ID) {
                 return@synchronized remoteClientId == null
             }
@@ -42,8 +44,12 @@ internal class NegotiationOrderGuard(
                 return@synchronized true
             }
 
-            if (epoch <= highestEpoch) {
+            if (epoch < highestEpoch) {
                 return@synchronized false
+            }
+
+            if (epoch == highestEpoch) {
+                return@synchronized allowCurrentDuplicate
             }
 
             highestEpoch = epoch
