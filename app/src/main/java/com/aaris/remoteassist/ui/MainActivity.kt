@@ -1403,6 +1403,18 @@ class MainActivity : ComponentActivity() {
             )
         )
 
+        @Suppress("DEPRECATION")
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            view.setPadding(
+                dp(22) + insets.systemWindowInsetLeft,
+                dp(30) + insets.systemWindowInsetTop,
+                dp(22) + insets.systemWindowInsetRight,
+                dp(22) + insets.systemWindowInsetBottom
+            )
+            insets
+        }
+        root.requestApplyInsets()
+
         updateStatusChrome(status.text.toString())
         return root
     }
