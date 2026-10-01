@@ -61,6 +61,7 @@ A native Android remote-support app with a deliberately tiny user interface and 
 26. Startup ICE recovery: one bounded pre-live host ICE restart is attempted after an initial WebRTC transport failure or a short pre-live DISCONNECTED stall, while the controller keeps listening for the retry offer until the existing handshake timeout decides the session is unrecoverable.
 27. Edge-continuous gestures: a gesture must start inside the rendered remote screen, but an already-valid swipe or pinch may drift into local letterbox space and is clamped to the nearest remote edge instead of being silently discarded.
 28. Join-link ambiguity guard: deep links accept exactly one pairing-code parameter and reject unexpected authority/fragment forms so malformed shared links cannot select an unintended code.
+29. Signaling/transport separation: Firebase presence is advisory only; a transient RTDB presence drop cannot tear down an otherwise healthy WebRTC peer plus ordered control channel.
 
 ## Firebase setup
 
