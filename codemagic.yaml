@@ -29,7 +29,15 @@ workflows:
         script: |
           set -euo pipefail
           if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
-            printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > "$CM_BUILD_DIR/app/google-services.json"
+            python3 - <<'PY'
+import base64
+import os
+from pathlib import Path
+
+Path(os.environ["CM_BUILD_DIR"], "app", "google-services.json").write_bytes(
+    base64.b64decode(os.environ["GOOGLE_SERVICES_JSON_B64"])
+)
+PY
             echo "Firebase Android config restored."
           else
             echo "GOOGLE_SERVICES_JSON_B64 is not configured; continuing without generated Firebase resources."
@@ -69,9 +77,12 @@ workflows:
           set -euo pipefail
           APK="$(find "$CM_BUILD_DIR/app/build/outputs/apk/release" -type f -name '*.apk' ! -name '*unsigned*' | head -1)"
           test -n "$APK" || { echo "Signed release APK was not produced."; exit 1; }
-          BUILD_TOOLS="$(find "$ANDROID_SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
-          "$BUILD_TOOLS/aapt" dump badging "$APK" | head -20
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | head -1)"
+          AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | head -1)"
+          test -x "$APKSIGNER" || { echo "apksigner not found"; exit 1; }
+          test -x "$AAPT" || { echo "aapt not found"; exit 1; }
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          "$AAPT" dump badging "$APK" | head -20
           shasum -a 256 "$APK"
           echo "Final release APK: $APK"
 
