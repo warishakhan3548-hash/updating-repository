@@ -82,6 +82,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 47. Permission-role clarity: Accessibility is required only on the phone being shared/controlled. The controller phone renders video and sends commands over WebRTC and is never forced into Accessibility settings.
 48. Monotonic backend recovery: approval, screen-ready and live publications are idempotent. If Firebase commits a transition but a mobile handoff hides the acknowledgement, retries accept the already-advanced state instead of regressing or falsely interrupting the session.
 49. Screen-ready retry budget: the MediaProjection foreground service no longer destroys an otherwise valid session after one transient SCREEN_READY publication failure; it retries the authoritative transition with bounded exponential backoff before failing closed.
+50. Post-answer ICE settle guard: a freshly-applied SDP answer receives a bounded settling window before the host escalates to another ICE restart, preventing recovery logic from repeatedly tearing down a healthy in-progress mobile negotiation.
+51. Dual WebRTC liveness signals: ICE CONNECTED/COMPLETED can confirm transport readiness when Android delays the aggregate PeerConnection callback, while duplicate pre-live FAILED callbacks feed the same bounded recovery path instead of prematurely closing the session.
 
 ## Firebase setup
 

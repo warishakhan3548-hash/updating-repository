@@ -114,6 +114,9 @@ class WebRtcPeer(
     @Volatile
     private var preLiveDisconnected = false
 
+    @Volatile
+    private var lastRemoteAnswerAppliedAtMs = 0L
+
     private val initialIceRestart = Runnable {
         if (
             !closed.get() &&
@@ -163,10 +166,30 @@ class WebRtcPeer(
                 }
 
                 PeerConnection.SignalingState.STABLE -> {
+                    /*
+                     * STABLE only means offer/answer negotiation completed; it
+                     * does not mean ICE has had time to establish a route.
+                     * On slower mobile networks the answer can land just
+                     * before this watchdog fires. Restarting ICE immediately
+                     * then destroys a healthy in-progress generation and can
+                     * create a perpetual Connecting loop.
+                     *
+                     * Give every freshly-applied answer one full bounded
+                     * settling window before escalating to a relay restart.
+                     */
+                    val waitForCurrentIce =
+                        BootstrapRecoveryPolicy.shouldWaitAfterRemoteAnswer(
+                            lastRemoteAnswerAppliedAtMs =
+                                lastRemoteAnswerAppliedAtMs,
+                            nowMs = monotonicNowMs(),
+                            settleWindowMs =
+                                POST_ANSWER_ICE_SETTLE_MS
+                        )
                     val forceRelay =
                         activeIceFromBackend ||
                             bootstrapRecoveryAttempts > 0
                     if (
+                        !waitForCurrentIce &&
                         bootstrapRecoveryAttempts <
                             MAX_BOOTSTRAP_RECOVERY_ATTEMPTS &&
                         requestIceRestart(
@@ -605,6 +628,14 @@ class WebRtcPeer(
                     override fun onSetSuccess() {
                         lastAppliedRemoteNegotiationId =
                             description.negotiationId
+                        if (
+                            role == PeerRole.HOST &&
+                            sessionDescription.type ==
+                                SessionDescription.Type.ANSWER
+                        ) {
+                            lastRemoteAnswerAppliedAtMs =
+                                monotonicNowMs()
+                        }
                         remoteDescriptionInFlight.set(false)
 
                         remoteCandidates
@@ -721,66 +752,42 @@ class WebRtcPeer(
 
     override fun onIceConnectionChange(
         newState: PeerConnection.IceConnectionState
-    ) = Unit
+    ) {
+        /*
+         * Some Android/libwebrtc builds surface ICE progress a little before
+         * PeerConnectionState catches up. Treat ICE CONNECTED/COMPLETED as a
+         * positive secondary liveness signal so an otherwise healthy session
+         * cannot remain stuck in Connecting just because the aggregate
+         * callback is delayed.
+         *
+         * DISCONNECTED is intentionally left to PeerConnectionState/DataChannel
+         * because mobile route handoffs can make ICE briefly flap without the
+         * transport actually becoming unusable.
+         */
+        when (newState) {
+            PeerConnection.IceConnectionState.CONNECTED,
+            PeerConnection.IceConnectionState.COMPLETED ->
+                handleTransportConnected()
+
+            PeerConnection.IceConnectionState.FAILED ->
+                handleTransportFailed()
+
+            else -> Unit
+        }
+    }
 
     override fun onConnectionChange(
         newState: PeerConnection.PeerConnectionState
     ) {
-        preLiveDisconnected =
-            newState == PeerConnection.PeerConnectionState.DISCONNECTED &&
-                !connectivity.hasEverConnected()
-
-        if (!preLiveDisconnected) {
-            handler.removeCallbacks(initialIceRestart)
-        }
-
         when (newState) {
-            PeerConnection.PeerConnectionState.CONNECTED -> {
-                handler.removeCallbacks(initialIceRestart)
-                handler.removeCallbacks(bootstrapRecovery)
-                handler.removeCallbacks(controllerRelayRefresh)
-                publishPeerConnected()
-            }
+            PeerConnection.PeerConnectionState.CONNECTED ->
+                handleTransportConnected()
 
-            PeerConnection.PeerConnectionState.DISCONNECTED -> {
-                if (connectivity.hasEverConnected()) {
-                    publishPeerDisconnected()
-                } else if (role == PeerRole.HOST) {
-                    handler.removeCallbacks(initialIceRestart)
-                    handler.postDelayed(
-                        initialIceRestart,
-                        INITIAL_ICE_RESTART_DELAY_MS
-                    )
-                }
-            }
+            PeerConnection.PeerConnectionState.DISCONNECTED ->
+                handleTransportDisconnected()
 
-            PeerConnection.PeerConnectionState.FAILED -> {
-                handler.removeCallbacks(initialIceRestart)
-                if (connectivity.hasEverConnected()) {
-                    publishPeerDisconnected()
-                } else if (
-                    role == PeerRole.HOST &&
-                    initialIceRestartAttempted.compareAndSet(
-                        false,
-                        true
-                    )
-                ) {
-                    // One bounded event-driven pre-live ICE restart covers
-                    // transient route/candidate failures. The staged bootstrap
-                    // recovery and the 60s session watchdog remain the final
-                    // authority if the retry cannot recover.
-                    requestIceRestart()
-                } else if (role == PeerRole.CONTROLLER) {
-                    // Keep listening for the host's retry offer. The existing
-                    // HELLO timeout closes a genuinely unrecoverable startup.
-                } else {
-                    listener.onError(
-                        IllegalStateException(
-                            "WebRTC connection failed before becoming live"
-                        )
-                    )
-                }
-            }
+            PeerConnection.PeerConnectionState.FAILED ->
+                handleTransportFailed()
 
             PeerConnection.PeerConnectionState.CLOSED -> {
                 if (!closed.get()) {
@@ -790,6 +797,64 @@ class WebRtcPeer(
 
             else -> Unit
         }
+    }
+
+    private fun handleTransportConnected() {
+        preLiveDisconnected = false
+        handler.removeCallbacks(initialIceRestart)
+        handler.removeCallbacks(bootstrapRecovery)
+        handler.removeCallbacks(controllerRelayRefresh)
+        publishPeerConnected()
+    }
+
+    private fun handleTransportDisconnected() {
+        preLiveDisconnected =
+            !connectivity.hasEverConnected()
+
+        if (connectivity.hasEverConnected()) {
+            handler.removeCallbacks(initialIceRestart)
+            publishPeerDisconnected()
+            return
+        }
+
+        if (role == PeerRole.HOST) {
+            handler.removeCallbacks(initialIceRestart)
+            handler.postDelayed(
+                initialIceRestart,
+                INITIAL_ICE_RESTART_DELAY_MS
+            )
+        }
+    }
+
+    private fun handleTransportFailed() {
+        preLiveDisconnected = false
+        handler.removeCallbacks(initialIceRestart)
+
+        if (connectivity.hasEverConnected()) {
+            publishPeerDisconnected()
+            return
+        }
+
+        if (
+            role == PeerRole.HOST &&
+            initialIceRestartAttempted.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            /*
+             * A pre-live failure is recoverable. If signaling is not STABLE
+             * yet requestIceRestart() may decline this immediate attempt; the
+             * existing SDP redelivery/bootstrap loop then remains the bounded
+             * recovery authority. Never tear down the whole session merely
+             * because ICE and PeerConnection both reported the same failure.
+             */
+            requestIceRestart(
+                forceRelay = activeIceFromBackend
+            )
+        }
+        // The controller stays attached for the host's recovery offer. The
+        // 60-second HELLO/session watchdogs remain the terminal authority.
     }
 
     override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
@@ -862,6 +927,7 @@ class WebRtcPeer(
 
         lastAppliedRemoteNegotiationId = null
         lastAnsweredRemoteNegotiationId = null
+        lastRemoteAnswerAppliedAtMs = 0L
         remoteDescriptionInFlight.set(false)
         remoteCandidates.reset()
     }
@@ -900,8 +966,11 @@ class WebRtcPeer(
         onLocalDescriptionSet: (() -> Unit)? = null,
         onFailure: (() -> Unit)? = null
     ) {
-        // Redelivery budget belongs to one concrete SDP generation.
+        // Redelivery/recovery timing belongs to one concrete SDP generation.
         offerRedeliveryAttempts = 0
+        if (role == PeerRole.HOST) {
+            lastRemoteAnswerAppliedAtMs = 0L
+        }
 
         val negotiationEpoch =
             signaling.beginLocalDescription()
@@ -1098,6 +1167,9 @@ class WebRtcPeer(
         }
     }
 
+    private fun monotonicNowMs(): Long =
+        System.nanoTime() / 1_000_000L
+
     private fun createRtcConfiguration(
         iceServers: List<PeerConnection.IceServer>,
         relayOnly: Boolean = false
@@ -1132,6 +1204,7 @@ class WebRtcPeer(
         private const val INITIAL_ICE_RESTART_DELAY_MS = 1_500L
         private const val BOOTSTRAP_RECOVERY_INITIAL_DELAY_MS = 4_000L
         private const val BOOTSTRAP_RECOVERY_INTERVAL_MS = 5_000L
+        private const val POST_ANSWER_ICE_SETTLE_MS = 6_000L
         private const val CONTROLLER_RELAY_REFRESH_DELAY_MS = 2_000L
         private const val CONTROLLER_RELAY_REFRESH_INTERVAL_MS = 4_000L
         private const val MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS = 4L
