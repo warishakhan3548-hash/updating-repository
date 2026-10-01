@@ -43,6 +43,7 @@ class WebRtcPeer(
     private val factory = WebRtcRuntime.factory(appContext)
     private val closed = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
+    private val initialIceRestartAttempted = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val remoteCandidates =
@@ -266,6 +267,20 @@ class WebRtcPeer(
             PeerConnection.PeerConnectionState.FAILED -> {
                 if (connectivity.hasEverConnected()) {
                     publishPeerDisconnected()
+                } else if (
+                    role == PeerRole.HOST &&
+                    initialIceRestartAttempted.compareAndSet(
+                        false,
+                        true
+                    )
+                ) {
+                    // One bounded pre-live ICE restart covers transient
+                    // route/candidate failures. Higher-level 30s watchdogs
+                    // remain the final authority if the retry cannot recover.
+                    requestIceRestart()
+                } else if (role == PeerRole.CONTROLLER) {
+                    // Keep listening for the host's retry offer. The existing
+                    // HELLO timeout closes a genuinely unrecoverable startup.
                 } else {
                     listener.onError(
                         IllegalStateException(
