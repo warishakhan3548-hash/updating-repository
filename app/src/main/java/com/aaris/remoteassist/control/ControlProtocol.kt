@@ -3,6 +3,11 @@ package com.aaris.remoteassist.control
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+data class ControlPathPoint(
+    val nx: Float,
+    val ny: Float
+)
+
 sealed interface ControlPacket {
     data class Hello(
         val leaseSecret: Long,
@@ -40,6 +45,14 @@ sealed interface ControlPacket {
         val fromNy: Float,
         val toNx: Float,
         val toNy: Float,
+        val durationMs: Int
+    ) : ControlPacket
+
+    data class GesturePath(
+        val leaseSecret: Long,
+        val generation: Int,
+        val sequence: Long,
+        val points: List<ControlPathPoint>,
         val durationMs: Int
     ) : ControlPacket
 
@@ -100,8 +113,10 @@ object ControlProtocol {
     private const val RECENTS: Byte = 9
     private const val TEXT: Byte = 10
     private const val TWO_FINGER: Byte = 11
+    private const val GESTURE_PATH: Byte = 12
 
     private const val MAX_TEXT_BYTES = 2048
+    private const val MAX_GESTURE_PATH_POINTS = 96
 
     fun encode(packet: ControlPacket): ByteArray {
         val textBytes = (packet as? ControlPacket.Text)
@@ -113,12 +128,25 @@ object ControlProtocol {
             }
         }
 
+        if (packet is ControlPacket.GesturePath) {
+            require(
+                packet.points.size in 2..MAX_GESTURE_PATH_POINTS &&
+                    packet.points.all {
+                        it.nx.isFinite() && it.ny.isFinite()
+                    }
+            ) {
+                "Remote gesture path is invalid"
+            }
+        }
+
         val size = when (packet) {
             is ControlPacket.Hello -> 2 + 8 + 4 + 4 + 4
             is ControlPacket.Heartbeat -> 2 + 8
             is ControlPacket.Tap -> 2 + 8 + 4 + 8 + 2 + 2
             is ControlPacket.LongPress -> 2 + 8 + 4 + 8 + 2 + 2 + 2
             is ControlPacket.Swipe -> 2 + 8 + 4 + 8 + 2 + 2 + 2 + 2 + 2
+            is ControlPacket.GesturePath ->
+                2 + 8 + 4 + 8 + 1 + (packet.points.size * 4) + 2
             is ControlPacket.TwoFinger ->
                 2 + 8 + 4 + 8 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 2
             is ControlPacket.Back,
@@ -182,6 +210,23 @@ object ControlProtocol {
                 putUnit(buffer, packet.fromNy)
                 putUnit(buffer, packet.toNx)
                 putUnit(buffer, packet.toNy)
+                buffer.putShort(
+                    packet.durationMs.coerceIn(80, 5_000).toShort()
+                )
+            }
+
+            is ControlPacket.GesturePath -> {
+                putCommandHeader(
+                    buffer,
+                    packet.leaseSecret,
+                    packet.generation,
+                    packet.sequence
+                )
+                buffer.put(packet.points.size.toByte())
+                packet.points.forEach { point ->
+                    putUnit(buffer, point.nx)
+                    putUnit(buffer, point.ny)
+                }
                 buffer.putShort(
                     packet.durationMs.coerceIn(80, 5_000).toShort()
                 )
@@ -311,6 +356,27 @@ object ControlProtocol {
                     )
                 }
 
+                GESTURE_PATH -> {
+                    require(buffer.remaining() >= 31)
+                    val header = readHeader(buffer)
+                    val count = buffer.get().toInt() and 0xff
+                    require(count in 2..MAX_GESTURE_PATH_POINTS)
+                    require(buffer.remaining() == count * 4 + 2)
+                    val points = List(count) {
+                        ControlPathPoint(
+                            nx = getUnit(buffer),
+                            ny = getUnit(buffer)
+                        )
+                    }
+                    ControlPacket.GesturePath(
+                        header.leaseSecret,
+                        header.generation,
+                        header.sequence,
+                        points,
+                        buffer.short.toInt() and 0xffff
+                    )
+                }
+
                 TWO_FINGER -> {
                     require(buffer.remaining() == 38)
                     val header = readHeader(buffer)
@@ -432,6 +498,20 @@ object ControlProtocol {
                 durationMs = packet.durationMs.toLong()
             )
 
+            is ControlPacket.GesturePath -> GesturePathCommand(
+                sessionId = sessionId,
+                leaseSecret = packet.leaseSecret,
+                generation = packet.generation,
+                sequence = packet.sequence,
+                points = packet.points.map { point ->
+                    RemotePathPoint(
+                        xPx = x(point.nx),
+                        yPx = y(point.ny)
+                    )
+                },
+                durationMs = packet.durationMs.toLong()
+            )
+
             is ControlPacket.TwoFinger -> TwoFingerCommand(
                 sessionId = sessionId,
                 leaseSecret = packet.leaseSecret,
@@ -526,6 +606,7 @@ object ControlProtocol {
         is ControlPacket.Tap -> TAP
         is ControlPacket.LongPress -> LONG_PRESS
         is ControlPacket.Swipe -> SWIPE
+        is ControlPacket.GesturePath -> GESTURE_PATH
         is ControlPacket.TwoFinger -> TWO_FINGER
         is ControlPacket.Back -> BACK
         is ControlPacket.Home -> HOME

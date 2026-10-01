@@ -56,6 +56,8 @@ class HostWebRtcSession(
     @Volatile
     private var lease: LiveLease? = null
 
+    private val transport = ControlTransportTracker()
+
     private val signaling = FirebaseSignalingClient(
         sessionId = sessionId,
         role = PeerRole.HOST
@@ -172,14 +174,16 @@ class HostWebRtcSession(
         peerConnected = true
         everConnected = true
         displayHandler.removeCallbacks(iceRestart)
-        listener.onConnectivityChanged(true)
+        transport.onPeerConnected()
+            ?.let(listener::onConnectivityChanged)
         ensureLiveHandshake()
     }
 
     override fun onPeerDisconnected() {
         peerConnected = false
         transportReady = false
-        listener.onConnectivityChanged(false)
+        transport.onPeerDisconnected()
+            ?.let(listener::onConnectivityChanged)
 
         if (everConnected && !closed.get()) {
             displayHandler.removeCallbacks(iceRestart)
@@ -192,12 +196,16 @@ class HostWebRtcSession(
 
     override fun onControlChannelOpen() {
         controlOpen = true
+        transport.onControlChannelOpen()
+            ?.let(listener::onConnectivityChanged)
         ensureLiveHandshake()
     }
 
     override fun onControlChannelClosed() {
         controlOpen = false
         transportReady = false
+        transport.onControlChannelClosed()
+            ?.let(listener::onConnectivityChanged)
         if (!closed.get()) {
             displayHandler.removeCallbacks(connectionWatchdog)
             displayHandler.postDelayed(
@@ -231,6 +239,7 @@ class HostWebRtcSession(
             is ControlPacket.Tap,
             is ControlPacket.LongPress,
             is ControlPacket.Swipe,
+            is ControlPacket.GesturePath,
             is ControlPacket.TwoFinger,
             is ControlPacket.Back,
             is ControlPacket.Home,
