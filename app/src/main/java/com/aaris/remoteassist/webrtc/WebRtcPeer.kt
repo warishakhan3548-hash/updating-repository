@@ -195,18 +195,22 @@ class WebRtcPeer(
                 }
 
                 runCatching {
-                    activeIceServers = refreshed.servers
-                    activeIceFromBackend = true
                     check(
                         peerConnection.setConfiguration(
                             createRtcConfiguration(
-                                activeIceServers
+                                refreshed.servers
                             )
                         )
                     ) {
                         "Could not refresh controller ICE configuration"
                     }
-                }.onFailure(listener::onError)
+                }.onSuccess {
+                    activeIceServers = refreshed.servers
+                    activeIceFromBackend = true
+                }
+                // This is an opportunistic pre-live relay refresh. Direct ICE
+                // remains valid if a device rejects a mid-start configuration
+                // refresh, so do not fail the whole session for this retry.
             }
         }
     }
