@@ -1,5 +1,7 @@
 package com.aaris.remoteassist.webrtc
 
+import android.os.Handler
+import android.os.Looper
 import com.aaris.remoteassist.backend.FirebaseBackend
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.ChildEventListener
@@ -22,6 +24,8 @@ class FirebaseSignalingClient(
     private val candidateSequence = AtomicLong(0L)
     private val restartRequestSequence = AtomicLong(0L)
     private val descriptionDeliverySequence = AtomicLong(0L)
+    private val descriptionRetryHandler =
+        Handler(Looper.getMainLooper())
     @Volatile
     private var clientInstanceId =
         java.util.UUID.randomUUID().toString()
@@ -97,7 +101,14 @@ class FirebaseSignalingClient(
                                 negotiationId = json.optString(
                                     "negotiationId",
                                     LEGACY_NEGOTIATION_ID
-                                )
+                                ),
+                                replyToNegotiationId = json
+                                    .optString(
+                                        "replyToNegotiationId"
+                                    )
+                                    .takeIf {
+                                        it.isNotBlank()
+                                    }
                             ),
                             json.optBoolean(
                                 "redelivery",
@@ -126,6 +137,8 @@ class FirebaseSignalingClient(
                         (
                             previous.negotiationId !=
                                 description.negotiationId ||
+                                previous.replyToNegotiationId !=
+                                    description.replyToNegotiationId ||
                                 previous.type != description.type ||
                                 previous.sdp != description.sdp
                             )
@@ -134,6 +147,35 @@ class FirebaseSignalingClient(
                         // marker. Same negotiation ID with different SDP is
                         // not idempotent and must fail closed.
                         return@onSuccess
+                    }
+
+                    if (
+                        role == PeerRole.HOST &&
+                        description.type.equals(
+                            "answer",
+                            ignoreCase = true
+                        )
+                    ) {
+                        val replyTo =
+                            description.replyToNegotiationId
+                        val currentOfferId =
+                            lastLocalDescription?.negotiationId
+
+                        /*
+                         * New clients bind every answer to the exact host
+                         * offer they answered. A late answer from an older
+                         * generation must never be applied to a newer
+                         * HAVE_LOCAL_OFFER state. Null stays accepted only for
+                         * backward compatibility with pre-1.7.22 peers.
+                         */
+                        if (
+                            !replyTo.isNullOrBlank() &&
+                            currentOfferId != null &&
+                            replyTo != currentOfferId
+                        ) {
+                            lastRemoteSignal = raw
+                            return@onSuccess
+                        }
                     }
 
                     if (
@@ -368,6 +410,8 @@ class FirebaseSignalingClient(
             root.child(remoteUidField).removeEventListener(presenceListener)
         }
 
+        descriptionRetryHandler.removeCallbacksAndMessages(null)
+
         val remoteRef = remotePresenceReference
         val remoteListener = remotePresenceListener
         if (remoteRef != null && remoteListener != null) {
@@ -394,7 +438,8 @@ class FirebaseSignalingClient(
     private fun publishLocalDescription(
         record: LocalDescriptionRecord,
         redelivery: Boolean,
-        failSessionOnError: Boolean
+        failSessionOnError: Boolean,
+        attempt: Int = 1
     ) {
         if (closed.get()) return
 
@@ -402,6 +447,15 @@ class FirebaseSignalingClient(
             .put("type", record.description.type)
             .put("sdp", record.description.sdp)
             .put("negotiationId", record.negotiationId)
+
+        record.description.replyToNegotiationId
+            ?.takeIf { it.isNotBlank() }
+            ?.let {
+                payloadBuilder.put(
+                    "replyToNegotiationId",
+                    it
+                )
+            }
 
         if (redelivery) {
             payloadBuilder
@@ -432,8 +486,67 @@ class FirebaseSignalingClient(
         }
 
         if (failSessionOnError) {
-            task.addOnFailureListener {
-                listener?.onError(it)
+            task.addOnFailureListener { error ->
+                if (closed.get()) {
+                    return@addOnFailureListener
+                }
+
+                val stillAuthoritative =
+                    record.negotiationEpoch ==
+                        candidateGate.currentEpoch() &&
+                        lastLocalDescription
+                            ?.negotiationId ==
+                            record.negotiationId
+
+                if (!stillAuthoritative) {
+                    return@addOnFailureListener
+                }
+
+                if (
+                    attempt >=
+                    MAX_DESCRIPTION_WRITE_ATTEMPTS
+                ) {
+                    listener?.onError(error)
+                    return@addOnFailureListener
+                }
+
+                val exponent =
+                    (attempt - 1).coerceIn(0, 3)
+                val backoffMs =
+                    (
+                        DESCRIPTION_WRITE_RETRY_BASE_MS *
+                            (1L shl exponent)
+                    ).coerceAtMost(
+                        DESCRIPTION_WRITE_RETRY_MAX_MS
+                    )
+
+                /*
+                 * Firebase write completion can be ambiguous across a short
+                 * network handoff: the server may have committed the SDP even
+                 * when the client sees a failure. Retry the exact same
+                 * generation and mark it as redelivery so the receiver treats
+                 * it idempotently instead of creating a second negotiation.
+                 */
+                descriptionRetryHandler.postDelayed(
+                    {
+                        if (
+                            !closed.get() &&
+                            record.negotiationEpoch ==
+                                candidateGate.currentEpoch() &&
+                            lastLocalDescription
+                                ?.negotiationId ==
+                                record.negotiationId
+                        ) {
+                            publishLocalDescription(
+                                record = record,
+                                redelivery = true,
+                                failSessionOnError = true,
+                                attempt = attempt + 1
+                            )
+                        }
+                    },
+                    backoffMs
+                )
             }
         }
     }
@@ -504,5 +617,8 @@ class FirebaseSignalingClient(
             "ice_restart_request"
         private const val MAX_CANDIDATE_SLOTS = 96
         private const val CANDIDATE_SLOT_WIDTH = 3
+        private const val MAX_DESCRIPTION_WRITE_ATTEMPTS = 4
+        private const val DESCRIPTION_WRITE_RETRY_BASE_MS = 250L
+        private const val DESCRIPTION_WRITE_RETRY_MAX_MS = 2_000L
     }
 }
