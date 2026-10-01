@@ -7,25 +7,53 @@ import kotlinx.coroutines.withTimeout
 import org.webrtc.PeerConnection
 
 object IceServerProvider {
+    data class IceConfig(
+        val servers: List<PeerConnection.IceServer>,
+        val fromBackend: Boolean
+    )
+
     suspend fun load(
         sessionId: String
-    ): List<PeerConnection.IceServer> {
+    ): List<PeerConnection.IceServer> =
+        loadConfig(sessionId).servers
+
+    suspend fun loadConfig(
+        sessionId: String,
+        timeoutMs: Long = LOAD_TIMEOUT_MS
+    ): IceConfig {
         require(sessionId.isNotBlank())
+        require(timeoutMs > 0L)
         val fallback = fallbackServers()
 
         val result = runCatching {
-            withTimeout(LOAD_TIMEOUT_MS) {
+            withTimeout(timeoutMs) {
                 FirebaseFunctions
                     .getInstance(BackendConfig.FUNCTIONS_REGION)
                     .getHttpsCallable("getIceConfig")
                     .call(mapOf("sessionId" to sessionId))
                     .await()
             }
-        }.getOrNull() ?: return fallback
+        }.getOrNull() ?: return IceConfig(
+            servers = fallback,
+            fromBackend = false
+        )
 
-        val root = result.data as? Map<*, *> ?: return fallback
+        val root = result.data as? Map<*, *> ?: return IceConfig(
+            servers = fallback,
+            fromBackend = false
+        )
         val parsed = parseServers(root["iceServers"])
-        return parsed.ifEmpty { fallback }
+        if (parsed.isEmpty()) {
+            return IceConfig(
+                servers = fallback,
+                fromBackend = false
+            )
+        }
+
+        return IceConfig(
+            servers = parsed,
+            fromBackend = true
+        )
     }
 
     fun fallbackServers(): List<PeerConnection.IceServer> = listOf(

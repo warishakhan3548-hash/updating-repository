@@ -56,7 +56,7 @@ Connect still requires an explicit user action and START confirmation, but clipb
 
 ## ICE restart credential refresh
 
-The host reloads session-authorized ICE configuration before every ICE restart. This renews short-lived coturn REST credentials for long-running sessions and then applies the refreshed RTC configuration before calling `restartIce()` and creating a new offer. If the server-side relay configuration is unavailable, the existing provider continues to fail safely to its STUN-only fallback.
+The host reloads session-authorized ICE configuration before every ICE restart, using a short refresh budget so recovery is not blocked by a slow backend. A successful refresh renews short-lived coturn REST credentials and is applied before `restartIce()` and the new offer. If that refresh fails, the peer preserves its last-known-good ICE/TURN configuration instead of replacing working relay routes with a transient fallback; initial setup still fails safely to STUN-only when no backend ICE configuration is available.
 
 ## Production network boundary
 
