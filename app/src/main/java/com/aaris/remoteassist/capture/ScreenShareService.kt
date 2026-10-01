@@ -54,6 +54,7 @@ class ScreenShareService : Service() {
     override fun onDestroy() {
         val id = activeSessionId
         activeSessionId = null
+        ScreenShareRuntime.clear(id)
 
         hostSession?.close()
         hostSession = null
@@ -104,7 +105,19 @@ class ScreenShareService : Service() {
         }
 
         activeSessionId = sessionId
-        startVisibleForeground()
+        ScreenShareRuntime.activate(sessionId)
+
+        val foregroundStarted = runCatching {
+            startVisibleForeground()
+        }.isSuccess
+        if (!foregroundStarted) {
+            ScreenShareRuntime.clear(sessionId)
+            activeSessionId = null
+            BackendSessionCloser.close(this, sessionId)
+            SessionCoordinator.close(sessionId)
+            stopSelf()
+            return
+        }
 
         val grant = ProjectionGrant(
             sessionId = sessionId,
@@ -232,6 +245,7 @@ class ScreenShareService : Service() {
     private fun stopActiveSession(reason: String) {
         val sessionId = activeSessionId
         activeSessionId = null
+        ScreenShareRuntime.clear(sessionId)
 
         hostSession?.close()
         hostSession = null
