@@ -357,7 +357,7 @@ object ControlProtocol {
                 }
 
                 GESTURE_PATH -> {
-                    require(buffer.remaining() >= 29)
+                    require(buffer.remaining() >= 31)
                     val header = readHeader(buffer)
                     val count = buffer.get().toInt() and 0xff
                     require(count in 2..MAX_GESTURE_PATH_POINTS)
