@@ -207,6 +207,11 @@ class WebRtcPeer(
                 }.onSuccess {
                     activeIceServers = refreshed.servers
                     activeIceFromBackend = true
+
+                    // setConfiguration() alone does not start a new ICE
+                    // generation. Ask the host for one fresh offer now that
+                    // this controller can gather relay candidates.
+                    signaling.requestRemoteIceRestart()
                 }
                 // This is an opportunistic pre-live relay refresh. Direct ICE
                 // remains valid if a device rejects a mid-start configuration
@@ -407,9 +412,13 @@ class WebRtcPeer(
             peerConnection.signalingState() !=
                 PeerConnection.SignalingState.HAVE_LOCAL_OFFER
         ) {
-            if (connectivity.hasEverConnected()) {
-                requestIceRestart()
-            }
+            // A controller republishes its last answer under a fresh signaling
+            // identity only when it needs the host to open a new ICE round
+            // (for example, after TURN became available). Honor that request
+            // before first LIVE as well as during reconnects.
+            requestIceRestart(
+                forceRelay = !connectivity.hasEverConnected()
+            )
             return
         }
 

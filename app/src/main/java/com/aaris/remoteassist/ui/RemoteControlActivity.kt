@@ -213,29 +213,32 @@ class RemoteControlActivity : ComponentActivity() {
                                 )
 
                             "SCREEN_READY" -> {
+                                // SCREEN_READY is authoritative backend proof
+                                // that this authenticated controller already
+                                // redeemed the code and the host granted screen
+                                // consent. Rebuild volatile local state first so
+                                // an Activity/process recreation cannot falsely
+                                // turn a valid session into "interrupted".
+                                advanceControllerState(id)
+
                                 val local =
                                     SessionCoordinator.snapshot()
                                 val resumable =
                                     local.sessionId == id &&
                                         (
                                             local.state ==
-                                                SessionState.PAIR_PENDING ||
+                                                SessionState.CONNECTING ||
                                                 local.state ==
-                                                    SessionState.HOST_APPROVED ||
-                                                local.state ==
-                                                    SessionState.SCREEN_CONSENT ||
-                                                local.state ==
-                                                    SessionState.CONNECTING
+                                                    SessionState.LIVE
                                         )
 
-                                if (!resumable && rtcSession == null) {
+                                if (!resumable) {
                                     finishController(
                                         "Session was interrupted. Connect again with a new code."
                                     )
                                     return@runOnUiThread
                                 }
 
-                                advanceControllerState(id)
                                 ensureRtcStarted(id)
                             }
 
