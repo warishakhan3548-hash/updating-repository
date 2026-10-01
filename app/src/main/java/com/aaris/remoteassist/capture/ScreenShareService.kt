@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -295,9 +296,14 @@ class ScreenShareService : Service() {
             .setOngoing(true)
             .setContentIntent(contentIntent)
             .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "STOP",
-                stopPendingIntent
+                Notification.Action.Builder(
+                    Icon.createWithResource(
+                        this,
+                        android.R.drawable.ic_menu_close_clear_cancel
+                    ),
+                    "STOP",
+                    stopPendingIntent
+                ).build()
             )
             .build()
     }
