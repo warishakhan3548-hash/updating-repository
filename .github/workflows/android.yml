@@ -32,7 +32,7 @@ jobs:
           if [ -n "$GOOGLE_SERVICES_JSON_B64" ]; then
             printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > app/google-services.json
           fi
-      - run: gradle :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --stacktrace
+      - run: gradle :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --stacktrace
       - name: Print lint report on failure
         if: failure()
         run: |
