@@ -80,6 +80,7 @@ class RemoteControlActivity : ComponentActivity() {
         ArrayList<Pair<Float, Float>>(MAX_GESTURE_PATH_POINTS)
     private var singleGestureGeneration = -1
     private var singleGestureInvalid = false
+    private var singleGestureExceededSlop = false
 
     private var twoFingerActive = false
     private var suppressSingleUp = false
@@ -894,6 +895,7 @@ class RemoteControlActivity : ComponentActivity() {
                 downY = event.y
                 downAtMs = SystemClock.elapsedRealtime()
                 singleGestureGeneration = geometry.generation
+                singleGestureExceededSlop = false
                 singleGestureInvalid =
                     !appendSingleGesturePoint(
                         event.x,
@@ -920,10 +922,21 @@ class RemoteControlActivity : ComponentActivity() {
                 }
 
                 for (index in 0 until event.historySize) {
+                    val historicalX = event.getHistoricalX(index)
+                    val historicalY = event.getHistoricalY(index)
+                    if (
+                        !singleGestureExceededSlop &&
+                        hypot(
+                            historicalX - downX,
+                            historicalY - downY
+                        ) > touchSlop
+                    ) {
+                        singleGestureExceededSlop = true
+                    }
                     if (
                         !appendSingleGesturePoint(
-                            event.getHistoricalX(index),
-                            event.getHistoricalY(index),
+                            historicalX,
+                            historicalY,
                             geometry,
                             clampToContent = true
                         )
@@ -931,6 +944,16 @@ class RemoteControlActivity : ComponentActivity() {
                         singleGestureInvalid = true
                         return true
                     }
+                }
+
+                if (
+                    !singleGestureExceededSlop &&
+                    hypot(
+                        event.x - downX,
+                        event.y - downY
+                    ) > touchSlop
+                ) {
+                    singleGestureExceededSlop = true
                 }
 
                 if (
@@ -1097,8 +1120,12 @@ class RemoteControlActivity : ComponentActivity() {
                     event.y - downY
                 )
 
+                if (distance > touchSlop) {
+                    singleGestureExceededSlop = true
+                }
+
                 val generation = singleGestureGeneration
-                if (distance <= touchSlop) {
+                if (!singleGestureExceededSlop) {
                     if (duration >= 500L) {
                         if (
                             !session.sendLongPress(
@@ -1231,6 +1258,7 @@ class RemoteControlActivity : ComponentActivity() {
         singleGesturePoints.clear()
         singleGestureGeneration = -1
         singleGestureInvalid = false
+        singleGestureExceededSlop = false
     }
 
     private fun normalizedPointer(
