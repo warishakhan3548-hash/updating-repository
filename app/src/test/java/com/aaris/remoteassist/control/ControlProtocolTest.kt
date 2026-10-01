@@ -22,6 +22,31 @@ class ControlProtocolTest {
     }
 
     @Test
+    fun commandResultRoundTrips() {
+        val applied = ControlPacket.CommandResult(
+            sequence = 41L,
+            applied = true
+        )
+        val rejected = ControlPacket.CommandResult(
+            sequence = 42L,
+            applied = false
+        )
+
+        assertEquals(
+            applied,
+            ControlProtocol.decode(
+                ControlProtocol.encode(applied)
+            )
+        )
+        assertEquals(
+            rejected,
+            ControlProtocol.decode(
+                ControlProtocol.encode(rejected)
+            )
+        )
+    }
+
+    @Test
     fun tapRoundTripsWithSmallQuantizationError() {
         val source = ControlPacket.Tap(
             leaseSecret = 91L,
