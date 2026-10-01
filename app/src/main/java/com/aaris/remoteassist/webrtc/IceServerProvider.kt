@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.webrtc
 
 import com.google.firebase.auth.FirebaseAuth
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
@@ -176,9 +177,24 @@ object IceServerProvider {
                 return@withContext emptyList()
             }
 
-            val body = connection.inputStream
-                .bufferedReader()
-                .use { it.readText() }
+            val body = connection.inputStream.use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(4_096)
+                var total = 0
+
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+
+                    total += read
+                    if (total > MAX_ICE_RESPONSE_BYTES) {
+                        return@withContext emptyList()
+                    }
+                    output.write(buffer, 0, read)
+                }
+
+                output.toString(Charsets.UTF_8.name())
+            }
 
             parseIceServers(body)
         } finally {
@@ -245,4 +261,5 @@ object IceServerProvider {
     private const val MAX_ICE_SERVERS = 16
     private const val MAX_URLS_PER_RESPONSE = 12
     private const val MAX_ICE_URL_LENGTH = 512
+    private const val MAX_ICE_RESPONSE_BYTES = 64 * 1024
 }
