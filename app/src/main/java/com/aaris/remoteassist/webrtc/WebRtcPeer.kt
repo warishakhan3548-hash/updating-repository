@@ -51,10 +51,15 @@ class WebRtcPeer(
             MAX_PENDING_REMOTE_CANDIDATES
         )
     private val connectivity = PeerConnectivityTracker()
+
+    @Volatile
+    private var preLiveDisconnected = false
+
     private val initialIceRestart = Runnable {
         if (
             !closed.get() &&
             role == PeerRole.HOST &&
+            preLiveDisconnected &&
             !connectivity.hasEverConnected() &&
             initialIceRestartAttempted.compareAndSet(false, true)
         ) {
@@ -267,6 +272,14 @@ class WebRtcPeer(
     override fun onConnectionChange(
         newState: PeerConnection.PeerConnectionState
     ) {
+        preLiveDisconnected =
+            newState == PeerConnection.PeerConnectionState.DISCONNECTED &&
+                !connectivity.hasEverConnected()
+
+        if (!preLiveDisconnected) {
+            handler.removeCallbacks(initialIceRestart)
+        }
+
         when (newState) {
             PeerConnection.PeerConnectionState.CONNECTED -> {
                 handler.removeCallbacks(initialIceRestart)
