@@ -16,6 +16,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
+import com.aaris.remoteassist.capture.ScreenShareRuntime
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.control.CommandGate
 import com.aaris.remoteassist.control.GlobalAction
@@ -59,12 +60,17 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private val sessionListener: (SessionSnapshot) -> Unit = { snapshot ->
         mainHandler.post {
-            when (snapshot.state) {
-                SessionState.SCREEN_CONSENT,
-                SessionState.CONNECTING,
-                SessionState.LIVE -> showStopOverlay()
+            val sharingOnThisPhone =
+                ScreenShareRuntime.isActive(snapshot.sessionId)
+            val sharingState =
+                snapshot.state == SessionState.SCREEN_CONSENT ||
+                    snapshot.state == SessionState.CONNECTING ||
+                    snapshot.state == SessionState.LIVE
 
-                else -> hideStopOverlay()
+            if (sharingOnThisPhone && sharingState) {
+                showStopOverlay()
+            } else {
+                hideStopOverlay()
             }
         }
     }
