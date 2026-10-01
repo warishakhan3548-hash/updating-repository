@@ -113,8 +113,25 @@ class RemoteControlActivity : ComponentActivity() {
         }
         sessionId = requestedSessionId
 
-        WebRtcRuntime.initialize(this)
-        setContentView(buildUi())
+        val viewerReady = runCatching {
+            WebRtcRuntime.initialize(this)
+            setContentView(buildUi())
+        }.isSuccess
+
+        if (!viewerReady) {
+            BackendSessionCloser.close(this, requestedSessionId)
+            SessionCoordinator.close(requestedSessionId)
+            setResult(
+                RESULT_CANCELED,
+                Intent().putExtra(
+                    EXTRA_RESULT_MESSAGE,
+                    "Could not open the remote viewer. Try connecting again."
+                )
+            )
+            finish()
+            return
+        }
+
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
