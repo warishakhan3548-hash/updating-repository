@@ -96,6 +96,11 @@ sealed interface ControlPacket {
         val text: String
     ) : ControlPacket
 
+    data class CommandResult(
+        val sequence: Long,
+        val applied: Boolean
+    ) : ControlPacket
+
     data object Disconnect : ControlPacket
 }
 
@@ -114,6 +119,7 @@ object ControlProtocol {
     private const val TEXT: Byte = 10
     private const val TWO_FINGER: Byte = 11
     private const val GESTURE_PATH: Byte = 12
+    private const val COMMAND_RESULT: Byte = 13
 
     private const val MAX_TEXT_BYTES = 2048
     private const val MAX_GESTURE_PATH_POINTS = 96
@@ -153,6 +159,7 @@ object ControlProtocol {
             is ControlPacket.Home,
             is ControlPacket.Recents -> 2 + 8 + 4 + 8
             is ControlPacket.Text -> 2 + 8 + 4 + 8 + 2 + checkNotNull(textBytes).size
+            is ControlPacket.CommandResult -> 2 + 8 + 1
             ControlPacket.Disconnect -> 2
         }
 
@@ -283,6 +290,11 @@ object ControlProtocol {
                 val bytes = checkNotNull(textBytes)
                 buffer.putShort(bytes.size.toShort())
                 buffer.put(bytes)
+            }
+
+            is ControlPacket.CommandResult -> {
+                buffer.putLong(packet.sequence)
+                buffer.put(if (packet.applied) 1 else 0)
             }
 
             ControlPacket.Disconnect -> Unit
@@ -442,6 +454,17 @@ object ControlProtocol {
                     )
                 }
 
+                COMMAND_RESULT -> {
+                    require(buffer.remaining() == 9)
+                    val sequence = buffer.long
+                    val applied = when (val value = buffer.get().toInt()) {
+                        0 -> false
+                        1 -> true
+                        else -> error("Invalid command result")
+                    }
+                    ControlPacket.CommandResult(sequence, applied)
+                }
+
                 DISCONNECT -> {
                     require(buffer.remaining() == 0)
                     ControlPacket.Disconnect
@@ -562,6 +585,7 @@ object ControlProtocol {
 
             is ControlPacket.Hello,
             is ControlPacket.Heartbeat,
+            is ControlPacket.CommandResult,
             ControlPacket.Disconnect -> null
         }
     }
@@ -612,6 +636,7 @@ object ControlProtocol {
         is ControlPacket.Home -> HOME
         is ControlPacket.Recents -> RECENTS
         is ControlPacket.Text -> TEXT
+        is ControlPacket.CommandResult -> COMMAND_RESULT
         ControlPacket.Disconnect -> DISCONNECT
     }
 }
