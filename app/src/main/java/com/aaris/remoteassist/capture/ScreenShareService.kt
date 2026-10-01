@@ -145,18 +145,59 @@ class ScreenShareService : Service() {
             return
         }
 
+        publishScreenReadyAndStartTransport(
+            sessionId = sessionId,
+            grant = grant
+        )
+    }
+
+    private fun publishScreenReadyAndStartTransport(
+        sessionId: String,
+        grant: ProjectionGrant
+    ) {
         scope.launch {
-            runCatching {
-                FirebasePairingGateway(this@ScreenShareService)
-                    .markScreenReady(sessionId)
-            }.onSuccess {
-                mainHandler.post {
-                    if (activeSessionId == sessionId) {
-                        startTransport(sessionId, grant)
+            val gateway = FirebasePairingGateway(
+                this@ScreenShareService
+            )
+            var attempt = 0
+
+            while (
+                activeSessionId == sessionId &&
+                attempt < SCREEN_READY_PUBLISH_ATTEMPTS
+            ) {
+                val published = runCatching {
+                    gateway.markScreenReady(sessionId)
+                }.isSuccess
+
+                if (published) {
+                    mainHandler.post {
+                        if (activeSessionId == sessionId) {
+                            startTransport(sessionId, grant)
+                        }
                     }
+                    return@launch
                 }
-            }.onFailure {
-                mainHandler.post {
+
+                attempt += 1
+                if (
+                    attempt >= SCREEN_READY_PUBLISH_ATTEMPTS ||
+                    activeSessionId != sessionId
+                ) {
+                    break
+                }
+
+                val backoffMs =
+                    (
+                        SCREEN_READY_RETRY_BASE_MS *
+                            (1L shl (attempt - 1).coerceAtMost(3))
+                    ).coerceAtMost(
+                        SCREEN_READY_RETRY_MAX_MS
+                    )
+                delay(backoffMs)
+            }
+
+            mainHandler.post {
+                if (activeSessionId == sessionId) {
                     stopActiveSession(
                         "backend_screen_ready_failed"
                     )
@@ -395,6 +436,9 @@ class ScreenShareService : Service() {
 
         private const val CHANNEL_ID = "remote_session"
         private const val NOTIFICATION_ID = 4107
+        private const val SCREEN_READY_PUBLISH_ATTEMPTS = 4
+        private const val SCREEN_READY_RETRY_BASE_MS = 500L
+        private const val SCREEN_READY_RETRY_MAX_MS = 4_000L
         private const val BACKEND_LIVE_PUBLISH_ATTEMPTS = 7
         private const val BACKEND_LIVE_RETRY_BASE_MS = 750L
         private const val BACKEND_LIVE_RETRY_MAX_MS = 6_000L

@@ -202,26 +202,50 @@ class FirebasePairingGateway(
                     (current.child("approvalExpiresAtMs").value as? Number)
                         ?.toLong()
                         ?: 0L
+                val connectDeadline =
+                    (current.child("connectExpiresAtMs").value as? Number)
+                        ?.toLong()
+                        ?: 0L
 
-                if (
-                    hostUid != uid ||
-                    state != "PAIR_PENDING" ||
-                    approvalDeadline <= now
-                ) {
+                if (hostUid != uid) {
                     false
                 } else {
-                    current.child("state").value = "HOST_APPROVED"
-                    current.child("approvedAtMs").value = now
-                    current.child("connectExpiresAtMs").value =
-                        now + CONNECT_SETUP_TTL_MS
-                    true
+                    when (state) {
+                        "PAIR_PENDING" -> {
+                            if (approvalDeadline <= now) {
+                                false
+                            } else {
+                                current.child("state").value =
+                                    "HOST_APPROVED"
+                                current.child("approvedAtMs").value = now
+                                current.child("connectExpiresAtMs").value =
+                                    now + CONNECT_SETUP_TTL_MS
+                                true
+                            }
+                        }
+
+                        // A mobile handoff can make a committed transaction
+                        // look failed to the caller. Retrying must acknowledge
+                        // forward progress without writing the state backwards.
+                        "HOST_APPROVED",
+                        "SCREEN_READY" ->
+                            connectDeadline > now
+
+                        "LIVE" -> true
+                        else -> false
+                    }
                 }
             },
             verifyCommitted = { snapshot ->
                 snapshot.child("hostUid")
                     .getValue(String::class.java) == uid &&
                     snapshot.child("state")
-                        .getValue(String::class.java) == "HOST_APPROVED"
+                        .getValue(String::class.java) in
+                        setOf(
+                            "HOST_APPROVED",
+                            "SCREEN_READY",
+                            "LIVE"
+                        )
             }
         )
     }
@@ -242,23 +266,35 @@ class FirebasePairingGateway(
                         ?.toLong()
                         ?: 0L
 
-                if (
-                    hostUid != uid ||
-                    state != "HOST_APPROVED" ||
-                    connectDeadline <= now
-                ) {
+                if (hostUid != uid) {
                     false
                 } else {
-                    current.child("state").value = "SCREEN_READY"
-                    current.child("screenReadyAtMs").value = now
-                    true
+                    when (state) {
+                        "HOST_APPROVED" -> {
+                            if (connectDeadline <= now) {
+                                false
+                            } else {
+                                current.child("state").value =
+                                    "SCREEN_READY"
+                                current.child("screenReadyAtMs").value = now
+                                true
+                            }
+                        }
+
+                        // Idempotent retry after an ambiguous RTDB completion.
+                        // Never regress LIVE back to SCREEN_READY.
+                        "SCREEN_READY" -> connectDeadline > now
+                        "LIVE" -> true
+                        else -> false
+                    }
                 }
             },
             verifyCommitted = { committed ->
                 committed.child("hostUid")
                     .getValue(String::class.java) == uid &&
                     committed.child("state")
-                        .getValue(String::class.java) == "SCREEN_READY"
+                        .getValue(String::class.java) in
+                        setOf("SCREEN_READY", "LIVE")
             }
         )
 
@@ -295,16 +331,25 @@ class FirebasePairingGateway(
                         ?.toLong()
                         ?: 0L
 
-                if (
-                    hostUid != uid ||
-                    state != "SCREEN_READY" ||
-                    connectDeadline <= now
-                ) {
+                if (hostUid != uid) {
                     false
                 } else {
-                    current.child("state").value = "LIVE"
-                    current.child("liveAtMs").value = now
-                    true
+                    when (state) {
+                        "SCREEN_READY" -> {
+                            if (connectDeadline <= now) {
+                                false
+                            } else {
+                                current.child("state").value = "LIVE"
+                                current.child("liveAtMs").value = now
+                                true
+                            }
+                        }
+
+                        // Publishing LIVE is retried by the foreground service.
+                        // Treat an already-committed LIVE state as success.
+                        "LIVE" -> true
+                        else -> false
+                    }
                 }
             },
             verifyCommitted = { snapshot ->

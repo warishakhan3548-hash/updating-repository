@@ -617,8 +617,8 @@ class FirebaseSignalingClient(
             "ice_restart_request"
         private const val MAX_CANDIDATE_SLOTS = 96
         private const val CANDIDATE_SLOT_WIDTH = 3
-        private const val MAX_DESCRIPTION_WRITE_ATTEMPTS = 4
+        private const val MAX_DESCRIPTION_WRITE_ATTEMPTS = 7
         private const val DESCRIPTION_WRITE_RETRY_BASE_MS = 250L
-        private const val DESCRIPTION_WRITE_RETRY_MAX_MS = 2_000L
+        private const val DESCRIPTION_WRITE_RETRY_MAX_MS = 4_000L
     }
 }

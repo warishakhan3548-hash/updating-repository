@@ -80,6 +80,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 45. Non-destructive startup signaling: pre-live relay recovery never replaces the controller's SDP answer with a restart hint, eliminating the single-slot RTDB race that could strand both phones in Connecting before the host consumed that answer.
 46. Idempotent SDP delivery recovery: while the host is still waiting in `HAVE_LOCAL_OFFER`, it re-delivers the same authoritative offer with the same negotiation ID instead of creating an overlapping offer. The controller accepts only explicit redelivery of its current generation and re-publishes the same already-created answer, preserving its candidate generation; stale/older negotiations stay rejected.
 47. Permission-role clarity: Accessibility is required only on the phone being shared/controlled. The controller phone renders video and sends commands over WebRTC and is never forced into Accessibility settings.
+48. Monotonic backend recovery: approval, screen-ready and live publications are idempotent. If Firebase commits a transition but a mobile handoff hides the acknowledgement, retries accept the already-advanced state instead of regressing or falsely interrupting the session.
+49. Screen-ready retry budget: the MediaProjection foreground service no longer destroys an otherwise valid session after one transient SCREEN_READY publication failure; it retries the authoritative transition with bounded exponential backoff before failing closed.
 
 ## Firebase setup
 
