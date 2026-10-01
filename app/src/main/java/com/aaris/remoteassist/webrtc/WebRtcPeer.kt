@@ -164,7 +164,8 @@ class WebRtcPeer(
 
                 PeerConnection.SignalingState.STABLE -> {
                     val forceRelay =
-                        bootstrapRecoveryAttempts > 0
+                        activeIceFromBackend ||
+                            bootstrapRecoveryAttempts > 0
                     if (
                         bootstrapRecoveryAttempts <
                             MAX_BOOTSTRAP_RECOVERY_ATTEMPTS &&
@@ -957,6 +958,8 @@ class WebRtcPeer(
                     setLocalAndSignal(
                         description = description,
                         negotiationEpoch = negotiationEpoch,
+                        replyToNegotiationId =
+                            remoteNegotiationId,
                         onLocalDescriptionSet = {
                             lastAnsweredRemoteNegotiationId =
                                 remoteNegotiationId
@@ -979,6 +982,7 @@ class WebRtcPeer(
     private fun setLocalAndSignal(
         description: SessionDescription,
         negotiationEpoch: Long,
+        replyToNegotiationId: String? = null,
         onLocalDescriptionSet: (() -> Unit)? = null,
         onFailure: (() -> Unit)? = null
     ) {
@@ -989,7 +993,9 @@ class WebRtcPeer(
                     signaling.sendDescription(
                         description = SignalDescription(
                             type = description.type.canonicalForm(),
-                            sdp = description.description
+                            sdp = description.description,
+                            replyToNegotiationId =
+                                replyToNegotiationId
                         ),
                         negotiationEpoch = negotiationEpoch
                     )
@@ -1124,12 +1130,12 @@ class WebRtcPeer(
         private const val PRELIVE_ICE_REFRESH_TIMEOUT_MS = 5_000L
         private const val ICE_RESTART_MIN_INTERVAL_MS = 2_500L
         private const val INITIAL_ICE_RESTART_DELAY_MS = 1_500L
-        private const val BOOTSTRAP_RECOVERY_INITIAL_DELAY_MS = 8_000L
-        private const val BOOTSTRAP_RECOVERY_INTERVAL_MS = 12_000L
-        private const val CONTROLLER_RELAY_REFRESH_DELAY_MS = 4_000L
-        private const val CONTROLLER_RELAY_REFRESH_INTERVAL_MS = 7_000L
-        private const val MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS = 3L
-        private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 3
-        private const val MAX_OFFER_REDELIVERY_ATTEMPTS = 3
+        private const val BOOTSTRAP_RECOVERY_INITIAL_DELAY_MS = 4_000L
+        private const val BOOTSTRAP_RECOVERY_INTERVAL_MS = 5_000L
+        private const val CONTROLLER_RELAY_REFRESH_DELAY_MS = 2_000L
+        private const val CONTROLLER_RELAY_REFRESH_INTERVAL_MS = 4_000L
+        private const val MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS = 4L
+        private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 5
+        private const val MAX_OFFER_REDELIVERY_ATTEMPTS = 6
     }
 }
