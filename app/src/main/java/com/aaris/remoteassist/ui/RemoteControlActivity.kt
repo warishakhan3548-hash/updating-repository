@@ -324,10 +324,22 @@ class RemoteControlActivity : ComponentActivity() {
 
             if (
                 state.sessionId != null &&
-                state.sessionId != id &&
-                state.state != SessionState.CLOSED
+                state.sessionId != id
             ) {
-                return@runCatching
+                /*
+                 * SCREEN_READY/LIVE came from the authenticated backend and
+                 * proves this controller owns the requested session. A stale
+                 * non-live in-memory session can survive an Activity/process
+                 * recreation and must not turn a valid pairing into
+                 * "Session was interrupted". Never clobber a genuinely LIVE
+                 * different session.
+                 */
+                if (state.state == SessionState.LIVE) {
+                    return@runCatching
+                }
+
+                SessionCoordinator.reset()
+                state = SessionCoordinator.snapshot()
             }
 
             if (

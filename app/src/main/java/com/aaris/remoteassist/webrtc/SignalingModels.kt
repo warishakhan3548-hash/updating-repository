@@ -3,7 +3,8 @@ package com.aaris.remoteassist.webrtc
 data class SignalDescription(
     val type: String,
     val sdp: String,
-    val negotiationId: String = LEGACY_NEGOTIATION_ID
+    val negotiationId: String = LEGACY_NEGOTIATION_ID,
+    val replyToNegotiationId: String? = null
 )
 
 data class SignalCandidate(
