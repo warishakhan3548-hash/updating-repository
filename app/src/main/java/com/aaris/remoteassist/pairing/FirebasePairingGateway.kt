@@ -127,74 +127,52 @@ class FirebasePairingGateway(
             error("Code expired.")
         }
 
-        val now = System.currentTimeMillis()
         val sessionRef = database
             .getReference("sessions")
             .child(sessionId)
 
         val claimAbortMessage =
             "That code is already being used or expired."
-        val claimSnapshot = runTransaction(
+        runExistingSessionTransaction(
             reference = sessionRef,
-            abortMessage = claimAbortMessage
-        ) { current ->
-            /*
-             * Realtime Database may invoke a transaction once with a null
-             * local-cache value even when this session exists on the server.
-             * Returning success without changing that null value lets Firebase
-             * perform its compare-and-retry cycle and call us again with the
-             * authoritative server value. Aborting here would reject every
-             * first-time controller whose session is not already cached.
-             */
-            if (current.value == null) {
-                return@runTransaction true
+            abortMessage = claimAbortMessage,
+            mutation = { current ->
+                val state = current.child("state").value as? String
+                val currentHostUid =
+                    current.child("hostUid").value as? String
+                val currentController =
+                    current.child("controllerUid").value
+                val currentExpiry =
+                    (current.child("expiresAtMs").value as? Number)
+                        ?.toLong()
+                        ?: 0L
+                val claimNow = System.currentTimeMillis()
+
+                if (
+                    state != "CODE_ACTIVE" ||
+                    currentHostUid != hostUid ||
+                    currentController != null ||
+                    currentExpiry <= claimNow
+                ) {
+                    false
+                } else {
+                    current.child("controllerUid").value = uid
+                    current.child("state").value = "PAIR_PENDING"
+                    current.child("pairedAtMs").value = claimNow
+                    current.child("approvalExpiresAtMs").value =
+                        claimNow + PAIR_APPROVAL_TTL_MS
+                    true
+                }
+            },
+            verifyCommitted = { snapshot ->
+                snapshot.child("state")
+                    .getValue(String::class.java) == "PAIR_PENDING" &&
+                    snapshot.child("hostUid")
+                        .getValue(String::class.java) == hostUid &&
+                    snapshot.child("controllerUid")
+                        .getValue(String::class.java) == uid
             }
-
-            val state = current.child("state").value as? String
-            val currentHostUid =
-                current.child("hostUid").value as? String
-            val currentController =
-                current.child("controllerUid").value
-            val currentExpiry =
-                (current.child("expiresAtMs").value as? Number)
-                    ?.toLong()
-                    ?: 0L
-
-            if (
-                state != "CODE_ACTIVE" ||
-                currentHostUid != hostUid ||
-                currentController != null ||
-                currentExpiry <= now
-            ) {
-                return@runTransaction false
-            }
-
-            current.child("controllerUid").value = uid
-            current.child("state").value = "PAIR_PENDING"
-            current.child("pairedAtMs").value = now
-            current.child("approvalExpiresAtMs").value =
-                now + PAIR_APPROVAL_TTL_MS
-            true
-        }
-
-        val committedState = claimSnapshot
-            .child("state")
-            .getValue(String::class.java)
-        val committedHostUid = claimSnapshot
-            .child("hostUid")
-            .getValue(String::class.java)
-        val committedControllerUid = claimSnapshot
-            .child("controllerUid")
-            .getValue(String::class.java)
-
-        if (
-            !claimSnapshot.exists() ||
-            committedState != "PAIR_PENDING" ||
-            committedHostUid != hostUid ||
-            committedControllerUid != uid
-        ) {
-            error(claimAbortMessage)
-        }
+        )
 
         runCatching {
             databaseCall {
@@ -214,31 +192,38 @@ class FirebasePairingGateway(
         val uid = requireNotNull(auth().currentUser?.uid)
         val now = System.currentTimeMillis()
 
-        runTransaction(
+        runExistingSessionTransaction(
             reference = sessionRef(sessionId),
-            abortMessage = "No valid connection request."
-        ) { current ->
-            val hostUid = current.child("hostUid").value as? String
-            val state = current.child("state").value as? String
-            val approvalDeadline =
-                (current.child("approvalExpiresAtMs").value as? Number)
-                    ?.toLong()
-                    ?: 0L
+            abortMessage = "No valid connection request.",
+            mutation = { current ->
+                val hostUid = current.child("hostUid").value as? String
+                val state = current.child("state").value as? String
+                val approvalDeadline =
+                    (current.child("approvalExpiresAtMs").value as? Number)
+                        ?.toLong()
+                        ?: 0L
 
-            if (
-                hostUid != uid ||
-                state != "PAIR_PENDING" ||
-                approvalDeadline <= now
-            ) {
-                return@runTransaction false
+                if (
+                    hostUid != uid ||
+                    state != "PAIR_PENDING" ||
+                    approvalDeadline <= now
+                ) {
+                    false
+                } else {
+                    current.child("state").value = "HOST_APPROVED"
+                    current.child("approvedAtMs").value = now
+                    current.child("connectExpiresAtMs").value =
+                        now + CONNECT_SETUP_TTL_MS
+                    true
+                }
+            },
+            verifyCommitted = { snapshot ->
+                snapshot.child("hostUid")
+                    .getValue(String::class.java) == uid &&
+                    snapshot.child("state")
+                        .getValue(String::class.java) == "HOST_APPROVED"
             }
-
-            current.child("state").value = "HOST_APPROVED"
-            current.child("approvedAtMs").value = now
-            current.child("connectExpiresAtMs").value =
-                now + CONNECT_SETUP_TTL_MS
-            true
-        }
+        )
     }
 
     override suspend fun markScreenReady(sessionId: String) {
@@ -246,29 +231,36 @@ class FirebasePairingGateway(
         val uid = requireNotNull(auth().currentUser?.uid)
         val now = System.currentTimeMillis()
 
-        val snapshot = runTransaction(
+        val snapshot = runExistingSessionTransaction(
             reference = sessionRef(sessionId),
-            abortMessage = "Session was not approved or setup expired."
-        ) { current ->
-            val hostUid = current.child("hostUid").value as? String
-            val state = current.child("state").value as? String
-            val connectDeadline =
-                (current.child("connectExpiresAtMs").value as? Number)
-                    ?.toLong()
-                    ?: 0L
+            abortMessage = "Session was not approved or setup expired.",
+            mutation = { current ->
+                val hostUid = current.child("hostUid").value as? String
+                val state = current.child("state").value as? String
+                val connectDeadline =
+                    (current.child("connectExpiresAtMs").value as? Number)
+                        ?.toLong()
+                        ?: 0L
 
-            if (
-                hostUid != uid ||
-                state != "HOST_APPROVED" ||
-                connectDeadline <= now
-            ) {
-                return@runTransaction false
+                if (
+                    hostUid != uid ||
+                    state != "HOST_APPROVED" ||
+                    connectDeadline <= now
+                ) {
+                    false
+                } else {
+                    current.child("state").value = "SCREEN_READY"
+                    current.child("screenReadyAtMs").value = now
+                    true
+                }
+            },
+            verifyCommitted = { committed ->
+                committed.child("hostUid")
+                    .getValue(String::class.java) == uid &&
+                    committed.child("state")
+                        .getValue(String::class.java) == "SCREEN_READY"
             }
-
-            current.child("state").value = "SCREEN_READY"
-            current.child("screenReadyAtMs").value = now
-            true
-        }
+        )
 
         val pairingHash = snapshot
             .child("pairingHash")
@@ -292,29 +284,36 @@ class FirebasePairingGateway(
         val uid = requireNotNull(auth().currentUser?.uid)
         val now = System.currentTimeMillis()
 
-        runTransaction(
+        runExistingSessionTransaction(
             reference = sessionRef(sessionId),
-            abortMessage = "Session is not ready for live transport."
-        ) { current ->
-            val hostUid = current.child("hostUid").value as? String
-            val state = current.child("state").value as? String
-            val connectDeadline =
-                (current.child("connectExpiresAtMs").value as? Number)
-                    ?.toLong()
-                    ?: 0L
+            abortMessage = "Session is not ready for live transport.",
+            mutation = { current ->
+                val hostUid = current.child("hostUid").value as? String
+                val state = current.child("state").value as? String
+                val connectDeadline =
+                    (current.child("connectExpiresAtMs").value as? Number)
+                        ?.toLong()
+                        ?: 0L
 
-            if (
-                hostUid != uid ||
-                state != "SCREEN_READY" ||
-                connectDeadline <= now
-            ) {
-                return@runTransaction false
+                if (
+                    hostUid != uid ||
+                    state != "SCREEN_READY" ||
+                    connectDeadline <= now
+                ) {
+                    false
+                } else {
+                    current.child("state").value = "LIVE"
+                    current.child("liveAtMs").value = now
+                    true
+                }
+            },
+            verifyCommitted = { snapshot ->
+                snapshot.child("hostUid")
+                    .getValue(String::class.java) == uid &&
+                    snapshot.child("state")
+                        .getValue(String::class.java) == "LIVE"
             }
-
-            current.child("state").value = "LIVE"
-            current.child("liveAtMs").value = now
-            true
-        }
+        )
     }
 
     override suspend fun close(sessionId: String) {
@@ -456,11 +455,38 @@ class FirebasePairingGateway(
         }
     }
 
-    private suspend fun runTransaction(
+    private suspend fun runExistingSessionTransaction(
         reference: DatabaseReference,
         abortMessage: String,
-        mutation: (MutableData) -> Boolean
+        mutation: (MutableData) -> Boolean,
+        verifyCommitted: (DataSnapshot) -> Boolean
     ): DataSnapshot {
+        /*
+         * RTDB transactions can start from a missing or stale local-cache
+         * value. Warm the cache from the server first so state-based aborts
+         * are not made from an old snapshot. The transaction is still the
+         * concurrency authority and will retry if the server changes after
+         * this read.
+         */
+        try {
+            databaseCall {
+                reference.get().await()
+            }
+        } catch (error: Throwable) {
+            val detail = generateSequence(error) { it.cause }
+                .mapNotNull { it.message }
+                .joinToString(" ")
+                .lowercase()
+
+            if (
+                "permission denied" in detail ||
+                "permission_denied" in detail
+            ) {
+                throw IllegalStateException(abortMessage, error)
+            }
+            throw error
+        }
+
         val result = CompletableDeferred<DataSnapshot>()
 
         reference.runTransaction(
@@ -468,6 +494,16 @@ class FirebasePairingGateway(
                 override fun doTransaction(
                     currentData: MutableData
                 ): Transaction.Result {
+                    /*
+                     * Firebase documents that this callback may initially see
+                     * null even when server data exists. A no-op success lets
+                     * the server compare the version and retry with its
+                     * authoritative value instead of falsely aborting.
+                     */
+                    if (currentData.value == null) {
+                        return Transaction.success(currentData)
+                    }
+
                     return if (mutation(currentData)) {
                         Transaction.success(currentData)
                     } else {
@@ -486,7 +522,10 @@ class FirebasePairingGateway(
                                 error.toException()
                             )
 
-                        !committed || currentData == null ->
+                        !committed ||
+                            currentData == null ||
+                            !currentData.exists() ||
+                            !verifyCommitted(currentData) ->
                             result.completeExceptionally(
                                 IllegalStateException(abortMessage)
                             )
