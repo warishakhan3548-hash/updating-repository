@@ -20,17 +20,38 @@ async function verifyFirebaseToken(token) {
     throw new Error("header");
   }
 
-  const response = await fetch(
+  const jwksUrl =
     "https://www.googleapis.com/service_accounts/v1/jwk/" +
-      "securetoken@system.gserviceaccount.com",
-    { cf: { cacheTtl: 3600, cacheEverything: true } }
-  );
-  if (!response.ok) throw new Error("jwks");
+    "securetoken@system.gserviceaccount.com";
 
-  const jwks = await response.json();
-  const jwk = (jwks.keys || []).find(
+  async function loadJwks(cacheTtl) {
+    const response = await fetch(
+      jwksUrl,
+      {
+        cf: {
+          cacheTtl,
+          cacheEverything: cacheTtl > 0
+        }
+      }
+    );
+    if (!response.ok) throw new Error("jwks");
+    return response.json();
+  }
+
+  let jwks = await loadJwks(300);
+  let jwk = (jwks.keys || []).find(
     key => key.kid === header.kid
   );
+
+  // Firebase signing keys rotate. If a new kid appears while an edge still
+  // has the old key set, bypass the cache once instead of denying TURN for
+  // an otherwise valid newly-issued token.
+  if (!jwk) {
+    jwks = await loadJwks(0);
+    jwk = (jwks.keys || []).find(
+      key => key.kid === header.kid
+    );
+  }
   if (!jwk) throw new Error("kid");
 
   const key = await crypto.subtle.importKey(
@@ -60,7 +81,9 @@ async function verifyFirebaseToken(token) {
     typeof payload.sub !== "string" ||
     payload.sub.length === 0 ||
     payload.exp <= now ||
-    payload.iat > now + 60
+    payload.iat > now + 60 ||
+    typeof payload.auth_time !== "number" ||
+    payload.auth_time > now + 60
   ) {
     throw new Error("claims");
   }
@@ -111,7 +134,10 @@ export default {
     }
 
     const auth = request.headers.get("Authorization") || "";
-    if (!auth.startsWith("Bearer ")) {
+    if (
+      !auth.startsWith("Bearer ") ||
+      auth.length > 10_000
+    ) {
       return Response.json(
         { error: "unauthorized" },
         { status: 401 }
