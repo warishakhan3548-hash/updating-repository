@@ -49,6 +49,7 @@ class WebRtcPeer(
     private val initialIceRestartAttempted = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val connectivity = PeerConnectivityTracker()
     private val connectivityManager =
         appContext.getSystemService(ConnectivityManager::class.java)
     private val networkLock = Any()
@@ -92,7 +93,6 @@ class WebRtcPeer(
         RemoteCandidateBuffer<IceCandidate>(
             MAX_PENDING_REMOTE_CANDIDATES
         )
-    private val connectivity = PeerConnectivityTracker()
     private val lastIceRestartAtMs = AtomicLong(0L)
 
     @Volatile
