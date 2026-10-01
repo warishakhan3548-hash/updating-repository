@@ -70,6 +70,84 @@ class ControlProtocolTest {
     }
 
     @Test
+    fun gesturePathRoundTripsAndMapsToPixels() {
+        val source = ControlPacket.GesturePath(
+            leaseSecret = 55L,
+            generation = 9,
+            sequence = 102L,
+            points = listOf(
+                ControlPathPoint(0.10f, 0.20f),
+                ControlPathPoint(0.35f, 0.45f),
+                ControlPathPoint(0.80f, 0.90f)
+            ),
+            durationMs = 510
+        )
+
+        val decoded = ControlProtocol.decode(
+            ControlProtocol.encode(source)
+        ) as ControlPacket.GesturePath
+
+        assertEquals(source.leaseSecret, decoded.leaseSecret)
+        assertEquals(source.generation, decoded.generation)
+        assertEquals(source.sequence, decoded.sequence)
+        assertEquals(source.points.size, decoded.points.size)
+        assertEquals(
+            source.points[1].nx,
+            decoded.points[1].nx,
+            0.00002f
+        )
+        assertEquals(
+            source.points[2].ny,
+            decoded.points[2].ny,
+            0.00002f
+        )
+        assertEquals(source.durationMs, decoded.durationMs)
+
+        val command = ControlProtocol.toRemoteCommand(
+            sessionId = "s1",
+            packet = decoded,
+            widthPx = 1000,
+            heightPx = 2000
+        )
+        assertTrue(command is GesturePathCommand)
+
+        val path = command as GesturePathCommand
+        assertEquals(3, path.points.size)
+        assertEquals(349.65f, path.points[1].xPx, 0.05f)
+        assertEquals(1799.1f, path.points[2].yPx, 0.1f)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsTooShortGesturePath() {
+        ControlProtocol.encode(
+            ControlPacket.GesturePath(
+                leaseSecret = 1L,
+                generation = 1,
+                sequence = 1L,
+                points = listOf(
+                    ControlPathPoint(0.5f, 0.5f)
+                ),
+                durationMs = 200
+            )
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsOversizedGesturePath() {
+        ControlProtocol.encode(
+            ControlPacket.GesturePath(
+                leaseSecret = 1L,
+                generation = 1,
+                sequence = 1L,
+                points = List(97) {
+                    ControlPathPoint(0.5f, 0.5f)
+                },
+                durationMs = 200
+            )
+        )
+    }
+
+    @Test
     fun twoFingerRoundTripsAndMapsToPixels() {
         val source = ControlPacket.TwoFinger(
             leaseSecret = 77L,
