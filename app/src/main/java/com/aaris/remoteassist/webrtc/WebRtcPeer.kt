@@ -363,6 +363,7 @@ class WebRtcPeer(
     }
 
     private fun createOffer() {
+        signaling.beginLocalDescription()
         peerConnection.createOffer(
             object : SdpObserverAdapter() {
                 override fun onCreateSuccess(
@@ -390,6 +391,7 @@ class WebRtcPeer(
     }
 
     private fun createAnswer() {
+        signaling.beginLocalDescription()
         peerConnection.createAnswer(
             object : SdpObserverAdapter() {
                 override fun onCreateSuccess(
