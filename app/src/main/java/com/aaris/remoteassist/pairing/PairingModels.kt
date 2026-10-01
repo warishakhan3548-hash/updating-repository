@@ -102,6 +102,11 @@ object PairingLink {
             )
         }.getOrNull() ?: return null
 
+        val allowedCode = Regex(
+            "^\\d{12}$|^\\d{4}[ -]\\d{4}[ -]\\d{4}$"
+        )
+        if (!allowedCode.matches(decodedCode)) return null
+
         return PairingCode.normalize(decodedCode)
     }
 }
