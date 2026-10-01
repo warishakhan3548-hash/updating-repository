@@ -1525,7 +1525,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showBackendError(error: Throwable) {
-        val detail = generateSequence(error as Throwable?) {
+        val detail = generateSequence(error) {
             it.cause
         }
             .mapNotNull { it.message }
