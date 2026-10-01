@@ -17,6 +17,7 @@ interface SignalingClient : Closeable {
         description: SignalDescription,
         negotiationEpoch: Long
     )
+    fun retryLocalDescription(): Boolean = false
     fun sendCandidate(candidate: SignalCandidate)
     fun requestRemoteIceRestart()
     fun setPresence(online: Boolean)
