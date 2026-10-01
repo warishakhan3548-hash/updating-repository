@@ -20,6 +20,11 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 
+private class BackendUnavailableException(
+    message: String,
+    cause: Throwable
+) : IllegalStateException(message, cause)
+
 class FirebasePairingGateway(
     context: Context
 ) : PairingGateway {
@@ -71,7 +76,10 @@ class FirebasePairingGateway(
                     expiresAtEpochMs = expiresAtMs
                 )
             } catch (error: Throwable) {
-                if (attempt == CODE_ALLOCATION_ATTEMPTS - 1) {
+                if (
+                    error is BackendUnavailableException ||
+                    attempt == CODE_ALLOCATION_ATTEMPTS - 1
+                ) {
                     throw error
                 }
             }
@@ -410,7 +418,7 @@ class FirebasePairingGateway(
                 block()
             }
         } catch (error: TimeoutCancellationException) {
-            throw IllegalStateException(
+            throw BackendUnavailableException(
                 "Could not reach Firebase Realtime Database. Check internet and try again.",
                 error
             )
