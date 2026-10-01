@@ -11,7 +11,18 @@ class NegotiationOrderGuardTest {
 
         assertTrue(guard.accept("client-a:2"))
         assertFalse(guard.accept("client-a:2"))
-        assertFalse(guard.accept("client-a:1"))
+        assertTrue(
+            guard.accept(
+                "client-a:2",
+                allowCurrentDuplicate = true
+            )
+        )
+        assertFalse(
+            guard.accept(
+                "client-a:1",
+                allowCurrentDuplicate = true
+            )
+        )
         assertTrue(guard.accept("client-a:3"))
     }
 
