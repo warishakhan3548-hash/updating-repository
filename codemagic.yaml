@@ -13,8 +13,8 @@ workflows:
       vars:
         PACKAGE_NAME: "com.aaris.remoteassist"
         GRADLE_VERSION: "9.6.0"
-        VERSION_NAME: "1.6.4"
-        VERSION_CODE: "20"
+        VERSION_NAME: "1.7.0"
+        VERSION_CODE: "21"
 
     scripts:
       - name: Validate native Android project
