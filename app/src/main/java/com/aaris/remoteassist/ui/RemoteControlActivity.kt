@@ -193,8 +193,17 @@ class RemoteControlActivity : ComponentActivity() {
                             }
 
                             "LIVE" -> {
-                                advanceControllerState(id)
-                                ensureRtcStarted(id)
+                                if (rtcSession == null) {
+                                    showStatus(
+                                        "Session was interrupted. Reconnect with a new code."
+                                    )
+                                    BackendSessionCloser.close(
+                                        this@RemoteControlActivity,
+                                        id
+                                    )
+                                    SessionCoordinator.close(id)
+                                    return@runOnUiThread
+                                }
 
                                 runCatching {
                                     if (
@@ -210,7 +219,7 @@ class RemoteControlActivity : ComponentActivity() {
 
                                 if (remoteTrack == null) {
                                     showStatus(
-                                        "Connected • restoring video…"
+                                        "Connected • waiting for video…"
                                     )
                                 } else {
                                     statusPanel.visibility = View.GONE
