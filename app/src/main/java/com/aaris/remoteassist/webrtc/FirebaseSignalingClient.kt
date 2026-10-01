@@ -158,15 +158,16 @@ class FirebaseSignalingClient(
         setPresence(true)
     }
 
-    override fun beginLocalDescription() {
-        if (closed.get()) return
-        candidateGate.beginNegotiation()
+    override fun beginLocalDescription(): Long {
+        if (closed.get()) return -1L
+        return candidateGate.beginNegotiation()
     }
 
-    override fun sendDescription(description: SignalDescription) {
-        if (closed.get()) return
-
-        val epoch = candidateGate.currentEpoch()
+    override fun sendDescription(
+        description: SignalDescription,
+        negotiationEpoch: Long
+    ) {
+        if (closed.get() || negotiationEpoch < 0L) return
         val payload = JSONObject()
             .put("type", description.type)
             .put("sdp", description.sdp)
@@ -179,7 +180,7 @@ class FirebaseSignalingClient(
                 }
 
                 candidateGate
-                    .markDescriptionPublished(epoch)
+                    .markDescriptionPublished(negotiationEpoch)
                     .forEach(::publishCandidate)
             }
             .addOnFailureListener { listener?.onError(it) }
