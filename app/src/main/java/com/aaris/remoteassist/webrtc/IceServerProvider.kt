@@ -92,13 +92,12 @@ object IceServerProvider {
 
             urls.asSequence()
                 .map(String::trim)
-                .filter(::isAllowedIceUrl)
                 .filter { url ->
-                    !isTurnUrl(url) ||
-                        (
-                            username.isNotBlank() &&
-                                credential.isNotBlank()
-                            )
+                    isUsableIceUrl(
+                        url = url,
+                        username = username,
+                        credential = credential
+                    )
                 }
                 .take(MAX_URLS_PER_RESPONSE)
                 .forEach { url ->
@@ -199,6 +198,19 @@ object IceServerProvider {
         val lower = url.lowercase()
         return lower.startsWith("turn:") ||
             lower.startsWith("turns:")
+    }
+
+    internal fun isUsableIceUrl(
+        url: String,
+        username: String,
+        credential: String
+    ): Boolean {
+        if (!isAllowedIceUrl(url)) return false
+        return !isTurnUrl(url) ||
+            (
+                username.isNotBlank() &&
+                    credential.isNotBlank()
+                )
     }
 
     private fun isTurnServer(
