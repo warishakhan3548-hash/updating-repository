@@ -51,8 +51,18 @@ class AssistAccessibilityService : AccessibilityService() {
     }
 
     override fun onServiceConnected() {
+        super.onServiceConnected()
         instance = WeakReference(this)
         SessionCoordinator.addListener(sessionListener)
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        SessionCoordinator.removeListener(sessionListener)
+        hideStopOverlay()
+        if (instance.get() === this) {
+            instance.clear()
+        }
+        return super.onUnbind(intent)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
