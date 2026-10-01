@@ -253,26 +253,6 @@ class ScreenShareService : Service() {
         stopSelf()
     }
 
-    private fun BackendSessionCloser.close(this, sessionId: String) {
-        val appContext = applicationContext
-
-        runCatching {
-            FirebaseBackend.database()
-                .getReference("sessions")
-                .child(sessionId)
-                .child("state")
-                .setValue("CLOSED")
-        }
-
-        BACKEND_CLEANUP_SCOPE.launch {
-            runCatching {
-                FirebasePairingGateway(appContext)
-                    .close(sessionId)
-            }
-        }
-    }
-
-
     private fun startVisibleForeground() {
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= 29) {
