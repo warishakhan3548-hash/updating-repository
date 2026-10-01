@@ -173,7 +173,14 @@ class FirebaseSignalingClient(
         description: SignalDescription,
         negotiationEpoch: Long
     ) {
-        if (closed.get() || negotiationEpoch < 0L) return
+        if (
+            closed.get() ||
+            negotiationEpoch < 0L ||
+            negotiationEpoch != candidateGate.currentEpoch()
+        ) {
+            return
+        }
+
         val negotiationId =
             negotiationIdFor(negotiationEpoch)
         val payload = JSONObject()
