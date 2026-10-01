@@ -1,5 +1,6 @@
 package com.aaris.remoteassist.capture
 
+import android.app.ActivityManager
 import android.content.Context
 import android.util.DisplayMetrics
 import android.view.WindowManager
@@ -15,7 +16,9 @@ data class CaptureProfile(
 ) {
     companion object {
         private const val MAX_CAPTURE_LONG_SIDE = 1280
+        private const val LOW_RAM_CAPTURE_LONG_SIDE = 960
         private const val DEFAULT_FPS = 30
+        private const val LOW_RAM_FPS = 24
 
         @Suppress("DEPRECATION")
         fun current(context: Context): CaptureProfile {
@@ -27,9 +30,18 @@ data class CaptureProfile(
             val displayWidth = metrics.widthPixels.coerceAtLeast(1)
             val displayHeight = metrics.heightPixels.coerceAtLeast(1)
             val longSide = max(displayWidth, displayHeight)
+            val lowRam = context
+                .getSystemService(ActivityManager::class.java)
+                ?.isLowRamDevice == true
+            val maxCaptureLongSide =
+                if (lowRam) {
+                    LOW_RAM_CAPTURE_LONG_SIDE
+                } else {
+                    MAX_CAPTURE_LONG_SIDE
+                }
 
-            val scale = if (longSide > MAX_CAPTURE_LONG_SIDE) {
-                MAX_CAPTURE_LONG_SIDE.toFloat() / longSide.toFloat()
+            val scale = if (longSide > maxCaptureLongSide) {
+                maxCaptureLongSide.toFloat() / longSide.toFloat()
             } else {
                 1f
             }
@@ -44,7 +56,7 @@ data class CaptureProfile(
                 displayHeightPx = displayHeight,
                 captureWidthPx = even((displayWidth * scale).roundToInt()),
                 captureHeightPx = even((displayHeight * scale).roundToInt()),
-                fps = DEFAULT_FPS
+                fps = if (lowRam) LOW_RAM_FPS else DEFAULT_FPS
             )
         }
     }
