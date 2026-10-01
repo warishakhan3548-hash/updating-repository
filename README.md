@@ -84,6 +84,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 49. Screen-ready retry budget: the MediaProjection foreground service no longer destroys an otherwise valid session after one transient SCREEN_READY publication failure; it retries the authoritative transition with bounded exponential backoff before failing closed.
 50. Post-answer ICE settle guard: a freshly-applied SDP answer receives a bounded settling window before the host escalates to another ICE restart, preventing recovery logic from repeatedly tearing down a healthy in-progress mobile negotiation.
 51. Dual WebRTC liveness signals: ICE CONNECTED/COMPLETED can confirm transport readiness when Android delays the aggregate PeerConnection callback, while duplicate pre-live FAILED callbacks feed the same bounded recovery path instead of prematurely closing the session.
+52. Generation-safe ICE candidate delivery: transient RTDB candidate-write failures are retried with bounded backoff only while the exact SDP generation and ring-slot ownership are still authoritative, preventing both lost critical candidates and stale retry overwrites.
+53. Transport-truth startup recovery: if ICE reports a peer path but the ordered control DataChannel is still not usable, the host performs a bounded renegotiation instead of waiting on a misleading Connected state; a later attempt prefers authenticated TURN when available.
 
 ## Firebase setup
 

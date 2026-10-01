@@ -53,6 +53,8 @@ class HostWebRtcSession(
     @Volatile
     private var transportReady = false
 
+    private var startupControlRecoveryAttempts = 0
+
     @Volatile
     private var lease: LiveLease? = null
 
@@ -93,6 +95,54 @@ class HostWebRtcSession(
             !peerConnected
         ) {
             peer.requestIceRestart()
+        }
+    }
+
+    private val startupControlRecovery = object : Runnable {
+        override fun run() {
+            if (
+                !StartupTransportRecoveryPolicy.shouldAttempt(
+                    peerConnected = peerConnected,
+                    controlChannelOpen = controlOpen,
+                    transportReady = transportReady,
+                    completedAttempts =
+                        startupControlRecoveryAttempts,
+                    maxAttempts =
+                        MAX_STARTUP_CONTROL_RECOVERY_ATTEMPTS
+                ) ||
+                closed.get()
+            ) {
+                return
+            }
+
+            val requested = peer.requestIceRestart(
+                forceRelay =
+                    StartupTransportRecoveryPolicy.shouldForceRelay(
+                        startupControlRecoveryAttempts
+                    )
+            )
+
+            if (requested) {
+                startupControlRecoveryAttempts += 1
+            }
+
+            if (
+                !closed.get() &&
+                StartupTransportRecoveryPolicy.shouldAttempt(
+                    peerConnected = peerConnected,
+                    controlChannelOpen = controlOpen,
+                    transportReady = transportReady,
+                    completedAttempts =
+                        startupControlRecoveryAttempts,
+                    maxAttempts =
+                        MAX_STARTUP_CONTROL_RECOVERY_ATTEMPTS
+                )
+            ) {
+                displayHandler.postDelayed(
+                    this,
+                    STARTUP_CONTROL_RECOVERY_INTERVAL_MS
+                )
+            }
         }
     }
 
@@ -174,6 +224,15 @@ class HostWebRtcSession(
         peerConnected = true
         everConnected = true
         displayHandler.removeCallbacks(iceRestart)
+
+        if (!controlOpen && !transportReady) {
+            displayHandler.removeCallbacks(startupControlRecovery)
+            displayHandler.postDelayed(
+                startupControlRecovery,
+                STARTUP_CONTROL_RECOVERY_INITIAL_DELAY_MS
+            )
+        }
+
         transport.onPeerConnected()
             ?.let(listener::onConnectivityChanged)
         ensureLiveHandshake()
@@ -182,6 +241,7 @@ class HostWebRtcSession(
     override fun onPeerDisconnected() {
         peerConnected = false
         transportReady = false
+        displayHandler.removeCallbacks(startupControlRecovery)
         transport.onPeerDisconnected()
             ?.let(listener::onConnectivityChanged)
 
@@ -196,6 +256,7 @@ class HostWebRtcSession(
 
     override fun onControlChannelOpen() {
         controlOpen = true
+        displayHandler.removeCallbacks(startupControlRecovery)
         transport.onControlChannelOpen()
             ?.let(listener::onConnectivityChanged)
         ensureLiveHandshake()
@@ -281,6 +342,7 @@ class HostWebRtcSession(
 
         displayHandler.removeCallbacks(connectionWatchdog)
         displayHandler.removeCallbacks(iceRestart)
+        displayHandler.removeCallbacks(startupControlRecovery)
         displayHandler.removeCallbacks(
             leaseWatchdog
         )
@@ -314,6 +376,7 @@ class HostWebRtcSession(
         }
 
         displayHandler.removeCallbacks(connectionWatchdog)
+        displayHandler.removeCallbacks(startupControlRecovery)
 
         val firstLive = lease == null
         val currentLease = runCatching {
@@ -360,6 +423,9 @@ class HostWebRtcSession(
         private const val CONNECT_TIMEOUT_MS = 60_000L
         private const val CONTROL_CHANNEL_GRACE_MS = 5_000L
         private const val ICE_RESTART_DELAY_MS = 1_500L
+        private const val STARTUP_CONTROL_RECOVERY_INITIAL_DELAY_MS = 8_000L
+        private const val STARTUP_CONTROL_RECOVERY_INTERVAL_MS = 8_000L
+        private const val MAX_STARTUP_CONTROL_RECOVERY_ATTEMPTS = 2
         private const val LEASE_WATCHDOG_MS = 3_000L
     }
 }
