@@ -304,18 +304,17 @@ class FirebasePairingGateway(
 
         when (uid) {
             hostUid -> {
+                val closedRecord = mutableMapOf<String, Any>(
+                    "hostUid" to hostUid,
+                    "state" to "CLOSED",
+                    "closedAtMs" to System.currentTimeMillis()
+                )
+                if (!controllerUid.isNullOrBlank()) {
+                    closedRecord["controllerUid"] = controllerUid
+                }
+
                 databaseCall {
-                    ref.updateChildren(
-                        mapOf(
-                            "state" to "CLOSED",
-                            "closedAtMs" to System.currentTimeMillis(),
-                            "hostSignal" to null,
-                            "controllerSignal" to null,
-                            "hostCandidates" to null,
-                            "controllerCandidates" to null,
-                            "presence" to null
-                        )
-                    ).await()
+                    ref.setValue(closedRecord).await()
                 }
             }
 
