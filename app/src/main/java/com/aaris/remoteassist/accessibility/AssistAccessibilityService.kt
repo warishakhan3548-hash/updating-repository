@@ -79,13 +79,20 @@ class AssistAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    private fun execute(command: RemoteCommand): Boolean {
-        if (!CommandGate.accept(command)) return false
+    private fun execute(
+        command: RemoteCommand,
+        onResult: (Boolean) -> Unit
+    ) {
+        if (!CommandGate.accept(command)) {
+            onResult(false)
+            return
+        }
         if (
             keyguard.isKeyguardLocked ||
             keyguard.isDeviceLocked
         ) {
-            return false
+            onResult(false)
+            return
         }
 
         val gestureBlockedBySensitiveFocus =
@@ -99,41 +106,55 @@ class AssistAccessibilityService : AccessibilityService() {
             gestureBlockedBySensitiveFocus &&
             hasSensitiveFocusedInput()
         ) {
-            return false
+            onResult(false)
+            return
         }
 
-        return when (command) {
+        when (command) {
             is TapCommand -> gesture(
                 command.xPx,
                 command.yPx,
                 command.xPx,
                 command.yPx,
-                55L
+                55L,
+                onResult
             )
             is LongPressCommand -> gesture(
                 command.xPx,
                 command.yPx,
                 command.xPx,
                 command.yPx,
-                command.durationMs.coerceIn(450L, 1500L)
+                command.durationMs.coerceIn(450L, 1500L),
+                onResult
             )
             is SwipeCommand -> gesture(
                 command.fromXPx,
                 command.fromYPx,
                 command.toXPx,
                 command.toYPx,
-                command.durationMs.coerceIn(80L, 1500L)
+                command.durationMs.coerceIn(80L, 1500L),
+                onResult
             )
-            is GesturePathCommand -> gesturePath(command)
-            is TwoFingerCommand -> twoFingerGesture(command)
-            is GlobalActionCommand -> performGlobalAction(
-                when (command.action) {
-                    GlobalAction.BACK -> GLOBAL_ACTION_BACK
-                    GlobalAction.HOME -> GLOBAL_ACTION_HOME
-                    GlobalAction.RECENTS -> GLOBAL_ACTION_RECENTS
-                }
+            is GesturePathCommand -> gesturePath(
+                command,
+                onResult
             )
-            is SetTextCommand -> setFocusedText(command.text)
+            is TwoFingerCommand -> twoFingerGesture(
+                command,
+                onResult
+            )
+            is GlobalActionCommand -> onResult(
+                performGlobalAction(
+                    when (command.action) {
+                        GlobalAction.BACK -> GLOBAL_ACTION_BACK
+                        GlobalAction.HOME -> GLOBAL_ACTION_HOME
+                        GlobalAction.RECENTS -> GLOBAL_ACTION_RECENTS
+                    }
+                )
+            )
+            is SetTextCommand -> onResult(
+                setFocusedText(command.text)
+            )
         }
     }
 
@@ -255,15 +276,17 @@ class AssistAccessibilityService : AccessibilityService() {
         fromY: Float,
         toX: Float,
         toY: Float,
-        durationMs: Long
-    ): Boolean {
+        durationMs: Long,
+        onResult: (Boolean) -> Unit
+    ) {
         if (
             !fromX.isFinite() ||
             !fromY.isFinite() ||
             !toX.isFinite() ||
             !toY.isFinite()
         ) {
-            return false
+            onResult(false)
+            return
         }
 
         val path = Path().apply {
@@ -273,29 +296,35 @@ class AssistAccessibilityService : AccessibilityService() {
             }
         }
 
-        val stroke = GestureDescription.StrokeDescription(
-            path,
-            0L,
-            durationMs
-        )
-
-        return dispatchGesture(
+        dispatchGestureWithResult(
             GestureDescription.Builder()
-                .addStroke(stroke)
+                .addStroke(
+                    GestureDescription.StrokeDescription(
+                        path,
+                        0L,
+                        durationMs
+                    )
+                )
                 .build(),
-            null,
-            null
+            onResult
         )
     }
 
-    private fun gesturePath(command: GesturePathCommand): Boolean {
-        if (command.points.size < 2) return false
+    private fun gesturePath(
+        command: GesturePathCommand,
+        onResult: (Boolean) -> Unit
+    ) {
+        if (command.points.size < 2) {
+            onResult(false)
+            return
+        }
         if (
             command.points.any {
                 !it.xPx.isFinite() || !it.yPx.isFinite()
             }
         ) {
-            return false
+            onResult(false)
+            return
         }
 
         val first = command.points.first()
@@ -308,7 +337,7 @@ class AssistAccessibilityService : AccessibilityService() {
         }
 
         val duration = command.durationMs.coerceIn(80L, 1_500L)
-        return dispatchGesture(
+        dispatchGestureWithResult(
             GestureDescription.Builder()
                 .addStroke(
                     GestureDescription.StrokeDescription(
@@ -318,12 +347,14 @@ class AssistAccessibilityService : AccessibilityService() {
                     )
                 )
                 .build(),
-            null,
-            null
+            onResult
         )
     }
 
-    private fun twoFingerGesture(command: TwoFingerCommand): Boolean {
+    private fun twoFingerGesture(
+        command: TwoFingerCommand,
+        onResult: (Boolean) -> Unit
+    ) {
         val points = floatArrayOf(
             command.firstFromXPx,
             command.firstFromYPx,
@@ -334,7 +365,10 @@ class AssistAccessibilityService : AccessibilityService() {
             command.secondToXPx,
             command.secondToYPx
         )
-        if (points.any { !it.isFinite() }) return false
+        if (points.any { !it.isFinite() }) {
+            onResult(false)
+            return
+        }
 
         val duration = command.durationMs.coerceIn(80L, 1_500L)
         fun path(fromX: Float, fromY: Float, toX: Float, toY: Float) =
@@ -345,7 +379,7 @@ class AssistAccessibilityService : AccessibilityService() {
                 }
             }
 
-        return dispatchGesture(
+        dispatchGestureWithResult(
             GestureDescription.Builder()
                 .addStroke(
                     GestureDescription.StrokeDescription(
@@ -372,21 +406,67 @@ class AssistAccessibilityService : AccessibilityService() {
                     )
                 )
                 .build(),
-            null,
-            null
+            onResult
         )
     }
 
-    private fun dispatchOnMain(command: RemoteCommand): Boolean {
-        if (Looper.myLooper() == mainHandler.looper) {
-            return execute(command)
+    private fun dispatchGestureWithResult(
+        description: GestureDescription,
+        onResult: (Boolean) -> Unit
+    ) {
+        var delivered = false
+        fun deliver(applied: Boolean) {
+            if (delivered) return
+            delivered = true
+            onResult(applied)
         }
 
-        return mainHandler.post {
-            if (instance.get() === this) {
-                execute(command)
+        val callback = object :
+            AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(
+                gestureDescription: GestureDescription
+            ) {
+                deliver(true)
+            }
+
+            override fun onCancelled(
+                gestureDescription: GestureDescription
+            ) {
+                deliver(false)
             }
         }
+
+        val accepted = runCatching {
+            dispatchGesture(
+                description,
+                callback,
+                mainHandler
+            )
+        }.getOrDefault(false)
+
+        if (!accepted) {
+            deliver(false)
+        }
+    }
+
+    private fun dispatchOnMain(
+        command: RemoteCommand,
+        onResult: (Boolean) -> Unit
+    ): Boolean {
+        val task = Runnable {
+            if (instance.get() === this) {
+                execute(command, onResult)
+            } else {
+                onResult(false)
+            }
+        }
+
+        if (Looper.myLooper() == mainHandler.looper) {
+            task.run()
+            return true
+        }
+
+        return mainHandler.post(task)
     }
 
     private fun showStopOverlay() {
@@ -442,8 +522,25 @@ class AssistAccessibilityService : AccessibilityService() {
         @Volatile
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
-        fun dispatch(command: RemoteCommand): Boolean =
-            instance.get()?.dispatchOnMain(command) ?: false
+        fun dispatch(
+            command: RemoteCommand,
+            onResult: (Boolean) -> Unit
+        ): Boolean {
+            val service = instance.get()
+            if (service == null) {
+                onResult(false)
+                return false
+            }
+
+            val queued = service.dispatchOnMain(
+                command,
+                onResult
+            )
+            if (!queued) {
+                onResult(false)
+            }
+            return queued
+        }
 
         fun isConnected(): Boolean = instance.get() != null
     }
