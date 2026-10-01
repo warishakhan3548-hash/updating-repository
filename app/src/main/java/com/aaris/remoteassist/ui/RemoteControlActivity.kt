@@ -2,6 +2,7 @@ package com.aaris.remoteassist.ui
 
 import android.app.AlertDialog
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.text.InputType
@@ -94,8 +95,7 @@ class RemoteControlActivity : ComponentActivity() {
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
-        window.statusBarColor = Color.BLACK
-        window.navigationBarColor = Color.BLACK
+        configureRemoteSystemBars()
 
         val requestedSessionId =
             intent.getStringExtra(EXTRA_SESSION_ID)
@@ -141,6 +141,28 @@ class RemoteControlActivity : ComponentActivity() {
         scope.cancel()
         super.onDestroy()
     }
+
+    @Suppress("DEPRECATION")
+    private fun configureRemoteSystemBars() {
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.insetsController?.setSystemBarsAppearance(
+                0,
+                android.view.WindowInsetsController
+                    .APPEARANCE_LIGHT_STATUS_BARS or
+                    android.view.WindowInsetsController
+                        .APPEARANCE_LIGHT_NAVIGATION_BARS
+            )
+        } else {
+            window.decorView.systemUiVisibility =
+                window.decorView.systemUiVisibility and
+                    View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv() and
+                    View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+        }
+    }
+
 
     private fun observe(id: String) {
         observer = runCatching {
