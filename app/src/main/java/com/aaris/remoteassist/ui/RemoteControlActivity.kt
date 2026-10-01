@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.ui
 
 import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -209,15 +210,9 @@ class RemoteControlActivity : ComponentActivity() {
                                         )
 
                                 if (!resumable && rtcSession == null) {
-                                    showStatus(
-                                        "Session was interrupted. Reconnect with a new code."
+                                    finishController(
+                                        "Session was interrupted. Connect again with a new code."
                                     )
-                                    BackendSessionCloser.close(
-                                        this@RemoteControlActivity,
-                                        id
-                                    )
-                                    SessionCoordinator.close(id)
-                                    finish()
                                     return@runOnUiThread
                                 }
 
@@ -227,15 +222,9 @@ class RemoteControlActivity : ComponentActivity() {
 
                             "LIVE" -> {
                                 if (rtcSession == null) {
-                                    showStatus(
-                                        "Session was interrupted. Reconnect with a new code."
+                                    finishController(
+                                        "Session was interrupted. Connect again with a new code."
                                     )
-                                    BackendSessionCloser.close(
-                                        this@RemoteControlActivity,
-                                        id
-                                    )
-                                    SessionCoordinator.close(id)
-                                    finish()
                                     return@runOnUiThread
                                 }
 
@@ -261,11 +250,10 @@ class RemoteControlActivity : ComponentActivity() {
                             }
 
                             "CLOSED" -> {
-                                SessionCoordinator.close(id)
-                                rtcSession?.close()
-                                rtcSession = null
-                                showStatus("Session ended")
-                                finish()
+                                finishController(
+                                    message = "Session ended.",
+                                    closeBackend = false
+                                )
                             }
                         }
                     }
@@ -273,14 +261,16 @@ class RemoteControlActivity : ComponentActivity() {
                 onError = {
                     runOnUiThread {
                         if (!disconnecting) {
-                            disconnect()
+                            finishController(
+                                "Connection lost. Check internet and try again."
+                            )
                         }
                     }
                 }
             )
         }.getOrElse {
-            showStatus(
-                it.message ?: "Could not watch session"
+            finishController(
+                "Could not start the connection. Check internet and try again."
             )
             null
         }
@@ -395,7 +385,9 @@ class RemoteControlActivity : ComponentActivity() {
                             disconnectTimeout = scope.launch {
                                 delay(DISCONNECT_GRACE_MS)
                                 if (!rtcConnected && !disconnecting) {
-                                    disconnect()
+                                    finishController(
+                                        "Connection lost. Check internet and try again."
+                                    )
                                 }
                             }
                         }
@@ -421,7 +413,9 @@ class RemoteControlActivity : ComponentActivity() {
                 override fun onError(error: Throwable) {
                     runOnUiThread {
                         if (!disconnecting) {
-                            disconnect()
+                            finishController(
+                                "Connection failed. Check internet and try again."
+                            )
                         }
                     }
                 }
@@ -430,13 +424,11 @@ class RemoteControlActivity : ComponentActivity() {
                 createdSession = it
                 it.start()
             }
-        }.getOrElse { error ->
+        }.getOrElse {
             runCatching { createdSession?.close() }
-            showStatus(
-                error.message ?: "Could not start remote connection"
+            finishController(
+                "Could not start the remote connection. Try again."
             )
-            BackendSessionCloser.close(this, id)
-            SessionCoordinator.close(id)
             null
         }
     }
@@ -470,28 +462,49 @@ class RemoteControlActivity : ComponentActivity() {
                 !disconnecting &&
                 sessionId == id
             ) {
-                disconnect()
+                finishController(
+                    "Connection setup expired. Try again."
+                )
             }
         }
     }
 
     private fun disconnect() {
+        finishController("Session ended.")
+    }
+
+    private fun finishController(
+        message: String,
+        closeBackend: Boolean = true
+    ) {
         if (disconnecting) return
         disconnecting = true
 
-        val id = sessionId
-        if (id == null) {
-            finish()
-            return
-        }
-
-        showStatus("Ending session…")
+        disconnectTimeout?.cancel()
+        disconnectTimeout = null
+        sessionDeadlineJob?.cancel()
+        sessionDeadlineJob = null
 
         rtcSession?.close()
         rtcSession = null
 
-        BackendSessionCloser.close(this, id)
-        SessionCoordinator.close(id)
+        val id = sessionId
+        if (id != null) {
+            if (closeBackend) {
+                BackendSessionCloser.close(this, id)
+            }
+            SessionCoordinator.close(id)
+        }
+
+        setResult(
+            RESULT_OK,
+            Intent().putExtra(
+                EXTRA_RESULT_MESSAGE,
+                message
+            )
+        )
+
+        showStatus(message)
         finish()
     }
 
@@ -1221,6 +1234,7 @@ class RemoteControlActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_SESSION_ID = "session_id"
+        const val EXTRA_RESULT_MESSAGE = "result_message"
         private const val CLIENT_DEADLINE_GRACE_MS = 2_000L
         private const val DISCONNECT_GRACE_MS = 25_000L
         private const val MAX_GESTURE_PATH_POINTS = 96
