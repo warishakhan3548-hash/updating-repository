@@ -6,6 +6,7 @@ interface SignalingClient : Closeable {
     interface Listener {
         fun onRemoteDescription(description: SignalDescription)
         fun onRemoteCandidate(candidate: SignalCandidate)
+        fun onRemoteIceRestartRequested()
         fun onRemotePresence(online: Boolean)
         fun onError(error: Throwable)
     }
