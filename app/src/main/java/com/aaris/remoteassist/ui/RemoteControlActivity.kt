@@ -55,6 +55,7 @@ class RemoteControlActivity : ComponentActivity() {
     private var disconnecting = false
     private var rtcConnected = false
     private var disconnectTimeout: Job? = null
+    private var sessionDeadlineJob: Job? = null
 
     private var downX = 0f
     private var downY = 0f
@@ -100,6 +101,9 @@ class RemoteControlActivity : ComponentActivity() {
         disconnectTimeout?.cancel()
         disconnectTimeout = null
 
+        sessionDeadlineJob?.cancel()
+        sessionDeadlineJob = null
+
         rtcSession?.close()
         rtcSession = null
 
@@ -117,6 +121,12 @@ class RemoteControlActivity : ComponentActivity() {
                 id,
                 listener = { backend ->
                     runOnUiThread {
+                        updateControllerDeadline(
+                            id = id,
+                            deadlineAtEpochMs = backend.deadlineAtEpochMs,
+                            backendState = backend.state
+                        )
+
                         when (backend.state) {
                             "PAIR_PENDING" ->
                                 showStatus(
@@ -280,6 +290,40 @@ class RemoteControlActivity : ComponentActivity() {
                 }
             }
         ).also { it.start() }
+    }
+
+    private fun updateControllerDeadline(
+        id: String,
+        deadlineAtEpochMs: Long?,
+        backendState: String
+    ) {
+        if (
+            backendState == "LIVE" ||
+            backendState == "CLOSED"
+        ) {
+            sessionDeadlineJob?.cancel()
+            sessionDeadlineJob = null
+            return
+        }
+
+        val deadline = deadlineAtEpochMs ?: return
+        sessionDeadlineJob?.cancel()
+        sessionDeadlineJob = scope.launch {
+            val remaining =
+                (
+                    deadline -
+                        System.currentTimeMillis() +
+                        CLIENT_DEADLINE_GRACE_MS
+                ).coerceAtLeast(0L)
+            delay(remaining)
+
+            if (
+                !disconnecting &&
+                sessionId == id
+            ) {
+                disconnect()
+            }
+        }
     }
 
     private fun disconnect() {
@@ -557,6 +601,7 @@ class RemoteControlActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_SESSION_ID = "session_id"
+        private const val CLIENT_DEADLINE_GRACE_MS = 2_000L
         private const val DISCONNECT_GRACE_MS = 25_000L
     }
 }
