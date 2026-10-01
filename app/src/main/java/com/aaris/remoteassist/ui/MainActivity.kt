@@ -39,6 +39,7 @@ import com.aaris.remoteassist.pairing.PairingCode
 import com.aaris.remoteassist.pairing.PairingLink
 import com.aaris.remoteassist.pairing.PairingShareText
 import com.aaris.remoteassist.pairing.ShareTicket
+import com.aaris.remoteassist.session.HostBackendStateSync
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
 import java.io.Closeable
@@ -130,11 +131,12 @@ class MainActivity : ComponentActivity() {
         installBackHandler()
 
         val restoredHostSession = recoverPersistedHostSession()
-        if (
-            !restoredHostSession &&
-            PermissionGate.isAccessibilityEnabled(this)
-        ) {
-            SessionCoordinator.prepareReady()
+        if (!restoredHostSession) {
+            if (PermissionGate.isAccessibilityEnabled(this)) {
+                SessionCoordinator.prepareReady()
+            } else {
+                SessionCoordinator.markSetupRequired()
+            }
         }
         refreshIdleUi()
         handleIncomingJoin(intent)
@@ -172,6 +174,37 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+
+        if (
+            prefs.getBoolean(
+                KEY_PENDING_SHARE_AFTER_ACCESSIBILITY,
+                false
+            )
+        ) {
+            if (
+                activeHostSessionId == null &&
+                PermissionGate.isAccessibilityEnabled(this)
+            ) {
+                prefs.edit()
+                    .remove(KEY_PENDING_SHARE_AFTER_ACCESSIBILITY)
+                    .apply()
+
+                connectivityBlockMessage()?.let { message ->
+                    status.text = message
+                    refreshIdleUi()
+                    return
+                }
+
+                SessionCoordinator.prepareReady()
+                beginShare()
+                return
+            }
+
+            if (!PermissionGate.isAccessibilityEnabled(this)) {
+                status.text =
+                    "Turn on Aaris Remote once. Share starts automatically when you return."
+            }
+        }
 
         val pendingStart = prefs.getString(
             KEY_PENDING_HOST_START_SESSION,
@@ -264,6 +297,23 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        if (!PermissionGate.isAccessibilityEnabled(this)) {
+            SessionCoordinator.markSetupRequired()
+            prefs.edit()
+                .putBoolean(
+                    KEY_PENDING_SHARE_AFTER_ACCESSIBILITY,
+                    true
+                )
+                .apply()
+            status.text =
+                "Turn on Aaris Remote once. Share starts automatically when you return."
+            PermissionGate.openAccessibilitySettings(this)
+            return
+        }
+
+        prefs.edit()
+            .remove(KEY_PENDING_SHARE_AFTER_ACCESSIBILITY)
+            .apply()
         SessionCoordinator.prepareReady()
         beginShare()
     }
@@ -389,6 +439,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connect(code: String) {
+        prefs.edit()
+            .remove(KEY_PENDING_SHARE_AFTER_ACCESSIBILITY)
+            .apply()
+
         connectivityBlockMessage()?.let { message ->
             status.text = message
             return
@@ -515,7 +569,12 @@ class MainActivity : ComponentActivity() {
                                             this@MainActivity
                                         )
                                     ) {
-                                        continueApprovedHostStart(sessionId)
+                                        if (hostStartInFlight) {
+                                            status.text =
+                                                "Preparing screen share…"
+                                        } else {
+                                            continueApprovedHostStart(sessionId)
+                                        }
                                     } else {
                                         status.text =
                                             "Turn on Aaris Remote once. Setup resumes automatically."
@@ -587,7 +646,26 @@ class MainActivity : ComponentActivity() {
                     else -> false
                 }
 
-        if (localSessionIsActive) return false
+        if (localSessionIsActive) {
+            return runCatching {
+                HostBackendStateSync.forwardTransitions(
+                    current.state,
+                    backendState
+                ).forEach { next ->
+                    SessionCoordinator.transition(
+                        sessionId,
+                        next
+                    )
+                }
+                false
+            }.getOrElse {
+                endHostSession(
+                    sessionId,
+                    "Could not synchronize the session. Tap Share again."
+                )
+                null
+            }
+        }
 
         val target = when (backendState) {
             "CODE_ACTIVE" -> SessionState.CODE_ACTIVE
@@ -836,20 +914,29 @@ class MainActivity : ComponentActivity() {
         scope.launch {
             runCatching { gateway.approve(sessionId) }
                 .onSuccess {
-                    runCatching {
+                    val shouldRequestScreen = runCatching {
                         val current = SessionCoordinator.snapshot()
-                        if (current.state == SessionState.PAIR_PENDING) {
-                            SessionCoordinator.transition(
-                                sessionId,
-                                SessionState.HOST_APPROVED
-                            )
-                        } else {
-                            require(
-                                current.sessionId == sessionId &&
-                                    current.state == SessionState.HOST_APPROVED
+                        require(current.sessionId == sessionId)
+
+                        when (current.state) {
+                            SessionState.PAIR_PENDING -> {
+                                SessionCoordinator.transition(
+                                    sessionId,
+                                    SessionState.HOST_APPROVED
+                                )
+                                true
+                            }
+
+                            SessionState.HOST_APPROVED -> true
+
+                            SessionState.SCREEN_CONSENT,
+                            SessionState.CONNECTING -> false
+
+                            else -> error(
+                                "Unexpected local state: ${current.state}"
                             )
                         }
-                    }.onFailure {
+                    }.getOrElse {
                         hostStartInFlight = false
                         endHostSession(
                             sessionId,
@@ -862,7 +949,10 @@ class MainActivity : ComponentActivity() {
                     prefs.edit()
                         .remove(KEY_PENDING_HOST_START_SESSION)
                         .apply()
-                    requestScreenPermission(sessionId)
+
+                    if (shouldRequestScreen) {
+                        requestScreenPermission(sessionId)
+                    }
                 }
                 .onFailure {
                     hostStartInFlight = false
@@ -883,6 +973,17 @@ class MainActivity : ComponentActivity() {
         prefs.edit()
             .remove(KEY_PENDING_HOST_START_SESSION)
             .apply()
+
+        if (
+            pendingProjectionSessionId == sessionId ||
+            prefs.getString(
+                KEY_PENDING_PROJECTION_SESSION,
+                null
+            ) == sessionId
+        ) {
+            status.text = "Waiting for screen permission…"
+            return
+        }
 
         val current = SessionCoordinator.snapshot()
         if (
@@ -1598,6 +1699,8 @@ class MainActivity : ComponentActivity() {
             "pending_projection_session"
         private const val KEY_PENDING_HOST_START_SESSION =
             "pending_host_start_session"
+        private const val KEY_PENDING_SHARE_AFTER_ACCESSIBILITY =
+            "pending_share_after_accessibility"
         private const val KEY_ACTIVE_HOST_CODE =
             "active_host_code"
         private const val KEY_ACTIVE_HOST_EXPIRES_AT =
