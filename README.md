@@ -38,6 +38,8 @@ A native Android remote-support app with a deliberately tiny user interface and 
 10. Relay authorization: TURN/ICE configuration is issued only to an authenticated participant of that active SCREEN_READY/LIVE session.
 11. Transport truth: controller UI reports connected only when both the WebRTC peer and ordered control DataChannel are ready; losing either plane leaves connected state immediately.
 12. Deadline isolation: code discovery, host approval, and screen/transport setup use separate backend deadlines so a code redeemed near expiry cannot collapse the consent/setup phase.
+13. Local-control liveness: if Android removes or disables the active AccessibilityService during a LIVE session, the host fails closed instead of continuing a view-only session that appears controllable.
+14. Interaction-first media: the screen-video sender prefers maintaining frame cadence under congestion and caps its send envelope so touch feedback stays responsive while WebRTC adapts resolution as needed.
 
 ## Firebase setup
 
@@ -58,11 +60,17 @@ The Gradle Google Services plugin is applied only when `google-services.json` ex
 
 Direct WebRTC works well on many networks, but carrier-grade NAT and symmetric NAT require a TURN relay for TeamViewer-class connection reliability.
 
-Aaris Remote 1.0.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
+Aaris Remote 1.1.0 asks the `asia-south1` callable `getIceConfig` for ICE servers before signaling starts. The request is bound to the active session and accepted only for its host/controller while the transport is SCREEN_READY or LIVE. The function always returns STUN servers and can also mint short-lived coturn REST credentials without storing a permanent TURN password in the APK.
 
-Configure these environment values on the deployed Functions runtime:
+Configure the relay endpoint and secret on the deployed Functions runtime:
 
 - `TURN_URLS`: comma-separated TURN/TURNS URLs, for example `turn:relay.example.com:3478?transport=udp,turns:relay.example.com:5349?transport=tcp`
-- `TURN_SHARED_SECRET`: the coturn REST shared secret, at least 16 characters and never committed to this repository
+- `TURN_SHARED_SECRET`: a Firebase Functions secret containing the coturn REST shared secret, at least 16 characters and never committed to this repository
 
-If TURN is not configured or the ICE-config call fails, the Android client falls back to the built-in STUN list. For production, run at least UDP TURN plus TLS/TCP TURN on a reachable relay and rotate the shared secret through your deployment secret store.
+Create or rotate the TURN secret before deploying Functions:
+
+```bash
+firebase functions:secrets:set TURN_SHARED_SECRET
+```
+
+If TURN URLs are not configured or the ICE-config call fails, the Android client falls back to the built-in STUN list. For TeamViewer-class connection coverage across restrictive carrier/symmetric NATs, deploy reachable UDP TURN plus TCP/TLS fallback and rotate the shared secret through the Functions secret store.
