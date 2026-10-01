@@ -97,6 +97,7 @@ class WebRtcPeer(
             MAX_PENDING_REMOTE_CANDIDATES
         )
     private val lastIceRestartAtMs = AtomicLong(0L)
+    private val controllerRelayRefreshAttempted = AtomicBoolean(false)
     private var bootstrapRecoveryAttempts = 0
 
     @Volatile
@@ -128,7 +129,13 @@ class WebRtcPeer(
                 peerConnection.signalingState() ==
                 PeerConnection.SignalingState.STABLE
             ) {
-                if (requestIceRestart()) {
+                val forceRelay =
+                    bootstrapRecoveryAttempts > 0
+                if (
+                    requestIceRestart(
+                        forceRelay = forceRelay
+                    )
+                ) {
                     bootstrapRecoveryAttempts += 1
                 }
             }
@@ -152,6 +159,57 @@ class WebRtcPeer(
 
     @Volatile
     private var activeIceServers = IceServerProvider.fallbackServers()
+
+    @Volatile
+    private var activeIceFromBackend = false
+
+    private val controllerRelayRefresh = Runnable {
+        if (
+            closed.get() ||
+            role != PeerRole.CONTROLLER ||
+            connectivity.hasEverConnected() ||
+            activeIceFromBackend ||
+            !controllerRelayRefreshAttempted.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            return@Runnable
+        }
+
+        scope.launch {
+            val refreshed = IceServerProvider.loadConfig(
+                sessionId = sessionId,
+                timeoutMs = PRELIVE_ICE_REFRESH_TIMEOUT_MS
+            )
+            if (!refreshed.fromBackend) {
+                return@launch
+            }
+
+            handler.post {
+                if (
+                    closed.get() ||
+                    connectivity.hasEverConnected()
+                ) {
+                    return@post
+                }
+
+                runCatching {
+                    activeIceServers = refreshed.servers
+                    activeIceFromBackend = true
+                    check(
+                        peerConnection.setConfiguration(
+                            createRtcConfiguration(
+                                activeIceServers
+                            )
+                        )
+                    ) {
+                        "Could not refresh controller ICE configuration"
+                    }
+                }.onFailure(listener::onError)
+            }
+        }
+    }
 
     private val peerConnection: PeerConnection = checkNotNull(
         factory.createPeerConnection(
@@ -177,6 +235,7 @@ class WebRtcPeer(
 
                 runCatching {
                     activeIceServers = loaded.servers
+                    activeIceFromBackend = loaded.fromBackend
                     check(
                         peerConnection.setConfiguration(
                             createRtcConfiguration(activeIceServers)
@@ -210,6 +269,12 @@ class WebRtcPeer(
                 bootstrapRecovery,
                 BOOTSTRAP_RECOVERY_INITIAL_DELAY_MS
             )
+        } else if (!activeIceFromBackend) {
+            handler.removeCallbacks(controllerRelayRefresh)
+            handler.postDelayed(
+                controllerRelayRefresh,
+                CONTROLLER_RELAY_REFRESH_DELAY_MS
+            )
         }
     }
 
@@ -222,7 +287,9 @@ class WebRtcPeer(
         applyInteractiveVideoPolicy(sender)
     }
 
-    fun requestIceRestart(): Boolean {
+    fun requestIceRestart(
+        forceRelay: Boolean = false
+    ): Boolean {
         if (closed.get() || role != PeerRole.HOST) return false
 
         val nowMs = System.nanoTime() / 1_000_000L
@@ -256,6 +323,11 @@ class WebRtcPeer(
                 } else {
                     activeIceServers
                 }
+            val relayOnly =
+                forceRelay &&
+                    selectedServers.any { server ->
+                        server.urls.any(IceServerProvider::isTurnUrl)
+                    }
 
             handler.post {
                 if (closed.get()) return@post
@@ -263,11 +335,15 @@ class WebRtcPeer(
                 runCatching {
                     if (refreshed.fromBackend) {
                         activeIceServers = refreshed.servers
+                        activeIceFromBackend = true
                     }
                     remoteCandidates.markDescriptionNotReady()
                     check(
                         peerConnection.setConfiguration(
-                            createRtcConfiguration(selectedServers)
+                            createRtcConfiguration(
+                                iceServers = selectedServers,
+                                relayOnly = relayOnly
+                            )
                         )
                     ) {
                         "Could not refresh ICE server configuration"
@@ -412,6 +488,7 @@ class WebRtcPeer(
             PeerConnection.PeerConnectionState.CONNECTED -> {
                 handler.removeCallbacks(initialIceRestart)
                 handler.removeCallbacks(bootstrapRecovery)
+                handler.removeCallbacks(controllerRelayRefresh)
                 publishPeerConnected()
             }
 
@@ -743,12 +820,19 @@ class WebRtcPeer(
     }
 
     private fun createRtcConfiguration(
-        iceServers: List<PeerConnection.IceServer>
+        iceServers: List<PeerConnection.IceServer>,
+        relayOnly: Boolean = false
     ): PeerConnection.RTCConfiguration {
         return PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy =
                 PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+            iceTransportsType =
+                if (relayOnly) {
+                    PeerConnection.IceTransportsType.RELAY
+                } else {
+                    PeerConnection.IceTransportsType.ALL
+                }
             // The final ICE list is loaded immediately before signaling.
             // Keeping the pool at zero prevents fallback-only candidates from
             // being pre-gathered before TURN is applied with setConfiguration.
@@ -769,6 +853,7 @@ class WebRtcPeer(
         private const val INITIAL_ICE_RESTART_DELAY_MS = 1_500L
         private const val BOOTSTRAP_RECOVERY_INITIAL_DELAY_MS = 8_000L
         private const val BOOTSTRAP_RECOVERY_INTERVAL_MS = 12_000L
+        private const val CONTROLLER_RELAY_REFRESH_DELAY_MS = 6_000L
         private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 2
     }
 }
